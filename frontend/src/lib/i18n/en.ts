@@ -713,6 +713,17 @@ const en: Record<string, string> = {
   "dash.instances.submitted": "Submitted",
   "dash.instances.job_id": "Instance ID",
   "dash.instances.logs": "Logs",
+  "dash.instances.pricing_card": "Pricing",
+  "dash.instances.pricing_rate": "Rate",
+  "dash.instances.preemption_count_label": "Preemptions",
+  "dash.instances.preemption_count": "{count} preemption(s) total",
+  "dash.instances.spot_rate_locked": "Spot rate locked at allocation — billed per second at this rate.",
+  "dash.instances.preempted_title": "Spot instance reclaimed",
+  "dash.instances.preempted_desc": "Capacity was needed for higher-priority workloads. Your instance is automatically requeued with the same configuration.",
+  "dash.instances.preempted_requeue": "Waiting in queue for available spot capacity…",
+  "dash.instances.preempted_toast": "Spot instance reclaimed — requeued automatically",
+  "dash.spot.hero_savings": "Save up to 60% with interruptible spot GPUs",
+  "dash.spot.no_bidding": "Published rates — no bidding required",
 
   /* ── Dashboard — New Instance ──────────────────────────────────────── */
   "dash.newinstance.title": "Launch Instance",

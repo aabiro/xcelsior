@@ -20,6 +20,7 @@ export default function MarketplacePage() {
   const [regionFilter, setRegionFilter] = useState("all");
   const [sortBy, setSortBy] = useState("price_asc");
   const [rentListing, setRentListing] = useState<MarketplaceListing | null>(null);
+  const [spotRates, setSpotRates] = useState<Record<string, number>>({});
   const [page, setPage] = useState(1);
   const api = useApi();
   const { t } = useLocale();
@@ -48,6 +49,19 @@ export default function MarketplacePage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    api.fetchSpotPrices()
+      .then((res) => {
+        const raw = res.spot_prices || res.prices || {};
+        const normalized: Record<string, number> = {};
+        for (const [model, value] of Object.entries(raw)) {
+          normalized[model] = typeof value === "number" ? value : Number(value);
+        }
+        setSpotRates(normalized);
+      })
+      .catch(() => {});
+  }, []);
 
   const gpuModels = useMemo(
     () => [...new Set(listings.map((l) => l.gpu_model).filter((v): v is string => !!v))],
@@ -313,6 +327,7 @@ export default function MarketplacePage() {
             <ListingCard
               key={listing.host_id}
               listing={listing}
+              spotRateCad={spotRates[listing.gpu_model]}
               onClick={() => setRentListing(listing)}
             />
           ))}

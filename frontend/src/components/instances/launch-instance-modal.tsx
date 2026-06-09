@@ -67,8 +67,8 @@ const PRICING_MODES = [
     value: "spot" as const,
     label: "Spot",
     icon: TrendingDown,
-    desc: "Up to 30% cheaper, may be preempted",
-    badge: "Save up to 30%",
+    desc: "Up to 60% cheaper, may be preempted",
+    badge: "Save up to 60%",
   },
 ];
 
@@ -106,6 +106,10 @@ export interface LaunchInstanceModalProps {
   preSelectedVolumeIds?: string[];
   /** Pre-select a user template image */
   templateId?: string;
+  /** Pre-select GPU model (e.g. from spot pricing page) */
+  initialGpuModel?: string;
+  /** Pre-select pricing mode */
+  initialPricingMode?: "on_demand" | "spot";
 }
 
 /* ───────────────────────── Component ───────────────────────── */
@@ -117,6 +121,8 @@ export function LaunchInstanceModal({
   listing,
   preSelectedVolumeIds,
   templateId,
+  initialGpuModel,
+  initialPricingMode,
 }: LaunchInstanceModalProps) {
   const { user } = useAuth();
   const { t } = useLocale();
@@ -172,6 +178,8 @@ export function LaunchInstanceModal({
   const [launchError, setLaunchError] = useState<LaunchErrorInfo | null>(null);
   const [instanceId, setInstanceId] = useState("");
   const [gpuLoading, setGpuLoading] = useState(true);
+  const [spotQuoteLoading, setSpotQuoteLoading] = useState(false);
+  const [spotQuoteError, setSpotQuoteError] = useState<string | null>(null);
 
   const resolvedImage = image.trim();
   const selectedTemplate = templates.find((t) => t.image === image);
@@ -265,12 +273,18 @@ export function LaunchInstanceModal({
       : pricingMode === "spot"
         ? (spotPrices[resolvedGpu] ?? selectedPricing?.spot_cad ?? cheapestAvailableRate)
         : (selectedPricing?.on_demand_cad ?? selectedInventory?.minPricePerHourCad ?? cheapestAvailableRate);
-  const spotRate = listing
-    ? (spotPrices[listing.gpu_model] ?? listingRate * 0.7)
-    : spotPrices[resolvedGpu] ?? selectedPricing?.spot_cad;
   const onDemandRate = listing
     ? listingRate
     : selectedPricing?.on_demand_cad ?? selectedInventory?.minPricePerHourCad ?? null;
+  const spotRate = dynamicRate && pricingMode === "spot"
+    ? dynamicRate.effective_rate_per_gpu
+    : listing
+      ? (spotPrices[listing.gpu_model] ?? selectedPricing?.spot_cad ?? null)
+      : (spotPrices[resolvedGpu] ?? selectedPricing?.spot_cad ?? null);
+  const savingsPct =
+    onDemandRate != null && spotRate != null && onDemandRate > spotRate
+      ? Math.round((1 - spotRate / onDemandRate) * 100)
+      : null;
   const totalPerHour = dynamicRate
     ? dynamicRate.total_per_hour
     : effectiveRate != null ? effectiveRate * Number(numGpus) : null;
@@ -346,20 +360,65 @@ export function LaunchInstanceModal({
 
   // Dynamic pricing — recompute when any pricing variable changes
   useEffect(() => {
-    if (!open || !resolvedGpu) { setDynamicRate(null); return; }
+    if (!open || !resolvedGpu) {
+      setDynamicRate(null);
+      setSpotQuoteLoading(false);
+      return;
+    }
     const controller = new AbortController();
+    if (pricingMode === "spot") {
+      setSpotQuoteLoading(true);
+      setSpotQuoteError(null);
+    }
     fetchPricingRates({
       gpu_model: resolvedGpu,
-      tier,
+      tier: pricingMode === "spot" ? "standard" : tier,
       mode: pricingMode,
       priority,
       num_gpus: Number(numGpus),
       province: province || "ON",
     })
-      .then((r) => { if (!controller.signal.aborted) setDynamicRate(r); })
-      .catch(() => { if (!controller.signal.aborted) setDynamicRate(null); });
+      .then((r) => {
+        if (controller.signal.aborted) return;
+        setDynamicRate(r);
+        if (pricingMode === "spot") setSpotQuoteError(null);
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setDynamicRate(null);
+        if (pricingMode === "spot") {
+          setSpotQuoteError("Unable to load spot rate. Check your connection and retry.");
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted && pricingMode === "spot") {
+          setSpotQuoteLoading(false);
+        }
+      });
     return () => controller.abort();
   }, [open, resolvedGpu, tier, pricingMode, priority, numGpus, province]);
+
+  function reloadSpotQuote() {
+    if (!resolvedGpu || pricingMode !== "spot") return;
+    setSpotQuoteLoading(true);
+    setSpotQuoteError(null);
+    fetchPricingRates({
+      gpu_model: resolvedGpu,
+      tier: "standard",
+      mode: "spot",
+      priority,
+      num_gpus: Number(numGpus),
+      province: province || "ON",
+    })
+      .then((r) => {
+        setDynamicRate(r);
+        setSpotQuoteError(null);
+      })
+      .catch(() => {
+        setSpotQuoteError("Unable to load spot rate. Check your connection and retry.");
+      })
+      .finally(() => setSpotQuoteLoading(false));
+  }
 
   useEffect(() => {
     if (listing || !gpuModel || selectedGpuStillAvailable) return;
@@ -392,16 +451,18 @@ export function LaunchInstanceModal({
       setImage("");
       setNumGpus("1");
       setVramGb("");
-      setPricingMode("on_demand");
+      setPricingMode(initialPricingMode ?? "on_demand");
       setTier("standard");
       setPriority("normal");
       setSelectedVolumeIds(preSelectedVolumeIds ?? []);
       setLaunchError(null);
       setInstanceId("");
       setDynamicRate(null);
-      if (!listing) setGpuModel("");
+      setSpotQuoteError(null);
+      setSpotQuoteLoading(false);
+      if (!listing) setGpuModel(initialGpuModel ?? "");
     }
-  }, [open, listing]);
+  }, [open, listing, initialGpuModel, initialPricingMode]);
 
   async function handleSubmit() {
     if (launchBlocked) {
@@ -428,6 +489,7 @@ export function LaunchInstanceModal({
       if (listing?.host_id) params.host_id = listing.host_id;
       if (pricingMode === "spot") {
         params.pricing_mode = "spot";
+        params.tier = "standard";
       }
       const res = await launchInstance(params);
       const jobId = res.instance?.job_id || "";
@@ -666,7 +728,10 @@ export function LaunchInstanceModal({
                         <button
                           key={mode.value}
                           type="button"
-                          onClick={() => setPricingMode(mode.value)}
+                          onClick={() => {
+                            setPricingMode(mode.value);
+                            if (mode.value === "spot") setTier("standard");
+                          }}
                           className={cn(
                             "rounded-lg border p-3 text-left transition-colors",
                             pricingMode === mode.value
@@ -691,23 +756,41 @@ export function LaunchInstanceModal({
                 </div>
 
                 {pricingMode === "spot" && (
-                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 space-y-1.5">
+                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 space-y-2">
                     <div className="flex items-center gap-2 text-sm font-medium text-amber-200">
                       <AlertTriangle className="h-4 w-4 shrink-0" />
                       Interruptible spot instance
                     </div>
-                    {spotRate != null ? (
-                      <p className="text-sm font-mono text-emerald">
-                        ${spotRate.toFixed(2)}
-                        <span className="text-xs font-normal text-text-muted">/hr CAD</span>
+                    {spotQuoteError ? (
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs text-accent-red">{spotQuoteError}</p>
+                        <Button type="button" variant="outline" size="sm" onClick={reloadSpotQuote}>
+                          <RefreshCw className="h-3 w-3" /> Retry
+                        </Button>
+                      </div>
+                    ) : spotQuoteLoading && spotRate == null ? (
+                      <p className="text-xs text-text-muted flex items-center gap-1.5">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading spot rate…
+                      </p>
+                    ) : spotRate != null ? (
+                      <div className="flex flex-wrap items-baseline gap-2">
+                        <p className="text-2xl font-bold font-mono text-emerald">
+                          ${spotRate.toFixed(2)}
+                          <span className="text-sm font-normal text-text-muted">/hr CAD</span>
+                        </p>
+                        {savingsPct != null && savingsPct > 0 && (
+                          <span className="rounded-full bg-emerald/20 px-2 py-0.5 text-xs font-semibold text-emerald">
+                            Save {savingsPct}%
+                          </span>
+                        )}
                         {onDemandRate != null && onDemandRate > spotRate && (
-                          <span className="ml-2 text-xs text-text-muted line-through">
+                          <span className="text-xs text-text-muted line-through">
                             ${onDemandRate.toFixed(2)}/hr on-demand
                           </span>
                         )}
-                      </p>
+                      </div>
                     ) : (
-                      <p className="text-xs text-text-muted">Loading spot rate…</p>
+                      <p className="text-xs text-text-muted">Select a GPU to see the spot rate.</p>
                     )}
                     <p className="text-xs text-text-muted">
                       Published spot pricing with no bidding. Your instance may be reclaimed at any
@@ -720,22 +803,29 @@ export function LaunchInstanceModal({
                 <div className="space-y-1.5">
                   <Label className="text-xs">Service Tier</Label>
                   <div className="space-y-2">
-                    {TIERS.map((t) => (
-                      <button
-                        key={t.value}
-                        type="button"
-                        onClick={() => setTier(t.value)}
-                        className={cn(
-                          "w-full text-left rounded-lg border p-3 transition-colors",
-                          tier === t.value
-                            ? "border-ice-blue/40 bg-ice-blue/5"
-                            : "border-border hover:border-text-muted",
-                        )}
-                      >
-                        <p className="text-sm font-medium">{t.label}</p>
-                        <p className="text-xs text-text-muted">{t.desc}</p>
-                      </button>
-                    ))}
+                    {TIERS.map((t) => {
+                      const spotLocked = pricingMode === "spot" && t.value !== "standard";
+                      return (
+                        <button
+                          key={t.value}
+                          type="button"
+                          disabled={spotLocked}
+                          onClick={() => setTier(t.value)}
+                          className={cn(
+                            "w-full text-left rounded-lg border p-3 transition-colors",
+                            tier === t.value
+                              ? "border-ice-blue/40 bg-ice-blue/5"
+                              : "border-border hover:border-text-muted",
+                            spotLocked && "opacity-40 cursor-not-allowed hover:border-border",
+                          )}
+                        >
+                          <p className="text-sm font-medium">{t.label}</p>
+                          <p className="text-xs text-text-muted">
+                            {spotLocked ? "Spot instances use Standard tier only" : t.desc}
+                          </p>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -1006,6 +1096,12 @@ export function LaunchInstanceModal({
                 <p className="text-xs text-text-muted">
                   Your wallet will be charged based on actual usage. You can stop the instance at any time.
                 </p>
+                {pricingMode === "spot" && effectiveRate != null && (
+                  <p className="text-xs text-amber-200/90 rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2">
+                    Spot rate of ${effectiveRate.toFixed(2)}/hr CAD is locked at launch for billing.
+                    Future launches may reflect updated spot prices.
+                  </p>
+                )}
 
                 {launchError && (
                   <div className="rounded-lg border border-accent-red/30 bg-accent-red/10 p-3 flex items-start gap-3">

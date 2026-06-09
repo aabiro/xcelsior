@@ -48,6 +48,21 @@ async function fetchPricing(): Promise<GpuPricing[]> {
   }
 }
 
+async function fetchLiveSpotRates(): Promise<Record<string, number>> {
+  const BACKEND = process.env.NEXT_PUBLIC_API_URL || "https://xcelsior.ca";
+  try {
+    const res = await fetch(`${BACKEND}/spot-prices`, {
+      next: { revalidate: 300 },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return {};
+    const data = await res.json();
+    return (data.prices || data.spot_prices || {}) as Record<string, number>;
+  } catch {
+    return {};
+  }
+}
+
 const FALLBACK_GPUS = [
   { model: "RTX 3090", vram: 24, onDemand: 0.30, spot: 0.12, reserved1m: 0.24, reserved1y: 0.17 },
   { model: "RTX 4090", vram: 24, onDemand: 0.55, spot: 0.22, reserved1m: 0.44, reserved1y: 0.30 },
@@ -58,14 +73,14 @@ const FALLBACK_GPUS = [
 ];
 
 export default async function PricingPage() {
-  const apiPricing = await fetchPricing();
+  const [apiPricing, liveSpot] = await Promise.all([fetchPricing(), fetchLiveSpotRates()]);
 
   const gpus = apiPricing.length > 0
     ? apiPricing.map((p) => ({
         model: p.gpu_model,
         vram: p.gpu_model.includes("A100 80") ? 80 : p.gpu_model.includes("A100") ? 40 : p.gpu_model.includes("H100") ? 80 : p.gpu_model.includes("L40") ? 48 : 24,
         onDemand: p.base_rate_cad,
-        spot: +(p.min_rate_cad * 0.6).toFixed(2),
+        spot: +(liveSpot[p.gpu_model] ?? p.min_rate_cad * 0.4).toFixed(2),
         reserved1m: +(p.base_rate_cad * 0.8).toFixed(2),
         reserved1y: +(p.base_rate_cad * 0.55).toFixed(2),
       }))

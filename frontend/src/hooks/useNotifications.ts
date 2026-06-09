@@ -60,7 +60,7 @@ export function useNotifications(): UseNotificationsReturn {
   useEventStream({
     eventTypes: [
       "job_submitted", "job_status", "job_completed", "job_failed",
-      "host_registered", "host_removed", "preemption_scheduled",
+      "host_registered", "host_removed", "preemption_scheduled", "job_preempted",
     ],
     onEvent: () => {
       refreshCount();

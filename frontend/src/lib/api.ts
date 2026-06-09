@@ -417,9 +417,25 @@ export async function registerHostWeb(data: RegisterHostWebPayload) {
 
 // ── Instances ─────────────────────────────────────────────────────────
 
-/** Normalize backend instance → frontend Instance (image→docker_image, etc.) */
+/** Normalize backend instance → frontend Instance (image→docker_image, spot fields, etc.) */
 function normalizeInstance(inst: Instance): Instance {
   if (!inst.docker_image && inst.image) inst.docker_image = inst.image;
+  const payload = inst.payload;
+  if (!inst.pricing_mode && typeof payload?.pricing_mode === "string") {
+    inst.pricing_mode = payload.pricing_mode as Instance["pricing_mode"];
+  }
+  if (inst.preemptible == null && payload?.preemptible != null) {
+    inst.preemptible = Boolean(payload.preemptible);
+  }
+  if (inst.spot_rate_cad == null && typeof payload?.spot_rate_cad === "number") {
+    inst.spot_rate_cad = payload.spot_rate_cad;
+  }
+  if (inst.preemption_count == null && typeof payload?.preemption_count === "number") {
+    inst.preemption_count = payload.preemption_count;
+  }
+  if (inst.preempted_at == null && typeof payload?.preempted_at === "number") {
+    inst.preempted_at = payload.preempted_at;
+  }
   return inst;
 }
 
@@ -2111,6 +2127,12 @@ export interface Instance {
   elapsed_sec?: number;
   cost_cad?: number;
   tier?: string;
+  pricing_mode?: "on_demand" | "spot" | "reserved";
+  spot_rate_cad?: number;
+  preemptible?: boolean;
+  preempted_at?: number;
+  preemption_count?: number;
+  num_gpus?: number;
   submitted_at: number;
   created_at?: number;
   // Connection info (enriched by API when running/completed)
@@ -2547,6 +2569,12 @@ export interface SpotPricePoint {
   gpu_model: string;
   spot_cents: number;
   recorded_at: number;
+  rate_cad?: number;
+  on_demand_cad?: number;
+  savings_pct?: number;
+  supply?: number;
+  demand?: number;
+  provider_floor_cents?: number;
 }
 
 // ── v2 Marketplace API ────────────────────────────────────────────────

@@ -26,6 +26,10 @@ import { TeamContextBanner } from "@/components/team/team-context-banner";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { SaveAsTemplateDialog } from "@/components/instances/save-as-template-dialog";
 import { useInstanceWebSocket } from "@/hooks/useInstanceWebSocket";
+import {
+  InstancePricingModeBadge,
+  resolveInstancePricingMode,
+} from "@/components/instances/pricing-mode-badge";
 
 const WebTerminal = dynamic(
   () => import("@/components/terminal/WebTerminal").then((m) => m.WebTerminal),
@@ -195,6 +199,7 @@ export default function InstanceDetailPage() {
   const prevStatusRef = useRef<string | null>(null);
   const [wsLogs, setWsLogs] = useState<{ timestamp: number | string; level?: string; message: string }[]>([]);
   const [uptickKey, setUptickKey] = useState(0);
+  const [preemptionNotice, setPreemptionNotice] = useState(false);
 
   // Track status transitions (don't auto-open terminal — avoids scroll jumps)
   useEffect(() => {
@@ -232,7 +237,7 @@ export default function InstanceDetailPage() {
       });
   }, [id]);
 
-  useEffect(() => { setJobError(null); load(); }, [id, load]);
+  useEffect(() => { setJobError(null); setPreemptionNotice(false); load(); }, [id, load]);
 
   const isLive = instance?.status === "queued" || instance?.status === "assigned"
     || instance?.status === "starting" || instance?.status === "running" || instance?.status === "stopping"
@@ -253,10 +258,24 @@ export default function InstanceDetailPage() {
   const onWsLog = useCallback((log: { job_id: string; timestamp: number; line: string; level: string }) => {
     setWsLogs((prev) => [...prev, { timestamp: log.timestamp, level: log.level, message: log.line }].slice(-3000));
   }, []);
+  const onWsPreempted = useCallback((data: { job_id: string; name?: string; status?: string }) => {
+    setPreemptionNotice(true);
+    setInstance((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        status: data.status || "preempted",
+        preemption_count: (prev.preemption_count ?? 0) + 1,
+        preempted_at: Math.floor(Date.now() / 1000),
+      };
+    });
+    toast.warning(t("dash.instances.preempted_toast"));
+  }, [t]);
   const wsState = useInstanceWebSocket(id, {
     onInstance: onWsInstance,
     onJobError: onWsJobError,
     onLog: onWsLog,
+    onPreempted: onWsPreempted,
     enabled: isLive,
   });
 
@@ -346,6 +365,11 @@ export default function InstanceDetailPage() {
   const isTransitional = status === "stopping" || status === "restarting" || status === "starting";
   const isFailed = status === "failed";
   const isTerminal = ["completed", "failed", "cancelled", "terminated", "preempted"].includes(status);
+  const pricingMode = resolveInstancePricingMode(instance);
+  const showPreemptionBanner =
+    preemptionNotice
+    || status === "preempted"
+    || (status === "queued" && (instance.preemption_count ?? 0) > 0);
 
   // Determine furthest reached step from timestamps + host assignment rather
   // than blindly mapping failed/cancelled → running. This fixes a bug where
@@ -541,6 +565,25 @@ export default function InstanceDetailPage() {
         )}
       </Card>
 
+      {/* Spot preemption banner */}
+      {showPreemptionBanner && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-amber-400 mt-0.5 shrink-0" />
+          <div className="flex-1 min-w-0 space-y-1">
+            <p className="text-sm font-medium text-amber-200">{t("dash.instances.preempted_title")}</p>
+            <p className="text-sm text-text-secondary">{t("dash.instances.preempted_desc")}</p>
+            {status === "queued" && (instance.preemption_count ?? 0) > 0 && (
+              <p className="text-xs text-text-muted">{t("dash.instances.preempted_requeue")}</p>
+            )}
+            {(instance.preemption_count ?? 0) > 0 && (
+              <p className="text-xs font-mono text-text-muted">
+                {t("dash.instances.preemption_count", { count: instance.preemption_count ?? 0 })}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Job Error Banner */}
       {jobError && (
         <div className="rounded-lg border border-accent-red/30 bg-accent-red/10 p-4 flex items-start gap-3">
@@ -613,6 +656,40 @@ export default function InstanceDetailPage() {
           </div>
         </Card>
       </div>
+
+      {/* Pricing card */}
+      <Card>
+        <div className="flex items-center gap-2 mb-3">
+          <DollarSign className="h-4 w-4 text-accent-gold" />
+          <h2 className="text-sm font-semibold text-text-secondary">{t("dash.instances.pricing_card")}</h2>
+          <InstancePricingModeBadge instance={instance} className="ml-auto" />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3 text-sm">
+          <div>
+            <p className="text-xs text-text-muted">{t("dash.instances.pricing_rate")}</p>
+            <p className="font-mono font-medium mt-0.5">
+              {pricingMode === "spot" && instance.spot_rate_cad != null
+                ? `$${instance.spot_rate_cad.toFixed(2)}/hr CAD`
+                : instance.cost_cad != null && instance.elapsed_sec
+                  ? `~$${((instance.cost_cad / (instance.elapsed_sec / 3600)) || 0).toFixed(2)}/hr`
+                  : "—"}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-text-muted">{t("dash.instances.label_cost")}</p>
+            <p className="font-mono font-medium mt-0.5">
+              {instance.cost_cad != null ? `$${instance.cost_cad.toFixed(2)} CAD` : "—"}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-text-muted">{t("dash.instances.preemption_count_label")}</p>
+            <p className="font-mono font-medium mt-0.5">{instance.preemption_count ?? 0}</p>
+          </div>
+        </div>
+        {pricingMode === "spot" && instance.spot_rate_cad != null && (
+          <p className="text-xs text-text-muted mt-3">{t("dash.instances.spot_rate_locked")}</p>
+        )}
+      </Card>
 
       {/* Attached Volumes */}
       {instance.attached_volumes && instance.attached_volumes.length > 0 && (

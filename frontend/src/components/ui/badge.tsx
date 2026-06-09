@@ -23,6 +23,7 @@ const badgeVariants = cva(
         stopped: "border-[#6366f1]/30 bg-[#6366f1]/15 text-[#4338ca] dark:text-[#818cf8]",
         restarting: "border-ice-blue/30 bg-ice-blue/15 text-ice-blue animate-status-restarting",
         terminated: "border-accent-red/30 bg-accent-red/15 text-accent-red",
+        preempted: "border-amber-500/30 bg-amber-500/15 text-amber-400",
       },
     },
     defaultVariants: { variant: "default" },
@@ -67,6 +68,7 @@ export function StatusBadge({ status }: { status: string }) {
       stopped: "stopped",
       restarting: "restarting",
       terminated: "terminated",
+      preempted: "preempted",
       // Legacy pause states
       user_paused: "stopped",
       paused_low_balance: "warning",
@@ -77,6 +79,7 @@ export function StatusBadge({ status }: { status: string }) {
     {
       user_paused: "Stopped",
       paused_low_balance: "Low Balance",
+      preempted: "Preempted",
     }[status] ?? status.charAt(0).toUpperCase() + status.slice(1);
 
   return <Badge variant={variant}>{label}</Badge>;

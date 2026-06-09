@@ -19,6 +19,8 @@ export interface UseInstanceWebSocketOptions {
   onStatusChange?: (jobId: string, status: string) => void;
   /** Called when a job error event arrives (e.g. no hosts, image pull failure). */
   onJobError?: (error: { job_id: string; error: string; message: string }) => void;
+  /** Called when a spot instance is reclaimed for capacity. */
+  onPreempted?: (data: { job_id: string; name?: string; status?: string }) => void;
   /** Disable the connection (e.g. when the job is terminal). */
   enabled?: boolean;
 }
@@ -141,6 +143,15 @@ export function useInstanceWebSocket(
             case "job_error":
               cbRef.current.onJobError?.(
                 msg.data as unknown as { job_id: string; error: string; message: string },
+              );
+              break;
+            case "job_preempted":
+              cbRef.current.onPreempted?.(
+                msg.data as unknown as { job_id: string; name?: string; status?: string },
+              );
+              cbRef.current.onStatusChange?.(
+                (msg.data as { job_id: string }).job_id,
+                (msg.data as { status?: string }).status || "preempted",
               );
               break;
             case "ping":
