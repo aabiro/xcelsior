@@ -275,6 +275,7 @@ class ServerlessService:
                 volume_ids=volume_ids or None,
                 exposed_ports=[http_port],
                 job_type="serverless_worker",
+                region=str(ep.get("region") or ""),
             )
             scheduler_job_id = str(job.get("job_id") or "")
         except Exception as e:

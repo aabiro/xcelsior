@@ -69,6 +69,10 @@ class MarketplaceEngine:
     ) -> dict:
         """Create or update a GPU offer from a provider."""
         now = time.time()
+        from host_metadata import normalize_region
+
+        region = normalize_region(region, province=province)
+        province = (province or "").upper()
         with self._conn() as conn:
             existing = conn.execute(
                 "SELECT offer_id FROM gpu_offers WHERE host_id = %s AND gpu_model = %s",
@@ -230,13 +234,15 @@ class MarketplaceEngine:
     def sync_offer_from_host(self, host: dict, provider_id: str = ""):
         """Auto-create/update a gpu_offer from a registered host dict."""
         cost = host.get("cost_per_hour", 0.20)
+        from host_metadata import normalize_host_region
+
         self.upsert_offer(
             provider_id=provider_id or host.get("owner", ""),
             host_id=host["host_id"],
             gpu_model=host.get("gpu_model", "unknown"),
             vram_gb=int(host.get("total_vram_gb", 0)),
             ask_cents_per_hour=int(cost * 100),
-            region=host.get("region", ""),
+            region=normalize_host_region(host),
             province=host.get("province", ""),
         )
 

@@ -428,6 +428,71 @@ async def lifespan(app):
     except Exception as e:
         log.warning("Owner backfill skipped: %s", e)
 
+    # ── One-time backfill: normalize region on hosts and gpu_offers ────
+    try:
+        if db_backend not in ("postgres", "dual"):
+            raise RuntimeError(f"skipped for backend={db_backend}")
+
+        import json
+
+        from psycopg.rows import dict_row
+
+        from db import _get_pg_pool
+        from host_metadata import normalize_host_region, normalize_region
+
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            host_regions: dict[str, str] = {}
+            updated_hosts = 0
+            for row in conn.execute("SELECT host_id, payload FROM hosts").fetchall():
+                payload = row["payload"]
+                if not isinstance(payload, dict):
+                    payload = json.loads(payload)
+                region = normalize_host_region(payload)
+                host_regions[row["host_id"]] = region
+                if str(payload.get("region") or "") != region:
+                    conn.execute(
+                        "UPDATE hosts SET payload = "
+                        "jsonb_set(payload, '{region}', to_jsonb(%s::text)) "
+                        "WHERE host_id = %s",
+                        (region, row["host_id"]),
+                    )
+                    updated_hosts += 1
+
+            updated_offers = 0
+            offers = conn.execute(
+                "SELECT offer_id, host_id, region, province FROM gpu_offers"
+            ).fetchall()
+            for offer in offers:
+                province = str(offer.get("province") or "").strip().upper()
+                region = normalize_region(
+                    offer.get("region"),
+                    country="CA" if province else "",
+                    province=province,
+                    default="",
+                )
+                if not region:
+                    region = host_regions.get(str(offer.get("host_id") or ""), "")
+                if not region:
+                    region = normalize_region("")
+                if region != str(offer.get("region") or ""):
+                    conn.execute(
+                        "UPDATE gpu_offers SET region = %s WHERE offer_id = %s",
+                        (region, offer["offer_id"]),
+                    )
+                    updated_offers += 1
+
+            if updated_hosts or updated_offers:
+                log.info(
+                    "BACKFILL: normalized region on %d hosts, %d gpu_offers",
+                    updated_hosts,
+                    updated_offers,
+                )
+            conn.commit()
+    except Exception as e:
+        log.warning("Region backfill skipped: %s", e)
+
     # Start PG LISTEN→SSE bridge per-worker (must be after fork)
     _pg_listen_thread = start_pg_listen(broadcast_sse)
 
