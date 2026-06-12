@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/button";
 import { Input, NumberInput } from "@/components/ui/input";
 
 import { useLocale } from "@/lib/locale";
-import * as api from "@/lib/api";
 import type { GpuAvailability } from "@/lib/api";
 import { GPU_MODELS } from "@/lib/gpu-models";
 import { toast } from "sonner";
@@ -20,20 +19,13 @@ import {
   DEFAULT_FORM, DEPLOY_STUDIO_STEPS, IDLE_TIMEOUT_OPTIONS, MANAGED_ENGINES, PRESET_MODELS,
 } from "./constants";
 import type { DeployStudioForm } from "./types";
+import { deployServerlessEndpoint } from "./deploy-actions";
+import { findGpuInRegion, regionOptionsForGpus } from "./region-options";
 import { ServerlessHero, ServerlessSelect, StepRail } from "./serverless-ui";
 
 interface DeployStudioProps {
   gpus: GpuAvailability[];
   canWrite: boolean;
-}
-
-function envToRecord(rows: DeployStudioForm["envRows"]): Record<string, string> | undefined {
-  const out: Record<string, string> = {};
-  for (const row of rows) {
-    const k = row.key.trim();
-    if (k) out[k] = row.value;
-  }
-  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
@@ -49,16 +41,30 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
     return GPU_MODELS.slice(0, 12).map((g) => g.value);
   }, [gpus]);
 
-  const regions = useMemo(() => {
-    const r = [...new Set(gpus.map((g) => g.region))];
-    return r.length > 0 ? r : ["ca-east"];
-  }, [gpus]);
+  useEffect(() => {
+    setForm((prev) => {
+      const nextGpuTier = prev.gpuTier || (gpus.length > 0 ? gpuTypes[0] || "" : "");
+      const nextRegions = regionOptionsForGpus(gpus, nextGpuTier);
+      const nextRegion = nextRegions.includes(prev.region) ? prev.region : nextRegions[0];
+      if (prev.gpuTier === nextGpuTier && prev.region === nextRegion) return prev;
+      return { ...prev, gpuTier: nextGpuTier, region: nextRegion };
+    });
+  }, [gpus, gpuTypes]);
 
-  const selectedGpu = gpus.find((g) => g.gpu_model === form.gpuTier && g.region === form.region);
+  const regions = useMemo(() => regionOptionsForGpus(gpus, form.gpuTier), [gpus, form.gpuTier]);
+  const selectedGpu = findGpuInRegion(gpus, form.gpuTier, form.region);
   const costPerHour = selectedGpu?.price_per_hour_cad ?? (form.gpuTier ? 2.5 : 0);
 
   const update = <K extends keyof DeployStudioForm>(key: K, value: DeployStudioForm[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const updateGpuTier = (gpuTier: string) => {
+    setForm((prev) => {
+      const nextRegions = regionOptionsForGpus(gpus, gpuTier);
+      const region = nextRegions.includes(prev.region) ? prev.region : nextRegions[0];
+      return { ...prev, gpuTier, region };
+    });
   };
 
   const validateStep = (idx: number): string | null => {
@@ -100,39 +106,7 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
     }
     setDeploying(true);
     try {
-      const presetEngine = MANAGED_ENGINES.find((e) => e.id === form.managedEngine) ?? MANAGED_ENGINES[0];
-      const image = form.method === "preset"
-        ? presetEngine.image
-        : form.customSource === "github"
-          ? form.imageRef.trim()
-          : form.imageRef.trim();
-      const res = await api.createServerlessEndpoint({
-        name: form.name.trim() || form.modelRef || form.imageRef || form.githubRepo,
-        mode: form.method === "preset" ? "preset" : "custom",
-        managed_engine: form.method === "preset" ? form.managedEngine : undefined,
-        model_name: form.method === "preset" ? form.modelRef.trim() : undefined,
-        model_ref: form.method === "preset" ? form.modelRef.trim() : undefined,
-        source_type: form.method === "custom" && form.customSource === "github" ? "github" : undefined,
-        source_ref: form.method === "custom" && form.customSource === "github" ? form.githubRepo.trim() : undefined,
-        source_ref_branch: form.method === "custom" && form.customSource === "github" ? form.githubBranch.trim() : undefined,
-        gpu_type: form.gpuTier,
-        gpu_tier: form.gpuTier,
-        gpu_count: form.gpuCount,
-        region: form.region,
-        docker_image: image || undefined,
-        image_ref: image || undefined,
-        min_workers: form.minWorkers,
-        max_workers: form.maxWorkers,
-        max_concurrency: form.maxConcurrency,
-        idle_timeout_sec: form.idleTimeoutSec,
-        scaling_policy_type: form.scalingPolicyType,
-        scaling_policy_value: form.scalingPolicyValue,
-        startup_command: form.method === "custom" ? form.startupCommand : undefined,
-        http_port: form.method === "custom" ? form.httpPort : undefined,
-        health_check_path: form.healthCheckPath,
-        cuda_version: form.cudaVersion,
-        env: envToRecord(form.envRows),
-      });
+      const res = await deployServerlessEndpoint(form);
       toast.success(t("dash.serverless.deploy_success"));
       router.push(`/dashboard/inference/${res.endpoint.endpoint_id}`);
     } catch (e: unknown) {
@@ -380,7 +354,7 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
                     <label className="block text-sm font-medium mb-1">{t("dash.serverless.gpu_type")}</label>
                     <ServerlessSelect
                       value={form.gpuTier}
-                      onChange={(e) => update("gpuTier", e.target.value)}
+                      onChange={(e) => updateGpuTier(e.target.value)}
                     >
                       <option value="">{t("dash.serverless.select_gpu")}</option>
                       {gpuTypes.map((g) => {

@@ -680,8 +680,8 @@ describe("getNextStep edge cases", () => {
 // ══════════════════════════════════════════════════════════════════════
 
 describe("step structure integrity", () => {
-    it("all 28 steps present", () => {
-        expect(WIZARD_STEPS).toHaveLength(28);
+    it("all 30 steps present", () => {
+        expect(WIZARD_STEPS).toHaveLength(30);
     });
 
     it("no duplicate step IDs", () => {
@@ -1179,7 +1179,7 @@ describe("step type distribution", () => {
         expect(counts["select"]).toBeGreaterThanOrEqual(4); // mode, pricing, workload, gpu-preference, gpu-pick, image-pick
         expect(counts["auto-check"]).toBeGreaterThanOrEqual(8); // docker, api, gpu-detect, versions, benchmark, network, verify, host-register, admission, wallet, launch
         expect(counts["confirm"]).toBeGreaterThanOrEqual(2); // provider-summary, confirm-launch, confirm-setup
-        expect(counts["text"]).toBe(1); // custom-rate
+        expect(counts["text"]).toBe(2); // custom-rate, spot-min-cents
         expect(counts["done"]).toBe(1);
         expect(counts["device-auth"]).toBe(1);
         expect(counts["auto-fetch"]).toBe(1); // browse-gpus
@@ -1352,9 +1352,9 @@ describe("flow step counts per mode", () => {
         });
         // mode + docker-check + device-auth + api-check + gpu-detect + version-check +
         // benchmark + network-bench + verification + pricing + host-register +
-        // admission-gate + provider-summary + done = 14
+        // includes spot-enabled + network-setup + worker-install steps
         expect(visited.length).toBeGreaterThanOrEqual(14);
-        expect(visited.length).toBeLessThanOrEqual(16);
+        expect(visited.length).toBeLessThanOrEqual(18);
     });
 
     it("both mode visits the most steps", () => {

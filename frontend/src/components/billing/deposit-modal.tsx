@@ -48,6 +48,8 @@ function AmountStep({
   onCancel,
   onContinue,
   continueLabel,
+  minAmount = 5,
+  maxAmount = 10000,
 }: {
   amount: string;
   setAmount: (v: string) => void;
@@ -56,7 +58,20 @@ function AmountStep({
   onCancel: () => void;
   onContinue: () => void;
   continueLabel?: string;
+  minAmount?: number;
+  maxAmount?: number;
 }) {
+  const [showAmountError, setShowAmountError] = useState(false);
+
+  const handleContinue = () => {
+    if (!isValid) {
+      setShowAmountError(true);
+      return;
+    }
+    setShowAmountError(false);
+    onContinue();
+  };
+
   return (
     <>
       <div className="mb-4">
@@ -85,23 +100,26 @@ function AmountStep({
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted font-mono text-sm">$</span>
           <Input
             id="amount"
-            type="number"
-            min="5"
-            max="10000"
-            step="0.01"
+            type="text"
+            inputMode="decimal"
             placeholder="0.00"
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(e) => {
+              setAmount(e.target.value);
+              setShowAmountError(false);
+            }}
             className="pl-8 font-mono"
           />
         </div>
-        {amount && !isValid && (
-          <p className="text-xs text-accent-red mt-1">Minimum top-up is $5.00 (max $10,000.00)</p>
+        {showAmountError && !isValid && (
+          <p className="text-xs text-accent-red mt-1">
+            Enter between ${minAmount.toFixed(2)} and ${maxAmount.toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} CAD
+          </p>
         )}
       </div>
       <div className="flex gap-3">
         <Button variant="outline" className="flex-1" onClick={onCancel}>Cancel</Button>
-        <Button variant="success" className="flex-1" onClick={onContinue} disabled={!isValid}>
+        <Button variant="success" className="flex-1" onClick={handleContinue}>
           {continueLabel ?? `Continue — $${isValid ? numericAmount.toFixed(2) : "0.00"}`}
         </Button>
       </div>

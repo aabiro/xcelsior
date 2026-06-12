@@ -8,7 +8,7 @@ import {
   Store, DollarSign, ShieldCheck, Star, FileCheck,
   BarChart3, Package, Calendar, Settings, Users, ChevronLeft,
   ChevronRight, LogOut, Shield, Cpu, Menu, X, Key, ChevronDown,
-  Zap, HardDrive, TrendingUp, BookOpen, Rocket, CheckCircle2, Circle,
+  Zap, HardDrive, TrendingUp, BookOpen, Rocket,
   ExternalLink, HelpCircle, Sparkles, Clock, MessageCircle, Layers,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
@@ -27,6 +27,8 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { CreditsButton } from "@/components/CreditsButton";
 import { TeamSwitcher } from "@/components/team/team-switcher";
 import { useDesktopRuntime } from "@/lib/desktop/runtime";
+import { MobileDeployAction } from "@/components/mobile/mobile-deploy-action";
+import { GearOnboarding } from "@/components/onboarding/gear-onboarding";
 import * as api from "@/lib/api";
 
 const AI_PANEL_KEY = "xcelsior-ai-panel-open";
@@ -70,6 +72,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [gearOpen, setGearOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [mobileOnboardingOpen, setMobileOnboardingOpen] = useState(false);
   const [supportPopoutOpen, setSupportPopoutOpen] = useState(false);
   const [aiPanelOpen, setAiPanelOpen] = useState(() => readStoredFlag(AI_PANEL_KEY));
   const [serverlessEnabled, setServerlessEnabled] = useState(false);
@@ -80,6 +83,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const { user, loading: authLoading, logout } = useAuth();
   const { t } = useLocale();
   const team = getTeamContext(user);
+  const canWriteServerless = team.canWriteInstances;
   const { state: desktopState, openControlCenter } = useDesktopRuntime();
   const desktopMode = desktopState.isNativeDesktop || desktopState.isStandalonePwa;
 
@@ -422,9 +426,51 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           </button>
         </div>
       )}
-      {/* Settings + Docs (mobile drawer) */}
+      {/* Settings + Docs + Getting Started (mobile drawer) */}
       {mobile && (
         <div className="border-t border-border p-2 space-y-0.5">
+          <button
+            type="button"
+            onClick={() => setMobileOnboardingOpen((o) => !o)}
+            className={cn(
+              "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-base transition-colors",
+              mobileOnboardingOpen
+                ? "bg-accent-cyan/8 text-accent-cyan"
+                : "text-text-secondary hover:bg-surface-hover hover:text-text-primary",
+            )}
+            aria-expanded={mobileOnboardingOpen}
+          >
+            <Rocket className="h-5 w-5 shrink-0" />
+            <span>{t("gear.onboarding")}</span>
+            <ChevronRight
+              className={cn(
+                "h-4 w-4 ml-auto text-text-muted transition-transform",
+                mobileOnboardingOpen && "rotate-90",
+              )}
+            />
+          </button>
+          <AnimatePresence initial={false}>
+            {mobileOnboardingOpen && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden"
+              >
+                <GearOnboarding
+                  t={t}
+                  user={user}
+                  pathname={pathname}
+                  onNavigate={() => {
+                    setMobileOpen(false);
+                    setMobileOnboardingOpen(false);
+                  }}
+                  className="px-1 pb-1"
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
           <Link
             href="/dashboard/settings"
             className={cn(
@@ -615,6 +661,11 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         )}
       </AnimatePresence>
 
+      <MobileDeployAction
+        serverlessEnabled={showServerless}
+        canWrite={canWriteServerless}
+      />
+
       {/* AI Toggle Rail (persistent right edge) */}
       <div className="hidden md:flex flex-col items-center justify-end border-l border-border/30 bg-surface/50 w-11 py-3 shrink-0">
         <button
@@ -661,217 +712,4 @@ function SessionExpiryBanner() {
   );
 }
 
-/* ── Onboarding Checklist Component ─────────────────────────────────── */
 
-const ONBOARDING_STEPS = [
-  { key: "profile", labelKey: "gear.step_profile", descKey: "gear.step_profile_desc", href: "/dashboard/settings" },
-  { key: "jurisdiction", labelKey: "gear.step_jurisdiction", descKey: "gear.step_jurisdiction_desc", href: "/dashboard/settings" },
-  { key: "api_key", labelKey: "gear.step_api_key", descKey: "gear.step_api_key_desc", href: "/dashboard/settings#api-keys" },
-  { key: "browse", labelKey: "gear.step_browse", descKey: "gear.step_browse_desc", href: "/dashboard/marketplace" },
-  { key: "instance", labelKey: "gear.step_instance", descKey: "gear.step_instance_desc", href: "/dashboard/instances/new" },
-] as const;
-
-function useOnboardingState(
-  user: { name?: string; email?: string; role?: string } | null,
-  pathname: string,
-) {
-  const [completed, setCompleted] = useState<Record<string, boolean>>({});
-  const loadedRef = useRef(false);
-
-  // Auto-detect completion from real data
-  useEffect(() => {
-    if (!user) return;
-    if (loadedRef.current) return;
-    loadedRef.current = true;
-
-    // Fetch preferences first to see what's already been completed
-    fetch("/api/users/me/preferences", { credentials: "include" })
-      .then((r) => r.ok ? r.json() : null)
-      .then(async (prefs) => {
-        const serverOnboarding = prefs?.preferences?.onboarding ?? {};
-        const autoDetected: Record<string, boolean> = {};
-
-        // profile: user has set their name
-        autoDetected.profile = !!(user.name && user.name.trim().length > 0);
-
-        // jurisdiction: auto-detect from stored flag or visiting settings page
-        autoDetected.jurisdiction = !!(serverOnboarding.jurisdiction || pathname.startsWith("/dashboard/settings"));
-
-        // browse: check stored flag or current page
-        autoDetected.browse = !!(serverOnboarding.browse || pathname.startsWith("/dashboard/marketplace"));
-
-        // api_key: trust stored flag if already completed, otherwise check live
-        if (serverOnboarding.api_key) {
-          autoDetected.api_key = true;
-        } else {
-          try {
-            const res = await fetch("/api/keys", { credentials: "include" });
-            const data = res.ok ? await res.json() : null;
-            autoDetected.api_key = Array.isArray(data?.keys) && data.keys.length > 0;
-          } catch { autoDetected.api_key = false; }
-        }
-
-        // instance: trust stored flag if already completed, otherwise check live
-        if (serverOnboarding.instance) {
-          autoDetected.instance = true;
-        } else {
-          try {
-            const res = await fetch("/instances", { credentials: "include" });
-            const data = res.ok ? await res.json() : null;
-            autoDetected.instance = Array.isArray(data?.instances) && data.instances.length > 0;
-          } catch { autoDetected.instance = false; }
-        }
-
-        // Persist if anything changed
-        setCompleted(autoDetected);
-        const changed = Object.keys(autoDetected).some((k) => autoDetected[k] !== serverOnboarding[k]);
-        if (changed) {
-          fetch("/api/users/me/preferences", {
-            method: "PUT",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ preferences: { onboarding: autoDetected } }),
-          }).catch(() => {});
-        }
-      });
-  }, [user, pathname]);
-
-  // Track marketplace & settings visits as they happen
-  useEffect(() => {
-    let frameId = 0;
-    if (pathname.startsWith("/dashboard/marketplace") && !completed.browse) {
-      frameId = requestAnimationFrame(() => {
-        setCompleted((prev) => {
-          const next = { ...prev, browse: true };
-          fetch("/api/users/me/preferences", {
-            method: "PUT",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ preferences: { onboarding: next } }),
-          }).catch(() => {});
-          return next;
-        });
-      });
-    } else if (pathname.startsWith("/dashboard/settings") && !completed.jurisdiction) {
-      frameId = requestAnimationFrame(() => {
-        setCompleted((prev) => {
-          const next = { ...prev, jurisdiction: true };
-          fetch("/api/users/me/preferences", {
-            method: "PUT",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ preferences: { onboarding: next } }),
-          }).catch(() => {});
-          return next;
-        });
-      });
-    }
-    return () => {
-      if (frameId) cancelAnimationFrame(frameId);
-    };
-  }, [pathname, completed.browse, completed.jurisdiction]);
-
-  // Manual toggle for items that can't be auto-detected (jurisdiction)
-  const toggle = (key: string) => {
-    setCompleted((prev) => {
-      const next = { ...prev, [key]: !prev[key] };
-      fetch("/api/users/me/preferences", {
-        method: "PUT",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ preferences: { onboarding: next } }),
-      }).catch(() => {});
-      return next;
-    });
-  };
-
-  return { completed, toggle };
-}
-
-const AUTO_DETECTED_KEYS = new Set(["profile", "api_key", "browse", "instance", "jurisdiction"]);
-
-function GearOnboarding({
-  t,
-  onNavigate,
-  user,
-  pathname,
-}: {
-  t: (key: string, vars?: Record<string, string | number>) => string;
-  onNavigate: () => void;
-  user: { name?: string; email?: string; role?: string } | null;
-  pathname: string;
-}) {
-  const { completed, toggle } = useOnboardingState(user, pathname);
-  const doneCount = ONBOARDING_STEPS.filter((s) => completed[s.key]).length;
-  const allDone = doneCount === ONBOARDING_STEPS.length;
-
-  return (
-    <div className="p-3">
-      <div className="flex items-center gap-2 mb-2">
-        <Rocket className="h-4 w-4 text-accent-gold" />
-        <span className="text-sm font-semibold">{t("gear.onboarding")}</span>
-      </div>
-      <p className="text-xs text-text-muted mb-3 leading-relaxed">{t("gear.onboarding_desc")}</p>
-
-      {/* Progress bar */}
-      <div className="mb-3">
-        <div className="flex items-center justify-between text-xs text-text-muted mb-1">
-          <span>{allDone ? t("gear.all_done") : t("gear.progress", { done: doneCount, total: ONBOARDING_STEPS.length })}</span>
-          <span className="font-mono">{Math.round((doneCount / ONBOARDING_STEPS.length) * 100)}%</span>
-        </div>
-        <div className="h-1.5 w-full rounded-full bg-surface-hover overflow-hidden">
-          <div
-            className="h-full rounded-full bg-gradient-to-r from-accent-cyan to-accent-violet transition-all duration-300"
-            style={{ width: `${(doneCount / ONBOARDING_STEPS.length) * 100}%` }}
-          />
-        </div>
-      </div>
-
-      {/* Steps */}
-      <div className="space-y-1">
-        {ONBOARDING_STEPS.map((step) => {
-          const done = !!completed[step.key];
-          const isAuto = AUTO_DETECTED_KEYS.has(step.key);
-          return (
-            <div key={step.key} className="flex items-start gap-2 group">
-              {isAuto ? (
-                <span className="mt-0.5 shrink-0">
-                  {done ? (
-                    <CheckCircle2 className="h-4 w-4 text-emerald" />
-                  ) : (
-                    <Circle className="h-4 w-4 text-text-muted" />
-                  )}
-                </span>
-              ) : (
-                <button
-                  onClick={() => toggle(step.key)}
-                  className="mt-0.5 shrink-0"
-                  aria-label={done ? "Mark incomplete" : "Mark complete"}
-                >
-                  {done ? (
-                    <CheckCircle2 className="h-4 w-4 text-emerald" />
-                  ) : (
-                    <Circle className="h-4 w-4 text-text-muted group-hover:text-accent-cyan transition-colors" />
-                  )}
-                </button>
-              )}
-              <div className="flex-1 min-w-0">
-                <Link
-                  href={step.href}
-                  onClick={onNavigate}
-                  className={cn(
-                    "text-sm leading-tight transition-colors hover:text-accent-cyan",
-                    done ? "text-text-muted line-through" : "text-text-primary"
-                  )}
-                >
-                  {t(step.labelKey)}
-                </Link>
-                <p className="text-[11px] text-text-muted leading-snug mt-0.5">{t(step.descKey)}</p>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}

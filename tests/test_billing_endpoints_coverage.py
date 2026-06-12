@@ -207,6 +207,49 @@ def test_payment_intent_forbidden_cross_account(two_users):
     assert r.status_code == 403
 
 
+def test_topup_minimum_rejected_for_regular_user(auth):
+    email, headers = auth
+    r = client.post(
+        "/api/billing/payment-intent",
+        json={"customer_id": email, "amount_cad": 4},
+        headers=headers,
+    )
+    assert r.status_code == 400
+    body = r.json()
+    message = body.get("error", {}).get("message") or body.get("detail") or ""
+    assert "Minimum top-up is $5.00 CAD" in str(message)
+
+
+def test_topup_minimum_exempt_for_admin(auth):
+    from db import UserStore
+    from routes import _deps
+
+    email, _headers = auth
+    if _deps._USE_PERSISTENT_AUTH:
+        UserStore.set_admin(email, 1)
+        UserStore.update_user(email, {"role": "admin"})
+    else:
+        with _deps._user_lock:
+            user = _deps._users_db.get(email)
+            if user:
+                user["is_admin"] = True
+                user["role"] = "admin"
+    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    user = UserStore.get_user(email) or {}
+    customer_id = user.get("customer_id") or email
+    r = client.post(
+        "/api/billing/payment-intent",
+        json={"customer_id": customer_id, "amount_cad": 1},
+        headers=headers,
+    )
+    assert r.status_code in OK_OR_HANDLED
+    if r.status_code == 400:
+        body = r.json()
+        message = body.get("error", {}).get("message") or body.get("detail") or ""
+        assert "Minimum top-up" not in str(message)
+
+
 # ── Regression: detach must verify ownership + handle Stripe errors ────
 
 

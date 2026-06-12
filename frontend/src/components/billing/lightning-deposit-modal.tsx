@@ -122,6 +122,7 @@ export function LightningDepositModal({
   onSuccess,
 }: LightningDepositModalProps) {
   const [amount, setAmount] = useState("");
+  const [showAmountError, setShowAmountError] = useState(false);
   const [step, setStep] = useState<"amount" | "waiting" | "success">("amount");
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -203,7 +204,12 @@ export function LightningDepositModal({
   }, []);
 
   const handleCreateDeposit = async () => {
-    if (!isValid || submitting) return;
+    if (!isValid) {
+      setShowAmountError(true);
+      return;
+    }
+    if (submitting) return;
+    setShowAmountError(false);
     setSubmitting(true);
     setErrorMsg("");
     try {
@@ -358,22 +364,23 @@ export function LightningDepositModal({
                     </span>
                     <Input
                       id="ln-amount"
-                      type="number"
-                      min="1"
-                      max="1000"
-                      step="0.01"
+                      type="text"
+                      inputMode="decimal"
                       placeholder="0.00"
                       value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
+                      onChange={(e) => {
+                        setAmount(e.target.value);
+                        setShowAmountError(false);
+                      }}
                       className="pl-9 pr-16 font-mono text-base h-12 rounded-xl bg-navy-light border-border focus:border-violet-500 focus:ring-violet-500/20"
                     />
                     <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-text-muted font-medium">
                       CAD
                     </span>
                   </div>
-                  {amount && !isValid && (
+                  {showAmountError && !isValid && (
                     <p className="text-xs text-accent-red mt-1.5 flex items-center gap-1">
-                      <AlertTriangle className="h-3 w-3" /> $1.00 – $1,000.00
+                      <AlertTriangle className="h-3 w-3" /> Enter between $1.00 and $1,000.00 CAD
                     </p>
                   )}
                 </div>
@@ -416,7 +423,7 @@ export function LightningDepositModal({
                   <Button
                     className="flex-1 h-12 rounded-xl bg-gradient-to-r from-violet-500 to-violet-600 hover:from-violet-600 hover:to-violet-700 text-white font-semibold shadow-lg shadow-violet-500/20"
                     onClick={handleCreateDeposit}
-                    disabled={!isValid || submitting}
+                    disabled={submitting}
                   >
                     {submitting ? (
                       <>

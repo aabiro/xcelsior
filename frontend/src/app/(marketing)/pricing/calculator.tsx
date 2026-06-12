@@ -14,7 +14,6 @@ export function SavingsCalculator({ gpus }: { gpus: GpuOption[] }) {
   const [selectedGpu, setSelectedGpu] = useState(gpus[0]?.model || "");
   const [hoursPerDay, setHoursPerDay] = useState(8);
   const [daysPerMonth, setDaysPerMonth] = useState(22);
-  const [useRebate, setUseRebate] = useState(true);
 
   const gpu = gpus.find((g) => g.model === selectedGpu);
   const rate = gpu?.onDemand ?? 0;
@@ -22,14 +21,11 @@ export function SavingsCalculator({ gpus }: { gpus: GpuOption[] }) {
   const totalHours = hoursPerDay * daysPerMonth;
   const monthlyCostOnDemand = totalHours * rate;
   const monthlyCostReserved = monthlyCostOnDemand * 0.55; // 45% discount for yearly
-  const rebateDiscount = useRebate ? 0.67 : 0;
-  const effectiveOnDemand = monthlyCostOnDemand * (1 - rebateDiscount);
-  const effectiveReserved = monthlyCostReserved * (1 - rebateDiscount);
-  const savings = monthlyCostOnDemand - effectiveReserved;
+  const savings = monthlyCostOnDemand - monthlyCostReserved;
 
   return (
     <div className="rounded-xl border border-border bg-surface p-6 md:p-8 max-w-3xl mx-auto">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-6">
         <div className="space-y-1.5">
           <Label className="text-xs">{t("calc.gpu_model")}</Label>
           <Select value={selectedGpu} onChange={(e) => setSelectedGpu(e.target.value)}>
@@ -58,32 +54,18 @@ export function SavingsCalculator({ gpus }: { gpus: GpuOption[] }) {
             onChange={(e) => setDaysPerMonth(Math.max(1, Math.min(31, Number(e.target.value))))}
           />
         </div>
-        <div className="space-y-1.5">
-          <Label className="text-xs">{t("calc.fund_toggle")}</Label>
-          <button
-            onClick={() => setUseRebate(!useRebate)}
-            className={`flex h-10 w-full items-center justify-center rounded-lg border text-sm font-medium transition-colors ${
-              useRebate
-                ? "border-accent-gold bg-accent-gold/10 text-accent-gold"
-                : "border-border text-text-muted hover:bg-surface-hover"
-            }`}
-          >
-            {useRebate ? t("calc.fund_on") : t("calc.fund_off")}
-          </button>
-        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <ResultBox
           label={t("calc.ondemand_monthly")}
-          value={effectiveOnDemand}
-          original={useRebate ? monthlyCostOnDemand : undefined}
+          value={monthlyCostOnDemand}
           sublabel={`${totalHours}h × $${rate.toFixed(2)}/hr`}
         />
         <ResultBox
           label={t("calc.reserved_monthly")}
-          value={effectiveReserved}
-          original={useRebate ? monthlyCostReserved : undefined}
+          value={monthlyCostReserved}
+          original={monthlyCostOnDemand}
           sublabel={t("calc.reserved_note")}
           highlighted
         />

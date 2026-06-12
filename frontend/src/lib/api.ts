@@ -369,9 +369,12 @@ export async function register(email: string, password: string, name?: string) {
   });
 }
 
-export async function oauthInitiate(provider: string) {
+export async function oauthInitiate(provider: string, redirectPath?: string) {
   return apiFetch<{ ok: boolean; auth_url: string }>(`/api/auth/oauth/${provider}`, {
     method: "POST",
+    body: JSON.stringify({
+      redirect: normalizeAuthRedirectPath(redirectPath, "/dashboard"),
+    }),
   });
 }
 
@@ -391,8 +394,24 @@ export async function logout() {
 }
 
 // ── Hosts ─────────────────────────────────────────────────────────────
+function normalizeHost(host: Host & Record<string, unknown>): Host {
+  const vram = Number(host.vram_gb ?? host.total_vram_gb ?? 0);
+  const rate = Number(host.cost_per_hour ?? host.price_per_hour ?? 0);
+  return {
+    ...host,
+    hostname: host.hostname || String(host.host_id || "").replace(/[-_]/g, " ").trim() || undefined,
+    gpu_model: host.gpu_model || "",
+    vram_gb: vram > 0 ? vram : host.vram_gb,
+    cost_per_hour: rate > 0 ? rate : host.cost_per_hour,
+  };
+}
+
 export async function fetchHosts() {
-  return apiFetch<{ ok: boolean; hosts: Host[] }>("/hosts?active_only=false");
+  const res = await apiFetch<{ ok: boolean; hosts: Host[] }>("/hosts?active_only=false");
+  return {
+    ...res,
+    hosts: (res.hosts || []).map((h) => normalizeHost(h as Host & Record<string, unknown>)),
+  };
 }
 
 export async function registerHost(data: Record<string, unknown>) {
@@ -405,6 +424,7 @@ export interface RegisterHostWebPayload {
   vram_gb: number;
   country?: string;
   province?: string;
+  region?: string;
   notes?: string;
   spot_enabled?: boolean;
   spot_gpu_slots?: number;

@@ -83,6 +83,8 @@ from oauth_service import (
     issue_user_tokens,
     revoke_refresh_session,
     rotate_refresh_token,
+    consume_social_oauth_state,
+    store_social_oauth_state,
 )
 
 router = APIRouter()
@@ -116,8 +118,14 @@ _OAUTH_PROVIDERS = {
         "scopes": "openid profile email",
     },
 }
-_oauth_states: dict[str, dict] = {}
 _OAUTH_STATE_TTL = 600
+
+
+def _sanitize_oauth_redirect(path: str | None) -> str:
+    value = str(path or "").strip()
+    if not value or not value.startswith("/") or value.startswith("//"):
+        return "/dashboard"
+    return value
 
 
 # ── Helper: _set_auth_cookie ──
@@ -978,8 +986,12 @@ def api_auth_login(body: LoginRequest, request: Request):
     return _build_auth_response(token_bundle, user=user)
 
 
+class SocialOAuthInitBody(BaseModel):
+    redirect: str = "/dashboard"
+
+
 @router.post("/api/auth/oauth/{provider}", tags=["Auth"])
-def api_auth_oauth_initiate(provider: str):
+def api_auth_oauth_initiate(provider: str, body: SocialOAuthInitBody | None = None):
     """Initiate OAuth flow — returns the provider's authorization URL.
 
     The frontend should redirect the user to the returned URL.
@@ -991,14 +1003,15 @@ def api_auth_oauth_initiate(provider: str):
     if not cfg["client_id"]:
         raise HTTPException(503, f"OAuth provider {provider} is not configured")
 
-    # Generate CSRF state token
+    # Generate CSRF state token — stored in shared auth cache (Redis in prod).
     state = secrets.token_urlsafe(32)
-    _oauth_states[state] = {"provider": provider, "created_at": time.time()}
-    # Evict expired states
-    now = time.time()
-    for k in list(_oauth_states):
-        if now - _oauth_states[k]["created_at"] > _OAUTH_STATE_TTL:
-            del _oauth_states[k]
+    redirect_path = _sanitize_oauth_redirect((body or SocialOAuthInitBody()).redirect)
+    store_social_oauth_state(
+        state,
+        provider=provider,
+        redirect_path=redirect_path,
+        ttl=_OAUTH_STATE_TTL,
+    )
 
     redirect_uri = f"{_OAUTH_BASE_URL}/api/auth/oauth/{provider}/callback"
     params = {
@@ -1037,12 +1050,11 @@ def api_auth_oauth_callback(provider: str, request: Request):
     if not code or not state:
         return RedirectResponse("/dashboard?error=oauth_missing_params")
 
-    # Validate CSRF state
-    state_data = _oauth_states.pop(state, None)
+    # Validate CSRF state (shared cache — survives multi-worker deploys)
+    state_data = consume_social_oauth_state(state, ttl=_OAUTH_STATE_TTL)
     if not state_data or state_data["provider"] != provider:
-        return RedirectResponse("/dashboard?error=oauth_invalid_state")
-    if time.time() - state_data["created_at"] > _OAUTH_STATE_TTL:
-        return RedirectResponse("/dashboard?error=oauth_state_expired")
+        return RedirectResponse("/login?error=oauth_invalid_state")
+    redirect_path = _sanitize_oauth_redirect(state_data.get("redirect_path"))
 
     cfg = _OAUTH_PROVIDERS[provider]
     redirect_uri = f"{_OAUTH_BASE_URL}/api/auth/oauth/{provider}/callback"
@@ -1192,8 +1204,8 @@ def api_auth_oauth_callback(provider: str, request: Request):
     except Exception as e:
         log.debug("welcome notification (OAuth) failed: %s", e)
 
-    # Set httpOnly cookie and redirect to dashboard
-    resp = RedirectResponse("/dashboard", status_code=302)
+    # Set httpOnly cookie and redirect to intended destination
+    resp = RedirectResponse(redirect_path, status_code=302)
     _set_session_cookies(resp, token_bundle)
     # Non-httpOnly cookie so login page JS can show "Last used" badge
     _base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")

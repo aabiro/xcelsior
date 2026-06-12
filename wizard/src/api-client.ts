@@ -47,6 +47,7 @@ function transport(url: URL) {
 
 const RETRYABLE_STATUS = new Set([408, 500, 502, 503, 504]);
 const IDEMPOTENT_METHODS = new Set(["GET", "HEAD", "PUT"]);
+const MAX_JSON_BYTES = 2 * 1024 * 1024;
 
 function retryDelay(attempt: number, retryAfterSec?: number): number {
     if (retryAfterSec && retryAfterSec > 0) return Math.min(retryAfterSec * 1000, 120_000);
@@ -125,7 +126,17 @@ async function jsonRequestOnce<T>(
     });
 
     const chunks: Buffer[] = [];
-    for await (const chunk of response) chunks.push(chunk as Buffer);
+    let totalBytes = 0;
+    for await (const chunk of response) {
+        totalBytes += (chunk as Buffer).length;
+        if (totalBytes > MAX_JSON_BYTES) {
+            throw new WizardError("Response too large", {
+                code: "response_too_large",
+                remediation: "Retry with narrower filters or contact support.",
+            });
+        }
+        chunks.push(chunk as Buffer);
+    }
     const text = Buffer.concat(chunks).toString();
     let data: T;
     try {
@@ -619,6 +630,7 @@ export interface HostRegistration {
     cost_per_hour: number;
     country?: string;
     province?: string;
+    region?: string;
     versions?: Record<string, string>;
     spot_enabled?: boolean;
     spot_gpu_slots?: number;

@@ -24,11 +24,11 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   applicationName: "Xcelsior",
   title: {
-    default: "Canada-Grounded AI Compute — Cheapest Compliant Compute in Canada",
+    default: "Xcelsior — The Cheapest Compliant GPU Compute in Canada",
     template: "%s | Xcelsior",
   },
   description:
-    "Canada-Grounded AI Compute — the cheapest compliant compute in Canada. Transparent pricing and jurisdiction-aware operations for teams worldwide. Ever upward.",
+    "Rent verified GPUs by the hour in Canadian dollars — sovereignty, PIPEDA, and clean hydro built in. From $0.30 CAD/hr, with dynamic spot pricing up to 70% off.",
   keywords: [
     "GPU compute",
     "Canada",
@@ -55,12 +55,12 @@ export const metadata: Metadata = {
         url: "/og-image.png",
         width: 1200,
         height: 630,
-        alt: "Canada-Grounded AI Compute — Cheapest Compliant Compute in Canada",
+        alt: "The Cheapest Compliant GPU Compute in Canada",
       },
     ],
-    title: "Canada-Grounded AI Compute — Cheapest Compliant Compute in Canada",
+    title: "The Cheapest Compliant GPU Compute in Canada",
     description:
-      "Canada-Grounded AI Compute — the cheapest compliant compute in Canada. Transparent pricing and jurisdiction-aware operations for teams worldwide.",
+      "Rent verified GPUs by the hour in Canadian dollars — sovereignty, PIPEDA, and clean hydro built in. From $0.30 CAD/hr, with dynamic spot pricing up to 70% off.",
     url: "https://xcelsior.ca",
     siteName: "Xcelsior",
     locale: "en_CA",
@@ -70,8 +70,8 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     images: ["/og-image.png"],
-    title: "Canada-Grounded AI Compute — Cheapest Compliant Compute in Canada",
-    description: "Canada-Grounded AI Compute — Cheapest Compliant Compute in Canada. Ever upward.",
+    title: "The Cheapest Compliant GPU Compute in Canada",
+    description: "The Cheapest Compliant GPU Compute in Canada. Ever upward.",
   },
   appleWebApp: {
     capable: true,
@@ -124,7 +124,7 @@ export default function RootLayout({
               url: "https://xcelsior.ca",
               logo: "https://xcelsior.ca/xcelsior_icon_512x512.png",
               description:
-                "Canada-Grounded AI Compute — the cheapest compliant compute in Canada. Transparent pricing and jurisdiction-aware operations for teams worldwide.",
+                "Rent verified GPUs by the hour in Canadian dollars — sovereignty, PIPEDA, and clean hydro built in. From $0.30 CAD/hr, with dynamic spot pricing up to 70% off.",
               foundingDate: "2024",
               address: {
                 "@type": "PostalAddress",

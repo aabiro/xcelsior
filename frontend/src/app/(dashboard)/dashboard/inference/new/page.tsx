@@ -9,7 +9,6 @@ import type { GpuAvailability } from "@/lib/api";
 import { getTeamContext } from "@/lib/team-context";
 import { TeamContextBanner } from "@/components/team/team-context-banner";
 import { DeployStudio } from "@/features/serverless/deploy-studio";
-import { ServerlessBackLink } from "@/features/serverless/serverless-ui";
 
 
 export default function DeployStudioPage() {
@@ -44,7 +43,6 @@ export default function DeployStudioPage() {
     return (
       <div className="space-y-4">
         <TeamContextBanner team={team} variant="general" />
-        <ServerlessBackLink href="/dashboard/inference">{t("dash.serverless.back_list")}</ServerlessBackLink>
         <p className="text-text-muted py-12 text-center">{t("dash.serverless.viewer_blocked")}</p>
       </div>
     );
@@ -61,7 +59,6 @@ export default function DeployStudioPage() {
   return (
     <div className="space-y-6">
       <TeamContextBanner team={team} variant="general" />
-      <ServerlessBackLink href="/dashboard/inference">{t("dash.serverless.back_list")}</ServerlessBackLink>
       <DeployStudio gpus={gpus} canWrite={canWrite} />
     </div>
   );
