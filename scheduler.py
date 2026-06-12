@@ -536,6 +536,11 @@ def _allocate_candidates(job, hosts, jobs: list[dict] | None = None):
 
     num_gpus_needed = job.get("num_gpus", 1) or 1
     requested_gpu_model = (job.get("gpu_model") or "").strip().lower()
+    requested_region = ""
+    if job.get("region"):
+        from host_metadata import normalize_region
+
+        requested_region = normalize_region(str(job.get("region") or ""), default="")
 
     vram_needed = job.get("vram_needed_gb", 0) or 0
     candidates = [
@@ -551,6 +556,18 @@ def _allocate_candidates(job, hosts, jobs: list[dict] | None = None):
             if (h.get("gpu_model") or "").strip().lower() == requested_gpu_model
         ]
         if not candidates:
+            return []
+
+    if requested_region:
+        from host_metadata import normalize_host_region
+
+        candidates = [h for h in candidates if normalize_host_region(h) == requested_region]
+        if not candidates:
+            log.warning(
+                "ALLOCATE: no hosts match requested region %s for job=%s",
+                requested_region,
+                job.get("name", "?"),
+            )
             return []
 
     if num_gpus_needed > 1:
@@ -1149,6 +1166,7 @@ def register_host(
     cost_per_hour=0.20,
     country="",
     province="",
+    region="",
     *,
     spot_enabled: bool | None = None,
     spot_gpu_slots: int | None = None,
@@ -1182,11 +1200,24 @@ def register_host(
             entry["country"] = country.upper()
         if province:
             entry["province"] = province.upper()
+        from host_metadata import normalize_region
+
+        if region or province or not existing:
+            entry["region"] = normalize_region(
+                region,
+                country=entry.get("country", country),
+                province=entry.get("province", province),
+            )
         if existing:
+            from host_metadata import merge_host_update
+
+            entry = merge_host_update(existing, entry)
             # Preserve host metadata set by other flows (country/autoscaled tags).
             for field in (
                 "country",
                 "province",
+                "region",
+                "owner",
                 "autoscaled",
                 "compute_score",
                 "admitted",
@@ -1203,6 +1234,10 @@ def register_host(
                 entry["status"] = "draining"
                 if "draining_since" in existing:
                     entry["draining_since"] = existing["draining_since"]
+        else:
+            from host_metadata import enrich_host_for_api
+
+            entry = enrich_host_for_api(entry)
         _upsert_host_row(conn, entry)
 
     # Mirror to secondary DB in dual-write mode
@@ -1252,6 +1287,7 @@ def update_host_spot_settings(
         _upsert_host_row(conn, host)
 
     try:
+        from host_metadata import normalize_host_region
         from marketplace import get_marketplace_engine
 
         me = get_marketplace_engine()
@@ -1263,7 +1299,7 @@ def update_host_spot_settings(
             gpu_count_total=max(1, int(host.get("gpu_count", 1) or 1)),
             vram_gb=float(host.get("total_vram_gb") or host.get("vram_gb") or 0),
             ask_cents_per_hour=ask_cents,
-            region=str(host.get("region") or host.get("province") or "ca-east"),
+            region=normalize_host_region(host),
             province=str(host.get("province") or ""),
             spot_enabled=bool(host.get("spot_enabled", True)),
             spot_min_cents=int(host.get("spot_min_cents", 0) or 0),
@@ -1550,6 +1586,7 @@ def submit_job(
     source_template_id=None,
     job_type=None,
     pricing_mode="on_demand",
+    region="",
 ):
     """
     Submit a job to the queue.
@@ -1594,6 +1631,12 @@ def submit_job(
     if is_spot:
         pricing_mode = "spot"
 
+    normalized_region = ""
+    if region:
+        from host_metadata import normalize_region
+
+        normalized_region = normalize_region(region, default="")
+
     resolved_nfs_server = nfs_server or ""
     if not resolved_nfs_server and volume_ids:
         try:
@@ -1637,6 +1680,7 @@ def submit_job(
         "source_template_id": source_template_id or "",
         "job_type": (job_type or "").strip(),
         "pricing_mode": pricing_mode,
+        "region": normalized_region,
     }
 
     # Spot jobs are preemptible interruptible instances (no bidding).
@@ -3707,12 +3751,24 @@ def _sync_marketplace_listings(listings: list[dict], persist: bool = False) -> l
     return listings
 
 
-def list_rig(host_id, gpu_model, vram_gb, price_per_hour, description="", owner="anonymous"):
+def list_rig(
+    host_id,
+    gpu_model,
+    vram_gb,
+    price_per_hour,
+    description="",
+    owner="anonymous",
+    region="",
+    province="",
+):
     """
     List a rig on the marketplace.
     Hosts set their price. Xcelsior takes its cut on every job.
     """
+    from host_metadata import normalize_region
+
     listings = load_marketplace()
+    normalized_region = normalize_region(region, province=province)
 
     # Update if exists
     for i, l in enumerate(listings):
@@ -3724,6 +3780,8 @@ def list_rig(host_id, gpu_model, vram_gb, price_per_hour, description="", owner=
                     "price_per_hour": price_per_hour,
                     "description": description,
                     "owner": owner,
+                    "region": normalized_region,
+                    "province": province.upper() if province else "",
                     "updated_at": time.time(),
                     "active": True,
                 }
@@ -3743,6 +3801,8 @@ def list_rig(host_id, gpu_model, vram_gb, price_per_hour, description="", owner=
         "price_per_hour": price_per_hour,
         "description": description,
         "owner": owner,
+        "region": normalized_region,
+        "province": province.upper() if province else "",
         "platform_cut": platform_cut,
         "platform_cut_source": "reputation",
         "listed_at": time.time(),
@@ -3781,6 +3841,29 @@ def unlist_rig(host_id):
 def get_marketplace(active_only=True):
     """Get all marketplace listings."""
     listings = _sync_marketplace_listings(load_marketplace(), persist=True)
+    changed = False
+    try:
+        from host_metadata import normalize_region
+
+        hosts_by_id = {h.get("host_id"): h for h in list_hosts(active_only=False)}
+        for listing in listings:
+            host = hosts_by_id.get(listing.get("host_id")) or {}
+            province = str(listing.get("province") or host.get("province") or "").upper()
+            region = normalize_region(
+                str(listing.get("region") or ""),
+                country=str(host.get("country") or ""),
+                province=province,
+            )
+            if listing.get("region") != region:
+                listing["region"] = region
+                changed = True
+            if province and listing.get("province") != province:
+                listing["province"] = province
+                changed = True
+        if changed:
+            save_marketplace(listings)
+    except Exception as exc:
+        log.debug("Marketplace listing region sync skipped: %s", exc)
     if active_only:
         return [l for l in listings if l.get("active", True)]
     return listings

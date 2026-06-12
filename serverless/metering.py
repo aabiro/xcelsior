@@ -85,6 +85,9 @@ def get_gpu_rate_per_hour(gpu_tier: str, region: str) -> float:
     """Lookup host/GPU offer rate — mirrors inference engine pricing."""
     if not gpu_tier:
         return 0.0
+    from host_metadata import normalize_region
+
+    region = normalize_region(region)
     from db import _get_pg_pool
     from psycopg.rows import dict_row
 

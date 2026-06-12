@@ -392,6 +392,19 @@ def _is_platform_admin(user: dict | None) -> bool:
     return _admin_flag(user.get("is_admin")) == 1 or user.get("role") == "admin"
 
 
+def _lookup_user_by_email(email: str) -> dict | None:
+    """Resolve a user record by email from persistent or in-memory auth stores."""
+    normalized = str(email or "").strip().lower()
+    if not normalized:
+        return None
+    if _USE_PERSISTENT_AUTH:
+        user = UserStore.get_user(normalized)
+        if user:
+            return user
+    with _user_lock:
+        return _users_db.get(normalized)
+
+
 def _caller_owner_ids(user: dict) -> set[str]:
     """Identifiers that may match resource owner fields (customer, user, email, provider)."""
     owned: set[str] = set()
@@ -1199,6 +1212,8 @@ def _require_scope(user: dict, *required: str) -> None:
     if scopes is None:
         return
     granted = set(scopes)
+    if "api" in granted:
+        return
     missing = [s for s in required if s not in granted]
     if missing:
         raise HTTPException(

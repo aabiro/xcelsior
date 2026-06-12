@@ -110,6 +110,9 @@ OAUTH_TOKEN_REFRESH_SKEW_SEC = int(os.environ.get("XCELSIOR_OAUTH_TOKEN_REFRESH_
 
 # Optional tuning
 COST_PER_HOUR = float(os.environ.get("XCELSIOR_COST_PER_HOUR", "0.50"))
+HOST_COUNTRY = os.environ.get("XCELSIOR_COUNTRY", "").strip().upper()
+HOST_PROVINCE = os.environ.get("XCELSIOR_PROVINCE", "").strip().upper()
+HOST_REGION = os.environ.get("XCELSIOR_REGION", "").strip()
 HEARTBEAT_INTERVAL = int(os.environ.get("XCELSIOR_HEARTBEAT_INTERVAL", "10"))
 POLL_INTERVAL = int(os.environ.get("XCELSIOR_POLL_INTERVAL", "5"))
 MINING_CHECK_INTERVAL = int(os.environ.get("XCELSIOR_MINING_CHECK_INTERVAL", "60"))
@@ -375,6 +378,35 @@ def _canonicalize_gpu_model(raw_name: str) -> str:
     return name
 
 
+def _gpu_info_from_env() -> dict | None:
+    """Optional overrides when auto-detection fails or returns an unmapped name."""
+    model_raw = os.environ.get("XCELSIOR_GPU_MODEL", "").strip()
+    if not model_raw:
+        return None
+    model = _canonicalize_gpu_model(model_raw)
+    if not model:
+        return None
+    vram_raw = os.environ.get("XCELSIOR_GPU_VRAM_GB", "").strip()
+    try:
+        total_vram = round(float(vram_raw), 2) if vram_raw else 0.0
+    except ValueError:
+        total_vram = 0.0
+    if total_vram <= 0:
+        try:
+            from host_metadata import default_vram_gb
+
+            total_vram = default_vram_gb(model)
+        except Exception:
+            total_vram = 0.0
+    if total_vram <= 0:
+        return None
+    return {
+        "gpu_model": model,
+        "total_vram_gb": total_vram,
+        "free_vram_gb": total_vram,
+    }
+
+
 def get_gpu_info():
     """Query GPU name, total VRAM, free VRAM.
 
@@ -386,12 +418,23 @@ def get_gpu_info():
     Returns dict with gpu_model, total_vram_gb, free_vram_gb.
     Raises RuntimeError on failure.
     """
+    def _finish(info: dict | None) -> dict:
+        if info and info.get("gpu_model"):
+            return info
+        env_info = _gpu_info_from_env()
+        if env_info:
+            log.warning("GPU auto-detection incomplete; using XCELSIOR_GPU_* env overrides")
+            return env_info
+        if info:
+            return info
+        raise RuntimeError("No GPU detected")
+
     # Try NVML first
     if is_nvml_available():
         info = get_gpu_info_nvml()
         if info:
             info["gpu_model"] = _canonicalize_gpu_model(info.get("gpu_model", ""))
-            return info
+            return _finish(info)
 
     # Fallback: nvidia-smi subprocess
     try:
@@ -414,17 +457,31 @@ def get_gpu_info():
         if len(parts) != 3:
             raise RuntimeError(f"Unexpected nvidia-smi format: {lines[0]}")
 
-        return {
-            "gpu_model": _canonicalize_gpu_model(parts[0]),
-            "total_vram_gb": round(float(parts[1]) / 1024, 2),
-            "free_vram_gb": round(float(parts[2]) / 1024, 2),
-        }
-    except subprocess.TimeoutExpired:
-        raise RuntimeError("nvidia-smi timed out")
+        return _finish(
+            {
+                "gpu_model": _canonicalize_gpu_model(parts[0]),
+                "total_vram_gb": round(float(parts[1]) / 1024, 2),
+                "free_vram_gb": round(float(parts[2]) / 1024, 2),
+            }
+        )
+    except subprocess.TimeoutExpired as e:
+        env_info = _gpu_info_from_env()
+        if env_info:
+            log.warning("nvidia-smi timed out; using XCELSIOR_GPU_* env overrides")
+            return env_info
+        raise RuntimeError("nvidia-smi timed out") from e
     except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"nvidia-smi failed: {e.stderr}")
+        env_info = _gpu_info_from_env()
+        if env_info:
+            log.warning("nvidia-smi failed; using XCELSIOR_GPU_* env overrides")
+            return env_info
+        raise RuntimeError(f"nvidia-smi failed: {e.stderr}") from e
     except (ValueError, IndexError) as e:
-        raise RuntimeError(f"Failed to parse nvidia-smi output: {e}")
+        env_info = _gpu_info_from_env()
+        if env_info:
+            log.warning("nvidia-smi parse failed (%s); using XCELSIOR_GPU_* env overrides", e)
+            return env_info
+        raise RuntimeError(f"Failed to parse nvidia-smi output: {e}") from e
 
 
 def get_host_ip():
@@ -849,6 +906,12 @@ def heartbeat(gpu_info, host_ip, compute_score=None):
         "agent_version": VERSION,
         "agent_sha256": _self_sha256(),
     }
+    if HOST_COUNTRY:
+        data["country"] = HOST_COUNTRY
+    if HOST_PROVINCE:
+        data["province"] = HOST_PROVINCE
+    if HOST_REGION:
+        data["region"] = HOST_REGION
 
     try:
         resp = requests.put(
@@ -5370,6 +5433,13 @@ def print_startup_banner(gpu_info, host_ip, admitted, runtime):
         "  GPU:            %s (%.1f GB VRAM)", gpu_info["gpu_model"], gpu_info["total_vram_gb"]
     )
     log.info("  Cost/hour:      $%.2f", COST_PER_HOUR)
+    if HOST_REGION or HOST_PROVINCE or HOST_COUNTRY:
+        log.info(
+            "  Region:         %s%s%s",
+            HOST_REGION or "-",
+            f" / {HOST_COUNTRY}" if HOST_COUNTRY else "",
+            f" {HOST_PROVINCE}" if HOST_PROVINCE else "",
+        )
     log.info("  Poll interval:  %ds", POLL_INTERVAL)
     log.info("  Heartbeat:      %ds", HEARTBEAT_INTERVAL)
     log.info("  Runtime:        %s", runtime)

@@ -107,6 +107,9 @@ class InferenceEngine:
         """
         now = time.time()
         endpoint_id = f"ep-{uuid.uuid4().hex[:12]}"
+        from host_metadata import normalize_region
+
+        region = normalize_region(region)
 
         # Estimate VRAM required
         vram_required = self._estimate_vram_gb(model_id)
@@ -325,6 +328,9 @@ class InferenceEngine:
 
     def _check_gpu_available(self, gpu_type: str, region: str) -> bool:
         """Check if a GPU type is available in the given region."""
+        from host_metadata import normalize_region
+
+        region = normalize_region(region)
         with self._conn() as conn:
             # Check gpu_offers first
             row = conn.execute(
@@ -346,6 +352,9 @@ class InferenceEngine:
         """Get the cost per hour for a GPU type in a region."""
         if not gpu_type:
             return 0.0
+        from host_metadata import normalize_region
+
+        region = normalize_region(region)
         with self._conn() as conn:
             row = conn.execute(
                 """SELECT MIN(ask_cents_per_hour) as price FROM gpu_offers

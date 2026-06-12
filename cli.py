@@ -423,7 +423,14 @@ def cmd_market(args):
 def cmd_market_list(args):
     """List a rig on the marketplace."""
     listing = list_rig(
-        args.host_id, args.gpu, args.vram, args.price, description=args.desc, owner=args.owner
+        args.host_id,
+        args.gpu,
+        args.vram,
+        args.price,
+        description=args.desc,
+        owner=args.owner,
+        region=getattr(args, "region", ""),
+        province=getattr(args, "province", ""),
     )
     print(
         f"Listed: {listing['host_id']} | {listing['gpu_model']} | ${listing['price_per_hour']}/hr | owner={listing['owner']}"
@@ -1387,6 +1394,8 @@ def main():
     p_mlist.add_argument("--gpu", required=True, help="GPU model")
     p_mlist.add_argument("--vram", type=float, required=True, help="VRAM (GB)")
     p_mlist.add_argument("--price", type=float, required=True, help="Price per hour")
+    p_mlist.add_argument("--region", default="", help="Region (e.g. ca-on, us-east)")
+    p_mlist.add_argument("--province", default="", choices=[""] + CA_PROVINCES, help="Province/territory code")
     p_mlist.add_argument("--desc", default="", help="Description")
     p_mlist.add_argument("--owner", default="anonymous", help="Owner name")
     p_mlist.set_defaults(func=cmd_market_list)

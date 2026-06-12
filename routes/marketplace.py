@@ -79,6 +79,8 @@ class RigListing(BaseModel):
     price_per_hour: float
     description: str = ""
     owner: str = "anonymous"
+    region: str = ""
+    province: str = ""
 
 
 @router.post("/marketplace/list", tags=["Marketplace"])
@@ -91,7 +93,14 @@ def api_list_rig(rig: RigListing, request: Request):
 
     _require_scope(user, "marketplace:write")
     listing = list_rig(
-        rig.host_id, rig.gpu_model, rig.vram_gb, rig.price_per_hour, rig.description, rig.owner
+        rig.host_id,
+        rig.gpu_model,
+        rig.vram_gb,
+        rig.price_per_hour,
+        rig.description,
+        rig.owner,
+        rig.region,
+        rig.province,
     )
     return {"ok": True, "listing": listing}
 

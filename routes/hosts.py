@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from routes._deps import (
     _caller_owner_ids,
     _is_platform_admin,
+    _lookup_user_by_email,
     _require_admin,
     _require_auth,
     _require_scope,
@@ -32,15 +33,82 @@ from db import UserStore
 from verification import get_verification_engine
 from security import admit_node
 from reputation import VerificationType, get_reputation_engine
+from host_metadata import (
+    CANONICAL_GPU_MODELS,
+    enrich_host_for_api,
+    normalize_gpu_model,
+    normalize_region,
+    platform_rate_cad,
+)
 
 router = APIRouter()
+
+
+def _host_owner_ids(host: dict | None) -> set[str]:
+    """Identifiers on a registered host row that denote ownership."""
+    if not host:
+        return set()
+    ids: set[str] = set()
+    for key in ("owner", "provider_id", "user_id"):
+        value = str(host.get(key) or "").strip()
+        if value:
+            ids.add(value)
+    return ids
+
+
+def _oauth_client_creator(user: dict) -> dict | None:
+    """Resolve the interactive user behind a client_credentials principal."""
+    auth_type = str(user.get("auth_type") or user.get("grant_type") or "")
+    if auth_type != "client_credentials":
+        return None
+    client_id = str(user.get("client_id") or "").strip()
+    if not client_id:
+        return None
+    from oauth_service import get_client
+
+    client = get_client(client_id)
+    if not client:
+        return None
+    email = str(client.get("created_by_email") or "").strip()
+    if not email:
+        return None
+    return _lookup_user_by_email(email)
+
+
+def _resolve_host_owner_from_user(user: dict) -> str:
+    """Return the user identity that should own a worker-managed host."""
+    creator = _oauth_client_creator(user)
+    if creator:
+        return str(creator.get("user_id") or creator.get("sub") or creator.get("email") or "")
+    return str(user.get("user_id") or user.get("sub") or user.get("email") or "")
 
 
 def _require_host_operator(user: dict, host_id: str) -> None:
     if _is_platform_admin(user):
         return
-    if (host_id or "").strip() in _caller_owner_ids(user):
+
+    host_id = (host_id or "").strip()
+    if not host_id:
+        raise HTTPException(403, "Forbidden")
+
+    caller_ids = _caller_owner_ids(user)
+    creator = _oauth_client_creator(user)
+    if creator:
+        caller_ids |= _caller_owner_ids(creator)
+        creator_user_id = str(creator.get("user_id") or creator.get("sub") or "").strip()
+        if creator_user_id:
+            caller_ids.add(creator_user_id)
+
+    if host_id in caller_ids:
         return
+
+    entry = next((h for h in list_hosts(active_only=False) if h.get("host_id") == host_id), None)
+    if entry and caller_ids & _host_owner_ids(entry):
+        return
+
+    if creator and entry is None:
+        return
+
     raise HTTPException(403, "Forbidden")
 
 
@@ -112,6 +180,7 @@ class HostIn(BaseModel):
     cost_per_hour: float = Field(default=0.20, ge=0, le=1000)
     country: str = Field(default="CA", min_length=2, max_length=2)  # ISO 3166-1 alpha-2
     province: str = Field(default="", max_length=10)  # CA province code (ON, QC, BC, etc.)
+    region: str = Field(default="", max_length=32)
     # Optional: agent-reported versions for inline admission
     versions: dict | None = None  # {"runc": "1.2.4", "nvidia_ctk": "1.17.8", ...}
     # Canadian company fields (Report #1.B — Provider Onboarding)
@@ -175,20 +244,39 @@ def api_register_host(h: HostIn, request: Request):
     _require_host_operator(user, h.host_id)
     from security import admit_node
 
+    gpu_model = normalize_gpu_model(h.gpu_model)
+    total_vram = float(h.total_vram_gb or 0)
+    if total_vram <= 0 and gpu_model:
+        from host_metadata import default_vram_gb
+
+        total_vram = default_vram_gb(gpu_model)
+    cost_per_hour = float(h.cost_per_hour or 0)
+    if cost_per_hour <= 0 and gpu_model:
+        cost_per_hour = platform_rate_cad(gpu_model) or cost_per_hour
+
     # Register the host with country/province metadata
     entry = register_host(
         h.host_id,
         h.ip,
-        h.gpu_model,
-        h.total_vram_gb,
+        gpu_model,
+        total_vram,
         h.free_vram_gb,
-        h.cost_per_hour,
+        cost_per_hour,
         spot_enabled=h.spot_enabled,
         spot_gpu_slots=h.spot_gpu_slots,
         spot_min_cents=h.spot_min_cents,
+        region=h.region,
     )
+    owner_id = _resolve_host_owner_from_user(user)
+    existing_owner = str(entry.get("owner") or "").strip()
+    if existing_owner and existing_owner != h.host_id:
+        entry["owner"] = existing_owner
+    elif owner_id:
+        entry["owner"] = owner_id
     entry["country"] = h.country.upper()
     entry["province"] = h.province.upper() if h.province else ""
+    if h.region or h.province or not entry.get("region"):
+        entry["region"] = normalize_region(h.region, country=entry["country"], province=entry["province"])
     # P1.2: record what the agent says about itself so rolling-upgrade logic
     # can target only out-of-date hosts and detect hashes that don't match
     # anything the control plane has signed off on.
@@ -237,17 +325,19 @@ def api_register_host(h: HostIn, request: Request):
     # Auto-compute score and auto-list on marketplace
     from scheduler import estimate_compute_score, register_compute_score, list_rig
 
-    score = estimate_compute_score(h.gpu_model)
-    register_compute_score(h.host_id, h.gpu_model, score)
+    score = estimate_compute_score(gpu_model)
+    register_compute_score(h.host_id, gpu_model, score)
     entry["compute_score"] = score
 
     list_rig(
         h.host_id,
-        h.gpu_model,
-        h.total_vram_gb,
-        h.cost_per_hour,
-        description=f"{h.gpu_model} ({h.total_vram_gb}GB) in {h.country.upper()}",
-        owner=h.host_id,
+        gpu_model,
+        total_vram,
+        cost_per_hour,
+        description=f"{gpu_model} ({total_vram}GB) in {h.country.upper()}",
+        owner=entry.get("owner") or owner_id or h.host_id,
+        region=entry.get("region", ""),
+        province=entry.get("province", ""),
     )
 
     # ── Auto-create verification + reputation records ────────────────────
@@ -282,74 +372,13 @@ def api_register_host(h: HostIn, request: Request):
             "country": entry.get("country", ""),
         },
     )
-    return {"ok": True, "host": entry}
+    return {"ok": True, "host": enrich_host_for_api(entry)}
 
 
 # ── Model: RegisterHostRequest (web-facing registration form) ──
 
-# All known GPU model identifiers (must match frontend gpu-models.ts values)
-_VALID_GPU_MODELS = frozenset(
-    {
-        # NVIDIA Data Center
-        "H200",
-        "H100-80GB",
-        "H100-NVL",
-        "A100-80GB",
-        "A100-40GB",
-        "A40",
-        "A30",
-        "A10",
-        "A16",
-        "L40S",
-        "L40",
-        "L4",
-        "T4",
-        "V100-32GB",
-        "V100-16GB",
-        # NVIDIA RTX 50 Series
-        "RTX-5090",
-        "RTX-5080",
-        "RTX-5070-Ti",
-        "RTX-5070",
-        "RTX-5060-Ti",
-        "RTX-5060",
-        # NVIDIA RTX 40 Series
-        "RTX-4090",
-        "RTX-4080-Super",
-        "RTX-4080",
-        "RTX-4070-Ti-S",
-        "RTX-4070-Ti",
-        "RTX-4070-Super",
-        "RTX-4070",
-        "RTX-4060-Ti-16",
-        "RTX-4060-Ti",
-        "RTX-4060",
-        # NVIDIA RTX 30 Series
-        "RTX-3090-Ti",
-        "RTX-3090",
-        "RTX-3080-Ti",
-        "RTX-3080-12GB",
-        "RTX-3080",
-        "RTX-3070-Ti",
-        "RTX-3070",
-        "RTX-3060-Ti",
-        "RTX-3060",
-        # NVIDIA Workstation
-        "RTX-6000-Ada",
-        "RTX-5000-Ada",
-        "RTX-4000-Ada",
-        "RTX-A6000",
-        "RTX-A5000",
-        "RTX-A4000",
-        # AMD Data Center
-        "MI300X",
-        "MI250X",
-        "MI210",
-        # AMD Consumer
-        "RX-7900-XTX",
-        "RX-7900-XT",
-    }
-)
+# Must match frontend gpu-models.ts / db._GPU_PRICING_BASE.
+_VALID_GPU_MODELS = CANONICAL_GPU_MODELS
 
 # ISO 3166-1 alpha-2 — every assigned country code
 _VALID_COUNTRY_CODES = frozenset(
@@ -643,6 +672,7 @@ class RegisterHostRequest(BaseModel):
     cost_per_hour: float = Field(default=0.20, ge=0.01, le=100.0)
     country: str = Field(default="CA", min_length=2, max_length=2)
     province: str = Field(default="", max_length=4)
+    region: str = Field(default="", max_length=32)
     notes: str = Field(default="", max_length=1000)
     spot_enabled: bool = True
     spot_gpu_slots: int | None = Field(default=None, ge=0, le=64)
@@ -662,7 +692,7 @@ class RegisterHostRequest(BaseModel):
     def gpu_model_validate(cls, v: str) -> str:
         """Validate gpu_model against the canonical set of supported models.
         The set mirrors the frontend GPU_MODELS catalogue."""
-        stripped = v.strip()
+        stripped = normalize_gpu_model(v)
         if not stripped:
             raise ValueError("gpu_model must not be blank")
         if stripped not in _VALID_GPU_MODELS:
@@ -688,6 +718,11 @@ class RegisterHostRequest(BaseModel):
         """Normalize to uppercase. Cross-field validation with country
         happens in the model_validator below."""
         return v.strip().upper()
+
+    @field_validator("region")
+    @classmethod
+    def region_normalize(cls, v: str) -> str:
+        return normalize_region(v, default="") if v.strip() else ""
 
     @field_validator("notes")
     @classmethod
@@ -738,15 +773,21 @@ def api_register_host_web(h: RegisterHostRequest, request: Request):
         if h.spot_min_cents is not None
         else suggested_spot_min_cents(h.gpu_model)
     )
+    platform_rate = platform_rate_cad(h.gpu_model)
+    cost_per_hour = h.cost_per_hour if h.cost_per_hour > 0 else platform_rate
+    if cost_per_hour <= 0:
+        cost_per_hour = 0.20
+
     entry = register_host(
         host_id,
         client_ip,
         h.gpu_model,
         h.vram_gb,
         h.vram_gb,  # free_vram_gb = total at registration
-        h.cost_per_hour,
+        cost_per_hour,
         country=h.country,
         province=h.province,
+        region=h.region,
         spot_enabled=h.spot_enabled,
         spot_gpu_slots=h.spot_gpu_slots,
         spot_min_cents=spot_min,
@@ -758,6 +799,7 @@ def api_register_host_web(h: RegisterHostRequest, request: Request):
         entry["notes"] = h.notes
     entry["country"] = h.country
     entry["province"] = h.province
+    entry["region"] = normalize_region(h.region, country=h.country, province=h.province)
     entry["owner"] = user.get("user_id", user.get("sub", ""))
 
     # New web-registered hosts start as pending until agent connects
@@ -785,6 +827,8 @@ def api_register_host_web(h: RegisterHostRequest, request: Request):
         h.cost_per_hour,
         description=f"{h.gpu_model} ({h.vram_gb}GB) in {h.country.upper()}",
         owner=entry["owner"],
+        region=entry.get("region", ""),
+        province=entry.get("province", ""),
     )
 
     try:
@@ -825,7 +869,7 @@ def api_register_host_web(h: RegisterHostRequest, request: Request):
             "country": entry.get("country", ""),
         },
     )
-    return {"ok": True, "host": entry}
+    return {"ok": True, "host": enrich_host_for_api(entry)}
 
 
 class HostSpotSettingsUpdate(BaseModel):
@@ -892,7 +936,7 @@ def api_get_host(host_id: str, request: Request):
     if not resolved:
         raise HTTPException(status_code=404, detail=f"Host {host_id} not found")
     host = next(h for h in hosts if h["host_id"] == resolved)
-    return {"ok": True, "host": host}
+    return {"ok": True, "host": enrich_host_for_api(host)}
 
 
 @router.get("/hosts", tags=["Hosts"])
@@ -900,7 +944,7 @@ def api_list_hosts(request: Request, active_only: bool = True):
     """List all hosts."""
     user = _require_auth(request)
     _require_scope(user, "hosts:read")
-    return {"hosts": list_hosts(active_only=active_only)}
+    return {"hosts": [enrich_host_for_api(h) for h in list_hosts(active_only=active_only)]}
 
 
 @router.get("/host/{host_id}/maintenance", tags=["Hosts"])

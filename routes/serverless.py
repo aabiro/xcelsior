@@ -177,6 +177,8 @@ class ApiKeyCreateRequest(BaseModel):
 
 
 def _body_to_endpoint_create(body: ServerlessEndpointCreate, owner_id: str) -> EndpointCreate:
+    from host_metadata import normalize_region
+
     model_ref = (body.model_ref or body.model_name or "").strip()
     image_ref = (body.image_ref or body.docker_image or "").strip()
     gpu_tier = (body.gpu_tier or body.gpu_type or "").strip()
@@ -199,7 +201,7 @@ def _body_to_endpoint_create(body: ServerlessEndpointCreate, owner_id: str) -> E
         source_ref_branch=(body.source_ref_branch or "main").strip() or "main",
         gpu_tier=gpu_tier,
         gpu_count=body.gpu_count,
-        region=body.region,
+        region=normalize_region(body.region),
         min_workers=body.min_workers,
         max_workers=body.max_workers,
         max_concurrency=body.max_concurrency,
