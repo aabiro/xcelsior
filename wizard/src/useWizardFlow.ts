@@ -24,10 +24,12 @@ import {
 } from "./provider-checks.js";
 import {
     clearWizardCheckpoint,
+    hydrateWizardCheckpoint,
     loadWizardCheckpoint,
     saveWizardCheckpoint,
     type WizardCheckpoint,
 } from "./wizard-state.js";
+import { sanitizeContextValue, validateApiBaseUrl, validateApiToken } from "./wizard-guards.js";
 
 // ── Config ───────────────────────────────────────────────────────────
 
@@ -40,6 +42,13 @@ const DEVICE_CODE_EXPIRY_MS = 15 * 60 * 1000;
 const WALLET_POLL_MS = 5_000;
 const CHOREOGRAPHY_DELAY_MS = 8_000;
 const ADVANCE_DEBOUNCE_MS = 300;
+const CHECKPOINT_DEBOUNCE_MS = 400;
+const AI_ANALYSIS_COOLDOWN_MS = 30_000;
+const DEVICE_AUTH_STEP_INDEX = WIZARD_STEPS.findIndex((s) => s.id === "device-auth");
+
+if (validateApiBaseUrl(API_BASE_URL)) {
+    console.warn(`[wizard] XCELSIOR_API_URL may be invalid: ${API_BASE_URL}`);
+}
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -140,6 +149,10 @@ export interface UseWizardFlowReturn {
     aiToolCalls: AiToolCall[];
     /** True during the 8s choreography delay after submitAnswer — hides step content */
     transitioning: boolean;
+    /** Resume metadata when a prior checkpoint was found */
+    resumeInfo: { resumed: boolean; needsReauth: boolean; expired: boolean };
+    /** Persist current progress (also runs automatically on step changes) */
+    flushCheckpoint: () => void;
 }
 
 export interface ProviderSummaryData {
@@ -398,19 +411,23 @@ export function buildWizardContext(
     earlyBench?: BenchmarkResult | null,
     earlyNetwork?: NetworkBenchResult | null,
 ): string {
-    const parts: string[] = [`cli-wizard:${stepId}`];
+    const parts: string[] = [`cli-wizard:${sanitizeContextValue(stepId, 64)}`];
+
+    const push = (key: string, value: string) => {
+        parts.push(`${key}=${sanitizeContextValue(value)}`);
+    };
 
     // Mode
-    if (answers.mode) parts.push(`mode=${answers.mode}`);
+    if (answers.mode) push("mode", String(answers.mode));
 
     // Provider context
     if (answers.mode === "provide" || answers.mode === "both") {
-        if (answers.pricing) parts.push(`pricing=${answers.pricing}`);
-        if (answers["custom-rate"]) parts.push(`custom_rate=$${answers["custom-rate"]}/hr`);
-        if (answers["_rate"]) parts.push(`rate=${answers["_rate"]}`);
-        if (answers["_host_id"]) parts.push(`host_id=${answers["_host_id"]}`);
-        if (answers["_host_ip"]) parts.push(`host_ip=${answers["_host_ip"]}`);
-        if (answers["_host_port"]) parts.push(`host_port=${answers["_host_port"]}`);
+        if (answers.pricing) push("pricing", String(answers.pricing));
+        if (answers["custom-rate"]) push("custom_rate", `$${answers["custom-rate"]}/hr`);
+        if (answers["_rate"]) push("rate", String(answers["_rate"]));
+        if (answers["_host_id"]) push("host_id", String(answers["_host_id"]));
+        if (answers["_host_ip"]) push("host_ip", String(answers["_host_ip"]));
+        if (answers["_host_port"]) push("host_port", String(answers["_host_port"]));
 
         // Check results summary — URL-encode values to avoid nested = truncation
         const failedChecks: string[] = [];
@@ -420,51 +437,53 @@ export function buildWizardContext(
                 failedChecks.push(`${stepKey}=[${failures.join("; ")}]`);
             }
         }
-        if (failedChecks.length > 0) parts.push(`failed_checks=${encodeURIComponent(`{${failedChecks.join(", ")}}`)}`);
+        if (failedChecks.length > 0) {
+            push("failed_checks", encodeURIComponent(sanitizeContextValue(`{${failedChecks.join(", ")}}`, 400)));
+        }
 
         // GPU/benchmark data — use providerSummary if available, fall back to early refs
         if (providerSummary) {
-            parts.push(`gpu=${providerSummary.gpuModel}`);
-            parts.push(`vram=${providerSummary.vramGb}GB`);
-            parts.push(`xcu=${providerSummary.xcuScore}`);
-            parts.push(`tflops=${providerSummary.tflops}`);
-            parts.push(`tier=${providerSummary.tier}`);
-            parts.push(`verified=${providerSummary.verified}`);
+            push("gpu", providerSummary.gpuModel);
+            push("vram", `${providerSummary.vramGb}GB`);
+            push("xcu", String(providerSummary.xcuScore));
+            push("tflops", String(providerSummary.tflops));
+            push("tier", providerSummary.tier);
+            push("verified", String(providerSummary.verified));
         } else {
             // Early fallback from detection/benchmark refs (available before step 13)
             if (earlyGpu) {
-                parts.push(`gpu=${earlyGpu.gpu_model}`);
-                parts.push(`vram=${earlyGpu.total_vram_gb}GB`);
+                push("gpu", earlyGpu.gpu_model);
+                push("vram", `${earlyGpu.total_vram_gb}GB`);
             }
             if (earlyBench) {
-                parts.push(`tflops=${earlyBench.tflops}`);
-                parts.push(`xcu=${earlyBench.xcu_score}`);
+                push("tflops", String(earlyBench.tflops));
+                push("xcu", String(earlyBench.xcu_score));
             }
         }
 
         // Network benchmark data
         if (earlyNetwork) {
-            parts.push(`latency=${earlyNetwork.latency_avg_ms}ms`);
-            parts.push(`jitter=${earlyNetwork.jitter_ms}ms`);
-            parts.push(`throughput=${earlyNetwork.throughput_mbps}Mbps`);
+            push("latency", `${earlyNetwork.latency_avg_ms}ms`);
+            push("jitter", `${earlyNetwork.jitter_ms}ms`);
+            push("throughput", `${earlyNetwork.throughput_mbps}Mbps`);
         }
     }
 
     // Renter context
     if (answers.mode === "rent" || answers.mode === "both") {
-        if (answers.workload) parts.push(`workload=${answers.workload}`);
-        if (answers["gpu-preference"]) parts.push(`gpu_pref=${answers["gpu-preference"]}`);
+        if (answers.workload) push("workload", String(answers.workload));
+        if (answers["gpu-preference"]) push("gpu_pref", String(answers["gpu-preference"]));
         if (answers["gpu-pick"]) {
             const listing = gpuListings.find((l) => l.host_id === (answers["gpu-pick"] as string));
             if (listing) {
-                parts.push(`picked_gpu=${listing.gpu_model}/${listing.vram_gb}GB/$${listing.price_per_hour}/hr`);
-                parts.push(`rate=$${listing.price_per_hour}/hr`);
+                push("picked_gpu", `${listing.gpu_model}/${listing.vram_gb}GB/$${listing.price_per_hour}/hr`);
+                push("rate", `$${listing.price_per_hour}/hr`);
             }
         }
-        if (answers["image-pick"]) parts.push(`image=${answers["image-pick"]}`);
-        if (answers["_instance_id"]) parts.push(`instance_id=${answers["_instance_id"]}`);
-        if (answers["_balance"]) parts.push(`balance=$${answers["_balance"]}`);
-        if (browseError) parts.push(`browse_error=${browseError}`);
+        if (answers["image-pick"]) push("image", String(answers["image-pick"]));
+        if (answers["_instance_id"]) push("instance_id", String(answers["_instance_id"]));
+        if (answers["_balance"]) push("balance", `$${answers["_balance"]}`);
+        if (browseError) push("browse_error", browseError);
     }
 
     return parts.join(" | ");
@@ -504,18 +523,38 @@ function buildWorkerOAuthClientName(
 // ── Hook ─────────────────────────────────────────────────────────────
 
 export function useWizardFlow(): UseWizardFlowReturn {
-    const initialCheckpoint = loadWizardCheckpoint();
-    const [stepIndex, setStepIndex] = useState(initialCheckpoint?.stepIndex ?? 0);
-    const stepIndexRef = useRef(initialCheckpoint?.stepIndex ?? 0);
-    const [answers, setAnswers] = useState<Record<string, string | string[]>>(
-        initialCheckpoint?.answers ?? { "_api_base_url": API_BASE_URL },
+    const hydrated = hydrateWizardCheckpoint(
+        loadWizardCheckpoint(),
+        WIZARD_STEPS.length,
+        DEVICE_AUTH_STEP_INDEX >= 0 ? DEVICE_AUTH_STEP_INDEX : 0,
     );
-    const answersRef = useRef<Record<string, string | string[]>>(
-        initialCheckpoint?.answers ?? { "_api_base_url": API_BASE_URL },
-    );
+    const initialCheckpoint = hydrated?.checkpoint ?? null;
+    const initialStepIndex = initialCheckpoint?.stepIndex ?? 0;
+    const initialAnswers = initialCheckpoint?.answers ?? { "_api_base_url": API_BASE_URL };
+    const initialStep = WIZARD_STEPS[initialStepIndex] ?? WIZARD_STEPS[0];
+
+    const [stepIndex, setStepIndex] = useState(initialStepIndex);
+    const stepIndexRef = useRef(initialStepIndex);
+    const [answers, setAnswers] = useState<Record<string, string | string[]>>(initialAnswers);
+    const answersRef = useRef<Record<string, string | string[]>>(initialAnswers);
     const completedStepIdsRef = useRef<string[]>(initialCheckpoint?.completedStepIds ?? []);
+    const [resumeInfo, setResumeInfo] = useState({
+        resumed: hydrated?.resumed ?? false,
+        needsReauth: hydrated?.needsReauth ?? false,
+        expired: hydrated?.expired ?? false,
+    });
     const [wizardState, setWizardState] = useState<WizardState>("idle");
-    const [wizardMessage, setWizardMessage] = useState(WIZARD_STEPS[0].prompt);
+    const [wizardMessage, setWizardMessage] = useState(() => {
+        if (hydrated?.expired) {
+            return "Previous wizard session expired — starting fresh.";
+        }
+        if (hydrated?.resumed) {
+            return hydrated.needsReauth
+                ? "Welcome back — please sign in again to continue."
+                : `Resuming at: ${initialStep.prompt}`;
+        }
+        return WIZARD_STEPS[0].prompt;
+    });
     const [checkResults, setCheckResults] = useState<Record<string, AutoCheckResults>>({});
     const [aiResponse, setAiResponse] = useState<string | null>(null);
     const [aiStreaming, setAiStreaming] = useState(false);
@@ -562,6 +601,10 @@ export function useWizardFlow(): UseWizardFlowReturn {
     const [checkAwaitContinue, setCheckAwaitContinue] = useState(false);
     const activeCheckRef = useRef<{ checkId: string; stepId: string } | null>(null);
     const lastAdvanceRef = useRef<number>(0);
+    const checkpointTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const flowGenRef = useRef(0);
+    const gpuListingsRef = useRef<MarketplaceListing[]>([]);
+    const lastAutoAnalysisRef = useRef<{ key: string; at: number } | null>(null);
 
     // Device auth — detected .env path for display
     const [deviceAuthEnvPath, setDeviceAuthEnvPath] = useState<string | null>(null);
@@ -570,6 +613,49 @@ export function useWizardFlow(): UseWizardFlowReturn {
 
     // AI conversation tracking
     const conversationIdRef = useRef<string | null>(initialCheckpoint?.conversationId ?? null);
+
+    const scheduleCheckpoint = useCallback((override?: Partial<WizardCheckpoint>) => {
+        if (checkpointTimerRef.current) clearTimeout(checkpointTimerRef.current);
+        checkpointTimerRef.current = setTimeout(() => {
+            saveWizardCheckpoint({
+                stepIndex: stepIndexRef.current,
+                answers: answersRef.current,
+                conversationId: conversationIdRef.current ?? undefined,
+                completedStepIds: [...completedStepIdsRef.current],
+                savedAt: new Date().toISOString(),
+                ...override,
+            });
+        }, CHECKPOINT_DEBOUNCE_MS);
+    }, []);
+
+    const flushCheckpoint = useCallback(() => {
+        if (checkpointTimerRef.current) {
+            clearTimeout(checkpointTimerRef.current);
+            checkpointTimerRef.current = null;
+        }
+        if (isComplete) return;
+        saveWizardCheckpoint({
+            stepIndex: stepIndexRef.current,
+            answers: answersRef.current,
+            conversationId: conversationIdRef.current ?? undefined,
+            completedStepIds: [...completedStepIdsRef.current],
+            savedAt: new Date().toISOString(),
+        });
+    }, [isComplete]);
+
+    const shouldRunAutoAnalysis = useCallback((stepId: string, failDetails: string) => {
+        const key = `${stepId}:${failDetails}`;
+        const now = Date.now();
+        const last = lastAutoAnalysisRef.current;
+        if (last && last.key === key && now - last.at < AI_ANALYSIS_COOLDOWN_MS) {
+            return false;
+        }
+        lastAutoAnalysisRef.current = { key, at: now };
+        return true;
+    }, []);
+
+    const isFlowStale = useCallback((gen: number) => gen !== flowGenRef.current, []);
+
     const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
     const [aiToolCalls, setAiToolCalls] = useState<AiToolCall[]>([]);
 
@@ -641,7 +727,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 client_type: "confidential",
                 redirect_uris: [],
                 grant_types: ["client_credentials"],
-                scopes: ["api"],
+                scopes: ["api", "hosts:read", "hosts:write"],
             });
             const updated = {
                 ...currentAnswers,
@@ -828,17 +914,52 @@ export function useWizardFlow(): UseWizardFlowReturn {
     }, [startDeviceAuth]);
 
     const submitManualToken = useCallback(async (token: string) => {
-        const updated = { ...answersRef.current, "api-key": token, "device-auth": "manual" };
-        answersRef.current = updated;
-        setAnswers(updated);
+        const trimmed = token.trim();
+        const tokenError = validateApiToken(trimmed);
+        if (tokenError) {
+            setValidationError(tokenError);
+            setWizardState("error");
+            setWizardMessage(tokenError);
+            return;
+        }
 
-        // Save token and verify
-        const saveResult = await saveToken(token);
+        setValidationError(null);
+        setWizardState("thinking");
+        setWizardMessage("Verifying token...");
+
+        let email: string | null = null;
+        let customerId: string | null = null;
+        try {
+            const profile = await getMe(API_BASE_URL, trimmed);
+            email = profile.email;
+            customerId = profile.customer_id;
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : "Invalid token";
+            setValidationError(msg);
+            setWizardState("error");
+            setWizardMessage(`Token rejected — ${msg}`);
+            return;
+        }
+
+        const updated: Record<string, string | string[]> = {
+            ...answersRef.current,
+            "api-key": trimmed,
+            "device-auth": "manual",
+            "_session-token": trimmed,
+        };
+        if (customerId) updated["_customer_id"] = customerId;
+        if (email) updated["_email"] = email;
+        const withOAuth = await ensureWorkerOAuthClient(updated, trimmed);
+        answersRef.current = withOAuth;
+        setAnswers(withOAuth);
+
+        const saveResult = await saveToken(trimmed);
 
         setDeviceAuth((prev) => ({
             ...prev,
             status: "authorized",
-            token,
+            token: trimmed,
+            email,
         }));
 
         if (saveResult === true) {
@@ -848,7 +969,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
             // Write to project .env if detected
             const fw = detectFramework();
             if (fw) {
-                const envResult = await writeProjectEnv(fw.envPath, token);
+                const envResult = await writeProjectEnv(fw.envPath, trimmed);
                 if (envResult === true) {
                     setDeviceAuthEnvPath(fw.envPath);
                     setWizardMessage(`Token saved to ~/.xcelsior/token.json and ${fw.envPath} — press Enter to continue`);
@@ -894,6 +1015,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 return;
             }
 
+            gpuListingsRef.current = result.listings;
             setGpuListings(result.listings);
             setGpuOptions(result.listings.map((l) => ({
                 label: `${l.gpu_model} · ${l.vram_gb} GB · $${l.price_per_hour.toFixed(2)}/hr · ${l.owner}`,
@@ -1283,9 +1405,13 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 try {
                     const { setupNetworking } = await import("./provider-checks.js");
                     const result = await setupNetworking();
-                    // Store the detected IP for later use
-                    currentAnswers["_host_ip"] = result.ip;
-                    currentAnswers["_network_method"] = result.method;
+                    const updated = {
+                        ...currentAnswers,
+                        "_host_ip": result.ip,
+                        "_network_method": result.method,
+                    };
+                    answersRef.current = updated;
+                    setAnswers(updated);
                     return [
                         { name: "Mesh Network", ok: result.method !== "none", detail: result.detail },
                     ];
@@ -1376,13 +1502,11 @@ export function useWizardFlow(): UseWizardFlowReturn {
             const nextStep = WIZARD_STEPS[next];
             stepIndexRef.current = next;
             setStepIndex(next);
-            saveWizardCheckpoint({
+            scheduleCheckpoint({
                 stepIndex: next,
                 answers: currentAnswers,
-                conversationId: conversationIdRef.current ?? undefined,
                 completedStepIds: [...completedStepIdsRef.current],
-                savedAt: new Date().toISOString(),
-            } satisfies WizardCheckpoint);
+            });
 
             // Brief pause so the user can read the step prompt before init kicks in
             const needsInit = nextStep.type === "device-auth"
@@ -1417,18 +1541,32 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 openBrowser(paymentGate.billingUrl).catch(() => { });
 
                 let walletPollFailures = 0;
+                const pollGen = ++flowGenRef.current;
                 walletPollRef.current = setInterval(async () => {
-                    const customerId = currentAnswers["_customer_id"] as string;
+                    if (isFlowStale(pollGen)) {
+                        if (walletPollRef.current) clearInterval(walletPollRef.current);
+                        walletPollRef.current = null;
+                        return;
+                    }
+                    const liveAnswers = answersRef.current;
+                    const customerId = liveAnswers["_customer_id"] as string;
                     if (!customerId) return;
                     try {
-                        const wallet = await getWallet(API_BASE_URL, currentAnswers["api-key"] as string, customerId);
-                        walletPollFailures = 0; // reset on success
+                        const wallet = await getWallet(API_BASE_URL, liveAnswers["api-key"] as string, customerId);
+                        if (isFlowStale(pollGen)) return;
+                        walletPollFailures = 0;
                         setPaymentGate((prev) => ({ ...prev, balance: wallet.balance_cad }));
-                        const listing = gpuListings.find((l) => l.host_id === (currentAnswers["gpu-pick"] as string));
+                        const listing = gpuListingsRef.current.find(
+                            (l) => l.host_id === (liveAnswers["gpu-pick"] as string),
+                        );
                         if (wallet.balance_cad >= (listing?.price_per_hour ?? 0)) {
                             if (walletPollRef.current) clearInterval(walletPollRef.current);
                             walletPollRef.current = null;
-                            const updated = { ...currentAnswers, "_wallet_insufficient": "false", "payment-gate": "funded" };
+                            const updated = {
+                                ...liveAnswers,
+                                "_wallet_insufficient": "false",
+                                "payment-gate": "funded",
+                            };
                             answersRef.current = updated;
                             setAnswers(updated);
                             setWizardState("excited");
@@ -1436,6 +1574,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                             setTimeout(() => advanceToNext(updated), CHOREOGRAPHY_DELAY_MS);
                         }
                     } catch {
+                        if (isFlowStale(pollGen)) return;
                         walletPollFailures++;
                         if (walletPollFailures >= 10) {
                             if (walletPollRef.current) clearInterval(walletPollRef.current);
@@ -1516,7 +1655,12 @@ export function useWizardFlow(): UseWizardFlowReturn {
 
                         // Auto-trigger AI analysis for check failures if authenticated
                         // (skip api-check — can't reach AI if API is down)
-                        if (apiToken && nextStep.checkId && nextStep.checkId !== "api") {
+                        if (
+                            apiToken
+                            && nextStep.checkId
+                            && nextStep.checkId !== "api"
+                            && shouldRunAutoAnalysis(nextStep.id, failDetails)
+                        ) {
                             const pageCtx = buildWizardContext(
                                 nextStep.id, currentAnswers, {
                                 ...checkResults,
@@ -1587,7 +1731,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
             // Default — set appropriate state
             setWizardState("idle");
         },
-        [startDeviceAuth, browseGpus, runCheck, gpuListings, paymentGate.billingUrl],
+        [startDeviceAuth, browseGpus, runCheck, gpuListings, paymentGate.billingUrl, scheduleCheckpoint, isFlowStale, shouldRunAutoAnalysis],
     );
 
     // ── Submit answer ────────────────────────────────────────────────
@@ -1685,6 +1829,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
             const updated = { ...answersRef.current, [currentStep.id]: value };
             answersRef.current = updated;
             setAnswers(updated);
+            scheduleCheckpoint({ answers: updated });
 
             setTimeout(() => advanceToNext(updated), CHOREOGRAPHY_DELAY_MS);
         },
@@ -1727,7 +1872,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 setCheckCanRetry(true);
 
                 // Auto-trigger AI re-analysis on retry failure
-                if (apiToken) {
+                if (apiToken && shouldRunAutoAnalysis(stepId, failDetails)) {
                     const pageCtx = buildWizardContext(
                         stepId, answersRef.current, {
                         ...checkResults,
@@ -1998,14 +2143,37 @@ export function useWizardFlow(): UseWizardFlowReturn {
         setShowAiPrompt((prev) => !prev);
     }, [aiAvailable]);
 
-    // Cleanup polls on unmount
+    // Resume: kick off device flow when restoring on device-auth without a token
+    useEffect(() => {
+        if (resumeInfo.expired) {
+            setResumeInfo((prev) => ({ ...prev, expired: false }));
+        }
+        const current = WIZARD_STEPS[stepIndexRef.current];
+        if (initialCheckpoint && current?.type === "device-auth" && !answersRef.current["api-key"]) {
+            startDeviceAuth();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
+    }, []);
+
+    // Cleanup polls and persist progress on unmount
     useEffect(() => {
         return () => {
+            flowGenRef.current += 1;
             if (browserTimeoutRef.current) clearTimeout(browserTimeoutRef.current);
             if (devicePollRef.current) clearTimeout(devicePollRef.current);
             if (walletPollRef.current) clearInterval(walletPollRef.current);
+            if (checkpointTimerRef.current) clearTimeout(checkpointTimerRef.current);
+            if (!isComplete) {
+                saveWizardCheckpoint({
+                    stepIndex: stepIndexRef.current,
+                    answers: answersRef.current,
+                    conversationId: conversationIdRef.current ?? undefined,
+                    completedStepIds: [...completedStepIdsRef.current],
+                    savedAt: new Date().toISOString(),
+                });
+            }
         };
-    }, []);
+    }, [isComplete]);
 
     return {
         step,
@@ -2061,5 +2229,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
         confirmAi,
         aiToolCalls,
         transitioning,
+        resumeInfo,
+        flushCheckpoint,
     };
 }

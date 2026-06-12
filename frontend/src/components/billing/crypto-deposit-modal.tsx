@@ -216,6 +216,7 @@ export function CryptoDepositModal({
   onSuccess,
 }: CryptoDepositModalProps) {
   const [amount, setAmount] = useState("");
+  const [showAmountError, setShowAmountError] = useState(false);
   const [step, setStep] = useState<"amount" | "waiting" | "success">("amount");
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -310,7 +311,12 @@ export function CryptoDepositModal({
   }, []);
 
   const handleCreateDeposit = async () => {
-    if (!isValid || submitting) return;
+    if (!isValid) {
+      setShowAmountError(true);
+      return;
+    }
+    if (submitting) return;
+    setShowAmountError(false);
     setSubmitting(true);
     setErrorMsg("");
     try {
@@ -489,22 +495,23 @@ export function CryptoDepositModal({
                     </span>
                     <Input
                       id="btc-amount"
-                      type="number"
-                      min="1"
-                      max="10000"
-                      step="0.01"
+                      type="text"
+                      inputMode="decimal"
                       placeholder="0.00"
                       value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
+                      onChange={(e) => {
+                        setAmount(e.target.value);
+                        setShowAmountError(false);
+                      }}
                       className="pl-9 pr-16 font-mono text-base h-12 rounded-xl bg-navy-light border-border focus:border-amber-500 focus:ring-amber-500/20"
                     />
                     <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-text-muted font-medium">
                       CAD
                     </span>
                   </div>
-                  {amount && !isValid && (
+                  {showAmountError && !isValid && (
                     <p className="text-xs text-accent-red mt-1.5 flex items-center gap-1">
-                      <AlertTriangle className="h-3 w-3" /> $1.00 – $10,000.00
+                      <AlertTriangle className="h-3 w-3" /> Enter between $1.00 and $10,000.00 CAD
                     </p>
                   )}
                 </div>
@@ -547,7 +554,7 @@ export function CryptoDepositModal({
                   <Button
                     className="flex-1 h-12 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-black font-semibold shadow-lg shadow-amber-500/20"
                     onClick={handleCreateDeposit}
-                    disabled={!isValid || submitting}
+                    disabled={submitting}
                   >
                     {submitting ? (
                       <>

@@ -51,6 +51,8 @@ router = APIRouter()
 
 # Billing constants
 _FREE_CREDIT_AMOUNT = 10.0  # CAD
+_MIN_TOPUP_CAD = 5.0
+_MAX_TOPUP_CAD = 10000.0
 RESERVED_PRICING_TIERS = {
     "1_month": {
         "commitment": "1 month",
@@ -94,6 +96,16 @@ def _allow_direct_wallet_deposit(user: dict) -> bool:
     if XCELSIOR_ENV in ("test", "dev", "development"):
         return True
     return _is_platform_admin(user)
+
+
+def _validate_topup_amount(amount_cad: float, user: dict) -> None:
+    """Enforce wallet top-up bounds. Platform admins may deposit below the minimum."""
+    if amount_cad <= 0:
+        raise HTTPException(400, "Amount must be greater than zero")
+    if amount_cad > _MAX_TOPUP_CAD:
+        raise HTTPException(400, f"Amount cannot exceed ${_MAX_TOPUP_CAD:,.0f} CAD")
+    if not _is_platform_admin(user) and amount_cad < _MIN_TOPUP_CAD:
+        raise HTTPException(400, f"Minimum top-up is ${_MIN_TOPUP_CAD:.2f} CAD")
 
 
 @router.post("/billing/bill/{job_id}", tags=["Billing"])
@@ -170,8 +182,7 @@ def api_create_payment_intent(req: PaymentIntentRequest, request: Request):
     user = _require_customer_access(request, req.customer_id, billing_write=True)
     _require_scope(user, "billing:write")
     _check_billing_payment_rate_limit(req.customer_id, "payment-intent")
-    if req.amount_cad < 1 or req.amount_cad > 10000:
-        raise HTTPException(400, "Amount must be between $1 and $10,000 CAD")
+    _validate_topup_amount(req.amount_cad, user)
     mgr = get_stripe_manager()
     result = mgr.create_credit_deposit(req.customer_id, req.amount_cad, req.description)
     return {"ok": True, "intent": result}
@@ -357,8 +368,7 @@ def api_paypal_create_order(req: PayPalCreateOrderRequest, request: Request):
     _check_billing_payment_rate_limit(req.customer_id, "paypal-create-order")
     if not _PAYPAL_CLIENT_ID or not _PAYPAL_CLIENT_SECRET:
         raise HTTPException(503, "PayPal is not configured")
-    if req.amount_cad < 5 or req.amount_cad > 10000:
-        raise HTTPException(400, "Amount must be between $5 and $10,000 CAD")
+    _validate_topup_amount(req.amount_cad, user)
 
     token = _paypal_access_token()
     order_resp = httpx.post(
@@ -1021,8 +1031,7 @@ def api_crypto_deposit(req: CryptoDepositRequest, request: Request):
             503,
             service_status.get("reason") or "Bitcoin service is currently unavailable",
         )
-    if req.amount_cad < 1 or req.amount_cad > 10000:
-        raise HTTPException(400, "Amount must be between $1 and $10,000 CAD")
+    _validate_topup_amount(req.amount_cad, user)
     try:
         result = _btc_mod.create_deposit(req.customer_id, req.amount_cad)
         return {"ok": True, **result}
@@ -1113,6 +1122,7 @@ def api_ln_create_deposit(req: LnDepositRequest, request: Request):
     _check_billing_payment_rate_limit(req.customer_id, "lightning-deposit")
     if not _ln_mod or not _ln_mod.LN_ENABLED:
         raise HTTPException(503, "Lightning deposits are not enabled")
+    _validate_topup_amount(req.amount_cad, user)
     try:
         result = _ln_mod.create_deposit(req.customer_id, req.amount_cad)
         broadcast_sse(

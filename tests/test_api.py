@@ -154,6 +154,8 @@ def clean_data(monkeypatch):
 
     # Clean PostgreSQL tables
     with scheduler._atomic_mutation() as conn:
+        if scheduler._active_backend() != "sqlite":
+            conn.execute("DELETE FROM gpu_offers")
         conn.execute("DELETE FROM hosts")
         conn.execute("DELETE FROM jobs")
         conn.execute("DELETE FROM state")
@@ -188,15 +190,12 @@ def clean_data(monkeypatch):
     # Clear in-memory telemetry and rate limit buckets
     from routes.agent import _host_telemetry
     from routes._deps import _RATE_BUCKETS, _AUTH_RATE_BUCKETS, _api_keys, _sessions, _users_db
-    from routes.auth import _oauth_states
-
     _host_telemetry.clear()
     _RATE_BUCKETS.clear()
     _AUTH_RATE_BUCKETS.clear()
     _users_db.clear()
     _sessions.clear()
     _api_keys.clear()
-    _oauth_states.clear()
     # Seed wallet for anonymous test user so wallet pre-flight checks pass
     from billing import get_billing_engine
 
@@ -2242,6 +2241,7 @@ class TestGpuAvailability:
         gpu = data["gpus"][0]
         assert gpu["gpu_model"] == "RTX 4090"
         assert gpu["vram_gb"] is not None
+        assert gpu["region"] == "ca-on"
 
     def test_gpu_available_returns_correct_count(self):
         """Multiple hosts with same GPU model are counted correctly."""

@@ -118,7 +118,7 @@ else
 fi
 
 # 11. curl installed (needed for HEALTHCHECK)
-if grep -q 'apt-get.*curl' Dockerfile; then
+if grep -q 'apt-get' Dockerfile && grep -q '\bcurl\b' Dockerfile; then
     pass "curl in apt-get install"
 else
     fail "curl not installed — HEALTHCHECK will fail"
@@ -269,24 +269,39 @@ else
     fail "Build step missing --profile blue — api-blue image won't be built"
 fi
 
+# 30. Desktop exclude is root-only (frontend/src/lib/desktop must deploy)
+if grep -qE "^\s+--exclude='/desktop'" scripts/deploy.sh \
+    && ! grep -qE "^\s+--exclude='desktop'" scripts/deploy.sh; then
+    pass "Rsync excludes only /desktop (keeps frontend/src/lib/desktop)"
+else
+    fail "deploy.sh excludes 'desktop' too broadly — breaks frontend desktop runtime imports"
+fi
+
+# 30b. Root .dockerignore must not exclude frontend/src/lib/desktop
+if grep -q '^/desktop' .dockerignore && ! grep -qE '^desktop/?$' .dockerignore; then
+    pass ".dockerignore excludes only /desktop (keeps frontend/src/lib/desktop)"
+else
+    fail ".dockerignore excludes 'desktop' too broadly — breaks frontend Docker builds"
+fi
+
 # ── .env files ────────────────────────────────────────────────────────
 section ".env files"
 
-# 30. XCELSIOR_API_BLUE_PORT in .env
+# 31. XCELSIOR_API_BLUE_PORT in .env
 if grep -q 'XCELSIOR_API_BLUE_PORT' .env; then
     pass ".env has XCELSIOR_API_BLUE_PORT"
 else
     fail ".env missing XCELSIOR_API_BLUE_PORT"
 fi
 
-# 31. XCELSIOR_API_BLUE_PORT in .env.example
+# 32. XCELSIOR_API_BLUE_PORT in .env.example
 if grep -q 'XCELSIOR_API_BLUE_PORT' .env.example; then
     pass ".env.example has XCELSIOR_API_BLUE_PORT"
 else
     fail ".env.example missing XCELSIOR_API_BLUE_PORT"
 fi
 
-# 32. Ports don't conflict
+# 33. Ports don't conflict
 api_port=$(grep 'XCELSIOR_API_PORT=' .env | head -1 | cut -d= -f2)
 blue_port=$(grep 'XCELSIOR_API_BLUE_PORT=' .env | head -1 | cut -d= -f2)
 if [[ "$api_port" != "$blue_port" ]]; then

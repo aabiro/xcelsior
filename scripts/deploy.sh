@@ -62,6 +62,266 @@ error() { echo -e "${RED}✗${NC} $1"; exit 1; }
 # ── Helper Functions ──────────────────────────────────────────────────
 SSH_KEY="${XCELSIOR_SSH_KEY:-$HOME/.ssh/xcelsior}"
 WORKER_MODE_FILE="${XCELSIOR_WORKER_MODE_FILE:-$HOME/.xcelsior/worker.mode}"
+SSH_CONTROL_PATH="${XCELSIOR_SSH_CONTROL_PATH:-$HOME/.ssh/cm-xcelsior-%r@%h:%p}"
+DEPLOY_SYNC_MODE="${XCELSIOR_DEPLOY_SYNC:-rsync}"  # rsync (fast) | tarball (legacy)
+DEPLOY_TIMING="${XCELSIOR_DEPLOY_TIMING:-0}"
+DEPLOY_COMPRESS_MODE="${XCELSIOR_DEPLOY_COMPRESS:-zstd}"  # zstd | gzip | none
+DEPLOY_BUILD_CACHE="${XCELSIOR_DEPLOY_BUILD_CACHE:-1}"
+DOCKER_BUILD_CACHE_DIR="${XCELSIOR_DOCKER_BUILD_CACHE_DIR:-/opt/xcelsior-backups/docker-build-cache}"
+DEPLOY_ALLOW_MULTI_PRIMARY="${XCELSIOR_DEPLOY_ALLOW_MULTI_PRIMARY:-0}"
+declare -a DEPLOY_SYNC_HOSTS=()
+declare -a MIRROR_SYNC_PIDS=()
+declare -gA REMOTE_DEPLOY_HASHES=()
+RSYNC_COMPRESS_OPTS=()
+_DEPLOY_STEP_TS=0
+
+_deploy_pkg_binary() {
+    case "$1" in
+        zstd) printf '%s' "zstd" ;;
+        pigz) printf '%s' "pigz" ;;
+        rsync) printf '%s' "rsync" ;;
+        *) error "Unknown deploy package: $1" ;;
+    esac
+}
+
+_deploy_pkg_apt_name() {
+    case "$1" in
+        zstd|pigz|rsync) printf '%s' "$1" ;;
+        *) error "Unknown deploy package: $1" ;;
+    esac
+}
+
+_deploy_packages_for_compress_mode() {
+    local -n _out=$1
+    _out=()
+    case "$DEPLOY_COMPRESS_MODE" in
+        none) _out=(rsync) ;;
+        gzip) _out=(pigz rsync) ;;
+        zstd) _out=(zstd pigz rsync) ;;
+        *) error "Unknown XCELSIOR_DEPLOY_COMPRESS=$DEPLOY_COMPRESS_MODE (use zstd, gzip, or none)" ;;
+    esac
+}
+
+_apt_install_missing() {
+    local pkgs=("$@")
+    local missing=() pkg bin
+    for pkg in "${pkgs[@]}"; do
+        bin=$(_deploy_pkg_binary "$pkg")
+        command -v "$bin" >/dev/null 2>&1 || missing+=("$(_deploy_pkg_apt_name "$pkg")")
+    done
+    [[ ${#missing[@]} -eq 0 ]] && return 0
+    if command -v apt-get >/dev/null 2>&1; then
+        log "Installing deploy packages: ${missing[*]}"
+        sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${missing[@]}"
+        return 0
+    fi
+    if command -v brew >/dev/null 2>&1; then
+        log "Installing deploy packages via brew: ${missing[*]}"
+        brew install "${missing[@]}"
+        return 0
+    fi
+    error "Missing deploy packages: ${missing[*]}. Install with apt or brew."
+}
+
+_remote_apt_install_missing() {
+    local host="$1"
+    shift
+    local pkgs=("$@")
+    ssh_cmd_host "$host" "PACKAGES='${pkgs[*]}' bash -s" <<'EOF'
+set -euo pipefail
+missing=()
+for pkg in $PACKAGES; do
+    case "$pkg" in
+        zstd) command -v zstd >/dev/null 2>&1 || missing+=("zstd") ;;
+        pigz) command -v pigz >/dev/null 2>&1 || missing+=("pigz") ;;
+        rsync) command -v rsync >/dev/null 2>&1 || missing+=("rsync") ;;
+    esac
+done
+if [[ ${#missing[@]} -eq 0 ]]; then
+    exit 0
+fi
+if ! command -v apt-get >/dev/null 2>&1; then
+    echo "Missing packages on remote and apt-get unavailable: ${missing[*]}" >&2
+    exit 1
+fi
+sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${missing[@]}"
+EOF
+}
+
+ensure_local_deploy_tools() {
+    local -a pkgs=()
+    _deploy_packages_for_compress_mode pkgs
+    _apt_install_missing "${pkgs[@]}"
+}
+
+ensure_remote_deploy_tools() {
+    local host="${1:-$REMOTE_HOST}"
+    local -a pkgs=()
+    _deploy_packages_for_compress_mode pkgs
+    _remote_apt_install_missing "$host" "${pkgs[@]}"
+}
+
+ensure_all_remote_deploy_tools() {
+    ensure_remote_deploy_tools "$REMOTE_HOST"
+    local host
+    for host in "${DEPLOY_SYNC_HOSTS[@]}"; do
+        [[ "$host" == "$REMOTE_HOST" ]] && continue
+        ensure_remote_deploy_tools "$host"
+    done
+}
+
+init_deploy_compress() {
+    case "$DEPLOY_COMPRESS_MODE" in
+        auto) DEPLOY_COMPRESS_MODE=zstd ;;
+        zstd|gzip|none) ;;
+        *) error "Unknown XCELSIOR_DEPLOY_COMPRESS=$DEPLOY_COMPRESS_MODE (use zstd, gzip, or none)" ;;
+    esac
+}
+
+_parse_csv_hosts() {
+    local raw="$1"
+    local -n _out=$2
+    _out=()
+    [[ -z "$raw" ]] && return 0
+    local part
+    local IFS=','
+    for part in $raw; do
+        part="${part#"${part%%[![:space:]]*}"}"
+        part="${part%"${part##*[![:space:]]}"}"
+        [[ -n "$part" ]] && _out+=("$part")
+    done
+}
+
+init_deploy_targets() {
+    _parse_csv_hosts "${XCELSIOR_DEPLOY_SYNC_HOSTS:-}" DEPLOY_SYNC_HOSTS
+    if [[ "$DEPLOY_ALLOW_MULTI_PRIMARY" == "1" && -n "${XCELSIOR_DEPLOY_TARGETS:-}" ]]; then
+        local -a extra_targets=()
+        _parse_csv_hosts "$XCELSIOR_DEPLOY_TARGETS" extra_targets
+        local host
+        for host in "${extra_targets[@]}"; do
+            if [[ "$host" != "$REMOTE_HOST" ]]; then
+                DEPLOY_SYNC_HOSTS+=("$host")
+            fi
+        done
+    fi
+}
+
+init_rsync_compress() {
+    RSYNC_COMPRESS_OPTS=()
+    case "$DEPLOY_COMPRESS_MODE" in
+        none) ;;
+        gzip) RSYNC_COMPRESS_OPTS=(--compress) ;;
+        zstd) RSYNC_COMPRESS_OPTS=(--compress --compress-choice=zstd) ;;
+    esac
+    if [[ ${#RSYNC_COMPRESS_OPTS[@]} -gt 0 ]]; then
+        log "Rsync wire compression: ${DEPLOY_COMPRESS_MODE} (${RSYNC_COMPRESS_OPTS[*]})"
+    fi
+}
+
+_select_tar_compress() {
+    local -n _compressor=$1
+    local -n _ext=$2
+    case "$DEPLOY_COMPRESS_MODE" in
+        none)
+            _compressor=(cat)
+            _ext=tar
+            ;;
+        gzip)
+            _compressor=(pigz -1)
+            _ext=gz
+            ;;
+        zstd)
+            _compressor=(zstd -3 -T0)
+            _ext=zst
+            ;;
+    esac
+}
+
+remote_docker_build_prefix() {
+    if [[ "$DEPLOY_BUILD_CACHE" == "1" ]]; then
+        printf 'export DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 BUILDKIT_PROGRESS=plain; mkdir -p %q; ' "$DOCKER_BUILD_CACHE_DIR"
+    else
+        printf 'export DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1; '
+    fi
+}
+
+_deploy_mark() {
+    [[ "$DEPLOY_TIMING" == "1" ]] || return 0
+    local now
+    now=$(date +%s)
+    if [[ "$_DEPLOY_STEP_TS" -gt 0 ]]; then
+        log "⏱ step ${1:-done} took $((now - _DEPLOY_STEP_TS))s"
+    fi
+    _DEPLOY_STEP_TS=$now
+}
+
+SSH_BASE_OPTS=(
+    -i "$SSH_KEY"
+    -o StrictHostKeyChecking=accept-new
+    -o ControlMaster=auto
+    -o ControlPersist=15m
+    -o ControlPath="$SSH_CONTROL_PATH"
+    -o Compression=no
+    -o ServerAliveInterval=30
+    -o ServerAliveCountMax=4
+)
+
+RSYNC_BASE_OPTS=(
+    -az
+    --partial
+    --human-readable
+    --omit-dir-times
+    --no-perms
+    --no-owner
+    --no-group
+)
+
+RSYNC_EXCLUDES=(
+    --exclude='.git'
+    --exclude='__pycache__'
+    --exclude='.pytest_cache'
+    --exclude='venv'
+    --exclude='node_modules'
+    --exclude='.next'
+    --exclude='*.db'
+    --exclude='*.db-*'
+    --exclude='*.log'
+    --exclude='data'
+    --exclude='artifacts'
+    --exclude='.env'
+    --exclude='/desktop'
+    --exclude='checkpoints'
+    --exclude='.cursor'
+    --exclude='terminals'
+)
+
+_remote_target() {
+    local host="${1:-$REMOTE_HOST}"
+    printf '%s@%s' "$REMOTE_USER" "$host"
+}
+
+_rsync_shell() {
+    # shellcheck disable=SC2068
+    printf 'ssh'
+    for opt in "${SSH_BASE_OPTS[@]}"; do
+        printf ' %q' "$opt"
+    done
+}
+
+_rsync_shell_for_host() {
+    printf 'ssh'
+    for opt in "${SSH_BASE_OPTS[@]}"; do
+        printf ' %q' "$opt"
+    done
+}
+
+cleanup_ssh_mux() {
+    ssh -O exit -o ControlPath="$SSH_CONTROL_PATH" -i "$SSH_KEY" "$(_remote_target)" >/dev/null 2>&1 || true
+}
+
+trap cleanup_ssh_mux EXIT
 
 switch_local_worker() {
     local mode="$1"
@@ -83,12 +343,53 @@ ensure_prod_worker_if_test() {
     fi
 }
 
+open_ssh_mux() {
+    open_ssh_mux_host "$REMOTE_HOST"
+}
+
+open_ssh_mux_host() {
+    local host="${1:-$REMOTE_HOST}"
+    ssh "${SSH_BASE_OPTS[@]}" "$(_remote_target "$host")" "true" >/dev/null
+}
+
+open_ssh_mux_all() {
+    open_ssh_mux_host "$REMOTE_HOST"
+    local host
+    for host in "${DEPLOY_SYNC_HOSTS[@]}"; do
+        [[ "$host" == "$REMOTE_HOST" ]] && continue
+        open_ssh_mux_host "$host" &
+    done
+    wait
+}
+
 ssh_cmd() {
-    ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new "$REMOTE_USER@$REMOTE_HOST" "$@"
+    ssh_cmd_host "$REMOTE_HOST" "$@"
+}
+
+ssh_cmd_host() {
+    local host="$1"
+    shift
+    ssh "${SSH_BASE_OPTS[@]}" "$(_remote_target "$host")" "$@"
 }
 
 scp_file() {
-    scp -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new "$1" "$REMOTE_USER@$REMOTE_HOST:$2"
+    scp_file_host "$REMOTE_HOST" "$1" "$2"
+}
+
+scp_file_host() {
+    local host="$1" src="$2" dest="$3"
+    scp "${SSH_BASE_OPTS[@]}" "$src" "$(_remote_target "$host"):$dest"
+}
+
+rsync_to_host() {
+    local host="$1" src="$2" dest="$3"
+    shift 3
+    rsync "${RSYNC_BASE_OPTS[@]}" "${RSYNC_COMPRESS_OPTS[@]}" "$@" \
+        -e "$(_rsync_shell_for_host)" "$src" "$(_remote_target "$host"):$dest"
+}
+
+rsync_to_remote() {
+    rsync_to_host "$REMOTE_HOST" "$@"
 }
 
 get_env_value() {
@@ -236,26 +537,19 @@ EOF
 }
 
 install_nginx_configs() {
-    log "Installing nginx site configs..."
+    log "Installing nginx site configs (rsync bundle)..."
+    _deploy_mark "nginx-start"
 
-    scp_file "$PROJECT_DIR/nginx/xcelsior.conf" "/tmp/xcelsior.conf"
-    scp_file "$PROJECT_DIR/nginx/headscale.conf" "/tmp/headscale.conf"
-    scp_file "$PROJECT_DIR/nginx/headscale-http.conf" "/tmp/headscale-http.conf"
-    scp_file "$PROJECT_DIR/nginx/docs-xcelsior.conf" "/tmp/docs-xcelsior.conf"
-    scp_file "$PROJECT_DIR/nginx/downloads-xcelsior.conf" "/tmp/downloads-xcelsior.conf"
+    ssh_cmd "rm -rf /tmp/xcelsior-nginx && mkdir -p /tmp/xcelsior-nginx"
+    rsync_to_remote "$PROJECT_DIR/nginx/" "/tmp/xcelsior-nginx/" \
+        --include='*.conf' --exclude='*'
 
     ssh_cmd << 'EOF'
 set -e
-sudo cp /tmp/xcelsior.conf /etc/nginx/sites-available/xcelsior
-sudo cp /tmp/headscale.conf /etc/nginx/sites-available/headscale
-sudo cp /tmp/headscale-http.conf /etc/nginx/sites-available/headscale-http
-sudo cp /tmp/docs-xcelsior.conf /etc/nginx/sites-available/docs-xcelsior
-sudo cp /tmp/downloads-xcelsior.conf /etc/nginx/sites-available/downloads-xcelsior
-sudo ln -sf /etc/nginx/sites-available/xcelsior /etc/nginx/sites-enabled/xcelsior
-sudo ln -sf /etc/nginx/sites-available/headscale /etc/nginx/sites-enabled/headscale
-sudo ln -sf /etc/nginx/sites-available/headscale-http /etc/nginx/sites-enabled/headscale-http
-sudo ln -sf /etc/nginx/sites-available/docs-xcelsior /etc/nginx/sites-enabled/docs-xcelsior
-sudo ln -sf /etc/nginx/sites-available/downloads-xcelsior /etc/nginx/sites-enabled/downloads-xcelsior
+for f in xcelsior headscale headscale-http docs-xcelsior downloads-xcelsior; do
+  sudo cp "/tmp/xcelsior-nginx/${f}.conf" "/etc/nginx/sites-available/${f}"
+  sudo ln -sf "/etc/nginx/sites-available/${f}" "/etc/nginx/sites-enabled/${f}"
+done
 sudo nginx -t
 if systemctl is-active --quiet nginx; then
   sudo systemctl reload nginx
@@ -264,15 +558,28 @@ else
   sudo systemctl start nginx
 fi
 EOF
+    _deploy_mark "nginx-done"
     success "Nginx configs installed"
 }
 
 check_ssh() {
-    log "Testing SSH connection to $REMOTE_HOST..."
-    if ssh_cmd "echo 'SSH OK'" &>/dev/null; then
-        success "SSH connection successful"
+    log "Testing SSH connection to $REMOTE_HOST (mux=${SSH_CONTROL_PATH})..."
+    if open_ssh_mux_all && ssh_cmd "echo 'SSH OK'" &>/dev/null; then
+        success "SSH connection successful (control master ready)"
     else
         error "Cannot connect to $REMOTE_HOST. Check SSH keys and connectivity."
+    fi
+    ensure_all_remote_deploy_tools
+    if [[ ${#DEPLOY_SYNC_HOSTS[@]} -gt 0 ]]; then
+        local host
+        for host in "${DEPLOY_SYNC_HOSTS[@]}"; do
+            [[ "$host" == "$REMOTE_HOST" ]] && continue
+            if ssh_cmd_host "$host" "echo 'SSH OK'" &>/dev/null; then
+                success "Mirror host reachable: $host"
+            else
+                warn "Mirror host unreachable: $host (will retry during sync)"
+            fi
+        done
     fi
 }
 
@@ -285,7 +592,7 @@ set -e
 
 echo "=== Installing dependencies ==="
 sudo apt update
-sudo apt install -y nginx certbot python3-certbot-nginx docker.io docker-compose-plugin postgresql postgresql-client
+sudo apt install -y nginx certbot python3-certbot-nginx docker.io docker-compose-plugin postgresql postgresql-client zstd pigz rsync curl
 
 echo "=== Creating directories ==="
 sudo mkdir -p /opt/xcelsior /opt/xcelsior-backups /var/www/certbot
@@ -385,23 +692,130 @@ EOF
     success "Backup complete"
 }
 
-sync_code() {
-    log "Syncing code to server..."
-    local remote_tarball
+sync_code_push_env() {
+    sync_code_push_env_host "$REMOTE_HOST"
+}
 
-    # Auto-clean stale deploy archives so repeated deploys don't fill /tmp.
+sync_code_push_env_host() {
+    local host="${1:-$REMOTE_HOST}"
+    log "Sending $TARGET_ENV environment config -> $host..."
+    rsync_to_host "$host" "$ENV_FILE" "/tmp/xcelsior_env"
+    ssh_cmd_host "$host" "cp /tmp/xcelsior_env /opt/xcelsior/.env && rm /tmp/xcelsior_env"
+}
+
+sync_code_preserve_remote_files_host() {
+    local host="$1"
+    ssh_cmd_host "$host" << 'EOF'
+set -e
+for f in docker-compose.override.yml docker-compose.prod.yml; do
+    [ -f "/opt/xcelsior/$f" ] && cp "/opt/xcelsior/$f" "/tmp/xcelsior_preserve_$f" || true
+done
+EOF
+}
+
+sync_code_restore_preserved_files_host() {
+    local host="$1"
+    ssh_cmd_host "$host" << 'EOF'
+set -e
+for f in docker-compose.override.yml docker-compose.prod.yml; do
+    [ -f "/tmp/xcelsior_preserve_$f" ] && cp "/tmp/xcelsior_preserve_$f" "/opt/xcelsior_new/$f" || true
+    rm -f "/tmp/xcelsior_preserve_$f"
+done
+EOF
+}
+
+sync_code_rsync_host() {
+    local host="$1"
+    local push_env="${2:-1}"
+    log "Syncing code -> $host (rsync delta)..."
+    _deploy_mark "sync-$host-start"
+
+    ssh_cmd_host "$host" << 'EOF'
+set -e
+sudo mkdir -p /opt/xcelsior /opt/xcelsior_new
+sudo chown -R $USER:$USER /opt/xcelsior /opt/xcelsior_new 2>/dev/null || true
+rm -rf /opt/xcelsior_new/*
+EOF
+
+    sync_code_preserve_remote_files_host "$host"
+
+    rsync_to_host "$host" "$PROJECT_DIR/" "/opt/xcelsior_new/" \
+        "${RSYNC_EXCLUDES[@]}" \
+        --delete
+
+    sync_code_restore_preserved_files_host "$host"
+
+    ssh_cmd_host "$host" << 'EOF'
+set -e
+sudo rm -rf /opt/xcelsior
+sudo mv /opt/xcelsior_new /opt/xcelsior
+sudo chown -R $USER:$USER /opt/xcelsior
+EOF
+    if [[ "$push_env" == "1" ]]; then
+        sync_code_push_env_host "$host"
+    fi
+    _deploy_mark "sync-$host-done"
+    success "Code synced via rsync -> $host (env_push=$push_env)"
+}
+
+sync_code_rsync() {
+    log "Syncing code to primary $REMOTE_HOST (rsync delta, mux SSH)..."
+    _deploy_mark "sync-start"
+    sync_code_rsync_host "$REMOTE_HOST" 1
+    _deploy_mark "sync-done"
+}
+
+sync_code_mirror_host() {
+    local host="$1"
+    open_ssh_mux_host "$host" 2>/dev/null || true
+    sync_code_rsync_host "$host" 0 || warn "Mirror sync failed: $host"
+}
+
+start_mirror_syncs() {
+    MIRROR_SYNC_PIDS=()
+    [[ ${#DEPLOY_SYNC_HOSTS[@]} -eq 0 ]] && return 0
+    local host
+    for host in "${DEPLOY_SYNC_HOSTS[@]}"; do
+        [[ "$host" == "$REMOTE_HOST" ]] && continue
+        log "Starting background mirror sync -> $host"
+        sync_code_mirror_host "$host" &
+        MIRROR_SYNC_PIDS+=($!)
+    done
+}
+
+wait_mirror_syncs() {
+    [[ ${#MIRROR_SYNC_PIDS[@]} -eq 0 ]] && return 0
+    local pid rc=0
+    for pid in "${MIRROR_SYNC_PIDS[@]}"; do
+        wait "$pid" || rc=1
+    done
+    if [[ $rc -eq 0 ]]; then
+        success "All mirror syncs complete (${#MIRROR_SYNC_PIDS[@]} host(s))"
+    else
+        warn "One or more mirror syncs failed (primary deploy unaffected)"
+    fi
+    return 0
+}
+
+sync_code_tarball() {
+    log "Syncing code to server (legacy tarball)..."
+    _deploy_mark "sync-start"
+    local remote_tarball tar_compress tar_ext
+    _select_tar_compress tar_compress tar_ext
+
     ssh_cmd '
 set -e
 for d in /tmp /var/tmp /opt/xcelsior-backups /opt/xcelsior-backups/staging; do
     if [ -d "$d" ]; then
-        find "$d" -maxdepth 1 -type f -name "xcelsior_deploy*.tar.gz" -mtime +2 -delete 2>/dev/null || true
+        find "$d" -maxdepth 1 -type f \( -name "xcelsior_deploy*.tar.gz" -o -name "xcelsior_deploy*.tar.zst" -o -name "xcelsior_deploy*.tar" \) -mtime +2 -delete 2>/dev/null || true
     fi
 done
 ' || true
 
-    # Create tarball locally (excluding unnecessary files)
-    TARBALL="/tmp/xcelsior_deploy.tar.gz"
-    tar -czf "$TARBALL" \
+    local tarball="/tmp/xcelsior_deploy.tar.${tar_ext}"
+    log "Tarball compression: ${tar_compress[*]} (.${tar_ext})"
+
+    tar -cf - \
         --exclude='.git' \
         --exclude='__pycache__' \
         --exclude='.pytest_cache' \
@@ -411,40 +825,40 @@ done
         --exclude='*.db' \
         --exclude='*.db-*' \
         --exclude='*.log' \
-        --exclude='data/*' \
-        --exclude='./artifacts/*' \
+        --exclude='data' \
+        --exclude='artifacts' \
         --exclude='.env' \
         --exclude='./desktop' \
-        --exclude='./desktop/*' \
         --exclude='checkpoints' \
-        -C "$PROJECT_DIR" .
+        -C "$PROJECT_DIR" . | "${tar_compress[@]}" >"$tarball"
 
-    # Try multiple remote staging paths in order; /tmp can be full on busy hosts.
     remote_tarball=""
-    local candidate
+    local candidate probe_target
     for candidate in /tmp /var/tmp /opt/xcelsior-backups/staging /opt/xcelsior-backups; do
         ssh_cmd "mkdir -p '$candidate' 2>/dev/null || sudo mkdir -p '$candidate' || true; sudo chown \$USER:\$USER '$candidate' 2>/dev/null || true" || true
-        local probe_target
-        probe_target="${candidate%/}/xcelsior_deploy_$(date +%s).tar.gz"
-        if scp_file "$TARBALL" "$probe_target" 2>/dev/null; then
+        probe_target="${candidate%/}/xcelsior_deploy_$(date +%s).tar.${tar_ext}"
+        if scp_file "$tarball" "$probe_target" 2>/dev/null; then
             remote_tarball="$probe_target"
             break
         fi
     done
     [[ -n "$remote_tarball" ]] || error "Failed to upload deploy artifact to all staging paths (/tmp, /var/tmp, /opt/xcelsior-backups)"
     log "Using remote staging path: $remote_tarball"
-    rm "$TARBALL"
-    
-    ssh_cmd "DEPLOY_ARCHIVE='$remote_tarball' bash -s" << 'EOF'
+    rm -f "$tarball"
+
+    ssh_cmd "DEPLOY_ARCHIVE='$remote_tarball' DEPLOY_ARCHIVE_EXT='$tar_ext' bash -s" << 'EOF'
 set -e
 sudo mkdir -p /opt/xcelsior /opt/xcelsior_new
-# Preserve server-specific files (but NOT .env — we'll send the right one)
 for f in docker-compose.override.yml docker-compose.prod.yml; do
     [ -f "/opt/xcelsior/$f" ] && sudo cp "/opt/xcelsior/$f" "/tmp/xcelsior_preserve_$f" || true
 done
 sudo rm -rf /opt/xcelsior_new/*
-sudo tar -xzf "$DEPLOY_ARCHIVE" -C /opt/xcelsior_new
-# Restore preserved files
+case "$DEPLOY_ARCHIVE_EXT" in
+    zst) zstd -d -c "$DEPLOY_ARCHIVE" | sudo tar -xf - -C /opt/xcelsior_new ;;
+    gz) sudo tar -xzf "$DEPLOY_ARCHIVE" -C /opt/xcelsior_new ;;
+    tar) sudo tar -xf "$DEPLOY_ARCHIVE" -C /opt/xcelsior_new ;;
+    *) sudo tar -xf "$DEPLOY_ARCHIVE" -C /opt/xcelsior_new ;;
+esac
 for f in docker-compose.override.yml docker-compose.prod.yml; do
     [ -f "/tmp/xcelsior_preserve_$f" ] && sudo cp "/tmp/xcelsior_preserve_$f" "/opt/xcelsior_new/$f" || true
     sudo rm -f "/tmp/xcelsior_preserve_$f"
@@ -455,11 +869,33 @@ sudo chown -R $USER:$USER /opt/xcelsior
 rm -f "$DEPLOY_ARCHIVE"
 EOF
 
-    # Send the correct env file as .env on the server
-    log "Sending $TARGET_ENV environment config..."
-    scp_file "$ENV_FILE" "/tmp/xcelsior_env"
-    ssh_cmd "sudo cp /tmp/xcelsior_env /opt/xcelsior/.env && sudo chown \$USER:\$USER /opt/xcelsior/.env && rm /tmp/xcelsior_env"
-    success "Code synced (env=$TARGET_ENV)"
+    sync_code_push_env
+    start_mirror_syncs
+    _deploy_mark "sync-done"
+    success "Code synced via tarball (env=$TARGET_ENV)"
+}
+
+sync_code() {
+    case "$DEPLOY_SYNC_MODE" in
+        rsync)
+            set +e
+            sync_code_rsync
+            local rsync_rc=$?
+            set -e
+            if [[ $rsync_rc -ne 0 ]]; then
+                warn "rsync sync failed (exit $rsync_rc) — falling back to tarball"
+                sync_code_tarball
+            else
+                start_mirror_syncs
+            fi
+            ;;
+        tarball|tar)
+            sync_code_tarball
+            ;;
+        *)
+            error "Unknown XCELSIOR_DEPLOY_SYNC=$DEPLOY_SYNC_MODE (use rsync or tarball)"
+            ;;
+    esac
 }
 
 validate_build_env() {
@@ -498,6 +934,22 @@ validate_build_env() {
     fi
     log "Found $found NEXT_PUBLIC_* vars in .env"
     success "Build-time env vars validated"
+}
+
+verify_frontend_desktop_runtime_on_remote() {
+    local missing
+    missing=$(ssh_cmd "for f in \
+frontend/src/lib/desktop/runtime.tsx \
+frontend/src/lib/desktop/contract.ts \
+frontend/src/lib/desktop/tauri.ts; do
+  test -f \"/opt/xcelsior/\$f\" || echo \"\$f\"
+done" || true)
+    if [[ -n "$missing" ]]; then
+        error "Frontend desktop runtime missing on server (rsync exclude too broad?):
+$missing
+Ensure scripts/deploy.sh uses --exclude='/desktop' (root-only), then rerun deploy."
+    fi
+    success "Frontend desktop runtime present on server"
 }
 
 # Collect --build-arg flags for every NEXT_PUBLIC_* var in .env
@@ -568,12 +1020,39 @@ remote_deploy_meta_dir() {
 
 load_remote_deploy_hash() {
     local name="$1"
-    ssh_cmd "cat '$(remote_deploy_meta_dir)/$name' 2>/dev/null" || echo ""
+    printf '%s' "${REMOTE_DEPLOY_HASHES[$name]:-}"
+}
+
+load_remote_deploy_hashes() {
+    local meta line name value
+    meta=$(remote_deploy_meta_dir)
+    declare -gA REMOTE_DEPLOY_HASHES=()
+    while IFS='|' read -r name value; do
+        [[ -n "$name" ]] && REMOTE_DEPLOY_HASHES["$name"]="$value"
+    done < <(ssh_cmd "META='$meta'; for n in api frontend nginx runtime; do
+        printf '%s|' \"\$n\"
+        cat \"\$META/\$n\" 2>/dev/null || true
+        printf '\n'
+    done" 2>/dev/null || true)
 }
 
 store_remote_deploy_hash() {
     local name="$1" value="$2"
     ssh_cmd "mkdir -p '$(remote_deploy_meta_dir)' && printf '%s' '$value' > '$(remote_deploy_meta_dir)/$name'"
+}
+
+store_remote_deploy_hashes() {
+    local meta payload
+    meta=$(remote_deploy_meta_dir)
+    payload=$(printf 'api=%s\nfrontend=%s\nnginx=%s\nruntime=%s\n' \
+        "$DEPLOY_API_HASH" "$DEPLOY_FRONTEND_HASH" "$DEPLOY_NGINX_HASH" "$DEPLOY_RUNTIME_HASH")
+    ssh_cmd "META='$meta'; mkdir -p \"\$META\"
+while IFS='=' read -r k v; do
+  [[ -z \"\$k\" ]] && continue
+  printf '%s' \"\$v\" > \"\$META/\$k\"
+done <<'HASHES'
+$payload
+HASHES"
 }
 
 DEPLOY_API_HASH=""
@@ -586,13 +1065,29 @@ DEPLOY_INSTALL_NGINX=true
 DEPLOY_RUNTIME_CHANGED=true
 
 detect_deploy_inputs() {
-    local env_rel
+    local env_rel hash_dir
     env_rel="${ENV_FILE#$PROJECT_DIR/}"
+    hash_dir=$(mktemp -d)
+    _deploy_mark "diff-start"
 
-    DEPLOY_API_HASH=$(hash_repo_subset .dockerignore Dockerfile requirements.txt alembic.ini pyproject.toml "*.py" routes templates migrations)
-    DEPLOY_FRONTEND_HASH=$(frontend_build_hash)
-    DEPLOY_NGINX_HASH=$(hash_repo_subset nginx)
-    DEPLOY_RUNTIME_HASH=$(hash_repo_subset docker-compose.yml "$env_rel")
+    # One SSH round-trip for all remote hashes (was 4 sequential calls).
+    load_remote_deploy_hashes & local pid_remote=$!
+
+    # Hash local inputs in parallel (CPU-bound).
+    hash_repo_subset .dockerignore Dockerfile requirements.txt alembic.ini pyproject.toml "*.py" routes templates migrations \
+        >"$hash_dir/api" &
+    frontend_build_hash >"$hash_dir/frontend" &
+    hash_repo_subset nginx >"$hash_dir/nginx" &
+    hash_repo_subset docker-compose.yml "$env_rel" >"$hash_dir/runtime" &
+    wait
+
+    wait "$pid_remote" 2>/dev/null || true
+
+    DEPLOY_API_HASH=$(cat "$hash_dir/api")
+    DEPLOY_FRONTEND_HASH=$(cat "$hash_dir/frontend")
+    DEPLOY_NGINX_HASH=$(cat "$hash_dir/nginx")
+    DEPLOY_RUNTIME_HASH=$(cat "$hash_dir/runtime")
+    rm -rf "$hash_dir"
 
     local prev_api_hash prev_frontend_hash prev_nginx_hash prev_runtime_hash
     prev_api_hash=$(load_remote_deploy_hash api)
@@ -605,14 +1100,12 @@ detect_deploy_inputs() {
     [[ -n "$prev_nginx_hash" && "$DEPLOY_NGINX_HASH" == "$prev_nginx_hash" ]] && DEPLOY_INSTALL_NGINX=false || DEPLOY_INSTALL_NGINX=true
     [[ -n "$prev_runtime_hash" && "$DEPLOY_RUNTIME_HASH" == "$prev_runtime_hash" ]] && DEPLOY_RUNTIME_CHANGED=false || DEPLOY_RUNTIME_CHANGED=true
 
+    _deploy_mark "diff-done"
     log "Deploy diff: api_build=${DEPLOY_BUILD_API} frontend_build=${DEPLOY_BUILD_FRONTEND} nginx=${DEPLOY_INSTALL_NGINX} runtime=${DEPLOY_RUNTIME_CHANGED}"
 }
 
 persist_deploy_inputs() {
-    store_remote_deploy_hash api "$DEPLOY_API_HASH"
-    store_remote_deploy_hash frontend "$DEPLOY_FRONTEND_HASH"
-    store_remote_deploy_hash nginx "$DEPLOY_NGINX_HASH"
-    store_remote_deploy_hash runtime "$DEPLOY_RUNTIME_HASH"
+    store_remote_deploy_hashes
 }
 
 deploy_docker() {
@@ -621,23 +1114,39 @@ deploy_docker() {
     # Verify .env exists on server
     ssh_cmd "test -f /opt/xcelsior/.env" || error ".env file not found on server"
 
-    if [[ "$DEPLOY_BUILD_API" == true ]]; then
-        log "Building API + scheduler-worker + bg-worker images..."
-        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue build api api-blue scheduler-worker bg-worker" || error "API/scheduler-worker/bg-worker build failed"
-        success "API + scheduler-worker + bg-worker images built"
-    else
-        log "API build inputs unchanged — skipping api/scheduler-worker image rebuild"
-    fi
+    local build_prefix
+    build_prefix=$(remote_docker_build_prefix)
 
-    if [[ "$DEPLOY_BUILD_FRONTEND" == true ]]; then
+    if [[ "$DEPLOY_BUILD_API" == true && "$DEPLOY_BUILD_FRONTEND" == true ]]; then
         validate_build_env
-        log "Building frontend image (explicit build args)..."
+        verify_frontend_desktop_runtime_on_remote
+        log "Building API + frontend images in parallel on remote (BuildKit cache=${DEPLOY_BUILD_CACHE})..."
         local build_args
         build_args=$(collect_frontend_build_args)
-        ssh_cmd "cd /opt/xcelsior && docker compose build $build_args frontend" || error "Frontend build failed"
+        ssh_cmd "cd /opt/xcelsior && set -e
+$build_prefix
+api_pid=''
+fe_pid=''
+(docker compose --profile blue build api api-blue scheduler-worker bg-worker) & api_pid=\$!
+(docker compose build $build_args frontend) & fe_pid=\$!
+wait \"\$api_pid\"
+wait \"\$fe_pid\"
+" || error "Parallel docker build failed"
+        success "API + frontend images built (parallel)"
+    elif [[ "$DEPLOY_BUILD_API" == true ]]; then
+        log "Building API + scheduler-worker + bg-worker images (BuildKit cache=${DEPLOY_BUILD_CACHE})..."
+        ssh_cmd "cd /opt/xcelsior && $build_prefix docker compose --profile blue build api api-blue scheduler-worker bg-worker" || error "API/scheduler-worker/bg-worker build failed"
+        success "API + scheduler-worker + bg-worker images built"
+    elif [[ "$DEPLOY_BUILD_FRONTEND" == true ]]; then
+        validate_build_env
+        verify_frontend_desktop_runtime_on_remote
+        log "Building frontend image (explicit build args, BuildKit cache=${DEPLOY_BUILD_CACHE})..."
+        local build_args
+        build_args=$(collect_frontend_build_args)
+        ssh_cmd "cd /opt/xcelsior && $build_prefix docker compose build $build_args frontend" || error "Frontend build failed"
         success "Frontend image built"
     else
-        log "Frontend build inputs unchanged — skipping frontend image rebuild"
+        log "Image build inputs unchanged — skipping docker image rebuilds"
     fi
 
     # Run Alembic migrations (P3/C8 — fatal; silent-warn hides broken schema).
@@ -734,7 +1243,7 @@ deploy_docker() {
     # we ship new code. `--no-deps` keeps docker-compose from touching
     # unrelated services. `--build` ensures the image picks up the new
     # ssh_gateway.py (the main api build above doesn't target this image).
-    ssh_cmd "cd /opt/xcelsior && docker compose up -d --no-deps --build ssh-gateway" || error "ssh-gateway restart failed"
+    ssh_cmd "cd /opt/xcelsior && $build_prefix docker compose up -d --no-deps --build ssh-gateway" || error "ssh-gateway restart failed"
     success "ssh-gateway restarted"
 
     ssh_cmd "cd /opt/xcelsior && docker compose up -d --no-deps frontend" || error "Frontend restart failed"
@@ -771,13 +1280,20 @@ deploy_docker() {
         ssh_cmd "cd /opt/xcelsior && docker compose --profile blue logs --tail=30" || true
     fi
 
-    log "Verifying /readyz (NFS volumes) and PayPal enabled…"
-    if ssh_cmd "curl -sf --max-time 10 http://localhost:$final_port/readyz" 2>/dev/null | grep -q nfs_volumes; then
+    log "Verifying /readyz and PayPal (parallel)…"
+    local readyz_out paypal_out
+    readyz_out=$(ssh_cmd "curl -sf --max-time 10 http://localhost:$final_port/readyz" 2>/dev/null || true) &
+    local pid_readyz=$!
+    paypal_out=$(ssh_cmd "curl -sf --max-time 10 http://localhost:$final_port/api/billing/paypal/enabled" 2>/dev/null || true) &
+    local pid_paypal=$!
+    wait "$pid_readyz" 2>/dev/null || true
+    wait "$pid_paypal" 2>/dev/null || true
+    if grep -q nfs_volumes <<<"$readyz_out"; then
         success "readyz includes nfs_volumes probe"
     else
         warn "readyz missing nfs_volumes — deploy may be on an older API build"
     fi
-    if ssh_cmd "curl -sf --max-time 10 http://localhost:$final_port/api/billing/paypal/enabled" 2>/dev/null | grep -q '"enabled":true'; then
+    if grep -q '"enabled":true' <<<"$paypal_out"; then
         success "PayPal enabled on API"
     else
         warn "PayPal not enabled — check PAYPAL_CLIENT_ID/SECRET in .env"
@@ -785,9 +1301,14 @@ deploy_docker() {
 
     ssh_cmd "cd /opt/xcelsior && docker compose --profile blue ps"
 
-    # Clean up dangling images and build cache to prevent disk bloat
-    log "Pruning unused Docker images and build cache..."
-    ssh_cmd "docker image prune -af 2>/dev/null; docker builder prune -af --keep-storage=1G 2>/dev/null" || true
+    # Prune dangling images; preserve BuildKit layer cache when enabled.
+    if [[ "$DEPLOY_BUILD_CACHE" == "1" ]]; then
+        log "Pruning dangling Docker images (keeping BuildKit cache)..."
+        ssh_cmd "docker image prune -f 2>/dev/null" || true
+    else
+        log "Pruning unused Docker images and build cache..."
+        ssh_cmd "docker image prune -af 2>/dev/null; docker builder prune -af --keep-storage=1G 2>/dev/null" || true
+    fi
     success "Docker cleanup complete"
     success "Docker deployment complete (blue-green)"
 }
@@ -991,6 +1512,13 @@ ${CYAN}Environment variables:${NC}
   XCELSIOR_DEPLOY_USER  SSH user (default: linuxuser)
   XCELSIOR_DEPLOY_HOST  VPS IP (default: 149.28.121.61)
   XCELSIOR_SSH_KEY      SSH key path (default: ~/.ssh/xcelsior)
+  XCELSIOR_DEPLOY_SYNC  rsync (default, fast delta) or tarball (legacy)
+  XCELSIOR_DEPLOY_COMPRESS  zstd (default) | gzip | none — installs zstd/pigz/rsync as needed
+  XCELSIOR_DEPLOY_TIMING  Set to 1 to log per-step durations
+  XCELSIOR_DEPLOY_SYNC_HOSTS  Comma-separated mirror hosts (rsync-only, parallel)
+  XCELSIOR_DEPLOY_BUILD_CACHE  1 (default) keep BuildKit cache between deploys
+  XCELSIOR_DOCKER_BUILD_CACHE_DIR  Remote cache dir (default: /opt/xcelsior-backups/docker-build-cache)
+  XCELSIOR_SSH_CONTROL_PATH  SSH mux socket (default: ~/.ssh/cm-xcelsior-%r@%h:%p)
 
 ${CYAN}Examples:${NC}
   # First-time setup
@@ -1022,18 +1550,30 @@ EOF
 }
 
 main() {
+    case "${1:-}" in
+        --help|-h)
+            print_usage
+            exit 0
+            ;;
+    esac
+
+    init_deploy_targets
+    init_deploy_compress
+    ensure_local_deploy_tools
+    init_rsync_compress
+
     echo -e "${CYAN}${BOLD}"
     echo "╔════════════════════════════════════════════════╗"
     echo "║         XCELSIOR DEPLOYMENT SCRIPT             ║"
     echo "║              xcelsior.ca                       ║"
     echo "╚════════════════════════════════════════════════╝"
     echo -e "${NC}"
+
+    if [[ ${#DEPLOY_SYNC_HOSTS[@]} -gt 0 ]]; then
+        log "Mirror sync hosts: ${DEPLOY_SYNC_HOSTS[*]} (code-only, parallel with primary deploy)"
+    fi
     
     case "${1:-}" in
-        --help|-h)
-            print_usage
-            exit 0
-            ;;
         --test)
             TARGET_ENV="test"
             resolve_env
@@ -1077,6 +1617,7 @@ main() {
                 log "Nginx configs unchanged — skipping"
             fi
             deploy_docker
+            wait_mirror_syncs
             persist_deploy_inputs
             local quick_hash
             quick_hash=$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")
@@ -1122,6 +1663,7 @@ main() {
                 install_nginx_configs
             fi
             deploy_docker
+            wait_mirror_syncs
             persist_deploy_inputs
             local_hash=$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")
             ssh_cmd "echo '$local_hash' | sudo tee /opt/xcelsior/.deploy_hash > /dev/null"
@@ -1137,6 +1679,7 @@ main() {
             sync_code
             install_nginx_configs
             deploy_systemd
+            wait_mirror_syncs
             health_check
             ;;
         --drain-host)
@@ -1193,6 +1736,7 @@ main() {
                 ssh_cmd "cd /opt/xcelsior && docker compose up -d" || error "Docker up failed"
             fi
 
+            wait_mirror_syncs
             persist_deploy_inputs
             ssh_cmd "echo '$local_hash' | sudo tee /opt/xcelsior/.deploy_hash > /dev/null"
             health_check

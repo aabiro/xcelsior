@@ -23,6 +23,7 @@ const ROUTE_LABELS: Record<string, string> = {
   admin: "Admin",
   notifications: "Notifications",
   new: "New",
+  inference: "Endpoints",
 };
 
 export function Breadcrumb() {

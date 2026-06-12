@@ -222,7 +222,7 @@ export function GPUAvailabilityContent() {
           {liveData
             ? "Real-time GPU availability and pricing across our compute network."
             : "Reference pricing from our catalog. Live host counts refresh when the network is reachable."}{" "}
-          All prices in CAD. Eligible for the AI Compute Access Fund rebate.
+          All prices in CAD. Spot pricing up to 70% off, reserved plans up to 45% off.
         </p>
       </div>
 
@@ -256,7 +256,7 @@ export function GPUAvailabilityContent() {
         </div>
         <button
           type="button"
-          onClick={load}
+          onClick={() => void load({ refresh: true })}
           disabled={loadState === "loading"}
           className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg px-3 text-sm text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50"
           aria-label="Refresh availability"

@@ -96,41 +96,6 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
         </table>
       </m.div>
 
-      {/* AI Compute Fund Callout */}
-      <m.div
-        className="glow-card rounded-xl p-8 md:p-12 mb-20"
-        style={{ "--glow-color": "rgba(245,158,11,0.12)" } as React.CSSProperties}
-        initial={{ opacity: 0, y: 20 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.5 }}
-      >
-        <div className="flex flex-col md:flex-row items-start gap-8">
-          <div className="flex-1">
-            <h2 className="text-2xl font-bold mb-3">{t("pricing.fund_title")}</h2>
-            <p className="text-text-secondary leading-relaxed mb-4">
-              {t("pricing.fund_desc")}
-            </p>
-            <ul className="space-y-2">
-              <li className="flex items-center gap-2 text-sm text-text-secondary">
-                <Check className="h-4 w-4 text-emerald" /> {t("pricing.fund_i1")}
-              </li>
-              <li className="flex items-center gap-2 text-sm text-text-secondary">
-                <Check className="h-4 w-4 text-emerald" /> {t("pricing.fund_i2")}
-              </li>
-              <li className="flex items-center gap-2 text-sm text-text-secondary">
-                <Check className="h-4 w-4 text-emerald" /> {t("pricing.fund_i3")}
-              </li>
-            </ul>
-          </div>
-          <div className="rounded-xl border border-accent-gold/30 bg-accent-gold/5 p-6 text-center min-w-[200px]">
-            <p className="text-sm text-text-secondary mb-1">{t("pricing.fund_effective")}</p>
-            <p className="text-4xl font-bold font-mono bg-gradient-to-r from-accent-gold to-accent-red bg-clip-text text-transparent">{t("pricing.fund_effective_price")}</p>
-            <p className="text-xs text-text-muted">{t("pricing.fund_effective_unit")}</p>
-          </div>
-        </div>
-      </m.div>
-
       {/* Plans */}
       <m.div
         className="grid grid-cols-1 gap-8 md:grid-cols-3 mb-20"

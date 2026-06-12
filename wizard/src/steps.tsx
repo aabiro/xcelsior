@@ -255,15 +255,21 @@ interface DeviceAuthStepProps {
   envPath?: string | null;
   /** If token save failed, this is the error message */
   tokenSaveError?: string | null;
+  /** Worker OAuth client (provider/both) — shown once after auth */
+  oauthClientId?: string;
+  oauthClientSecret?: string;
 }
 
 export function DeviceAuthStep({
   userCode, verificationUri, status, token, email, errorMessage, onContinue, onOpenBrowser, envPath, tokenSaveError,
+  oauthClientId, oauthClientSecret,
 }: DeviceAuthStepProps) {
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [tokenRevealed, setTokenRevealed] = useState(false);
 
   useInput((input) => {
     if (status === "authorized" && input === "\r") onContinue?.();
+    if (status === "authorized" && (input === "v" || input === "V")) setTokenRevealed((r) => !r);
     if (status === "waiting" && input === "\r" && countdown !== null && countdown > 0) {
       setCountdown(0);
       onOpenBrowser?.();
@@ -307,10 +313,15 @@ export function DeviceAuthStep({
         <Text color="#22c55e">✓ Authenticated{email ? ` as ${email}` : ""}</Text>
         {token && (
           <Box marginTop={1} flexDirection="column">
-            <Text>Session token saved (masked):</Text>
+            <Text>Your session token (for CLI / API access):</Text>
             <Box marginTop={0}>
-              <Text bold color="#ffcc00">{token.length > 12 ? `${token.slice(0, 4)}••••${token.slice(-4)}` : "••••••••"}</Text>
+              <Text bold color="#ffcc00" wrap="wrap">
+                {tokenRevealed
+                  ? token
+                  : (token.length > 12 ? `${token.slice(0, 4)}••••${token.slice(-4)}` : "••••••••")}
+              </Text>
             </Box>
+            <Text dimColor>Press <Text bold>v</Text> to {tokenRevealed ? "hide" : "reveal"} full token</Text>
             {tokenSaveError ? (
               <Text color="#ef4444">✗ Failed to save token: {tokenSaveError}</Text>
             ) : (
@@ -321,6 +332,14 @@ export function DeviceAuthStep({
                 )}
               </>
             )}
+          </Box>
+        )}
+        {oauthClientId && oauthClientSecret && (
+          <Box marginTop={1} flexDirection="column" borderStyle="round" borderColor="#fbbf24" paddingX={1}>
+            <Text bold color="#fbbf24">Worker OAuth credentials (copy now — not shown again)</Text>
+            <Text>  Client ID: <Text bold color="#ffcc00" wrap="wrap">{oauthClientId}</Text></Text>
+            <Text>  Client secret: <Text bold color="#ffcc00" wrap="wrap">{oauthClientSecret}</Text></Text>
+            <Text dimColor>  Also written to <Text bold>~/.xcelsior/.env</Text> for the worker agent</Text>
           </Box>
         )}
         <Box marginTop={1}>
@@ -390,14 +409,14 @@ export function ManualTokenStep({ onSubmit }: ManualTokenStepProps) {
 
   return (
     <Box flexDirection="column">
-      <Text dimColor>Paste your API key (from Dashboard → Settings → API & SSH):</Text>
+      <Text dimColor>Paste your OAuth token (from device sign-in, or Dashboard → Settings):</Text>
       <Box>
         <Text color="#00d4ff">{"› "}</Text>
         <TextInput
           value={value}
           onChange={setValue}
           onSubmit={handleSubmit}
-          placeholder="xc-..."
+          placeholder="xoa_..."
         />
       </Box>
     </Box>

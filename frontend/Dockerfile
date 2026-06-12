@@ -1,8 +1,10 @@
+# syntax=docker/dockerfile:1
 # ── Stage 1: Dependencies ────────────────────────────────────────────
 FROM node:22-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci --ignore-scripts
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --ignore-scripts
 
 # ── Stage 2: Build ───────────────────────────────────────────────────
 FROM node:22-alpine AS builder
@@ -25,7 +27,8 @@ ENV NEXT_PUBLIC_REOWN_PROJECT_ID=${NEXT_PUBLIC_REOWN_PROJECT_ID}
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV DOCKER_BUILD=1
 
-RUN npm run build
+RUN --mount=type=cache,target=/app/.next/cache \
+    npm run build
 
 # ── Stage 3: Production ─────────────────────────────────────────────
 FROM node:22-alpine AS runner

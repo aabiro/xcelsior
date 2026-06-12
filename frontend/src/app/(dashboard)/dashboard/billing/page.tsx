@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,7 @@ import {
   CreditCard, DollarSign, RefreshCw, Download, Plus, FileText,
   ArrowUpRight, ArrowDownRight, HardDrive, Leaf, Clock, Zap, Receipt, Loader2,
   Bitcoin, Activity, Gift, Sparkles, CheckCircle2, RotateCcw, Trash2,
+  TrendingDown, Cloud, Wallet as WalletIcon,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
@@ -572,19 +574,50 @@ export default function BillingPage() {
   const currentWalletBalance = displayWalletBalance;
   const freeCreditFlowActive = claimingCredits || freeCreditAnimationState !== "idle";
 
+  const spendBreakdown = useMemo(() => {
+    const debits = transactions.filter((tx) => tx.amount_cad < 0);
+    let compute = 0;
+    let serverless = 0;
+    let storage = 0;
+    for (const tx of debits) {
+      const desc = (tx.description || "").toLowerCase();
+      const amt = Math.abs(tx.amount_cad);
+      if (desc.includes("serverless")) serverless += amt;
+      else if (desc.includes("storage") || desc.includes("volume")) storage += amt;
+      else compute += amt;
+    }
+    return { compute, serverless, storage, total: compute + serverless + storage };
+  }, [transactions]);
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">{t("dash.billing.title")}</h1>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleCsvExport} disabled={csvLoading}>
-            {csvLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-            {t("dash.billing.export_csv")}
-          </Button>
-          <Button variant="outline" size="sm" onClick={load}>
-            <RefreshCw className="h-3.5 w-3.5" /> {t("common.refresh")}
-          </Button>
+      <div className="rounded-xl border border-accent-cyan/20 bg-gradient-to-br from-accent-cyan/[0.07] via-surface/90 to-emerald/[0.05] p-5 md:p-6 shadow-[0_0_40px_rgba(56,189,248,0.05)]">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-accent-cyan/25 bg-accent-cyan/10 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-accent-cyan">
+              <WalletIcon className="h-3 w-3" />
+              Wallet billing
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight">{t("dash.billing.title")}</h1>
+            <p className="text-sm text-text-secondary mt-1 max-w-2xl">
+              Prepaid CAD credits for GPU compute, serverless inference, and volume storage.
+              Top up via Stripe, Bitcoin, or Lightning — manage cards and invoices in one place.
+            </p>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="outline" size="sm" onClick={handleCsvExport} disabled={csvLoading}>
+              {csvLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+              {t("dash.billing.export_csv")}
+            </Button>
+            <Button variant="outline" size="sm" onClick={load}>
+              <RefreshCw className="h-3.5 w-3.5" /> {t("common.refresh")}
+            </Button>
+            {canManageBilling && (
+              <Button variant="success" size="sm" onClick={() => setShowDeposit(true)}>
+                <Plus className="h-3.5 w-3.5" /> {t("dash.billing.add_credits")}
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -739,6 +772,55 @@ export default function BillingPage() {
               </motion.div>
             )}
           </AnimatePresence>
+
+          {spendBreakdown.total > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg">Spend breakdown</CardTitle>
+                <CardDescription>Debit totals from your wallet ledger</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="rounded-lg border border-border/70 bg-surface/50 p-3">
+                    <div className="flex items-center gap-2 text-xs text-text-muted mb-1">
+                      <Zap className="h-3.5 w-3.5 text-ice" />
+                      GPU compute
+                    </div>
+                    <p className="text-lg font-bold font-mono tabular-nums">{formatCad(spendBreakdown.compute)}</p>
+                  </div>
+                  <div className="rounded-lg border border-border/70 bg-surface/50 p-3">
+                    <div className="flex items-center gap-2 text-xs text-text-muted mb-1">
+                      <Cloud className="h-3.5 w-3.5 text-accent-violet" />
+                      Serverless
+                    </div>
+                    <p className="text-lg font-bold font-mono tabular-nums">{formatCad(spendBreakdown.serverless)}</p>
+                  </div>
+                  <div className="rounded-lg border border-border/70 bg-surface/50 p-3">
+                    <div className="flex items-center gap-2 text-xs text-text-muted mb-1">
+                      <HardDrive className="h-3.5 w-3.5 text-ice-blue" />
+                      Storage
+                    </div>
+                    <p className="text-lg font-bold font-mono tabular-nums">{formatCad(spendBreakdown.storage)}</p>
+                  </div>
+                  <div className="rounded-lg border border-emerald/25 bg-emerald/[0.04] p-3">
+                    <div className="flex items-center gap-2 text-xs text-emerald mb-1">
+                      <TrendingDown className="h-3.5 w-3.5" />
+                      Save with spot
+                    </div>
+                    <p className="text-xs text-text-secondary leading-relaxed">
+                      Interruptible spot instances bill at published rates — often 40–60% below on-demand.
+                    </p>
+                    <Link
+                      href="/dashboard/spot-pricing"
+                      className="mt-2 inline-flex text-xs font-medium text-accent-cyan hover:underline"
+                    >
+                      View spot pricing →
+                    </Link>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Add Credits + CAF Banner */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -905,12 +987,17 @@ export default function BillingPage() {
                   </>
                 )}
 
-                {!paymentRailsLoading && btcStatus.enabled && (
+                {!paymentRailsLoading && (
                   <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5">
                     <div className="flex items-center gap-2 mb-1">
                       <Bitcoin className="h-4 w-4 text-amber-500" />
                       <p className="font-medium text-amber-500">Bitcoin Deposits</p>
-                      {!btcStatus.available && (
+                      {!btcStatus.enabled && (
+                        <Badge variant="info" className="border border-amber-500/30 bg-amber-500/10 text-amber-500">
+                          Coming Soon
+                        </Badge>
+                      )}
+                      {btcStatus.enabled && !btcStatus.available && (
                         <Badge variant="info" className="border border-amber-500/30 bg-amber-500/10 text-amber-500">
                           Unavailable
                         </Badge>
@@ -919,16 +1006,19 @@ export default function BillingPage() {
                     <p className="text-xs text-text-secondary">
                       {btcStatus.available
                         ? "Pay with BTC - zero processing fees, settled in CAD"
-                        : "Bitcoin deposits are temporarily unavailable."}
+                        : btcStatus.enabled
+                          ? (btcStatus.reason || "Bitcoin deposits are temporarily unavailable.")
+                          : "Bitcoin on-chain deposits are coming soon. Stay tuned!"}
                     </p>
                     <Button
                       size="sm"
                       className="mt-5 bg-amber-500 hover:bg-amber-600 text-black"
                       onClick={() => setShowCryptoDeposit(true)}
                       disabled={!btcStatus.available}
+                      title={!btcStatus.available ? (btcStatus.enabled ? btcStatus.reason : "Coming soon") : undefined}
                     >
                       <Bitcoin className="h-3.5 w-3.5" />
-                      {btcStatus.available ? "Deposit BTC" : "Unavailable"}
+                      {btcStatus.available ? "Deposit BTC" : btcStatus.enabled ? "Unavailable" : "Coming Soon"}
                     </Button>
                   </div>
                 )}
@@ -1109,7 +1199,9 @@ export default function BillingPage() {
               <CardTitle className="flex items-center gap-2">
                 <CreditCard className="h-4 w-4 text-text-muted" /> Payment Methods
               </CardTitle>
-              <CardDescription>Saved cards and automatic top-ups</CardDescription>
+              <CardDescription>
+                Saved cards, embedded Stripe checkout for top-ups, and automatic wallet reload
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {paymentMethods.length === 0 ? (

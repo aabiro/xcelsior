@@ -10,6 +10,7 @@ import {
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import enPublic from "@/lib/i18n/en-public";
+import enDashboard from "@/lib/i18n/en-dashboard";
 
 export type Locale = "en" | "fr";
 
@@ -42,7 +43,6 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocale] = useState<Locale>("en");
   const [mounted, setMounted] = useState(false);
   const [frPublic, setFrPublic] = useState<Record<string, string> | null>(null);
-  const [enDashboard, setEnDashboard] = useState<Record<string, string> | null>(null);
   const [frDashboard, setFrDashboard] = useState<Record<string, string> | null>(null);
   const pathname = usePathname();
   const router = useRouter();
@@ -76,17 +76,6 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
   }, [locale, frPublic]);
 
   useEffect(() => {
-    if (!onDashboard || enDashboard) return;
-    let cancelled = false;
-    import("@/lib/i18n/en-dashboard").then((mod) => {
-      if (!cancelled) setEnDashboard(mod.default);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [onDashboard, enDashboard]);
-
-  useEffect(() => {
     if (!onDashboard || locale !== "fr" || frDashboard) return;
     let cancelled = false;
     import("@/lib/i18n/fr-dashboard").then((mod) => {
@@ -108,7 +97,7 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
 
   const dictionary = useMemo(() => {
     const activeLocale = mounted ? locale : "en";
-    const en = { ...enPublic, ...(enDashboard ?? {}) };
+    const en = { ...enPublic, ...enDashboard };
     if (activeLocale !== "fr" || !frPublic) return en;
     return { ...en, ...frPublic, ...(frDashboard ?? {}) };
   }, [mounted, locale, enDashboard, frPublic, frDashboard]);

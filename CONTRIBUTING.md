@@ -39,6 +39,10 @@ with a scope matching the plan milestone when applicable, e.g. `feat(p1.3):`.
 
 ```bash
 bash scripts/deploy.sh --quick   # VPS only (api/frontend/nginx)
+# Default sync uses rsync deltas + SSH mux (pixelspark-style). Legacy: XCELSIOR_DEPLOY_SYNC=tarball
+# Wire compression (default zstd; installs zstd/pigz): XCELSIOR_DEPLOY_COMPRESS=zstd
+# Parallel code mirrors: XCELSIOR_DEPLOY_SYNC_HOSTS=100.64.0.5,100.64.0.6
+# Per-step timings: XCELSIOR_DEPLOY_TIMING=1 bash scripts/deploy.sh
 ```
 
 Worker agents on GPU hosts update themselves via the admin rollout endpoint

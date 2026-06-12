@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 FROM python:3.12-slim
 
 LABEL org.opencontainers.image.title="Xcelsior API" \
@@ -11,13 +12,14 @@ WORKDIR /app
 
 # Install system deps for psycopg (libpq), SSH (scheduler needs ssh client), ping (health monitor),
 # curl (healthcheck), cryptsetup/e2fsprogs/util-linux (LUKS volume provisioning on colocated NFS).
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq5 openssh-client iputils-ping tmux curl \
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    libpq5 openssh-client iputils-ping tmux \
     cryptsetup e2fsprogs util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt
 
 COPY . .
 

@@ -77,6 +77,50 @@ describe("DeployStudio", () => {
     });
   });
 
+  it("uses normalized live inventory regions for deployment", async () => {
+    render(
+      <DeployStudio
+        canWrite
+        gpus={[
+          {
+            gpu_model: "RTX 4090",
+            vram_gb: 24,
+            region: "",
+            province: "ON",
+            count_available: 1,
+            price_per_hour_cad: 1.5,
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("dash.serverless.continue"));
+    fireEvent.click(screen.getByText("dash.serverless.continue"));
+
+    await waitFor(() => {
+      expect(screen.getByText("dash.serverless.hardware_title")).toBeInTheDocument();
+    });
+
+    const [, regionSelect] = screen.getAllByRole("combobox");
+    await waitFor(() => {
+      expect(regionSelect).toHaveValue("ca-on");
+    });
+
+    fireEvent.click(screen.getByText("dash.serverless.continue"));
+    fireEvent.click(screen.getByText("dash.serverless.continue"));
+    fireEvent.click(screen.getByText("dash.serverless.continue"));
+    fireEvent.click(await screen.findByText("dash.serverless.deploy"));
+
+    await waitFor(() => {
+      expect(apiMocks.createServerlessEndpoint).toHaveBeenCalledWith(
+        expect.objectContaining({
+          gpu_tier: "RTX 4090",
+          region: "ca-on",
+        }),
+      );
+    });
+  });
+
   it("disables deploy for viewers", async () => {
     render(<DeployStudio gpus={[]} canWrite={false} />);
 

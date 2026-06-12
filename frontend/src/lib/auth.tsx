@@ -55,8 +55,8 @@ interface AuthState {
   loading: boolean;
   /** True when the user has been idle long enough to show the warning. */
   sessionExpiring: boolean;
-  /** Call after login/register — fetches user profile via cookie. */
-  login: () => Promise<void>;
+  /** Call after login/register — fetches user profile via cookie. Returns true when authenticated. */
+  login: () => Promise<boolean>;
   /** Silently re-fetch /api/auth/me and update user in context. */
   refreshUser: () => Promise<void>;
   /** POST /api/auth/logout, clear cookie + state. */
@@ -69,7 +69,7 @@ const AuthContext = createContext<AuthState>({
   user: null,
   loading: true,
   sessionExpiring: false,
-  login: async () => {},
+  login: async () => false,
   refreshUser: async () => {},
   logout: async () => {},
   continueSession: () => {},
@@ -126,12 +126,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [user, sessionExpiring, resetIdleTimers]);
 
-  const login = useCallback(async () => {
+  const login = useCallback(async (): Promise<boolean> => {
     try {
       const res = await getMe();
-      setUser(res.user);
+      const nextUser = res.user ?? null;
+      setUser(nextUser);
+      return Boolean(nextUser);
     } catch {
       setUser(null);
+      return false;
     }
   }, []);
 

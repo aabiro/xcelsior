@@ -335,6 +335,117 @@ def api_admin_overview(request: Request, days: int = 30):
     except Exception as e:
         log.debug("admin_overview: volume revenue query failed: %s", e)
 
+    wallet_deposits_mtd = 0.0
+    spot_revenue_window = 0.0
+    on_demand_revenue_window = 0.0
+    serverless_revenue_window = 0.0
+    storage_billing_window = 0.0
+    daily_deposits: list[dict] = []
+    pricing_mode_totals: list[dict] = []
+    daily_pricing_mix: list[dict] = []
+    try:
+        be = get_billing_engine()
+        with be._conn() as conn:
+            row = conn.execute(
+                """SELECT COALESCE(SUM(amount_cad), 0) AS total
+                   FROM wallet_transactions
+                   WHERE tx_type = 'deposit' AND created_at >= %s""",
+                (month_start,),
+            ).fetchone()
+            wallet_deposits_mtd = round(float(row["total"] if row else 0), 2)
+
+            for r in conn.execute(
+                """SELECT to_char(to_timestamp(created_at), 'YYYY-MM-DD') AS day,
+                          ROUND(SUM(amount_cad)::numeric, 2) AS amount
+                   FROM wallet_transactions
+                   WHERE tx_type = 'deposit' AND created_at >= %s
+                   GROUP BY day ORDER BY day""",
+                (thirty_days_ago,),
+            ).fetchall():
+                daily_deposits.append({"date": r["day"], "amount": float(r["amount"])})
+
+            mode_row = conn.execute(
+                """SELECT
+                      ROUND(COALESCE(SUM(CASE WHEN COALESCE(pricing_mode, 'on_demand') = 'spot'
+                          THEN total_cost_cad ELSE 0 END), 0)::numeric, 2) AS spot_rev,
+                      ROUND(COALESCE(SUM(CASE WHEN COALESCE(pricing_mode, 'on_demand') != 'spot'
+                          THEN total_cost_cad ELSE 0 END), 0)::numeric, 2) AS other_rev
+                   FROM usage_meters WHERE created_at >= %s""",
+                (thirty_days_ago,),
+            ).fetchone()
+            if mode_row:
+                spot_revenue_window = float(mode_row["spot_rev"] or 0)
+                on_demand_revenue_window = float(mode_row["other_rev"] or 0)
+
+            for r in conn.execute(
+                """SELECT COALESCE(pricing_mode, 'on_demand') AS mode,
+                          ROUND(SUM(total_cost_cad)::numeric, 2) AS revenue,
+                          COUNT(*) AS jobs
+                   FROM usage_meters WHERE created_at >= %s
+                   GROUP BY COALESCE(pricing_mode, 'on_demand')
+                   ORDER BY revenue DESC""",
+                (thirty_days_ago,),
+            ).fetchall():
+                pricing_mode_totals.append(
+                    {
+                        "mode": r["mode"],
+                        "revenue": float(r["revenue"]),
+                        "jobs": int(r["jobs"]),
+                    }
+                )
+
+            mix_by_day: dict[str, dict[str, float]] = {}
+            for r in conn.execute(
+                """SELECT to_char(to_timestamp(created_at), 'YYYY-MM-DD') AS day,
+                          COALESCE(pricing_mode, 'on_demand') AS mode,
+                          ROUND(SUM(total_cost_cad)::numeric, 2) AS revenue
+                   FROM usage_meters WHERE created_at >= %s
+                   GROUP BY day, COALESCE(pricing_mode, 'on_demand')
+                   ORDER BY day""",
+                (thirty_days_ago,),
+            ).fetchall():
+                day = r["day"]
+                if day not in mix_by_day:
+                    mix_by_day[day] = {
+                        "date": day,
+                        "spot": 0.0,
+                        "on_demand": 0.0,
+                        "reserved": 0.0,
+                    }
+                mode = str(r["mode"])
+                amount = float(r["revenue"])
+                if mode == "spot":
+                    mix_by_day[day]["spot"] += amount
+                elif mode.startswith("reserved"):
+                    mix_by_day[day]["reserved"] += amount
+                else:
+                    mix_by_day[day]["on_demand"] += amount
+            daily_pricing_mix = list(mix_by_day.values())
+
+            sl_row = conn.execute(
+                """SELECT COALESCE(SUM(amount_cad), 0) AS total
+                   FROM billing_cycles
+                   WHERE resource_type IN ('serverless_gpu', 'serverless_gpu_cold_start')
+                     AND status = 'charged' AND period_start >= %s""",
+                (thirty_days_ago,),
+            ).fetchone()
+            serverless_revenue_window = round(float(sl_row["total"] if sl_row else 0), 2)
+
+            st_row = conn.execute(
+                """SELECT COALESCE(SUM(amount_cad), 0) AS total
+                   FROM billing_cycles
+                   WHERE resource_type = 'volume' AND status = 'charged' AND period_start >= %s""",
+                (thirty_days_ago,),
+            ).fetchone()
+            storage_billing_window = round(float(st_row["total"] if st_row else 0), 2)
+    except Exception as e:
+        log.debug("admin_overview: billing insights failed: %s", e)
+
+    usage_window = spot_revenue_window + on_demand_revenue_window
+    spot_share_pct = (
+        round(spot_revenue_window / usage_window * 100, 1) if usage_window > 0 else 0.0
+    )
+
     return {
         "ok": True,
         "days": days,
@@ -353,11 +464,19 @@ def api_admin_overview(request: Request, days: int = 30):
             "total_storage_gb": total_storage_gb,
             "attached_volumes": attached_volumes,
             "volume_revenue": volume_revenue,
+            "wallet_deposits_mtd": wallet_deposits_mtd,
+            "spot_revenue_window": spot_revenue_window,
+            "spot_share_pct": spot_share_pct,
+            "serverless_revenue_window": serverless_revenue_window,
+            "storage_billing_window": storage_billing_window,
         },
         "trends": trends,
         "daily_revenue": daily_revenue,
         "daily_signups": daily_signups,
         "daily_jobs": daily_jobs,
+        "daily_deposits": daily_deposits,
+        "daily_pricing_mix": daily_pricing_mix,
+        "pricing_mode_totals": pricing_mode_totals,
         "web_push": web_push,
     }
 
@@ -587,6 +706,37 @@ def api_admin_revenue(request: Request, days: int = 90):
     except Exception as e:
         log.warning("admin_revenue: failed to fetch top providers", exc_info=True)
         result["top_providers"] = []
+
+    try:
+        with be._conn() as conn:
+            rows = conn.execute(
+                """SELECT COALESCE(pricing_mode, 'on_demand') AS mode,
+                          ROUND(SUM(total_cost_cad)::numeric, 2) AS revenue,
+                          COUNT(*) AS jobs
+                   FROM usage_meters WHERE created_at >= %s
+                   GROUP BY COALESCE(pricing_mode, 'on_demand')
+                   ORDER BY revenue DESC""",
+                (since,),
+            ).fetchall()
+            result["by_pricing_mode"] = [
+                {"mode": r["mode"], "revenue": float(r["revenue"]), "jobs": r["jobs"]}
+                for r in rows
+            ]
+            dep_rows = conn.execute(
+                """SELECT to_char(to_timestamp(created_at), 'YYYY-MM-DD') AS day,
+                          ROUND(SUM(amount_cad)::numeric, 2) AS deposits
+                   FROM wallet_transactions
+                   WHERE tx_type = 'deposit' AND created_at >= %s
+                   GROUP BY day ORDER BY day""",
+                (since,),
+            ).fetchall()
+            result["daily_deposits"] = [
+                {"date": r["day"], "deposits": float(r["deposits"])} for r in dep_rows
+            ]
+    except Exception as e:
+        log.warning("admin_revenue: failed to fetch pricing/deposit breakdown", exc_info=True)
+        result["by_pricing_mode"] = []
+        result["daily_deposits"] = []
 
     return result
 

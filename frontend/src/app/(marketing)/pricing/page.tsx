@@ -8,16 +8,16 @@ const PricingContent = dynamic(
 
 export const metadata: Metadata = {
   title: "Pricing",
-  description: "GPU compute pricing in Canadian dollars. From $0.30 CAD/hr. Eligible for 67% federal AI Compute Access Fund rebate.",
+  description: "GPU compute pricing in Canadian dollars. From $0.30 CAD/hr, with dynamic spot pricing up to 70% off and reserved plans up to 45% off.",
   alternates: { canonical: "https://xcelsior.ca/pricing" },
   openGraph: {
     title: "Pricing | Xcelsior",
-    description: "GPU compute from $0.30 CAD/hr. Eligible for 67% federal AI Compute Access Fund rebate.",
+    description: "GPU compute from $0.30 CAD/hr. Spot pricing up to 70% off, reserved plans up to 45% off.",
     url: "https://xcelsior.ca/pricing",
   },
   twitter: {
     title: "Pricing | Xcelsior",
-    description: "GPU compute from $0.30 CAD/hr. Eligible for 67% federal AI Compute Access Fund rebate.",
+    description: "GPU compute from $0.30 CAD/hr. Spot pricing up to 70% off, reserved plans up to 45% off.",
   },
 };
 
@@ -118,11 +118,6 @@ export default async function PricingPage() {
         "@type": "Question",
         name: "What currency are prices in?",
         acceptedAnswer: { "@type": "Answer", text: "All pricing is in Canadian Dollars (CAD). No USD conversion." },
-      },
-      {
-        "@type": "Question",
-        name: "What is the AI Compute Access Fund?",
-        acceptedAnswer: { "@type": "Answer", text: "A $300M Government of Canada program that rebates up to 67% of compute costs on Canadian infrastructure." },
       },
       {
         "@type": "Question",

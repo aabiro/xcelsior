@@ -8,7 +8,7 @@ import { getErrorResponseBody } from "./getErrorResponseBody.js";
 import { getFetchFn } from "./getFetchFn.js";
 import { getRequestBody } from "./getRequestBody.js";
 import { getResponseBody } from "./getResponseBody.js";
-import { Headers } from "./Headers.js";
+import { Headers, headersToRecord } from "./Headers.js";
 import { makeRequest } from "./makeRequest.js";
 import { abortRawResponse, toRawResponse, unknownRawResponse } from "./RawResponse.js";
 import { requestWithRetries } from "./requestWithRetries.js";
@@ -85,9 +85,15 @@ const SENSITIVE_HEADERS = new Set([
 
 function redactHeaders(headers: Headers | Record<string, string>): Record<string, string> {
     const filtered: Record<string, string> = {};
-    for (const [key, value] of headers instanceof Headers
-        ? Array.from(headers.entries())
-        : Object.entries(headers)) {
+    const entries: [string, string][] =
+        headers instanceof Headers
+            ? (() => {
+                  const pairs: [string, string][] = [];
+                  headers.forEach((value, key) => pairs.push([key, value]));
+                  return pairs;
+              })()
+            : Object.entries(headers);
+    for (const [key, value] of entries) {
         if (SENSITIVE_HEADERS.has(key.toLowerCase())) {
             filtered[key] = "[REDACTED]";
         } else {
@@ -312,7 +318,7 @@ export async function fetcherImpl<R = unknown>(args: Fetcher.Args): Promise<APIR
                     method: args.method,
                     url: redactUrl(url),
                     statusCode: response.status,
-                    responseHeaders: redactHeaders(Object.fromEntries(response.headers.entries())),
+                    responseHeaders: redactHeaders(headersToRecord(response.headers)),
                 };
                 logger.error("HTTP request failed with error status", metadata);
             }

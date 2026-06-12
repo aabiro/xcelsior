@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, ShieldAlert } from "lucide-react";
@@ -17,6 +17,7 @@ function OAuthCallbackContent() {
   const state = searchParams.get("state");
   const oauthError = searchParams.get("error");
   const oauthErrorDescription = searchParams.get("error_description");
+  const exchangedRef = useRef(false);
   const [error, setError] = useState(() => {
     if (oauthError) return oauthErrorDescription || oauthError;
     if (!code || !state) return "OAuth callback is missing required parameters.";
@@ -25,14 +26,24 @@ function OAuthCallbackContent() {
 
   useEffect(() => {
     let cancelled = false;
-    if (error) return () => { cancelled = true; };
+    if (error || !code || !state || exchangedRef.current) {
+      return () => { cancelled = true; };
+    }
+    exchangedRef.current = true;
 
     (async () => {
       try {
         const result = await completeBrowserOAuthLogin(code, state);
-        await login();
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+          const ok = await login();
+          if (ok) {
+            if (!cancelled) router.replace(result.redirectPath);
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 120 * (attempt + 1)));
+        }
         if (!cancelled) {
-          router.replace(result.redirectPath);
+          setError("Session could not be established. Please try signing in again.");
         }
       } catch (err) {
         if (!cancelled) {
