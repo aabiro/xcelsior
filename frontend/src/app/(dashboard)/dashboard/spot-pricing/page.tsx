@@ -7,6 +7,7 @@ import { StatCard } from "@/components/ui/stat-card";
 import { Button } from "@/components/ui/button";
 import {
   TrendingUp, RefreshCw, Loader2, DollarSign, Cpu, BarChart3, Rocket,
+  Zap, Clock, Shield,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
@@ -16,6 +17,7 @@ import type { SpotPricePoint } from "@/lib/api";
 import { toast } from "sonner";
 import {
   SpotBadge,
+  SpotInterruptWarning,
   SpotSavingsPill,
   SpotSupplyIndicator,
   SpotSurface,
@@ -94,11 +96,12 @@ export default function SpotPricingPage() {
           <Button variant="outline" size="sm" onClick={load}>
             <RefreshCw className="h-3.5 w-3.5" /> Refresh
           </Button>
-          <Button size="sm" asChild className="shadow-[0_0_20px_rgba(16,185,129,0.15)]">
-            <Link href="/dashboard/instances?launch=true&mode=spot">
-              <Rocket className="h-3.5 w-3.5" /> Launch spot instance
-            </Link>
-          </Button>
+          <Link
+            href="/dashboard/instances?launch=true&mode=spot"
+            className="inline-flex h-8 items-center justify-center gap-2 rounded-lg bg-emerald px-3 text-sm font-medium text-white shadow-[0_0_20px_rgba(16,185,129,0.15)] transition-colors hover:bg-emerald/80"
+          >
+            <Rocket className="h-3.5 w-3.5" /> Launch spot instance
+          </Link>
         </div>
         </div>
       </SpotSurface>
@@ -120,6 +123,57 @@ export default function SpotPricingPage() {
           icon={DollarSign}
         />
       </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card className="border-emerald/20 bg-emerald/[0.03]">
+          <CardContent className="p-4 space-y-2">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Zap className="h-4 w-4 text-emerald" />
+              Fixed spot rates
+            </div>
+            <p className="text-xs text-text-secondary leading-relaxed">
+              Published CAD/hr prices — no bidding wars. Your rate is locked at launch and billed from wallet credits like on-demand.
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-accent-cyan/20 bg-accent-cyan/[0.03]">
+          <CardContent className="p-4 space-y-2">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Clock className="h-4 w-4 text-accent-cyan" />
+              Auto-requeue
+            </div>
+            <p className="text-xs text-text-secondary leading-relaxed">
+              If capacity is reclaimed, interrupted jobs re-enter the queue automatically when GPUs free up — no manual restart.
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-border/80">
+          <CardContent className="p-4 space-y-2">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Shield className="h-4 w-4 text-text-muted" />
+              On-demand fallback
+            </div>
+            <p className="text-xs text-text-secondary leading-relaxed">
+              Need guaranteed uptime? Launch on-demand from{" "}
+              <Link href="/dashboard/instances?launch=true" className="text-accent-cyan hover:underline">
+                Instances
+              </Link>{" "}
+              or compare live rates on{" "}
+              <Link href="/dashboard/billing" className="text-accent-cyan hover:underline">
+                Billing
+              </Link>
+              .
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <SpotInterruptWarning title="Interruptible capacity">
+        <p className="text-xs text-amber-100/80 leading-relaxed">
+          Spot instances may be preempted when demand rises. Workloads should checkpoint regularly.
+          Billing stops when a job is interrupted — you only pay for GPU time actually used.
+        </p>
+      </SpotInterruptWarning>
 
       <Card>
         <CardHeader>

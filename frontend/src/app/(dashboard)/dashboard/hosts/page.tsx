@@ -472,6 +472,7 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
         vram_gb: parsedVram,
         country,
         province,
+        region: location || undefined,
         notes: notes.trim() || undefined,
         spot_enabled: spotEnabled,
         spot_min_cents: spotEnabled ? spotMinCents : 0,

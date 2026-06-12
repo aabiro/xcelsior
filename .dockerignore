@@ -12,7 +12,7 @@ artifacts/
 .env
 .env.test
 .env.worker
-desktop/
+/desktop
 checkpoints/
 .vscode/
 .github/

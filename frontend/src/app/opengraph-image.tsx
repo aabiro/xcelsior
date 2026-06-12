@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og";
 
 export const runtime = "edge";
-export const alt = "Canada-Grounded AI Compute — Cheapest Compliant Compute in Canada";
+export const alt = "The Cheapest Compliant GPU Compute in Canada";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -78,7 +78,7 @@ export default function OGImage() {
             marginBottom: 40,
           }}
         >
-          Cheapest Compliant Compute in Canada
+          The cheapest compliant GPU compute in Canada
         </p>
 
         {/* Feature pills */}

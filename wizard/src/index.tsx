@@ -80,9 +80,14 @@ function App() {
     transitioning,
     hasAiDetails,
     revealAi,
+    resumeInfo,
+    flushCheckpoint,
   } = useWizardFlow();
 
-  const handleExit = useCallback(() => setExiting(true), []);
+  const handleExit = useCallback(() => {
+    flushCheckpoint();
+    setExiting(true);
+  }, [flushCheckpoint]);
   const handleExitDone = useCallback(() => {
     resetWizardRegion();
     exit();
@@ -165,6 +170,18 @@ function App() {
         onExitDone={handleExitDone}
         branch={wizardBranch}
       />
+
+      {/* Resume / expiry notices */}
+      {resumeInfo.resumed && !isComplete && (
+        <Box marginTop={1} width={64}>
+          <Text color="#fbbf24">↻ Resumed previous wizard session</Text>
+        </Box>
+      )}
+      {resumeInfo.needsReauth && !isComplete && (
+        <Box marginTop={1} width={64}>
+          <Text color="#fbbf24">Sign in again to continue where you left off</Text>
+        </Box>
+      )}
 
       {/* Progress bar — hidden until mode is chosen (step count unknown before then) */}
       {!isComplete && answers.mode && <ProgressBar current={currentNum} total={totalSteps} />}
@@ -274,6 +291,8 @@ function App() {
               onOpenBrowser={openBrowserNow}
               envPath={deviceAuthEnvPath}
               tokenSaveError={tokenSaveError}
+              oauthClientId={answers["oauth-client-id"] as string | undefined}
+              oauthClientSecret={answers["oauth-client-secret"] as string | undefined}
             />
           )}
 

@@ -68,26 +68,34 @@ if (typeof globalThis.Headers !== "undefined") {
             return this.headers.get("set-cookie") || [];
         }
 
-        *entries(): HeadersIterator<[string, string]> {
+        *entries(): IterableIterator<[string, string]> {
             for (const [key, values] of this.headers.entries()) {
                 yield [key, values.join(", ")];
             }
         }
 
-        *keys(): HeadersIterator<string> {
+        *keys(): IterableIterator<string> {
             yield* this.headers.keys();
         }
 
-        *values(): HeadersIterator<string> {
+        *values(): IterableIterator<string> {
             for (const values of this.headers.values()) {
                 yield values.join(", ");
             }
         }
 
-        [Symbol.iterator](): HeadersIterator<[string, string]> {
+        [Symbol.iterator](): IterableIterator<[string, string]> {
             return this.entries();
         }
     };
+}
+
+export function headersToRecord(headers: Headers): Record<string, string> {
+    const result: Record<string, string> = {};
+    headers.forEach((value, key) => {
+        result[key] = value;
+    });
+    return result;
 }
 
 export { Headers };

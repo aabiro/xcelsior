@@ -21,10 +21,16 @@ function LoginPageContent() {
   const { user, loading: authLoading, login } = useAuth();
   const { t } = useLocale();
   const redirectTarget = normalizeAuthRedirectPath(searchParams.get("redirect"), "/dashboard");
+  const oauthErrorCode = searchParams.get("error");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(() => {
+    if (oauthErrorCode?.startsWith("oauth_")) {
+      return "Sign-in was interrupted. Please try again — it should work on the first attempt now.";
+    }
+    return "";
+  });
   const [loading, setLoading] = useState(false);
 
   // MFA state
@@ -195,11 +201,14 @@ function LoginPageContent() {
   }
 
   async function handleOAuth(provider: string) {
+    setError("");
+    setLoading(true);
     try {
-      const res = await oauthInitiate(provider);
+      const res = await oauthInitiate(provider, redirectTarget);
       window.location.href = res.auth_url;
     } catch (err) {
       setError(err instanceof Error ? err.message : "OAuth failed");
+      setLoading(false);
     }
   }
 

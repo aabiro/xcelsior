@@ -282,6 +282,44 @@ def _cache_incr(kind: str, identifier: str, ttl: int) -> int:
     return int(get_auth_cache().incr(_cache_key(kind, identifier), ttl))
 
 
+SOCIAL_OAUTH_STATE_TTL_SEC = 600
+
+
+def store_social_oauth_state(
+    state: str,
+    *,
+    provider: str,
+    redirect_path: str = "/dashboard",
+    ttl: int = SOCIAL_OAUTH_STATE_TTL_SEC,
+) -> None:
+    """Persist CSRF state for social OAuth (GitHub/Google/HF) across API workers."""
+    _cache_set_json(
+        "social_oauth",
+        state,
+        {
+            "provider": provider,
+            "redirect_path": redirect_path,
+            "created_at": time.time(),
+        },
+        ttl,
+    )
+
+
+def consume_social_oauth_state(state: str, *, ttl: int = SOCIAL_OAUTH_STATE_TTL_SEC) -> dict[str, Any] | None:
+    """Atomically read + delete social OAuth state. Returns None when missing/expired."""
+    data = _cache_getdel_json("social_oauth", state)
+    if not data or not isinstance(data, dict):
+        return None
+    created = float(data.get("created_at") or 0)
+    if created <= 0 or time.time() - created > ttl:
+        return None
+    provider = str(data.get("provider") or "").strip()
+    if not provider:
+        return None
+    redirect_path = str(data.get("redirect_path") or "/dashboard").strip() or "/dashboard"
+    return {"provider": provider, "redirect_path": redirect_path, "created_at": created}
+
+
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 

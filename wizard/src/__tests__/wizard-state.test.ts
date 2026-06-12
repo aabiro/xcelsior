@@ -23,16 +23,17 @@ describe("wizard-state", () => {
         clearWizardCheckpoint();
     });
 
-    it("saves and loads checkpoint at mode 600", () => {
+    it("saves and loads checkpoint at mode 600 without secrets", () => {
         saveWizardCheckpoint({
             stepIndex: 3,
-            answers: { mode: "provide" },
+            answers: { mode: "provide", "api-key": "must-not-persist" },
             completedStepIds: ["mode", "auth"],
             savedAt: new Date().toISOString(),
         });
         const loaded = loadWizardCheckpoint();
         expect(loaded?.stepIndex).toBe(3);
         expect(loaded?.answers.mode).toBe("provide");
+        expect(loaded?.answers["api-key"]).toBeUndefined();
         const stat = fs.statSync(wizardStateFile());
         expect(stat.mode & 0o777).toBe(0o600);
     });

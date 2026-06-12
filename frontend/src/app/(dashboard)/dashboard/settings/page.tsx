@@ -5,11 +5,13 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { PasswordRequirements } from "@/components/auth/password-requirements";
+import Link from "next/link";
 import {
   Settings as SettingsIcon, Save, Shield, Bell, Globe, Key, Terminal,
   Lock, Trash2, Download, Eye, EyeOff, Copy, Plus, AlertTriangle,
   CheckCircle, Loader2, ShieldCheck, X, Users, UserPlus, UserMinus,
-  User, Fingerprint, MonitorSmartphone, KeyRound,
+  User, Fingerprint, MonitorSmartphone, KeyRound, Wallet, TrendingDown,
+  ChevronRight,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
@@ -852,6 +854,48 @@ function ProfileTab({
               <Input value={email} disabled className="opacity-60" />
               <p className="text-xs text-text-muted">{t("dash.settings.email_note")}</p>
             </div>
+          </div>
+        </div>
+      </StaggerItem>
+
+      <StaggerItem>
+        <div className="glow-card rounded-xl border border-border bg-surface">
+          <div className="border-b border-border/60 px-5 py-4">
+            <div className="flex items-center gap-3">
+              <IconBadge icon={Wallet} color="text-emerald" bg="bg-emerald/10" />
+              <div>
+                <h3 className="text-sm font-semibold">Billing &amp; compute</h3>
+                <p className="text-xs text-text-muted">Wallet, payment methods, and pricing</p>
+              </div>
+            </div>
+          </div>
+          <div className="divide-y divide-border/50">
+            <Link
+              href="/dashboard/billing"
+              className="flex items-center justify-between px-5 py-3.5 transition-colors hover:bg-surface-hover"
+            >
+              <div className="flex items-center gap-3">
+                <Wallet className="h-4 w-4 text-accent-cyan" />
+                <div>
+                  <p className="text-sm font-medium">Billing &amp; wallet</p>
+                  <p className="text-xs text-text-muted">Credits, Stripe top-ups, invoices, and crypto deposits</p>
+                </div>
+              </div>
+              <ChevronRight className="h-4 w-4 text-text-muted" />
+            </Link>
+            <Link
+              href="/dashboard/spot-pricing"
+              className="flex items-center justify-between px-5 py-3.5 transition-colors hover:bg-surface-hover"
+            >
+              <div className="flex items-center gap-3">
+                <TrendingDown className="h-4 w-4 text-emerald" />
+                <div>
+                  <p className="text-sm font-medium">Spot pricing</p>
+                  <p className="text-xs text-text-muted">Live interruptible GPU rates and savings vs on-demand</p>
+                </div>
+              </div>
+              <ChevronRight className="h-4 w-4 text-text-muted" />
+            </Link>
           </div>
         </div>
       </StaggerItem>

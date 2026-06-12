@@ -104,7 +104,7 @@ function RegisterPageContent() {
 
   async function handleOAuth(provider: string) {
     try {
-      const res = await oauthInitiate(provider);
+      const res = await oauthInitiate(provider, redirectTarget);
       window.location.href = res.auth_url;
     } catch (err) {
       setError(err instanceof Error ? err.message : "OAuth failed");
