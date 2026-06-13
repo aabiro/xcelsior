@@ -1,0 +1,57 @@
+[
+  {
+    "event": "user_registered",
+    "description": "User successfully completes registration (email/password or triggers email verification flow)",
+    "file": "frontend/src/app/(marketing)/register/page.tsx"
+  },
+  {
+    "event": "user_logged_in",
+    "description": "User successfully authenticates and session is established",
+    "file": "frontend/src/app/(marketing)/login/page.tsx"
+  },
+  {
+    "event": "oauth_initiated",
+    "description": "User clicks an OAuth provider button (GitHub, Google, Hugging Face) on login or register",
+    "file": "frontend/src/app/(marketing)/login/page.tsx"
+  },
+  {
+    "event": "mfa_challenged",
+    "description": "MFA challenge is triggered after password login — captures method and whether passkey is available",
+    "file": "frontend/src/app/(marketing)/login/page.tsx"
+  },
+  {
+    "event": "pricing_page_viewed",
+    "description": "User views the public pricing page — top of the conversion funnel",
+    "file": "frontend/src/app/(marketing)/pricing/page.tsx"
+  },
+  {
+    "event": "gpu_instance_launched",
+    "description": "User successfully launches a GPU compute instance (captures GPU model, tier, pricing mode, region)",
+    "file": "frontend/src/components/instances/launch-instance-modal.tsx"
+  },
+  {
+    "event": "serverless_endpoint_deployed",
+    "description": "User successfully deploys a serverless inference endpoint via Deploy Studio",
+    "file": "frontend/src/features/serverless/deploy-studio.tsx"
+  },
+  {
+    "event": "free_credits_claimed",
+    "description": "User claims the $10 CAD free signup credits from the billing page",
+    "file": "frontend/src/app/(dashboard)/dashboard/billing/page.tsx"
+  },
+  {
+    "event": "credits_deposit_initiated",
+    "description": "User opens the deposit modal to add credits to their wallet (Stripe top-up flow starts)",
+    "file": "frontend/src/app/(dashboard)/dashboard/billing/page.tsx"
+  },
+  {
+    "event": "auto_topup_configured",
+    "description": "User saves auto-reload settings (captures enabled state, amount, and threshold)",
+    "file": "frontend/src/app/(dashboard)/dashboard/billing/page.tsx"
+  },
+  {
+    "event": "payment_method_added",
+    "description": "User successfully adds a new credit/debit card via Stripe SetupIntent",
+    "file": "frontend/src/components/billing/payment-method-modal.tsx"
+  }
+]

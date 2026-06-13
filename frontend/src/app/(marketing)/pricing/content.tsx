@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -7,6 +8,7 @@ import { ArrowRight, Check, DollarSign, Zap, CalendarClock, ShieldCheck, Trendin
 import { m } from "@/components/marketing/motion";
 import { AuroraBackground } from "@/components/ui/aurora-bg";
 import { useLocale } from "@/lib/locale";
+import posthog from "posthog-js";
 
 const SavingsCalculator = dynamic(
   () => import("./calculator").then((mod) => mod.SavingsCalculator),
@@ -33,6 +35,11 @@ interface GpuRow {
 
 export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
   const { t } = useLocale();
+
+  useEffect(() => {
+    posthog.capture("pricing_page_viewed", { gpu_count: gpus.length });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Headline numbers computed from live data so the hero never drifts from the table.
   const cheapestSpot = gpus.length ? Math.min(...gpus.map((g) => g.spot)) : 0.3;

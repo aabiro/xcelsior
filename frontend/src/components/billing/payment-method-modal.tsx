@@ -8,6 +8,7 @@ import { getStripeElementsOptions } from "@/lib/stripe-appearance";
 import { getStripePromise } from "@/lib/stripe-client";
 import { toast } from "sonner";
 import { X, CreditCard, Loader2, ShieldCheck, Sparkles } from "lucide-react";
+import posthog from "posthog-js";
 
 interface PaymentMethodModalProps {
   onClose: () => void;
@@ -67,11 +68,13 @@ function AddCardForm({ onClose, onSuccess, clientSecret }: PaymentMethodModalPro
         return;
       }
       if (setupIntent?.status === "succeeded") {
+        posthog.capture("payment_method_added", { payment_type: "card" });
         toast.success("Card saved");
         onSuccess();
         onClose();
       }
     } catch (err) {
+      posthog.captureException(err instanceof Error ? err : new Error(String(err)));
       toast.error(err instanceof Error ? err.message : "Could not save card");
     } finally {
       setSubmitting(false);

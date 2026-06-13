@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import posthog from "posthog-js";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
 import { Button } from "@/components/ui/button";
@@ -258,6 +259,11 @@ export default function BillingPage() {
           threshold_cad: merged.threshold_cad,
           stripe_payment_method_id: merged.payment_method_id,
         });
+        posthog.capture("auto_topup_configured", {
+          enabled: merged.enabled,
+          amount_cad: merged.amount_cad,
+          threshold_cad: merged.threshold_cad,
+        });
         setAutoTopup(merged);
         toast.success("Auto-reload settings saved");
       } catch (err) {
@@ -413,6 +419,10 @@ export default function BillingPage() {
         toast.info(t("dash.billing.credits_already_claimed"));
         setFreeCreditsAvailable(false);
       } else {
+        posthog.capture("free_credits_claimed", {
+          amount_cad: result.amount_cad || FREE_CREDIT_AMOUNT,
+          balance_after_cad: result.balance_cad,
+        });
         const nextBalance = result.balance_cad;
         const previousBalance = wallet?.balance_cad ?? displayWalletBalance;
         clearFreeCreditTimers();
@@ -613,7 +623,7 @@ export default function BillingPage() {
               <RefreshCw className="h-3.5 w-3.5" /> {t("common.refresh")}
             </Button>
             {canManageBilling && (
-              <Button variant="success" size="sm" onClick={() => setShowDeposit(true)}>
+              <Button variant="success" size="sm" onClick={() => { posthog.capture("credits_deposit_initiated", { source: "header_button" }); setShowDeposit(true); }}>
                 <Plus className="h-3.5 w-3.5" /> {t("dash.billing.add_credits")}
               </Button>
             )}

@@ -1,5 +1,6 @@
 "use client";
 
+import posthog from "posthog-js";
 import {
   createContext,
   useCallback,
@@ -131,6 +132,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await getMe();
       const nextUser = res.user ?? null;
       setUser(nextUser);
+      if (nextUser) {
+        posthog.identify(nextUser.user_id, {
+          email: nextUser.email,
+          name: nextUser.name,
+          role: nextUser.role,
+          country: nextUser.country,
+          province: nextUser.province,
+        });
+      }
       return Boolean(nextUser);
     } catch {
       setUser(null);
@@ -153,6 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       /* cookie already cleared or network error — fine */
     }
+    posthog.reset();
     setUser(null);
     if (typeof window !== "undefined") {
       window.location.href = "/login";
@@ -176,7 +187,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     getMe()
       .then((res) => {
-        if (!cancelled) setUser(res.user ?? null);
+        if (!cancelled) {
+          const nextUser = res.user ?? null;
+          setUser(nextUser);
+          if (nextUser) {
+            posthog.identify(nextUser.user_id, {
+              email: nextUser.email,
+              name: nextUser.name,
+              role: nextUser.role,
+              country: nextUser.country,
+              province: nextUser.province,
+            });
+          }
+        }
       })
       .catch(() => {
         if (!cancelled) setUser(null);

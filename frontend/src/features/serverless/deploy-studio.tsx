@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import posthog from "posthog-js";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Sparkles, Box, Cpu, Layers, Rocket, ChevronLeft, ChevronRight,
@@ -182,8 +183,16 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
       const res = await deployServerlessEndpoint(form);
       clearDraft();
       toast.success(t("dash.serverless.deploy_success"));
+      posthog.capture("serverless_endpoint_deployed", {
+        method: form.method,
+        gpu_tier: form.gpuTier,
+        managed_engine: form.method === "preset" ? form.managedEngine : null,
+        model_ref: form.method === "preset" ? form.modelRef : null,
+        custom_source: form.method === "custom" ? form.customSource : null,
+      });
       router.push(`/dashboard/inference/${res.endpoint.endpoint_id}`);
     } catch (e: unknown) {
+      posthog.captureException(e instanceof Error ? e : new Error(String(e)));
       const msg = e instanceof Error ? e.message : t("dash.serverless.deploy_failed");
       if (/wallet|funds|suspended|balance|credit/i.test(msg)) {
         // Draft stays saved, so a detour to billing loses nothing.
