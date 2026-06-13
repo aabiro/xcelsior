@@ -2,12 +2,14 @@
 // Pure display components for each step type in the structured flow.
 // No state management — all state lives in useWizardFlow.
 
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { Text, Box, useInput } from "ink";
 import SelectInput from "ink-select-input";
 import TextInput from "ink-text-input";
 import type { SelectOption } from "./wizard-flow.js";
 import type { AutoCheckResults, ProviderSummaryData } from "./useWizardFlow.js";
+import { openUrl } from "./open-url.js";
+import { detectAgents, describeAgents, writeXcelsiorContext } from "./agent-context.js";
 
 // ── Brand spinner ────────────────────────────────────────────────────
 
@@ -140,12 +142,14 @@ interface AutoCheckStepProps {
   required?: boolean;
   /** Success title shown above results when all checks pass */
   successTitle?: string;
+  /** Static per-step help shown on failure when AI is unavailable (Part A). */
+  staticHelp?: string[];
   onRetry?: () => void;
   onSkip?: () => void;
   onContinue?: () => void;
 }
 
-export function AutoCheckStep({ results, canRetry, awaitContinue, required, successTitle, onRetry, onSkip, onContinue }: AutoCheckStepProps) {
+export function AutoCheckStep({ results, canRetry, awaitContinue, required, successTitle, staticHelp, onRetry, onSkip, onContinue }: AutoCheckStepProps) {
   useInput((input) => {
     if (canRetry) {
       if (input === "\r" || input === "r" || input === "R") onRetry?.();
@@ -177,13 +181,29 @@ export function AutoCheckStep({ results, canRetry, awaitContinue, required, succ
         </Box>
       )}
       {results.items.map((r) => (
-        <Text key={r.name}>
-          <Text color={r.ok ? "#22c55e" : "#ef4444"}>
-            {r.ok ? "✓" : "✗"}
+        <Box key={r.name} flexDirection="column">
+          <Text>
+            <Text color={r.ok ? "#22c55e" : "#ef4444"}>
+              {r.ok ? "✓" : "✗"}
+            </Text>
+            <Text> {r.name}: {r.detail}</Text>
           </Text>
-          <Text> {r.name}: {r.detail}</Text>
-        </Text>
+          {!r.ok && r.remediation && (
+            <Text color="#fbbf24">    ↳ {r.remediation}</Text>
+          )}
+          {!r.ok && r.url && (
+            <Text color="#00d4ff">    ↳ {r.url}</Text>
+          )}
+        </Box>
       ))}
+      {canRetry && staticHelp && staticHelp.length > 0 && (
+        <Box marginTop={1} flexDirection="column">
+          <Text color="#fbbf24">Hexara is offline — here's how to fix it:</Text>
+          {staticHelp.map((line, i) => (
+            <Text key={i} color="#94a3b8">  • {line}</Text>
+          ))}
+        </Box>
+      )}
       {canRetry && (
         <Box marginTop={1}>
           <Text dimColor>
@@ -544,15 +564,61 @@ interface DoneStepProps {
   onExit: () => void;
 }
 
+interface DeepenerItem {
+  label: string;
+  value: string;
+}
+
+/** Build the post-flow "Go further" menu items for a mode (Part G). */
+export function buildDeepenerItems(mode: string, baseUrl: string, agentNames?: string): DeepenerItem[] {
+  const items: DeepenerItem[] = [];
+  if (mode === "provide" || mode === "both") {
+    items.push({ label: "🛠  Keep earning 24/7 — run: xcelsior worker install", value: "note:Run  xcelsior worker install  — credentials are already saved to ~/.xcelsior/.env" });
+  }
+  if (mode === "rent" || mode === "both") {
+    items.push({ label: "🖥  Manage instances & SSH config", value: `url:${baseUrl}/dashboard/instances` });
+  }
+  items.push({ label: "🔔 Set up job & earnings alerts (notifications)", value: `url:${baseUrl}/dashboard/settings/notifications` });
+  items.push({ label: "📊 Open your dashboard", value: `url:${baseUrl}/dashboard` });
+  if (agentNames) {
+    items.push({ label: `🤖 Add Xcelsior context for ${agentNames}`, value: "agent-context" });
+  }
+  items.push({ label: "✓ Finish & exit", value: "exit" });
+  return items;
+}
+
 export function DoneStep({ answers, instanceInfo, onExit }: DoneStepProps) {
   const mode = (answers.mode as string) || "rent";
   const baseUrl = (answers["_api_base_url"] as string) || "https://xcelsior.ca";
+  const [note, setNote] = useState<string | null>(null);
 
+  // SelectInput owns Enter/arrows; we only keep `q` as a quick-quit shortcut.
   useInput((input) => {
-    if (input === "q" || input === "\r") {
-      onExit();
-    }
+    if (input === "q") onExit();
   });
+
+  const agents = useMemo(() => detectAgents(), []);
+  const items = buildDeepenerItems(mode, baseUrl, agents.length ? describeAgents(agents) : undefined);
+  const handleSelect = useCallback((item: DeepenerItem) => {
+    const v = item.value;
+    if (v === "exit") { onExit(); return; }
+    if (v === "agent-context") {
+      try {
+        const r = writeXcelsiorContext(process.cwd(), baseUrl);
+        setNote(`${r.action === "unchanged" ? "Already present" : r.action} → ${r.path} (restart your agent to pick it up)`);
+      } catch (e) {
+        setNote(`Couldn't write AGENTS.md: ${e instanceof Error ? e.message : "error"}`);
+      }
+      return;
+    }
+    if (v.startsWith("url:")) {
+      const url = v.slice(4);
+      setNote(`Opening ${url} …`);
+      void openUrl(url);
+      return;
+    }
+    if (v.startsWith("note:")) { setNote(v.slice(5)); return; }
+  }, [onExit, baseUrl]);
 
   const modeLabel =
     mode === "rent" ? "GPU Renter" : mode === "provide" ? "GPU Provider" : "Renter + Provider";
@@ -586,11 +652,18 @@ export function DoneStep({ answers, instanceInfo, onExit }: DoneStepProps) {
         </Box>
       )}
 
+      {/* Go further — interactive post-flow deepeners (Part G) */}
+      <Box flexDirection="column" marginTop={1}>
+        <Text color="#fbbf24" bold>Go further</Text>
+        <SelectInput items={items} onSelect={handleSelect} />
+        {note && <Text color="#22c55e">  {note}</Text>}
+      </Box>
+
       <Box marginTop={1}>
         <Text color="#a78bfa" italic>Hexara will be here whenever you need — just run `xcelsior setup` to summon the wizard again.</Text>
       </Box>
       <Text />
-      <Text dimColor>Press Enter or q to exit</Text>
+      <Text dimColor>↑↓ navigate · enter select · <Text bold>q</Text> to exit</Text>
     </Box>
   );
 }

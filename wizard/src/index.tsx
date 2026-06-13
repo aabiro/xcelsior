@@ -4,13 +4,22 @@
 // The wizard sprite (Hexara) stays on line 1. Steps render below it.
 // Press "?" at any step to ask Hexara for help inline.
 
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useMemo, useEffect } from "react";
+import { pathToFileURL } from "node:url";
 import { render, Box, Text, useApp, useInput } from "ink";
 import { WizardLine, type BranchId } from "./WizardLine.js";
 import { setupWizardRegion, resetWizardRegion } from "./useWizardAnimation.js";
 import { STATE_COLORS } from "../sprites/wizard/wizard-sprite.js";
-import { WIZARD_STEPS } from "./wizard-flow.js";
+import { WIZARD_STEPS, STATIC_STEP_HELP } from "./wizard-flow.js";
 import { useWizardFlow } from "./useWizardFlow.js";
+import { StatusGate } from "./StatusGate.js";
+import { WorkScreen } from "./WorkScreen.js";
+import { buildTaskList, computeTaskStates } from "./task-model.js";
+import { timeHintForStep, buildMarketplaceSlides, LEARN_SLIDES } from "./learn-content.js";
+import { TitleBar, KeybindFooter } from "./chrome.js";
+import { StartupCard } from "./StartupCard.js";
+import { detectEnvironment } from "./environment.js";
+import { initSpriteCapability } from "./capability.js";
 import {
   ProgressBar,
   SelectStep,
@@ -28,7 +37,10 @@ import {
   BrandSpinner,
 } from "./steps.js";
 
-function App() {
+// Long-running step types where the two-pane WorkScreen (Learn + Tasks) shows.
+const WORK_STEP_TYPES = ["auto-check", "auto-fetch", "payment-gate"];
+
+export function App() {
   const { exit } = useApp();
   const [exiting, setExiting] = useState(false);
 
@@ -82,7 +94,64 @@ function App() {
     revealAi,
     resumeInfo,
     flushCheckpoint,
+    gatePhase,
+    serviceStatus,
+    proceedFromGate,
+    recheckGate,
+    continueAnywayFromGate,
+    resumedStepLabel,
+    checkProgress,
+    marketplaceStats,
   } = useWizardFlow();
+
+  // Prefer live marketplace charts in the Learn pane; fall back to concept cards.
+  const learnSlides = useMemo(() => {
+    if (!marketplaceStats) return undefined;
+    const live = buildMarketplaceSlides(marketplaceStats);
+    if (live.length === 0) return undefined;
+    return [...live, ...LEARN_SLIDES.filter((s) => s.mode === "learn")];
+  }, [marketplaceStats]);
+
+  const gateOpen = gatePhase !== "passed" && !isComplete;
+  const statusUrl = `${(answers["_api_base_url"] as string) || "https://xcelsior.ca"}/dashboard`;
+  const env = useMemo(() => detectEnvironment(), []);
+  // When Hexara is unavailable, surface static per-step help (Part A). Keyed by
+  // step id, falling back to checkId (STATIC_STEP_HELP uses checkIds like "versions").
+  const staticHelp = !aiAvailable
+    ? (STATIC_STEP_HELP[step.id] ?? STATIC_STEP_HELP[step.checkId ?? ""])
+    : undefined;
+
+  // Live task checklist (Part D) — derived as a view over the real flow state.
+  const tasks = useMemo(() => {
+    const mode = answers.mode as string | undefined;
+    const list = buildTaskList(mode);
+    if (list.length === 0) return list;
+    const completedStepIds = WIZARD_STEPS.slice(0, stepIndex).map((s) => s.id);
+    return computeTaskStates(list, {
+      currentStepId: step.id,
+      completedStepIds,
+      checkResults,
+      currentFailed: checkCanRetry,
+    });
+  }, [answers.mode, stepIndex, step.id, checkResults, checkCanRetry]);
+
+  // Rolling status log of granular sub-actions (Part E) — sourced from the
+  // wizard's own message stream, deduped so repeats don't spam the strip.
+  const [statusLog, setStatusLog] = useState<string[]>([]);
+  useEffect(() => {
+    if (!wizardMessage) return;
+    setStatusLog((prev) => (prev[prev.length - 1] === wizardMessage ? prev : [...prev, wizardMessage].slice(-12)));
+  }, [wizardMessage]);
+
+  // Two-pane WorkScreen is shown only on long-running steps with latency to fill.
+  const isWorkStep =
+    !gateOpen &&
+    !isComplete &&
+    !!answers.mode &&
+    WORK_STEP_TYPES.includes(step.type) &&
+    aiResponse === null &&
+    !showAiPrompt &&
+    !transitioning;
 
   const handleExit = useCallback(() => {
     flushCheckpoint();
@@ -116,6 +185,11 @@ function App() {
       if (step.type !== "text" && step.type !== "device-auth" && step.type !== "done") {
         toggleAiPrompt();
       }
+    }
+    // Interactive nudge: "Press A to ask Hexara" during long-running work steps
+    if ((input === "a" || input === "A") && aiAvailable && aiResponse === null && !showAiPrompt && !aiStreaming
+      && WORK_STEP_TYPES.includes(step.type)) {
+      toggleAiPrompt();
     }
     // Reveal buffered AI details
     if ((input === "d" || input === "D") && hasAiDetails && !aiStreaming) {
@@ -162,6 +236,9 @@ function App() {
 
   return (
     <Box flexDirection="column" alignItems="center">
+      {/* Persistent branded title bar (Part I) */}
+      <TitleBar />
+
       {/* Hexara wizard sprite — choreographed animation */}
       <WizardLine
         message={wizardMessage}
@@ -174,7 +251,9 @@ function App() {
       {/* Resume / expiry notices */}
       {resumeInfo.resumed && !isComplete && (
         <Box marginTop={1} width={64}>
-          <Text color="#fbbf24">↻ Resumed previous wizard session</Text>
+          <Text color="#fbbf24">
+            ↻ Resumed previous session{resumedStepLabel ? <Text> at: <Text bold>{resumedStepLabel}</Text></Text> : null}
+          </Text>
         </Box>
       )}
       {resumeInfo.needsReauth && !isComplete && (
@@ -183,8 +262,42 @@ function App() {
         </Box>
       )}
 
-      {/* Progress bar — hidden until mode is chosen (step count unknown before then) */}
-      {!isComplete && answers.mode && <ProgressBar current={currentNum} total={totalSteps} />}
+      {/* Opening: startup card while checking; gate panel when degraded/blocked */}
+      {gateOpen && (
+        <Box marginTop={1}>
+          {gatePhase === "checking" ? (
+            <StartupCard env={env} />
+          ) : (
+            <StatusGate
+              phase={gatePhase}
+              report={serviceStatus}
+              statusUrl={statusUrl}
+              onProceed={proceedFromGate}
+              onRecheck={recheckGate}
+              onContinueAnyway={continueAnywayFromGate}
+            />
+          )}
+        </Box>
+      )}
+
+      {!gateOpen && (<>
+      {/* Progress bar — hidden until mode is chosen, and replaced by the task pane on work steps */}
+      {!isComplete && answers.mode && !isWorkStep && <ProgressBar current={currentNum} total={totalSteps} />}
+
+      {/* Two-pane Learn + Tasks layout on long-running steps (Part B) */}
+      {isWorkStep && (
+        <Box marginTop={1}>
+          <WorkScreen
+            tasks={tasks}
+            slides={learnSlides}
+            log={statusLog}
+            tail={checkProgress}
+            intro={timeHintForStep(step.id)}
+            nudge={aiAvailable ? "Press A to ask Hexara anything while you wait" : null}
+            aiAvailable={aiAvailable}
+          />
+        </Box>
+      )}
 
       {/* AI escape hatch response */}
       {aiResponse !== null && (
@@ -243,6 +356,7 @@ function App() {
               canRetry={checkCanRetry}
               awaitContinue={checkAwaitContinue}
               required={step.checkRequired}
+              staticHelp={staticHelp}
               successTitle={{
                 docker: "Docker environment ready!",
                 api: "Connection verified!",
@@ -356,11 +470,49 @@ function App() {
           ))}
         </Box>
       )}
+      </>)}
+
+      {/* Context-sensitive keybind footer (Part I) */}
+      <Box marginTop={1}>
+        <KeybindFooter
+          ctx={{
+            gatePhase,
+            stepType: step.type,
+            isComplete,
+            aiAvailable,
+            isWorkStep,
+            canRetry: checkCanRetry,
+            awaitContinue: checkAwaitContinue,
+            showAiPrompt,
+            aiResponseOpen: aiResponse !== null,
+          }}
+        />
+      </Box>
     </Box>
   );
 }
 
-// Set up scroll region: wizard sprite above, Ink content below
-setupWizardRegion();
+// Bootstrap only when run as the CLI entry — not when imported by tests.
+function isEntryModule(): boolean {
+  try {
+    const entry = process.argv[1];
+    if (!entry) return false;
+    return import.meta.url === pathToFileURL(entry).href;
+  } catch {
+    return false;
+  }
+}
 
-render(<App />);
+if (isEntryModule()) {
+  void (async () => {
+    // Probe the terminal for Sixel support (DA1) before Ink takes over stdin, so
+    // the sprite only paints where it'll render cleanly. Falls back fast on
+    // non-TTY / opt-out, so this never hangs headless.
+    await initSpriteCapability();
+
+    // Set up scroll region: wizard sprite above, Ink content below
+    setupWizardRegion();
+
+    render(<App />);
+  })();
+}
