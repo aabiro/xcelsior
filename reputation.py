@@ -488,6 +488,60 @@ class ReputationEngine:
         )
         return self.compute_score(entity_id)
 
+    def claimed_milestones(self, entity_id: str) -> set[str]:
+        """Set of milestone IDs already granted to this entity.
+
+        Milestone grants are tagged in the event log as ``milestone:<id>`` so we
+        get idempotent, one-time rewards without a separate table.
+        """
+        out: set[str] = set()
+        for ev in self.store.get_event_history(entity_id, limit=500):
+            reason = str(ev.get("reason", ""))
+            if reason.startswith("milestone:"):
+                mid = reason.split("milestone:", 1)[1].split(" ", 1)[0].strip()
+                if mid:
+                    out.add(mid)
+        return out
+
+    def grant_milestone(
+        self,
+        entity_id: str,
+        milestone_id: str,
+        points: float,
+        *,
+        entity_type: str = "host",
+    ) -> tuple[bool, ReputationScore]:
+        """Grant a one-time milestone activity reward. Idempotent.
+
+        Returns (newly_granted, score). If the milestone was already claimed,
+        newly_granted is False and the score is returned unchanged.
+        """
+        self._get_or_create_score_record(entity_id, entity_type=entity_type)
+        if milestone_id in self.claimed_milestones(entity_id):
+            return False, self.compute_score(entity_id)
+
+        existing = self.store.get_score(entity_id) or {}
+        activity = min(
+            float(existing.get("activity_points", 0)) + points,
+            MAX_ACTIVITY_POINTS,
+        )
+        now = time.time()
+        with self.store._conn() as conn:
+            conn.execute(
+                """UPDATE reputation_scores
+                   SET activity_points = %s, last_activity_at = %s, updated_at = %s
+                   WHERE entity_id = %s""",
+                (activity, now, now, entity_id),
+            )
+        self.store.record_event(
+            entity_id,
+            "milestone",
+            points,
+            reason=f"milestone:{milestone_id} (+{points})",
+        )
+        log.info("REPUTATION %s milestone %s granted (+%s)", entity_id, milestone_id, points)
+        return True, self.compute_score(entity_id)
+
     def record_job_failure(self, entity_id: str, is_host_fault: bool = True) -> ReputationScore:
         """Record a job failure. Host-side faults incur penalties."""
         existing = self._get_or_create_score_record(entity_id)

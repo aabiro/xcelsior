@@ -66,6 +66,10 @@ export const STATIC_STEP_HELP: Record<string, string[]> = {
     verify: ["Fix any failed verification checks before registering the host."],
     "host-register": ["Confirm credentials and that the host IP is reachable from the control plane."],
     "worker-install": ["Use install.sh --agent-only for headless worker setup."],
+    "sdk-detect": ["Run from your app root (where package.json lives).", "Python projects can use the REST API with xoa_ tokens."],
+    "sdk-install": ["npm install @xcelsior-gpu/sdk", "Re-run this step after installing."],
+    "sdk-credentials": ["xoa_ tokens are session tokens; oauth_ IDs are for server-to-server.", "Check Dashboard → Settings → API for your OAuth client."],
+    "sdk-verify": ["Ensure XCELSIOR_API_URL points at your control plane.", "Complete device sign-in if the xoa_ token is missing."],
 };
 
 export const WORKLOAD_IMAGE_MAP: Record<string, string> = {
@@ -88,7 +92,17 @@ export const WIZARD_STEPS: WizardStep[] = [
             { label: "🖥️  Rent GPUs — launch jobs on the marketplace", value: "rent" },
             { label: "🔌 Provide GPUs — earn by sharing your hardware", value: "provide" },
             { label: "🔄 Both — rent and provide", value: "both" },
+            { label: "📦 Integrate SDK — connect your app to the Xcelsior API", value: "sdk" },
         ],
+    },
+
+    // ── SDK track: detect project ──────────────────────────────────────
+    {
+        id: "sdk-detect",
+        type: "auto-check",
+        prompt: "Detecting your project framework...",
+        checkId: "sdk-detect",
+        condition: (a) => a.mode === "sdk",
     },
 
     // ── Step 2: Docker checks (providers only) ─────────────────────────
@@ -114,6 +128,44 @@ export const WIZARD_STEPS: WizardStep[] = [
         prompt: "Verifying your connection...",
         checkId: "api",
         checkRequired: true,
+    },
+
+    // ── SDK track: install package ─────────────────────────────────────
+    {
+        id: "sdk-install",
+        type: "auto-check",
+        prompt: "Checking for @xcelsior-gpu/sdk...",
+        checkId: "sdk-install",
+        condition: (a) => a.mode === "sdk",
+    },
+
+    // ── SDK track: credentials + .env ──────────────────────────────────
+    {
+        id: "sdk-credentials",
+        type: "auto-check",
+        prompt: "Creating API credentials and writing .env.local...",
+        checkId: "sdk-credentials",
+        condition: (a) => a.mode === "sdk",
+        checkRequired: true,
+    },
+
+    // ── SDK track: verify API ──────────────────────────────────────────
+    {
+        id: "sdk-verify",
+        type: "auto-check",
+        prompt: "Verifying SDK connection to the control plane...",
+        checkId: "sdk-verify",
+        condition: (a) => a.mode === "sdk",
+        checkRequired: true,
+    },
+
+    // ── SDK track: starter snippet ─────────────────────────────────────
+    {
+        id: "sdk-snippet",
+        type: "confirm",
+        prompt: "Your SDK integration is ready!",
+        confirmLabel: "Finish setup",
+        condition: (a) => a.mode === "sdk",
     },
 
     // ── Step 5: Provider — GPU detection ───────────────────────────────

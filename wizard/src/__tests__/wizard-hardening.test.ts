@@ -27,7 +27,9 @@ describe("wizard-guards", () => {
     it("validates API tokens", () => {
         expect(validateApiToken("")).not.toBeNull();
         expect(validateApiToken("short")).not.toBeNull();
-        expect(validateApiToken("valid-token-12345678")).toBeNull();
+        expect(validateApiToken("xoa_validtoken12345678")).toBeNull();
+        expect(validateApiToken("oauth_clientid123456")).not.toBeNull();
+        expect(validateApiToken("valid-token-12345678")).not.toBeNull();
     });
 
     it("validates API base URLs", () => {

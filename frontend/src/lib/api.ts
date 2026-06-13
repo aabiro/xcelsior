@@ -1225,22 +1225,39 @@ export async function fetchReputationHistory(entityId: string) {
   );
 }
 
-export interface ClaimableVerification {
-  earned: boolean;
-  how: string;
+export interface ReputationMilestone {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  points: number;
+  current: number;
+  target: number;
+  unlocks: string;
+  cta?: string | null;
+  status: "locked" | "claimable" | "claimed";
 }
 
-export async function fetchClaimableVerifications() {
-  return apiFetch<{ ok: boolean; claimable: Record<string, ClaimableVerification> }>(
-    "/api/reputation/me/verifications",
-  );
+export interface ReputationJourney {
+  ok: boolean;
+  milestones: ReputationMilestone[];
+  claimable_count: number;
+  completed_count: number;
+  total_count: number;
 }
 
-export async function claimReputationVerifications() {
+export async function fetchReputationJourney() {
+  return apiFetch<ReputationJourney>("/api/reputation/me/journey");
+}
+
+export async function claimReputationMilestones() {
   return apiFetch<{
     ok: boolean;
-    newly_granted: string[];
-    claimable: Record<string, ClaimableVerification>;
+    newly_granted: { id: string; title: string; points: number }[];
+    milestones: ReputationMilestone[];
+    claimable_count: number;
+    completed_count: number;
+    total_count: number;
     final_score?: number;
     tier?: string;
   }>("/api/reputation/me/claim", { method: "POST" });
@@ -2623,17 +2640,25 @@ export interface ServerlessWorker {
   worker_id: string;
   endpoint_id: string;
   state: string;
+  host_id?: string;
+  gpu_count?: number;
   current_concurrency?: number;
   scheduler_job_id?: string;
   allocated_at?: number;
   ready_at?: number;
   released_at?: number;
+  last_heartbeat_at?: number;
+  error_message?: string;
+  created_at?: number;
+  updated_at?: number;
 }
 
 export interface ServerlessJob {
   job_id: string;
   endpoint_id: string;
+  worker_id?: string;
   status: string;
+  created_at?: number;
   queued_at?: number;
   started_at?: number;
   finished_at?: number;

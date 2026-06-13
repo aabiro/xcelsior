@@ -28,6 +28,7 @@ import type { DetailTab } from "./types";
 import {
   ApiUrlCard, EngineBadge, ServerlessBackLink, ServerlessHero, ServerlessSegmentedTabs,
 } from "./serverless-ui";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 const TABS: { id: DetailTab; icon: typeof Activity; labelKey: string }[] = [
   { id: "overview", icon: BarChart3, labelKey: "dash.serverless.tab_overview" },
@@ -97,6 +98,27 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
       if (data?.endpoint_id === endpointId || !data?.endpoint_id) void load(false);
     },
   });
+
+  // Live polling — worker heartbeats, boot timers, and utilization metrics
+  // don't always emit SSE events, so refresh on a steady cadence while the
+  // endpoint is spinning workers. Skips ticks when the tab is backgrounded and
+  // refreshes immediately when it returns to the foreground.
+  useEffect(() => {
+    const status = endpoint?.status;
+    const live = status === "active" || status === "provisioning";
+    if (!live) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") void load(false);
+    }, 5000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void load(false);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [endpoint?.status, load]);
 
   const handleDelete = async () => {
     setConfirmDelete(false);
@@ -196,7 +218,7 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
           <CostUsagePanel endpoint={endpoint} metrics={metrics} />
         </div>
       )}
-      {tab === "workers" && <WorkersPanel workers={workers} loading={loading} />}
+      {tab === "workers" && <WorkersPanel workers={workers} jobs={jobs} loading={loading} />}
       {tab === "jobs" && <LogsPanel jobs={jobs} loading={loading} />}
       {tab === "tryit" && <TryItConsole endpoint={endpoint} canWrite={canWrite} />}
       {tab === "keys" && (
