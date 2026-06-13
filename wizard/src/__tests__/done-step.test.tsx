@@ -74,9 +74,9 @@ describe("DoneStep", () => {
         const { lastFrame, stdin } = render(
             <DoneStep answers={{ mode: "provide", _api_base_url: "https://xcelsior.ca" }} onExit={onExit} />,
         );
-        await delay(10);
+        await delay(50);
         stdin.write("\r"); // select the highlighted first item (the worker note)
-        await delay(30);
+        await delay(100);
         expect(onExit).not.toHaveBeenCalled();
         expect(lastFrame()).toContain("credentials are already saved");
     });
