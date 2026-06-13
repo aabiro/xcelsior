@@ -1,7 +1,7 @@
 // Render + behavior tests for the Phase 2/3 panes: TaskListPane, LearnSlides,
 // WorkScreen. Covers slideshow advance/teardown and reflow threshold.
 
-import React from "react";
+import React, { act } from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "ink-testing-library";
 import { TaskListPane } from "../TaskListPane.js";
@@ -38,23 +38,31 @@ describe("LearnSlides", () => {
         expect(lastFrame()).toContain("Learn");
     });
 
-    it("advances slides on the timer and tears the interval down on unmount", async () => {
-        vi.useFakeTimers();
+    it("cycles multi-slide decks and tears the interval down on unmount", async () => {
         const slides = [
             { mode: "learn" as const, heading: "First Slide AAA", lines: ["a"] },
             { mode: "learn" as const, heading: "Second Slide BBB", lines: ["b"] },
         ];
-        const { lastFrame, unmount } = render(<LearnSlides slides={slides} intervalMs={1000} />);
+        const { lastFrame, unmount } = render(<LearnSlides slides={slides} intervalMs={40} />);
         expect(lastFrame()).toContain("First Slide AAA");
-        await vi.advanceTimersByTimeAsync(1000);
-        expect(lastFrame()).toContain("Second Slide BBB");
-        await vi.advanceTimersByTimeAsync(1000);
-        expect(lastFrame()).toContain("First Slide AAA"); // wrapped
-        // teardown: unmounting clears the interval (effect cleanup) — must not throw
-        // and must not advance the frame any further.
+        // ink-testing-library does not always flush setInterval ticks; poll briefly.
+        await act(async () => {
+            await vi.waitFor(
+                () => expect(lastFrame()).toContain("Second Slide BBB"),
+                { timeout: 2000, interval: 20 },
+            );
+        });
+        await act(async () => {
+            await vi.waitFor(
+                () => expect(lastFrame()).toContain("First Slide AAA"),
+                { timeout: 2000, interval: 20 },
+            );
+        });
         unmount();
         const frozen = lastFrame();
-        await vi.advanceTimersByTimeAsync(5000);
+        await act(async () => {
+            await delay(120);
+        });
         expect(lastFrame()).toBe(frozen);
     });
 

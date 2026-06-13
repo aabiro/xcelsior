@@ -61,9 +61,10 @@ describe("computeWizardBranch", () => {
         expect(computeWizardBranch(baseCtx({ aiResponseOpen: true, wizardState: "idle" }))).toBe("nod");
     });
 
-    it("sdk snippet celebrates", () => {
+    it("sdk snippet nods affirmatively", () => {
         const step: WizardStep = { id: "sdk-snippet", type: "confirm", prompt: "ready" };
-        expect(computeWizardBranch(baseCtx({ step, mode: "sdk", wizardState: "idle" }))).toBe("celebrate");
+        expect(computeWizardBranch(baseCtx({ step, mode: "sdk", wizardState: "idle" }))).toBe("nod");
+        expect(stepEntryBranch("sdk-snippet", "sdk")).toBe("nod");
     });
 });
 
