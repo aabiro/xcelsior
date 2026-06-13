@@ -29,8 +29,12 @@ type BannerVariant = "post-launch" | "frequent" | "default" | "desktop";
  * Never shows if already installed (PWA or desktop), or user dismissed.
  * Dismissal is soft: resets after 14 days so the prompt can resurface once.
  */
+const AUTO_DISMISS_MS = 12_000;
+const EXIT_ANIMATION_MS = 300;
+
 export function InstallBanner() {
   const [show, setShow] = useState(false);
+  const [leaving, setLeaving] = useState(false);
   const [variant, setVariant] = useState<BannerVariant>("default");
   const { canInstall, isDesktopDevice, isInstalled, promptToInstall } =
     usePwaInstallPrompt();
@@ -90,6 +94,20 @@ export function InstallBanner() {
     return () => cancelAnimationFrame(frameId);
   }, [allowPromo, canInstall, isDesktopDevice, isInstalled]);
 
+  // Auto-dismiss: animate off after a while instead of lingering forever.
+  // Session-only — the 14-day snooze is reserved for explicit dismissals.
+  useEffect(() => {
+    if (!show || leaving) return;
+    const timer = window.setTimeout(() => setLeaving(true), AUTO_DISMISS_MS);
+    return () => window.clearTimeout(timer);
+  }, [show, leaving]);
+
+  useEffect(() => {
+    if (!leaving) return;
+    const timer = window.setTimeout(() => { setShow(false); setLeaving(false); }, EXIT_ANIMATION_MS);
+    return () => window.clearTimeout(timer);
+  }, [leaving]);
+
   const handleInstall = async () => {
     const outcome = await promptToInstall();
     if (outcome === "accepted") {
@@ -98,16 +116,18 @@ export function InstallBanner() {
   };
 
   const handleDismiss = () => {
-    setShow(false);
+    setLeaving(true);
     localStorage.setItem(LS_DISMISSED, String(Date.now()));
   };
 
   if (!show) return null;
 
+  const motionClasses = leaving ? "banner-exit" : "banner-enter";
+
   // Desktop variant → link to /download instead of PWA prompt
   if (variant === "desktop") {
     return (
-      <div className={`fixed ${isDashboard ? "bottom-4" : "bottom-24"} right-4 z-40 hidden md:block animate-in slide-in-from-bottom-4 fade-in duration-300 max-w-sm`}>
+      <div className={`fixed ${isDashboard ? "bottom-4" : "bottom-24"} right-4 z-40 hidden md:block ${motionClasses} max-w-sm`}>
         <div className="flex items-center gap-3 rounded-xl border border-border bg-surface-elevated p-4 shadow-lg backdrop-blur-sm">
           <img
             src="/xcelsior_icon_192x192.png"
@@ -158,7 +178,7 @@ export function InstallBanner() {
   };
 
   return (
-    <div className="fixed bottom-4 left-4 right-4 z-50 md:hidden animate-in slide-in-from-bottom-4 fade-in duration-300">
+    <div className={`fixed bottom-4 left-4 right-4 z-50 md:hidden ${motionClasses}`}>
       <div className="flex items-center gap-3 rounded-xl border border-border bg-surface-elevated p-4 shadow-lg backdrop-blur-sm">
         <img
           src="/xcelsior_icon_192x192.png"

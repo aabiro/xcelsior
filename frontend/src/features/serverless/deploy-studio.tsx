@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Sparkles, Box, Cpu, Layers, Rocket, ChevronLeft, ChevronRight,
-  Loader2, Zap, Globe, Timer, Gauge,
+  Loader2, Zap, Globe, Timer, Gauge, Save,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, NumberInput } from "@/components/ui/input";
@@ -28,12 +28,79 @@ interface DeployStudioProps {
   canWrite: boolean;
 }
 
+const DRAFT_KEY = "xcelsior:serverless-deploy-draft";
+
+interface DeployDraft {
+  form: DeployStudioForm;
+  step: number;
+  savedAt: number;
+}
+
+function readDraft(): DeployDraft | null {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as DeployDraft;
+    if (!parsed || typeof parsed !== "object" || typeof parsed.form !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeDraft(form: DeployStudioForm, step: number) {
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({ form, step, savedAt: Date.now() }));
+  } catch {
+    // storage full or unavailable — draft saving is best-effort
+  }
+}
+
+function clearDraft() {
+  try {
+    localStorage.removeItem(DRAFT_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
   const { t } = useLocale();
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<DeployStudioForm>(DEFAULT_FORM);
   const [deploying, setDeploying] = useState(false);
+  const [draftReady, setDraftReady] = useState(false);
+
+  // Restore an in-progress draft so a failed deploy (e.g. insufficient wallet
+  // funds) or a detour to billing never loses the user's input.
+  useEffect(() => {
+    const draft = readDraft();
+    if (draft) {
+      setForm({ ...DEFAULT_FORM, ...draft.form });
+      setStep(Math.min(Math.max(draft.step ?? 0, 0), DEPLOY_STUDIO_STEPS.length - 1));
+      toast.info(t("dash.serverless.draft_restored"), {
+        action: {
+          label: t("dash.serverless.draft_discard"),
+          onClick: () => {
+            clearDraft();
+            setForm(DEFAULT_FORM);
+            setStep(0);
+          },
+        },
+      });
+    }
+    setDraftReady(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Autosave (debounced) once the draft has been hydrated.
+  useEffect(() => {
+    if (!draftReady) return;
+    if (step === 0 && JSON.stringify(form) === JSON.stringify(DEFAULT_FORM)) return;
+    const id = window.setTimeout(() => writeDraft(form, step), 400);
+    return () => window.clearTimeout(id);
+  }, [form, step, draftReady]);
 
   const gpuTypes = useMemo(() => {
     const fromMarket = [...new Set(gpus.map((g) => g.gpu_model))];
@@ -98,6 +165,12 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
 
   const back = () => setStep((s) => Math.max(s - 1, 0));
 
+  const saveAndExit = () => {
+    writeDraft(form, step);
+    toast.success(t("dash.serverless.draft_saved"));
+    router.push("/dashboard/inference");
+  };
+
   const handleDeploy = async () => {
     if (!canWrite) return toast.error(t("dash.serverless.viewer_blocked"));
     for (let i = 1; i < DEPLOY_STUDIO_STEPS.length; i++) {
@@ -107,11 +180,22 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
     setDeploying(true);
     try {
       const res = await deployServerlessEndpoint(form);
+      clearDraft();
       toast.success(t("dash.serverless.deploy_success"));
       router.push(`/dashboard/inference/${res.endpoint.endpoint_id}`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : t("dash.serverless.deploy_failed");
-      toast.error(/team viewers cannot/i.test(msg) ? t("dash.serverless.viewer_blocked") : msg);
+      if (/wallet|funds|suspended|balance|credit/i.test(msg)) {
+        // Draft stays saved, so a detour to billing loses nothing.
+        toast.error(`${msg} — ${t("dash.serverless.draft_saved")}`, {
+          action: {
+            label: t("dash.billing.title"),
+            onClick: () => router.push("/dashboard/billing"),
+          },
+        });
+      } else {
+        toast.error(/team viewers cannot/i.test(msg) ? t("dash.serverless.viewer_blocked") : msg);
+      }
     } finally {
       setDeploying(false);
     }
@@ -513,7 +597,13 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
                     { icon: Cpu, label: t("dash.serverless.review_gpu"), value: `${form.gpuCount}× ${form.gpuTier || "—"} · ${form.region}` },
                     { icon: Layers, label: t("dash.serverless.review_scaling"), value: `${form.minWorkers}–${form.maxWorkers} workers · ${form.maxConcurrency} concurrent` },
                     { icon: Timer, label: t("dash.serverless.idle_timeout"), value: `${form.idleTimeoutSec}s` },
-                    { icon: Globe, label: t("dash.serverless.scaling_policy"), value: form.scalingPolicyType },
+                    {
+                      icon: Globe,
+                      label: t("dash.serverless.scaling_policy"),
+                      value: `${form.scalingPolicyType === "queue_request_count"
+                        ? t("dash.serverless.review_policy_queue_count")
+                        : t("dash.serverless.review_policy_queue_delay")} · ${form.scalingPolicyValue}`,
+                    },
                   ].map((item) => (
                     <div key={item.label} className="flex items-start gap-3 rounded-lg border border-border bg-surface-hover/50 p-3">
                       <item.icon className="h-4 w-4 text-accent-violet mt-0.5 shrink-0" />
@@ -548,20 +638,25 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
       </div>
 
       {/* Nav */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <Button variant="outline" onClick={back} disabled={step === 0}>
           <ChevronLeft className="h-4 w-4" /> {t("dash.serverless.back")}
         </Button>
-        {step < DEPLOY_STUDIO_STEPS.length - 1 ? (
-          <Button onClick={next}>
-            {t("dash.serverless.continue")} <ChevronRight className="h-4 w-4" />
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" onClick={saveAndExit}>
+            <Save className="h-4 w-4" /> {t("dash.serverless.save_exit")}
           </Button>
-        ) : (
-          <Button onClick={handleDeploy} disabled={deploying || !canWrite}>
-            {deploying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />}
-            {t("dash.serverless.deploy")}
-          </Button>
-        )}
+          {step < DEPLOY_STUDIO_STEPS.length - 1 ? (
+            <Button onClick={next}>
+              {t("dash.serverless.continue")} <ChevronRight className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button onClick={handleDeploy} disabled={deploying || !canWrite}>
+              {deploying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />}
+              {t("dash.serverless.deploy")}
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );

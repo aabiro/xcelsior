@@ -23,6 +23,47 @@ class UploadRequest(BaseModel):
     residency_policy: str = "canada_only"
 
 
+def _user_upload_slot(user: dict) -> str:
+    """Key segment for standalone (non-job) uploads, scoped per user."""
+    return f"user-{user.get('user_id', 'unknown')}"
+
+
+def _resolve_artifact_job_id(user: dict, job_id: str) -> str:
+    """Map an empty job_id to the caller's personal upload slot.
+
+    Standalone uploads from the dashboard have no job; without this they
+    failed job-access checks with a 404.
+    """
+    from routes.instances import _check_job_access
+
+    job_id = (job_id or "").strip()
+    if not job_id:
+        return _user_upload_slot(user)
+    if job_id.startswith("user-"):
+        if job_id != _user_upload_slot(user):
+            raise HTTPException(403, "Not authorized to access these artifacts")
+        return job_id
+    _check_job_access(user, job_id)
+    return job_id
+
+
+def _entry_from_object(obj: dict) -> dict:
+    """Shape a raw storage listing into the ArtifactEntry the dashboard renders."""
+    key = obj.get("key", "")
+    parts = key.split("/")
+    atype = parts[0] if parts else ""
+    job_id = parts[1] if len(parts) >= 3 else ""
+    return {
+        "artifact_id": key,
+        "key": key,
+        "job_id": "" if job_id.startswith("user-") else job_id,
+        "filename": parts[-1] if parts else key,
+        "artifact_type": atype,
+        "size_bytes": obj.get("size_bytes"),
+        "created_at": obj.get("last_modified"),
+    }
+
+
 @router.post("/api/artifacts/upload", tags=["Artifacts"])
 def api_request_upload(req: UploadRequest, request: Request):
     """Get a presigned upload URL for an artifact."""
@@ -33,16 +74,15 @@ def api_request_upload(req: UploadRequest, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "artifacts:write")
-    from routes.instances import _check_job_access
 
-    _check_job_access(user, req.job_id)
+    job_id = _resolve_artifact_job_id(user, req.job_id)
     try:
         atype = ArtifactType(req.artifact_type)
         rpolicy = ResidencyPolicy(req.residency_policy)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     mgr = get_artifact_manager()
-    result = mgr.request_upload(atype, req.job_id, req.filename, residency=rpolicy)
+    result = mgr.request_upload(atype, job_id, req.filename, residency=rpolicy)
     return {"ok": True, **result}
 
 
@@ -65,16 +105,48 @@ def api_request_download(req: DownloadRequest, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "artifacts:write")
-    from routes.instances import _check_job_access
 
-    _check_job_access(user, req.job_id)
+    job_id = _resolve_artifact_job_id(user, req.job_id)
     try:
         atype = ArtifactType(req.artifact_type)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     mgr = get_artifact_manager()
-    result = mgr.download_url_for(atype, req.job_id, req.filename)
+    result = mgr.download_url_for(atype, job_id, req.filename)
     return {"ok": True, **result}
+
+
+@router.get("/api/artifacts", tags=["Artifacts"])
+def api_list_all_artifacts(request: Request):
+    """List artifacts visible to the caller: their jobs' outputs plus standalone uploads."""
+    from artifacts import ArtifactType
+    from routes._deps import (
+        _filter_jobs_for_user,
+        _get_current_user,
+        _is_platform_admin,
+        _require_scope,
+    )
+
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "artifacts:read")
+
+    mgr = get_artifact_manager()
+    objects: list[dict] = []
+    if _is_platform_admin(user):
+        for atype in ArtifactType:
+            objects.extend(mgr.primary.list_objects(f"{atype.value}/"))
+    else:
+        from scheduler import list_jobs
+
+        jobs = _filter_jobs_for_user(list_jobs(), user)
+        slots = {j.get("job_id", "") for j in jobs}
+        slots.discard("")
+        slots.add(_user_upload_slot(user))
+        for slot in slots:
+            objects.extend(mgr.get_job_artifacts(slot))
+    return {"ok": True, "artifacts": [_entry_from_object(o) for o in objects]}
 
 
 @router.get("/api/artifacts/{job_id}", tags=["Artifacts"])

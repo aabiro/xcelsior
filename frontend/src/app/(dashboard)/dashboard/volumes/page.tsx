@@ -21,6 +21,7 @@ import { useEventStream } from "@/hooks/useEventStream";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { LaunchInstanceModal } from "@/components/instances/launch-instance-modal";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useLocale } from "@/lib/locale";
 import { getTeamContext } from "@/lib/team-context";
 import { TeamContextBanner } from "@/components/team/team-context-banner";
@@ -51,7 +52,7 @@ function CopyableId({ id }: { id: string }) {
 }
 
 function volumeActionError(err: unknown, viewerMessage: string): string {
-  const msg = err instanceof Error ? err.message : "Request failed";
+  const msg = (err instanceof Error && err.message.trim()) || "Request failed";
   return /team viewers cannot/i.test(msg) ? viewerMessage : msg;
 }
 
@@ -144,8 +145,11 @@ export default function VolumesPage() {
     }
   };
 
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmSnapshotId, setConfirmSnapshotId] = useState<string | null>(null);
+
   const handleDelete = async (volumeId: string) => {
-    if (!confirm("Delete this volume? This action cannot be undone.")) return;
+    setConfirmDeleteId(null);
     try {
       await api.deleteVolume(volumeId);
       toast.success("Volume deleted");
@@ -217,7 +221,8 @@ export default function VolumesPage() {
   };
 
   const handleDeleteSnapshot = async (snapshotId: string) => {
-    if (!snapshotsVolId || !confirm("Delete this snapshot?")) return;
+    setConfirmSnapshotId(null);
+    if (!snapshotsVolId) return;
     try {
       await api.deleteVolumeSnapshot(snapshotsVolId, snapshotId);
       toast.success(t("dash.volumes.snapshot_deleted"));
@@ -529,7 +534,7 @@ export default function VolumesPage() {
                       variant="ghost"
                       size="sm"
                       className="h-8 text-text-muted hover:text-red-500 shrink-0"
-                      onClick={() => handleDeleteSnapshot(snap.snapshot_id)}
+                      onClick={() => setConfirmSnapshotId(snap.snapshot_id)}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
@@ -777,18 +782,33 @@ export default function VolumesPage() {
                           {!canWrite ? (
                             <span className="text-xs text-text-muted">{t("dash.team.instances_read_only")}</span>
                           ) : vol.status === "attached" ? (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 text-text-secondary hover:text-accent-gold hover:bg-accent-gold/10"
-                              onClick={() => {
-                                api.detachVolume(vol.volume_id)
-                                  .then(() => { toast.success("Volume detached"); load(); })
-                                  .catch((e: unknown) => toast.error(volumeActionError(e, t("dash.volumes.viewer_blocked"))));
-                              }}
-                            >
-                              <Unlink className="h-3.5 w-3.5 mr-1" /> Detach
-                            </Button>
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 text-text-secondary hover:text-accent-gold hover:bg-accent-gold/10"
+                                onClick={() => {
+                                  api.detachVolume(vol.volume_id)
+                                    .then(() => { toast.success("Volume detached"); load(); })
+                                    .catch((e: unknown) => toast.error(volumeActionError(e, t("dash.volumes.viewer_blocked"))));
+                                }}
+                              >
+                                <Unlink className="h-3.5 w-3.5 mr-1" /> Detach
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 text-text-secondary hover:text-accent-violet hover:bg-accent-violet/10"
+                                onClick={() => openSnapshots(vol.volume_id)}
+                                title={t("dash.volumes.snapshots")}
+                              >
+                                <Camera className="h-3.5 w-3.5" />
+                              </Button>
+                            </>
+                          ) : vol.status === "creating" || vol.status === "provisioning" || vol.status === "deleting" ? (
+                            <span className="inline-flex items-center gap-1.5 text-xs text-text-muted">
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" /> {vol.status}…
+                            </span>
                           ) : vol.status === "error" ? (
                             <>
                               <Button
@@ -803,7 +823,7 @@ export default function VolumesPage() {
                                 variant="ghost"
                                 size="sm"
                                 className="h-8 text-text-muted hover:text-red-500 hover:bg-red-500/10"
-                                onClick={() => handleDelete(vol.volume_id)}
+                                onClick={() => setConfirmDeleteId(vol.volume_id)}
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </Button>
@@ -868,7 +888,7 @@ export default function VolumesPage() {
                                 variant="ghost"
                                 size="sm"
                                 className="h-8 text-text-muted hover:text-red-500 hover:bg-red-500/10"
-                                onClick={() => handleDelete(vol.volume_id)}
+                                onClick={() => setConfirmDeleteId(vol.volume_id)}
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </Button>
@@ -893,6 +913,26 @@ export default function VolumesPage() {
         </Card>
         </FadeIn>
       )}
+
+      <ConfirmDialog
+        open={confirmDeleteId !== null}
+        title="Delete this volume?"
+        description="All data on the volume will be permanently destroyed. This cannot be undone."
+        confirmLabel="Delete volume"
+        variant="danger"
+        onConfirm={() => confirmDeleteId && handleDelete(confirmDeleteId)}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
+
+      <ConfirmDialog
+        open={confirmSnapshotId !== null}
+        title="Delete this snapshot?"
+        description="The snapshot will be permanently removed. The volume itself is not affected."
+        confirmLabel="Delete snapshot"
+        variant="danger"
+        onConfirm={() => confirmSnapshotId && handleDeleteSnapshot(confirmSnapshotId)}
+        onCancel={() => setConfirmSnapshotId(null)}
+      />
 
       {/* Launch Instance Modal — pre-selects the chosen volume */}
       <LaunchInstanceModal

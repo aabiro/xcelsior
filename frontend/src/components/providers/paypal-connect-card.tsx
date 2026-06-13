@@ -11,6 +11,7 @@ import {
   Loader2,
   LinkIcon,
   RefreshCw,
+  Unlink,
   Zap,
   Percent,
   Layers,
@@ -19,6 +20,8 @@ import {
 import { toast } from "sonner";
 import * as api from "@/lib/api";
 import { useLocale } from "@/lib/locale";
+import { PayPalLogo } from "@/components/ui/payment-logos";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 export interface PayPalProviderState {
   enabled: boolean;
@@ -31,42 +34,6 @@ interface PayPalConnectCardProps {
   paypal?: PayPalProviderState | null;
   platformPayPalEnabled?: boolean;
   onUpdated?: () => void;
-}
-
-function PayPalLogo({ className = "h-5" }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 124 33"
-      className={className}
-      aria-hidden
-      role="img"
-    >
-      <path
-        fill="#003087"
-        d="M46.2 6.2h-6.8c-.5 0-.9.4-1 1l-2.4 15.2c-.1.5.3.9.8.9h3.3c.4 0 .8-.3.8-.7l.6-3.9c.1-.5.5-.9 1-.9h2.1c4.4 0 7.8-1.8 8.5-7 .3-2.1 0-3.8-1-4.9-1.1-1.3-3.1-1.9-5.9-1.9zm.9 6.9c-.4 2.5-2.3 2.5-4.1 2.5h-1l.7-4.6h1c1.2 0 2.4 0 3 .7.3.3.4.8.4 1.4z"
-      />
-      <path
-        fill="#003087"
-        d="M66.3 13.1h-3.2c-.3 0-.6.2-.7.5l-.1.7-.2-.3c-.6-.9-1.9-1.4-3.2-1.4-3 0-5.6 2.3-6.1 5.5-.3 1.6.1 3.1 1.1 4.2.9 1 2.2 1.4 3.8 1.4 2.7 0 4.2-1.7 4.2-1.7l-.1.7c-.1.5.3.9.8.9h2.9c.5 0 .9-.4 1-1l1.7-11.1c0-.4-.3-.7-.7-.7zm-4.5 5.3c-.3 1.7-1.6 2.9-3.3 2.9-1 0-1.8-.3-2.3-.9-.5-.6-.7-1.4-.5-2.3.3-1.7 1.6-2.9 3.3-2.9 1 0 1.8.3 2.3.9.5.6.7 1.4.5 2.3z"
-      />
-      <path
-        fill="#003087"
-        d="M95.2 13.1h-3.2c-.3 0-.6.2-.7.5l-3.1 4.6-1.3-4.3c-.1-.4-.5-.7-.9-.7h-3.1c-.4 0-.7.4-.6.8l2.5 7.3-2.3 3.3c-.3.4 0 1 .5 1h3.2c.3 0 .6-.2.7-.5l7.4-10.7c.3-.4 0-1-.5-1z"
-      />
-      <path
-        fill="#009cde"
-        d="M106.9 6.2h-6.8c-.5 0-.9.4-1 1l-2.4 15.2c-.1.5.3.9.8.9h3.3c.4 0 .8-.3.8-.7l.6-3.9c.1-.5.5-.9 1-.9h2.1c4.4 0 7.8-1.8 8.5-7 .3-2.1 0-3.8-1-4.9-1.1-1.3-3.1-1.9-5.9-1.9zm.9 6.9c-.4 2.5-2.3 2.5-4.1 2.5h-1l.7-4.6h1c1.2 0 2.4 0 3 .7.3.3.4.8.4 1.4z"
-      />
-      <path
-        fill="#009cde"
-        d="M124 13.1h-3.2c-.3 0-.6.2-.7.5l-.1.7-.2-.3c-.6-.9-1.9-1.4-3.2-1.4-3 0-5.6 2.3-6.1 5.5-.3 1.6.1 3.1 1.1 4.2.9 1 2.2 1.4 3.8 1.4 2.7 0 4.2-1.7 4.2-1.7l-.1.7c-.1.5.3.9.8.9h2.9c.5 0 .9-.4 1-1l1.7-11.1c0-.4-.3-.7-.7-.7zm-4.5 5.3c-.3 1.7-1.6 2.9-3.3 2.9-1 0-1.8-.3-2.3-.9-.5-.6-.7-1.4-.5-2.3.3-1.7 1.6-2.9 3.3-2.9 1 0 1.8.3 2.3.9.5.6.7 1.4.5 2.3z"
-      />
-      <path
-        fill="#003087"
-        d="M7.4 6.2H2.1c-.5 0-.9.4-1 1L.1 22.4c-.1.5.3.9.8.9h4.1c.4 0 .8-.3.8-.7l.5-3.1c.1-.5.5-.9 1-.9h2.1c4.4 0 7.8-1.8 8.5-7 .3-2.1 0-3.8-1-4.9C15.3 7 13.3 6.2 10.5 6.2h-3.1zm.9 6.9c-.4 2.5-2.3 2.5-4.1 2.5H3.1l.7-4.6h1c1.2 0 2.4 0 3 .7.3.3.4.8.4 1.4z"
-      />
-    </svg>
-  );
 }
 
 const STATUS_STYLE: Record<string, string> = {
@@ -97,6 +64,8 @@ export function PayPalConnectCard({
   const [error, setError] = useState<string | null>(null);
   const [justConnected, setJustConnected] = useState(false);
   const [handledReturn, setHandledReturn] = useState(false);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
 
   const status = paypal?.status || "not_started";
   const isActive = status === "active";
@@ -176,6 +145,21 @@ export function PayPalConnectCard({
     }
   };
 
+  const handleDisconnect = async () => {
+    setConfirmDisconnect(false);
+    setDisconnecting(true);
+    try {
+      await api.disconnectPayPalProvider(providerId);
+      setJustConnected(false);
+      toast.success(t("dash.earnings.paypal_disconnected"));
+      onUpdated?.();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("dash.earnings.disconnect_failed"));
+    } finally {
+      setDisconnecting(false);
+    }
+  };
+
   const handleRefresh = async () => {
     setLoading(true);
     try {
@@ -231,12 +215,12 @@ export function PayPalConnectCard({
             }`}
           >
             <div className="flex items-start gap-3">
-              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#003087]/10">
+              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#009cde]/15">
                 <CheckCircle className="h-4.5 w-4.5 text-[#009cde]" />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-sm font-semibold text-[#003087]">
+                  <p className="text-sm font-semibold text-text-primary">
                     {justConnected ? t("dash.earnings.paypal_just_connected") : t("dash.earnings.paypal_ready")}
                   </p>
                   <Badge className="border-emerald/25 bg-emerald/10 text-emerald text-[10px]">
@@ -250,8 +234,30 @@ export function PayPalConnectCard({
                     {new Date(paypal.onboarded_at * 1000).toLocaleDateString()}
                   </p>
                 ) : null}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-2 h-7 px-2 text-xs text-text-muted hover:text-accent-red hover:bg-accent-red/10"
+                  onClick={() => setConfirmDisconnect(true)}
+                  disabled={disconnecting}
+                >
+                  {disconnecting ? (
+                    <><Loader2 className="h-3 w-3 animate-spin" /> {t("dash.earnings.disconnecting")}</>
+                  ) : (
+                    <><Unlink className="h-3 w-3" /> {t("dash.earnings.disconnect")}</>
+                  )}
+                </Button>
               </div>
             </div>
+            <ConfirmDialog
+              open={confirmDisconnect}
+              title={t("dash.earnings.paypal_disconnect_title")}
+              description={t("dash.earnings.paypal_disconnect_desc")}
+              confirmLabel={t("dash.earnings.disconnect")}
+              variant="danger"
+              onConfirm={handleDisconnect}
+              onCancel={() => setConfirmDisconnect(false)}
+            />
           </div>
         ) : (
           <>

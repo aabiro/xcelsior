@@ -52,6 +52,7 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
   const [keys, setKeys] = useState<ServerlessApiKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const load = useCallback(async (showSpinner = false) => {
     if (showSpinner) setLoading(true);
@@ -98,8 +99,8 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
   });
 
   const handleDelete = async () => {
+    setConfirmDelete(false);
     if (!canWrite) return toast.error(t("dash.serverless.viewer_blocked"));
-    if (!confirm(t("dash.serverless.delete_confirm"))) return;
     setDeleting(true);
     try {
       await api.deleteServerlessEndpoint(endpointId);
@@ -145,17 +146,31 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
         accent="violet"
         compact
       >
-        <Badge variant={endpoint.status === "active" ? "active" : "warning"}>{endpoint.status}</Badge>
+        <Badge variant={endpoint.status === "active" ? "active" : "warning"}>
+          {["active", "provisioning", "scaled_down", "error", "deleted"].includes(endpoint.status)
+            ? t(`dash.serverless.status_${endpoint.status}`)
+            : endpoint.status}
+        </Badge>
         {endpoint.mode === "preset" && <EngineBadge engine={endpoint.managed_engine} />}
         <Button variant="outline" size="sm" onClick={() => void load(true)}>
           <RefreshCw className="h-3.5 w-3.5" />
         </Button>
         {canWrite && (
-          <Button variant="ghost" size="sm" className="text-red-500" onClick={handleDelete} disabled={deleting}>
+          <Button variant="ghost" size="sm" className="text-red-500" onClick={() => setConfirmDelete(true)} disabled={deleting}>
             {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
           </Button>
         )}
       </ServerlessHero>
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title={t("dash.serverless.delete_title")}
+        description={t("dash.serverless.delete_confirm")}
+        confirmLabel={t("dash.serverless.delete_cta")}
+        variant="danger"
+        onConfirm={handleDelete}
+        onCancel={() => setConfirmDelete(false)}
+      />
 
       <div className="flex flex-wrap items-center gap-3 text-xs text-text-muted -mt-2">
         <CopyableText text={endpoint.endpoint_id} />

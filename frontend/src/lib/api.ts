@@ -13,16 +13,26 @@ const _eventStreamAvailability = new Map<string, {
 }>();
 
 async function _tryRefresh(): Promise<boolean> {
-  try {
-    const res = await fetch("/api/auth/refresh", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-    });
-    return res.ok;
-  } catch {
-    return false;
+  // Refresh tokens are single-use and rotated server-side; a concurrent tab
+  // (or the keepalive timer) holding the rotation lock yields HTTP 409.
+  // Treating that as failure logged users out with no warning — retry, and
+  // if the lock never clears assume the other tab completed the rotation so
+  // the caller can retry the original request with the refreshed cookie.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch("/api/auth/refresh", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (res.ok) return true;
+      if (res.status !== 409) return false;
+    } catch {
+      // network hiccup — retry below
+    }
+    await new Promise((r) => setTimeout(r, 800 + attempt * 600));
   }
+  return true;
 }
 
 function _redirectToLogin() {
@@ -70,7 +80,7 @@ export async function apiFetch<T = unknown>(
       const body = await retry.json().catch(() => ({}));
       throw new ApiError(
         retry.status,
-        body?.detail || body?.error?.message || body?.message || retry.statusText,
+        body?.detail || body?.error?.message || body?.message || retry.statusText || `Request failed (HTTP ${retry.status})`,
         body,
       );
     }
@@ -81,7 +91,8 @@ export async function apiFetch<T = unknown>(
     const body = await res.json().catch(() => ({}));
     throw new ApiError(
       res.status,
-      body?.detail || body?.error?.message || body?.message || res.statusText,
+      // statusText is empty over HTTP/2 — never surface a blank error message
+      body?.detail || body?.error?.message || body?.message || res.statusText || `Request failed (HTTP ${res.status})`,
       body,
     );
   }
@@ -1004,6 +1015,20 @@ export async function refreshPayPalProvider(providerId: string) {
   }>(`/api/providers/${encodeURIComponent(providerId)}/paypal/refresh`, { method: "POST" });
 }
 
+export async function disconnectStripeProvider(providerId: string) {
+  return apiFetch<{ ok: boolean; provider_id: string; status: string }>(
+    `/api/providers/${encodeURIComponent(providerId)}/stripe/disconnect`,
+    { method: "POST" },
+  );
+}
+
+export async function disconnectPayPalProvider(providerId: string) {
+  return apiFetch<{ ok: boolean; paypal: { provider_id: string; status: string } }>(
+    `/api/providers/${encodeURIComponent(providerId)}/paypal/disconnect`,
+    { method: "POST" },
+  );
+}
+
 export async function resumeOnboarding(providerId: string) {
   return apiFetch<{
     ok: boolean; provider_id: string; onboarding_url?: string; status: string; message?: string;
@@ -1198,6 +1223,27 @@ export async function fetchReputationHistory(entityId: string) {
   return apiFetch<{ ok: boolean; events: { event_type: string; delta: number; timestamp: string; description?: string }[] }>(
     `/api/reputation/${encodeURIComponent(entityId)}/history?limit=50`,
   );
+}
+
+export interface ClaimableVerification {
+  earned: boolean;
+  how: string;
+}
+
+export async function fetchClaimableVerifications() {
+  return apiFetch<{ ok: boolean; claimable: Record<string, ClaimableVerification> }>(
+    "/api/reputation/me/verifications",
+  );
+}
+
+export async function claimReputationVerifications() {
+  return apiFetch<{
+    ok: boolean;
+    newly_granted: string[];
+    claimable: Record<string, ClaimableVerification>;
+    final_score?: number;
+    tier?: string;
+  }>("/api/reputation/me/claim", { method: "POST" });
 }
 
 export async function fetchTrustTiers() {
@@ -1462,6 +1508,8 @@ export interface MfaMethod {
 export interface MfaStatusResponse {
   ok: boolean;
   mfa_enabled: boolean;
+  /** False when Twilio is not configured server-side — hide/disable the SMS option. */
+  sms_available?: boolean;
   methods: MfaMethod[];
   backup_codes_remaining: number;
 }
@@ -2188,6 +2236,7 @@ export interface Host {
   verified?: boolean;
   compute_score?: number;
   admitted?: boolean;
+  admission_details?: { rejection_reasons?: string[]; recommended_runtime?: string };
   gpu_count?: number;
   spot_enabled?: boolean;
   spot_gpu_slots?: number;

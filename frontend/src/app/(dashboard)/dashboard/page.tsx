@@ -86,7 +86,7 @@ function OverviewActionVisual({
     provider: {
       shell: "border-accent-cyan/20 bg-[radial-gradient(circle_at_100%_0%,rgba(8,145,178,0.18),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,249,255,0.94))] dark:bg-[radial-gradient(circle_at_100%_0%,rgba(0,212,255,0.16),transparent_26%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
       panel: "bg-white/[0.72] dark:bg-[#091120]/85",
-      ring: "text-accent-cyan shadow-[0_18px_52px_rgba(8,145,178,0.14)] dark:shadow-[0_18px_52px_rgba(0,212,255,0.16)]",
+      ring: "text-accent-cyan shadow-[0_18px_52px_rgba(8,145,178,0.14)] dark:shadow-[0_14px_40px_rgba(0,212,255,0.08)]",
       cornerA: "bg-[radial-gradient(circle_at_100%_0%,rgba(234,88,12,0.22),transparent_55%)]",
       cornerB: "bg-[radial-gradient(circle_at_0%_100%,rgba(91,33,182,0.18),transparent_55%)]",
       img: "/gpu.svg?v=2",
@@ -222,7 +222,9 @@ export default function DashboardOverview() {
     onEvent: () => { load(); },
   });
 
-  const admittedHosts = hosts.filter((h) => h.admitted !== false && String(h.admitted) !== "false");
+  // Strict check matching /api/v2/gpu/available — the hero count must never
+  // promise capacity the GPU pickers won't offer.
+  const admittedHosts = hosts.filter((h) => h.admitted === true || String(h.admitted) === "true");
   const activeHosts = admittedHosts.filter((h) => h.status === "active").length;
   const runningInstances = instances.filter((j) => j.status === "running").length;
   const queuedInstances = instances.filter((j) => j.status === "queued").length;

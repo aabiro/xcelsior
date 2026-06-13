@@ -6,7 +6,7 @@ import { StatCard } from "@/components/ui/stat-card";
 import { Button } from "@/components/ui/button";
 import { ReputationBadge } from "@/components/ui/reputation-badge";
 import {
-  Star, RefreshCw, Users, Trophy, TrendingUp, BarChart3, ShieldCheck, ShieldOff,
+  Star, RefreshCw, Users, Trophy, TrendingUp, BarChart3, ShieldCheck, ShieldOff, Sparkles,
 } from "lucide-react";
 import { useApi } from "@/lib/use-api";
 import * as apiLib from "@/lib/api";
@@ -272,9 +272,40 @@ export default function ReputationPage() {
   const [myRep, setMyRep] = useState<any>(null);
   const [history, setHistory] = useState<{ date: string; score: number }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [claimable, setClaimable] = useState<Record<string, apiLib.ClaimableVerification>>({});
+  const [claiming, setClaiming] = useState(false);
   const api = useApi();
   const { user } = useAuth();
   const userId = user?.customer_id || user?.user_id || "";
+
+  const loadClaimable = useCallback(() => {
+    apiLib.fetchClaimableVerifications()
+      .then((r) => setClaimable(r.claimable || {}))
+      .catch(() => { /* non-critical */ });
+  }, []);
+
+  const handleClaim = useCallback(async () => {
+    setClaiming(true);
+    try {
+      const res = await apiLib.claimReputationVerifications();
+      setClaimable(res.claimable || {});
+      if (res.newly_granted.length > 0) {
+        toast.success(
+          res.newly_granted.length === 1
+            ? `Unlocked the ${res.newly_granted[0]} badge! 🎉`
+            : `Unlocked ${res.newly_granted.length} badges! 🎉`,
+        );
+        load({ refresh: false });
+      } else {
+        toast.info("No new badges to claim yet — earn more below.");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't claim badges");
+    } finally {
+      setClaiming(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const load = useCallback((opts?: { refresh?: boolean }) => {
     if (opts?.refresh) setLoading(true);
@@ -303,6 +334,8 @@ export default function ReputationPage() {
       setLoading(false);
     });
   }, [api, userId]);
+
+  useEffect(() => { loadClaimable(); }, [loadClaimable]);
 
   useEffect(() => {
     let active = true;
@@ -528,14 +561,28 @@ export default function ReputationPage() {
             {/* Verification badges */}
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4" /> Verification Badges
-                </CardTitle>
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="flex items-center gap-2">
+                    <ShieldCheck className="h-4 w-4" /> Verification Badges
+                  </CardTitle>
+                  {/* "Claim" surfaces only when the user has genuinely earned a
+                      badge they haven't been awarded yet — a real reward moment. */}
+                  {Object.entries(claimable).some(
+                    ([k, c]) => c.earned && !earnedVerifications.includes(k),
+                  ) && (
+                    <Button size="sm" variant="gold" onClick={handleClaim} disabled={claiming}>
+                      <Sparkles className="h-3.5 w-3.5" />
+                      {claiming ? "Claiming…" : "Claim rewards"}
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                   {VERIFICATION_TYPES.map((v) => {
                     const earned = earnedVerifications.includes(v.key);
+                    const claim = claimable[v.key];
+                    const readyToClaim = !earned && claim?.earned;
                     return (
                       <div
                         key={v.key}
@@ -543,8 +590,12 @@ export default function ReputationPage() {
                           "flex items-center gap-2 rounded-lg border p-2.5 text-xs transition-colors",
                           earned
                             ? "border-emerald-600 bg-emerald-900/20 text-emerald-300"
-                            : "border-border bg-surface text-text-muted opacity-50",
+                            : readyToClaim
+                              ? "border-accent-gold/60 bg-accent-gold/10 text-accent-gold cursor-pointer hover:bg-accent-gold/15"
+                              : "border-border bg-surface text-text-muted opacity-60",
                         )}
+                        onClick={readyToClaim ? handleClaim : undefined}
+                        title={!earned && claim ? claim.how : undefined}
                       >
                         <span className="text-base">{v.icon}</span>
                         <div className="flex-1 min-w-0">
@@ -552,6 +603,10 @@ export default function ReputationPage() {
                           {earned ? (
                             <div className="text-[10px] text-emerald-400 flex items-center gap-0.5">
                               <ShieldCheck className="h-2.5 w-2.5" /> Verified
+                            </div>
+                          ) : readyToClaim ? (
+                            <div className="text-[10px] flex items-center gap-0.5 font-medium">
+                              <Sparkles className="h-2.5 w-2.5" /> Ready to claim
                             </div>
                           ) : (
                             <div className="text-[10px] flex items-center gap-0.5">
@@ -563,6 +618,19 @@ export default function ReputationPage() {
                     );
                   })}
                 </div>
+                {/* Next-step hints for unearned, self-claimable badges. */}
+                {VERIFICATION_TYPES.some((v) => claimable[v.key] && !claimable[v.key].earned && !earnedVerifications.includes(v.key)) && (
+                  <ul className="mt-3 space-y-1 border-t border-border/60 pt-3">
+                    {VERIFICATION_TYPES.filter(
+                      (v) => claimable[v.key] && !claimable[v.key].earned && !earnedVerifications.includes(v.key),
+                    ).map((v) => (
+                      <li key={v.key} className="flex items-start gap-1.5 text-[11px] text-text-muted">
+                        <span>{v.icon}</span>
+                        <span>{claimable[v.key].how}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </CardContent>
             </Card>
           </div>

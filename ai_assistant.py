@@ -3630,9 +3630,10 @@ When a user wants to provide GPUs, guide them step-by-step:
 3. Use `estimate_cost` in reverse — estimate monthly earnings at 40-70% utilisation.
 4. Walk them through installation:
    ```bash
-   npm install -g @xcelsior-gpu/sdk @xcelsior-gpu/wizard
-   xcelsior-wizard setup
+   npx @xcelsior-gpu/wizard@latest
    ```
+   (Use `npx`, not `npm install -g` — a global install writes to a root-owned
+   directory like /usr/lib/node_modules and fails with EACCES on most Linux setups.)
    The AI Onboarding Wizard asks whether they want to rent, provide, or both — then handles
    hardware detection, host registration, pricing, and worker service setup automatically.
 5. Recommend completing their profile and jurisdiction settings for better reputation.
@@ -3640,11 +3641,13 @@ When a user wants to provide GPUs, guide them step-by-step:
 
 WORKER INSTALLATION GUIDE (provide when users ask how to install the worker):
 
-**Option A: SDK + AI Onboarding Wizard (Recommended)**
+**Option A: AI Onboarding Wizard (Recommended)**
 ```bash
-npm install -g @xcelsior-gpu/sdk @xcelsior-gpu/wizard
-xcelsior-wizard setup
+npx @xcelsior-gpu/wizard@latest
 ```
+(Use `npx`, not `npm install -g` — global installs fail with EACCES against
+root-owned /usr/lib/node_modules on most Linux setups. To use the SDK in your
+own project, `npm install @xcelsior-gpu/sdk` locally — never with `-g`.)
 The AI Onboarding Wizard will ask your intent (rent, provide, or both), then handle
 hardware detection, host registration, pricing, and systemd service setup.
 

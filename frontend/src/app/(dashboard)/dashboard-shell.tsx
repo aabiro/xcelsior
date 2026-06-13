@@ -22,6 +22,7 @@ import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { LocaleToggle } from "@/components/ui/locale-toggle";
 import { ChatWidget } from "@/components/ChatWidget";
 import { AiPanel } from "@/components/AiPanel";
+import { AiSparkIcon } from "@/components/ui/ai-spark-icon";
 import { DesktopStatusStrip } from "@/components/DesktopStatusStrip";
 import { NotificationBell } from "@/components/NotificationBell";
 import { CreditsButton } from "@/components/CreditsButton";
@@ -238,24 +239,26 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             />
             <div
               className={cn(
-                "flex items-center gap-2 transition-all duration-300 ease-in-out",
+                "flex items-center gap-1 transition-all duration-300 ease-in-out",
                 collapsed && !mobile ? "pointer-events-none w-0 overflow-hidden opacity-0 scale-95" : "opacity-100 scale-100"
               )}
             >
-              {/* Wordmark — visible when expanded */}
+              {/* Wordmark — visible when expanded (+20% from 47px) */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/xcelsior-logo-wordmark-iconbg.svg"
                 alt="Xcelsior"
-                className="hidden h-[47px] w-auto shrink-0 dark:block"
+                className="hidden h-[56px] w-auto shrink-0 dark:block"
               />
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/xcelsior-logo-wordmark-iconbg-light.svg"
                 alt="Xcelsior"
-                className="block h-[47px] w-auto shrink-0 dark:hidden"
+                className="block h-[56px] w-auto shrink-0 dark:hidden"
               />
-              <span className="shrink-0 rounded-full bg-accent-cyan/8 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-widest text-accent-cyan/70">Beta</span>
+              {/* -ml-1.5 pulls Beta in tight against the wordmark's built-in
+                  trailing whitespace, matching the "New" chip spacing in the nav. */}
+              <span className="-ml-1.5 shrink-0 rounded-full bg-accent-cyan/8 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-widest text-accent-cyan/70">Beta</span>
             </div>
           </div>
         </Link>
@@ -667,18 +670,19 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       />
 
       {/* AI Toggle Rail (persistent right edge) */}
-      <div className="hidden md:flex flex-col items-center justify-end border-l border-border/30 bg-surface/50 w-11 py-3 shrink-0">
+      <div className="hidden md:flex flex-col items-center justify-end border-l border-border/30 bg-surface/50 w-16 py-3 shrink-0">
         <button
           onClick={toggleAiPanel}
           className={cn(
-            "flex h-11 w-11 items-center justify-center rounded-lg p-0.5 transition-all duration-200",
+            // 3px padding around a 54px mark (47px → +15%) inside a 60px button.
+            "flex h-[60px] w-[60px] items-center justify-center rounded-xl p-[3px] transition-all duration-200",
             aiPanelOpen
               ? "bg-accent-red text-white shadow-lg shadow-accent-red/25"
               : "text-accent-red hover:bg-accent-red/15"
           )}
           title={aiPanelOpen ? t("ai.close_panel") : t("ai.open_panel")}
         >
-          <Sparkles className={cn("h-[47px] w-[47px] transition-transform duration-200", aiPanelOpen && "rotate-12")} />
+          <AiSparkIcon className={cn("h-[54px] w-[54px] transition-transform duration-200", aiPanelOpen && "rotate-12")} />
         </button>
       </div>
     </div>

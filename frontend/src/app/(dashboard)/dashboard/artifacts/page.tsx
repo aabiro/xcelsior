@@ -50,7 +50,7 @@ export default function ArtifactsPage() {
   const [showUpload, setShowUpload] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [region, setRegion] = useState("ca-central-1");
+  const [region, setRegion] = useState("canada_only");
   const [expiryDays, setExpiryDays] = useState("30");
   const [artifactType, setArtifactType] = useState("model_weights");
   const [uploading, setUploading] = useState(false);
