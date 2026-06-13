@@ -38,7 +38,14 @@ import {
     type Frame,
 } from "../sprites/wizard/wizard-frames.js";
 
+import { spriteCapable } from "./capability.js";
+
 const FRAME_MS = 160;
+
+// spriteCapable() (from capability.ts) returns the cached DA1 detection result
+// when initSpriteCapability() has run, else a conservative synchronous heuristic.
+// The message line (rendered by Ink) always shows, so the wizard degrades
+// gracefully to a text-only experience when the sprite can't paint.
 
 /** Compute 1-based column to center the sprite horizontally. */
 function spriteCol(): number {
@@ -174,6 +181,12 @@ function dbg(msg: string): void {
  * Call this BEFORE render(<App />).
  */
 export function setupWizardRegion(): void {
+    // No Sixel sprite on incapable terminals → don't reserve a scroll region;
+    // Ink renders normally from the top and the message line still shows.
+    if (!spriteCapable()) {
+        dbg("setup: sprite disabled (incapable terminal) — skipping scroll region");
+        return;
+    }
     const inkStart = WIZARD_ROW + SPRITE_ROWS + PAD_ROWS;
     dbg(`setup: inkStart=${inkStart} WIZARD_ROW=${WIZARD_ROW} SPRITE_ROWS=${SPRITE_ROWS}`);
 
@@ -192,6 +205,7 @@ export function setupWizardRegion(): void {
 
 /** Reset scroll region to full terminal (call on exit). */
 export function resetWizardRegion(): void {
+    if (!spriteCapable()) return; // nothing was set up
     writeSync(1, "\x1b[?80l");  // Disable DECSDM
     writeSync(1, "\x1b[r");
 }
@@ -210,6 +224,8 @@ export interface WizardAnimationResult {
 export function useWizardAnimation(exiting: boolean): WizardAnimationResult {
     const exitRef = useRef(false);
     const branchRef = useRef<BranchId | null>(null);
+    // Capability is fixed for the process lifetime — compute once.
+    const paintRef = useRef(spriteCapable());
     const stateRef = useRef<AnimState>({
         phase: "prelude",
         actIdx: 0,
@@ -244,7 +260,7 @@ export function useWizardAnimation(exiting: boolean): WizardAnimationResult {
 
             const seq = getSeq(next);
             const frame = seq[next.actIdx]?.[next.frameIdx];
-            if (frame) {
+            if (frame && paintRef.current) {
                 // Save cursor, draw frame centered at WIZARD_ROW, restore cursor
                 const cup = `\x1b[${WIZARD_ROW};${spriteCol()}H`;
                 writeSync(1, "\x1b7" + cup + frame + "\x1b8");

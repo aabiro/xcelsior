@@ -256,7 +256,8 @@ export async function* streamChat(
         const chunks: Buffer[] = [];
         for await (const chunk of response) chunks.push(chunk as Buffer);
         const text = Buffer.concat(chunks).toString();
-        yield { type: "error", message: `HTTP ${response.statusCode}: ${text}` };
+        const mapped = mapHttpError(response.statusCode ?? 500, text || "AI request failed", config.baseUrl);
+        yield { type: "error", message: mapped.remediation ? `${mapped.message} — ${mapped.remediation}` : mapped.message };
         return;
     }
 
@@ -298,7 +299,8 @@ export async function* confirmAction(
         const chunks: Buffer[] = [];
         for await (const chunk of response) chunks.push(chunk as Buffer);
         const text = Buffer.concat(chunks).toString();
-        yield { type: "error", message: `HTTP ${response.statusCode}: ${text}` };
+        const mapped = mapHttpError(response.statusCode ?? 500, text || "Confirmation failed", config.baseUrl);
+        yield { type: "error", message: mapped.remediation ? `${mapped.message} — ${mapped.remediation}` : mapped.message };
         return;
     }
 
