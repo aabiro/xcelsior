@@ -309,6 +309,9 @@ export async function* confirmAction(
 
 // ── Device Auth (RFC 8628) ───────────────────────────────────────────
 
+/** Public first-party client seeded by oauth_service.ensure_default_oauth_clients */
+export const WIZARD_DEVICE_CLIENT_ID = "xcelsior-cli";
+
 export interface DeviceCodeResult {
     device_code: string;
     user_code: string;
@@ -333,6 +336,7 @@ export type DevicePollResult =
 export async function requestDeviceCode(baseUrl: string): Promise<DeviceCodeResult> {
     const { status, data } = await jsonRequest<DeviceCodeResult>(
         "POST", baseUrl, "/api/auth/device",
+        { client_id: WIZARD_DEVICE_CLIENT_ID },
     );
     if (status !== 200) {
         throw mapHttpError(status, `Device auth init failed: HTTP ${status}`, baseUrl);
@@ -346,7 +350,11 @@ export async function pollDeviceToken(
 ): Promise<DevicePollResult> {
     const { status, data } = await jsonRequest<DeviceTokenResult & { detail?: string; error?: string }>(
         "POST", baseUrl, "/api/auth/token",
-        { device_code: deviceCode, grant_type: "urn:ietf:params:oauth:grant-type:device_code" },
+        {
+            device_code: deviceCode,
+            grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+            client_id: WIZARD_DEVICE_CLIENT_ID,
+        },
     );
 
     if (status === 200) return { status: "authorized", token: data };

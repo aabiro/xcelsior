@@ -115,6 +115,20 @@ describe("e2e — mode selection (rent / provide / both)", () => {
         await delay(40);
         expect(lastFrame()).toContain("Great choice");
     });
+
+    it("selecting SDK transitions with SDK-specific copy", async () => {
+        const { lastFrame, stdin } = await startAtModeSelect();
+        expect(lastFrame()).toContain("Integrate SDK");
+        stdin.write(DOWN);
+        await delay(20);
+        stdin.write(DOWN);
+        await delay(20);
+        stdin.write(DOWN); // → sdk
+        await delay(20);
+        stdin.write("\r");
+        await delay(40);
+        expect(lastFrame()).toContain("SDK track");
+    });
 });
 
 describe("e2e — title bar & footer chrome render", () => {

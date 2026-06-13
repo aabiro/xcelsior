@@ -34,6 +34,14 @@ import { fetchServiceStatus, aiHealthyFromReport, type StatusReport } from "./pr
 import { labelForStep } from "./task-model.js";
 import { summarizeFailure } from "./messaging.js";
 import { fetchMarketplaceStats, type MarketplaceStats } from "./marketplace-stats.js";
+import { detectEnvironment } from "./environment.js";
+import {
+    checkSdkProject,
+    checkSdkPackage,
+    writeSdkEnvSnippet,
+    checkSdkApi,
+    buildSdkStarterSnippet,
+} from "./sdk-checks.js";
 
 // ── Config ───────────────────────────────────────────────────────────
 
@@ -519,10 +527,20 @@ export function generateInstanceName(): string {
     return `${pick(adj)}-${pick(noun)}-${Math.floor(Math.random() * 1000)}`;
 }
 
-function shouldProvisionWorkerOAuthClient(
+function shouldProvisionWizardOAuthClient(
     answers: Record<string, string | string[]>,
 ): boolean {
-    return answers.mode === "provide" || answers.mode === "both";
+    return typeof answers.mode === "string" && answers.mode.length > 0;
+}
+
+function wizardOAuthScopes(mode: string): string[] {
+    if (mode === "provide" || mode === "both") {
+        return ["api", "hosts:read", "hosts:write"];
+    }
+    if (mode === "sdk") {
+        return ["api", "instances:read", "instances:write", "billing:read", "marketplace:read"];
+    }
+    return ["api", "instances:read", "instances:write", "billing:read"];
 }
 
 function buildWorkerOAuthClientName(
@@ -539,7 +557,7 @@ function buildWorkerOAuthClientName(
         .replace(/^-+|-+$/g, "")
         .slice(0, 32);
     const suffix = Date.now().toString(36);
-    return `CLI Wizard Worker ${label || "worker"} ${suffix}`;
+    return `CLI Wizard ${label || "session"} ${suffix}`;
 }
 
 // ── Hook ─────────────────────────────────────────────────────────────
@@ -811,19 +829,20 @@ export function useWizardFlow(): UseWizardFlowReturn {
         currentAnswers: Record<string, string | string[]>,
         sessionToken?: string,
     ): Promise<Record<string, string | string[]>> => {
-        if (!shouldProvisionWorkerOAuthClient(currentAnswers)) return currentAnswers;
+        if (!shouldProvisionWizardOAuthClient(currentAnswers)) return currentAnswers;
         if (currentAnswers["oauth-client-id"] && currentAnswers["oauth-client-secret"]) return currentAnswers;
 
         const userGrant = String(sessionToken || currentAnswers["_session-token"] || "").trim();
         if (!userGrant) return currentAnswers;
 
+        const mode = String(currentAnswers.mode || "rent");
         try {
             const client = await createOAuthClient(API_BASE_URL, userGrant, {
                 client_name: buildWorkerOAuthClientName(currentAnswers),
                 client_type: "confidential",
                 redirect_uris: [],
                 grant_types: ["client_credentials"],
-                scopes: ["api", "hosts:read", "hosts:write"],
+                scopes: wizardOAuthScopes(mode),
             });
             const updated = {
                 ...currentAnswers,
@@ -1555,6 +1574,50 @@ export function useWizardFlow(): UseWizardFlowReturn {
                     return [{ name: "SSH Keys", ok: false, detail: err instanceof Error ? err.message : "SSH key setup failed" }];
                 }
             }
+            case "sdk-detect": {
+                const results = checkSdkProject();
+                for (const r of results) streamItem(r.name, r.ok, r.detail);
+                return results;
+            }
+            case "sdk-install": {
+                const results = await checkSdkPackage();
+                for (const r of results) streamItem(r.name, r.ok, r.detail);
+                return results;
+            }
+            case "sdk-credentials": {
+                const token = currentAnswers["api-key"] as string;
+                const baseUrl = (currentAnswers["_api_base_url"] as string) || API_BASE_URL;
+                const withOAuth = await ensureWorkerOAuthClient(currentAnswers, token);
+                const oauthId = withOAuth["oauth-client-id"] as string | undefined;
+                const oauthSecret = withOAuth["oauth-client-secret"] as string | undefined;
+                const envPath = writeSdkEnvSnippet(baseUrl, token, oauthId, oauthSecret);
+                const fw = detectEnvironment();
+                const snippet = buildSdkStarterSnippet(fw.framework, baseUrl);
+                const updated = {
+                    ...withOAuth,
+                    "_sdk_env_path": envPath,
+                    "_sdk_snippet": snippet,
+                };
+                answersRef.current = updated;
+                setAnswers(updated);
+                streamItem("OAuth client", !!(oauthId && oauthSecret), oauthId ? oauthId : "optional — xoa_ token works");
+                streamItem(".env.local", true, envPath);
+                return [
+                    {
+                        name: "OAuth client",
+                        ok: true,
+                        detail: oauthId ? `Created ${oauthId} (Settings → API)` : "Skipped — use xoa_ session token",
+                    },
+                    { name: ".env.local", ok: true, detail: envPath },
+                ];
+            }
+            case "sdk-verify": {
+                const token = currentAnswers["api-key"] as string;
+                const baseUrl = (currentAnswers["_api_base_url"] as string) || API_BASE_URL;
+                const results = await checkSdkApi(baseUrl, token);
+                for (const r of results) streamItem(r.name, r.ok, r.detail);
+                return results;
+            }
             default:
                 return [{ name: checkId, ok: false, detail: "Unknown check" }];
         }
@@ -1734,14 +1797,20 @@ export function useWizardFlow(): UseWizardFlowReturn {
 
                     if (allPassed) {
                         // Use "excited" (dance) for big milestones, "success" (eureka) for routine
-                        const isMilestone = nextStep.checkId === "launch" || nextStep.checkId === "verify" || nextStep.checkId === "host-register" || nextStep.checkId === "docker";
+                        const isMilestone = nextStep.checkId === "launch" || nextStep.checkId === "verify"
+                            || nextStep.checkId === "host-register" || nextStep.checkId === "docker"
+                            || nextStep.checkId === "sdk-verify" || nextStep.checkId === "sdk-credentials";
                         setWizardState(isMilestone ? "excited" : "success");
                         const successMsg = nextStep.checkId === "launch" ? "Instance launched!"
                             : nextStep.checkId === "benchmark" ? "Benchmarks complete!"
                                 : nextStep.checkId === "verify" ? "Hardware verified!"
                                     : nextStep.checkId === "host-register" ? "Host registered on the marketplace!"
                                         : nextStep.checkId === "docker" ? "Docker environment ready!"
-                                            : "All checks passed!";
+                                            : nextStep.checkId === "sdk-detect" ? "Project detected!"
+                                                : nextStep.checkId === "sdk-install" ? "SDK package ready!"
+                                                    : nextStep.checkId === "sdk-credentials" ? "Credentials saved!"
+                                                        : nextStep.checkId === "sdk-verify" ? "API connection verified!"
+                                                            : "All checks passed!";
                         setWizardMessage(successMsg);
 
                         // Wait for Enter to continue
@@ -1827,8 +1896,14 @@ export function useWizardFlow(): UseWizardFlowReturn {
             }
 
             if (nextStep.type === "confirm") {
-                // Show excited state for provider summary
-                setWizardState(nextStep.id === "provider-summary" ? "success" : "idle");
+                if (nextStep.id === "provider-summary") {
+                    setWizardState("success");
+                } else if (nextStep.id === "sdk-snippet") {
+                    setWizardState("excited");
+                    setWizardMessage("Your SDK integration is ready — copy the starter code below!");
+                } else {
+                    setWizardState("idle");
+                }
                 return;
             }
 
@@ -1912,7 +1987,9 @@ export function useWizardFlow(): UseWizardFlowReturn {
 
             // Choreography: show a transition message, pause, then advance
             const stepMessages: Record<string, string> = {
-                "mode": "Great choice! Let's get you set up...",
+                "mode": value === "sdk"
+                    ? "SDK track — let's wire your app to Xcelsior..."
+                    : "Great choice! Let's get you set up...",
                 "pricing": "Got it! Setting your rate...",
                 "custom-rate": "Rate locked in!",
                 "workload": "Great pick! Finding the best GPUs for you...",

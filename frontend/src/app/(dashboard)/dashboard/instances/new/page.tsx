@@ -10,7 +10,7 @@ export default function NewInstancePage() {
     <LaunchInstanceModal
       open
       onClose={() => router.push("/dashboard/instances")}
-      onLaunched={(instanceId) => router.push(`/dashboard/instances/${instanceId}`)}
+      onLaunched={() => { /* modal shows its own success step; user chooses where to go */ }}
     />
   );
 }

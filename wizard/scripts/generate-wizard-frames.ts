@@ -3,7 +3,7 @@
  * generate-wizard-frames.ts — Build-time PNG → Sixel sprite converter
  *
  * Reads PNG frames from sprites/wizard/, crops to a global bounding box,
- * encodes as Sixel graphics strings, writes src/wizard-frames.ts.
+ * encodes as Sixel graphics strings, writes sprites/wizard/wizard-frames.ts.
  * Sixel allows rendering full-resolution pixel art directly in the terminal.
  *
  * Usage: npx tsx scripts/generate-wizard-frames.ts
@@ -23,7 +23,7 @@ type Grid = RGBA[][];
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
 const SPRITES_DIR = join(ROOT, "..", "sprites", "wizard");
-const OUTPUT = join(ROOT, "src", "wizard-frames.ts");
+const OUTPUT = join(ROOT, "sprites", "wizard", "wizard-frames.ts");
 
 // ── PNG handling ─────────────────────────────────────────────
 function readPng(path: string): Grid {
@@ -156,7 +156,8 @@ function rgbaToSixel(grid: Grid): string {
 
 // ── File grouping ────────────────────────────────────────────
 type Group = "intro" | "idle" | "pace" | "think" | "wave" | "cast" | "outro"
-    | "eureka" | "celebrate" | "error" | "sleep" | "levitate" | "dance" | "bow";
+    | "eureka" | "celebrate" | "error" | "sleep" | "levitate" | "dance" | "bow"
+    | "peek" | "type" | "nod";
 
 function classify(name: string): Group | null {
     const n = name.toLowerCase().replace(/^wizard-/, "");
@@ -174,6 +175,9 @@ function classify(name: string): Group | null {
     if (n.startsWith("levitate")) return "levitate";
     if (n.startsWith("dance")) return "dance";
     if (n.startsWith("bow")) return "bow";
+    if (n.startsWith("peek")) return "peek";
+    if (n.startsWith("type")) return "type";
+    if (n.startsWith("nod")) return "nod";
     return null;
 }
 
@@ -187,15 +191,18 @@ function serializeFrames(name: string, frames: string[]): string {
 const ALL_GROUPS: Group[] = [
     "intro", "idle", "pace", "think", "wave", "cast", "outro",
     "eureka", "celebrate", "error", "sleep", "levitate", "dance", "bow",
+    "peek", "type", "nod",
 ];
 const groups: Record<Group, string[]> = {
     intro: [], idle: [], pace: [], think: [], wave: [], cast: [], outro: [],
     eureka: [], celebrate: [], error: [], sleep: [], levitate: [], dance: [], bow: [],
+    peek: [], type: [], nod: [],
 };
 
 const rawByGroup: Record<Group, { file: string; grid: Grid }[]> = {
     intro: [], idle: [], pace: [], think: [], wave: [], cast: [], outro: [],
     eureka: [], celebrate: [], error: [], sleep: [], levitate: [], dance: [], bow: [],
+    peek: [], type: [], nod: [],
 };
 
 if (existsSync(SPRITES_DIR)) {
@@ -238,7 +245,7 @@ for (const g of ALL_GROUPS) {
 // Tighten the bottom to the core animation groups (not intro/outro particles).
 // This keeps the wizard's feet at the bottom edge, aligned with the text baseline.
 const CORE_GROUPS: Group[] = ["idle", "pace", "think", "wave", "cast",
-    "eureka", "celebrate", "error", "sleep", "levitate", "dance", "bow"];
+    "eureka", "celebrate", "error", "sleep", "levitate", "dance", "bow", "peek", "type", "nod"];
 let coreBottom = 0;
 for (const g of CORE_GROUPS) {
     for (const { grid } of rawByGroup[g]) {
@@ -297,6 +304,9 @@ const NAMES: Record<Group, string> = {
     levitate: "LEVITATE_FRAMES",
     dance: "DANCE_FRAMES",
     bow: "BOW_FRAMES",
+    peek: "PEEK_FRAMES",
+    type: "TYPE_FRAMES",
+    nod: "NOD_FRAMES",
 };
 
 // Estimate terminal cell dimensions (typical ~8x16 px per cell)

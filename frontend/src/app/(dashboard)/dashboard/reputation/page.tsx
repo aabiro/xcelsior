@@ -5,8 +5,10 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
 import { Button } from "@/components/ui/button";
 import { ReputationBadge } from "@/components/ui/reputation-badge";
+import Link from "next/link";
 import {
   Star, RefreshCw, Users, Trophy, TrendingUp, BarChart3, ShieldCheck, ShieldOff, Sparkles,
+  CheckCircle2, ArrowRight, Lock,
 } from "lucide-react";
 import { useApi } from "@/lib/use-api";
 import * as apiLib from "@/lib/api";
@@ -272,35 +274,36 @@ export default function ReputationPage() {
   const [myRep, setMyRep] = useState<any>(null);
   const [history, setHistory] = useState<{ date: string; score: number }[]>([]);
   const [loading, setLoading] = useState(true);
-  const [claimable, setClaimable] = useState<Record<string, apiLib.ClaimableVerification>>({});
+  const [journey, setJourney] = useState<apiLib.ReputationMilestone[]>([]);
   const [claiming, setClaiming] = useState(false);
   const api = useApi();
   const { user } = useAuth();
   const userId = user?.customer_id || user?.user_id || "";
 
-  const loadClaimable = useCallback(() => {
-    apiLib.fetchClaimableVerifications()
-      .then((r) => setClaimable(r.claimable || {}))
+  const loadJourney = useCallback(() => {
+    apiLib.fetchReputationJourney()
+      .then((r) => setJourney(r.milestones || []))
       .catch(() => { /* non-critical */ });
   }, []);
 
   const handleClaim = useCallback(async () => {
     setClaiming(true);
     try {
-      const res = await apiLib.claimReputationVerifications();
-      setClaimable(res.claimable || {});
+      const res = await apiLib.claimReputationMilestones();
+      setJourney(res.milestones || []);
       if (res.newly_granted.length > 0) {
+        const total = res.newly_granted.reduce((sum, g) => sum + g.points, 0);
         toast.success(
           res.newly_granted.length === 1
-            ? `Unlocked the ${res.newly_granted[0]} badge! 🎉`
-            : `Unlocked ${res.newly_granted.length} badges! 🎉`,
+            ? `${res.newly_granted[0].title} complete — +${total} reputation! 🎉`
+            : `${res.newly_granted.length} milestones complete — +${total} reputation! 🎉`,
         );
         load({ refresh: false });
       } else {
-        toast.info("No new badges to claim yet — earn more below.");
+        toast.info("No milestones ready to claim yet — keep going below.");
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't claim badges");
+      toast.error(e instanceof Error ? e.message : "Couldn't claim rewards");
     } finally {
       setClaiming(false);
     }
@@ -335,7 +338,7 @@ export default function ReputationPage() {
     });
   }, [api, userId]);
 
-  useEffect(() => { loadClaimable(); }, [loadClaimable]);
+  useEffect(() => { loadJourney(); }, [loadJourney]);
 
   useEffect(() => {
     let active = true;
@@ -407,7 +410,7 @@ export default function ReputationPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Reputation</h1>
-        <Button variant="outline" size="sm" onClick={() => load({ refresh: true })}>
+        <Button variant="outline" size="sm" onClick={() => { load({ refresh: true }); loadJourney(); }}>
           <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Refresh
         </Button>
       </div>
@@ -422,9 +425,9 @@ export default function ReputationPage() {
         <>
           {/* Stats row */}
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <StatCard label="Jobs Completed" value={jobsCompleted} icon={Trophy} />
+            <StatCard label="Sessions Completed" value={jobsCompleted} icon={Trophy} />
             <StatCard
-              label="Job Success Rate"
+              label="Success Rate"
               value={`${(jobSuccessRate * 100).toFixed(1)}%`}
               icon={TrendingUp}
             />
@@ -558,31 +561,17 @@ export default function ReputationPage() {
               </CardContent>
             </Card>
 
-            {/* Verification badges */}
+            {/* Verification badges (display) */}
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between gap-2">
-                  <CardTitle className="flex items-center gap-2">
-                    <ShieldCheck className="h-4 w-4" /> Verification Badges
-                  </CardTitle>
-                  {/* "Claim" surfaces only when the user has genuinely earned a
-                      badge they haven't been awarded yet — a real reward moment. */}
-                  {Object.entries(claimable).some(
-                    ([k, c]) => c.earned && !earnedVerifications.includes(k),
-                  ) && (
-                    <Button size="sm" variant="gold" onClick={handleClaim} disabled={claiming}>
-                      <Sparkles className="h-3.5 w-3.5" />
-                      {claiming ? "Claiming…" : "Claim rewards"}
-                    </Button>
-                  )}
-                </div>
+                <CardTitle className="flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4" /> Verification Badges
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                   {VERIFICATION_TYPES.map((v) => {
                     const earned = earnedVerifications.includes(v.key);
-                    const claim = claimable[v.key];
-                    const readyToClaim = !earned && claim?.earned;
                     return (
                       <div
                         key={v.key}
@@ -590,12 +579,8 @@ export default function ReputationPage() {
                           "flex items-center gap-2 rounded-lg border p-2.5 text-xs transition-colors",
                           earned
                             ? "border-emerald-600 bg-emerald-900/20 text-emerald-300"
-                            : readyToClaim
-                              ? "border-accent-gold/60 bg-accent-gold/10 text-accent-gold cursor-pointer hover:bg-accent-gold/15"
-                              : "border-border bg-surface text-text-muted opacity-60",
+                            : "border-border bg-surface text-text-muted opacity-60",
                         )}
-                        onClick={readyToClaim ? handleClaim : undefined}
-                        title={!earned && claim ? claim.how : undefined}
                       >
                         <span className="text-base">{v.icon}</span>
                         <div className="flex-1 min-w-0">
@@ -603,10 +588,6 @@ export default function ReputationPage() {
                           {earned ? (
                             <div className="text-[10px] text-emerald-400 flex items-center gap-0.5">
                               <ShieldCheck className="h-2.5 w-2.5" /> Verified
-                            </div>
-                          ) : readyToClaim ? (
-                            <div className="text-[10px] flex items-center gap-0.5 font-medium">
-                              <Sparkles className="h-2.5 w-2.5" /> Ready to claim
                             </div>
                           ) : (
                             <div className="text-[10px] flex items-center gap-0.5">
@@ -618,22 +599,16 @@ export default function ReputationPage() {
                     );
                   })}
                 </div>
-                {/* Next-step hints for unearned, self-claimable badges. */}
-                {VERIFICATION_TYPES.some((v) => claimable[v.key] && !claimable[v.key].earned && !earnedVerifications.includes(v.key)) && (
-                  <ul className="mt-3 space-y-1 border-t border-border/60 pt-3">
-                    {VERIFICATION_TYPES.filter(
-                      (v) => claimable[v.key] && !claimable[v.key].earned && !earnedVerifications.includes(v.key),
-                    ).map((v) => (
-                      <li key={v.key} className="flex items-start gap-1.5 text-[11px] text-text-muted">
-                        <span>{v.icon}</span>
-                        <span>{claimable[v.key].how}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
               </CardContent>
             </Card>
           </div>
+
+          {/* ── Milestone Journey ── */}
+          <MilestoneJourney
+            milestones={journey}
+            claiming={claiming}
+            onClaim={handleClaim}
+          />
 
           {/* Score History */}
           {history.length > 0 && (
@@ -747,5 +722,136 @@ export default function ReputationPage() {
         </>
       )}
     </div>
+  );
+}
+
+// ── Milestone Journey ──────────────────────────────────────────────────────
+
+function MilestoneJourney({
+  milestones,
+  claiming,
+  onClaim,
+}: {
+  milestones: apiLib.ReputationMilestone[];
+  claiming: boolean;
+  onClaim: () => void;
+}) {
+  if (!milestones.length) return null;
+
+  const claimable = milestones.filter((m) => m.status === "claimable").length;
+  const done = milestones.filter((m) => m.status === "claimed").length;
+  const pct = Math.round((done / milestones.length) * 100);
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Trophy className="h-4 w-4 text-accent-gold" /> Your Journey
+            </CardTitle>
+            <p className="mt-1 text-xs text-text-muted">
+              {done} of {milestones.length} milestones complete · earn reputation and unlock perks
+            </p>
+          </div>
+          {claimable > 0 && (
+            <Button size="sm" variant="gold" onClick={onClaim} disabled={claiming}>
+              <Sparkles className="h-3.5 w-3.5" />
+              {claiming ? "Claiming…" : `Claim ${claimable} reward${claimable > 1 ? "s" : ""}`}
+            </Button>
+          )}
+        </div>
+        {/* Overall progress bar */}
+        <div className="mt-3 h-2 rounded-full bg-border overflow-hidden">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-accent-gold to-emerald transition-all duration-500"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {milestones.map((m) => {
+            const ratio = m.target > 0 ? Math.min(1, m.current / m.target) : 0;
+            return (
+              <div
+                key={m.id}
+                className={cn(
+                  "relative rounded-xl border p-4 transition-colors",
+                  m.status === "claimed"
+                    ? "border-emerald/30 bg-emerald/[0.06]"
+                    : m.status === "claimable"
+                      ? "border-accent-gold/50 bg-accent-gold/[0.07] shadow-[0_0_20px_rgba(245,158,11,0.1)]"
+                      : "border-border bg-surface",
+                )}
+              >
+                <div className="flex items-start gap-3">
+                  <span className="text-2xl leading-none mt-0.5">{m.icon}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="font-semibold text-sm truncate">{m.title}</p>
+                      {m.status === "claimed" ? (
+                        <CheckCircle2 className="h-4 w-4 text-emerald shrink-0" />
+                      ) : m.status === "claimable" ? (
+                        <Sparkles className="h-4 w-4 text-accent-gold shrink-0 animate-pulse" />
+                      ) : (
+                        <Lock className="h-3.5 w-3.5 text-text-muted shrink-0" />
+                      )}
+                    </div>
+                    <p className="mt-0.5 text-xs text-text-muted">{m.description}</p>
+
+                    {/* Progress for multi-step milestones */}
+                    {m.target > 1 && m.status !== "claimed" && (
+                      <div className="mt-2">
+                        <div className="flex items-center justify-between text-[10px] text-text-muted mb-1">
+                          <span>{m.current} / {m.target}</span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-border overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-accent-cyan transition-all duration-500"
+                            style={{ width: `${ratio * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-accent-violet/10 px-2 py-0.5 text-[10px] font-semibold text-accent-violet">
+                        +{m.points} pts
+                      </span>
+                      <span className="text-[10px] text-text-muted">{m.unlocks}</span>
+                    </div>
+
+                    {/* Next-step CTA for locked milestones */}
+                    {m.status === "locked" && m.cta && (
+                      <Link
+                        href={m.cta}
+                        className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-accent-cyan hover:underline"
+                      >
+                        Go <ArrowRight className="h-3 w-3" />
+                      </Link>
+                    )}
+                    {m.status === "claimable" && (
+                      <button
+                        onClick={onClaim}
+                        disabled={claiming}
+                        className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-accent-gold hover:underline"
+                      >
+                        <Sparkles className="h-3 w-3" /> Ready to claim
+                      </button>
+                    )}
+                    {m.status === "claimed" && (
+                      <p className="mt-2 inline-flex items-center gap-1 text-[11px] text-emerald">
+                        <CheckCircle2 className="h-3 w-3" /> Claimed
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

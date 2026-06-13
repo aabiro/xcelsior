@@ -5,6 +5,7 @@ import { describe, it, expect } from "vitest";
 import {
     advance,
     getSeq,
+    frameMsForMood,
     type AnimState,
     type BranchId,
     WIZARD_ROW,
@@ -24,7 +25,10 @@ import {
     LEVITATE_FRAMES,
     DANCE_FRAMES,
     BOW_FRAMES,
+    CAST_FRAMES,
+    WAVE_FRAMES,
 } from "../../sprites/wizard/wizard-frames.js";
+import { PEEK_FRAMES, TYPE_FRAMES, NOD_FRAMES } from "../hexara-moves.js";
 
 // Pre-built act sequences (mirrored from useWizardAnimation.ts)
 const SETTLE_LEN = IDLE_FRAMES.length * 2;      // 6 frames
@@ -60,7 +64,10 @@ describe("getSeq", () => {
     });
 
     it("branch with valid branchId returns 1 act", () => {
-        const branches: BranchId[] = ["eureka", "celebrate", "error", "sleep", "levitate", "dance", "bow"];
+        const branches: BranchId[] = [
+            "eureka", "celebrate", "error", "sleep", "levitate", "dance", "bow",
+            "wave", "cast", "peek", "type", "nod",
+        ];
         for (const id of branches) {
             const seq = getSeq({ phase: "branch", actIdx: 0, frameIdx: 0, branchId: id });
             expect(seq).toHaveLength(1);
@@ -86,6 +93,24 @@ describe("getSeq", () => {
     it("loop first act is PACE_FRAMES", () => {
         const seq = getSeq({ phase: "loop", actIdx: 0, frameIdx: 0 });
         expect(seq[0]).toHaveLength(PACE_FRAMES.length);
+    });
+
+    it("working mood uses cast + levitate instead of wave", () => {
+        const idle = getSeq({ phase: "loop", actIdx: 0, frameIdx: 0 }, "idle");
+        const working = getSeq({ phase: "loop", actIdx: 0, frameIdx: 0 }, "working");
+        expect(working[2]).toHaveLength(CAST_FRAMES.length);
+        expect(working[3]).toHaveLength(LEVITATE_FRAMES.length);
+        expect(idle[2]).toHaveLength(WAVE_ACT_LEN);
+    });
+
+    it("presenting mood includes a full dance act", () => {
+        const seq = getSeq({ phase: "loop", actIdx: 0, frameIdx: 0 }, "presenting");
+        expect(seq[2]).toHaveLength(DANCE_FRAMES.length);
+    });
+
+    it("waiting mood includes sleep frames", () => {
+        const seq = getSeq({ phase: "loop", actIdx: 0, frameIdx: 0 }, "waiting");
+        expect(seq.some((act) => act === SLEEP_FRAMES || act.length === SLEEP_FRAMES.length)).toBe(true);
     });
 
     it("exit second act is OUTRO_FRAMES", () => {
@@ -231,6 +256,20 @@ describe("advance — exit handling", () => {
 // ── advance — branch handling ───────────────────────────────────────
 
 describe("advance — branch handling", () => {
+    it("urgent branch interrupts mid-act", () => {
+        const state: AnimState = { phase: "loop", actIdx: 0, frameIdx: 3 };
+        const next = advance(state, false, "dance");
+        expect(next.phase).toBe("branch");
+        expect(next.branchId).toBe("dance");
+    });
+
+    it("non-urgent sleep waits for act boundary", () => {
+        const state: AnimState = { phase: "loop", actIdx: 0, frameIdx: 3 };
+        const next = advance(state, false, "sleep");
+        expect(next.phase).toBe("loop");
+        expect(next.frameIdx).toBe(4);
+    });
+
     it("branch triggered at loop act boundary", () => {
         const state: AnimState = { phase: "loop", actIdx: 1, frameIdx: THINK_ACT_LEN - 1 };
         const next = advance(state, false, "eureka");
@@ -240,9 +279,9 @@ describe("advance — branch handling", () => {
         expect(next.frameIdx).toBe(0);
     });
 
-    it("branch NOT triggered mid-frame", () => {
+    it("non-urgent branch NOT triggered mid-frame", () => {
         const state: AnimState = { phase: "loop", actIdx: 0, frameIdx: 3 };
-        const next = advance(state, false, "dance");
+        const next = advance(state, false, "sleep");
         expect(next.phase).toBe("loop");
         expect(next.frameIdx).toBe(4);
     });
@@ -290,7 +329,10 @@ describe("advance — branch handling", () => {
     });
 
     it("all branch types produce valid next phase", () => {
-        const branches: BranchId[] = ["eureka", "celebrate", "error", "sleep", "levitate", "dance", "bow"];
+        const branches: BranchId[] = [
+            "eureka", "celebrate", "error", "sleep", "levitate", "dance", "bow",
+            "wave", "cast", "peek", "type", "nod",
+        ];
         const frameLens: Record<BranchId, number> = {
             eureka: EUREKA_FRAMES.length,
             celebrate: CELEBRATE_FRAMES.length,
@@ -299,6 +341,11 @@ describe("advance — branch handling", () => {
             levitate: LEVITATE_FRAMES.length,
             dance: DANCE_FRAMES.length,
             bow: BOW_FRAMES.length,
+            wave: WAVE_FRAMES.length,
+            cast: CAST_FRAMES.length,
+            peek: PEEK_FRAMES.length,
+            type: TYPE_FRAMES.length,
+            nod: NOD_FRAMES.length,
         };
         for (const id of branches) {
             const state: AnimState = { phase: "branch", actIdx: 0, frameIdx: frameLens[id] - 1, branchId: id };
@@ -410,6 +457,12 @@ describe("advance — full sequence simulation", () => {
 });
 
 // ── WIZARD_ROW constant ─────────────────────────────────────────────
+
+describe("frameMsForMood", () => {
+    it("working is faster than waiting", () => {
+        expect(frameMsForMood("working")).toBeLessThan(frameMsForMood("waiting"));
+    });
+});
 
 describe("WIZARD_ROW", () => {
     it("is a positive integer", () => {

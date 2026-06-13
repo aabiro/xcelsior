@@ -74,7 +74,7 @@ describe("EndpointDetail", () => {
 
   it("renders overview metrics for readers", async () => {
     render(<EndpointDetail endpointId={mockEndpoint.endpoint_id} canWrite={false} />);
-    expect(await screen.findByText("test-llama", { timeout: 10_000 })).toBeInTheDocument();
+    expect(await screen.findByText("test-llama", {}, { timeout: 10_000 })).toBeInTheDocument();
     expect(screen.getByText("dash.serverless.metric_requests")).toBeInTheDocument();
     expect(screen.queryByText("dash.serverless.key_create")).not.toBeInTheDocument();
   }, 15_000);

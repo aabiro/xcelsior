@@ -19,8 +19,8 @@ export function StartupCard({ env }: StartupCardProps) {
         <Box width={70} flexDirection="column" borderStyle="round" borderColor={COLORS.accent} paddingX={2} paddingY={1}>
             <Text bold color={COLORS.brand}>Welcome to Xcelsior</Text>
             <Box marginTop={1} flexDirection="column">
-                <Text>Rent GPUs on an open marketplace, or earn by sharing yours.</Text>
-                <Text color={COLORS.muted}>Auth, benchmarks, verification, and launch — all from here.</Text>
+                <Text>Rent GPUs, share yours, or integrate the SDK — Hexara guides every track.</Text>
+                <Text color={COLORS.muted}>Auth, benchmarks, verification, launch, and API setup from here.</Text>
             </Box>
             <Box marginTop={1}>
                 <Text color={COLORS.success}>{GLYPHS.ok} </Text>

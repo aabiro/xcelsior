@@ -159,6 +159,10 @@ const STEP_TIME_HINTS: Record<string, string> = {
     "wallet-check": "Checking your wallet balance…",
     "ssh-key-setup": "Setting up SSH keys for instance access…",
     "api-check": "Verifying the control-plane connection…",
+    "sdk-detect": "Scanning for package.json / pyproject.toml in your project tree…",
+    "sdk-install": "Checking node_modules for @xcelsior-gpu/sdk…",
+    "sdk-credentials": "Writing .env.local and provisioning OAuth for automation…",
+    "sdk-verify": "Calling the API with your xoa_ token…",
 };
 
 export function timeHintForStep(stepId: string): string | null {
@@ -227,8 +231,59 @@ export function nextSlideIndex(current: number, total: number): number {
     return (current + 1) % total;
 }
 
+const SDK_FLOW = pipeline(["Your App", "SDK", "API", "Dashboard"], 1);
+
+/** SDK integration track — mirrors PostHog's "Here's the flow" diagram. */
+export const SDK_LEARN_SLIDES: LearnSlide[] = [
+    {
+        mode: "learn",
+        heading: "Here's the flow",
+        lines: [
+            "Your app calls the Xcelsior SDK with",
+            "your xoa_ token. The SDK talks to",
+            "our API — you query GPUs, launch jobs,",
+            "and manage billing from code.",
+        ],
+        chartCaption: "Data path",
+        chart: [SDK_FLOW],
+    },
+    {
+        mode: "learn",
+        heading: "Session tokens (xoa_)",
+        lines: [
+            "Device sign-in gives you an xoa_",
+            "access token for your user session.",
+            "OAuth client IDs (oauth_…) are for",
+            "server-to-server — not the same thing.",
+        ],
+    },
+    {
+        mode: "tips",
+        heading: "OAuth for automation",
+        lines: [
+            "The wizard creates a confidential",
+            "OAuth client in Settings → API.",
+            "Use client_credentials for CI and",
+            "long-running workers — no browser.",
+        ],
+    },
+    {
+        mode: "tips",
+        heading: "TypeScript-first",
+        lines: [
+            "npm install @xcelsior-gpu/sdk",
+            "Full types for instances, marketplace,",
+            "billing, and serverless endpoints.",
+        ],
+    },
+];
+
 /** Slides filtered to a mode (learn slides always show; tips are extra nudges). */
 export function slidesForMode(mode: SlideMode): LearnSlide[] {
     if (mode === "tips") return LEARN_SLIDES;
     return LEARN_SLIDES.filter((s) => s.mode === "learn");
+}
+
+export function sdkLearnSlides(): LearnSlide[] {
+    return SDK_LEARN_SLIDES;
 }

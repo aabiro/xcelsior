@@ -195,14 +195,15 @@ function CreateClientForm({
     setCreating(true);
     try {
       const res = await api.createOAuthClient(trimmed, Array.from(scopes));
+      const secret = res.client.client_secret || "";
       onCreated(
         { ...res.client, status: "active" },
-        res.client.client_secret || "",
+        secret,
       );
       setName("");
       setScopes(new Set(["instances:read"]));
       setExpanded(false);
-      toast.success(t("dash.settings.oauth.created"));
+      toast.success(secret ? t("dash.settings.oauth.created_copied") : t("dash.settings.oauth.created"));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("dash.settings.oauth.create_failed"));
     } finally {
@@ -326,7 +327,14 @@ function SecretBanner({
             {copiedId === "new-id" ? <CheckCircle className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
           </button>
         </div>
-        <code className="block break-all rounded-md bg-surface/70 px-3 py-2 font-mono text-xs">{clientId}</code>
+        <button
+          type="button"
+          onClick={() => copy(clientId, "new-id")}
+          className="block w-full text-left break-all rounded-md bg-surface/70 px-3 py-2 font-mono text-xs hover:bg-surface transition-colors cursor-pointer"
+          title={t("dash.settings.oauth.tip_copy_id")}
+        >
+          {clientId}
+        </button>
         <div className="flex items-center justify-between pt-1">
           <span className="text-[11px] font-medium uppercase tracking-wider text-text-muted">{t("dash.settings.oauth.client_secret_label")}</span>
           <button
@@ -339,7 +347,14 @@ function SecretBanner({
             {copiedId === "new-secret" ? <CheckCircle className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
           </button>
         </div>
-        <code className="block break-all rounded-md bg-surface/70 px-3 py-2 font-mono text-xs">{clientSecret}</code>
+        <button
+          type="button"
+          onClick={() => copy(clientSecret, "new-secret")}
+          className="block w-full text-left break-all rounded-md bg-surface/70 px-3 py-2 font-mono text-xs hover:bg-surface transition-colors cursor-pointer"
+          title={t("dash.settings.oauth.tip_copy_secret")}
+        >
+          {clientSecret}
+        </button>
       </div>
       <p className="text-xs text-text-muted">{t("dash.settings.oauth.scopes_label", { scopes: scopes.join(", ") })}</p>
       <button onClick={onDismiss} className="text-xs text-text-muted hover:text-text-secondary transition-colors">
@@ -437,7 +452,11 @@ function RotateSecretDialog({
     try {
       const res = await api.rotateOAuthClientSecret(client.client_id);
       setNewSecret(res.client_secret);
-      toast.success(t("dash.settings.oauth.rotated"));
+      void navigator.clipboard.writeText(res.client_secret).then(() => {
+        toast.success(t("dash.settings.oauth.secret_copied"));
+      }).catch(() => {
+        toast.success(t("dash.settings.oauth.rotated"));
+      });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("dash.settings.oauth.rotate_failed"));
     } finally {
@@ -791,6 +810,7 @@ export function OAuthClientManager({ clients, onClientsChange, team }: OAuthClie
   const handleCreated = (client: OAuthClientInfo, secret: string) => {
     if (secret) {
       setNewSecret({ clientId: client.client_id, secret, scopes: client.scopes });
+      void navigator.clipboard.writeText(secret);
     }
     refreshClients();
   };
@@ -865,8 +885,12 @@ export function OAuthClientManager({ clients, onClientsChange, team }: OAuthClie
           <CredentialScopePanel team={team} clientCount={clients.length} />
 
           {/* Info callout */}
-          <div className="rounded-lg border border-accent-cyan/20 bg-accent-cyan/5 p-3 text-xs text-text-secondary">
-            {t("dash.settings.oauth.info", { grantType: "client_credentials" })}
+          <div className="rounded-lg border border-accent-cyan/20 bg-accent-cyan/5 p-3 text-xs text-text-secondary space-y-1">
+            <p>{t("dash.settings.oauth.info", { grantType: "client_credentials" })}</p>
+            <p className="text-text-muted">
+              Session tokens for the CLI use the <code className="font-mono text-accent-cyan">xoa_</code> prefix.
+              OAuth client IDs (<code className="font-mono">oauth_…</code>) are not access tokens — run the setup wizard or device sign-in to obtain an <code className="font-mono">xoa_</code> token.
+            </p>
           </div>
 
           {writeBlocked && (

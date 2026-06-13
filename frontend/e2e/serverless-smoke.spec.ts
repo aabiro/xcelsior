@@ -176,7 +176,7 @@ test.describe("serverless dashboard", () => {
         addEventListener() {}
         removeEventListener() {}
       }
-      window.EventSource = MockEventSource as typeof EventSource;
+      window.EventSource = MockEventSource as unknown as typeof EventSource;
     });
     const page = await context.newPage();
 
