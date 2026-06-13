@@ -35,7 +35,7 @@ const STEP_ENTRY: Record<string, BranchId> = {
     "sdk-install": "peek",
     "sdk-credentials": "type",
     "sdk-verify": "cast",
-    "sdk-snippet": "celebrate",
+    "sdk-snippet": "nod",
 
     // Renter
     workload: "wave",
@@ -167,7 +167,7 @@ export function computeWizardBranch(ctx: HexaraContext): BranchId | null {
 
     if (ctx.wizardState === "excited") {
         if (ctx.step.id === "confirm-launch" || ctx.step.checkId === "launch") return "cast";
-        if (ctx.step.id === "sdk-snippet") return "celebrate";
+        if (ctx.step.id === "sdk-snippet") return "nod";
         return "dance";
     }
     if (ctx.wizardState === "success") return "eureka";
@@ -205,7 +205,7 @@ export function computeWizardBranch(ctx: HexaraContext): BranchId | null {
         }
 
         if (ctx.step.type === "confirm") {
-            if (ctx.step.id === "sdk-snippet") return "celebrate";
+            if (ctx.step.id === "sdk-snippet") return "nod";
             if (ctx.step.id === "confirm-launch") return "cast";
             if (ctx.step.id === "provider-summary") return "nod";
             if (ctx.step.id === "confirm-setup") return "nod";

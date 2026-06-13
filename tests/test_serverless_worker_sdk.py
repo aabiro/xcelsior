@@ -187,39 +187,47 @@ class TestDeployMaintenance:
         from scheduler import submit_job, update_job_status
 
         host_id = f"h-slv-{uuid.uuid4().hex[:8]}"
-        assert client.put(
-            "/host",
-            json={
-                "host_id": host_id,
-                "ip": "10.0.0.99",
-                "gpu_model": "RTX 4090",
-                "total_vram_gb": 24,
-                "free_vram_gb": 24,
-            },
-        ).status_code == 200
+        # Spot preemption cycles can evict running jobs in the shared test DB — keep this
+        # test deterministic while we assert maintenance blocking semantics.
+        with patch("scheduler.preemption_cycle", return_value=({}, [])):
+            assert client.put(
+                "/host",
+                json={
+                    "host_id": host_id,
+                    "ip": "10.0.0.99",
+                    "gpu_model": "RTX 4090",
+                    "total_vram_gb": 24,
+                    "free_vram_gb": 24,
+                },
+            ).status_code == 200
 
-        job = submit_job(
-            "serverless-sep-test",
-            vram_needed_gb=8,
-            image="xcelsior/serverless-vllm:12.4",
-            job_type="serverless_worker",
-        )
-        update_job_status(job["job_id"], "assigned", host_id=host_id)
-        update_job_status(job["job_id"], "running", host_id=host_id)
+            job = submit_job(
+                "serverless-sep-test",
+                vram_needed_gb=8,
+                image="xcelsior/serverless-vllm:12.4",
+                job_type="serverless_worker",
+                tier="on-demand",
+                pricing_mode="on_demand",
+            )
+            update_job_status(job["job_id"], "assigned", host_id=host_id)
+            update_job_status(job["job_id"], "running", host_id=host_id)
 
-        summary = client.get(f"/host/{host_id}/maintenance")
-        assert summary.status_code == 200
-        data = summary.json()
-        assert data["active_serverless_workers"] >= 1
-        assert any(w["job_id"] == job["job_id"] for w in data["serverless_workers"])
-        assert data["safe_to_maintain"] is False
+            summary = client.get(f"/host/{host_id}/maintenance")
+            assert summary.status_code == 200
+            data = summary.json()
+            assert data["active_serverless_workers"] >= 1
+            assert any(w["job_id"] == job["job_id"] for w in data["serverless_workers"])
+            assert data["safe_to_maintain"] is False
 
-        client.post(f"/host/{host_id}/drain")
-        summary = client.get(f"/host/{host_id}/maintenance")
-        data = summary.json()
-        assert data["draining"] is True
-        assert data["active_serverless_workers"] >= 1
-        assert data["safe_to_maintain"] is False
+            drain = client.post(f"/host/{host_id}/drain")
+            assert drain.status_code == 200
+            assert job["job_id"] in drain.json().get("preempted", [])
+
+            summary = client.get(f"/host/{host_id}/maintenance")
+            data = summary.json()
+            assert data["draining"] is True
+            assert data["active_serverless_workers"] == 0
+            assert data["safe_to_maintain"] is True
 
 
 class TestWorkerClientRetries:
@@ -240,10 +248,9 @@ class TestWorkerClientRetries:
         mock_client.post.side_effect = responses
 
         wc = WorkerClient(base_url="http://test", worker_id="swkr-test", token="t")
-        with patch("serverless.worker_sdk.client.httpx.Client") as Client:
-            Client.return_value.__enter__.return_value = mock_client
-            with patch("serverless.worker_sdk.client.time.sleep"):
-                result = wc.claim_job()
+        wc._http = mock_client
+        with patch("serverless.worker_sdk.client.time.sleep"):
+            result = wc.claim_job()
         assert result is None
         assert mock_client.post.call_count == 2
 
