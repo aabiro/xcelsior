@@ -12,7 +12,6 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import (
     HTMLResponse,
-    JSONResponse,
     PlainTextResponse,
     RedirectResponse,
     StreamingResponse,
@@ -573,41 +572,11 @@ class VersionReport(BaseModel):
     versions: dict
 
 
-@router.get("/healthz", tags=["Infrastructure"])
-def healthz():
-    """Health check — verifies database connectivity and returns real system status."""
-    checks: dict[str, Any] = {"env": XCELSIOR_ENV}
-    try:
-        from db import _get_pg_pool
-        from psycopg.rows import dict_row
-
-        pool = _get_pg_pool()
-        with pool.connection() as conn:
-            conn.row_factory = dict_row
-            r = conn.execute("SELECT 1 AS ok").fetchone()
-            checks["database"] = "connected" if r else "error"
-
-            # Counts for observability
-            hosts = conn.execute(
-                "SELECT COUNT(*) as cnt FROM hosts WHERE status = 'active'"
-            ).fetchone()
-            jobs = conn.execute(
-                "SELECT COUNT(*) as cnt FROM jobs WHERE status = 'running'"
-            ).fetchone()
-            queued = conn.execute(
-                "SELECT COUNT(*) as cnt FROM jobs WHERE status = 'queued'"
-            ).fetchone()
-            checks["active_hosts"] = hosts["cnt"] if hosts else 0
-            checks["running_jobs"] = jobs["cnt"] if jobs else 0
-            checks["queued_jobs"] = queued["cnt"] if queued else 0
-    except Exception as e:
-        checks["database"] = f"error: {e}"
-        return JSONResponse(
-            status_code=503,
-            content={"ok": False, "status": "unhealthy", **checks},
-        )
-    checks["status"] = "healthy"
-    return {"ok": True, **checks}
+# NOTE: /healthz is defined once near the top of this module as a lightweight
+# liveness probe (it wins by FastAPI registration order). A second, fuller
+# DB-connectivity handler used to live here but was an unreachable duplicate
+# route; its DB status and host/job counts are available via /api/status and
+# /metrics, so the dead duplicate was removed to avoid confusion.
 
 
 @router.get("/readyz", tags=["Infrastructure"])

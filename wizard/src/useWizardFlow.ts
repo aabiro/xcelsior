@@ -10,17 +10,17 @@ import {
     requestDeviceCode, pollDeviceToken,
     getMe, createOAuthClient, searchMarketplace, type MarketplaceListing, type MarketplaceFilters,
     getWallet, claimFreeCredits,
-    launchInstance, getInstance, type InstanceInfo,
+    launchInstance, type InstanceInfo,
     registerHost, reportVersions, reportBenchmark, reportVerification,
-    type HostInfo, type VerifyResult,
 } from "./api-client.js";
 import type { WizardState } from "../sprites/wizard/wizard-sprite.js";
 import { checkDocker, type CheckResult } from "./checks.js";
 import {
     checkVersions, detectGpuFull, runComputeBenchmark,
-    runNetworkBenchmark, runVerificationChecks, buildVerificationReport,
+    runNetworkBenchmark, buildVerificationReport,
+    CHECK_REMEDIATION,
     type GpuInfo, type BenchmarkResult, type NetworkBenchResult,
-    type VersionCheck, type VerificationReport,
+    type VersionCheck,
 } from "./provider-checks.js";
 import {
     clearWizardCheckpoint,
@@ -30,6 +30,10 @@ import {
     type WizardCheckpoint,
 } from "./wizard-state.js";
 import { sanitizeContextValue, validateApiBaseUrl, validateApiToken } from "./wizard-guards.js";
+import { fetchServiceStatus, aiHealthyFromReport, type StatusReport } from "./preflight.js";
+import { labelForStep } from "./task-model.js";
+import { summarizeFailure } from "./messaging.js";
+import { fetchMarketplaceStats, type MarketplaceStats } from "./marketplace-stats.js";
 
 // ── Config ───────────────────────────────────────────────────────────
 
@@ -153,7 +157,25 @@ export interface UseWizardFlowReturn {
     resumeInfo: { resumed: boolean; needsReauth: boolean; expired: boolean };
     /** Persist current progress (also runs automatically on step changes) */
     flushCheckpoint: () => void;
+    /** Preflight gate phase — "passed" means the flow is visible */
+    gatePhase: GatePhase;
+    /** Aggregated service-health report backing the gate */
+    serviceStatus: StatusReport | null;
+    /** Proceed past a degraded gate (Enter) */
+    proceedFromGate: () => void;
+    /** Re-run the preflight health check */
+    recheckGate: () => void;
+    /** Continue past a blocked gate in best-effort mode */
+    continueAnywayFromGate: () => void;
+    /** The resumed step's human label (for the resume notice) */
+    resumedStepLabel: string | null;
+    /** Live, line-by-line log of the current check's items as they resolve */
+    checkProgress: string[];
+    /** Live marketplace snapshot for the Learn pane (null until fetched/offline) */
+    marketplaceStats: MarketplaceStats | null;
 }
+
+export type GatePhase = "checking" | "ready" | "blocked" | "passed";
 
 export interface ProviderSummaryData {
     gpuModel: string;
@@ -599,6 +621,10 @@ export function useWizardFlow(): UseWizardFlowReturn {
     // Auto-check retry
     const [checkCanRetry, setCheckCanRetry] = useState(false);
     const [checkAwaitContinue, setCheckAwaitContinue] = useState(false);
+    // Live, line-by-line check progress (Part E — "Tail logs" / granular status).
+    const [checkProgress, setCheckProgress] = useState<string[]>([]);
+    // Live marketplace snapshot powering the Learn pane charts (best-effort).
+    const [marketplaceStats, setMarketplaceStats] = useState<MarketplaceStats | null>(null);
     const activeCheckRef = useRef<{ checkId: string; stepId: string } | null>(null);
     const lastAdvanceRef = useRef<number>(0);
     const checkpointTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -666,9 +692,18 @@ export function useWizardFlow(): UseWizardFlowReturn {
     const versionChecksRef = useRef<VersionCheck[]>([]);
     const [providerSummary, setProviderSummary] = useState<ProviderSummaryData | null>(null);
 
+    // ── Preflight service-health gate (Part A) ───────────────────────
+    const [gatePhase, setGatePhase] = useState<GatePhase>("checking");
+    const [serviceStatus, setServiceStatus] = useState<StatusReport | null>(null);
+    // AI health is determined by the gate's report; default true until known so
+    // the "?" hint isn't suppressed during the brief check.
+    const [aiServiceHealthy, setAiServiceHealthy] = useState(true);
+    const gateGenRef = useRef(0);
+
     const step = WIZARD_STEPS[stepIndex];
     const apiToken = (answers["api-key"] as string) || "";
-    const aiAvailable = !!apiToken;
+    // aiAvailable reflects *real* AI health (gate report), not just token presence (A — hardening).
+    const aiAvailable = !!apiToken && aiServiceHealthy;
 
     // Compute launch summary for confirm-launch step
     const launchSummary: string[] = [];
@@ -686,6 +721,67 @@ export function useWizardFlow(): UseWizardFlowReturn {
             launchSummary.push(`Image: ${tpl?.label ?? image}`);
         }
     }
+
+    // ── Preflight gate runner ────────────────────────────────────────
+
+    const runPreflight = useCallback(async () => {
+        const gen = ++gateGenRef.current;
+        setGatePhase("checking");
+        setWizardState("thinking");
+        setWizardMessage("Checking Xcelsior service health…");
+        const token = (answersRef.current["api-key"] as string) || undefined;
+        const report = await fetchServiceStatus(API_BASE_URL, token);
+        if (gen !== gateGenRef.current) return; // superseded by a newer check
+        setServiceStatus(report);
+        setAiServiceHealthy(aiHealthyFromReport(report));
+        if (report.verdict === "operational") {
+            // Healthy — fall straight into the flow, no panel.
+            setGatePhase("passed");
+            setWizardState("idle");
+            setWizardMessage(WIZARD_STEPS[stepIndexRef.current]?.prompt ?? WIZARD_STEPS[0].prompt);
+        } else if (report.verdict === "blocked") {
+            setGatePhase("blocked");
+            setWizardState("error");
+            setWizardMessage("A required service is down — see details below");
+        } else {
+            setGatePhase("ready");
+            setWizardState("waiting");
+            setWizardMessage("Some services are degraded — press Enter to continue anyway");
+        }
+    }, []);
+
+    const proceedFromGate = useCallback(() => {
+        setGatePhase("passed");
+        setWizardState("idle");
+        setWizardMessage(WIZARD_STEPS[stepIndexRef.current]?.prompt ?? WIZARD_STEPS[0].prompt);
+    }, []);
+
+    const continueAnywayFromGate = useCallback(() => {
+        setGatePhase("passed");
+        setWizardState("idle");
+        setWizardMessage(WIZARD_STEPS[stepIndexRef.current]?.prompt ?? WIZARD_STEPS[0].prompt);
+    }, []);
+
+    const recheckGate = useCallback(() => {
+        void runPreflight();
+    }, [runPreflight]);
+
+    // Run the preflight check once on mount.
+    useEffect(() => {
+        void runPreflight();
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
+    }, []);
+
+    // Once authenticated, fetch a live marketplace snapshot for the Learn pane
+    // charts (best-effort; the pane falls back to concept cards if this is null).
+    useEffect(() => {
+        if (!apiToken || marketplaceStats) return;
+        let cancelled = false;
+        void fetchMarketplaceStats(API_BASE_URL, apiToken).then((s) => {
+            if (!cancelled && s) setMarketplaceStats(s);
+        });
+        return () => { cancelled = true; };
+    }, [apiToken, marketplaceStats]);
 
     // ── Device auth flow ─────────────────────────────────────────────
 
@@ -1175,9 +1271,17 @@ export function useWizardFlow(): UseWizardFlowReturn {
         checkId: string,
         currentAnswers: Record<string, string | string[]>,
     ): Promise<CheckResult[]> => {
+        // Reset the live progress log for this check run.
+        setCheckProgress([]);
+        const streamItem = (name: string, ok: boolean, detail: string) =>
+            setCheckProgress((prev) => [...prev, `${ok ? "✓" : "✗"} ${name}: ${detail}`].slice(-30));
+        // Phase markers for long single-process checks (benchmark/network).
+        const streamPhase = (msg: string) =>
+            setCheckProgress((prev) => [...prev, `⟳ ${msg}`].slice(-30));
+
         switch (checkId) {
             case "docker":
-                return checkDocker();
+                return checkDocker((r) => streamItem(r.name, r.ok, r.detail));
             case "api":
                 return checkApi(API_BASE_URL, currentAnswers["api-key"] as string || "");
             case "gpu": {
@@ -1198,7 +1302,9 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 return checkGpuBasic();
             }
             case "versions": {
-                const results = await checkVersions();
+                const results = await checkVersions((v) =>
+                    streamItem(v.component, v.passed, v.version ? `v${v.version}` : `not found — needs ≥${v.minimum}`),
+                );
                 versionChecksRef.current = results;
                 return results.map((v) => ({
                     name: v.component,
@@ -1206,6 +1312,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                     detail: v.version
                         ? `v${v.version}${v.passed ? "" : ` — needs ≥${v.minimum}`}`
                         : `not found — needs ≥${v.minimum}`,
+                    ...(v.passed ? {} : { remediation: CHECK_REMEDIATION[v.component] }),
                 }));
             }
             case "benchmark": {
@@ -1213,7 +1320,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 if (currentAnswers["_gpu_basic_only"] === "true") {
                     return [{ name: "Benchmark", ok: true, detail: "Skipped — detailed GPU data unavailable (nvidia-smi query failed)" }];
                 }
-                const bench = await runComputeBenchmark();
+                const bench = await runComputeBenchmark(streamPhase);
                 if (!bench || bench.error) {
                     const errorDetail = bench?.error === "no_torch" ? "PyTorch not installed"
                         : bench?.error === "no_cuda" ? "CUDA not available"
@@ -1229,7 +1336,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 ];
             }
             case "network": {
-                const net = await runNetworkBenchmark(API_BASE_URL);
+                const net = await runNetworkBenchmark(API_BASE_URL, streamPhase);
                 networkResultRef.current = net;
                 return [
                     { name: "Latency", ok: net.latency_avg_ms > 0, detail: `${net.latency_avg_ms}ms avg (${net.latency_min_ms}–${net.latency_max_ms}ms)` },
@@ -1646,11 +1753,8 @@ export function useWizardFlow(): UseWizardFlowReturn {
                             .map((r) => `${r.name}: ${r.detail}`)
                             .join("; ");
                         setWizardState("error");
-                        setWizardMessage(
-                            apiToken
-                                ? `${failCount} check(s) failed — Hexara is looking into it...`
-                                : `${failCount} check(s) failed — retry or skip`,
-                        );
+                        const failSummary = summarizeFailure(results);
+                        setWizardMessage(apiToken ? `${failSummary} — Hexara is on it` : failSummary);
                         setCheckCanRetry(true);
 
                         // Auto-trigger AI analysis for check failures if authenticated
@@ -1864,11 +1968,8 @@ export function useWizardFlow(): UseWizardFlowReturn {
                     .map((r) => `${r.name}: ${r.detail}`)
                     .join("; ");
                 setWizardState("error");
-                setWizardMessage(
-                    apiToken
-                        ? `${failCount} check(s) still failing — Hexara is re-analyzing...`
-                        : `${failCount} check(s) failed`,
-                );
+                const retrySummary = summarizeFailure(results);
+                setWizardMessage(apiToken ? `Still: ${retrySummary} — Hexara is digging deeper` : retrySummary);
                 setCheckCanRetry(true);
 
                 // Auto-trigger AI re-analysis on retry failure
@@ -2231,5 +2332,13 @@ export function useWizardFlow(): UseWizardFlowReturn {
         transitioning,
         resumeInfo,
         flushCheckpoint,
+        gatePhase,
+        serviceStatus,
+        proceedFromGate,
+        recheckGate,
+        continueAnywayFromGate,
+        resumedStepLabel: resumeInfo.resumed ? labelForStep(initialStep) : null,
+        checkProgress,
+        marketplaceStats,
     };
 }

@@ -69,3 +69,13 @@ export async function createOAuthClient() {
         scopes: ["api"],
     };
 }
+
+let _marketplaceListings: unknown[] = [];
+/** Override the mock marketplace listings (used by Learn-pane/e2e tests). */
+export function setMockMarketplaceListings(listings: unknown[]) {
+    _marketplaceListings = listings;
+}
+
+export async function searchMarketplace() {
+    return { ok: true, total: _marketplaceListings.length, listings: _marketplaceListings };
+}

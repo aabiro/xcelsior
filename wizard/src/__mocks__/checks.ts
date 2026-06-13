@@ -46,7 +46,9 @@ export function resetMock() {
     _customResults = null;
 }
 
-/** Mock checkDocker — resolves immediately with preset results */
-export async function checkDocker(): Promise<CheckResult[]> {
-    return _customResults ?? [...PRESETS[_preset]];
+/** Mock checkDocker — resolves immediately with preset results, streaming each item */
+export async function checkDocker(onItem?: (r: CheckResult) => void): Promise<CheckResult[]> {
+    const results = _customResults ?? [...PRESETS[_preset]];
+    for (const r of results) onItem?.(r);
+    return results;
 }

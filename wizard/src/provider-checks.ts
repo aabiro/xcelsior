@@ -138,13 +138,15 @@ const XCU_DIVISOR = 10;
 
 // ── 1. Version checks ───────────────────────────────────────────────
 
-export async function checkVersions(): Promise<VersionCheck[]> {
+export async function checkVersions(onItem?: (v: VersionCheck) => void): Promise<VersionCheck[]> {
     const results: VersionCheck[] = [];
+    // Stream each component as it resolves (Part E — line-by-line status).
+    const push = (v: VersionCheck) => { results.push(v); onItem?.(v); };
 
     // runc
     const runcOut = await run("runc", ["--version"]);
     const runcVer = runcOut?.match(/runc version (\S+)/)?.[1] ?? null;
-    results.push({
+    push({
         component: "runc",
         version: runcVer,
         minimum: MINIMUM_VERSIONS.runc,
@@ -153,7 +155,7 @@ export async function checkVersions(): Promise<VersionCheck[]> {
 
     // Docker
     const dockerOut = await run("docker", ["version", "--format", "{{.Server.Version}}"]);
-    results.push({
+    push({
         component: "docker",
         version: dockerOut || null,
         minimum: MINIMUM_VERSIONS.docker,
@@ -165,7 +167,7 @@ export async function checkVersions(): Promise<VersionCheck[]> {
         "--query-gpu=driver_version", "--format=csv,noheader,nounits",
     ]);
     const driverVer = driverOut?.split("\n")[0]?.trim() ?? null;
-    results.push({
+    push({
         component: "nvidia_driver",
         version: driverVer,
         minimum: MINIMUM_VERSIONS.nvidia_driver,
@@ -181,7 +183,7 @@ export async function checkVersions(): Promise<VersionCheck[]> {
         const ncrOut = await run("nvidia-container-runtime", ["--version"]);
         toolkitVer = ncrOut?.match(/(\d+\.\d+\.\d+)/)?.[1] ?? null;
     }
-    results.push({
+    push({
         component: "nvidia_toolkit",
         version: toolkitVer,
         minimum: MINIMUM_VERSIONS.nvidia_toolkit,
@@ -241,6 +243,7 @@ try:
     report["total_vram_gb"] = round(props.total_memory / (1024**3), 2)
     report["compute_capability"] = f"{props.major}.{props.minor}"
     report["cuda_version"] = torch.version.cuda or ""
+    print("@progress Initializing CUDA on " + props.name, flush=True)
 
     try:
         smi = subprocess.run(
@@ -252,6 +255,7 @@ try:
         report["driver_version"] = ""
 
     # FP16 Matmul
+    print("@progress FP16 matmul (4096x4096) x50…", flush=True)
     a = torch.randn(4096, 4096, dtype=torch.float16, device=device)
     b = torch.randn(4096, 4096, dtype=torch.float16, device=device)
     for _ in range(5):
@@ -268,6 +272,7 @@ try:
     report["elapsed_s"] = round(elapsed, 3)
 
     # PCIe Bandwidth
+    print("@progress PCIe bandwidth (H2D / D2H)…", flush=True)
     try:
         size_mb = 256
         data_h = torch.randn(size_mb * 1024 * 256, dtype=torch.float32)
@@ -290,6 +295,7 @@ try:
         report["pcie_error"] = str(e)
 
     # Thermal Stability (15s sustained load)
+    print("@progress Thermal soak (15s sustained load)…", flush=True)
     try:
         temps = []
         stress_start = time.perf_counter()
@@ -325,58 +331,98 @@ except ImportError:
     print(json.dumps({"error": "no_torch"}))
 `;
 
-export async function runComputeBenchmark(): Promise<BenchmarkResult | null> {
-    try {
-        const { stdout, stderr } = await exec(
-            "python3", ["-c", BENCHMARK_SCRIPT],
-            { timeout: 300_000 }, // 5 min timeout for thermal test
-        );
+function emptyBenchmark(error: string): BenchmarkResult {
+    return {
+        tflops: 0, pcie_bandwidth_gbps: 0, pcie_h2d_gbps: 0, pcie_d2h_gbps: 0,
+        gpu_temp_celsius: 0, gpu_temp_avg_celsius: 0, gpu_temp_samples: 0,
+        gpu_model: "", total_vram_gb: 0, compute_capability: "",
+        cuda_version: "", driver_version: "", xcu_score: 0, elapsed_s: 0,
+        error,
+    };
+}
 
-        const line = stdout.trim().split("\n").pop();
-        if (!line) {
-            return {
-                tflops: 0, pcie_bandwidth_gbps: 0, pcie_h2d_gbps: 0, pcie_d2h_gbps: 0,
-                gpu_temp_celsius: 0, gpu_temp_avg_celsius: 0, gpu_temp_samples: 0,
-                gpu_model: "", total_vram_gb: 0, compute_capability: "",
-                cuda_version: "", driver_version: "", xcu_score: 0, elapsed_s: 0,
-                error: stderr?.trim() || "No output from benchmark script",
-            };
+/** Parse the benchmark script's final JSON line into a BenchmarkResult. @internal */
+export function parseBenchmarkOutput(stdout: string, stderr = ""): BenchmarkResult {
+    const line = stdout
+        .trim()
+        .split("\n")
+        .filter((l) => !l.startsWith("@progress"))
+        .pop();
+    if (!line) return emptyBenchmark(stderr.trim() || "No output from benchmark script");
+    let data: Record<string, number | string>;
+    try {
+        data = JSON.parse(line);
+    } catch {
+        return emptyBenchmark(`Unparseable benchmark output: ${line.slice(0, 120)}`);
+    }
+    if (data.error) return { ...emptyBenchmark(String(data.error)), ...(data as object) } as BenchmarkResult;
+    const tflops = Number(data.tflops ?? 0);
+    return {
+        tflops,
+        pcie_bandwidth_gbps: Number(data.pcie_bandwidth_gbps ?? 0),
+        pcie_h2d_gbps: Number(data.pcie_h2d_gbps ?? 0),
+        pcie_d2h_gbps: Number(data.pcie_d2h_gbps ?? 0),
+        gpu_temp_celsius: Number(data.gpu_temp_celsius ?? 0),
+        gpu_temp_avg_celsius: Number(data.gpu_temp_avg_celsius ?? 0),
+        gpu_temp_samples: Number(data.gpu_temp_samples ?? 0),
+        gpu_model: String(data.gpu_model ?? ""),
+        total_vram_gb: Number(data.total_vram_gb ?? 0),
+        compute_capability: String(data.compute_capability ?? ""),
+        cuda_version: String(data.cuda_version ?? ""),
+        driver_version: String(data.driver_version ?? ""),
+        xcu_score: Math.round(tflops / XCU_DIVISOR * 100) / 100,
+        elapsed_s: Number(data.elapsed_s ?? 0),
+    };
+}
+
+/**
+ * Run the GPU compute benchmark. Streams phase markers ("@progress …") emitted
+ * by the script to `onPhase` as they occur (FP16 matmul → PCIe → thermal),
+ * then resolves with the parsed final result. Uses spawn so phases surface live
+ * in the status pane instead of one buffered blob.
+ */
+export async function runComputeBenchmark(
+    onPhase?: (msg: string) => void,
+): Promise<BenchmarkResult | null> {
+    const { spawn } = await import("node:child_process");
+    return new Promise<BenchmarkResult>((resolve) => {
+        let stdout = "";
+        let stderr = "";
+        let lineBuf = "";
+        let settled = false;
+        const finish = (r: BenchmarkResult) => { if (!settled) { settled = true; resolve(r); } };
+
+        let child;
+        try {
+            child = spawn("python3", ["-c", BENCHMARK_SCRIPT], { timeout: 300_000 });
+        } catch (err) {
+            finish(emptyBenchmark(err instanceof Error ? err.message : String(err)));
+            return;
         }
 
-        const data = JSON.parse(line);
-        if (data.error) return { ...data, xcu_score: 0 } as BenchmarkResult;
-
-        return {
-            tflops: data.tflops ?? 0,
-            pcie_bandwidth_gbps: data.pcie_bandwidth_gbps ?? 0,
-            pcie_h2d_gbps: data.pcie_h2d_gbps ?? 0,
-            pcie_d2h_gbps: data.pcie_d2h_gbps ?? 0,
-            gpu_temp_celsius: data.gpu_temp_celsius ?? 0,
-            gpu_temp_avg_celsius: data.gpu_temp_avg_celsius ?? 0,
-            gpu_temp_samples: data.gpu_temp_samples ?? 0,
-            gpu_model: data.gpu_model ?? "",
-            total_vram_gb: data.total_vram_gb ?? 0,
-            compute_capability: data.compute_capability ?? "",
-            cuda_version: data.cuda_version ?? "",
-            driver_version: data.driver_version ?? "",
-            xcu_score: Math.round((data.tflops ?? 0) / XCU_DIVISOR * 100) / 100,
-            elapsed_s: data.elapsed_s ?? 0,
-        };
-    } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return {
-            tflops: 0, pcie_bandwidth_gbps: 0, pcie_h2d_gbps: 0, pcie_d2h_gbps: 0,
-            gpu_temp_celsius: 0, gpu_temp_avg_celsius: 0, gpu_temp_samples: 0,
-            gpu_model: "", total_vram_gb: 0, compute_capability: "",
-            cuda_version: "", driver_version: "", xcu_score: 0, elapsed_s: 0,
-            error: msg,
-        };
-    }
+        child.stdout?.on("data", (d: Buffer) => {
+            const s = d.toString();
+            stdout += s;
+            lineBuf += s;
+            let idx: number;
+            while ((idx = lineBuf.indexOf("\n")) >= 0) {
+                const line = lineBuf.slice(0, idx);
+                lineBuf = lineBuf.slice(idx + 1);
+                if (line.startsWith("@progress ")) onPhase?.(line.slice("@progress ".length).trim());
+            }
+        });
+        child.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
+        child.on("error", (err: Error) => finish(emptyBenchmark(err.message)));
+        child.on("close", () => finish(parseBenchmarkOutput(stdout, stderr)));
+    });
 }
 
 // ── 4. Network benchmark ────────────────────────────────────────────
 
-export async function runNetworkBenchmark(schedulerUrl: string): Promise<NetworkBenchResult> {
+export async function runNetworkBenchmark(
+    schedulerUrl: string,
+    onPhase?: (msg: string) => void,
+): Promise<NetworkBenchResult> {
     const result: NetworkBenchResult = {
         latency_avg_ms: 0,
         latency_min_ms: 0,
@@ -395,6 +441,7 @@ export async function runNetworkBenchmark(schedulerUrl: string): Promise<Network
     }
 
     // Ping for latency + jitter + loss (Linux/macOS compatible)
+    onPhase?.(`Pinging ${host} (20 packets)…`);
     const isLinux = process.platform === "linux";
     const pingArgs = isLinux
         ? ["-c", "20", "-i", "0.2", "-W", "2", host]
@@ -417,6 +464,7 @@ export async function runNetworkBenchmark(schedulerUrl: string): Promise<Network
     }
 
     // Throughput estimate via HTTP — download a larger payload for meaningful measurement
+    onPhase?.("Measuring throughput to the scheduler…");
     try {
         // Use /healthz (small) but do many iterations to amortize connection overhead
         const url = new URL("/healthz", schedulerUrl);
