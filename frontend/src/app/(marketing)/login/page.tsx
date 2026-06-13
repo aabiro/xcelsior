@@ -12,6 +12,7 @@ import { Eye, EyeOff, Loader2, Shield, Key } from "lucide-react";
 import { login as apiLogin, normalizeAuthRedirectPath, oauthInitiate, verifyMfaLogin, sendMfaSms, passkeyAuthenticateOptions, passkeyAuthenticateComplete, resendVerification, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
+import posthog from "posthog-js";
 
 const OAUTH_PROVIDERS = ["github", "google", "huggingface"] as const;
 
@@ -73,8 +74,11 @@ function LoginPageContent() {
     return null;
   }
 
-  async function completeBrowserLogin() {
-    await login().catch(() => {});
+  async function completeBrowserLogin(method: string = "password") {
+    const loggedIn = await login().catch(() => false);
+    if (loggedIn) {
+      posthog.capture("user_logged_in", { method });
+    }
     router.replace(redirectTarget);
   }
 
@@ -94,6 +98,10 @@ function LoginPageContent() {
         else if (res.methods?.includes("totp")) setMfaMethod("totp");
         else if (res.methods?.includes("sms")) setMfaMethod("sms");
         else setMfaMethod("backup");
+        posthog.capture("mfa_challenged", {
+          methods: res.methods,
+          passkey_available: passkeyAvailable,
+        });
         return;
       }
       await completeBrowserLogin();
@@ -110,6 +118,7 @@ function LoginPageContent() {
           return;
         }
       }
+      posthog.captureException(err instanceof Error ? err : new Error(String(err)));
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
       setLoading(false);
@@ -122,7 +131,7 @@ function LoginPageContent() {
     setMfaVerifying(true);
     try {
       await verifyMfaLogin(mfaChallengeId, mfaMethod, mfaCode);
-      await completeBrowserLogin();
+      await completeBrowserLogin("mfa_" + mfaMethod);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Verification failed");
     } finally {
@@ -187,7 +196,7 @@ function LoginPageContent() {
         },
       });
       if (result.ok) {
-        await completeBrowserLogin();
+        await completeBrowserLogin("mfa_passkey");
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "NotAllowedError") {
@@ -201,12 +210,14 @@ function LoginPageContent() {
   }
 
   async function handleOAuth(provider: string) {
+    posthog.capture("oauth_initiated", { provider, context: "login" });
     setError("");
     setLoading(true);
     try {
       const res = await oauthInitiate(provider, redirectTarget);
       window.location.href = res.auth_url;
     } catch (err) {
+      posthog.captureException(err instanceof Error ? err : new Error(String(err)));
       setError(err instanceof Error ? err.message : "OAuth failed");
       setLoading(false);
     }
@@ -350,7 +361,7 @@ function LoginPageContent() {
                       mfaAutoSubmitted.current = true;
                       setMfaVerifying(true);
                       verifyMfaLogin(mfaChallengeId, mfaMethod, val)
-                        .then(() => completeBrowserLogin())
+                        .then(() => completeBrowserLogin("mfa_" + mfaMethod))
                         .catch((err) => setError(err instanceof Error ? err.message : "Verification failed"))
                         .finally(() => { mfaAutoSubmitted.current = false; setMfaVerifying(false); });
                     }

@@ -171,3 +171,4 @@ wget-log
 # Next.js incremental build cache
 frontend/tsconfig.tsbuildinfo
 .npmrc
+.env.local

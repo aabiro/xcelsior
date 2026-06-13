@@ -637,6 +637,104 @@ def readyz():
     return {"ok": True, "status": "ready", "storage": storage, "nfs_volumes": nfs}
 
 
+@router.get("/api/status", tags=["Infrastructure"])
+def service_status():
+    """Aggregated per-service health for the CLI wizard preflight gate (and dashboard).
+
+    Probes each named subsystem and reports state operational|degraded|down.
+    Intentionally unauthenticated (the wizard calls this before sign-in) and
+    never raises — it always returns 200 with a verdict so the gate can render.
+
+    verdict: "operational" (all green) | "degraded" (something down/degraded but
+    the wizard can still run) | "blocked" (a *required* service is down).
+    """
+    services: list[dict[str, Any]] = []
+
+    def add(name: str, state: str, detail: str, required: bool) -> None:
+        services.append({"name": name, "state": state, "detail": detail, "required": required})
+
+    # API — if this handler runs at all, the control plane is reachable.
+    add("API", "operational", "Control plane reachable", True)
+
+    # Database
+    try:
+        from db import _get_pg_pool
+
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            row = conn.execute("SELECT 1 AS ok").fetchone()
+        ok = bool(row)
+        add("Database", "operational" if ok else "down", "connected" if ok else "query returned no rows", True)
+    except Exception as exc:
+        add("Database", "down", f"unreachable: {exc}", True)
+
+    # Scheduler / job queue
+    try:
+        snap = get_metrics_snapshot()
+        active = snap.get("active_hosts", 0)
+        queued = snap.get("queue_depth", 0)
+        add("Scheduler", "operational", f"{active} active host(s) · {queued} queued", True)
+    except Exception as exc:
+        add("Scheduler", "down", f"scheduler error: {exc}", True)
+
+    # AI assistant (Hexara) — non-required; the wizard runs without it (help disabled)
+    try:
+        from ai_assistant import AI_MODEL, _has_any_live_provider
+
+        if _has_any_live_provider():
+            add("AI (Hexara)", "operational", f"model {AI_MODEL}", False)
+        else:
+            add("AI (Hexara)", "degraded", "no provider key configured — assistant disabled", False)
+    except Exception as exc:
+        add("AI (Hexara)", "degraded", f"assistant unavailable: {exc}", False)
+
+    # Billing (Stripe) — non-required; wallet top-ups unavailable when down
+    try:
+        from stripe_connect import STRIPE_ENABLED
+
+        if STRIPE_ENABLED:
+            add("Billing", "operational", "Stripe configured", False)
+        else:
+            add("Billing", "degraded", "Stripe not configured — top-ups disabled", False)
+    except Exception as exc:
+        add("Billing", "degraded", f"billing unavailable: {exc}", False)
+
+    # Storage (Postgres-backed persistence)
+    try:
+        st = storage_healthcheck()
+        st_ok = bool(st.get("ok"))
+        add(
+            "Storage",
+            "operational" if st_ok else "degraded",
+            str(st.get("backend") or st.get("error") or ("ready" if st_ok else "unavailable")),
+            False,
+        )
+    except Exception as exc:
+        add("Storage", "degraded", f"storage error: {exc}", False)
+
+    # NFS volumes — required only when XCELSIOR_NFS_REQUIRED is set
+    nfs_required = os.environ.get("XCELSIOR_NFS_REQUIRED", "").lower() in ("1", "true", "yes")
+    try:
+        from volumes import nfs_storage_healthcheck
+
+        nfs = nfs_storage_healthcheck()
+        nfs_ok = bool(nfs.get("ok"))
+        add(
+            "Volumes (NFS)",
+            "operational" if nfs_ok else ("down" if nfs_required else "degraded"),
+            str(nfs.get("mode") or nfs.get("error") or ("ready" if nfs_ok else "unreachable")),
+            nfs_required,
+        )
+    except Exception as exc:
+        add("Volumes (NFS)", "down" if nfs_required else "degraded", f"nfs error: {exc}", nfs_required)
+
+    required_down = any(s["required"] and s["state"] == "down" for s in services)
+    has_problem = any(s["state"] in ("down", "degraded") for s in services)
+    verdict = "blocked" if required_down else ("degraded" if has_problem else "operational")
+
+    return {"ok": verdict != "blocked", "verdict": verdict, "services": services}
+
+
 @router.get("/metrics", tags=["Infrastructure"])
 def metrics():
     return {"ok": True, "metrics": get_metrics_snapshot()}
