@@ -133,6 +133,14 @@ def _refresh_mfa_enabled(email: str) -> None:
 # ── Helper: _send_sms ──
 
 
+def _sms_configured() -> bool:
+    """True when Twilio credentials are present in the environment."""
+    return all(
+        os.environ.get(k, "").strip()
+        for k in ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER")
+    )
+
+
 def _send_sms(phone_number: str, message: str) -> None:
     """Send an SMS via Twilio. Raises on failure."""
     from twilio.rest import Client
@@ -141,7 +149,8 @@ def _send_sms(phone_number: str, message: str) -> None:
     token = os.environ.get("TWILIO_AUTH_TOKEN", "")
     from_phone = os.environ.get("TWILIO_PHONE_NUMBER", "")
     if not sid or not token or not from_phone:
-        raise HTTPException(500, "SMS service is not configured")
+        # 503, not 500 — this is a deployment/config gap, not a server fault.
+        raise HTTPException(503, "SMS service is not configured")
     try:
         client = Client(sid, token)
         client.messages.create(body=message, from_=from_phone, to=phone_number)
@@ -168,6 +177,7 @@ def api_mfa_list_methods(request: Request):
     return {
         "ok": True,
         "mfa_enabled": enabled,
+        "sms_available": _sms_configured(),
         "methods": [
             {
                 "id": m["id"],

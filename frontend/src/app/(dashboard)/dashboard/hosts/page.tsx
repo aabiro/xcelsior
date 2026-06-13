@@ -15,7 +15,7 @@ import { GpuModelSelector } from "@/components/ui/gpu-model-selector";
 import {
   Server, Plus, Search, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, Terminal,
   Cpu, Copy, Check, DollarSign, Activity, Zap, ChevronRight, Info, AlertCircle,
-  HardDrive, Globe, Shield, Package, Code2, Clipboard, ArrowRight, ArrowLeft,
+  HardDrive, Globe, Shield, ShieldAlert, Package, Code2, Clipboard, ArrowRight, ArrowLeft,
 } from "lucide-react";
 import { useApi } from "@/lib/use-api";
 import { useLocale } from "@/lib/locale";
@@ -368,7 +368,20 @@ export default function HostsPage() {
                       </div>
                     </td>
                     <td className="py-4 px-4 text-center">
-                      <StatusBadge status={host.status} />
+                      <div className="inline-flex flex-col items-center gap-1">
+                        <StatusBadge status={host.status} />
+                        {host.admitted === false || String(host.admitted) === "false" ? (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full border border-accent-gold/30 bg-accent-gold/10 px-1.5 py-0 text-[9px] font-medium uppercase tracking-wide text-accent-gold"
+                            title={
+                              (host.admission_details?.rejection_reasons || []).join("; ")
+                              || "Worker has not passed admission yet — this host won't appear in GPU pickers until it does."
+                            }
+                          >
+                            <ShieldAlert className="h-2.5 w-2.5" /> Pending admission
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="py-4 px-4 text-center">
                       <span className="font-mono text-sm text-text-secondary">
@@ -708,12 +721,15 @@ const APP_HOST = APP_URL.replace(/^https?:\/\//, "");
 
 const LLM_INSTALL_PROMPT = `I am setting up an Xcelsior GPU worker node to join the distributed GPU compute marketplace at ${APP_HOST}. Walk me through setup step-by-step. Mark any values I need to fill in with placeholder comments.
 
-## Option A: SDK + AI Onboarding Wizard (Recommended)
+## Option A: AI Onboarding Wizard (Recommended)
 
 \`\`\`bash
-npm install -g @xcelsior-gpu/sdk @xcelsior-gpu/wizard
-xcelsior-wizard setup
+npx @xcelsior-gpu/wizard@latest
 \`\`\`
+
+(\`npx\` runs the wizard without a global install, so it never hits the
+\`/usr/lib/node_modules\` permission error. To use the SDK in your own project,
+\`npm install @xcelsior-gpu/sdk\` locally — no \`-g\`.)
 
 The AI Onboarding Wizard will ask whether you want to rent GPUs, provide GPUs, or both — then handle hardware detection, host registration, pricing, and worker service setup automatically.
 
@@ -834,8 +850,8 @@ function CodeSnippet({
 
 function HostSetupGuideCard({ onRegister }: { onRegister: () => void }) {
   const [copied, setCopied] = useState<string | null>(null);
-  const sdkInstall = "npm install -g @xcelsior-gpu/sdk @xcelsior-gpu/wizard";
-  const wizardCmd = "xcelsior-wizard setup";
+  const sdkInstall = "npx @xcelsior-gpu/wizard@latest";
+  const wizardCmd = "npm install @xcelsior-gpu/sdk   # optional: SDK in your own project";
 
   function handleCopy(label: string, text: string) {
     navigator.clipboard.writeText(text);
@@ -1183,8 +1199,8 @@ function InstallWorkerSection() {
 /* ── SDK + AI Onboarding Wizard View ──────────────────────────────── */
 
 function SdkSetupView({ copied, onCopy }: { copied: string | null; onCopy: (label: string, text: string) => void }) {
-  const sdkInstall = `npm install -g @xcelsior-gpu/sdk @xcelsior-gpu/wizard`;
-  const wizardCmd = `xcelsior-wizard setup`;
+  const sdkInstall = `npx @xcelsior-gpu/wizard@latest`;
+  const wizardCmd = `npm install @xcelsior-gpu/sdk   # optional: SDK in your own project`;
   const quickCmds = `# Check worker status
 xcelsior status
 

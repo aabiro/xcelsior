@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/badge";
 import { Input, Select } from "@/components/ui/input";
+import { Dialog } from "@/components/ui/dialog";
 import { Pagination, usePagination } from "@/components/ui/pagination";
 import { LaunchInstanceModal } from "@/components/instances/launch-instance-modal";
 import { InstancePricingModeBadge } from "@/components/instances/pricing-mode-badge";
@@ -298,6 +299,9 @@ export default function InstancesPage() {
   const [page, setPage] = useState(1);
   const [pendingAction, setPendingAction] = useState<ActionPending>(null);
   const [snapshotTarget, setSnapshotTarget] = useState<Instance | null>(null);
+  const [renameTarget, setRenameTarget] = useState<Instance | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renaming, setRenaming] = useState(false);
   const api = useApi();
   const { t } = useLocale();
   const router = useRouter();
@@ -581,18 +585,7 @@ export default function InstancesPage() {
                         readOnly={!team.canWriteInstances}
                         onAction={requestAction}
                         onSnapshot={setSnapshotTarget}
-                        onRename={async (i) => {
-                          const next = window.prompt("Rename instance:", i.name || "");
-                          if (!next || next.trim() === i.name) return;
-                          try {
-                            await renameInstance(i.job_id, next.trim());
-                            toast.success("Renamed");
-                            load();
-                          } catch (err) {
-                            const msg = err instanceof Error ? err.message : "Rename failed";
-                            toast.error(/team viewers cannot/i.test(msg) ? "Viewer access is read-only" : msg);
-                          }
-                        }}
+                        onRename={(i) => { setRenameTarget(i); setRenameValue(i.name || ""); }}
                       />
                     </div>
                   </td>
@@ -613,6 +606,54 @@ export default function InstancesPage() {
         defaultName={snapshotTarget?.name || undefined}
         onClose={() => setSnapshotTarget(null)}
       />
+
+      <Dialog
+        open={renameTarget !== null}
+        onClose={() => setRenameTarget(null)}
+        title="Rename instance"
+        maxWidth="max-w-sm"
+      >
+        <form
+          className="space-y-4"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const target = renameTarget;
+            const next = renameValue.trim();
+            if (!target || !next || next === target.name) {
+              setRenameTarget(null);
+              return;
+            }
+            setRenaming(true);
+            try {
+              await renameInstance(target.job_id, next);
+              toast.success("Renamed");
+              setRenameTarget(null);
+              load();
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : "Rename failed";
+              toast.error(/team viewers cannot/i.test(msg) ? "Viewer access is read-only" : msg);
+            } finally {
+              setRenaming(false);
+            }
+          }}
+        >
+          <Input
+            autoFocus
+            value={renameValue}
+            maxLength={128}
+            placeholder="my-training-box"
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRenameValue(e.target.value)}
+          />
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => setRenameTarget(null)}>
+              {t("common.cancel")}
+            </Button>
+            <Button type="submit" size="sm" disabled={renaming || !renameValue.trim()}>
+              {renaming ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
 
       {pendingAction && (
         <ConfirmDialog
