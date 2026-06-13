@@ -219,8 +219,6 @@ def main():
 
         now = time.time()
         stale_cutoff = now - 120.0
-        retry_sec = max(int(os.environ.get("XCELSIOR_RECONCILE_RETRY_SEC", "3600")), 60)
-        max_attempts = max(int(os.environ.get("XCELSIOR_RECONCILE_MAX_ATTEMPTS", "3")), 1)
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -233,9 +231,7 @@ def main():
                            (j.payload->>'paused_at')::float,
                            (j.payload->>'completed_at')::float,
                            j.submitted_at
-                       ) AS state_age_ts,
-                       COALESCE((j.payload->>'last_reconcile_stop_at')::float, 0) AS last_reconcile_stop_at,
-                       COALESCE((j.payload->>'reconcile_stop_count')::int, 0) AS reconcile_stop_count
+                       ) AS state_age_ts
                   FROM jobs j
                  WHERE j.status = 'stopped'
                    AND j.host_id IS NOT NULL AND j.host_id <> ''
@@ -247,12 +243,6 @@ def main():
                 state_ts = row.get("state_age_ts") or 0.0
                 if state_ts > stale_cutoff:
                     continue  # fresh — agent may still be draining
-                last_reconcile_at = float(row.get("last_reconcile_stop_at") or 0.0)
-                reconcile_count = int(row.get("reconcile_stop_count") or 0)
-                if reconcile_count >= max_attempts:
-                    continue
-                if last_reconcile_at and last_reconcile_at > now - retry_sec:
-                    continue
                 host_id = row["host_id"]
                 job_id = row["job_id"]
                 status = row["status"]
@@ -286,24 +276,6 @@ def main():
                         {"container_name": cname, "job_id": job_id},
                         created_by="reconcile_sweep",
                         ttl_sec=600,
-                    )
-                    conn.execute(
-                        """
-                        UPDATE jobs
-                           SET payload = jsonb_set(
-                               jsonb_set(
-                                   COALESCE(payload, '{}'::jsonb),
-                                   '{last_reconcile_stop_at}',
-                                   to_jsonb(%s::float),
-                                   true
-                               ),
-                               '{reconcile_stop_count}',
-                               to_jsonb(%s::int),
-                               true
-                           )
-                         WHERE job_id = %s
-                        """,
-                        (now, reconcile_count + 1, job_id),
                     )
                     enqueued += 1
                 except Exception as e:

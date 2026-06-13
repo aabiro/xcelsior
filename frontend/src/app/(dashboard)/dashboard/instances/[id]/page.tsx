@@ -557,10 +557,15 @@ export default function InstanceDetailPage() {
             </span>
           </div>
         )}
-        {status === "queued" && instance.queue_reason_detail && (
-          <div className="mt-3 flex items-center gap-2 rounded-md bg-amber-500/10 border border-amber-500/20 px-3 py-2">
-            <Info className="h-4 w-4 text-amber-500 shrink-0" />
-            <span className="text-xs text-text-secondary">{instance.queue_reason_detail}</span>
+        {status === "queued" && (
+          <div className="mt-3 flex items-start gap-2 rounded-md bg-amber-500/10 border border-amber-500/20 px-3 py-2">
+            <Info className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+            <span className="text-xs text-text-secondary">
+              {instance.queue_reason_detail
+                || (instance.gpu_model
+                  ? t("dash.instances.queue_waiting_gpu", { gpu: instance.gpu_model })
+                  : t("dash.instances.queue_waiting_any"))}
+            </span>
           </div>
         )}
       </Card>

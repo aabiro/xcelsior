@@ -565,6 +565,42 @@ class StripeConnectManager:
         log.info("Provider %s onboarding ABANDONED", provider_id)
         return {"provider_id": provider_id, "status": "abandoned"}
 
+    def disconnect_provider(self, provider_id: str) -> dict:
+        """Unlink the provider's Stripe account so they can re-run setup.
+
+        Best-effort deletes the Express account at Stripe (fails if it holds a
+        balance — we keep the local detach either way so the UI returns to the
+        connect flow).
+        """
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT stripe_account_id FROM provider_accounts WHERE provider_id=%s",
+                (provider_id,),
+            ).fetchone()
+        if not row:
+            return {"provider_id": provider_id, "status": "not_found"}
+
+        stripe_account_id = row.get("stripe_account_id")
+        if STRIPE_ENABLED and stripe and stripe_account_id:
+            try:
+                stripe.Account.delete(stripe_account_id)
+            except Exception as e:
+                log.warning(
+                    "Stripe account delete failed for %s (acct=%s): %s — detaching locally",
+                    provider_id,
+                    stripe_account_id,
+                    e,
+                )
+
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE provider_accounts SET stripe_account_id='', status='pending', onboarded_at=0 "
+                "WHERE provider_id=%s",
+                (provider_id,),
+            )
+        log.info("Stripe account unlinked for provider %s", provider_id)
+        return {"provider_id": provider_id, "status": "pending"}
+
     def complete_onboarding(self, provider_id: str) -> dict:
         """Mark a provider's onboarding as complete (webhook callback)."""
         now = time.time()

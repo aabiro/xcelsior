@@ -393,7 +393,7 @@ export default function TemplatesPage() {
         {/* Table */}
         <Card>
           <CardContent className="p-0">
-            {loading ? (
+            {loading || (refreshing && sorted.length === 0) ? (
               <div className="flex items-center justify-center py-16">
                 <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
               </div>

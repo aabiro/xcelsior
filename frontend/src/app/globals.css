@@ -151,6 +151,18 @@ html.light :hover::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 0, 0, 0.15);
 }
 
+/* ── Floating banner enter/exit (install prompt, notification popups) ── */
+@keyframes banner-in {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes banner-out {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(16px); }
+}
+.banner-enter { animation: banner-in 0.3s ease-out both; }
+.banner-exit { animation: banner-out 0.3s ease-in both; }
+
 /* ── Instance Lifecycle Transitional Animations ────────────────────── */
 /* stopping: soft amber shimmer — signals graceful shutdown in progress */
 @keyframes status-stopping {
@@ -380,6 +392,13 @@ html.light .glow-card:hover {
   box-shadow:
     0 0 20px rgba(14, 116, 144, 0.14),
     0 8px 25px rgba(0, 0, 0, 0.08);
+}
+/* Resting elevation in light mode — without it, surface-coloured cards sit
+   flat against the white body and the whole page reads as low-contrast. */
+html.light .glow-card,
+html.light .card-hover,
+html.light [data-card] {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 12px rgba(15, 23, 42, 0.05);
 }
 
 /* ── Stat Card Glow Variants ───────────────────────────────────────── */

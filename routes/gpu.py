@@ -103,29 +103,31 @@ def api_gpu_available(request: Request):
             # Always merge registered hosts. This fills gaps when gpu_offers is
             # partial or stale, while max-count de-duping avoids double counting
             # hosts already mirrored into offers.
-            with pool.connection() as conn:
-                conn.row_factory = dict_row
-                hosts = conn.execute(
-                    """SELECT payload->>'gpu_model' AS gpu_model,
-                              (payload->>'total_vram_gb')::float AS total_vram_gb,
-                              payload->>'region' AS region,
-                              payload->>'province' AS province,
-                              COUNT(*) FILTER (WHERE status = 'active') AS count_available,
-                              MIN((payload->>'cost_per_hour')::float) AS min_price
-                       FROM hosts
-                       WHERE COALESCE(payload->>'admitted', '') IN ('true', 'True', '1', 'yes')
-                       GROUP BY payload->>'gpu_model', payload->>'total_vram_gb', payload->>'region', payload->>'province'
-                       ORDER BY payload->>'gpu_model'""",
-                ).fetchall()
-            for h in hosts:
+            #
+            # We read the enriched host records and filter in Python rather than
+            # doing JSONB casts + GROUP BY in SQL. That avoids three real bugs
+            # that silently dropped admitted hosts from the picker:
+            #   1. `admitted` stored as a JSON boolean (true) vs string ("true")
+            #   2. NULL province/country splitting an otherwise-identical GPU
+            #      into a separate group with a missing key
+            #   3. a missing `total_vram_gb` key making the ::float cast yield NULL
+            # add_gpu() already normalizes model/region and max-count de-dupes.
+            from scheduler import list_hosts
+
+            for host in list_hosts(active_only=True):
+                admitted = host.get("admitted", False)
+                if isinstance(admitted, str):
+                    admitted = admitted.strip().lower() in ("true", "1", "yes")
+                if not admitted:
+                    continue
                 hosts_seen = True
                 add_gpu(
-                    gpu_model=h.get("gpu_model", ""),
-                    vram_gb=h.get("total_vram_gb", 0),
-                    region=h.get("region", ""),
-                    province=h.get("province", ""),
-                    count_available=h.get("count_available", 0),
-                    price_per_hour_cad=h.get("min_price", 0),
+                    gpu_model=host.get("gpu_model", ""),
+                    vram_gb=float(host.get("total_vram_gb") or host.get("vram_gb") or 0),
+                    region=host.get("region", ""),
+                    province=host.get("province", "") or "",
+                    count_available=1,
+                    price_per_hour_cad=float(host.get("cost_per_hour") or host.get("price_per_hour") or 0),
                 )
         except Exception as e:
             log.debug("hosts GPU availability query failed: %s", e)

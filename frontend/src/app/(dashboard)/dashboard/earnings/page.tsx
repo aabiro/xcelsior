@@ -8,8 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   DollarSign, TrendingUp, RefreshCw, ArrowUpRight, ExternalLink,
-  Percent, AlertTriangle, CheckCircle, Loader2, LinkIcon,
+  Percent, AlertTriangle, CheckCircle, Loader2, LinkIcon, Unlink,
 } from "lucide-react";
+import { StripeLogo } from "@/components/ui/payment-logos";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 import * as api from "@/lib/api";
@@ -58,6 +60,8 @@ export default function EarningsPage() {
   const [justConnected, setJustConnected] = useState(false);
   const [pollingStatus, setPollingStatus] = useState(false);
   const [platformPayPal, setPlatformPayPal] = useState(false);
+  const [confirmStripeDisconnect, setConfirmStripeDisconnect] = useState(false);
+  const [stripeDisconnecting, setStripeDisconnecting] = useState(false);
 
   const load = useCallback(async () => {
     if (!providerId && !customerId) return;
@@ -168,6 +172,23 @@ export default function EarningsPage() {
     }, 2000);
     return () => clearInterval(interval);
   }, [pollingStatus, providerId, customerId, load, refreshUser]);
+
+  const handleStripeDisconnect = async () => {
+    setConfirmStripeDisconnect(false);
+    const pid = providerId || customerId;
+    if (!pid) return;
+    setStripeDisconnecting(true);
+    try {
+      await api.disconnectStripeProvider(pid);
+      setJustConnected(false);
+      toast.success(t("dash.earnings.stripe_disconnected"));
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("dash.earnings.disconnect_failed"));
+    } finally {
+      setStripeDisconnecting(false);
+    }
+  };
 
   const handleStripeConnect = async () => {
     const pid = providerId || customerId;
@@ -313,7 +334,10 @@ export default function EarningsPage() {
             {/* Stripe Connect */}
             <Card className={provider?.status === "active" ? "border-emerald/40 ring-1 ring-emerald/20" : ""}>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base">{t("dash.earnings.stripe_title")}</CardTitle>
+                <CardTitle className="text-base flex items-center gap-2.5">
+                  <StripeLogo className="text-base" />
+                  <span className="text-text-secondary font-normal text-sm">{t("dash.earnings.stripe_title")}</span>
+                </CardTitle>
                 <CardDescription>{t("dash.earnings.stripe_desc")}</CardDescription>
               </CardHeader>
               <CardContent>
@@ -343,9 +367,31 @@ export default function EarningsPage() {
                               Connected since {new Date(Number(provider.onboarded_at) * 1000).toLocaleDateString()}
                             </p>
                           )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="mt-2 h-7 px-2 text-xs text-text-muted hover:text-accent-red hover:bg-accent-red/10"
+                            onClick={() => setConfirmStripeDisconnect(true)}
+                            disabled={stripeDisconnecting}
+                          >
+                            {stripeDisconnecting ? (
+                              <><Loader2 className="h-3 w-3 animate-spin" /> {t("dash.earnings.disconnecting")}</>
+                            ) : (
+                              <><Unlink className="h-3 w-3" /> {t("dash.earnings.disconnect")}</>
+                            )}
+                          </Button>
                         </div>
                       </div>
                     </div>
+                    <ConfirmDialog
+                      open={confirmStripeDisconnect}
+                      title={t("dash.earnings.stripe_disconnect_title")}
+                      description={t("dash.earnings.stripe_disconnect_desc")}
+                      confirmLabel={t("dash.earnings.disconnect")}
+                      variant="danger"
+                      onConfirm={handleStripeDisconnect}
+                      onCancel={() => setConfirmStripeDisconnect(false)}
+                    />
                   </div>
                 ) : provider ? (
                   <div className="space-y-3">
@@ -528,8 +574,8 @@ export default function EarningsPage() {
                             <Badge
                               className={
                                 p.payment_rail === "paypal"
-                                  ? "border-[#009cde]/30 text-[#003087] bg-[#009cde]/5 text-[10px]"
-                                  : "border-emerald/25 text-emerald bg-emerald/5 text-[10px]"
+                                  ? "border-[#009cde]/30 text-[#009cde] bg-[#009cde]/5 text-[10px]"
+                                  : "border-[#635BFF]/30 text-[#635BFF] bg-[#635BFF]/5 text-[10px]"
                               }
                             >
                               {p.payment_rail === "paypal"

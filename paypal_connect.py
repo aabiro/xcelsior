@@ -273,6 +273,29 @@ class PayPalConnectManager:
             "payments_receivable": payments_receivable,
         }
 
+    def disconnect(self, provider_id: str) -> dict:
+        """Unlink the provider's PayPal seller account.
+
+        Clears the merchant link and resets status so the connect flow can be
+        run again from scratch. Stripe payouts are unaffected.
+        """
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT provider_id FROM provider_accounts WHERE provider_id=%s",
+                (provider_id,),
+            ).fetchone()
+            if not row:
+                return {"provider_id": provider_id, "status": "not_found"}
+            conn.execute(
+                """UPDATE provider_accounts
+                   SET paypal_merchant_id='', paypal_payer_id='', paypal_tracking_id='',
+                       paypal_status='not_started', paypal_onboarded_at=0
+                   WHERE provider_id=%s""",
+                (provider_id,),
+            )
+        log.info("PayPal unlinked for provider %s", provider_id)
+        return {"provider_id": provider_id, "status": "not_started"}
+
     def complete_onboarding_from_webhook(
         self,
         *,

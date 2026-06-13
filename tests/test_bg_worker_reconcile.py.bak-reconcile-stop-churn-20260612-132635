@@ -233,37 +233,6 @@ def test_reconcile_skips_when_pending_command_exists():
     assert enqueued == [], "must not duplicate a pending reconcile command"
 
 
-
-def test_reconcile_throttles_recent_stop_attempts():
-    closures = _extract_closures()
-    func, _ = closures["reconcile_paused_stopped"]
-
-    stale_ts = time.time() - 300.0
-    rows = [
-        {
-            "job_id": "job-recent",
-            "status": "stopped",
-            "host_id": "host-1",
-            "container_name": "xcl-job-recent",
-            "state_age_ts": stale_ts,
-            "last_reconcile_stop_at": time.time() - 60.0,
-            "reconcile_stop_count": 1,
-        }
-    ]
-    conn = _FakeConn(rows_for_select=rows, pending=False)
-    pool = _FakePool(conn)
-
-    enqueued = []
-    with (
-        patch("db._get_pg_pool", return_value=pool),
-        patch(
-            "routes.agent.enqueue_agent_command", side_effect=lambda *a, **kw: enqueued.append(a)
-        ),
-    ):
-        func()
-    assert enqueued == [], "recent reconcile attempts must be throttled"
-
-
 def test_user_images_sweeper_marks_stale_pending_failed():
     closures = _extract_closures()
     func, _ = closures["user_images_pending_sweeper"]

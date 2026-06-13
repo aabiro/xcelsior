@@ -106,6 +106,94 @@ def api_reputation_me(request: Request):
     return {"ok": True, **score.to_dict()}
 
 
+def _claimable_verifications(user: dict) -> dict[str, dict]:
+    """Map each self-claimable verification to whether the user has earned it.
+
+    These check genuine account state — the user can't claim a badge they
+    haven't actually achieved. Admin-only verifications (gov_id, hardware_audit,
+    incorporation, data_center) are intentionally excluded.
+    """
+    from db import UserStore, MfaStore
+
+    email = str(user.get("email") or "").strip()
+    full = (UserStore.get_user(email) if email else None) or user
+
+    # Phone is "verified" once an SMS MFA method is enabled.
+    has_sms = False
+    try:
+        has_sms = any(
+            m.get("method_type") == "sms" and m.get("enabled")
+            for m in MfaStore.list_methods(email)
+        )
+    except Exception:
+        has_sms = False
+
+    profile_complete = bool(
+        str(full.get("name") or "").strip()
+        and str(full.get("country") or full.get("province") or "").strip()
+    )
+
+    return {
+        VerificationType.EMAIL.value: {
+            "earned": bool(full.get("email_verified")),
+            "how": "Verify your email from the link we sent at sign-up.",
+        },
+        VerificationType.PHONE.value: {
+            "earned": has_sms,
+            "how": "Add SMS two-factor authentication in Settings → Security.",
+        },
+    }
+
+
+@router.get("/api/reputation/me/verifications", tags=["Reputation"])
+def api_reputation_my_verifications(request: Request):
+    """List self-claimable verifications and whether the caller has earned each."""
+    user = _require_auth(request)
+    _require_scope(user, "reputation:read")
+    return {"ok": True, "claimable": _claimable_verifications(user)}
+
+
+@router.post("/api/reputation/me/claim", tags=["Reputation"])
+def api_reputation_claim(request: Request):
+    """Grant any self-claimable verification badges the caller has genuinely earned.
+
+    Validates against real account state (verified email, SMS 2FA) so this is a
+    real reward, not a free points button. Idempotent — already-granted badges
+    are skipped by add_verification.
+    """
+    user = _require_auth(request)
+    _require_scope(user, "reputation:write")
+    subject = _reputation_subject_id(user)
+    if not subject:
+        raise HTTPException(400, "No reputation subject for this account")
+
+    re_engine = get_reputation_engine()
+    re_engine._ensure_entity(subject, entity_type="host")
+    claimable = _claimable_verifications(user)
+    newly_granted: list[str] = []
+    for vtype_value, info in claimable.items():
+        if not info["earned"]:
+            continue
+        try:
+            vtype = VerificationType(vtype_value)
+        except ValueError:
+            continue
+        before = re_engine.store.get_score(subject) or {}
+        before_v = before.get("verifications", "[]")
+        re_engine.add_verification(subject, vtype)
+        after = re_engine.store.get_score(subject) or {}
+        if str(after.get("verifications")) != str(before_v):
+            newly_granted.append(vtype_value)
+
+    score = re_engine.compute_score(subject)
+    return {
+        "ok": True,
+        "newly_granted": newly_granted,
+        "claimable": claimable,
+        **score.to_dict(),
+    }
+
+
 @router.get("/api/reputation/{entity_id}", tags=["Reputation"])
 def api_get_reputation(entity_id: str, request: Request):
     """Get reputation score and tier for a host or user."""

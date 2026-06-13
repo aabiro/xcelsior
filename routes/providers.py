@@ -303,6 +303,31 @@ def api_provider_paypal_onboard(provider_id: str, request: Request):
     return {"ok": True, **result}
 
 
+@router.post("/api/providers/{provider_id}/stripe/disconnect", tags=["Providers"])
+def api_provider_stripe_disconnect(provider_id: str, request: Request):
+    """Unlink a provider's Stripe account so they can re-run the connect flow."""
+    user = _require_provider_access(request, provider_id)
+    _require_scope(user, "providers:write")
+    mgr = get_stripe_manager()
+    result = mgr.disconnect_provider(provider_id)
+    if result.get("status") == "not_found":
+        raise HTTPException(404, f"Provider {provider_id} not found")
+    broadcast_sse("provider_stripe_disconnected", {"provider_id": provider_id})
+    return {"ok": True, **result}
+
+
+@router.post("/api/providers/{provider_id}/paypal/disconnect", tags=["Providers"])
+def api_provider_paypal_disconnect(provider_id: str, request: Request):
+    """Unlink a provider's PayPal seller account."""
+    user = _require_provider_access(request, provider_id)
+    _require_scope(user, "providers:write")
+    result = get_paypal_manager().disconnect(provider_id)
+    if result.get("status") == "not_found":
+        raise HTTPException(404, f"Provider {provider_id} not found")
+    broadcast_sse("provider_paypal_disconnected", {"provider_id": provider_id})
+    return {"ok": True, "paypal": result}
+
+
 @router.post("/api/providers/{provider_id}/paypal/refresh", tags=["Providers"])
 def api_provider_paypal_refresh(provider_id: str, request: Request):
     """Poll PayPal for seller merchant_id after onboarding completes."""

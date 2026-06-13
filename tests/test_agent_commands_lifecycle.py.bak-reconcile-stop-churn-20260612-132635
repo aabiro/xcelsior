@@ -97,40 +97,6 @@ def test_stop_container_runs_docker_stop_then_rm(monkeypatch):
     assert ["docker", "rm", "-f", "xcl-aaa"] in calls
 
 
-
-def test_stop_container_absent_is_acknowledged_without_stop_rm(monkeypatch):
-    cmds = [
-        {
-            "id": 103,
-            "command": "stop_container",
-            "args": {"job_id": "job-missing", "container_name": "xcl-missing"},
-            "created_by": "reconcile_sweep",
-        }
-    ]
-    monkeypatch.setattr(
-        worker_agent,
-        "requests",
-        SimpleNamespace(get=_mock_requests_get(cmds), RequestException=Exception),
-    )
-
-    calls: list[list[str]] = []
-
-    def _fake_run(argv, *a, **kw):
-        calls.append(list(argv))
-        if list(argv)[:3] == ["docker", "inspect", "-f"]:
-            return _ok(stderr="No such object", rc=1)
-        return _ok()
-
-    monkeypatch.setattr(worker_agent.subprocess, "run", _fake_run)
-
-    n = worker_agent.drain_agent_commands()
-
-    assert n == 1
-    assert ["docker", "inspect", "-f", "{{.Id}}", "xcl-missing"] in calls
-    assert not any(call[:2] == ["docker", "stop"] for call in calls)
-    assert not any(call[:2] == ["docker", "rm"] for call in calls)
-
-
 def test_stop_container_missing_container_name_is_skipped(monkeypatch):
     cmds = [
         {

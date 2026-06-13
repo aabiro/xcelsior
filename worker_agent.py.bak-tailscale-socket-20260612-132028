@@ -126,7 +126,6 @@ IMAGE_WARMER_ENABLED = os.environ.get("XCELSIOR_IMAGE_WARMER_ENABLED", "true").l
 TAILSCALE_ENABLED = os.environ.get("XCELSIOR_TAILSCALE_ENABLED", "").lower() in ("1", "true", "yes")
 TAILSCALE_AUTHKEY = os.environ.get("XCELSIOR_TAILSCALE_AUTHKEY", "")
 HEADSCALE_URL = os.environ.get("XCELSIOR_HEADSCALE_URL", "")
-TAILSCALE_SOCKET = os.environ.get("XCELSIOR_TAILSCALE_SOCKET", "").strip()
 
 # gVisor preference
 PREFER_GVISOR = os.environ.get("XCELSIOR_PREFER_GVISOR", "true").lower() in ("1", "true", "yes")
@@ -267,7 +266,6 @@ _agent_commands_rejected_total = _PromCounter(
 
 _shutdown = threading.Event()
 _active_containers = {}  # job_id -> container_name
-_missing_stop_container_log_at = {}  # container_name -> last absent-stop log time
 _adopted_containers = set()  # job_ids of containers adopted from scheduler (don't stop on shutdown)
 _active_lock = threading.Lock()
 _oauth_lock = threading.Lock()
@@ -747,14 +745,6 @@ def run_network_benchmark(scheduler_url: str | None = None):
 # ── Tailscale / Headscale Integration ────────────────────────────────
 
 
-def _tailscale_cmd(*args):
-    cmd = ["tailscale"]
-    if TAILSCALE_SOCKET:
-        cmd.append(f"--socket={TAILSCALE_SOCKET}")
-    cmd.extend(args)
-    return cmd
-
-
 def setup_tailscale():
     """Join the Tailscale/Headscale mesh network if configured."""
     if not TAILSCALE_ENABLED:
@@ -763,7 +753,7 @@ def setup_tailscale():
     try:
         # Check if already running
         r = subprocess.run(
-            _tailscale_cmd("status", "--json"),
+            ["tailscale", "status", "--json"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -778,7 +768,7 @@ def setup_tailscale():
                 return True
 
         # Bring up tailscale
-        up_cmd = _tailscale_cmd("up", "--hostname", HOST_ID or "xcelsior-worker")
+        up_cmd = ["tailscale", "up", "--hostname", HOST_ID or "xcelsior-worker"]
         if TAILSCALE_AUTHKEY:
             up_cmd.extend(["--authkey", TAILSCALE_AUTHKEY])
         if HEADSCALE_URL:
@@ -1295,33 +1285,8 @@ def drain_agent_commands() -> int:
                 if not cname:
                     log.warning("stop_container cmd=%s missing container_name", cmd_id)
                     continue
+                log.info("Executing stop_container cmd=%s container=%s by=%s", cmd_id, cname, by)
                 try:
-                    inspect = subprocess.run(
-                        ["docker", "inspect", "-f", "{{.Id}}", cname],
-                        capture_output=True,
-                        text=True,
-                        timeout=5,
-                    )
-                    if inspect.returncode != 0:
-                        _active_containers.pop(_job_id, None)
-                        now = time.time()
-                        last_log = _missing_stop_container_log_at.get(cname, 0.0)
-                        if now - last_log >= 300:
-                            log.info(
-                                "stop_container cmd=%s container=%s already absent; acknowledged",
-                                cmd_id,
-                                cname,
-                            )
-                            _missing_stop_container_log_at[cname] = now
-                        else:
-                            log.debug(
-                                "stop_container cmd=%s container=%s already absent; acknowledged",
-                                cmd_id,
-                                cname,
-                            )
-                        dispatched += 1
-                        continue
-                    log.info("Executing stop_container cmd=%s container=%s by=%s", cmd_id, cname, by)
                     subprocess.run(
                         ["docker", "stop", "-t", "30", cname],
                         capture_output=True,

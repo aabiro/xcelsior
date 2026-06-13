@@ -127,6 +127,7 @@ export default function SettingsPage() {
   // MFA
   const [mfaEnabled, setMfaEnabled] = useState(false);
   const [mfaMethods, setMfaMethods] = useState<api.MfaMethod[]>([]);
+  const [smsAvailable, setSmsAvailable] = useState(true);
   const [mfaBackupRemaining, setMfaBackupRemaining] = useState(0);
   const [mfaLoading, setMfaLoading] = useState(false);
   // TOTP setup
@@ -238,6 +239,7 @@ export default function SettingsPage() {
       setMfaEnabled(res.mfa_enabled);
       setMfaMethods(res.methods || []);
       setMfaBackupRemaining(res.backup_codes_remaining || 0);
+      setSmsAvailable(res.sms_available !== false);
     } catch { /* MFA not available yet */ }
   }, []);
 
@@ -742,6 +744,7 @@ export default function SettingsPage() {
               showNewPw={showNewPw} setShowNewPw={setShowNewPw}
               showConfirmPw={showConfirmPw} setShowConfirmPw={setShowConfirmPw}
               mfaEnabled={mfaEnabled} mfaMethods={mfaMethods}
+              smsAvailable={smsAvailable}
               mfaBackupRemaining={mfaBackupRemaining} mfaLoading={mfaLoading}
               totpSetup={totpSetup} totpQrDataUrl={totpQrDataUrl}
               totpCode={totpCode} setTotpCode={setTotpCode}
@@ -969,7 +972,7 @@ function SecurityTab({
   t, currentPw, setCurrentPw, newPw, setNewPw, confirmPw, setConfirmPw,
   changingPw, onChangePassword, showPw, setShowPw, showNewPw, setShowNewPw,
   showConfirmPw, setShowConfirmPw,
-  mfaEnabled, mfaMethods, mfaBackupRemaining, mfaLoading,
+  mfaEnabled, mfaMethods, smsAvailable, mfaBackupRemaining, mfaLoading,
   totpSetup, totpQrDataUrl, totpCode, setTotpCode, totpVerifying, backupCodes,
   onTotpSetup, onTotpVerify, onTotpDisable,
   smsSetup, setSmsSetup, smsPhone, setSmsPhone, smsCountryCode, setSmsCountryCode,
@@ -988,7 +991,7 @@ function SecurityTab({
   showPw: boolean; setShowPw: (v: boolean) => void;
   showNewPw: boolean; setShowNewPw: (v: boolean) => void;
   showConfirmPw: boolean; setShowConfirmPw: (v: boolean) => void;
-  mfaEnabled: boolean; mfaMethods: api.MfaMethod[];
+  mfaEnabled: boolean; mfaMethods: api.MfaMethod[]; smsAvailable: boolean;
   mfaBackupRemaining: number; mfaLoading: boolean;
   totpSetup: { secret: string; uri: string; methodId: number } | null;
   totpQrDataUrl: string | null;
@@ -1219,10 +1222,14 @@ function SecurityTab({
                       {t("dash.settings.mfa_disable")}
                     </Button>
                   </div>
-                ) : (
+                ) : smsAvailable ? (
                   <Button variant="outline" size="sm" onClick={() => setSmsSetup(true)}>
                     {t("dash.settings.mfa_sms_setup")}
                   </Button>
+                ) : (
+                  <span className="text-xs text-text-muted whitespace-nowrap">
+                    {t("dash.settings.mfa_sms_unavailable")}
+                  </span>
                 )}
               </div>
               {smsSetup && !mfaMethods.some((m) => m.type === "sms" && m.enabled) && (
