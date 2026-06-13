@@ -61,8 +61,10 @@ def validate_webhook_url(url: str) -> str | None:
         for family, _, _, _, sockaddr in socket.getaddrinfo(host, parsed.port or 443):
             if family not in (socket.AF_INET, socket.AF_INET6):
                 continue
-            ip_str = sockaddr[0]
-            addr = ipaddress.ip_address(ip_str.split("%")[0])
+            ip_raw = sockaddr[0]
+            if not isinstance(ip_raw, str):
+                continue
+            addr = ipaddress.ip_address(ip_raw.split("%")[0])
             if _blocked_ip(addr):
                 return None
     except OSError:
