@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import posthog from "posthog-js";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, NumberInput } from "@/components/ui/input";
@@ -512,10 +513,21 @@ export function LaunchInstanceModal({
       setInstanceId(jobId);
       markInstanceLaunched();
       toast.success("Instance launched successfully");
+      posthog.capture("gpu_instance_launched", {
+        gpu_model: resolvedGpu || null,
+        pricing_mode: effectivePricingMode,
+        tier: params.tier,
+        num_gpus: params.num_gpus,
+        province,
+        has_volume: (params.volume_ids?.length ?? 0) > 0,
+        from_marketplace: Boolean(listing?.host_id),
+        encrypted_workspace: Boolean(params.encrypted_workspace),
+      });
       onLaunched?.(jobId, res.instance);
       onClose();
       router.push(`/dashboard/instances/${jobId}`);
     } catch (err) {
+      posthog.captureException(err instanceof Error ? err : new Error(String(err)));
       const info = classifyLaunchError(err);
       if (info.action) {
         setLaunchError(info);

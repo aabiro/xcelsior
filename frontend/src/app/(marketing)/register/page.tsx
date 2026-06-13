@@ -13,6 +13,7 @@ import { Eye, EyeOff, Mail, CheckCircle } from "lucide-react";
 import { register as apiRegister, normalizeAuthRedirectPath, oauthInitiate, resendVerification } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
+import posthog from "posthog-js";
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -77,12 +78,25 @@ function RegisterPageContent() {
     try {
       const res = await apiRegister(email, password, name || undefined);
       if (res.email_verification_required) {
+        posthog.capture("user_registered", {
+          method: "email",
+          email_verification_required: true,
+          has_name: Boolean(name),
+          has_invite: Boolean(inviteToken),
+        });
         setVerificationSent(true);
         return;
       }
       // Fallback: if server returns a token directly (e.g. test mode)
+      posthog.capture("user_registered", {
+        method: "email",
+        email_verification_required: false,
+        has_name: Boolean(name),
+        has_invite: Boolean(inviteToken),
+      });
       await completeBrowserLogin();
     } catch (err) {
+      posthog.captureException(err instanceof Error ? err : new Error(String(err)));
       setError(err instanceof Error ? err.message : "Registration failed");
     } finally {
       setLoading(false);
@@ -103,10 +117,12 @@ function RegisterPageContent() {
   }
 
   async function handleOAuth(provider: string) {
+    posthog.capture("oauth_initiated", { provider, context: "register" });
     try {
       const res = await oauthInitiate(provider, redirectTarget);
       window.location.href = res.auth_url;
     } catch (err) {
+      posthog.captureException(err instanceof Error ? err : new Error(String(err)));
       setError(err instanceof Error ? err.message : "OAuth failed");
     }
   }
