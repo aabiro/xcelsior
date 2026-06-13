@@ -10,6 +10,10 @@ export interface CheckResult {
     name: string;
     ok: boolean;
     detail: string;
+    /** Actionable fix shown beneath a failed check (A9 — surface remediation). */
+    remediation?: string;
+    /** Optional link the user can open to resolve the failure. */
+    url?: string;
 }
 
 async function run(cmd: string, args: string[]): Promise<{ stdout: string; ok: boolean }> {
@@ -39,8 +43,12 @@ function versionGte(
     return true; // equal
 }
 
-export async function checkDocker(): Promise<CheckResult[]> {
+export async function checkDocker(onItem?: (r: CheckResult) => void): Promise<CheckResult[]> {
     const results: CheckResult[] = [];
+    // Stream each item to the caller as it resolves (Part E — line-by-line status).
+    const push = (r: CheckResult) => { results.push(r); onItem?.(r); };
+
+    const DOCKER_FIX = "Install Docker 24+ and start the daemon: https://docs.docker.com/engine/install/";
 
     // 1. Docker daemon
     const docker = await run("docker", ["info", "--format", "{{.ServerVersion}}"]);
@@ -48,30 +56,34 @@ export async function checkDocker(): Promise<CheckResult[]> {
         const ver = parseVersion(docker.stdout);
         const minVer: [number, number, number] = [24, 0, 0];
         const ok = versionGte(ver, minVer);
-        results.push({
+        push({
             name: "Docker",
             ok,
             detail: ok ? `v${docker.stdout}` : `v${docker.stdout} — needs ≥24.0.0`,
+            ...(ok ? {} : { remediation: DOCKER_FIX }),
         });
     } else {
-        results.push({ name: "Docker", ok: false, detail: "not found or daemon not running" });
+        push({ name: "Docker", ok: false, detail: "not found or daemon not running", remediation: DOCKER_FIX });
     }
 
     // 2. Docker Compose
     const compose = await run("docker", ["compose", "version", "--short"]);
     if (compose.ok) {
-        results.push({ name: "Docker Compose", ok: true, detail: `v${compose.stdout}` });
+        push({ name: "Docker Compose", ok: true, detail: `v${compose.stdout}` });
     } else {
-        results.push({ name: "Docker Compose", ok: false, detail: "not found" });
+        push({ name: "Docker Compose", ok: false, detail: "not found" });
     }
 
     // 3. NVIDIA Container Toolkit (nvidia-smi)
     const nvidia = await run("nvidia-smi", ["--query-gpu=driver_version", "--format=csv,noheader"]);
     if (nvidia.ok) {
         const driver = nvidia.stdout.split("\n")[0];
-        results.push({ name: "NVIDIA Driver", ok: true, detail: `v${driver}` });
+        push({ name: "NVIDIA Driver", ok: true, detail: `v${driver}` });
     } else {
-        results.push({ name: "NVIDIA Driver", ok: false, detail: "nvidia-smi not found or no GPU" });
+        push({
+            name: "NVIDIA Driver", ok: false, detail: "nvidia-smi not found or no GPU",
+            remediation: "Install the NVIDIA driver 550+: https://www.nvidia.com/Download/index.aspx",
+        });
     }
 
     // 4. runc version (gVisor compatibility)
@@ -80,15 +92,16 @@ export async function checkDocker(): Promise<CheckResult[]> {
         const ver = parseVersion(runc.stdout);
         const minVer: [number, number, number] = [1, 1, 12];
         const ok = versionGte(ver, minVer);
-        results.push({
+        push({
             name: "runc",
             ok,
             detail: ok
                 ? `v${ver.join(".")}`
                 : `v${ver.join(".")} — needs ≥1.1.12`,
+            ...(ok ? {} : { remediation: "Upgrade runc to ≥1.1.12 via your distro packages or containerd" }),
         });
     } else {
-        results.push({ name: "runc", ok: false, detail: "not found" });
+        push({ name: "runc", ok: false, detail: "not found", remediation: "Install runc ≥1.1.12 via your distro packages or containerd" });
     }
 
     return results;
