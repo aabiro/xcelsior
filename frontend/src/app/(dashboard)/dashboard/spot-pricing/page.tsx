@@ -14,6 +14,7 @@ import {
 } from "@/lib/recharts";
 import * as api from "@/lib/api";
 import type { SpotPricePoint } from "@/lib/api";
+import { openLaunchModal } from "@/lib/launch-modal";
 import { toast } from "sonner";
 import {
   SpotBadge,
@@ -96,12 +97,13 @@ export default function SpotPricingPage() {
           <Button variant="outline" size="sm" onClick={load}>
             <RefreshCw className="h-3.5 w-3.5" /> Refresh
           </Button>
-          <Link
-            href="/dashboard/instances?launch=true&mode=spot"
+          <button
+            type="button"
+            onClick={() => openLaunchModal({ mode: "spot" })}
             className="inline-flex h-8 items-center justify-center gap-2 rounded-lg bg-emerald px-3 text-sm font-medium text-white shadow-[0_0_20px_rgba(16,185,129,0.15)] transition-colors hover:bg-emerald/80"
           >
             <Rocket className="h-3.5 w-3.5" /> Launch spot instance
-          </Link>
+          </button>
         </div>
         </div>
       </SpotSurface>
@@ -154,10 +156,14 @@ export default function SpotPricingPage() {
               On-demand fallback
             </div>
             <p className="text-xs text-text-secondary leading-relaxed">
-              Need guaranteed uptime? Launch on-demand from{" "}
-              <Link href="/dashboard/instances?launch=true" className="text-accent-cyan hover:underline">
-                Instances
-              </Link>{" "}
+              Need guaranteed uptime?{" "}
+              <button
+                type="button"
+                onClick={() => openLaunchModal({ mode: "on_demand" })}
+                className="text-accent-cyan hover:underline"
+              >
+                Launch on-demand
+              </button>{" "}
               or compare live rates on{" "}
               <Link href="/dashboard/billing" className="text-accent-cyan hover:underline">
                 Billing
@@ -226,13 +232,13 @@ export default function SpotPricingPage() {
                       demand={p.demand}
                       className="mt-2"
                     />
-                    <Link
-                      href={`/dashboard/instances?launch=true&mode=spot&gpu=${encodeURIComponent(p.gpu_model)}`}
-                      onClick={(e) => e.stopPropagation()}
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); openLaunchModal({ mode: "spot", gpu: p.gpu_model }); }}
                       className="mt-3 inline-flex items-center gap-1 text-[11px] font-medium text-accent-cyan opacity-80 group-hover:opacity-100 hover:underline"
                     >
                       Launch {p.gpu_model} spot <Rocket className="h-3 w-3" />
-                    </Link>
+                    </button>
                   </button>
                 );
               })}

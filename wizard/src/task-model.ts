@@ -48,6 +48,11 @@ const TASK_LABELS: Record<string, string> = {
     "payment-gate": "Add funds",
     "launch-instance": "Launch your instance",
     "confirm-setup": "Save configuration",
+    "sdk-detect": "Detect project framework",
+    "sdk-install": "Install @xcelsior-gpu/sdk",
+    "sdk-credentials": "Configure API credentials",
+    "sdk-verify": "Verify API connection",
+    "sdk-snippet": "Copy starter code",
 };
 
 export function labelForStep(step: WizardStep): string {

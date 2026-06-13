@@ -680,8 +680,8 @@ describe("getNextStep edge cases", () => {
 // ══════════════════════════════════════════════════════════════════════
 
 describe("step structure integrity", () => {
-    it("all 30 steps present", () => {
-        expect(WIZARD_STEPS).toHaveLength(30);
+    it("all 35 steps present", () => {
+        expect(WIZARD_STEPS).toHaveLength(35);
     });
 
     it("no duplicate step IDs", () => {
@@ -736,13 +736,14 @@ describe("step structure integrity", () => {
         expect(doneSteps[0].id).toBe("done");
     });
 
-    it("mode step has exactly 3 options: rent, provide, both", () => {
+    it("mode step has exactly 4 options: rent, provide, both, sdk", () => {
         const mode = findStep("mode");
-        expect(mode.options).toHaveLength(3);
+        expect(mode.options).toHaveLength(4);
         const values = mode.options!.map((o) => o.value);
         expect(values).toContain("rent");
         expect(values).toContain("provide");
         expect(values).toContain("both");
+        expect(values).toContain("sdk");
     });
 });
 

@@ -23,6 +23,7 @@ import { LocaleToggle } from "@/components/ui/locale-toggle";
 import { ChatWidget } from "@/components/ChatWidget";
 import { AiPanel } from "@/components/AiPanel";
 import { AiSparkIcon } from "@/components/ui/ai-spark-icon";
+import { GlobalLaunchModal } from "@/components/instances/global-launch-modal";
 import { DesktopStatusStrip } from "@/components/DesktopStatusStrip";
 import { NotificationBell } from "@/components/NotificationBell";
 import { CreditsButton } from "@/components/CreditsButton";
@@ -239,7 +240,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             />
             <div
               className={cn(
-                "flex items-center gap-1 transition-all duration-300 ease-in-out",
+                "flex min-w-0 items-center gap-2 transition-all duration-300 ease-in-out",
                 collapsed && !mobile ? "pointer-events-none w-0 overflow-hidden opacity-0 scale-95" : "opacity-100 scale-100"
               )}
             >
@@ -256,9 +257,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 alt="Xcelsior"
                 className="block h-[56px] w-auto shrink-0 dark:hidden"
               />
-              {/* -ml-1.5 pulls Beta in tight against the wordmark's built-in
-                  trailing whitespace, matching the "New" chip spacing in the nav. */}
-              <span className="-ml-1.5 shrink-0 rounded-full bg-accent-cyan/8 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-widest text-accent-cyan/70">Beta</span>
+              {/* Wordmark SVG is now cropped to the letters, so the badge sits at
+                  the standard gap-2 right beside it — matching the "New" chip
+                  next to "Xcel AI" in the nav. shrink-0 keeps it from overflowing. */}
+              <span className="shrink-0 rounded-full bg-accent-cyan/8 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-widest text-accent-cyan/70">Beta</span>
             </div>
           </div>
         </Link>
@@ -648,6 +650,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         {/* Content */}
         <main className={cn("flex-1 overflow-y-auto p-4 md:p-6", desktopMode && "desktop-main-surface")}>{children}</main>
       </div>
+
+      {/* Global Launch Instance modal — opened in place from any "Launch" button */}
+      <GlobalLaunchModal />
 
       {/* AI Context Panel (right side) */}
       <AnimatePresence>

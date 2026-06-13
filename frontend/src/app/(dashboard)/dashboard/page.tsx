@@ -12,6 +12,7 @@ import type { Host, Instance, ReputationEntry } from "@/lib/api";
 import { useEventStream } from "@/hooks/useEventStream";
 import { AuroraBackground } from "@/components/ui/aurora-bg";
 import { CanadaMapHero } from "@/components/ui/canada-hero";
+import { openLaunchModal } from "@/lib/launch-modal";
 import { cn } from "@/lib/utils";
 
 // Custom Canada-map-inspired SVG icons for the action cards
@@ -116,6 +117,7 @@ function OverviewActionCard({
   title,
   description,
   href,
+  onClick,
   buttonLabel,
   accent,
   icon: Icon,
@@ -125,7 +127,10 @@ function OverviewActionCard({
 }: {
   title: string;
   description: string;
-  href: string;
+  /** Navigation target. Ignored when onClick is provided. */
+  href?: string;
+  /** When set, the action runs in place (e.g. open a modal) instead of navigating. */
+  onClick?: () => void;
   buttonLabel: string;
   accent: "launch" | "provider";
   icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
@@ -177,16 +182,30 @@ function OverviewActionCard({
         </div>
 
         <div className={cn("flex", alignRight ? "lg:justify-end" : "lg:justify-start")}>
-          <Link
-            href={href}
-            className={cn(
-              "inline-flex h-10 w-fit items-center justify-center gap-2 rounded-full px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice-blue",
-              tone.button,
-            )}
-          >
-            <ButtonIcon className="h-4 w-4" />
-            {buttonLabel}
-          </Link>
+          {onClick ? (
+            <button
+              type="button"
+              onClick={onClick}
+              className={cn(
+                "inline-flex h-10 w-fit items-center justify-center gap-2 rounded-full px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice-blue",
+                tone.button,
+              )}
+            >
+              <ButtonIcon className="h-4 w-4" />
+              {buttonLabel}
+            </button>
+          ) : (
+            <Link
+              href={href ?? "#"}
+              className={cn(
+                "inline-flex h-10 w-fit items-center justify-center gap-2 rounded-full px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice-blue",
+                tone.button,
+              )}
+            >
+              <ButtonIcon className="h-4 w-4" />
+              {buttonLabel}
+            </Link>
+          )}
         </div>
       </div>
     </div>
@@ -271,7 +290,7 @@ export default function DashboardOverview() {
             <OverviewActionCard
               title="Launch your next instance"
               description="Bring up compute fast, then tune workloads and containers from Instances."
-              href="/dashboard/instances?launch=true"
+              onClick={() => openLaunchModal()}
               buttonLabel="Launch Instance"
               accent="launch"
               icon={MapRocketIcon}

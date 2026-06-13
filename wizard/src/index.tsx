@@ -7,7 +7,8 @@
 import React, { useState, useCallback, useMemo, useEffect } from "react";
 import { pathToFileURL } from "node:url";
 import { render, Box, Text, useApp, useInput } from "ink";
-import { WizardLine, type BranchId } from "./WizardLine.js";
+import { WizardLine } from "./WizardLine.js";
+import { computeWizardBranch, computeWizardMood } from "./hexara-choreography.js";
 import { setupWizardRegion, resetWizardRegion } from "./useWizardAnimation.js";
 import { STATE_COLORS } from "../sprites/wizard/wizard-sprite.js";
 import { WIZARD_STEPS, STATIC_STEP_HELP } from "./wizard-flow.js";
@@ -15,7 +16,7 @@ import { useWizardFlow } from "./useWizardFlow.js";
 import { StatusGate } from "./StatusGate.js";
 import { WorkScreen } from "./WorkScreen.js";
 import { buildTaskList, computeTaskStates } from "./task-model.js";
-import { timeHintForStep, buildMarketplaceSlides, LEARN_SLIDES } from "./learn-content.js";
+import { timeHintForStep, buildMarketplaceSlides, LEARN_SLIDES, sdkLearnSlides } from "./learn-content.js";
 import { TitleBar, KeybindFooter } from "./chrome.js";
 import { StartupCard } from "./StartupCard.js";
 import { detectEnvironment } from "./environment.js";
@@ -26,6 +27,7 @@ import {
   TextStep,
   AutoCheckStep,
   ConfirmStep,
+  SdkSnippetStep,
   DoneStep,
   AiResponse,
   AiPrompt,
@@ -106,11 +108,12 @@ export function App() {
 
   // Prefer live marketplace charts in the Learn pane; fall back to concept cards.
   const learnSlides = useMemo(() => {
+    if (answers.mode === "sdk") return sdkLearnSlides();
     if (!marketplaceStats) return undefined;
     const live = buildMarketplaceSlides(marketplaceStats);
     if (live.length === 0) return undefined;
     return [...live, ...LEARN_SLIDES.filter((s) => s.mode === "learn")];
-  }, [marketplaceStats]);
+  }, [answers.mode, marketplaceStats]);
 
   const gateOpen = gatePhase !== "passed" && !isComplete;
   const statusUrl = `${(answers["_api_base_url"] as string) || "https://xcelsior.ca"}/dashboard`;
@@ -221,18 +224,29 @@ export function App() {
     (s) => !s.condition || s.condition(answers),
   ).length;
 
-  // Map wizard state to branch animation — varied choreography
-  const wizardBranch = useMemo((): BranchId | null => {
-    if (exiting) return null;
-    if (wizardState === "finishing") return "bow";
-    if (wizardState === "success" && isComplete) return "celebrate";
-    if (wizardState === "excited") return "dance";
-    if (wizardState === "success") return "eureka";
-    if (wizardState === "error") return "error";
-    if (wizardState === "thinking") return "levitate";
-    if (wizardState === "waiting") return "sleep";
-    return null;
-  }, [wizardState, isComplete, exiting]);
+  const hexaraCtx = useMemo(() => ({
+    exiting,
+    isComplete,
+    wizardState,
+    step,
+    mode: answers.mode as string | undefined,
+    transitioning,
+    aiStreaming,
+    showAiPrompt,
+    aiResponseOpen: aiResponse !== null,
+    checkResults,
+    browseError,
+    deviceAuthStatus: deviceAuth.status,
+    gateOpen,
+    stepPulseKey: step.id,
+  }), [
+    exiting, isComplete, wizardState, step, answers.mode, transitioning,
+    aiStreaming, showAiPrompt, aiResponse, checkResults, browseError,
+    deviceAuth.status, gateOpen,
+  ]);
+
+  const wizardMood = useMemo(() => computeWizardMood(hexaraCtx), [hexaraCtx]);
+  const wizardBranch = useMemo(() => computeWizardBranch(hexaraCtx), [hexaraCtx]);
 
   return (
     <Box flexDirection="column" alignItems="center">
@@ -246,6 +260,8 @@ export function App() {
         exiting={exiting}
         onExitDone={handleExitDone}
         branch={wizardBranch}
+        mood={wizardMood}
+        pulseKey={step.id}
       />
 
       {/* Resume / expiry notices */}
@@ -369,6 +385,10 @@ export function App() {
                 admission: "Admission checks passed!",
                 launch: "Instance launched!",
                 wallet: "Wallet check passed!",
+                "sdk-detect": "Project detected!",
+                "sdk-install": "SDK package ready!",
+                "sdk-credentials": "Credentials configured!",
+                "sdk-verify": "API connection verified!",
               }[step.checkId ?? ""] ?? "All checks passed!"}
               onRetry={retryCheck}
               onSkip={skipCheck}
@@ -384,7 +404,15 @@ export function App() {
             />
           )}
 
-          {step.type === "confirm" && (step.id !== "provider-summary" || !providerSummary) && (
+          {step.type === "confirm" && step.id === "sdk-snippet" && (
+            <SdkSnippetStep
+              snippet={(answers["_sdk_snippet"] as string) || ""}
+              envPath={(answers["_sdk_env_path"] as string) || ".env.local"}
+              onConfirm={() => submitAnswer("yes")}
+            />
+          )}
+
+          {step.type === "confirm" && step.id !== "sdk-snippet" && (step.id !== "provider-summary" || !providerSummary) && (
             <ConfirmStep
               label={step.confirmLabel ?? "Confirm?"}
               onConfirm={(yes) => submitAnswer(yes ? "yes" : "no")}

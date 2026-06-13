@@ -213,7 +213,7 @@ export default function ArtifactsPage() {
                   <option value="model_weights">Model Weights</option>
                   <option value="dataset">Dataset</option>
                   <option value="checkpoint">Checkpoint</option>
-                  <option value="job_output">Job Output</option>
+                  <option value="job_output">Session Output</option>
                   <option value="log">Log File</option>
                   <option value="telemetry">Telemetry</option>
                   <option value="container_image">Container Image</option>

@@ -21,6 +21,7 @@ import type { UserImage, UserImageScope } from "@/lib/api";
 import { useEventStream } from "@/hooks/useEventStream";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 // Phase D — /dashboard/templates
 //
@@ -70,6 +71,7 @@ export default function TemplatesPage() {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [editing, setEditing] = useState<UserImage | null>(null);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<UserImage | null>(null);
   const [page, setPage] = useState(1);
 
   const refresh = useCallback(async () => {
@@ -262,8 +264,14 @@ export default function TemplatesPage() {
     }
   }
 
-  async function deleteOne(img: UserImage) {
-    if (!confirm(`Delete template ${img.name}:${img.tag}? This cannot be undone.`)) return;
+  function requestDeleteOne(img: UserImage) {
+    setPendingDelete(img);
+  }
+
+  async function confirmDeleteOne() {
+    if (!pendingDelete) return;
+    const img = pendingDelete;
+    setPendingDelete(null);
     try {
       await api.deleteUserImage(img.image_id);
       toast.success("Template deleted");
@@ -556,7 +564,7 @@ export default function TemplatesPage() {
                                     <Pencil className="h-4 w-4" />
                                   </button>
                                   <button
-                                    onClick={() => deleteOne(img)}
+                                    onClick={() => requestDeleteOne(img)}
                                     className="p-1.5 rounded hover:bg-surface-hover text-text-muted hover:text-red-400 transition-colors"
                                     title="Delete"
                                   >
@@ -607,6 +615,21 @@ export default function TemplatesPage() {
             <Button className="bg-accent-red text-white hover:bg-accent-red-hover" onClick={bulkDelete}>Delete</Button>
           </div>
         </Dialog>
+
+        <ConfirmDialog
+          open={pendingDelete !== null}
+          title="Delete template?"
+          description={
+            pendingDelete
+              ? `Delete ${pendingDelete.name}:${pendingDelete.tag}? This cannot be undone.`
+              : ""
+          }
+          confirmLabel="Delete"
+          cancelLabel="Cancel"
+          variant="danger"
+          onConfirm={confirmDeleteOne}
+          onCancel={() => setPendingDelete(null)}
+        />
       </div>
     </FadeIn>
   );

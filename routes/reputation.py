@@ -106,19 +106,89 @@ def api_reputation_me(request: Request):
     return {"ok": True, **score.to_dict()}
 
 
-def _claimable_verifications(user: dict) -> dict[str, dict]:
-    """Map each self-claimable verification to whether the user has earned it.
+# ── Milestone journey ──
+#
+# The journey turns reputation into a guided, gamified progression. Every
+# milestone's progress is computed from REAL account + activity state, so a
+# reward can only be claimed once it's genuinely earned. Each milestone is a
+# one-time activity grant tagged in the event log (idempotent via the engine's
+# grant_milestone / claimed_milestones).
 
-    These check genuine account state — the user can't claim a badge they
-    haven't actually achieved. Admin-only verifications (gov_id, hardware_audit,
-    incorporation, data_center) are intentionally excluded.
-    """
+# id, title, description, icon, reward points, target count, what it unlocks,
+# and (for the two security milestones) the verification badge it also grants.
+_MILESTONES: list[dict] = [
+    {
+        "id": "verify_email",
+        "title": "Verify your email",
+        "description": "Confirm your email from the link we sent at sign-up.",
+        "icon": "✉️",
+        "points": 50,
+        "target": 1,
+        "unlocks": "Verified-member badge",
+        "verification": VerificationType.EMAIL.value,
+        "cta": "/dashboard/settings",
+    },
+    {
+        "id": "verify_phone",
+        "title": "Enable SMS two-factor",
+        "description": "Add SMS 2FA in Settings → Security to harden your account.",
+        "icon": "📱",
+        "points": 50,
+        "target": 1,
+        "unlocks": "2FA-secured badge",
+        "verification": VerificationType.PHONE.value,
+        "cta": "/dashboard/settings",
+    },
+    {
+        "id": "complete_profile",
+        "title": "Complete your profile",
+        "description": "Add your name and region so we can route compute correctly.",
+        "icon": "📝",
+        "points": 25,
+        "target": 1,
+        "unlocks": "+25 reputation",
+        "cta": "/dashboard/settings",
+    },
+    {
+        "id": "first_launch",
+        "title": "Launch your first instance",
+        "description": "Spin up any GPU instance to get started.",
+        "icon": "🚀",
+        "points": 25,
+        "target": 1,
+        "unlocks": "+25 reputation",
+        "cta": "/dashboard/instances",
+    },
+    {
+        "id": "five_sessions",
+        "title": "Run five sessions",
+        "description": "Complete five GPU sessions to prove you're a real user.",
+        "icon": "🔥",
+        "points": 50,
+        "target": 5,
+        "unlocks": "+50 reputation · faster scheduling",
+        "cta": "/dashboard/instances",
+    },
+    {
+        "id": "become_provider",
+        "title": "Become a GPU provider",
+        "description": "Connect Stripe and list a host to earn from your GPUs.",
+        "icon": "💎",
+        "points": 75,
+        "target": 1,
+        "unlocks": "Provider earnings + premium tier boost",
+        "cta": "/dashboard/earnings",
+    },
+]
+
+
+def _journey_signals(user: dict) -> dict[str, int]:
+    """Gather real progress counters for the milestone journey."""
     from db import UserStore, MfaStore
 
     email = str(user.get("email") or "").strip()
     full = (UserStore.get_user(email) if email else None) or user
 
-    # Phone is "verified" once an SMS MFA method is enabled.
     has_sms = False
     try:
         has_sms = any(
@@ -133,33 +203,106 @@ def _claimable_verifications(user: dict) -> dict[str, dict]:
         and str(full.get("country") or full.get("province") or "").strip()
     )
 
+    # Instance counts from the scheduler, scoped to the caller's owner ids.
+    launched = 0
+    completed = 0
+    try:
+        from scheduler import list_jobs
+
+        owners = _caller_owner_ids(user)
+        for j in list_jobs():
+            if str(j.get("owner") or "").strip() not in owners:
+                continue
+            launched += 1
+            if str(j.get("status")) == "completed":
+                completed += 1
+    except Exception as exc:
+        log.debug("journey instance count failed: %s", exc)
+
+    provider_active = False
+    try:
+        from stripe_connect import get_stripe_manager
+
+        pid = str(user.get("provider_id") or user.get("customer_id") or "").strip()
+        if pid:
+            prov = get_stripe_manager().get_provider(pid)
+            provider_active = bool(prov and prov.get("status") == "active")
+    except Exception as exc:
+        log.debug("journey provider lookup failed: %s", exc)
+
     return {
-        VerificationType.EMAIL.value: {
-            "earned": bool(full.get("email_verified")),
-            "how": "Verify your email from the link we sent at sign-up.",
-        },
-        VerificationType.PHONE.value: {
-            "earned": has_sms,
-            "how": "Add SMS two-factor authentication in Settings → Security.",
-        },
+        "verify_email": 1 if full.get("email_verified") else 0,
+        "verify_phone": 1 if has_sms else 0,
+        "complete_profile": 1 if profile_complete else 0,
+        "first_launch": min(launched, 1),
+        "five_sessions": min(completed, 5),
+        "become_provider": 1 if provider_active else 0,
     }
 
 
-@router.get("/api/reputation/me/verifications", tags=["Reputation"])
-def api_reputation_my_verifications(request: Request):
-    """List self-claimable verifications and whether the caller has earned each."""
+def _build_journey(user: dict, subject: str) -> dict:
+    """Compose the milestone journey with live progress + claim status."""
+    re_engine = get_reputation_engine()
+    re_engine._ensure_entity(subject, entity_type="host")
+    claimed = re_engine.claimed_milestones(subject)
+    signals = _journey_signals(user)
+
+    milestones = []
+    earned_unclaimed = 0
+    for m in _MILESTONES:
+        current = int(signals.get(m["id"], 0))
+        target = int(m["target"])
+        met = current >= target
+        is_claimed = m["id"] in claimed
+        if is_claimed:
+            status = "claimed"
+        elif met:
+            status = "claimable"
+            earned_unclaimed += 1
+        else:
+            status = "locked"
+        milestones.append(
+            {
+                "id": m["id"],
+                "title": m["title"],
+                "description": m["description"],
+                "icon": m["icon"],
+                "points": m["points"],
+                "current": min(current, target),
+                "target": target,
+                "unlocks": m["unlocks"],
+                "cta": m.get("cta"),
+                "status": status,
+            }
+        )
+
+    completed_count = sum(1 for x in milestones if x["status"] == "claimed")
+    return {
+        "milestones": milestones,
+        "claimable_count": earned_unclaimed,
+        "completed_count": completed_count,
+        "total_count": len(milestones),
+    }
+
+
+@router.get("/api/reputation/me/journey", tags=["Reputation"])
+def api_reputation_journey(request: Request):
+    """The caller's gamified milestone journey with live progress."""
     user = _require_auth(request)
     _require_scope(user, "reputation:read")
-    return {"ok": True, "claimable": _claimable_verifications(user)}
+    subject = _reputation_subject_id(user)
+    if not subject:
+        return {"ok": True, "milestones": [], "claimable_count": 0, "completed_count": 0, "total_count": 0}
+    return {"ok": True, **_build_journey(user, subject)}
 
 
 @router.post("/api/reputation/me/claim", tags=["Reputation"])
 def api_reputation_claim(request: Request):
-    """Grant any self-claimable verification badges the caller has genuinely earned.
+    """Grant every milestone the caller has genuinely earned but not yet claimed.
 
-    Validates against real account state (verified email, SMS 2FA) so this is a
-    real reward, not a free points button. Idempotent — already-granted badges
-    are skipped by add_verification.
+    Progress is validated against real account + activity state, so this is a
+    real reward, not a free points button. Idempotent — already-claimed
+    milestones are skipped by the engine.
     """
     user = _require_auth(request)
     _require_scope(user, "reputation:write")
@@ -169,27 +312,31 @@ def api_reputation_claim(request: Request):
 
     re_engine = get_reputation_engine()
     re_engine._ensure_entity(subject, entity_type="host")
-    claimable = _claimable_verifications(user)
-    newly_granted: list[str] = []
-    for vtype_value, info in claimable.items():
-        if not info["earned"]:
-            continue
-        try:
-            vtype = VerificationType(vtype_value)
-        except ValueError:
-            continue
-        before = re_engine.store.get_score(subject) or {}
-        before_v = before.get("verifications", "[]")
-        re_engine.add_verification(subject, vtype)
-        after = re_engine.store.get_score(subject) or {}
-        if str(after.get("verifications")) != str(before_v):
-            newly_granted.append(vtype_value)
+    signals = _journey_signals(user)
+    claimed = re_engine.claimed_milestones(subject)
 
+    newly_granted: list[dict] = []
+    for m in _MILESTONES:
+        if m["id"] in claimed:
+            continue
+        if int(signals.get(m["id"], 0)) < int(m["target"]):
+            continue
+        granted, _ = re_engine.grant_milestone(subject, m["id"], float(m["points"]))
+        # Security milestones also light up the verification badge.
+        if m.get("verification"):
+            try:
+                re_engine.add_verification(subject, VerificationType(m["verification"]))
+            except ValueError:
+                pass
+        if granted:
+            newly_granted.append({"id": m["id"], "title": m["title"], "points": m["points"]})
+
+    journey = _build_journey(user, subject)
     score = re_engine.compute_score(subject)
     return {
         "ok": True,
         "newly_granted": newly_granted,
-        "claimable": claimable,
+        **journey,
         **score.to_dict(),
     }
 

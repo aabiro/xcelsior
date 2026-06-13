@@ -224,6 +224,38 @@ export function AutoCheckStep({ results, canRetry, awaitContinue, required, succ
   );
 }
 
+// ── SDK snippet step (SDK wizard track finale) ───────────────────────
+
+interface SdkSnippetStepProps {
+  snippet: string;
+  envPath: string;
+  onConfirm: () => void;
+}
+
+export function SdkSnippetStep({ snippet, envPath, onConfirm }: SdkSnippetStepProps) {
+  useInput((input) => {
+    if (input === "y" || input === "Y" || input === "\r") onConfirm();
+  });
+
+  const lines = snippet ? snippet.split("\n") : ["// Starter snippet will appear here after credentials step"];
+
+  return (
+    <Box flexDirection="column">
+      <Text color="#22c55e" bold>SDK integration ready!</Text>
+      <Text dimColor>  Credentials written to <Text bold>{envPath}</Text></Text>
+      <Box marginTop={1} flexDirection="column" borderStyle="round" borderColor="#374151" paddingX={1}>
+        <Text color="#00d4ff" bold>Starter code</Text>
+        {lines.map((line, i) => (
+          <Text key={i} dimColor>{line || " "}</Text>
+        ))}
+      </Box>
+      <Box marginTop={1}>
+        <Text>Press <Text bold>y</Text> or <Text bold>Enter</Text> to finish · Hexara says you&apos;re good to ship</Text>
+      </Box>
+    </Box>
+  );
+}
+
 // ── Confirm step ─────────────────────────────────────────────────────
 
 interface ConfirmStepProps {
@@ -429,7 +461,7 @@ export function ManualTokenStep({ onSubmit }: ManualTokenStepProps) {
 
   return (
     <Box flexDirection="column">
-      <Text dimColor>Paste your OAuth token (from device sign-in, or Dashboard → Settings):</Text>
+      <Text dimColor>Paste your xoa_ access token (from device sign-in — not an oauth_ client ID):</Text>
       <Box>
         <Text color="#00d4ff">{"› "}</Text>
         <TextInput
@@ -575,6 +607,10 @@ export function buildDeepenerItems(mode: string, baseUrl: string, agentNames?: s
   if (mode === "provide" || mode === "both") {
     items.push({ label: "🛠  Keep earning 24/7 — run: xcelsior worker install", value: "note:Run  xcelsior worker install  — credentials are already saved to ~/.xcelsior/.env" });
   }
+  if (mode === "sdk") {
+    items.push({ label: "📦 SDK docs & API reference", value: `url:${baseUrl}/dashboard/settings` });
+    items.push({ label: "🖥  Browse GPUs from code", value: `url:${baseUrl}/dashboard/marketplace` });
+  }
   if (mode === "rent" || mode === "both") {
     items.push({ label: "🖥  Manage instances & SSH config", value: `url:${baseUrl}/dashboard/instances` });
   }
@@ -621,7 +657,10 @@ export function DoneStep({ answers, instanceInfo, onExit }: DoneStepProps) {
   }, [onExit, baseUrl]);
 
   const modeLabel =
-    mode === "rent" ? "GPU Renter" : mode === "provide" ? "GPU Provider" : "Renter + Provider";
+    mode === "rent" ? "GPU Renter"
+      : mode === "provide" ? "GPU Provider"
+        : mode === "sdk" ? "SDK Integration"
+          : "Renter + Provider";
 
   return (
     <Box flexDirection="column">
@@ -642,6 +681,12 @@ export function DoneStep({ answers, instanceInfo, onExit }: DoneStepProps) {
       {!instanceInfo && (
         <Box flexDirection="column" marginTop={1}>
           <Text color="#00d4ff">Next steps:</Text>
+          {mode === "sdk" && (
+            <>
+              <Text>  • Import the SDK and call <Text bold>client.instances.list()</Text></Text>
+              <Text>  • OAuth client saved in Dashboard → Settings → API</Text>
+            </>
+          )}
           {(mode === "rent" || mode === "both") && (
             <Text>  • Browse GPUs: <Text bold>xcelsior marketplace</Text></Text>
           )}

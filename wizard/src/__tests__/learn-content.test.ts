@@ -1,7 +1,7 @@
 // Tests for learn-content.ts — slide data integrity and helpers.
 
 import { describe, it, expect } from "vitest";
-import { LEARN_SLIDES, nextSlideIndex, slidesForMode, timeHintForStep } from "../learn-content.js";
+import { LEARN_SLIDES, SDK_LEARN_SLIDES, nextSlideIndex, sdkLearnSlides, slidesForMode, timeHintForStep } from "../learn-content.js";
 
 describe("LEARN_SLIDES", () => {
     it("has several slides, each with a heading and body", () => {
@@ -43,12 +43,19 @@ describe("slidesForMode", () => {
     });
 });
 
+describe("SDK_LEARN_SLIDES", () => {
+    it("includes the flow diagram slide", () => {
+        expect(SDK_LEARN_SLIDES.length).toBeGreaterThanOrEqual(3);
+        expect(sdkLearnSlides().some((s) => s.heading.includes("flow"))).toBe(true);
+    });
+});
+
 describe("timeHintForStep", () => {
     it("gives a ~60s expectation for the benchmark", () => {
         expect(timeHintForStep("benchmark")).toContain("60s");
     });
-    it("has hints for the long provider/renter steps", () => {
-        for (const id of ["verification", "host-register", "launch-instance", "browse-gpus", "version-check"]) {
+    it("has hints for the long provider/renter/sdk steps", () => {
+        for (const id of ["verification", "host-register", "launch-instance", "browse-gpus", "version-check", "sdk-detect", "sdk-verify"]) {
             expect(timeHintForStep(id)).toBeTruthy();
         }
     });

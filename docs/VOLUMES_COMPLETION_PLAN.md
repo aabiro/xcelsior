@@ -1,3 +1,9 @@
+# DONE
+
+**Approx. completed:** 2026-06-08
+
+---
+
 # Persistent Volumes — Completion Plan
 
 *Created: 2026-06-07*  

@@ -7,7 +7,7 @@ describe("wizard-flow", () => {
     it("first step is mode select", () => {
         expect(WIZARD_STEPS[0].id).toBe("mode");
         expect(WIZARD_STEPS[0].type).toBe("select");
-        expect(WIZARD_STEPS[0].options).toHaveLength(3);
+        expect(WIZARD_STEPS[0].options).toHaveLength(4);
     });
 
     it("last step is done", () => {
@@ -39,6 +39,37 @@ describe("wizard-flow", () => {
         expect(WORKLOAD_IMAGE_MAP["training"]).toBeDefined();
         expect(WORKLOAD_IMAGE_MAP["inference"]).toBeDefined();
         expect(WORKLOAD_IMAGE_MAP["other"]).toBeDefined();
+    });
+
+    describe("getNextStep — SDK flow", () => {
+        it("starts with project detection for sdk mode", () => {
+            const next = getNextStep(0, { mode: "sdk" });
+            expect(WIZARD_STEPS[next].id).toBe("sdk-detect");
+        });
+
+        it("skips GPU/provider steps", () => {
+            const visited: string[] = [];
+            let idx = 0;
+            const answers: Record<string, string> = {
+                mode: "sdk",
+                "device-auth": "authorized",
+                "api-key": "xoa_test_token",
+            };
+
+            while (idx < WIZARD_STEPS.length && WIZARD_STEPS[idx].type !== "done") {
+                visited.push(WIZARD_STEPS[idx].id);
+                idx = getNextStep(idx, answers);
+                if (idx === -1) break;
+            }
+
+            expect(visited).toContain("sdk-detect");
+            expect(visited).toContain("sdk-install");
+            expect(visited).toContain("sdk-credentials");
+            expect(visited).toContain("sdk-verify");
+            expect(visited).toContain("sdk-snippet");
+            expect(visited).not.toContain("docker-check");
+            expect(visited).not.toContain("workload");
+        });
     });
 
     describe("getNextStep — renter flow", () => {

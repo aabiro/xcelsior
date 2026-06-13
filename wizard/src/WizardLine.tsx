@@ -4,7 +4,7 @@
 
 import React, { useEffect, useRef } from "react";
 import { Box, Text } from "ink";
-import { useWizardAnimation, type BranchId } from "./useWizardAnimation.js";
+import { useWizardAnimation, type BranchId, type WizardMood } from "./useWizardAnimation.js";
 
 export type { BranchId };
 
@@ -19,25 +19,30 @@ export interface WizardLineProps {
   onExitDone?: () => void;
   /** Trigger a branch animation (eureka, celebrate, error, sleep, levitate, dance, bow) */
   branch?: BranchId | null;
+  /** Continuous idle-loop character while no branch is playing */
+  mood?: WizardMood;
+  /** Re-fire branches when the active step changes (step id). */
+  pulseKey?: string;
 }
 
-export function WizardLine({ message, messageColor, exiting, onExitDone, branch }: WizardLineProps) {
-  const { done, triggerBranch } = useWizardAnimation(exiting ?? false);
+export function WizardLine({ message, messageColor, exiting, onExitDone, branch, mood = "idle", pulseKey }: WizardLineProps) {
+  const { done, triggerBranch } = useWizardAnimation(exiting ?? false, mood);
 
   useEffect(() => {
     if (done && onExitDone) onExitDone();
   }, [done, onExitDone]);
 
-  // Forward branch trigger from props
-  const lastBranch = useRef<BranchId | null>(null);
+  // Forward branch trigger — branchKey lets the same branch re-fire on step changes.
+  const lastBranchKey = useRef<string | null>(null);
   useEffect(() => {
-    if (branch && branch !== lastBranch.current) {
-      lastBranch.current = branch;
+    const key = branch ? `${branch}:${pulseKey ?? ""}:${message.slice(0, 24)}` : null;
+    if (branch && key !== lastBranchKey.current) {
+      lastBranchKey.current = key;
       triggerBranch(branch);
     } else if (!branch) {
-      lastBranch.current = null;
+      lastBranchKey.current = null;
     }
-  }, [branch, triggerBranch]);
+  }, [branch, message, pulseKey, triggerBranch]);
 
   if (done) return null;
 

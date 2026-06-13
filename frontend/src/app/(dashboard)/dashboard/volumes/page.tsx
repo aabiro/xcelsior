@@ -938,7 +938,7 @@ export default function VolumesPage() {
       <LaunchInstanceModal
         open={launchVolumeId !== null}
         onClose={() => setLaunchVolumeId(null)}
-        onLaunched={() => { setLaunchVolumeId(null); load(); }}
+        onLaunched={() => { load(); }}
         preSelectedVolumeIds={launchVolumeId ? [launchVolumeId] : undefined}
       />
     </div>

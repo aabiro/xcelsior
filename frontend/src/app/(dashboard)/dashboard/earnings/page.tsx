@@ -557,7 +557,7 @@ export default function EarningsPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border text-left text-text-muted">
-                        <th className="pb-2 pr-4 font-medium">Job</th>
+                        <th className="pb-2 pr-4 font-medium">Session</th>
                         <th className="pb-2 pr-4 font-medium">Rail</th>
                         <th className="pb-2 pr-4 font-medium">Total</th>
                         <th className="pb-2 pr-4 font-medium">Your Share</th>

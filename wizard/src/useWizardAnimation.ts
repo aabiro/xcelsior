@@ -1,20 +1,10 @@
 // useWizardAnimation — Choreographed sprite animation sequencer.
 //
-// Core sequence: INTRO → SETTLE → [ PACE → THINK → WAVE → CAST → RECOVERY ] loop → OUTRO
-// Branch reactions: EUREKA, CELEBRATE, ERROR, SLEEP, LEVITATE, DANCE, BOW
+// Core sequence: INTRO → SETTLE → mood-driven loop → OUTRO
+// Branch reactions: EUREKA, CELEBRATE, ERROR, SLEEP, LEVITATE, DANCE, WAVE, CAST, BOW
 //
-// Branches are triggered externally via `branch`. When a branch is set,
-// it plays at the next recovery point, then transitions per the spec:
-//   EUREKA → resume loop (or → CELEBRATE)
-//   CELEBRATE → SETTLE or → OUTRO
-//   ERROR → THINK or PACE
-//   SLEEP → SETTLE (on any activity)
-//   LEVITATE → EUREKA (success) or ERROR (failure)
-//   DANCE → SETTLE or → BOW
-//   BOW → OUTRO or → SETTLE
-//
-// When `exiting` becomes true, the current act finishes, then
-// RECOVERY (idle) + OUTRO play, and `done` becomes true.
+// Branches fire at act boundaries, or immediately for urgent reactions (success,
+// error, dance, wave, cast) so Hexara feels responsive during long PACE/CAST acts.
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { writeSync, appendFileSync } from "fs";
@@ -39,34 +29,78 @@ import {
 } from "../sprites/wizard/wizard-frames.js";
 
 import { spriteCapable } from "./capability.js";
+import { PEEK_FRAMES, TYPE_FRAMES, NOD_FRAMES } from "./hexara-moves.js";
 
-const FRAME_MS = 160;
+const BASE_FRAME_MS = 160;
 
-// spriteCapable() (from capability.ts) returns the cached DA1 detection result
-// when initSpriteCapability() has run, else a conservative synchronous heuristic.
-// The message line (rendered by Ink) always shows, so the wizard degrades
-// gracefully to a text-only experience when the sprite can't paint.
+/** Branch animation identifiers — core loop acts + one-shot reactions. */
+export type BranchId =
+    | "eureka" | "celebrate" | "error" | "sleep"
+    | "levitate" | "dance" | "bow"
+    | "wave" | "cast"
+    | "peek" | "type" | "nod";
 
-/** Compute 1-based column to center the sprite horizontally. */
-function spriteCol(): number {
-    const cols = process.stdout.columns || 80;
-    return Math.max(1, Math.floor((cols - SPRITE_COLS) / 2) + 1);
-}
+/** Continuous idle-loop character — changes which acts Hexara cycles through. */
+export type WizardMood = "idle" | "working" | "waiting" | "presenting" | "success" | "error";
 
-/** Branch animation identifiers that can be triggered externally */
-export type BranchId = "eureka" | "celebrate" | "error" | "sleep" | "levitate" | "dance" | "bow";
+// Pre-built act sequences — stretch short groups so every mood reads distinctly.
+const SETTLE = [...IDLE_FRAMES, ...IDLE_FRAMES];
+const RECOVERY = [...IDLE_FRAMES];
 
-// Pre-built act sequences
-const SETTLE = [...IDLE_FRAMES, ...IDLE_FRAMES]; // 6 frames (2 breath cycles)
-const RECOVERY = [...IDLE_FRAMES];                // 3 frames (1 breath cycle)
-
-// Repeat short acts so they're visually distinct (THINK: 5→15 = 1.8s, WAVE: 4→12 = 1.4s)
 const THINK_ACT = [...THINK_FRAMES, ...THINK_FRAMES, ...THINK_FRAMES];
 const WAVE_ACT = [...WAVE_FRAMES, ...WAVE_FRAMES, ...WAVE_FRAMES];
+const CAST_ACT = [...CAST_FRAMES];
+const DANCE_ACT = [...DANCE_FRAMES];
+const LEVITATE_ACT = [...LEVITATE_FRAMES];
 
 const PRELUDE: readonly Frame[][] = [INTRO_FRAMES, SETTLE];
-const LOOP: readonly Frame[][] = [PACE_FRAMES, THINK_ACT, WAVE_ACT, CAST_FRAMES, RECOVERY];
+
+/** Default explore loop — pace, ponder, greet, cast, breathe. */
+const LOOP_DEFAULT: readonly Frame[][] = [PACE_FRAMES, THINK_ACT, WAVE_ACT, CAST_ACT, RECOVERY];
+/** Long checks / API calls — more thinking and spell-casting, full levitation pass. */
+const LOOP_WORKING: readonly Frame[][] = [PACE_FRAMES, THINK_ACT, CAST_ACT, LEVITATE_ACT, RECOVERY];
+/** Browser/device waits — gentle breathing and drowsy sway. */
+const LOOP_WAITING: readonly Frame[][] = [IDLE_FRAMES, SLEEP_FRAMES, IDLE_FRAMES, RECOVERY];
+/** Selections & confirms — wave, cast, show off the dance moves. */
+const LOOP_PRESENTING: readonly Frame[][] = [WAVE_ACT, CAST_ACT, DANCE_ACT, RECOVERY];
+/** Milestones — celebrate, dance, eureka, wave. */
+const LOOP_SUCCESS: readonly Frame[][] = [CELEBRATE_FRAMES, DANCE_ACT, EUREKA_FRAMES, WAVE_ACT, RECOVERY];
+/** Failures — stumble, pace it off, think through the fix. */
+const LOOP_ERROR: readonly Frame[][] = [ERROR_FRAMES, PACE_FRAMES, THINK_ACT, RECOVERY];
+
+const LOOP_BY_MOOD: Record<WizardMood, readonly Frame[][]> = {
+    idle: LOOP_DEFAULT,
+    working: LOOP_WORKING,
+    waiting: LOOP_WAITING,
+    presenting: LOOP_PRESENTING,
+    success: LOOP_SUCCESS,
+    error: LOOP_ERROR,
+};
+
 const EXIT_SEQ: readonly Frame[][] = [RECOVERY, OUTRO_FRAMES];
+
+/** Urgent branches interrupt the current loop act instead of waiting for PACE/CAST to finish. */
+const URGENT_BRANCHES: ReadonlySet<BranchId> = new Set([
+    "eureka", "celebrate", "error", "dance", "wave", "cast", "bow",
+    "peek", "type", "nod",
+]);
+
+const FRAME_MS_BY_MOOD: Record<WizardMood, number> = {
+    idle: BASE_FRAME_MS,
+    working: 120,
+    waiting: 200,
+    presenting: 140,
+    success: 130,
+    error: 150,
+};
+
+export function frameMsForMood(mood: WizardMood): number {
+    return FRAME_MS_BY_MOOD[mood] ?? BASE_FRAME_MS;
+}
+
+function loopForMood(mood: WizardMood): readonly Frame[][] {
+    return LOOP_BY_MOOD[mood] ?? LOOP_DEFAULT;
+}
 
 const BRANCH_FRAMES: Record<BranchId, readonly Frame[]> = {
     eureka: EUREKA_FRAMES,
@@ -76,17 +110,26 @@ const BRANCH_FRAMES: Record<BranchId, readonly Frame[]> = {
     levitate: LEVITATE_FRAMES,
     dance: DANCE_FRAMES,
     bow: BOW_FRAMES,
+    wave: WAVE_FRAMES,
+    cast: CAST_FRAMES,
+    peek: PEEK_FRAMES,
+    type: TYPE_FRAMES,
+    nod: NOD_FRAMES,
 };
 
-// What to do after a branch finishes
 const BRANCH_NEXT: Record<BranchId, "loop" | "settle" | "exit"> = {
-    eureka: "loop",       // resume loop
-    celebrate: "settle",  // settle idle then loop
-    error: "loop",        // pace it off
-    sleep: "settle",      // wake up → idle
-    levitate: "loop",     // resume loop (caller can chain eureka/error)
-    dance: "settle",      // settle after fun
-    bow: "exit",          // graceful exit
+    eureka: "loop",
+    celebrate: "settle",
+    error: "loop",
+    sleep: "settle",
+    levitate: "loop",
+    dance: "settle",
+    bow: "exit",
+    wave: "settle",
+    cast: "loop",
+    peek: "settle",
+    type: "loop",
+    nod: "settle",
 };
 
 export type Phase = "prelude" | "loop" | "exit" | "branch" | "settle-to-loop" | "done";
@@ -99,10 +142,10 @@ export interface AnimState {
 }
 
 /** @internal exported for testing */
-export function getSeq(state: AnimState): readonly Frame[][] {
+export function getSeq(state: AnimState, mood: WizardMood = "idle"): readonly Frame[][] {
     switch (state.phase) {
         case "prelude": return PRELUDE;
-        case "loop": return LOOP;
+        case "loop": return loopForMood(mood);
         case "exit": return EXIT_SEQ;
         case "settle-to-loop": return [SETTLE];
         case "branch": {
@@ -114,37 +157,38 @@ export function getSeq(state: AnimState): readonly Frame[][] {
 }
 
 /** @internal exported for testing */
-export function advance(prev: AnimState, wantExit: boolean, pendingBranch: BranchId | null): AnimState {
+export function advance(prev: AnimState, wantExit: boolean, pendingBranch: BranchId | null, mood: WizardMood = "idle"): AnimState {
     if (prev.phase === "done") return prev;
 
-    const seq = getSeq(prev);
+    const seq = getSeq(prev, mood);
     const act = seq[prev.actIdx];
     if (!act || act.length === 0) return { phase: "done", actIdx: 0, frameIdx: 0 };
 
     const nextFrame = prev.frameIdx + 1;
 
-    // Still within current act
+    // Exit at act boundary takes priority over branch reactions.
+    if (prev.phase === "loop" && wantExit && nextFrame >= act.length) {
+        return { phase: "exit", actIdx: 0, frameIdx: 0 };
+    }
+
+    // Urgent reactions cut in immediately (don't wait 16-frame PACE to finish).
+    if (prev.phase === "loop" && pendingBranch && URGENT_BRANCHES.has(pendingBranch) && !wantExit) {
+        return { phase: "branch", actIdx: 0, frameIdx: 0, branchId: pendingBranch };
+    }
+
     if (nextFrame < act.length) {
         return { ...prev, frameIdx: nextFrame };
     }
 
-    // Current act finished — check for exit or branch at act boundaries
-    if (prev.phase === "loop" && wantExit) {
-        return { phase: "exit", actIdx: 0, frameIdx: 0 };
-    }
-
-    // Check for pending branch at recovery points (end of any act in the loop)
     if (prev.phase === "loop" && pendingBranch) {
         return { phase: "branch", actIdx: 0, frameIdx: 0, branchId: pendingBranch };
     }
 
-    // More acts in this phase
     const nextActIdx = prev.actIdx + 1;
     if (nextActIdx < seq.length) {
         return { ...prev, actIdx: nextActIdx, frameIdx: 0 };
     }
 
-    // Phase finished — transition
     switch (prev.phase) {
         case "prelude":
             return { phase: "loop", actIdx: 0, frameIdx: 0 };
@@ -165,9 +209,7 @@ export function advance(prev: AnimState, wantExit: boolean, pendingBranch: Branc
     }
 }
 
-/** Row where wizard sprite is drawn (CUP row, 1-based) */
 export const WIZARD_ROW = 2;
-/** Extra blank rows between sprite bottom and Ink content */
 const PAD_ROWS = 1;
 
 const LOG_FILE = "/tmp/wizard-debug.log";
@@ -175,14 +217,7 @@ function dbg(msg: string): void {
     try { appendFileSync(LOG_FILE, `${Date.now()} ${msg}\n`); } catch (_) { }
 }
 
-/**
- * Set up terminal scroll region before Ink starts.
- * Reserves the top rows for the wizard sprite + padding, confines Ink below.
- * Call this BEFORE render(<App />).
- */
 export function setupWizardRegion(): void {
-    // No Sixel sprite on incapable terminals → don't reserve a scroll region;
-    // Ink renders normally from the top and the message line still shows.
     if (!spriteCapable()) {
         dbg("setup: sprite disabled (incapable terminal) — skipping scroll region");
         return;
@@ -190,41 +225,27 @@ export function setupWizardRegion(): void {
     const inkStart = WIZARD_ROW + SPRITE_ROWS + PAD_ROWS;
     dbg(`setup: inkStart=${inkStart} WIZARD_ROW=${WIZARD_ROW} SPRITE_ROWS=${SPRITE_ROWS}`);
 
-    // Clear screen and move cursor home
     writeSync(1, "\x1b[2J\x1b[H");
-
-    // Enable Sixel Display Mode (DECSDM) — prevents ghost/duplicate from sixel scrolling
     writeSync(1, "\x1b[?80h");
-
-    // Set scroll region: wizard sprite above, Ink content below
     writeSync(1, `\x1b[${inkStart};999r`);
-
-    // Move cursor into scroll region
     writeSync(1, `\x1b[${inkStart};1H`);
 }
 
-/** Reset scroll region to full terminal (call on exit). */
 export function resetWizardRegion(): void {
-    if (!spriteCapable()) return; // nothing was set up
-    writeSync(1, "\x1b[?80l");  // Disable DECSDM
+    if (!spriteCapable()) return;
+    writeSync(1, "\x1b[?80l");
     writeSync(1, "\x1b[r");
 }
 
 export interface WizardAnimationResult {
     done: boolean;
-    /** Trigger a branch animation (plays at next act boundary) */
     triggerBranch: (branch: BranchId) => void;
 }
 
-/**
- * Runs the wizard animation via direct fd writes.
- * Uses writeSync(1, ...) to paint Sixel at WIZARD_ROW (above Ink's scroll region).
- * Ink can't erase the wizard because its rendering is confined to the scroll region below.
- */
-export function useWizardAnimation(exiting: boolean): WizardAnimationResult {
+export function useWizardAnimation(exiting: boolean, mood: WizardMood = "idle"): WizardAnimationResult {
     const exitRef = useRef(false);
     const branchRef = useRef<BranchId | null>(null);
-    // Capability is fixed for the process lifetime — compute once.
+    const moodRef = useRef<WizardMood>(mood);
     const paintRef = useRef(spriteCapable());
     const stateRef = useRef<AnimState>({
         phase: "prelude",
@@ -233,8 +254,14 @@ export function useWizardAnimation(exiting: boolean): WizardAnimationResult {
     });
     const [done, setDone] = useState(false);
 
-    // Latch exit signal (never un-set)
     if (exiting && !exitRef.current) exitRef.current = true;
+
+    if (moodRef.current !== mood) {
+        moodRef.current = mood;
+        if (stateRef.current.phase === "loop") {
+            stateRef.current = { phase: "loop", actIdx: 0, frameIdx: 0 };
+        }
+    }
 
     const triggerBranch = useCallback((branch: BranchId) => {
         branchRef.current = branch;
@@ -247,7 +274,7 @@ export function useWizardAnimation(exiting: boolean): WizardAnimationResult {
             const prev = stateRef.current;
             if (prev.phase === "done") return;
 
-            const next = advance(prev, exitRef.current, branchRef.current);
+            const next = advance(prev, exitRef.current, branchRef.current, moodRef.current);
             if (next.phase === "branch" && branchRef.current) {
                 branchRef.current = null;
             }
@@ -258,22 +285,27 @@ export function useWizardAnimation(exiting: boolean): WizardAnimationResult {
                 return;
             }
 
-            const seq = getSeq(next);
+            const seq = getSeq(next, moodRef.current);
             const frame = seq[next.actIdx]?.[next.frameIdx];
             if (frame && paintRef.current) {
-                // Save cursor, draw frame centered at WIZARD_ROW, restore cursor
                 const cup = `\x1b[${WIZARD_ROW};${spriteCol()}H`;
                 writeSync(1, "\x1b7" + cup + frame + "\x1b8");
             }
         };
 
         tick();
-        const id = setInterval(tick, FRAME_MS);
+        const ms = frameMsForMood(moodRef.current);
+        const id = setInterval(tick, ms);
 
         return () => {
             clearInterval(id);
         };
-    }, [done]);
+    }, [done, mood]);
 
     return { done, triggerBranch };
+}
+
+function spriteCol(): number {
+    const cols = process.stdout.columns || 80;
+    return Math.max(1, Math.floor((cols - SPRITE_COLS) / 2) + 1);
 }

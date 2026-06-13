@@ -394,7 +394,6 @@ export default function SettingsPage() {
   };
 
   const handleTotpDisable = async () => {
-    if (!window.confirm("Are you sure you want to disable your authenticator app?")) return;
     try {
       await api.disableTotp();
       toast.success("Authenticator app disabled");
@@ -431,7 +430,6 @@ export default function SettingsPage() {
   };
 
   const handleSmsDisable = async () => {
-    if (!window.confirm("Are you sure you want to disable SMS verification?")) return;
     try {
       await api.disableSms();
       toast.success("SMS verification disabled");
@@ -522,7 +520,6 @@ export default function SettingsPage() {
   };
 
   const handleDisableAllMfa = async () => {
-    if (!window.confirm("This will remove ALL two-factor authentication methods and backup codes. Are you sure?")) return;
     try {
       await api.disableAllMfa();
       toast.success("All 2FA methods disabled");
@@ -1011,6 +1008,14 @@ function SecurityTab({
   sessions: api.SessionInfo[]; sessionsLoading: boolean;
   revokingSession: string | null; onRevokeSession: (p: string) => void;
 }) {
+  type MfaConfirm =
+    | "totp-disable"
+    | "sms-disable"
+    | "all-mfa-disable"
+    | { type: "passkey-remove"; id: number; name: string }
+    | null;
+  const [mfaConfirm, setMfaConfirm] = useState<MfaConfirm>(null);
+
   const newPasswordValidation = getPasswordValidation(newPw);
   const matchingPasswords = passwordsMatch(newPw, confirmPw);
   const passwordRequirements = [
@@ -1143,7 +1148,7 @@ function SecurityTab({
                     <span className="text-xs text-emerald font-medium flex items-center gap-1">
                       <CheckCircle className="h-3 w-3" /> Active
                     </span>
-                    <Button variant="outline" size="sm" onClick={onTotpDisable} className="text-accent-red border-accent-red/30 hover:bg-accent-red/10">
+                    <Button variant="outline" size="sm" onClick={() => setMfaConfirm("totp-disable")} className="text-accent-red border-accent-red/30 hover:bg-accent-red/10">
                       {t("dash.settings.mfa_disable")}
                     </Button>
                   </div>
@@ -1218,7 +1223,7 @@ function SecurityTab({
                     <span className="text-xs text-text-muted">
                       {mfaMethods.find((m) => m.type === "sms")?.phone_number}
                     </span>
-                    <Button variant="outline" size="sm" onClick={onSmsDisable} className="text-accent-red border-accent-red/30 hover:bg-accent-red/10">
+                    <Button variant="outline" size="sm" onClick={() => setMfaConfirm("sms-disable")} className="text-accent-red border-accent-red/30 hover:bg-accent-red/10">
                       {t("dash.settings.mfa_disable")}
                     </Button>
                   </div>
@@ -1299,10 +1304,11 @@ function SecurityTab({
                     variant="outline" size="sm"
                     className="text-accent-red border-accent-red/30 hover:bg-accent-red/10"
                     disabled={passkeyRemoving === pk.id}
-                    onClick={() => {
-                      if (!window.confirm(t("dash.settings.mfa_passkey_remove_desc", { name: pk.device_name || "Security Key" }))) return;
-                      onPasskeyDelete(pk.id);
-                    }}
+                    onClick={() => setMfaConfirm({
+                      type: "passkey-remove",
+                      id: pk.id,
+                      name: pk.device_name || "Security Key",
+                    })}
                   >
                     {passkeyRemoving === pk.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
                   </Button>
@@ -1375,7 +1381,7 @@ function SecurityTab({
             {/* Disable all MFA */}
             {mfaEnabled && (
               <div className="pt-3 border-t border-border/60">
-                <Button variant="outline" size="sm" onClick={onDisableAllMfa} className="text-accent-red border-accent-red/30 hover:bg-accent-red/10">
+                <Button variant="outline" size="sm" onClick={() => setMfaConfirm("all-mfa-disable")} className="text-accent-red border-accent-red/30 hover:bg-accent-red/10">
                   <AlertTriangle className="h-3.5 w-3.5" /> {t("dash.settings.mfa_disable_all")}
                 </Button>
               </div>
@@ -1434,6 +1440,54 @@ function SecurityTab({
           </div>
         </div>
       </StaggerItem>
+
+      <ConfirmDialog
+        open={mfaConfirm === "totp-disable"}
+        title="Disable authenticator app?"
+        description="You will no longer be able to sign in with your authenticator app until you set it up again."
+        confirmLabel="Disable"
+        cancelLabel={t("common.cancel")}
+        variant="danger"
+        onConfirm={() => { setMfaConfirm(null); onTotpDisable(); }}
+        onCancel={() => setMfaConfirm(null)}
+      />
+      <ConfirmDialog
+        open={mfaConfirm === "sms-disable"}
+        title="Disable SMS verification?"
+        description="You will no longer receive verification codes by text message until you set it up again."
+        confirmLabel="Disable"
+        cancelLabel={t("common.cancel")}
+        variant="danger"
+        onConfirm={() => { setMfaConfirm(null); onSmsDisable(); }}
+        onCancel={() => setMfaConfirm(null)}
+      />
+      <ConfirmDialog
+        open={mfaConfirm === "all-mfa-disable"}
+        title="Disable all two-factor authentication?"
+        description="This will remove all 2FA methods and backup codes from your account."
+        confirmLabel="Disable all"
+        cancelLabel={t("common.cancel")}
+        variant="danger"
+        onConfirm={() => { setMfaConfirm(null); onDisableAllMfa(); }}
+        onCancel={() => setMfaConfirm(null)}
+      />
+      <ConfirmDialog
+        open={mfaConfirm !== null && typeof mfaConfirm === "object" && mfaConfirm.type === "passkey-remove"}
+        title="Remove passkey?"
+        description={
+          mfaConfirm && typeof mfaConfirm === "object"
+            ? t("dash.settings.mfa_passkey_remove_desc", { name: mfaConfirm.name })
+            : ""
+        }
+        confirmLabel="Remove"
+        cancelLabel={t("common.cancel")}
+        variant="danger"
+        onConfirm={() => {
+          if (mfaConfirm && typeof mfaConfirm === "object") onPasskeyDelete(mfaConfirm.id);
+          setMfaConfirm(null);
+        }}
+        onCancel={() => setMfaConfirm(null)}
+      />
     </StaggerList>
   );
 }
@@ -1869,6 +1923,28 @@ function PrivacyTab({
   deleting: boolean; onDeleteAccount: () => void;
   userId: string;
 }) {
+  const [exportConfirmOpen, setExportConfirmOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      const blob = await api.downloadInvoice(userId, "csv", now - 365 * 86400, now);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "xcelsior-data-export.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Data exported");
+    } catch {
+      toast.error("Export failed");
+    } finally {
+      setExporting(false);
+      setExportConfirmOpen(false);
+    }
+  };
   return (
     <StaggerList className="space-y-5">
       {/* PIPEDA Consent */}
@@ -1919,18 +1995,9 @@ function PrivacyTab({
                 <p className="text-sm font-medium">Export Data</p>
                 <p className="text-xs text-text-secondary">Download all your billing data as CSV</p>
               </div>
-              <Button variant="outline" size="sm" onClick={async () => {
-                if (!confirm("Export all your billing data as CSV?")) return;
-                try {
-                  const now = Math.floor(Date.now() / 1000);
-                  const blob = await api.downloadInvoice(userId, "csv", now - 365 * 86400, now);
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a"); a.href = url; a.download = "xcelsior-data-export.csv"; a.click();
-                  URL.revokeObjectURL(url);
-                  toast.success("Data exported");
-                } catch { toast.error("Export failed"); }
-              }}>
-                <Download className="h-3.5 w-3.5" /> Export
+              <Button variant="outline" size="sm" onClick={() => setExportConfirmOpen(true)} disabled={exporting}>
+                {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                Export
               </Button>
             </div>
 
@@ -1960,6 +2027,16 @@ function PrivacyTab({
           </div>
         </div>
       </StaggerItem>
+
+      <ConfirmDialog
+        open={exportConfirmOpen}
+        title="Export billing data?"
+        description="Download all your billing data from the last 12 months as a CSV file."
+        confirmLabel="Export"
+        cancelLabel={t("common.cancel")}
+        onConfirm={handleExport}
+        onCancel={() => setExportConfirmOpen(false)}
+      />
     </StaggerList>
   );
 }

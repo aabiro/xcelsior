@@ -523,9 +523,12 @@ export function LaunchInstanceModal({
         from_marketplace: Boolean(listing?.host_id),
         encrypted_workspace: Boolean(params.encrypted_workspace),
       });
+      // Surface the in-modal success step instead of yanking the user to the
+      // instance detail page. onLaunched is a side-effect hook (optimistic list
+      // update / analytics) — it must not close the modal or navigate, so the
+      // success step stays visible until the user picks Close or View Instance.
       onLaunched?.(jobId, res.instance);
-      onClose();
-      router.push(`/dashboard/instances/${jobId}`);
+      setStep("success");
     } catch (err) {
       posthog.captureException(err instanceof Error ? err : new Error(String(err)));
       const info = classifyLaunchError(err);

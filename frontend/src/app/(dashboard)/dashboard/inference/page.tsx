@@ -21,6 +21,7 @@ import { TeamContextBanner } from "@/components/team/team-context-banner";
 import { CopyableText } from "@/features/serverless/copyable-text";
 import { EngineBadge, ServerlessEmptyState, ServerlessHero } from "@/features/serverless/serverless-ui";
 import { toast } from "sonner";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 function serverlessActionError(err: unknown, viewerMessage: string): string {
   const msg = err instanceof Error ? err.message : "Request failed";
@@ -34,6 +35,7 @@ export default function InferencePage() {
   const canWrite = team.canWriteInstances;
   const [endpoints, setEndpoints] = useState<ServerlessEndpoint[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const load = useCallback(async (showSpinner = false) => {
     if (showSpinner) setLoading(true);
@@ -66,11 +68,17 @@ export default function InferencePage() {
     onEvent: () => { void load(false); },
   });
 
-  const handleDelete = async (e: React.MouseEvent, endpointId: string) => {
+  const requestDelete = (e: React.MouseEvent, endpointId: string) => {
     e.preventDefault();
     e.stopPropagation();
     if (!canWrite) return toast.error(t("dash.serverless.viewer_blocked"));
-    if (!confirm(t("dash.serverless.delete_confirm"))) return;
+    setPendingDeleteId(endpointId);
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDeleteId) return;
+    const endpointId = pendingDeleteId;
+    setPendingDeleteId(null);
     try {
       await api.deleteServerlessEndpoint(endpointId);
       toast.success(t("dash.serverless.deleted"));
@@ -162,7 +170,7 @@ export default function InferencePage() {
                             variant="ghost"
                             size="sm"
                             className="text-red-500 opacity-70 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
-                            onClick={(e) => handleDelete(e, ep.endpoint_id)}
+                            onClick={(e) => requestDelete(e, ep.endpoint_id)}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -183,6 +191,17 @@ export default function InferencePage() {
           </StaggerList>
         )}
       </div>
+
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        title={t("dash.serverless.delete_title") || "Delete endpoint?"}
+        description={t("dash.serverless.delete_confirm")}
+        confirmLabel={t("common.delete") || "Delete"}
+        cancelLabel={t("common.cancel")}
+        variant="danger"
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </div>
   );
 }

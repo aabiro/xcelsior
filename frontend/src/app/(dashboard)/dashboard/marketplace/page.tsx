@@ -349,7 +349,7 @@ export default function MarketplacePage() {
         onClose={() => setRentListing(null)}
         listing={rentListing ?? undefined}
         templateId={templateId ?? undefined}
-        onLaunched={() => setRentListing(null)}
+        onLaunched={() => { /* keep modal open for the success step; Close clears the listing */ }}
       />
     </div>
   );

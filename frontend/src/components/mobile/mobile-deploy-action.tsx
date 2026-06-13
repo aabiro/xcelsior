@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Monitor, Rocket, X, Zap } from "lucide-react";
 import { toast } from "sonner";
@@ -35,7 +35,6 @@ function safeVibrate(pattern: number | number[]) {
 
 export function MobileDeployAction({ canWrite, serverlessEnabled }: MobileDeployActionProps) {
   const { t } = useLocale();
-  const router = useRouter();
   const pathname = usePathname();
   const { state: desktopState } = useDesktopRuntime();
   const [deployModalOpen, setDeployModalOpen] = useState(false);
@@ -398,10 +397,10 @@ export function MobileDeployAction({ canWrite, serverlessEnabled }: MobileDeploy
       <LaunchInstanceModal
         open={launchModalOpen}
         onClose={handleLaunchModalClose}
-        onLaunched={(jobId) => {
-          setLaunchModalOpen(false);
+        onLaunched={() => {
+          // Keep the modal open so its success step can show; the user chooses
+          // whether to view the instance. Just disarm the gesture state.
           resetArmed();
-          router.push(`/dashboard/instances/${jobId}`);
         }}
       />
     </>

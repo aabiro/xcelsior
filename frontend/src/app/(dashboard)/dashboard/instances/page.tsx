@@ -674,8 +674,8 @@ export default function InstancesPage() {
         initialGpuModel={launchGpu}
         initialPricingMode={launchMode}
         onLaunched={(jobId, inst) => {
-          closeLaunchModal();
-          // Optimistically add so the user can navigate to it immediately
+          // Don't close — the modal shows its own success step. Just refresh
+          // the list behind it so the new instance is present when they close.
           setInstances((prev) => {
             if (prev.some((i) => i.job_id === jobId)) return prev;
             const stub: Instance = inst ?? {
