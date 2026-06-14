@@ -130,7 +130,7 @@ async function login(page, base, email, password) {
 }
 
 function benignConsoleError(text) {
-  return /favicon|404|410|google-analytics|googletagmanager|Content Security Policy|g\/collect|API keys are permanently disabled|Failed to fetch unread count/i.test(
+  return /favicon|404|410|google-analytics|googletagmanager|Content Security Policy|g\/collect|API keys are permanently disabled|Failed to fetch unread count|PostHog was initialized without a token/i.test(
     text,
   );
 }
