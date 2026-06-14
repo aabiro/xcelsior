@@ -175,7 +175,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshToken().catch(() => {});
   }, [resetIdleTimers]);
 
-  // Probe session only on routes that need it (dashboard, login redirect, etc.)
+  // Probe session on protected routes. Only block the UI on the first probe —
+  // tab changes revalidate in the background without clearing the user.
   useEffect(() => {
     if (!needsSessionOnMount(pathname)) {
       if (!sessionFetched.current) {
@@ -184,7 +185,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     let cancelled = false;
-    setLoading(true);
+    const isInitialProbe = !sessionFetched.current;
+    if (isInitialProbe) {
+      setLoading(true);
+    }
     getMe()
       .then((res) => {
         if (!cancelled) {
@@ -202,7 +206,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       })
       .catch(() => {
-        if (!cancelled) setUser(null);
+        if (!cancelled && isInitialProbe) setUser(null);
       })
       .finally(() => {
         if (!cancelled) {

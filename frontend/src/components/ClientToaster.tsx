@@ -12,8 +12,9 @@ export function ClientToaster() {
       position="bottom-right"
       theme="dark"
       closeButton
+      visibleToasts={4}
       toastOptions={{
-        duration: 5000,
+        duration: 4000,
         style: {
           background: "#1e293b",
           border: "1px solid #334155",

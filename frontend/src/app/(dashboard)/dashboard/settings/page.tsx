@@ -15,7 +15,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 import * as api from "@/lib/api";
-import type { ApiKeyInfo, ConsentRecord, OAuthClientInfo, TeamInfo, TeamMember, UserSshKey } from "@/lib/api";
+import type { ConsentRecord, OAuthClientInfo, TeamInfo, TeamMember, UserSshKey } from "@/lib/api";
 import QRCode from "qrcode";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -108,12 +108,6 @@ export default function SettingsPage() {
   const [notifications, setNotifications] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // API Keys
-  const [apiKeys, setApiKeys] = useState<ApiKeyInfo[]>([]);
-  const [newKeyName, setNewKeyName] = useState("");
-  const [newKeyScope, setNewKeyScope] = useState<"full-access" | "read-only">("full-access");
-  const [generatedKey, setGeneratedKey] = useState<string | null>(null);
-  const [generatingKey, setGeneratingKey] = useState(false);
   const [oauthClients, setOauthClients] = useState<OAuthClientInfo[]>([]);
   // SSH
   const [sshPubKey, setSshPubKey] = useState("");
@@ -269,10 +263,6 @@ export default function SettingsPage() {
       })
       .catch((e) => console.error("Failed to load preferences", e));
 
-    api.fetchApiKeys()
-      .then((res) => setApiKeys(res.keys || []))
-      .catch((e) => console.error("Failed to load API keys", e));
-
     api.fetchOAuthClients()
       .then((res) => setOauthClients(res.clients || []))
       .catch((e) => console.error("Failed to load OAuth clients", e));
@@ -320,27 +310,6 @@ export default function SettingsPage() {
       toast.success("Settings saved");
     } catch { toast.error("Failed to save settings"); }
     finally { setSaving(false); }
-  };
-
-  const handleGenerateKey = async () => {
-    if (!newKeyName.trim()) { toast.error("Enter a key name"); return; }
-    setGeneratingKey(true);
-    try {
-      const res = await api.generateApiKey(newKeyName.trim(), newKeyScope);
-      setGeneratedKey(res.key);
-      setNewKeyName("");
-      api.fetchApiKeys().then((r) => setApiKeys(r.keys || []));
-      toast.success("API key generated — copy it now, it won't be shown again");
-    } catch (err) { toast.error(err instanceof Error ? err.message : "Failed to generate key"); }
-    finally { setGeneratingKey(false); }
-  };
-
-  const handleRevokeKey = async (preview: string) => {
-    try {
-      await api.revokeApiKey(preview);
-      setApiKeys((keys) => keys.filter((k) => k.preview !== preview));
-      toast.success("Key revoked");
-    } catch { toast.error("Failed to revoke key"); }
   };
 
   const handleGenerateSsh = async () => {
