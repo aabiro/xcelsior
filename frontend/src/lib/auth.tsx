@@ -1,6 +1,6 @@
 "use client";
 
-import posthog from "posthog-js";
+import { phIdentify, phReset } from "@/lib/posthog-client";
 import {
   createContext,
   useCallback,
@@ -133,7 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const nextUser = res.user ?? null;
       setUser(nextUser);
       if (nextUser) {
-        posthog.identify(nextUser.user_id, {
+        phIdentify(nextUser.user_id, {
           email: nextUser.email,
           name: nextUser.name,
           role: nextUser.role,
@@ -163,7 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       /* cookie already cleared or network error — fine */
     }
-    posthog.reset();
+    phReset();
     setUser(null);
     if (typeof window !== "undefined") {
       window.location.href = "/login";
@@ -191,7 +191,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const nextUser = res.user ?? null;
           setUser(nextUser);
           if (nextUser) {
-            posthog.identify(nextUser.user_id, {
+            phIdentify(nextUser.user_id, {
               email: nextUser.email,
               name: nextUser.name,
               role: nextUser.role,

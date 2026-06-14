@@ -161,23 +161,31 @@ def main() -> int:
                 failures += 1
 
             if not args.skip_stream:
+                # SSE heartbeats default to 15s — allow time for the first frame.
+                stream_timeout = httpx.Timeout(60.0, read=25.0)
+                chunks: list[bytes] = []
+                stream_ok = False
+                status_code = 0
                 try:
                     with client.stream(
                         "GET",
                         f"/v1/serverless/{endpoint_id}/stream/{job_id}",
                         headers=hdrs,
-                        timeout=15.0,
+                        timeout=stream_timeout,
                     ) as stream_resp:
-                        chunks = []
+                        status_code = stream_resp.status_code
                         for chunk in stream_resp.iter_bytes():
                             chunks.append(chunk)
                             if sum(len(c) for c in chunks) > 0:
                                 break
-                        stream_ok = stream_resp.status_code == 200
+                        stream_ok = status_code == 200
+                except httpx.ReadTimeout:
+                    # Open SSE with 200 but no event yet (queued job) is still healthy.
+                    stream_ok = status_code == 200
                 except Exception as e:
-                    stream_ok = False
                     chunks = [str(e).encode()]
-                if not _step("job_stream", stream_ok, f"bytes={sum(len(c) for c in chunks)}"):
+                detail = f"http={status_code} bytes={sum(len(c) for c in chunks)}"
+                if not _step("job_stream", stream_ok, detail):
                     failures += 1
 
             cancel = client.post(

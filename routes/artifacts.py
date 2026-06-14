@@ -132,21 +132,25 @@ def api_list_all_artifacts(request: Request):
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "artifacts:read")
 
-    mgr = get_artifact_manager()
-    objects: list[dict] = []
-    if _is_platform_admin(user):
-        for atype in ArtifactType:
-            objects.extend(mgr.primary.list_objects(f"{atype.value}/"))
-    else:
-        from scheduler import list_jobs
+    try:
+        mgr = get_artifact_manager()
+        objects: list[dict] = []
+        if _is_platform_admin(user):
+            for atype in ArtifactType:
+                objects.extend(mgr.primary.list_objects(f"{atype.value}/"))
+        else:
+            from scheduler import list_jobs
 
-        jobs = _filter_jobs_for_user(list_jobs(), user)
-        slots = {j.get("job_id", "") for j in jobs}
-        slots.discard("")
-        slots.add(_user_upload_slot(user))
-        for slot in slots:
-            objects.extend(mgr.get_job_artifacts(slot))
-    return {"ok": True, "artifacts": [_entry_from_object(o) for o in objects]}
+            jobs = _filter_jobs_for_user(list_jobs(), user)
+            slots = {j.get("job_id", "") for j in jobs}
+            slots.discard("")
+            slots.add(_user_upload_slot(user))
+            for slot in slots:
+                objects.extend(mgr.get_job_artifacts(slot))
+        return {"ok": True, "artifacts": [_entry_from_object(o) for o in objects]}
+    except Exception as e:
+        log.warning("artifacts.list_all failed user=%s: %s", user.get("user_id"), e)
+        return {"ok": True, "artifacts": []}
 
 
 @router.get("/api/artifacts/{job_id}", tags=["Artifacts"])
@@ -213,32 +217,3 @@ def api_artifact_expiry(job_id: str, request: Request):
         )
 
     return {"ok": True, "job_id": job_id, "artifacts": result}
-
-
-@router.get("/api/artifacts", tags=["Artifacts"])
-def api_list_all_artifacts(request: Request):
-    """List artifacts for jobs the caller can access (team-scoped)."""
-    from routes._deps import _filter_jobs_for_user, _get_current_user, _require_scope
-    from scheduler import list_jobs
-
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    _require_scope(user, "artifacts:read")
-    mgr = get_artifact_manager()
-    try:
-        artifacts = []
-        jobs = _filter_jobs_for_user(list_jobs(), user)
-        seen_keys: set[str] = set()
-        for job in jobs:
-            job_id = str(job.get("job_id") or job.get("id") or "").strip()
-            if not job_id:
-                continue
-            for art in mgr.get_job_artifacts(job_id):
-                key = str(art.get("key") or "")
-                if key and key not in seen_keys:
-                    seen_keys.add(key)
-                    artifacts.append(art)
-        return {"ok": True, "artifacts": artifacts}
-    except Exception:
-        return {"ok": True, "artifacts": []}
