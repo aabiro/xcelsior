@@ -659,7 +659,7 @@ class StripeConnectManager:
                 pi = stripe.PaymentIntent.create(
                     amount=amount_cents,
                     currency="cad",
-                    automatic_payment_methods={"enabled": True},
+                    payment_method_types=["card"],
                     metadata={
                         "xcelsior_customer_id": customer_id,
                         "xcelsior_intent_id": intent_id,

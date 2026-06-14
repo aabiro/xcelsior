@@ -24,6 +24,8 @@ import {
   ScopeChipRow,
   WorkspaceScopeBadge,
 } from "@/components/settings/credential-scope-panel";
+import { OAuthSecretRevealModal } from "@/components/settings/oauth-secret-reveal-modal";
+import { SettingsSection } from "@/components/settings/settings-layout";
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -195,15 +197,14 @@ function CreateClientForm({
     setCreating(true);
     try {
       const res = await api.createOAuthClient(trimmed, Array.from(scopes));
-      const secret = res.client.client_secret || "";
-      onCreated(
-        { ...res.client, status: "active" },
-        secret,
-      );
+      const secret = res.client_secret || res.client.client_secret || "";
+      onCreated({ ...res.client, status: "active" }, secret);
       setName("");
       setScopes(new Set(["instances:read"]));
       setExpanded(false);
-      toast.success(secret ? t("dash.settings.oauth.created_copied") : t("dash.settings.oauth.created"));
+      if (!secret) {
+        toast.error(t("dash.settings.oauth.secret_missing"));
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("dash.settings.oauth.create_failed"));
     } finally {
@@ -273,94 +274,6 @@ function CreateClientForm({
         )}
       </AnimatePresence>
     </div>
-  );
-}
-
-// ── Secret Reveal Banner ─────────────────────────────────────────────
-
-function SecretBanner({
-  clientId,
-  clientSecret,
-  scopes,
-  onDismiss,
-}: {
-  clientId: string;
-  clientSecret: string;
-  scopes: string[];
-  onDismiss: () => void;
-}) {
-  const { t } = useLocale();
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-
-  const copy = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    toast.success(t("dash.settings.oauth.copied"));
-    setTimeout(() => setCopiedId(null), 2000);
-  };
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.97, y: -4 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.97, y: -4 }}
-      className="rounded-xl border border-accent-cyan/40 bg-gradient-to-b from-accent-cyan/8 to-accent-cyan/3 p-4 space-y-3"
-    >
-      <div className="flex items-center gap-2">
-        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-accent-cyan/20">
-          <AlertTriangle className="h-3.5 w-3.5 text-accent-cyan" />
-        </div>
-        <span className="text-sm font-semibold text-accent-cyan">
-          {t("dash.settings.oauth.secret_warning")}
-        </span>
-      </div>
-      <div className="rounded-lg border border-border/60 bg-background/80 p-3 space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] font-medium uppercase tracking-wider text-text-muted">{t("dash.settings.oauth.client_id_label")}</span>
-          <button
-            onClick={() => copy(clientId, "new-id")}
-            className={cn(
-              "flex h-7 w-7 items-center justify-center rounded-lg transition-colors",
-              copiedId === "new-id" ? "text-emerald bg-emerald/10" : "text-text-muted hover:text-text-primary hover:bg-surface-hover",
-            )}
-          >
-            {copiedId === "new-id" ? <CheckCircle className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-          </button>
-        </div>
-        <button
-          type="button"
-          onClick={() => copy(clientId, "new-id")}
-          className="block w-full text-left break-all rounded-md bg-surface/70 px-3 py-2 font-mono text-xs hover:bg-surface transition-colors cursor-pointer"
-          title={t("dash.settings.oauth.tip_copy_id")}
-        >
-          {clientId}
-        </button>
-        <div className="flex items-center justify-between pt-1">
-          <span className="text-[11px] font-medium uppercase tracking-wider text-text-muted">{t("dash.settings.oauth.client_secret_label")}</span>
-          <button
-            onClick={() => copy(clientSecret, "new-secret")}
-            className={cn(
-              "flex h-7 w-7 items-center justify-center rounded-lg transition-colors",
-              copiedId === "new-secret" ? "text-emerald bg-emerald/10" : "text-text-muted hover:text-text-primary hover:bg-surface-hover",
-            )}
-          >
-            {copiedId === "new-secret" ? <CheckCircle className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-          </button>
-        </div>
-        <button
-          type="button"
-          onClick={() => copy(clientSecret, "new-secret")}
-          className="block w-full text-left break-all rounded-md bg-surface/70 px-3 py-2 font-mono text-xs hover:bg-surface transition-colors cursor-pointer"
-          title={t("dash.settings.oauth.tip_copy_secret")}
-        >
-          {clientSecret}
-        </button>
-      </div>
-      <p className="text-xs text-text-muted">{t("dash.settings.oauth.scopes_label", { scopes: scopes.join(", ") })}</p>
-      <button onClick={onDismiss} className="text-xs text-text-muted hover:text-text-secondary transition-colors">
-        {t("dash.settings.oauth.dismiss")}
-      </button>
-    </motion.div>
   );
 }
 
@@ -437,26 +350,26 @@ function RotateSecretDialog({
   client,
   open,
   onClose,
+  onRevealed,
 }: {
   client: OAuthClientInfo;
   open: boolean;
   onClose: () => void;
+  onRevealed: (secret: string) => void;
 }) {
   const { t } = useLocale();
   const [rotating, setRotating] = useState(false);
-  const [newSecret, setNewSecret] = useState<string | null>(null);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const handleRotate = async () => {
     setRotating(true);
     try {
       const res = await api.rotateOAuthClientSecret(client.client_id);
-      setNewSecret(res.client_secret);
-      void navigator.clipboard.writeText(res.client_secret).then(() => {
-        toast.success(t("dash.settings.oauth.secret_copied"));
-      }).catch(() => {
-        toast.success(t("dash.settings.oauth.rotated"));
-      });
+      if (!res.client_secret) {
+        toast.error(t("dash.settings.oauth.secret_missing"));
+        return;
+      }
+      onRevealed(res.client_secret);
+      onClose();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("dash.settings.oauth.rotate_failed"));
     } finally {
@@ -464,82 +377,35 @@ function RotateSecretDialog({
     }
   };
 
-  const copy = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    toast.success(t("dash.settings.oauth.copied"));
-    setTimeout(() => setCopiedId(null), 2000);
-  };
-
-  const handleClose = () => {
-    setNewSecret(null);
-    onClose();
-  };
-
   return (
-    <Dialog open={open} onClose={handleClose} title={t("dash.settings.oauth.rotate_title")} description={client.client_name}>
+    <Dialog open={open} onClose={onClose} title={t("dash.settings.oauth.rotate_title")} description={client.client_name}>
       <div className="space-y-4 pt-4">
-        {!newSecret ? (
-          <>
-            <div className="rounded-lg border border-accent-gold/30 bg-accent-gold/5 p-3">
-              <div className="flex items-start gap-2">
-                <AlertTriangle className="h-4 w-4 text-accent-gold mt-0.5 shrink-0" />
-                <div className="text-xs text-text-secondary">
-                  <p className="font-medium text-accent-gold mb-1">{t("dash.settings.oauth.rotate_warning_title")}</p>
-                  <p>{t("dash.settings.oauth.rotate_warning_body")}</p>
-                </div>
-              </div>
+        <div className="rounded-lg border border-accent-gold/30 bg-accent-gold/5 p-3">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 text-accent-gold mt-0.5 shrink-0" />
+            <div className="text-xs text-text-secondary">
+              <p className="font-medium text-accent-gold mb-1">{t("dash.settings.oauth.rotate_warning_title")}</p>
+              <p>{t("dash.settings.oauth.rotate_warning_body")}</p>
             </div>
-            <div className="rounded-lg border border-border/60 bg-surface-hover/30 p-3">
-              <p className="text-xs text-text-muted mb-1">{t("dash.settings.oauth.rotate_client_label")}</p>
-              <p className="text-sm font-medium">{client.client_name}</p>
-              <code className="text-xs text-text-muted font-mono">{client.client_id}</code>
-            </div>
-            <div className="flex justify-end gap-3">
-              <Button variant="outline" size="sm" onClick={handleClose}>{t("dash.settings.oauth.rotate_cancel")}</Button>
-              <Button
-                size="sm"
-                onClick={handleRotate}
-                disabled={rotating}
-                className="bg-accent-gold hover:bg-accent-gold/90 text-navy"
-              >
-                {rotating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
-                {t("dash.settings.oauth.rotate_confirm")}
-              </Button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="rounded-xl border border-accent-cyan/40 bg-gradient-to-b from-accent-cyan/8 to-accent-cyan/3 p-4 space-y-3">
-              <div className="flex items-center gap-2">
-                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-accent-cyan/20">
-                  <AlertTriangle className="h-3.5 w-3.5 text-accent-cyan" />
-                </div>
-                <span className="text-sm font-semibold text-accent-cyan">
-                  {t("dash.settings.oauth.rotate_copy_now")}
-                </span>
-              </div>
-              <div className="rounded-lg border border-border/60 bg-background/80 p-3">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[11px] font-medium uppercase tracking-wider text-text-muted">{t("dash.settings.oauth.new_secret_label")}</span>
-                  <button
-                    onClick={() => copy(newSecret, "rotated")}
-                    className={cn(
-                      "flex h-7 w-7 items-center justify-center rounded-lg transition-colors",
-                      copiedId === "rotated" ? "text-emerald bg-emerald/10" : "text-text-muted hover:text-text-primary hover:bg-surface-hover",
-                    )}
-                  >
-                    {copiedId === "rotated" ? <CheckCircle className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                  </button>
-                </div>
-                <code className="block break-all rounded-md bg-surface/70 px-3 py-2 font-mono text-xs">{newSecret}</code>
-              </div>
-            </div>
-            <div className="flex justify-end">
-              <Button size="sm" onClick={handleClose}>{t("dash.settings.oauth.done")}</Button>
-            </div>
-          </>
-        )}
+          </div>
+        </div>
+        <div className="rounded-lg border border-border/60 bg-surface-hover/30 p-3">
+          <p className="text-xs text-text-muted mb-1">{t("dash.settings.oauth.rotate_client_label")}</p>
+          <p className="text-sm font-medium">{client.client_name}</p>
+          <code className="text-xs text-text-muted font-mono">{client.client_id}</code>
+        </div>
+        <div className="flex justify-end gap-3">
+          <Button variant="outline" size="sm" onClick={onClose}>{t("dash.settings.oauth.rotate_cancel")}</Button>
+          <Button
+            size="sm"
+            onClick={handleRotate}
+            disabled={rotating}
+            className="bg-accent-gold hover:bg-accent-gold/90 text-navy"
+          >
+            {rotating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+            {t("dash.settings.oauth.rotate_confirm")}
+          </Button>
+        </div>
       </div>
     </Dialog>
   );
@@ -783,7 +649,11 @@ export function OAuthClientManager({ clients, onClientsChange, team }: OAuthClie
   const [rotatingClient, setRotatingClient] = useState<OAuthClientInfo | null>(null);
   const [deletingClient, setDeletingClient] = useState<OAuthClientInfo | null>(null);
   const [togglingClient, setTogglingClient] = useState<OAuthClientInfo | null>(null);
-  const [newSecret, setNewSecret] = useState<{ clientId: string; secret: string; scopes: string[] } | null>(null);
+  const [secretReveal, setSecretReveal] = useState<{
+    clientId: string;
+    secret: string;
+    scopes: string[];
+  } | null>(null);
 
   const refreshClients = useCallback(async () => {
     try {
@@ -800,15 +670,22 @@ export function OAuthClientManager({ clients, onClientsChange, team }: OAuthClie
 
   const writeBlocked = team.isTeamMember && !team.canWriteInstances;
 
+  const openSecretReveal = (clientId: string, secret: string, scopes: string[]) => {
+    setSecretReveal({ clientId, secret, scopes });
+  };
+
   const handleCreated = (client: OAuthClientInfo, secret: string) => {
     if (secret) {
-      setNewSecret({ clientId: client.client_id, secret, scopes: client.scopes });
-      void navigator.clipboard.writeText(secret).catch(() => {});
-      toast.success(t("dash.settings.oauth.secret_copied"));
+      openSecretReveal(client.client_id, secret, client.scopes || []);
     } else {
-      toast.warning(t("dash.settings.oauth.secret_hidden_hint"));
+      toast.error(t("dash.settings.oauth.secret_missing"));
+      void refreshClients();
     }
-    refreshClients();
+  };
+
+  const handleSecretRevealClose = () => {
+    setSecretReveal(null);
+    void refreshClients();
   };
 
   const handleEditSaved = (clientId: string, updates: Partial<OAuthClientInfo>) => {
@@ -849,35 +726,28 @@ export function OAuthClientManager({ clients, onClientsChange, team }: OAuthClie
 
   return (
     <>
-      <div className="glow-card rounded-xl border border-border bg-surface brand-top-accent">
-        {/* Header */}
-        <div className="border-b border-border/60 px-5 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-cyan/10">
-                <KeyRound className="h-4 w-4 text-accent-cyan" />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold">{t("dash.settings.oauth.title")}</h3>
-                <p className="text-xs text-text-muted">{t("dash.settings.oauth.subtitle")}</p>
-              </div>
-            </div>
-            {clients.length > 0 && (
-              <div className="flex items-center gap-2">
-                {disabledClients.length > 0 && (
-                  <span className="rounded-full bg-accent-red/10 px-2.5 py-0.5 text-[11px] font-medium text-accent-red ring-1 ring-accent-red/20">
-                    {t("dash.settings.oauth.disabled_count", { count: disabledClients.length })}
-                  </span>
-                )}
-                <span className="rounded-full bg-accent-cyan/10 px-2.5 py-0.5 text-[11px] font-medium text-accent-cyan ring-1 ring-accent-cyan/20">
-                  {t("dash.settings.oauth.active_count", { count: activeClients.length })}
+      <SettingsSection
+        icon={KeyRound}
+        title={t("dash.settings.oauth.title")}
+        description={t("dash.settings.oauth.subtitle")}
+        accent="cyan"
+        highlight
+        badge={
+          clients.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {disabledClients.length > 0 && (
+                <span className="rounded-full bg-accent-red/10 px-2 py-0.5 text-[10px] font-medium text-accent-red ring-1 ring-accent-red/20">
+                  {t("dash.settings.oauth.disabled_count", { count: disabledClients.length })}
                 </span>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="p-5 space-y-4">
+              )}
+              <span className="rounded-full bg-accent-cyan/10 px-2 py-0.5 text-[10px] font-medium text-accent-cyan ring-1 ring-accent-cyan/20">
+                {t("dash.settings.oauth.active_count", { count: activeClients.length })}
+              </span>
+            </div>
+          ) : undefined
+        }
+      >
+        <div className="space-y-4">
           <CredentialScopePanel team={team} clientCount={clients.length} />
 
           {/* Info callout */}
@@ -897,18 +767,6 @@ export function OAuthClientManager({ clients, onClientsChange, team }: OAuthClie
 
           {/* Create form */}
           <CreateClientForm onCreated={handleCreated} team={team} disabled={writeBlocked} />
-
-          {/* Secret reveal */}
-          <AnimatePresence>
-            {newSecret && (
-              <SecretBanner
-                clientId={newSecret.clientId}
-                clientSecret={newSecret.secret}
-                scopes={newSecret.scopes}
-                onDismiss={() => setNewSecret(null)}
-              />
-            )}
-          </AnimatePresence>
 
           {/* Client list */}
           {clients.length === 0 ? (
@@ -936,7 +794,7 @@ export function OAuthClientManager({ clients, onClientsChange, team }: OAuthClie
             </div>
           )}
         </div>
-      </div>
+      </SettingsSection>
 
       {/* Edit dialog */}
       {editingClient && (
@@ -954,8 +812,19 @@ export function OAuthClientManager({ clients, onClientsChange, team }: OAuthClie
           client={rotatingClient}
           open={!!rotatingClient}
           onClose={() => setRotatingClient(null)}
+          onRevealed={(secret) => {
+            openSecretReveal(rotatingClient.client_id, secret, rotatingClient.scopes || []);
+          }}
         />
       )}
+
+      <OAuthSecretRevealModal
+        open={!!secretReveal}
+        clientId={secretReveal?.clientId ?? ""}
+        clientSecret={secretReveal?.secret ?? ""}
+        scopes={secretReveal?.scopes ?? []}
+        onClose={handleSecretRevealClose}
+      />
 
       {/* Toggle status confirm */}
       <ConfirmDialog

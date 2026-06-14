@@ -1668,7 +1668,11 @@ export async function createOAuthClient(
   scopes: string[],
   grantTypes: string[] = ["client_credentials"],
 ) {
-  return apiFetch<{ ok: boolean; client: OAuthClientInfo & { client_secret?: string } }>(
+  return apiFetch<{
+    ok: boolean;
+    client: OAuthClientInfo & { client_secret?: string };
+    client_secret?: string;
+  }>(
     "/api/oauth/clients",
     {
       method: "POST",

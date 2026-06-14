@@ -47,6 +47,16 @@ export const STRIPE_APPEARANCE: Appearance = {
   },
 };
 
+/** Card-only — excludes Pix, Klarna, wallets, and other APMs from Payment Element. */
+export const STRIPE_PAYMENT_ELEMENT_OPTIONS = {
+  layout: "tabs" as const,
+  paymentMethodOrder: ["card"],
+  wallets: {
+    applePay: "never" as const,
+    googlePay: "never" as const,
+  },
+};
+
 export function getStripeElementsOptions(clientSecret?: string) {
   return {
     appearance: STRIPE_APPEARANCE,

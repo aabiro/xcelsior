@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { Button } from "@/components/ui/button";
 import { createSetupIntent } from "@/lib/api";
-import { getStripeElementsOptions } from "@/lib/stripe-appearance";
+import { getStripeElementsOptions, STRIPE_PAYMENT_ELEMENT_OPTIONS } from "@/lib/stripe-appearance";
 import { getStripePromise } from "@/lib/stripe-client";
 import { toast } from "sonner";
 import { X, CreditCard, Loader2, ShieldCheck, Sparkles } from "lucide-react";
@@ -90,7 +90,7 @@ function AddCardForm({ onClose, onSuccess, clientSecret }: PaymentMethodModalPro
         </div>
         <PaymentElement
           onChange={(e) => setPaymentReady(e.complete)}
-          options={{ layout: "tabs" }}
+          options={STRIPE_PAYMENT_ELEMENT_OPTIONS}
         />
       </div>
       <div className="mb-4 flex items-start gap-2 rounded-lg border border-accent-cyan/15 bg-accent-cyan/5 p-3">
