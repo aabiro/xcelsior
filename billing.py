@@ -1844,7 +1844,7 @@ class BillingEngine:
         si = _stripe_mod.SetupIntent.create(
             customer=stripe_customer_id,
             usage="off_session",
-            automatic_payment_methods={"enabled": True},
+            payment_method_types=["card"],
             metadata={"xcelsior_customer_id": customer_id},
         )
         return {
