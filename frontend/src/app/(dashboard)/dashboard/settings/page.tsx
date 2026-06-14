@@ -30,6 +30,15 @@ import { cn } from "@/lib/utils";
 import { describePasskeyRegistrationError } from "@/lib/passkeys";
 import { applyActiveTeamSwitch, getTeamContext } from "@/lib/team-context";
 import { TeamContextBanner } from "@/components/team/team-context-banner";
+import {
+  SettingsLayout,
+  SettingsLinkRow,
+  SettingsNav,
+  SettingsPageFrame,
+  SettingsSection,
+  SettingsTabPanel,
+  SettingsToggleRow,
+} from "@/components/settings/settings-layout";
 
 import {
   PASSWORD_MAX_LENGTH,
@@ -659,69 +668,44 @@ export default function SettingsPage() {
 
   // ── Render ────────────────────────────────────────────────────────
 
+  const navTabs = TABS.map((tab) => ({
+    id: tab.id,
+    label: t(tab.labelKey) !== tab.labelKey ? t(tab.labelKey) : tab.fallback,
+    icon: tab.icon,
+    color: tab.color,
+  }));
+
   return (
-    <div className="max-w-3xl space-y-6">
-      {/* ── Page Header ── */}
-      <FadeIn>
-        <div className="flex items-start gap-4">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-accent-cyan/10 ring-1 ring-accent-cyan/20">
-            <SettingsIcon className="h-6 w-6 text-accent-cyan" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold">{t("dash.settings.title")}</h1>
-            <p className="text-sm text-text-secondary mt-0.5">
-              {t("dash.settings.subtitle") !== "dash.settings.subtitle"
-                ? t("dash.settings.subtitle")
-                : "Manage your account, security, and preferences"}
-            </p>
-          </div>
-        </div>
-      </FadeIn>
-
-      {/* ── Tab Bar ── */}
-      <FadeIn delay={0.08}>
-        <div className="relative">
-          <div className="flex gap-1 rounded-xl border border-border/60 bg-surface/50 p-1 backdrop-blur-sm overflow-x-auto">
-            {TABS.map((tab) => {
-              const active = activeTab === tab.id;
-              const label = t(tab.labelKey) !== tab.labelKey ? t(tab.labelKey) : tab.fallback;
-              return (
-                <button
-                  key={tab.id}
-                  ref={(el) => { tabRefs.current[tab.id] = el; }}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={cn(
-                    "relative flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors whitespace-nowrap",
-                    active
-                      ? "text-text-primary"
-                      : "text-text-muted hover:text-text-secondary",
-                  )}
-                >
-                  <tab.icon className={cn("h-3.5 w-3.5", active ? tab.color : "")} />
-                  {label}
-                </button>
-              );
-            })}
-            {/* Animated indicator */}
-            <motion.div
-              className="absolute bottom-1 h-[calc(100%-8px)] rounded-lg bg-surface border border-border/60 shadow-sm -z-10"
-              animate={{ left: indicatorStyle.left, width: indicatorStyle.width }}
-              transition={{ type: "spring", stiffness: 380, damping: 30, mass: 0.8 }}
+    <SettingsPageFrame
+      title={t("dash.settings.title")}
+      subtitle={
+        t("dash.settings.subtitle") !== "dash.settings.subtitle"
+          ? t("dash.settings.subtitle")
+          : "Manage your account, security, and preferences"
+      }
+      icon={SettingsIcon}
+    >
+      <SettingsLayout
+        nav={
+          <FadeIn delay={0.05}>
+            <SettingsNav
+              tabs={navTabs}
+              activeId={activeTab}
+              onSelect={(id) => setActiveTab(id as TabId)}
+              tabRefs={tabRefs}
+              indicatorStyle={indicatorStyle}
             />
-          </div>
-          <div className="brand-line mt-3" />
-        </div>
-      </FadeIn>
-
-      {/* ── Tab Content ── */}
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={activeTab}
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -8 }}
-          transition={{ duration: 0.2, ease: "easeOut" }}
-        >
+          </FadeIn>
+        }
+        content={
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeTab}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+            >
           {activeTab === "profile" && (
             <ProfileTab
               t={t} name={name} setName={setName} email={email}
@@ -809,9 +793,11 @@ export default function SettingsPage() {
               userId={userId}
             />
           )}
-        </motion.div>
-      </AnimatePresence>
-    </div>
+            </motion.div>
+          </AnimatePresence>
+        }
+      />
+    </SettingsPageFrame>
   );
 }
 
@@ -831,133 +817,99 @@ function ProfileTab({
   saving: boolean; onSave: () => void;
 }) {
   return (
-    <StaggerList className="space-y-5">
-      {/* Profile */}
-      <StaggerItem>
-        <div className="glow-card rounded-xl border border-border bg-surface brand-top-accent">
-          <div className="border-b border-border/60 px-5 py-4">
-            <div className="flex items-center gap-3">
-              <IconBadge icon={User} color="text-accent-cyan" bg="bg-accent-cyan/10" />
-              <div>
-                <h3 className="text-sm font-semibold">{t("dash.settings.profile")}</h3>
-                <p className="text-xs text-text-muted">Your public identity on the platform</p>
+    <SettingsTabPanel>
+      <StaggerList className="space-y-5">
+        <StaggerItem>
+          <SettingsSection
+            icon={User}
+            title={t("dash.settings.profile")}
+            description="Your public identity on the platform"
+            accent="cyan"
+            highlight
+          >
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>{t("dash.settings.name")}</Label>
+                <Input value={name} onChange={(e) => setName(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>{t("dash.settings.email")}</Label>
+                <Input value={email} disabled className="opacity-60" />
+                <p className="text-xs text-text-muted">{t("dash.settings.email_note")}</p>
               </div>
             </div>
-          </div>
-          <div className="p-5 space-y-4">
-            <div className="space-y-2">
-              <Label>{t("dash.settings.name")}</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>{t("dash.settings.email")}</Label>
-              <Input value={email} disabled className="opacity-60" />
-              <p className="text-xs text-text-muted">{t("dash.settings.email_note")}</p>
-            </div>
-          </div>
-        </div>
-      </StaggerItem>
+          </SettingsSection>
+        </StaggerItem>
 
-      <StaggerItem>
-        <div className="glow-card rounded-xl border border-border bg-surface">
-          <div className="border-b border-border/60 px-5 py-4">
-            <div className="flex items-center gap-3">
-              <IconBadge icon={Wallet} color="text-emerald" bg="bg-emerald/10" />
-              <div>
-                <h3 className="text-sm font-semibold">Billing &amp; compute</h3>
-                <p className="text-xs text-text-muted">Wallet, payment methods, and pricing</p>
-              </div>
+        <StaggerItem>
+          <SettingsSection
+            icon={Wallet}
+            title="Billing & compute"
+            description="Wallet, payment methods, and pricing"
+            accent="emerald"
+          >
+            <div className="divide-y divide-border/40">
+              <SettingsLinkRow
+                href="/dashboard/billing"
+                icon={Wallet}
+                title="Billing & wallet"
+                description="Credits, card top-ups, invoices, and crypto deposits"
+              />
+              <SettingsLinkRow
+                href="/dashboard/spot-pricing"
+                icon={TrendingDown}
+                title="Spot pricing"
+                description="Live interruptible GPU rates and savings vs on-demand"
+                iconClassName="text-emerald"
+              />
             </div>
-          </div>
-          <div className="divide-y divide-border/50">
-            <Link
-              href="/dashboard/billing"
-              className="flex items-center justify-between px-5 py-3.5 transition-colors hover:bg-surface-hover"
-            >
-              <div className="flex items-center gap-3">
-                <Wallet className="h-4 w-4 text-accent-cyan" />
-                <div>
-                  <p className="text-sm font-medium">Billing &amp; wallet</p>
-                  <p className="text-xs text-text-muted">Credits, Stripe top-ups, invoices, and crypto deposits</p>
-                </div>
-              </div>
-              <ChevronRight className="h-4 w-4 text-text-muted" />
-            </Link>
-            <Link
-              href="/dashboard/spot-pricing"
-              className="flex items-center justify-between px-5 py-3.5 transition-colors hover:bg-surface-hover"
-            >
-              <div className="flex items-center gap-3">
-                <TrendingDown className="h-4 w-4 text-emerald" />
-                <div>
-                  <p className="text-sm font-medium">Spot pricing</p>
-                  <p className="text-xs text-text-muted">Live interruptible GPU rates and savings vs on-demand</p>
-                </div>
-              </div>
-              <ChevronRight className="h-4 w-4 text-text-muted" />
-            </Link>
-          </div>
-        </div>
-      </StaggerItem>
+          </SettingsSection>
+        </StaggerItem>
 
-      {/* Jurisdiction */}
-      <StaggerItem>
-        <div className="glow-card rounded-xl border border-border bg-surface">
-          <div className="border-b border-border/60 px-5 py-4">
-            <div className="flex items-center gap-3">
-              <IconBadge icon={Globe} color="text-accent-violet" bg="bg-accent-violet/10" />
-              <div>
-                <h3 className="text-sm font-semibold">{t("dash.settings.jurisdiction")}</h3>
-                <p className="text-xs text-text-muted">Data residency and routing preferences</p>
-              </div>
-            </div>
-          </div>
-          <div className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium">{t("dash.settings.canada_only")}</p>
-                <p className="text-xs text-text-secondary">{t("dash.settings.canada_only_desc")}</p>
-              </div>
-              <Toggle enabled={canadaOnly} onToggle={() => setCanadaOnly(!canadaOnly)} />
-            </div>
-          </div>
-        </div>
-      </StaggerItem>
+        <StaggerItem>
+          <SettingsSection
+            icon={Globe}
+            title={t("dash.settings.jurisdiction")}
+            description="Data residency and routing preferences"
+            accent="violet"
+          >
+            <SettingsToggleRow
+              title={t("dash.settings.canada_only")}
+              description={t("dash.settings.canada_only_desc")}
+              enabled={canadaOnly}
+              onToggle={() => setCanadaOnly(!canadaOnly)}
+            />
+          </SettingsSection>
+        </StaggerItem>
 
-      {/* Notifications */}
-      <StaggerItem>
-        <div className="glow-card rounded-xl border border-border bg-surface">
-          <div className="border-b border-border/60 px-5 py-4">
-            <div className="flex items-center gap-3">
-              <IconBadge icon={Bell} color="text-accent-gold" bg="bg-accent-gold/10" />
-              <div>
-                <h3 className="text-sm font-semibold">{t("dash.settings.notifications")}</h3>
-                <p className="text-xs text-text-muted">Control how we reach you</p>
-              </div>
+        <StaggerItem>
+          <SettingsSection
+            icon={Bell}
+            title={t("dash.settings.notifications")}
+            description="Control how we reach you"
+            accent="gold"
+          >
+            <div className="space-y-4">
+              <SettingsToggleRow
+                title={t("dash.settings.email_notif")}
+                description={t("dash.settings.email_notif_desc")}
+                enabled={notifications}
+                onToggle={() => setNotifications(!notifications)}
+              />
+              <DesktopAppPreferences />
+              <NativeDesktopPreferences />
             </div>
-          </div>
-          <div className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium">{t("dash.settings.email_notif")}</p>
-                <p className="text-xs text-text-secondary">{t("dash.settings.email_notif_desc")}</p>
-              </div>
-              <Toggle enabled={notifications} onToggle={() => setNotifications(!notifications)} />
-            </div>
-            <DesktopAppPreferences />
-            <NativeDesktopPreferences />
-          </div>
-        </div>
-      </StaggerItem>
+          </SettingsSection>
+        </StaggerItem>
 
-      {/* Save */}
-      <StaggerItem>
-        <Button onClick={onSave} disabled={saving} className="w-full sm:w-auto">
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          {saving ? "Saving..." : t("dash.settings.save")}
-        </Button>
-      </StaggerItem>
-    </StaggerList>
+        <StaggerItem>
+          <Button onClick={onSave} disabled={saving} className="w-full sm:w-auto">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            {saving ? "Saving..." : t("dash.settings.save")}
+          </Button>
+        </StaggerItem>
+      </StaggerList>
+    </SettingsTabPanel>
   );
 }
 
@@ -1037,20 +989,17 @@ function SecurityTab({
   };
 
   return (
-    <StaggerList className="space-y-5">
-      {/* Change Password */}
-      <StaggerItem>
-        <div className="glow-card rounded-xl border border-border bg-surface brand-top-accent">
-          <div className="border-b border-border/60 px-5 py-4">
-            <div className="flex items-center gap-3">
-              <IconBadge icon={Lock} color="text-accent-violet" bg="bg-accent-violet/10" />
-              <div>
-                <h3 className="text-sm font-semibold">{t("dash.settings.change_pw")}</h3>
-                <p className="text-xs text-text-muted">Update your account password</p>
-              </div>
-            </div>
-          </div>
-          <form className="p-5 space-y-4" onSubmit={handleChangePasswordSubmit}>
+    <SettingsTabPanel>
+      <StaggerList className="space-y-5">
+        <StaggerItem>
+          <SettingsSection
+            icon={Lock}
+            title={t("dash.settings.change_pw")}
+            description="Update your account password"
+            accent="violet"
+            highlight
+          >
+            <form className="space-y-4" onSubmit={handleChangePasswordSubmit}>
             <div className="space-y-2">
               <Label>{t("dash.settings.current_pw")}</Label>
               <div className="relative">
@@ -1110,29 +1059,24 @@ function SecurityTab({
               {changingPw ? <><Loader2 className="h-4 w-4 animate-spin" /> Changing...</> : t("dash.settings.change_pw")}
             </Button>
           </form>
-        </div>
-      </StaggerItem>
+          </SettingsSection>
+        </StaggerItem>
 
-      {/* Two-Factor Authentication */}
       <StaggerItem>
-        <div className="glow-card rounded-xl border border-border bg-surface">
-          <div className="border-b border-border/60 px-5 py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <IconBadge icon={Shield} color="text-emerald" bg="bg-emerald/10" />
-                <div>
-                  <h3 className="text-sm font-semibold">{t("dash.settings.mfa_title")}</h3>
-                  <p className="text-xs text-text-muted">{t("dash.settings.mfa_desc")}</p>
-                </div>
-              </div>
-              {mfaEnabled && (
-                <span className="flex items-center gap-1.5 rounded-full bg-emerald/10 px-2.5 py-1 text-xs font-medium text-emerald ring-1 ring-emerald/20">
-                  <CheckCircle className="h-3 w-3" /> {t("dash.settings.mfa_enabled")}
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="p-5 space-y-4">
+        <SettingsSection
+          icon={Shield}
+          title={t("dash.settings.mfa_title")}
+          description={t("dash.settings.mfa_desc")}
+          accent="emerald"
+          badge={
+            mfaEnabled ? (
+              <span className="flex items-center gap-1 rounded-full bg-emerald/10 px-2 py-0.5 text-[10px] font-medium text-emerald ring-1 ring-emerald/20">
+                <CheckCircle className="h-3 w-3" /> {t("dash.settings.mfa_enabled")}
+              </span>
+            ) : undefined
+          }
+        >
+          <div className="space-y-4">
             {/* TOTP */}
             <div className="rounded-lg border border-border/60 bg-navy-light/30 p-4 space-y-3">
               <div className="flex items-center justify-between">
@@ -1387,22 +1331,17 @@ function SecurityTab({
               </div>
             )}
           </div>
-        </div>
+        </SettingsSection>
       </StaggerItem>
 
-      {/* Active Sessions */}
       <StaggerItem>
-        <div className="glow-card rounded-xl border border-border bg-surface">
-          <div className="border-b border-border/60 px-5 py-4">
-            <div className="flex items-center gap-3">
-              <IconBadge icon={Globe} color="text-accent-cyan" bg="bg-accent-cyan/10" />
-              <div>
-                <h3 className="text-sm font-semibold">{t("dash.settings.sessions_title")}</h3>
-                <p className="text-xs text-text-muted">{t("dash.settings.sessions_desc")}</p>
-              </div>
-            </div>
-          </div>
-          <div className="p-5 space-y-3">
+        <SettingsSection
+          icon={Globe}
+          title={t("dash.settings.sessions_title")}
+          description={t("dash.settings.sessions_desc")}
+          accent="cyan"
+        >
+          <div className="space-y-3">
             {sessionsLoading ? (
               <div className="flex items-center justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-text-muted" /></div>
             ) : sessions.length === 0 ? (
@@ -1438,7 +1377,7 @@ function SecurityTab({
               })
             )}
           </div>
-        </div>
+        </SettingsSection>
       </StaggerItem>
 
       <ConfirmDialog
@@ -1488,7 +1427,8 @@ function SecurityTab({
         }}
         onCancel={() => setMfaConfirm(null)}
       />
-    </StaggerList>
+      </StaggerList>
+    </SettingsTabPanel>
   );
 }
 
@@ -1522,35 +1462,31 @@ function ApiKeysTab({
   };
 
   return (
-    <StaggerList className="space-y-5">
-      <StaggerItem>
-        <TeamContextBanner team={team} variant="general" />
-      </StaggerItem>
+    <SettingsTabPanel>
+      <StaggerList className="space-y-5">
+        <StaggerItem>
+          <TeamContextBanner team={team} variant="general" />
+        </StaggerItem>
 
-      <StaggerItem>
-        <OAuthClientManager clients={oauthClients} onClientsChange={onOAuthClientsChange} team={team} />
-      </StaggerItem>
+        <StaggerItem>
+          <OAuthClientManager clients={oauthClients} onClientsChange={onOAuthClientsChange} team={team} />
+        </StaggerItem>
 
-      {/* SSH Keys */}
-      <StaggerItem>
-        <div className="glow-card rounded-xl border border-border bg-surface">
-          <div className="border-b border-border/60 px-5 py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <IconBadge icon={Terminal} color="text-emerald" bg="bg-emerald/10" />
-                <div>
-                  <h3 className="text-sm font-semibold">{t("dash.settings.ssh_keys")}</h3>
-                  <p className="text-xs text-text-muted">{t("dash.settings.ssh_desc")}</p>
-                </div>
-              </div>
-              {userSshKeys.length > 0 && (
-                <span className="rounded-full bg-emerald/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald ring-1 ring-emerald/20">
+        <StaggerItem>
+          <SettingsSection
+            icon={Terminal}
+            title={t("dash.settings.ssh_keys")}
+            description={t("dash.settings.ssh_desc")}
+            accent="emerald"
+            badge={
+              userSshKeys.length > 0 ? (
+                <span className="rounded-full bg-emerald/10 px-2 py-0.5 text-[10px] font-medium text-emerald ring-1 ring-emerald/20">
                   {userSshKeys.length} key{userSshKeys.length !== 1 ? "s" : ""}
                 </span>
-              )}
-            </div>
-          </div>
-          <div className="p-5 space-y-6">
+              ) : undefined
+            }
+          >
+            <div className="space-y-6">
             {/* Your SSH Keys */}
             <div className="space-y-3">
               <p className="text-xs font-medium text-text-muted uppercase tracking-wider">Your SSH Public Keys</p>
@@ -1641,10 +1577,11 @@ function ApiKeysTab({
                 {sshPubKey ? t("dash.settings.regen_keypair") : t("dash.settings.gen_keypair")}
               </Button>
             </div>
-          </div>
-        </div>
-      </StaggerItem>
-    </StaggerList>
+            </div>
+          </SettingsSection>
+        </StaggerItem>
+      </StaggerList>
+    </SettingsTabPanel>
   );
 }
 
@@ -1735,19 +1672,18 @@ function TeamTab({
   onDeleteTeam: () => void; onRoleChange: (e: string, r: string) => void;
 }) {
   return (
-    <StaggerList className="space-y-5">
-      <StaggerItem>
-        <div className="glow-card rounded-xl border border-border bg-surface brand-top-accent" id="team">
-          <div className="border-b border-border/60 px-5 py-4">
-            <div className="flex items-center gap-3">
-              <IconBadge icon={Users} color="text-emerald" bg="bg-emerald/10" />
-              <div>
-                <h3 className="text-sm font-semibold">{t("dash.settings.team")}</h3>
-                <p className="text-xs text-text-muted">{t("dash.settings.team_desc")}</p>
-              </div>
-            </div>
-          </div>
-          <div className="p-5 space-y-4">
+    <SettingsTabPanel>
+      <StaggerList className="space-y-5">
+        <StaggerItem>
+          <SettingsSection
+            icon={Users}
+            title={t("dash.settings.team")}
+            description={t("dash.settings.team_desc")}
+            accent="emerald"
+            highlight
+            className="scroll-mt-6"
+          >
+            <div id="team" className="space-y-4">
             {teams.length === 0 ? (
               <div className="space-y-3">
                 <p className="text-sm text-text-muted">{t("dash.settings.team_none")}</p>
@@ -1878,9 +1814,9 @@ function TeamTab({
                 )}
               </>
             )}
-          </div>
-        </div>
-      </StaggerItem>
+            </div>
+          </SettingsSection>
+        </StaggerItem>
 
       <ConfirmDialog
         open={removeTarget !== null}
@@ -1902,7 +1838,8 @@ function TeamTab({
         onConfirm={onDeleteTeam}
         onCancel={() => setDeleteTeamConfirm(false)}
       />
-    </StaggerList>
+      </StaggerList>
+    </SettingsTabPanel>
   );
 }
 
@@ -1946,50 +1883,42 @@ function PrivacyTab({
     }
   };
   return (
-    <StaggerList className="space-y-5">
-      {/* PIPEDA Consent */}
-      <StaggerItem>
-        <div className="glow-card rounded-xl border border-border bg-surface brand-top-accent">
-          <div className="border-b border-border/60 px-5 py-4">
-            <div className="flex items-center gap-3">
-              <IconBadge icon={ShieldCheck} color="text-accent-cyan" bg="bg-accent-cyan/10" />
-              <div>
-                <h3 className="text-sm font-semibold">{t("dash.settings.pipeda_title")}</h3>
-                <p className="text-xs text-text-muted">{t("dash.settings.pipeda_desc")}</p>
-              </div>
-            </div>
-          </div>
-          <div className="p-5 space-y-3">
+    <SettingsTabPanel>
+      <StaggerList className="space-y-5">
+        <StaggerItem>
+          <SettingsSection
+            icon={ShieldCheck}
+            title={t("dash.settings.pipeda_title")}
+            description={t("dash.settings.pipeda_desc")}
+            accent="cyan"
+            highlight
+          >
+            <div className="space-y-3">
             {consentTypes.map((type) => {
               const info = consentLabels[type];
               const enabled = hasConsent(type);
               return (
-                <div key={type} className="flex items-center justify-between rounded-lg border border-border/60 bg-navy-light/30 p-3 transition-colors hover:bg-surface-hover">
-                  <div>
-                    <p className="text-sm font-medium">{info?.label || type}</p>
-                    <p className="text-xs text-text-secondary">{info?.desc || ""}</p>
-                  </div>
-                  <Toggle enabled={enabled} onToggle={() => toggleConsent(type)} />
-                </div>
+                <SettingsToggleRow
+                  key={type}
+                  title={info?.label || type}
+                  description={info?.desc || ""}
+                  enabled={enabled}
+                  onToggle={() => toggleConsent(type)}
+                />
               );
             })}
-          </div>
-        </div>
-      </StaggerItem>
-
-      {/* Danger Zone */}
-      <StaggerItem>
-        <div className="glow-card rounded-xl border border-accent-red/20 bg-surface">
-          <div className="border-b border-accent-red/10 px-5 py-4">
-            <div className="flex items-center gap-3">
-              <IconBadge icon={Trash2} color="text-accent-red" bg="bg-accent-red/10" />
-              <div>
-                <h3 className="text-sm font-semibold text-accent-red">Danger Zone</h3>
-                <p className="text-xs text-text-muted">Export your data or permanently delete your account</p>
-              </div>
             </div>
-          </div>
-          <div className="p-5 space-y-4">
+          </SettingsSection>
+        </StaggerItem>
+
+        <StaggerItem>
+          <SettingsSection
+            icon={Trash2}
+            title="Danger Zone"
+            description="Export your data or permanently delete your account"
+            accent="red"
+          >
+            <div className="space-y-4">
             <div className="flex items-center justify-between rounded-lg border border-border/60 bg-navy-light/30 p-3">
               <div>
                 <p className="text-sm font-medium">Export Data</p>
@@ -2024,9 +1953,9 @@ function PrivacyTab({
                 </Button>
               </div>
             </div>
-          </div>
-        </div>
-      </StaggerItem>
+            </div>
+          </SettingsSection>
+        </StaggerItem>
 
       <ConfirmDialog
         open={exportConfirmOpen}
@@ -2037,6 +1966,7 @@ function PrivacyTab({
         onConfirm={handleExport}
         onCancel={() => setExportConfirmOpen(false)}
       />
-    </StaggerList>
+      </StaggerList>
+    </SettingsTabPanel>
   );
 }

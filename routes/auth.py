@@ -645,7 +645,10 @@ def api_create_oauth_client(body: OAuthClientCreateRequest, request: Request):
         user,
         data={"client_name": client.get("client_name")},
     )
-    return {"ok": True, "client": client}
+    payload: dict = {"ok": True, "client": client}
+    if client.get("client_secret"):
+        payload["client_secret"] = client["client_secret"]
+    return payload
 
 
 @router.get("/api/oauth/clients", tags=["Auth"])

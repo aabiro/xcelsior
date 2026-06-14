@@ -11,7 +11,7 @@ import {
   createPayPalOrder,
   capturePayPalOrder,
 } from "@/lib/api";
-import { getStripeElementsOptions } from "@/lib/stripe-appearance";
+import { getStripeElementsOptions, STRIPE_PAYMENT_ELEMENT_OPTIONS } from "@/lib/stripe-appearance";
 import { getStripePromise } from "@/lib/stripe-client";
 import { toast } from "sonner";
 import { X, CreditCard, Loader2, CheckCircle, ShieldCheck, Sparkles } from "lucide-react";
@@ -368,7 +368,7 @@ function DepositPaymentStep({
         </div>
         <PaymentElement
           onChange={(e) => setPaymentReady(e.complete)}
-          options={{ layout: "tabs" }}
+          options={STRIPE_PAYMENT_ELEMENT_OPTIONS}
         />
       </div>
 

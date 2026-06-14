@@ -36,6 +36,7 @@ NFS_SSH_USER = os.environ.get("XCELSIOR_NFS_SSH_USER", "") or os.environ.get("XC
 NFS_LUKS_SSH_HOST = os.environ.get("XCELSIOR_NFS_LUKS_SSH_HOST", "127.0.0.1")
 NFS_LUKS_SSH_USER = (
     os.environ.get("XCELSIOR_NFS_LUKS_SSH_USER", "")
+    or os.environ.get("XCELSIOR_NFS_SSH_USER", "")
     or os.environ.get("XCELSIOR_SSH_USER", "aaryn")
 )
 NFS_EXPORT_BASE = os.environ.get("XCELSIOR_NFS_EXPORT_BASE", "/exports/volumes")
