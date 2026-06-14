@@ -128,6 +128,17 @@ class VolumeEngine:
             return NFS_LUKS_SSH_USER
         return NFS_SSH_USER
 
+    def _luks_force_ssh(self) -> bool:
+        """SSH for LUKS only when the export tree is not mounted in this process.
+
+        Colocated VPS deploys bind-mount ``NFS_EXPORT_BASE`` into the API
+        container (root + cryptsetup). Loopback SSH to 127.0.0.1 hits the
+        container itself and fails; run LUKS locally instead.
+        """
+        if not self._nfs_is_local_host(NFS_SSH_HOST):
+            return True
+        return not os.path.isdir(NFS_EXPORT_BASE)
+
     def _nfs_ssh_user(self, ip: str) -> str:
         return NFS_SSH_USER if self._nfs_is_local_host(ip) or ip == NFS_SSH_HOST else NFS_SSH_USER
 
@@ -719,15 +730,16 @@ class VolumeEngine:
             f"{self._privileged(luks_host, f'umount -l {safe_path}', user=luks_user)} 2>/dev/null; "
             f"{self._privileged(luks_host, f'cryptsetup luksClose {safe_mapper}', user=luks_user)} 2>/dev/null; true",
             user=luks_user,
-            force_ssh=True,
+            force_ssh=self._luks_force_ssh(),
         )
 
         # Step 1: Create sparse image file
+        luks_ssh = self._luks_force_ssh()
         rc, _, err = self._ssh_exec_with_retry(
             luks_host,
             f"truncate -s {size_gb}G {safe_img}",
             user=luks_user,
-            force_ssh=True,
+            force_ssh=luks_ssh,
         )
         if rc != 0:
             log.error("LUKS truncate failed for %s: %s", volume_id, err)
@@ -747,12 +759,12 @@ class VolumeEngine:
             raw_key,
             timeout=120,
             user=luks_user,
-            force_ssh=True,
+            force_ssh=luks_ssh,
         )
         if rc != 0:
             log.error("LUKS luksFormat failed for %s: %s", volume_id, err)
             self._ssh_exec_with_retry(
-                luks_host, f"rm -f {safe_img}", user=luks_user, force_ssh=True
+                luks_host, f"rm -f {safe_img}", user=luks_user, force_ssh=luks_ssh
             )
             return False
 
@@ -767,12 +779,12 @@ class VolumeEngine:
             raw_key,
             timeout=60,
             user=luks_user,
-            force_ssh=True,
+            force_ssh=luks_ssh,
         )
         if rc != 0:
             log.error("LUKS luksOpen failed for %s: %s", volume_id, err)
             self._ssh_exec_with_retry(
-                luks_host, f"rm -f {safe_img}", user=luks_user, force_ssh=True
+                luks_host, f"rm -f {safe_img}", user=luks_user, force_ssh=luks_ssh
             )
             return False
 
@@ -785,7 +797,7 @@ class VolumeEngine:
                 user=luks_user,
             ),
             user=luks_user,
-            force_ssh=True,
+            force_ssh=luks_ssh,
         )
         if rc != 0:
             log.error("LUKS mkfs failed for %s: %s", volume_id, err)
@@ -793,7 +805,7 @@ class VolumeEngine:
                 luks_host,
                 f"{self._privileged(luks_host, f'cryptsetup luksClose {safe_mapper}', user=luks_user)} 2>/dev/null; rm -f {safe_img}",
                 user=luks_user,
-                force_ssh=True,
+                force_ssh=luks_ssh,
             )
             return False
 
@@ -802,7 +814,7 @@ class VolumeEngine:
             luks_host,
             f"mkdir -p {safe_path} && {self._privileged(luks_host, f'mount /dev/mapper/{safe_mapper} {safe_path}', user=luks_user)}",
             user=luks_user,
-            force_ssh=True,
+            force_ssh=luks_ssh,
         )
         if rc != 0:
             log.error("LUKS mount failed for %s: %s", volume_id, err)
@@ -810,7 +822,7 @@ class VolumeEngine:
                 luks_host,
                 f"{self._privileged(luks_host, f'cryptsetup luksClose {safe_mapper}', user=luks_user)} 2>/dev/null; rm -f {safe_img}; rmdir {safe_path} 2>/dev/null",
                 user=luks_user,
-                force_ssh=True,
+                force_ssh=luks_ssh,
             )
             return False
 
@@ -818,7 +830,7 @@ class VolumeEngine:
             luks_host,
             f"{self._privileged(luks_host, f'chmod 1777 {safe_path}', user=luks_user)} 2>/dev/null || chmod 1777 {safe_path} 2>/dev/null || true",
             user=luks_user,
-            force_ssh=True,
+            force_ssh=luks_ssh,
         )
 
         log.info(
@@ -1066,27 +1078,28 @@ class VolumeEngine:
             safe_mapper = shlex.quote(mapper)
             luks_host = self._luks_ssh_host()
             luks_user = self._luks_ssh_user()
+            luks_ssh = self._luks_force_ssh()
 
             # Unmount (lazy to handle busy)
             self._ssh_exec_with_retry(
                 luks_host,
                 f"{self._privileged(luks_host, f'umount -l {safe_path}', user=luks_user)} 2>/dev/null; true",
                 user=luks_user,
-                force_ssh=True,
+                force_ssh=luks_ssh,
             )
             # Close LUKS device
             self._ssh_exec_with_retry(
                 luks_host,
                 f"{self._privileged(luks_host, f'cryptsetup luksClose {safe_mapper}', user=luks_user)} 2>/dev/null; true",
                 user=luks_user,
-                force_ssh=True,
+                force_ssh=luks_ssh,
             )
             # Remove backing image and mount point
             rc, _, err = self._ssh_exec_with_retry(
                 luks_host,
                 f"rm -f {safe_img} && rmdir {safe_path} 2>/dev/null; true",
                 user=luks_user,
-                force_ssh=True,
+                force_ssh=luks_ssh,
             )
             if rc != 0:
                 log.error("NFS encrypted volume cleanup failed for %s: %s", volume_id, err)
@@ -1136,6 +1149,7 @@ class VolumeEngine:
         safe_mapper = shlex.quote(mapper)
         luks_host = self._luks_ssh_host()
         luks_user = self._luks_ssh_user()
+        luks_ssh = self._luks_force_ssh()
 
         # luksOpen — key piped via stdin
         rc, _, err = self._ssh_exec_with_stdin(
@@ -1147,7 +1161,7 @@ class VolumeEngine:
             ),
             raw_key,
             user=luks_user,
-            force_ssh=True,
+            force_ssh=luks_ssh,
         )
         if rc != 0:
             log.error("luksOpen failed for %s: %s", volume_id, err)
@@ -1158,7 +1172,7 @@ class VolumeEngine:
             luks_host,
             f"mkdir -p {safe_path} && {self._privileged(luks_host, f'mount /dev/mapper/{safe_mapper} {safe_path}', user=luks_user)}",
             user=luks_user,
-            force_ssh=True,
+            force_ssh=luks_ssh,
         )
         if rc != 0:
             log.error("Mount failed for %s: %s", volume_id, err)
