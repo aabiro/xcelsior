@@ -40,7 +40,7 @@ const SCOPE_META: Record<
   "billing:write": { labelKey: "dash.settings.oauth.scope_billing_write", tone: "gold" },
   "hosts:read": { labelKey: "dash.settings.oauth.scope_hosts_read", tone: "emerald" },
   "hosts:write": { labelKey: "dash.settings.oauth.scope_hosts_write", tone: "emerald" },
-  api: { labelKey: "dash.settings.oauth.scope_api_full", tone: "violet" },
+  api: { labelKey: "dash.settings.oauth.scope_full_api", tone: "violet" },
   profile: { labelKey: "dash.settings.oauth.scope_profile", tone: "muted" },
   email: { labelKey: "dash.settings.oauth.scope_email", tone: "muted" },
   offline_access: { labelKey: "dash.settings.oauth.scope_offline", tone: "muted" },

@@ -1258,7 +1258,7 @@ export default function BillingPage() {
                   ))}
                 </div>
               )}
-              <Button variant="outline" size="sm" onClick={() => setShowAddCard(true)}>
+              <Button variant="success" size="sm" onClick={() => setShowAddCard(true)}>
                 <Plus className="h-3.5 w-3.5" /> Add card
               </Button>
 

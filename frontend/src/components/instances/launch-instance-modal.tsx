@@ -512,7 +512,7 @@ export function LaunchInstanceModal({
       const jobId = res.instance?.job_id || "";
       setInstanceId(jobId);
       markInstanceLaunched();
-      toast.success("Instance launched successfully");
+      toast.success("Instance launched — provisioning now.");
       posthog.capture("gpu_instance_launched", {
         gpu_model: resolvedGpu || null,
         pricing_mode: effectivePricingMode,
@@ -523,12 +523,11 @@ export function LaunchInstanceModal({
         from_marketplace: Boolean(listing?.host_id),
         encrypted_workspace: Boolean(params.encrypted_workspace),
       });
-      // Surface the in-modal success step instead of yanking the user to the
-      // instance detail page. onLaunched is a side-effect hook (optimistic list
-      // update / analytics) — it must not close the modal or navigate, so the
-      // success step stays visible until the user picks Close or View Instance.
       onLaunched?.(jobId, res.instance);
-      setStep("success");
+      onClose();
+      if (jobId) {
+        router.push(`/dashboard/instances/${encodeURIComponent(jobId)}`);
+      }
     } catch (err) {
       posthog.captureException(err instanceof Error ? err : new Error(String(err)));
       const info = classifyLaunchError(err);
@@ -1162,25 +1161,6 @@ export function LaunchInstanceModal({
                   </Button>
                 </div>
               </>
-            )}
-
-            {/* ─── Step: Success ─── */}
-            {step === "success" && (
-              <div className="text-center py-4">
-                <CheckCircle className="mx-auto h-12 w-12 text-emerald mb-3" />
-                <h3 className="text-lg font-semibold mb-1">Instance Launched!</h3>
-                <p className="text-sm text-text-secondary mb-4">
-                  Your instance is being provisioned. Billing begins when it starts running.
-                </p>
-                <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1" type="button" onClick={onClose}>
-                    Close
-                  </Button>
-                  <Button className="flex-1" type="button" onClick={() => router.push(`/dashboard/instances/${instanceId}`)}>
-                    View Instance
-                  </Button>
-                </div>
-              </div>
             )}
           </CardContent>
         </Card>

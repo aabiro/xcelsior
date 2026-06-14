@@ -2217,7 +2217,19 @@ export async function deleteNotification(notificationId: string) {
 }
 
 export async function fetchPushSubscriptionStatus() {
-  return apiFetch<WebPushSubscriptionStatus>("/api/notifications/push/subscription");
+  try {
+    return await apiFetch<WebPushSubscriptionStatus>("/api/notifications/push/subscription");
+  } catch (err) {
+    if (err instanceof ApiError && (err.status === 404 || err.status === 503)) {
+      return {
+        ok: false,
+        configured: false,
+        vapid_public_key: "",
+        active_subscription_count: 0,
+      };
+    }
+    throw err;
+  }
 }
 
 export async function subscribePushNotifications(payload: WebPushSubscriptionPayload) {

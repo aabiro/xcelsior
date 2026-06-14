@@ -619,7 +619,10 @@ function ClientRow({
               compact
             />
           </div>
-          <code className="mt-0.5 block text-xs text-text-muted font-mono truncate">
+          <p className="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-text-muted">
+            {t("dash.settings.oauth.client_id_short")}
+          </p>
+          <code className="block text-xs text-text-muted font-mono truncate">
             {client.client_id}
           </code>
           <div className="mt-2">
@@ -729,24 +732,14 @@ function ClientRow({
               {/* Scopes as chips */}
               <div>
                 <p className="text-[10px] font-medium uppercase tracking-wider text-text-muted mb-1.5">{t("dash.settings.oauth.detail_scopes")}</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {(client.scopes || []).map((s) => (
-                    <span
-                      key={s}
-                      className={cn(
-                        "rounded-md px-2 py-0.5 text-[11px] font-mono",
-                        s === "api"
-                          ? "bg-accent-gold/10 text-accent-gold ring-1 ring-accent-gold/20"
-                          : s.includes(":write")
-                            ? "bg-accent-red/10 text-accent-red ring-1 ring-accent-red/20"
-                            : "bg-accent-cyan/10 text-accent-cyan ring-1 ring-accent-cyan/20",
-                      )}
-                    >
-                      {s}
-                    </span>
-                  ))}
-                </div>
+                <ScopeChipRow scopes={client.scopes || []} size="md" />
               </div>
+
+              {client.client_type === "confidential" && !client.is_first_party && (
+                <p className="text-xs text-text-muted leading-relaxed">
+                  {t("dash.settings.oauth.secret_hidden_hint")}
+                </p>
+              )}
 
               {/* Redirect URIs */}
               {client.redirect_uris && client.redirect_uris.length > 0 && (
@@ -810,7 +803,10 @@ export function OAuthClientManager({ clients, onClientsChange, team }: OAuthClie
   const handleCreated = (client: OAuthClientInfo, secret: string) => {
     if (secret) {
       setNewSecret({ clientId: client.client_id, secret, scopes: client.scopes });
-      void navigator.clipboard.writeText(secret);
+      void navigator.clipboard.writeText(secret).catch(() => {});
+      toast.success(t("dash.settings.oauth.secret_copied"));
+    } else {
+      toast.warning(t("dash.settings.oauth.secret_hidden_hint"));
     }
     refreshClients();
   };

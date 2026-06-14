@@ -25,7 +25,7 @@ describe("GearOnboarding", () => {
     name = "Ada",
     canadaOnly = true,
     onboarding = {},
-    keys = [{ id: "k1" }],
+    oauthClients = [{ client_id: "oauth_abc" }],
     instances = [],
   } = {}) {
     fetchMock.mockImplementation((url: string) => {
@@ -39,10 +39,10 @@ describe("GearOnboarding", () => {
             }),
         });
       }
-      if (url === "/api/keys") {
+      if (url === "/api/oauth/clients") {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ keys }),
+          json: () => Promise.resolve({ clients: oauthClients }),
         });
       }
       if (url === "/instances") {
@@ -58,7 +58,7 @@ describe("GearOnboarding", () => {
   }
 
   it("shows loading then progress with jurisdiction from canada_only_routing", async () => {
-    const { user } = mockDetection({ canadaOnly: true, keys: [] });
+    const { user } = mockDetection({ canadaOnly: true, oauthClients: [] });
     render(
       <GearOnboarding t={t} user={user} pathname="/dashboard" />,
     );

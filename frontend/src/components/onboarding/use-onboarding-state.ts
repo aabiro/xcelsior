@@ -73,9 +73,10 @@ export function useOnboardingState(user: OnboardingUser, pathname: string) {
       if (serverOnboarding.api_key) {
         autoDetected.api_key = true;
       } else {
-        const keys = await fetchJson<{ keys?: unknown[] }>("/api/keys");
+        const oauth = await fetchJson<{ clients?: unknown[] }>("/api/oauth/clients");
         if (gen !== detectGenRef.current) return;
-        autoDetected.api_key = Array.isArray(keys?.keys) && keys.keys.length > 0;
+        autoDetected.api_key =
+          Array.isArray(oauth?.clients) && oauth.clients.length > 0;
       }
 
       if (serverOnboarding.instance) {
