@@ -233,16 +233,28 @@ export default function VolumesPage() {
   };
 
   const handleRetry = async (volumeId: string) => {
+    const vol = volumes.find((v) => v.volume_id === volumeId);
+    if (vol && (vol.status === "provisioning" || vol.status === "creating")) {
+      toast.info(t("dash.volumes.retry_wait_provisioning"), { id: `retry-${volumeId}`, duration: 3500 });
+      return;
+    }
+    const toastId = `retry-${volumeId}`;
     try {
       const res = await api.retryVolume(volumeId);
       if (res.volume?.status === "available") {
-        toast.success(t("dash.volumes.retry_success"));
+        toast.success(t("dash.volumes.retry_success"), { id: toastId, duration: 3500 });
       } else {
-        toast.error(t("dash.volumes.retry_failed"));
+        toast.error(t("dash.volumes.retry_failed"), { id: toastId, duration: 4000 });
       }
       load();
     } catch (e: unknown) {
-      toast.error(volumeActionError(e, t("dash.volumes.viewer_blocked")));
+      const msg = volumeActionError(e, t("dash.volumes.viewer_blocked"));
+      if (/provisioning/i.test(msg) && /not 'error'/i.test(msg)) {
+        toast.info(t("dash.volumes.retry_wait_provisioning"), { id: toastId, duration: 3500 });
+        load();
+        return;
+      }
+      toast.error(msg, { id: toastId, duration: 4500 });
     }
   };
 

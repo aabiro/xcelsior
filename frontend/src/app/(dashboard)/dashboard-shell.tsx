@@ -207,13 +207,16 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", handleKeydown);
   }, [desktopMode, desktopState.isNativeDesktop, openControlCenter, router, toggleAiPanel]);
 
-  // Show loading state while checking auth
-  if (authLoading || !user) {
+  // Full-screen gate only on first session probe (not every tab change).
+  if (authLoading && !user) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent-red border-t-transparent" />
       </div>
     );
+  }
+  if (!user) {
+    return null;
   }
 
   const canAccessRole = (requiredRole: string) => (

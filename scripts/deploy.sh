@@ -1215,6 +1215,8 @@ wait \"\$fe_pid\"
         ssh_cmd "sudo sed -i \
             -e '/upstream xcelsior_api/,/}/{ \
                 s/server 127.0.0.1:${standby_port} backup;/server 127.0.0.1:${standby_port};/; \
+                s/server 127.0.0.1:${standby_port};/server 127.0.0.1:${standby_port};/; \
+                s/server 127.0.0.1:${live_port} backup;/server 127.0.0.1:${live_port} backup;/; \
                 s/server 127.0.0.1:${live_port};/server 127.0.0.1:${live_port} backup;/ \
             }' /etc/nginx/sites-available/xcelsior && sudo nginx -t && sudo nginx -s reload" \
             || error "Nginx upstream swap failed"
