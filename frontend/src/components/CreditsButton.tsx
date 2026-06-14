@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { Wallet, ChevronDown, ArrowUpRight, CreditCard, History, Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import { fetchWallet } from "@/lib/api";
+import { ApiError, fetchWallet } from "@/lib/api";
 import { getBillingCustomerId, getTeamContext } from "@/lib/team-context";
 import { useLocale } from "@/lib/locale";
 import { cn } from "@/lib/utils";
@@ -17,25 +17,37 @@ export function CreditsButton() {
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const pollStoppedRef = useRef(false);
 
   const team = getTeamContext(user);
   const customerId = getBillingCustomerId(user);
   const isNegative = balance !== null && balance < 0;
 
   const loadBalance = useCallback(async () => {
-    if (!customerId) return;
+    if (!customerId || !user || pollStoppedRef.current) return;
     try {
       const res = await fetchWallet(customerId);
       setBalance(res.wallet.balance_cad);
-    } catch {
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        pollStoppedRef.current = true;
+        return;
+      }
       // Keep existing balance if we already have one; otherwise default to 0 for new users
       setBalance((prev) => prev ?? 0);
     } finally {
       setLoading(false);
     }
-  }, [customerId]);
+  }, [customerId, user]);
 
   useEffect(() => {
+    if (!user || !customerId) {
+      pollStoppedRef.current = false;
+      setBalance(null);
+      setLoading(false);
+      return;
+    }
+    pollStoppedRef.current = false;
     loadBalance();
     const interval = setInterval(loadBalance, 30_000);
     const onTeamChanged = () => { void loadBalance(); };
@@ -44,7 +56,7 @@ export function CreditsButton() {
       clearInterval(interval);
       window.removeEventListener("xcelsior-team-changed", onTeamChanged);
     };
-  }, [loadBalance]);
+  }, [loadBalance, user, customerId]);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
