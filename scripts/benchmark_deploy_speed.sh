@@ -22,7 +22,7 @@ RSYNC_EXCLUDES=(
   --exclude='*.db-*'
   --exclude='*.log'
   --exclude='data'
-  --exclude='artifacts'
+  --exclude='/artifacts'
   --exclude='.env'
   --exclude='/desktop'
   --exclude='checkpoints'
@@ -70,7 +70,7 @@ tar -cf - \
   --exclude='.git' --exclude='__pycache__' --exclude='.pytest_cache' \
   --exclude='venv' --exclude='node_modules' --exclude='.next' \
   --exclude='*.db' --exclude='*.db-*' --exclude='*.log' \
-  --exclude='data' --exclude='artifacts' --exclude='.env' \
+  --exclude='data' --exclude='/artifacts' --exclude='.env' \
   --exclude='/desktop' --exclude='checkpoints' \
   -C "$PROJECT_DIR" . >"$TMP_TAR/raw.tar"
 T1=$(now_ms)
@@ -216,7 +216,7 @@ TARBALL_EXCLUDES=(
   --exclude='.git' --exclude='__pycache__' --exclude='.pytest_cache'
   --exclude='venv' --exclude='node_modules' --exclude='.next'
   --exclude='*.db' --exclude='*.db-*' --exclude='*.log'
-  --exclude='data' --exclude='artifacts' --exclude='.env'
+  --exclude='data' --exclude='/artifacts' --exclude='.env'
   --exclude='/desktop' --exclude='checkpoints' --exclude='.cursor' --exclude='terminals'
 )
 
