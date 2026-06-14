@@ -117,10 +117,20 @@ class VolumeEngine:
             return stripped
         return f"sudo {stripped}"
 
+    @staticmethod
+    def _in_docker() -> bool:
+        return os.path.exists("/.dockerenv") or os.environ.get(
+            "XCELSIOR_IN_DOCKER", ""
+        ).lower() in ("1", "true", "yes")
+
     def _luks_ssh_host(self) -> str:
-        """SSH target for LUKS ops — host loopback when API/NFS are colocated in Docker."""
+        """SSH target for LUKS ops — Docker gateway when API/NFS are colocated."""
         if self._nfs_is_local_host(NFS_SSH_HOST):
-            return NFS_LUKS_SSH_HOST
+            configured = (NFS_LUKS_SSH_HOST or "").strip()
+            # 127.0.0.1 inside a container is the container, not the VPS host.
+            if self._in_docker() and configured.lower() in _LOCAL_NFS_HOSTS:
+                return os.environ.get("XCELSIOR_NFS_LUKS_DOCKER_GATEWAY", "172.17.0.1")
+            return configured or NFS_LUKS_SSH_HOST
         return NFS_SSH_HOST
 
     def _luks_ssh_user(self) -> str:
@@ -129,13 +139,10 @@ class VolumeEngine:
         return NFS_SSH_USER
 
     def _luks_force_ssh(self) -> bool:
-        """SSH for LUKS only when the export tree is not mounted in this process.
-
-        Colocated VPS deploys bind-mount ``NFS_EXPORT_BASE`` into the API
-        container (root + cryptsetup). Loopback SSH to 127.0.0.1 hits the
-        container itself and fails; run LUKS locally instead.
-        """
+        """LUKS needs the host kernel (device-mapper); always SSH from Docker."""
         if not self._nfs_is_local_host(NFS_SSH_HOST):
+            return True
+        if self._in_docker():
             return True
         return not os.path.isdir(NFS_EXPORT_BASE)
 
