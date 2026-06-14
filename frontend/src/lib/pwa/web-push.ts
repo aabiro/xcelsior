@@ -74,6 +74,13 @@ async function requestJson<T>(
   return response.json() as Promise<T>;
 }
 
+const PUSH_UNAVAILABLE_STATUS: WebPushSubscriptionStatus = {
+  ok: false,
+  configured: false,
+  vapid_public_key: "",
+  active_subscription_count: 0,
+};
+
 export function sanitizeNotificationUrl(rawUrl: unknown, origin: string): string {
   if (typeof rawUrl !== "string") return DEFAULT_NOTIFICATION_URL;
 
@@ -118,7 +125,19 @@ export function serializePushSubscription(subscription: Pick<PushSubscription, "
 export async function fetchPushSubscriptionStatus(
   fetchImpl: typeof fetch = fetch,
 ): Promise<WebPushSubscriptionStatus> {
-  return requestJson<WebPushSubscriptionStatus>("/api/notifications/push/subscription", undefined, fetchImpl);
+  try {
+    return await requestJson<WebPushSubscriptionStatus>(
+      "/api/notifications/push/subscription",
+      undefined,
+      fetchImpl,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message.includes("404") || message.includes("503")) {
+      return PUSH_UNAVAILABLE_STATUS;
+    }
+    throw error;
+  }
 }
 
 export async function upsertPushSubscription(
