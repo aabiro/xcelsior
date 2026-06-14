@@ -289,7 +289,7 @@ RSYNC_EXCLUDES=(
     --exclude='*.db-*'
     --exclude='*.log'
     --exclude='data'
-    --exclude='artifacts'
+    --exclude='/artifacts'
     --exclude='.env'
     --exclude='/desktop'
     --exclude='checkpoints'
@@ -826,7 +826,7 @@ done
         --exclude='*.db-*' \
         --exclude='*.log' \
         --exclude='data' \
-        --exclude='artifacts' \
+        --exclude='/artifacts' \
         --exclude='.env' \
         --exclude='./desktop' \
         --exclude='checkpoints' \
