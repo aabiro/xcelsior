@@ -8,8 +8,8 @@ import secrets
 import time
 import uuid
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from routes._deps import (
@@ -412,6 +412,26 @@ class ProfileUpdateRequest(BaseModel):
     role: str | None = Field(None, max_length=32)
     country: str | None = Field(None, max_length=32)
     province: str | None = Field(None, max_length=32)
+
+
+def _parse_user_preferences(full_user: dict) -> dict:
+    raw = full_user.get("preferences", {})
+    if isinstance(raw, str):
+        try:
+            import json as _json
+
+            raw = _json.loads(raw)
+        except Exception:
+            raw = {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _merge_user_preferences(email: str, patch: dict) -> None:
+    if not patch:
+        return
+    existing_user = UserStore.get_user(email) or {}
+    merged = {**_parse_user_preferences(existing_user), **patch}
+    UserStore.update_user(email, {"preferences": merged})
 
 
 class OAuthClientCreateRequest(BaseModel):
@@ -1273,6 +1293,15 @@ def api_auth_me(request: Request):
         "session_type": user.get("session_type", "browser"),
     }
     merged_user.update(_deps_team_context_for_user(merged_user))
+    avatar_url = None
+    try:
+        from user_avatars import avatar_public_url
+
+        avatar_url = avatar_public_url(_parse_user_preferences(full_user), merged_user["user_id"])
+    except Exception:
+        pass
+    if avatar_url:
+        merged_user["avatar_url"] = avatar_url
     return {"ok": True, "user": merged_user}
 
 
@@ -1316,6 +1345,114 @@ def api_auth_update_profile(body: ProfileUpdateRequest, request: Request):
                 full_user["province"] = body.province
 
     return {"ok": True, "message": "Profile updated"}
+
+
+@router.post("/api/auth/me/avatar", tags=["Auth"])
+async def api_auth_upload_avatar(request: Request, file: UploadFile = File(...)):
+    """Upload a profile photo (JPEG, PNG, or WebP, max 2 MB)."""
+    user = _require_user_grant(request)
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(400, "File must be an image")
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "Empty file")
+    try:
+        from user_avatars import save_avatar
+
+        avatar_key = save_avatar(user["user_id"], data, file.content_type)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(500, "Could not save avatar") from exc
+    except Exception as exc:
+        raise HTTPException(500, "Could not save avatar") from exc
+
+    now = time.time()
+    pref_patch = {"avatar_key": avatar_key, "avatar_updated_at": now}
+    if _USE_PERSISTENT_AUTH:
+        _merge_user_preferences(user["email"], pref_patch)
+    else:
+        with _user_lock:
+            full_user = _users_db.get(user["email"])
+            if full_user is not None:
+                merged = {**_parse_user_preferences(full_user), **pref_patch}
+                full_user["preferences"] = merged
+    return {
+        "ok": True,
+        "avatar_url": f"/api/auth/me/avatar?v={int(now)}",
+    }
+
+
+@router.get("/api/auth/me/avatar", tags=["Auth"])
+def api_auth_get_avatar(request: Request):
+    """Serve the authenticated user's profile photo."""
+    user = _require_user_grant(request)
+    from artifacts import StorageBackend, get_artifact_manager
+    from user_avatars import legacy_avatar_file_for_user, local_avatar_path_for_key
+
+    full_user = UserStore.get_user(user["email"]) if _USE_PERSISTENT_AUTH else _users_db.get(user["email"])
+    prefs = _parse_user_preferences(full_user or {})
+    avatar_key = (prefs.get("avatar_key") or "").strip()
+
+    if avatar_key:
+        local_path = local_avatar_path_for_key(avatar_key)
+        if local_path:
+            media = {
+                ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".png": "image/png",
+                ".webp": "image/webp",
+            }.get(local_path.suffix.lower(), "application/octet-stream")
+            return FileResponse(
+                local_path,
+                media_type=media,
+                headers={"Cache-Control": "private, max-age=3600"},
+            )
+
+        mgr = get_artifact_manager()
+        if mgr.primary.config.backend != StorageBackend.LOCAL:
+            try:
+                signed = mgr.primary.generate_download_url(avatar_key, expiry_sec=3600)
+                return RedirectResponse(
+                    signed["url"],
+                    headers={"Cache-Control": "private, max-age=300"},
+                )
+            except Exception:
+                raise HTTPException(404, "Avatar not found")
+
+    path = legacy_avatar_file_for_user(user["user_id"])
+    if not path:
+        raise HTTPException(404, "Avatar not found")
+    media = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
+    }.get(path.suffix.lower(), "application/octet-stream")
+    return FileResponse(path, media_type=media, headers={"Cache-Control": "private, max-age=3600"})
+
+
+@router.delete("/api/auth/me/avatar", tags=["Auth"])
+def api_auth_delete_avatar(request: Request):
+    """Remove the user's profile photo."""
+    user = _require_user_grant(request)
+    from user_avatars import delete_avatar_objects, delete_legacy_avatar_files
+
+    full_user = UserStore.get_user(user["email"]) if _USE_PERSISTENT_AUTH else _users_db.get(user["email"])
+    prefs = _parse_user_preferences(full_user or {})
+    avatar_key = (prefs.get("avatar_key") or "").strip() or None
+    delete_avatar_objects(user["user_id"], avatar_key)
+    delete_legacy_avatar_files(user["user_id"])
+    prefs.pop("avatar_key", None)
+    prefs.pop("avatar_updated_at", None)
+    if _USE_PERSISTENT_AUTH:
+        UserStore.update_user(user["email"], {"preferences": prefs})
+    else:
+        with _user_lock:
+            mem_user = _users_db.get(user["email"])
+            if mem_user is not None:
+                mem_user["preferences"] = prefs
+    return {"ok": True}
 
 
 @router.post("/api/auth/refresh", tags=["Auth"], deprecated=True)

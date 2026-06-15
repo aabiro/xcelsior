@@ -17,6 +17,7 @@ import {
   ChatInput,
   getStreamingState,
 } from "@/components/ai/chat-messages";
+import { XcelAiOnboarding, useAiOnboardingGate } from "@/components/ai/xcel-ai-onboarding";
 
 // ── AiPanel: Premium side panel ──────────────────────────────────────
 export function AiPanel({ onClose }: { onClose: () => void }) {
@@ -31,6 +32,7 @@ export function AiPanel({ onClose }: { onClose: () => void }) {
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const { showOnboarding, dismissOnboarding } = useAiOnboardingGate();
 
   useEffect(() => { loadSuggestions(); }, [loadSuggestions]);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
@@ -57,7 +59,12 @@ export function AiPanel({ onClose }: { onClose: () => void }) {
   const { streamingMsgId, executingToolIds } = getStreamingState(messages, isStreaming);
 
   return (
-    <div className="flex flex-col h-full bg-background/95 backdrop-blur-md ai-panel-border">
+    <div className="flex flex-col h-full bg-background/95 backdrop-blur-md ai-panel-border relative">
+      <XcelAiOnboarding
+        open={showOnboarding}
+        onClose={dismissOnboarding}
+        onComplete={() => inputRef.current?.focus()}
+      />
       {/* Header — glass style */}
       <div className="flex items-center justify-between border-b border-border/30 px-3 py-3 bg-surface/30 backdrop-blur-sm">
         <div className="flex items-center gap-2">

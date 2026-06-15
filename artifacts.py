@@ -281,6 +281,29 @@ class StorageClient:
         except Exception:
             return None
 
+    def put_object(
+        self,
+        key: str,
+        data: bytes,
+        content_type: str = "application/octet-stream",
+    ) -> bool:
+        """Upload object bytes server-side (API-mediated uploads)."""
+        client = self._get_client()
+        if not client:
+            return self._local_put(key, data)
+
+        try:
+            client.put_object(
+                Bucket=self.config.bucket,
+                Key=key,
+                Body=data,
+                ContentType=content_type,
+            )
+            return True
+        except Exception as e:
+            log.error("Failed to put %s: %s", key, e)
+            raise
+
     def delete_object(self, key: str) -> bool:
         """Delete an artifact."""
         client = self._get_client()
@@ -363,6 +386,13 @@ class StorageClient:
             "content_type": "application/octet-stream",
             "last_modified": stat.st_mtime,
         }
+
+    def _local_put(self, key, data):
+        path = os.path.join(self._local_dir(), key.replace("/", os.sep))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as fh:
+            fh.write(data)
+        return True
 
     def _local_delete(self, key):
         path = os.path.join(self._local_dir(), key.replace("/", os.sep))
