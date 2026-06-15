@@ -3,6 +3,7 @@
 
 # ── Web Framework ─────────────────────────────────────────────────────
 fastapi~=0.128.6
+python-multipart~=0.0.20
 uvicorn[standard]~=0.40.0
 gunicorn~=25.0.3
 
