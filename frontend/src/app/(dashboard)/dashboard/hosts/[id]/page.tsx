@@ -1,19 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge, Badge } from "@/components/ui/badge";
 import {
   ArrowLeft, Server, Cpu, MapPin, Gauge, ShieldCheck, Star, Zap, Thermometer, HardDrive,
-  ArrowDownToLine, ArrowUpFromLine, Database,
+  ArrowDownToLine, ArrowUpFromLine, Database, Trash2,
 } from "lucide-react";
 import {
-  fetchHost, fetchComputeScore, fetchSlaStatus, fetchVerificationStatus,
+  deleteHost, fetchHost, fetchComputeScore, fetchSlaStatus, fetchVerificationStatus,
   fetchTelemetry, fetchReputation,
 } from "@/lib/api";
+import { DeleteHostDialog } from "@/components/hosts/delete-host-dialog";
 import type { Host, TelemetryData, ReputationEntry } from "@/lib/api";
 import { toast } from "sonner";
 import { useLocale } from "@/lib/locale";
@@ -26,8 +27,10 @@ export default function HostDetailPage() {
 
 function HostDetailContent({ id }: { id: string }) {
   const { t } = useLocale();
+  const router = useRouter();
   const [host, setHost] = useState<Host | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showDelete, setShowDelete] = useState(false);
   const [computeScore, setComputeScore] = useState<number | null>(null);
   const [sla, setSla] = useState<{ uptime_30d_pct: number } | null>(null);
   const [verification, setVerification] = useState<{ status: string } | null>(null);
@@ -92,8 +95,31 @@ function HostDetailContent({ id }: { id: string }) {
             <p className="text-sm font-mono text-text-muted">{host.host_id}</p>
           </div>
         </div>
-        <StatusBadge status={host.status} />
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="text-text-muted border-border hover:text-accent-red hover:border-accent-red/40"
+            onClick={() => setShowDelete(true)}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Remove host
+          </Button>
+          <StatusBadge status={host.status} />
+        </div>
       </div>
+
+      <DeleteHostDialog
+        host={host}
+        open={showDelete}
+        onClose={() => setShowDelete(false)}
+        onConfirm={async (hostId) => {
+          await deleteHost(hostId);
+          toast.success("Host removed");
+          router.push("/dashboard/hosts");
+        }}
+      />
 
       {/* Summary Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

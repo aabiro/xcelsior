@@ -4,13 +4,11 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  LayoutDashboard, Server, Monitor, Activity, CreditCard,
-  Store, DollarSign, ShieldCheck, Star, FileCheck,
-  BarChart3, Package, Calendar, Settings, Users, ChevronLeft,
-  ChevronRight, LogOut, Shield, Cpu, Menu, X, Key, ChevronDown,
-  Zap, HardDrive, TrendingUp, BookOpen, Rocket,
-  ExternalLink, HelpCircle, Sparkles, Clock, MessageCircle, Layers,
+  Settings, Users, ChevronLeft, ChevronRight, LogOut, Menu, X, Key, ChevronDown,
+  BookOpen, Rocket, ExternalLink, HelpCircle, Clock, MessageCircle, Camera,
 } from "lucide-react";
+import { DashboardNav } from "@/components/nav/dashboard-nav";
+import { UserAvatar } from "@/components/user/user-avatar";
 import { useAuth } from "@/lib/auth";
 import { getTeamContext, formatTeamRoleLabel } from "@/lib/team-context";
 import { useLocale } from "@/lib/locale";
@@ -44,29 +42,6 @@ function readStoredFlag(key: string, match = "true"): boolean {
     return false;
   }
 }
-
-const navItems: { href: string; key: string; icon: typeof LayoutDashboard; roles?: string[]; badge?: string }[] = [
-  { href: "/dashboard/ai", key: "dash.ai", icon: Sparkles, badge: "New" },
-  { href: "/dashboard", key: "dash.overview", icon: LayoutDashboard },
-  { href: "/dashboard/hosts", key: "dash.hosts", icon: Server },
-  { href: "/dashboard/instances", key: "dash.instances", icon: Monitor },
-  { href: "/dashboard/templates", key: "dash.templates", icon: Layers },
-  { href: "/dashboard/telemetry", key: "dash.telemetry", icon: Activity },
-  { href: "/dashboard/billing", key: "dash.billing", icon: CreditCard },
-  { href: "/dashboard/marketplace", key: "dash.marketplace", icon: Store },
-  { href: "/dashboard/spot-pricing", key: "dash.spot_pricing", icon: TrendingUp },
-  { href: "/dashboard/inference", key: "dash.inference", icon: Zap },
-  { href: "/dashboard/volumes", key: "dash.volumes", icon: HardDrive },
-  { href: "/dashboard/earnings", key: "dash.earnings", icon: DollarSign },
-  { href: "/dashboard/reputation", key: "dash.reputation", icon: Star },
-  { href: "/dashboard/compliance", key: "dash.compliance", icon: FileCheck },
-  { href: "/dashboard/trust", key: "dash.trust", icon: Shield },
-  { href: "/dashboard/analytics", key: "dash.analytics", icon: BarChart3 },
-  { href: "/dashboard/artifacts", key: "dash.artifacts", icon: Package },
-  { href: "/dashboard/hpc", key: "dash.hpc", icon: Cpu, roles: ["admin"] },
-  { href: "/dashboard/events", key: "dash.events", icon: Calendar },
-  { href: "/dashboard/admin", key: "dash.admin", icon: Users, roles: ["admin"] },
-];
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(() => readStoredFlag(SIDEBAR_COLLAPSED_KEY, "1"));
@@ -274,41 +249,14 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         )}
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
-        {navItems
-          .filter((item) => !item.roles || item.roles.some(canAccessRole))
-          .filter((item) => item.href !== "/dashboard/inference" || showServerless)
-          .map((item) => {
-          const active = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
-          const label = t(item.key);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-base transition-colors",
-                active
-                  ? "bg-accent-cyan/8 text-accent-cyan nav-active"
-                  : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
-              )}
-              title={!mobile && collapsed ? label : undefined}
-            >
-              <item.icon className={`h-5 w-5 shrink-0 ${active ? 'drop-shadow-[0_0_4px_rgba(0,212,255,0.5)]' : ''}`} />
-              {(mobile || !collapsed) && (
-                <div className="flex items-center gap-2">
-                  <span>{label}</span>
-                  {item.badge && (
-                    <span className="shrink-0 rounded-full bg-accent-cyan/8 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-widest text-accent-cyan/70">
-                      {item.badge}
-                    </span>
-                  )}
-                </div>
-              )}
-            </Link>
-          );
-        })}
-      </nav>
+      <DashboardNav
+        collapsed={collapsed}
+        mobile={mobile}
+        showServerless={showServerless}
+        canAccessRole={canAccessRole}
+        t={t}
+        onNavigate={mobile ? () => setMobileOpen(false) : undefined}
+      />
 
       {/* Gear Popout + Collapse (desktop only) */}
       {!mobile && (
@@ -577,9 +525,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 onClick={() => setProfileOpen(!profileOpen)}
                 className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-surface-hover transition-colors"
               >
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-accent-cyan/15 text-lg font-medium text-accent-cyan ring-1 ring-accent-cyan/20">
-                  {user?.name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || "?"}
-                </div>
+                <UserAvatar user={user} size="md" />
                 {user && (
                   <div className="hidden sm:block text-left">
                     <p className="text-base font-medium leading-none">{user.name || user.email}</p>
@@ -604,9 +550,12 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                     transition={{ duration: 0.15 }}
                     className="absolute right-0 top-full mt-1 w-56 rounded-xl border border-border/60 bg-surface shadow-xl z-50 overflow-hidden"
                   >
-                    <div className="px-3 py-2.5 border-b border-border">
-                      <p className="text-sm font-medium truncate">{user?.name || user?.email}</p>
-                      <p className="text-xs text-text-muted truncate">{user?.email}</p>
+                    <div className="px-3 py-3 border-b border-border flex items-center gap-3">
+                      <UserAvatar user={user} size="sm" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{user?.name || user?.email}</p>
+                        <p className="text-xs text-text-muted truncate">{user?.email}</p>
+                      </div>
                     </div>
                     <div className="py-1">
                       <Link
@@ -616,6 +565,14 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                       >
                         <Settings className="h-4 w-4" />
                         {t("dash.settings")}
+                      </Link>
+                      <Link
+                        href="/dashboard/settings#profile"
+                        className="flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-accent-cyan transition-colors"
+                        onClick={() => setProfileOpen(false)}
+                      >
+                        <Camera className="h-4 w-4" />
+                        {t("dash.profile_photo")}
                       </Link>
                       <Link
                         href="/dashboard/settings#team"

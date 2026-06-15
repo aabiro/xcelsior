@@ -15,8 +15,10 @@ import { GpuModelSelector } from "@/components/ui/gpu-model-selector";
 import {
   Server, Plus, Search, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, Terminal,
   Cpu, Copy, Check, DollarSign, Activity, Zap, ChevronRight, Info, AlertCircle,
-  HardDrive, Globe, Shield, ShieldAlert, Package, Code2, Clipboard, ArrowRight, ArrowLeft,
+  HardDrive, Globe, Shield, ShieldAlert, Package, Code2, Clipboard, ArrowRight, ArrowLeft, Trash2,
 } from "lucide-react";
+import { DeleteHostDialog } from "@/components/hosts/delete-host-dialog";
+import { deleteHost } from "@/lib/api";
 import { useApi } from "@/lib/use-api";
 import { useLocale } from "@/lib/locale";
 import type { Host } from "@/lib/api";
@@ -50,6 +52,7 @@ export default function HostsPage() {
   const [page, setPage] = useState(1);
   const [showRegister, setShowRegister] = useState(false);
   const [showInstall, setShowInstall] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Host | null>(null);
   const api = useApi();
   const { t } = useLocale();
 
@@ -186,6 +189,17 @@ export default function HostsPage() {
       </Dialog>
 
       {/* Install Worker Modal */}
+      <DeleteHostDialog
+        host={deleteTarget}
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={async (hostId) => {
+          await deleteHost(hostId);
+          toast.success("Host removed");
+          load({ refresh: true });
+        }}
+      />
+
       <Dialog
         open={showInstall}
         onClose={() => setShowInstall(false)}
@@ -397,16 +411,28 @@ export default function HostsPage() {
                       </span>
                     </td>
                     <td className="py-4 px-5 text-right">
-                      <Link href={`/dashboard/hosts/${host.host_id}`}>
-                        <Button 
-                          variant="ghost" 
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
                           size="sm"
-                          className="h-8 text-text-secondary hover:text-accent-cyan hover:bg-accent-cyan/10"
+                          className="h-8 text-text-muted hover:text-accent-red hover:bg-accent-red/10"
+                          onClick={() => setDeleteTarget(host)}
+                          title="Remove host"
                         >
-                          View
-                          <ChevronRight className="h-3.5 w-3.5 ml-1" />
+                          <Trash2 className="h-3.5 w-3.5" />
                         </Button>
-                      </Link>
+                        <Link href={`/dashboard/hosts/${host.host_id}`}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 text-text-secondary hover:text-accent-cyan hover:bg-accent-cyan/10"
+                          >
+                            View
+                            <ChevronRight className="h-3.5 w-3.5 ml-1" />
+                          </Button>
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))}

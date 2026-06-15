@@ -555,6 +555,8 @@ const en_public: Record<string, string> = {
   "pwa.install_desktop_desc": "Tray notifications, auto-updates, and deep links.",
   "pwa.install_desktop_cta": "Download",
   "common.refresh": "Refresh",
+  "common.back": "Back",
+  "common.next": "Next",
   "common.cancel": "Cancel",
   "common.submit": "Submit",
   "common.save": "Save",

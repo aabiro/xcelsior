@@ -31,6 +31,11 @@ import {
 } from "./charts";
 import type { Insight } from "./charts";
 import { AnalyticsAiPanel } from "./analytics-ai-panel";
+import {
+  ComputeTabEmpty,
+  FinancialTabEmpty,
+  PlatformPulseOverview,
+} from "./analytics-empty-states";
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -45,10 +50,10 @@ const RANGE_PRESETS = [
 type Tab = "overview" | "compute" | "financial" | "provider";
 
 const TABS: { key: Tab; label: string; icon: React.ElementType; description: string; providerOnly?: boolean }[] = [
+  { key: "provider", label: "Provider", icon: Server, description: "Host earnings & uptime", providerOnly: true },
   { key: "overview", label: "Overview", icon: LayoutGrid, description: "Key metrics at a glance" },
   { key: "compute", label: "Compute", icon: Cpu, description: "GPU usage & performance" },
   { key: "financial", label: "Financial", icon: DollarSign, description: "Spend, efficiency & wallet" },
-  { key: "provider", label: "Provider", icon: Server, description: "Host earnings & uptime", providerOnly: true },
 ];
 
 // ── Auto-Insights Engine ───────────────────────────────────────────────
@@ -271,7 +276,10 @@ export default function AnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [range, setRange] = useState(30);
-  const [tab, setTab] = useState<Tab>("overview");
+  const [tab, setTab] = useState<Tab | null>(null);
+  const [marketplaceStats, setMarketplaceStats] = useState<{ total_offers: number; total_gpus: number; avg_price: number } | null>(null);
+  const [leaderboardCount, setLeaderboardCount] = useState(0);
+  const [gpuModelsAvailable, setGpuModelsAvailable] = useState(0);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [walletKpis, setWalletKpis] = useState({ balance: 0, deposited: 0, spent: 0 });
@@ -299,8 +307,11 @@ export default function AnalyticsPage() {
         api.fetchAnalytics({ days: String(days), group_by: "day", offset_days: String(days) }),
         api.fetchEnhancedAnalytics(days),
         api.fetchSpotPrices(),
+        api.fetchMarketplaceStatsV2(),
+        api.fetchLeaderboard(),
+        api.fetchAvailableGPUs(),
       ]);
-      const [usageRes, gpuRes, provinceRes, prevWindowRes, enhancedRes, spotRes] = results;
+      const [usageRes, gpuRes, provinceRes, prevWindowRes, enhancedRes, spotRes, mktRes, lbRes, gpuRes2] = results;
       if (usageRes.status === "fulfilled") setData(usageRes.value);
       if (enhancedRes.status === "fulfilled") setEnhanced(enhancedRes.value as EnhancedAnalytics);
       if (spotRes.status === "fulfilled" && spotRes.value) {
@@ -315,6 +326,20 @@ export default function AnalyticsPage() {
       setGpuBreakdown(gpuRes.status === "fulfilled" ? (((gpuRes.value as any)?.analytics ?? []) as any[]) : []);
       setProvinceBreakdown(provinceRes.status === "fulfilled" ? (((provinceRes.value as any)?.analytics ?? []) as any[]) : []);
       setPreviousSummary(prevWindowRes.status === "fulfilled" ? ((prevWindowRes.value as any)?.summary ?? null) : null);
+      if (mktRes.status === "fulfilled" && mktRes.value) {
+        const m = mktRes.value as { total_offers?: number; total_gpus?: number; avg_price?: number };
+        setMarketplaceStats({
+          total_offers: Number(m.total_offers ?? 0),
+          total_gpus: Number(m.total_gpus ?? 0),
+          avg_price: Number(m.avg_price ?? 0),
+        });
+      }
+      if (lbRes.status === "fulfilled" && lbRes.value) {
+        setLeaderboardCount(((lbRes.value as { leaderboard?: unknown[] }).leaderboard ?? []).length);
+      }
+      if (gpuRes2.status === "fulfilled" && gpuRes2.value) {
+        setGpuModelsAvailable(((gpuRes2.value as { gpus?: unknown[] }).gpus ?? []).length);
+      }
       setLastUpdated(new Date());
       // Show warning if any failed but not all
       const failures = results.filter(r => r.status === "rejected");
@@ -350,20 +375,6 @@ export default function AnalyticsPage() {
   useEventStream({
     eventTypes: ["job_status", "job_submitted", "usage_recorded"],
     onEvent: debouncedLoad,
-  });
-
-  // Keyboard navigation for tabs
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-        const idx = availableTabs.findIndex(t => t.key === tab);
-        if (e.key === "ArrowLeft" && idx > 0) setTab(availableTabs[idx - 1].key);
-        if (e.key === "ArrowRight" && idx < availableTabs.length - 1) setTab(availableTabs[idx + 1].key);
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
   });
 
   // ── Wallet KPIs (separate fetch, needs user) ──────────────────────
@@ -489,10 +500,24 @@ export default function AnalyticsPage() {
   );
 
   useEffect(() => {
-    if (loading) return;
-    if (!isProvider || tab !== "overview") return;
-    if (!hasCustomerData) setTab("provider");
-  }, [hasCustomerData, isProvider, loading, tab]);
+    if (loading || tab !== null) return;
+    setTab(isProvider || isAdmin ? "provider" : "overview");
+  }, [isAdmin, isProvider, loading, tab]);
+
+  const activeTab: Tab = tab ?? ((isProvider || isAdmin) ? "provider" : "overview");
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        const idx = availableTabs.findIndex((t) => t.key === activeTab);
+        if (e.key === "ArrowLeft" && idx > 0) setTab(availableTabs[idx - 1].key);
+        if (e.key === "ArrowRight" && idx < availableTabs.length - 1) setTab(availableTabs[idx + 1].key);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [activeTab, availableTabs]);
 
   // Format last updated time
   const lastUpdatedLabel = lastUpdated
@@ -562,7 +587,7 @@ export default function AnalyticsPage() {
       <div className="relative flex items-center gap-1 border-b border-border overflow-x-auto pb-0">
         {availableTabs.map((t) => {
           const Icon = t.icon;
-          const active = tab === t.key;
+          const active = activeTab === t.key;
           return (
             <button
               key={t.key}
@@ -621,63 +646,97 @@ export default function AnalyticsPage() {
           </div>
         </FadeIn>
 
-      /* ── Empty State ───────────────────────────────────── */
-      ) : !hasData && !(tab === "provider" && (isProvider || isAdmin)) ? (
-        <div className="flex flex-col items-center justify-center py-20">
-          <div className="relative flex h-24 w-24 items-center justify-center rounded-2xl bg-surface mb-6">
-            <BarChart3 className="h-12 w-12 text-text-muted" />
-            <div className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-accent-cyan/30 animate-pulse" />
-          </div>
-          <h3 className="text-xl font-semibold mb-2">{t("dash.analytics.empty")}</h3>
-          <p className="text-sm text-text-secondary max-w-md text-center mb-8">
-            {t("dash.analytics.empty_desc")}
-          </p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 w-full max-w-lg">
-            <Card className="p-5 text-center border-dashed hover:border-accent-cyan/30 transition-colors">
-              <TrendingUp className="h-6 w-6 text-accent-cyan mx-auto mb-3" />
-              <p className="text-xs text-text-muted">Spend trends</p>
-              <p className="text-lg font-bold font-mono text-text-muted/50 mt-1">—</p>
-            </Card>
-            <Card className="p-5 text-center border-dashed hover:border-emerald/30 transition-colors">
-              <Cpu className="h-6 w-6 text-emerald mx-auto mb-3" />
-              <p className="text-xs text-text-muted">GPU hours</p>
-              <p className="text-lg font-bold font-mono text-text-muted/50 mt-1">—</p>
-            </Card>
-            <Card className="p-5 text-center border-dashed hover:border-accent-gold/30 transition-colors">
-              <Clock className="h-6 w-6 text-accent-gold mx-auto mb-3" />
-              <p className="text-xs text-text-muted">Job insights</p>
-              <p className="text-lg font-bold font-mono text-text-muted/50 mt-1">—</p>
-            </Card>
-          </div>
-          <p className="text-xs text-text-muted mt-8">
-            Analytics populate automatically when you launch instances or when jobs run on your hosts
-          </p>
-          <div className="mt-6 rounded-xl border border-border/30 bg-surface/60 px-6 py-4 max-w-lg w-full">
-            <p className="text-xs font-semibold text-text-secondary mb-3 uppercase tracking-wide">How to unlock analytics</p>
-            <div className="space-y-2.5">
-              <div className="flex items-start gap-3">
-                <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-cyan/15 text-accent-cyan text-[10px] font-bold">1</div>
-                <p className="text-xs text-text-secondary">
-                  <span className="font-medium text-text-primary">Rent GPU compute</span> — launch an instance from the{" "}
-                  <Link href="/dashboard/instances" className="text-accent-cyan hover:underline">Instances</Link> page. Spend trends and job insights appear after your first job.
-                </p>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-violet/15 text-accent-violet text-[10px] font-bold">2</div>
-                <p className="text-xs text-text-secondary">
-                  <span className="font-medium text-text-primary">Become a GPU provider</span> — connect Stripe on the{" "}
-                  <Link href="/dashboard/earnings" className="text-accent-cyan hover:underline">Earnings</Link> page to unlock the <span className="font-medium">Provider</span> analytics tab with host earnings, utilization &amp; uptime.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
       /* ── Dashboard Content ─────────────────────────────── */
       ) : (
         <>
+          {/* ── PROVIDER TAB (first) ─────────────────────── */}
+          {activeTab === "provider" && (isProvider || isAdmin) && (
+            <div className="space-y-6">
+              {hasProviderData && enhanced?.provider_summary ? (
+                <>
+                  <StaggerList className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <StaggerItem>
+                      <StatCard
+                        label="Jobs Served"
+                        value={<CountUp value={enhanced.provider_summary.total_jobs_served} />}
+                        icon={Zap}
+                        glow="cyan"
+                      />
+                    </StaggerItem>
+                    <StaggerItem>
+                      <StatCard
+                        label="Total Revenue"
+                        value={<CountUp value={enhanced.provider_summary.total_revenue} prefix="$" />}
+                        icon={DollarSign}
+                        glow="gold"
+                      />
+                    </StaggerItem>
+                    <StaggerItem>
+                      <StatCard
+                        label="GPU Hours Served"
+                        value={<CountUp value={enhanced.provider_summary.total_gpu_hours} />}
+                        icon={Clock}
+                        glow="emerald"
+                      />
+                    </StaggerItem>
+                    <StaggerItem>
+                      <StatCard
+                        label="Avg Utilization"
+                        value={<CountUp value={enhanced.provider_summary.avg_util} suffix="%" />}
+                        icon={Gauge}
+                        glow="violet"
+                      />
+                    </StaggerItem>
+                  </StaggerList>
+
+                  <FadeIn delay={0.15}>
+                    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                      <ProviderRevenueTrendChart data={enhanced.provider_daily ?? []} />
+                      <UtilizationChart data={(enhanced.provider_daily ?? []).map((d) => ({ date: d.date, util: d.avg_util }))} />
+                    </div>
+                  </FadeIn>
+                </>
+              ) : (
+                <FadeIn>
+                  <div className="flex flex-col items-center justify-center py-16">
+                    <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-surface mb-6">
+                      <Server className="h-10 w-10 text-text-muted" />
+                    </div>
+                    <h3 className="text-xl font-semibold mb-2">No provider activity yet</h3>
+                    <p className="text-sm text-text-secondary text-center max-w-md">
+                      {isAdmin
+                        ? "Provider analytics appear once hosts serve jobs through the platform."
+                        : "Your provider account is connected — analytics will populate here once your first GPU job runs on your host."
+                      }
+                    </p>
+                    {!isAdmin && (
+                      <div className="mt-6 rounded-xl border border-border/30 bg-surface/60 px-5 py-4 max-w-sm w-full text-left">
+                        <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-3">Next steps</p>
+                        <div className="space-y-2">
+                          <div className="flex items-start gap-2.5">
+                            <div className="mt-0.5 flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full bg-emerald/15 text-emerald text-[9px] font-bold">1</div>
+                            <p className="text-xs text-text-secondary"><span className="font-medium text-text-primary">Install the worker agent</span> on your GPU host via the <Link href="/dashboard/hosts" className="text-accent-cyan hover:underline">Hosts</Link> page.</p>
+                          </div>
+                          <div className="flex items-start gap-2.5">
+                            <div className="mt-0.5 flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full bg-accent-cyan/15 text-accent-cyan text-[9px] font-bold">2</div>
+                            <p className="text-xs text-text-secondary"><span className="font-medium text-text-primary">Set your pricing</span> and make your GPU available to renters.</p>
+                          </div>
+                          <div className="flex items-start gap-2.5">
+                            <div className="mt-0.5 flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full bg-accent-violet/15 text-accent-violet text-[9px] font-bold">3</div>
+                            <p className="text-xs text-text-secondary">Earnings, uptime, and utilization charts appear automatically as jobs run.</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </FadeIn>
+              )}
+            </div>
+          )}
+
           {/* ── OVERVIEW TAB ──────────────────────────────── */}
-          {tab === "overview" && (
+          {activeTab === "overview" && (
+            hasCustomerData ? (
             <div className="space-y-6">
               {/* Primary KPIs with glow + sparklines */}
               <StaggerList className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -779,10 +838,20 @@ export default function AnalyticsPage() {
               {/* Peak days */}
               <PeakDaysCards data={enhanced?.peak_days ?? []} />
             </div>
+            ) : (
+              <PlatformPulseOverview
+                spotPrices={spotPrices}
+                marketplaceStats={marketplaceStats}
+                walletBalance={walletKpis.balance}
+                leaderboardCount={leaderboardCount}
+                gpuModelsAvailable={gpuModelsAvailable}
+              />
+            )
           )}
 
           {/* ── COMPUTE TAB ──────────────────────────────── */}
-          {tab === "compute" && (
+          {activeTab === "compute" && (
+            hasCustomerData ? (
             <div className="space-y-6">
               <StaggerList className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <StaggerItem>
@@ -824,10 +893,14 @@ export default function AnalyticsPage() {
               <GpuPerformanceTable data={enhanced?.gpu_performance ?? []} />
               <TopEntitiesTable data={enhanced?.top_entities ?? []} entityLabel={isAdmin ? "Customer" : "Host"} />
             </div>
+            ) : (
+              <ComputeTabEmpty />
+            )
           )}
 
           {/* ── FINANCIAL TAB ────────────────────────────── */}
-          {tab === "financial" && (
+          {activeTab === "financial" && (
+            hasCustomerData ? (
             <div className="space-y-6">
               <StaggerList className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <StaggerItem>
@@ -913,91 +986,9 @@ export default function AnalyticsPage() {
                 </FadeIn>
               )}
             </div>
-          )}
-
-          {/* ── PROVIDER TAB ─────────────────────────────── */}
-          {tab === "provider" && (isProvider || isAdmin) && (
-            <div className="space-y-6">
-              {hasProviderData && enhanced?.provider_summary ? (
-                <>
-                  <StaggerList className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                    <StaggerItem>
-                      <StatCard
-                        label="Jobs Served"
-                        value={<CountUp value={enhanced.provider_summary.total_jobs_served} />}
-                        icon={Zap}
-                        glow="cyan"
-                      />
-                    </StaggerItem>
-                    <StaggerItem>
-                      <StatCard
-                        label="Total Revenue"
-                        value={<CountUp value={enhanced.provider_summary.total_revenue} prefix="$" />}
-                        icon={DollarSign}
-                        glow="gold"
-                      />
-                    </StaggerItem>
-                    <StaggerItem>
-                      <StatCard
-                        label="GPU Hours Served"
-                        value={<CountUp value={enhanced.provider_summary.total_gpu_hours} />}
-                        icon={Clock}
-                        glow="emerald"
-                      />
-                    </StaggerItem>
-                    <StaggerItem>
-                      <StatCard
-                        label="Avg Utilization"
-                        value={<CountUp value={enhanced.provider_summary.avg_util} suffix="%" />}
-                        icon={Gauge}
-                        glow="violet"
-                      />
-                    </StaggerItem>
-                  </StaggerList>
-
-                  <FadeIn delay={0.15}>
-                    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                      <ProviderRevenueTrendChart data={enhanced.provider_daily ?? []} />
-                      <UtilizationChart data={(enhanced.provider_daily ?? []).map((d) => ({ date: d.date, util: d.avg_util }))} />
-                    </div>
-                  </FadeIn>
-                </>
-              ) : (
-                <FadeIn>
-                  <div className="flex flex-col items-center justify-center py-16">
-                    <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-surface mb-6">
-                      <Server className="h-10 w-10 text-text-muted" />
-                    </div>
-                    <h3 className="text-xl font-semibold mb-2">No provider activity yet</h3>
-                    <p className="text-sm text-text-secondary text-center max-w-md">
-                      {isAdmin
-                        ? "Provider analytics appear once hosts serve jobs through the platform."
-                        : "Your provider account is connected — analytics will populate here once your first GPU job runs on your host."
-                      }
-                    </p>
-                    {!isAdmin && (
-                      <div className="mt-6 rounded-xl border border-border/30 bg-surface/60 px-5 py-4 max-w-sm w-full text-left">
-                        <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-3">Next steps</p>
-                        <div className="space-y-2">
-                          <div className="flex items-start gap-2.5">
-                            <div className="mt-0.5 flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full bg-emerald/15 text-emerald text-[9px] font-bold">1</div>
-                            <p className="text-xs text-text-secondary"><span className="font-medium text-text-primary">Install the worker agent</span> on your GPU host via the <Link href="/dashboard/hosts" className="text-accent-cyan hover:underline">Hosts</Link> page.</p>
-                          </div>
-                          <div className="flex items-start gap-2.5">
-                            <div className="mt-0.5 flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full bg-accent-cyan/15 text-accent-cyan text-[9px] font-bold">2</div>
-                            <p className="text-xs text-text-secondary"><span className="font-medium text-text-primary">Set your pricing</span> and make your GPU available to renters.</p>
-                          </div>
-                          <div className="flex items-start gap-2.5">
-                            <div className="mt-0.5 flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full bg-accent-violet/15 text-accent-violet text-[9px] font-bold">3</div>
-                            <p className="text-xs text-text-secondary">Earnings, uptime, and utilization charts appear automatically as jobs run.</p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </FadeIn>
-              )}
-            </div>
+            ) : (
+              <FinancialTabEmpty />
+            )
           )}
         </>
       )}
@@ -1005,7 +996,7 @@ export default function AnalyticsPage() {
       <AnalyticsAiPanel
         open={aiOpen}
         onClose={() => setAiOpen(false)}
-        tab={tab}
+        tab={activeTab}
         summary={summary}
         enhanced={enhanced}
         previousSummary={previousSummary}
