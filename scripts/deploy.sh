@@ -1018,6 +1018,82 @@ remote_deploy_meta_dir() {
     printf '%s' "/opt/xcelsior-backups/.deploy-meta"
 }
 
+remote_deploy_state_dir() {
+    printf '%s' "/opt/xcelsior-backups/.deploy-state"
+}
+
+remote_api_colour_file() {
+    printf '%s/api-colour' "$(remote_deploy_state_dir)"
+}
+
+remote_ssh_colour_file() {
+    printf '%s/ssh-colour' "$(remote_deploy_state_dir)"
+}
+
+ensure_remote_deploy_state_dir() {
+    # State must live outside /opt/xcelsior — sync_code replaces that tree every deploy.
+    ssh_cmd "mkdir -p '$(remote_deploy_state_dir)'
+if [ -f /opt/xcelsior/.deploy_colour ]; then
+  mv /opt/xcelsior/.deploy_colour '$(remote_api_colour_file)'
+fi
+if [ -f /opt/xcelsior/.deploy_ssh_colour ]; then
+  mv /opt/xcelsior/.deploy_ssh_colour '$(remote_ssh_colour_file)'
+fi"
+}
+
+infer_api_colour_from_nginx() {
+    ssh_cmd "python3 - <<'PY'
+from pathlib import Path
+text = Path('/etc/nginx/sites-available/xcelsior').read_text(encoding='utf-8')
+block = text.split('upstream xcelsior_api', 1)[-1].split('}', 1)[0]
+primary = None
+for line in block.splitlines():
+    if '127.0.0.1:9501' in line and 'backup' not in line:
+        primary = 'blue'
+    elif '127.0.0.1:9500' in line and 'backup' not in line:
+        primary = 'green'
+print(primary or 'green')
+PY"
+}
+
+read_remote_api_colour() {
+    local colour
+    colour=$(ssh_cmd "cat '$(remote_api_colour_file)' 2>/dev/null | tr -d '[:space:]'") || colour=""
+    if [[ -z "$colour" ]]; then
+        colour=$(infer_api_colour_from_nginx)
+        log "No persisted API colour — inferred from nginx: $colour"
+    fi
+    [[ "$colour" == "blue" || "$colour" == "green" ]] || colour="green"
+    printf '%s' "$colour"
+}
+
+read_remote_ssh_colour() {
+    local colour
+    colour=$(ssh_cmd "cat '$(remote_ssh_colour_file)' 2>/dev/null | tr -d '[:space:]'") || colour=""
+    if [[ -z "$colour" ]]; then
+        if ssh_cmd "docker ps --format '{{.Names}}' | grep -q 'xcelsior-ssh-gateway-blue'"; then
+            if ssh_cmd "docker ps --format '{{.Names}}' | grep -q '^xcelsior-ssh-gateway-1$'"; then
+                colour=green
+            else
+                colour=blue
+            fi
+        else
+            colour=green
+        fi
+        log "No persisted SSH gateway colour — inferred: $colour"
+    fi
+    [[ "$colour" == "blue" || "$colour" == "green" ]] || colour="green"
+    printf '%s' "$colour"
+}
+
+store_remote_api_colour() {
+    ssh_cmd "mkdir -p '$(remote_deploy_state_dir)' && printf '%s' '$1' > '$(remote_api_colour_file)'"
+}
+
+store_remote_ssh_colour() {
+    ssh_cmd "mkdir -p '$(remote_deploy_state_dir)' && printf '%s' '$1' > '$(remote_ssh_colour_file)'"
+}
+
 load_remote_deploy_hash() {
     local name="$1"
     printf '%s' "${REMOTE_DEPLOY_HASHES[$name]:-}"
@@ -1110,10 +1186,10 @@ persist_deploy_inputs() {
 
 deploy_ssh_gateway_blue_green() {
     # SSH listeners bind instance ports with SO_REUSEPORT — start standby first so
-    # it shares listeners, then drain the live gateway (up to 1h grace).
-    local state_file="/opt/xcelsior/.deploy_ssh_colour"
-    local live_colour
-    live_colour=$(ssh_cmd "tr -d '[:space:]' < $state_file 2>/dev/null || echo green")
+    # it shares listeners, then drain the live gateway.
+    local live_colour ssh_stop_sec
+    live_colour=$(read_remote_ssh_colour)
+    ssh_stop_sec="${XCELSIOR_SSH_GW_DEPLOY_STOP_SEC:-300}"
 
     local live_service standby_service live_health standby_health
     if [[ "$live_colour" == "green" ]]; then
@@ -1150,14 +1226,14 @@ deploy_ssh_gateway_blue_green() {
     fi
     success "Standby SSH gateway ($standby_service:$standby_health) is healthy"
 
-    log "Draining live SSH gateway ($live_service) — active relays may take up to 1h..."
-    ssh_cmd "cd /opt/xcelsior && docker compose --profile blue stop -t 3600 $live_service" \
-        || warn "Live SSH gateway stop returned non-zero (check for stuck relays)"
-    success "Live SSH gateway ($live_service) stopped"
+    log "Draining live SSH gateway ($live_service) — deploy waits up to ${ssh_stop_sec}s (reuseport keeps new SSH on standby)..."
+    ssh_cmd "cd /opt/xcelsior && docker compose --profile blue stop -t $ssh_stop_sec $live_service" \
+        || warn "Live SSH gateway stop returned non-zero (active relays may still be draining)"
+    success "Live SSH gateway ($live_service) stop issued"
 
     local new_colour
     if [[ "$live_colour" == "green" ]]; then new_colour="blue"; else new_colour="green"; fi
-    ssh_cmd "echo $new_colour > $state_file"
+    store_remote_ssh_colour "$new_colour"
     success "SSH gateway live colour: $new_colour ($standby_service)"
 }
 
@@ -1166,6 +1242,7 @@ deploy_docker() {
     
     # Verify .env exists on server
     ssh_cmd "test -f /opt/xcelsior/.env" || error ".env file not found on server"
+    ensure_remote_deploy_state_dir
 
     local build_prefix
     build_prefix=$(remote_docker_build_prefix)
@@ -1213,13 +1290,11 @@ wait \"\$fe_pid\"
     # Only roll the API when the image or runtime (.env) changed. Frontend-only
     # deploys must not touch the live API, ssh-gateway, or scheduler (keeps
     # running instances + web terminals connected).
-    local state_file="/opt/xcelsior/.deploy_colour"
     local final_port final_colour
     if [[ "$DEPLOY_BUILD_API" == true || "$DEPLOY_RUNTIME_CHANGED" == true ]]; then
-        # State file tracks which colour is currently live.
-        # Default: "green" (api on 9500).  After swap: "blue" (api-blue on 9501).
+        # Persisted outside /opt/xcelsior so rsync deploy does not reset colour.
         local live_colour
-        live_colour=$(ssh_cmd "cat $state_file 2>/dev/null || echo green")
+        live_colour=$(read_remote_api_colour)
 
         local standby_service standby_port live_service live_port
         if [[ "$live_colour" == "green" ]]; then
@@ -1273,7 +1348,7 @@ wait \"\$fe_pid\"
         # 5. Record the new live colour
         local new_colour
         if [[ "$live_colour" == "green" ]]; then new_colour="blue"; else new_colour="green"; fi
-        ssh_cmd "echo $new_colour > $state_file"
+        store_remote_api_colour "$new_colour"
         success "Deploy state: $new_colour is now live"
 
         ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps scheduler-worker" || error "Scheduler-worker restart failed"
@@ -1304,7 +1379,7 @@ wait \"\$fe_pid\"
     fi
 
     # Final health check — whichever port is now live
-    final_colour=$(ssh_cmd "cat $state_file 2>/dev/null || echo green")
+    final_colour=$(read_remote_api_colour)
     if [[ "$final_colour" == "blue" ]]; then final_port=9501; else final_port=9500; fi
 
     log "Verifying API on port $final_port ($final_colour)..."
@@ -1520,7 +1595,7 @@ health_check() {
 
     log "API health:"
     local live_colour live_port
-    live_colour=$(ssh_cmd "tr -d '[:space:]' </opt/xcelsior/.deploy_colour 2>/dev/null || echo green")
+    live_colour=$(read_remote_api_colour)
     if [[ "$live_colour" == "blue" ]]; then live_port=9501; else live_port=9500; fi
     if ssh_cmd "curl -sf http://127.0.0.1:$live_port/healthz" &>/dev/null; then
         success "API healthy on port $live_port ($live_colour)"
