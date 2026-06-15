@@ -91,7 +91,8 @@ def reaper_tick() -> int:
                 #     to submitted_at for legacy rows without that field.
                 if status == "queued":
                     cur.execute(
-                        "SELECT job_id FROM jobs WHERE status = %s AND submitted_at < %s",
+                        "SELECT job_id FROM jobs WHERE status = %s AND submitted_at < %s "
+                        "AND COALESCE(payload->>'queue_reason', '') != 'gpu_busy'",
                         (status, cutoff),
                     )
                 else:

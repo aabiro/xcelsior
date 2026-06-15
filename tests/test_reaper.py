@@ -5,8 +5,15 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+import time
+
 import scheduler
+from db import DB_BACKEND
 from reaper import reaper_tick
+
+
+def _db_backend() -> str:
+    return "postgres" if DB_BACKEND in ("postgres", "dual") else "sqlite"
 
 _tmp_ctx = tempfile.TemporaryDirectory(prefix="xcelsior_reaper_test_")
 _tmpdir = _tmp_ctx.name
@@ -48,6 +55,23 @@ class TestReaper:
         source = inspect.getsource(reaper_tick)
         assert "'{status}'" in source
         assert '"failed"' in source
+
+    def test_requeue_resets_submitted_at(self):
+        _reset_jobs()
+        job = scheduler.submit_job("requeue-clock", 0)
+        job_id = job["job_id"]
+        backend = _db_backend()
+        with scheduler._atomic_mutation() as conn:
+            row = scheduler.DatabaseOps.get_job(conn, job_id, backend=backend)
+            row["submitted_at"] = time.time() - 10_000
+            row["status"] = "failed"
+            scheduler.DatabaseOps.upsert_job(conn, row, backend=backend)
+
+        result = scheduler.requeue_job(job_id, user_initiated=True)
+        assert result is not None
+        refreshed = scheduler.get_job(job_id)
+        assert refreshed["status"] == "queued"
+        assert refreshed["submitted_at"] > time.time() - 60
 
     def test_requeue_cancelled_job(self):
         _reset_jobs()

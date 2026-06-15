@@ -1159,6 +1159,10 @@ def _persist_queue_reason(job: dict, reason: str, detail: str):
     try:
         job["queue_reason"] = reason
         job["queue_reason_detail"] = detail
+        # Waiting for GPU capacity is legitimate — don't let the queued reaper
+        # count hours spent behind an active job against submitted_at.
+        if reason == "gpu_busy" and job.get("status") == "queued":
+            job["submitted_at"] = time.time()
         with _atomic_mutation() as conn:
             _upsert_job_row(conn, job)
     except Exception:
@@ -3158,6 +3162,7 @@ def requeue_job(job_id, *, user_initiated: bool = False):
             j["host_id"] = None
             j["started_at"] = None
             j["completed_at"] = None
+            j["submitted_at"] = time.time()
             j["retries"] = retries
             j["vram_reserved_gb"] = 0
             j.pop("failure_reason", None)

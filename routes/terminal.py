@@ -1325,6 +1325,14 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
             if has_tmux:
                 env_vars["TMUX_SESSION"] = tmux_session
                 exec_cmd = ["tmux", "new-session", "-A", "-s", tmux_session, shell]
+            elif shell.endswith("bash") or shell == "bash":
+                exec_cmd = [
+                    shell,
+                    "-lc",
+                    "cd /workspace 2>/dev/null || cd ~; "
+                    'export PATH="/opt/xcelsior/bin:$PATH"; '
+                    "exec bash -l",
+                ]
             else:
                 exec_cmd = [shell]
 

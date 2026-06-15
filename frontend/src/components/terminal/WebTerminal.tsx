@@ -348,6 +348,9 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
 
     const term = new Terminal({
       cursorBlink: true,
+      cursorStyle: "block",
+      scrollSensitivity: 2,
+      fastScrollSensitivity: 5,
       fontSize: 13,
       fontFamily:
         "'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', 'Consolas', 'DejaVu Sans Mono', monospace",
@@ -393,21 +396,8 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
     term.focus();
     termReadyRef.current = true;
 
-    // WebGL renderer — graceful Canvas fallback
-    try {
-      const { WebglAddon } = await import("@xterm/addon-webgl");
-      if (mountedRef.current) {
-        const wgl = new WebglAddon();
-        wgl.onContextLoss(() => {
-          wgl.dispose();
-          webglAddonRef.current = null;
-        });
-        term.loadAddon(wgl);
-        webglAddonRef.current = wgl;
-      }
-    } catch {
-      // Canvas fallback is automatic
-    }
+    // Canvas renderer — WebGL breaks cursor blink on some GPUs/browsers.
+    term.options.cursorBlink = true;
 
     // Clear texture atlas on tab restore to fix glyph artifacts after sleep
     const _onVisChange = () => {
@@ -418,6 +408,12 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
     };
     visChangeRef.current = _onVisChange;
     document.addEventListener("visibilitychange", _onVisChange);
+
+    term.attachCustomWheelEventHandler((ev: WheelEvent) => {
+      // Keep scroll inside xterm scrollback instead of the page / bash history.
+      if (ev.deltaY !== 0) return true;
+      return true;
+    });
 
     // ── Keyboard interceptors ───────────────────────────────────────────────
     term.attachCustomKeyEventHandler((ev: KeyboardEvent) => {
@@ -589,8 +585,7 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
       {/* ── Terminal canvas ── */}
       <div
         ref={containerRef}
-        className="relative flex-1 bg-black p-1"
-        style={{ minHeight: 0 }}
+        className="relative flex-1 min-h-0 overflow-hidden bg-black p-1 [&_.xterm]:h-full [&_.xterm-viewport]:overflow-y-auto"
         onClick={() => termRef.current?.focus()}
       >
         {/* Ctrl+F search panel — overlay inside terminal area */}
