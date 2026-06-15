@@ -6,11 +6,15 @@ import { ChevronRight, Home } from "lucide-react";
 
 const ROUTE_LABELS: Record<string, string> = {
   dashboard: "Dashboard",
+  ai: "Xcel AI",
   hosts: "Hosts",
   instances: "Instances",
+  templates: "Templates",
+  volumes: "Volumes",
   telemetry: "Telemetry",
   billing: "Billing",
   marketplace: "Marketplace",
+  "spot-pricing": "Spot Pricing",
   earnings: "Earnings",
   reputation: "Reputation",
   compliance: "Compliance",
@@ -23,7 +27,7 @@ const ROUTE_LABELS: Record<string, string> = {
   admin: "Admin",
   notifications: "Notifications",
   new: "New",
-  inference: "Endpoints",
+  inference: "Serverless",
 };
 
 export function Breadcrumb() {

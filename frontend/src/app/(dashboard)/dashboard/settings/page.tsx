@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils";
 import { describePasskeyRegistrationError } from "@/lib/passkeys";
 import { applyActiveTeamSwitch, getTeamContext } from "@/lib/team-context";
 import { TeamContextBanner } from "@/components/team/team-context-banner";
+import { ProfileAvatarUpload } from "@/components/user/profile-avatar-upload";
 import {
   SettingsLayout,
   SettingsLinkRow,
@@ -674,12 +675,13 @@ export default function SettingsPage() {
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
             >
-          {activeTab === "profile" && (
+          {activeTab === "profile" && user && (
             <ProfileTab
-              t={t} name={name} setName={setName} email={email}
+              t={t} user={user} name={name} setName={setName} email={email}
               canadaOnly={canadaOnly} setCanadaOnly={setCanadaOnly}
               notifications={notifications} setNotifications={setNotifications}
               saving={saving} onSave={handleSave}
+              onAvatarUpdated={refreshUser}
             />
           )}
           {activeTab === "security" && (
@@ -774,15 +776,17 @@ export default function SettingsPage() {
 // ════════════════════════════════════════════════════════════════════
 
 function ProfileTab({
-  t, name, setName, email, canadaOnly, setCanadaOnly,
-  notifications, setNotifications, saving, onSave,
+  t, user, name, setName, email, canadaOnly, setCanadaOnly,
+  notifications, setNotifications, saving, onSave, onAvatarUpdated,
 }: {
   t: (k: string) => string;
+  user: import("@/lib/auth").User;
   name: string; setName: (v: string) => void;
   email: string;
   canadaOnly: boolean; setCanadaOnly: (v: boolean) => void;
   notifications: boolean; setNotifications: (v: boolean) => void;
   saving: boolean; onSave: () => void;
+  onAvatarUpdated: () => Promise<void>;
 }) {
   return (
     <SettingsTabPanel>
@@ -795,7 +799,8 @@ function ProfileTab({
             accent="cyan"
             highlight
           >
-            <div className="space-y-4">
+            <div className="space-y-6">
+              <ProfileAvatarUpload user={user} onUpdated={onAvatarUpdated} />
               <div className="space-y-2">
                 <Label>{t("dash.settings.name")}</Label>
                 <Input value={name} onChange={(e) => setName(e.target.value)} />

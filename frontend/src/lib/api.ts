@@ -393,6 +393,25 @@ export async function getMe() {
   return apiFetch<{ ok: boolean; user: AuthUser }>("/api/auth/me");
 }
 
+export async function uploadAvatar(file: File) {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch("/api/auth/me/avatar", {
+    method: "POST",
+    credentials: "include",
+    body: form,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { detail?: string }).detail || "Avatar upload failed");
+  }
+  return res.json() as Promise<{ ok: boolean; avatar_url: string }>;
+}
+
+export async function deleteAvatar() {
+  return apiFetch<{ ok: boolean }>("/api/auth/me/avatar", { method: "DELETE" });
+}
+
 export async function refreshToken() {
   return apiFetch<{ ok: boolean; access_token: string; expires_in: number }>(
     "/api/auth/refresh",
@@ -1334,6 +1353,12 @@ export async function requeueInstance(instanceId: string) {
 // ── Host Detail ───────────────────────────────────────────────────────
 export async function fetchHost(hostId: string) {
   return apiFetch<{ ok: boolean; host: Host }>(`/host/${encodeURIComponent(hostId)}`);
+}
+
+export async function deleteHost(hostId: string) {
+  return apiFetch<{ ok: boolean; removed: string }>(`/host/${encodeURIComponent(hostId)}`, {
+    method: "DELETE",
+  });
 }
 
 export async function updateHostSpotSettings(hostId: string, settings: HostSpotSettingsPayload) {
@@ -2305,6 +2330,7 @@ export interface Instance {
   // Connection info (enriched by API when running/completed)
   host_ip?: string;
   host_gpu?: string;
+  host_gpu_model?: string;
   host_vram_gb?: number;
   container_id?: string;
   container_name?: string;

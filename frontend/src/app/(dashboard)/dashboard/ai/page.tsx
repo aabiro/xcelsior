@@ -19,6 +19,7 @@ import {
   ChatInput,
   getStreamingState,
 } from "@/components/ai/chat-messages";
+import { XcelAiOnboarding, useAiOnboardingGate } from "@/components/ai/xcel-ai-onboarding";
 
 const AI_PANEL_KEY = "xcelsior-ai-panel-open";
 
@@ -137,6 +138,7 @@ export default function AiAssistantPage() {
   const [input, setInput] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [panelActive, setPanelActive] = useState(readAiPanelOpen);
+  const { showOnboarding, dismissOnboarding } = useAiOnboardingGate();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -204,6 +206,11 @@ export default function AiAssistantPage() {
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] bg-background overflow-hidden relative">
+      <XcelAiOnboarding
+        open={showOnboarding}
+        onClose={dismissOnboarding}
+        onComplete={() => inputRef.current?.focus()}
+      />
       {/* Panel-active state: chat is in the side panel */}
       {panelActive ? (
         <div className="flex flex-1 items-center justify-center">

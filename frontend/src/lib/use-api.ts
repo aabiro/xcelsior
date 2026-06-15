@@ -39,6 +39,7 @@ export function useApi() {
     fetchHostSpotPreview: api.fetchHostSpotPreview,
     fetchSlaHostsSummary: api.fetchSlaHostsSummary,
     fetchMarketplaceStatsV2: api.fetchMarketplaceStatsV2,
+    fetchAvailableGPUs: api.fetchAvailableGPUs,
     fetchBurstStatus: api.fetchBurstStatus,
   }), []);
 }
