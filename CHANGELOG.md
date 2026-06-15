@@ -2,6 +2,33 @@
 
 All notable changes to Xcelsior are documented here.
 
+## [1.0.0] — 2026-06-15
+
+First stable production release for [xcelsior.ca](https://xcelsior.ca).
+
+### Added
+
+- **Interactive instances:** Web terminal (xterm.js + WebGL), SSH via `connect.xcelsior.ca`, root password on dashboard, ASCII MOTD banner.
+- **Blue-green deploy:** Zero-downtime API and SSH gateway handoff; deploy colour state persisted outside the synced tree.
+- **SSH connect panel:** Command + password surfaced above the web terminal for running interactive instances.
+- **GPU picker:** Admission-aware slot display; queue messaging when GPUs are busy.
+- **Container UX:** Default `cd /workspace`, host tools bind-mount (rsync, etc.), profile/MOTD injection on launch.
+
+### Fixed
+
+- **Worker monitor:** Interactive jobs no longer marked `cancelled` on worker restart, requeue, or deploy — fixes false “cancelled during execution” in the UI.
+- **Requeue / reaper:** `submitted_at` reset on requeue; reaper skips `gpu_busy` hosts.
+- **Terminal MOTD:** Box borders aligned for xterm (fixed inner width).
+- **Instance enrichment:** `host_ip` and computed public SSH port always surfaced for interactive instances.
+- **Deploy:** Conditional service restarts; no in-place API kill on standby failure; SSH gateway drain capped at 300s.
+
+### Changed
+
+- Timeline copy for ended instances: “Instance ended while running” instead of implying a user cancel.
+- Web terminal renderer restored to WebGL with canvas fallback.
+
+[Release commit](https://github.com/aabiro/xcelsior/commit/2e9ba59)
+
 ## [Unreleased]
 
 ### Breaking changes
