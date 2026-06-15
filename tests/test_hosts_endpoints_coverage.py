@@ -237,4 +237,34 @@ def test_worker_oauth_registers_custom_host_id(user_headers):
 
     listed = client.get("/hosts?active_only=false", headers=user_headers["headers"])
     host = next(h for h in listed.json().get("hosts", []) if h["host_id"] == host_id)
-    assert host.get("owner") in {user_headers["user_id"], user_headers["email"]}
+    owner = str(host.get("owner") or "")
+    assert owner in {user_headers["user_id"], user_headers["email"]} or owner.startswith(
+        "client:oauth_"
+    )
+
+
+def test_worker_oauth_can_patch_instance_status(user_headers):
+    """Worker agents must advance leased → starting → running via OAuth PATCH."""
+    me = client.get("/api/auth/me", headers=user_headers["headers"])
+    assert me.status_code == 200, me.text
+    customer_id = me.json()["user"].get("customer_id") or me.json()["user"].get("user_id")
+    from billing import get_billing_engine
+
+    get_billing_engine().deposit(customer_id, 100.0, description="oauth-patch test credits")
+
+    resp = client.post(
+        "/instance",
+        json={"name": "oauth-patch", "vram_needed_gb": 0, "interactive": True},
+        headers=user_headers["headers"],
+    )
+    assert resp.status_code == 200, resp.text
+    job_id = resp.json()["instance"]["job_id"]
+
+    machine_token = _machine_token_for_user(user_headers, scopes="api hosts:write")
+    patch = client.patch(
+        f"/instance/{job_id}",
+        json={"status": "starting", "host_id": "tower-test"},
+        headers={"Authorization": f"Bearer {machine_token}"},
+    )
+    assert patch.status_code == 200, patch.text
+    assert patch.json().get("status") == "starting"

@@ -1282,6 +1282,15 @@ wait \"\$fe_pid\"
         ssh_cmd "cd /opt/xcelsior && docker compose --profile blue logs --tail=30" || true
     fi
 
+    log "Verifying worker PATCH OAuth gate in running API container…"
+    local api_container
+    api_container=$(ssh_cmd "docker ps --format '{{.Names}}' | grep -E 'xcelsior-api' | head -1" 2>/dev/null || true)
+    if [[ -n "$api_container" ]] && ssh_cmd "docker exec $api_container grep -q 'client_credentials' /app/routes/instances.py" 2>/dev/null; then
+        success "Worker PATCH accepts OAuth client_credentials"
+    else
+        warn "Worker PATCH OAuth gate missing in container — jobs may stick in leased/starting"
+    fi
+
     log "Verifying /readyz and PayPal (parallel)…"
     local readyz_out paypal_out
     readyz_out=$(ssh_cmd "curl -sf --max-time 10 http://localhost:$final_port/readyz" 2>/dev/null || true) &

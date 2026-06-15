@@ -63,6 +63,7 @@ _reaper_killed = Counter(
 _TIMEOUTS: dict[str, int] = {
     "queued": int(os.environ.get("REAPER_QUEUED_TIMEOUT_SEC", "7200")),
     "assigned": int(os.environ.get("REAPER_ASSIGNED_TIMEOUT_SEC", "180")),
+    "leased": int(os.environ.get("REAPER_LEASED_TIMEOUT_SEC", "1200")),
     "starting": int(os.environ.get("REAPER_STARTING_TIMEOUT_SEC", "1200")),
 }
 
@@ -106,12 +107,16 @@ def reaper_tick() -> int:
                     # `status`. Racing workers that already claimed/completed the
                     # job win trivially — we get 0 rows back and move on.
                     cur.execute(
-                        "UPDATE jobs SET status = 'failed', "
+                        "UPDATE jobs SET status = 'failed', host_id = NULL, "
                         "payload = jsonb_set("
                         "  jsonb_set("
-                        "    jsonb_set(payload, '{failure_reason}', '\"stuck-no-progress\"'::jsonb), "
-                        "    '{completed_at}', to_jsonb(EXTRACT(EPOCH FROM NOW()))), "
-                        "  '{updated_at}', to_jsonb(EXTRACT(EPOCH FROM NOW()))) "
+                        "    jsonb_set("
+                        "      jsonb_set("
+                        "        jsonb_set(payload, '{status}', '\"failed\"'::jsonb), "
+                        "        '{failure_reason}', '\"stuck-no-progress\"'::jsonb), "
+                        "      '{completed_at}', to_jsonb(EXTRACT(EPOCH FROM NOW()))), "
+                        "    '{updated_at}', to_jsonb(EXTRACT(EPOCH FROM NOW()))), "
+                        "  '{host_id}', 'null'::jsonb) "
                         "WHERE job_id = %s AND status = %s "
                         "RETURNING job_id",
                         (job_id, status),
@@ -124,6 +129,7 @@ def reaper_tick() -> int:
                         )
                         continue
 
+                    conn.commit()
                     total_killed += 1
                     log.warning(
                         "Reaper killed job=%s stuck in status=%s for >%ds",
@@ -133,20 +139,29 @@ def reaper_tick() -> int:
                     )
                     _reaper_killed.labels(status=status, reason="timeout").inc()
 
-                    # Surface the reason to the user — avoids silent "failed"
-                    # rows in the UI. Guarded in a try so log-push failure never
-                    # blocks the reaper itself.
                     try:
-                        from routes.instances import push_job_log
+                        from routes.instances import emit_lifecycle_log
+                        from scheduler import get_job
 
-                        push_job_log(
-                            job_id,
-                            f"Failed: stuck in '{status}' state for >{timeout_sec}s without progress "
-                            "(scheduler or worker never advanced the job)",
-                            level="error",
+                        job_row = get_job(job_id) or {}
+                        job_row["failure_reason"] = (
+                            f"stuck in '{status}' state for >{timeout_sec}s without progress "
+                            "(scheduler or worker never advanced the job)"
                         )
+                        emit_lifecycle_log(job_id, status, "failed", job_row)
                     except Exception as e:
-                        log.debug("reaper log push failed for %s: %s", job_id, e)
+                        log.debug("reaper lifecycle log failed for %s: %s", job_id, e)
+                        try:
+                            from routes.instances import push_job_log
+
+                            push_job_log(
+                                job_id,
+                                f"Failed: stuck in '{status}' state for >{timeout_sec}s without progress "
+                                "(scheduler or worker never advanced the job)",
+                                level="error",
+                            )
+                        except Exception:
+                            pass
 
         except Exception as e:
             log.error("reaper_tick error for status=%s: %s", status, e)

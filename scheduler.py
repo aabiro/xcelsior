@@ -265,7 +265,7 @@ def _load_jobs_from_conn(conn, status=None):
     if status:
         rows = conn.execute(
             """
-            SELECT payload
+            SELECT status, payload
             FROM jobs
             WHERE status = %s
             ORDER BY submitted_at ASC, job_id ASC
@@ -274,7 +274,7 @@ def _load_jobs_from_conn(conn, status=None):
         ).fetchall()
     else:
         rows = conn.execute("""
-            SELECT payload
+            SELECT status, payload
             FROM jobs
             ORDER BY submitted_at ASC, job_id ASC
             """).fetchall()
@@ -282,6 +282,11 @@ def _load_jobs_from_conn(conn, status=None):
     for row in rows:
         item = _decode_payload(row["payload"])
         if isinstance(item, dict):
+            # The indexed `status` column is authoritative; legacy reaper SQL
+            # could update the column without syncing payload.status.
+            col_status = row["status"] if isinstance(row, dict) else row[0]
+            if col_status and item.get("status") != col_status:
+                item["status"] = col_status
             jobs.append(item)
     return jobs
 
@@ -513,10 +518,32 @@ def _vram_fits(host, vram_needed):
     return total >= vram_needed and (free + VRAM_DRIVER_OVERHEAD_GB) >= vram_needed
 
 
+def _gpu_model_candidates(candidates: list[dict], requested_gpu_model: str) -> list[dict]:
+    """Prefer exact GPU model matches; fall back to VRAM-qualified upgrades."""
+    requested = (requested_gpu_model or "").strip().lower()
+    if not requested:
+        return candidates
+    exact = [
+        h for h in candidates if (h.get("gpu_model") or "").strip().lower() == requested
+    ]
+    if exact:
+        return exact
+    if candidates:
+        log.info(
+            "ALLOCATE: no exact %s host — using %d upgrade candidate(s)",
+            requested_gpu_model,
+            len(candidates),
+        )
+    return candidates
+
+
 def _allocate_host_score(job: dict, host: dict, *, volume_host_ids: set[str] | None = None) -> tuple:
     """Sort key for host preference (higher is better)."""
     num_gpus_needed = job.get("num_gpus", 1) or 1
     volume_host_ids = volume_host_ids or set()
+    requested = (job.get("gpu_model") or "").strip().lower()
+    host_model = (host.get("gpu_model") or "").strip().lower()
+    exact_gpu = 1 if (not requested or host_model == requested) else 0
     gpu_match = min(host.get("gpu_count", 1), num_gpus_needed)
     vram = host.get("free_vram_gb", 0)
     latency = host.get("latency_ms", 999)
@@ -525,7 +552,7 @@ def _allocate_host_score(job: dict, host: dict, *, volume_host_ids: set[str] | N
     price = max(base_cost, 0.01)
     efficiency = compute / price
     gravity = 1.3 if host.get("host_id") in volume_host_ids else 1.0
-    return (gpu_match, efficiency * gravity, vram, -latency, -base_cost)
+    return (exact_gpu, gpu_match, efficiency * gravity, vram, -latency, -base_cost)
 
 
 def _allocate_candidates(job, hosts, jobs: list[dict] | None = None):
@@ -550,11 +577,7 @@ def _allocate_candidates(job, hosts, jobs: list[dict] | None = None):
         return []
 
     if requested_gpu_model:
-        candidates = [
-            h
-            for h in candidates
-            if (h.get("gpu_model") or "").strip().lower() == requested_gpu_model
-        ]
+        candidates = _gpu_model_candidates(candidates, requested_gpu_model)
         if not candidates:
             return []
 
@@ -840,11 +863,7 @@ def allocate_binpack(job, hosts, user_province=None, volume_host_ids=None):
         return None
 
     if requested_gpu_model:
-        candidates = [
-            h
-            for h in candidates
-            if (h.get("gpu_model") or "").strip().lower() == requested_gpu_model
-        ]
+        candidates = _gpu_model_candidates(candidates, requested_gpu_model)
         if not candidates:
             return None
 
@@ -958,6 +977,12 @@ def process_queue_binpack(canada_only=None, province=None):
                 pass
         host = allocate_binpack(job, hosts, volume_host_ids=vol_host_ids)
         if host:
+            try:
+                from host_metadata import enrich_host_for_api
+
+                host = enrich_host_for_api(host)
+            except Exception:
+                pass
             assign_kwargs: dict = {
                 "host_gpu_model": host.get("gpu_model", ""),
                 "host_vram_gb": host.get("total_vram_gb", host.get("free_vram_gb", 0)),
@@ -1026,6 +1051,7 @@ def process_queue_binpack(canada_only=None, province=None):
 # ── Queue-block diagnostics + renter notifications ───────────────────
 
 _renter_notified: dict[str, float] = {}
+_queue_diag_logged: dict[str, float] = {}
 
 
 def _diagnose_queue_block(job: dict | None, hosts: list[dict]) -> tuple[str, str]:
@@ -1055,6 +1081,17 @@ def _diagnose_queue_block(job: dict | None, hosts: list[dict]) -> tuple[str, str
             h for h in candidates if (h.get("gpu_model") or "").strip().lower() == gpu_model
         ]
         if not with_gpu:
+            admitted_upgrades = [h for h in with_vram if h.get("admitted", False)]
+            if admitted_upgrades:
+                models = sorted({h.get("gpu_model", "GPU") for h in admitted_upgrades})
+                return (
+                    "gpu_upgrade_available",
+                    (
+                        f"No {job.get('gpu_model', gpu_model)} hosts are online, but "
+                        f"{', '.join(models)} GPU(s) with sufficient VRAM are available. "
+                        "Choose “Any GPU” or wait for your requested model."
+                    ),
+                )
             return (
                 "no_matching_gpu",
                 f"No hosts with a {job.get('gpu_model', gpu_model)} GPU are available. Your job remains queued.",
@@ -1220,6 +1257,7 @@ def register_host(
                 "owner",
                 "autoscaled",
                 "compute_score",
+                "cpu_count",
                 "admitted",
                 "gpu_count",
                 "spot_enabled",
@@ -2001,6 +2039,14 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
         alert_job_failed(*alert_failed)
     elif alert_completed:
         alert_job_completed(*alert_completed)
+
+    try:
+        from routes.instances import emit_lifecycle_log
+
+        emit_lifecycle_log(job_id, old_status, status, j)
+    except Exception:
+        pass
+
     return j
 
 
@@ -2048,8 +2094,27 @@ def process_queue():
                 job.get("gpu_model", "any"),
                 job.get("vram_needed_gb", 0),
             )
+            jid = job.get("job_id")
+            if jid:
+                now = time.time()
+                if now - _queue_diag_logged.get(jid, 0) >= 120:
+                    reason, detail = _diagnose_queue_block(job, hosts)
+                    _persist_queue_reason(job, reason, detail)
+                    try:
+                        from routes.instances import push_job_log
+
+                        push_job_log(jid, f"Still queued — {detail}", "info")
+                    except Exception:
+                        pass
+                    _queue_diag_logged[jid] = now
             continue  # no host for THIS job, but maybe smaller jobs fit
 
+        try:
+            from host_metadata import enrich_host_for_api
+
+            host = enrich_host_for_api(host)
+        except Exception:
+            pass
         assign_kwargs: dict = {
             "host_gpu_model": host.get("gpu_model", ""),
             "host_vram_gb": host.get("total_vram_gb", host.get("free_vram_gb", 0)),
@@ -2376,8 +2441,11 @@ def run_job(job, host, docker_image=None):
         parts.append("--memory=32g")
         parts.append("--memory-swap=32g")
 
-    # CPU, ulimit, and shared memory limits
-    parts.append("--cpus=16")
+    # CPU, ulimit, and shared memory limits (cap to host logical CPUs)
+    from security import container_cpu_limit
+
+    host_cpus = int(host.get("cpu_count") or 0)
+    parts.append(f"--cpus={container_cpu_limit(host_cpus if host_cpus > 0 else None)}")
     parts.append("--ulimit=nofile=65535:65535")
     parts.append("--ulimit=nproc=4096:4096")
     parts.append("--shm-size=1g")
@@ -3003,11 +3071,11 @@ def alert_job_completed(job_id, job_name, duration_sec=None):
 # ── Phase 14: Failover ────────────────────────────────────────────────
 
 
-def requeue_job(job_id):
+def requeue_job(job_id, *, user_initiated: bool = False):
     """
     Reset a failed/running/leased/assigned job back to queued.
-    Increment retry counter. Clear host assignment. Release VRAM.
-    If max retries exceeded, mark permanently failed.
+    Increment retry counter (failover only). Clear host assignment. Release VRAM.
+    If max retries exceeded, mark permanently failed — unless user_initiated.
     """
     exhausted = None
     requeued = None
@@ -3019,13 +3087,21 @@ def requeue_job(job_id):
         if not j:
             return None
 
-        # Accept running, starting, failed, leased, and assigned jobs for requeue
-        if j["status"] not in ("running", "starting", "failed", "leased", "assigned"):
+        # Accept running, starting, failed, leased, assigned, and cancelled jobs
+        if j["status"] not in (
+            "running",
+            "starting",
+            "failed",
+            "leased",
+            "assigned",
+            "cancelled",
+        ):
             log.warning("REQUEUE REJECTED job=%s status=%s — not requeuable", job_id, j["status"])
             return None
 
         old_host_id = j.get("host_id")
         old_status = j["status"]
+        user_cancelled = old_status == "cancelled"
 
         # Release VRAM if the job had any reserved on its host
         reserved = float(j.get("vram_reserved_gb", j.get("vram_needed_gb", 0)) or 0)
@@ -3035,10 +3111,16 @@ def requeue_job(job_id):
                 "REQUEUE VRAM RELEASED job=%s host=%s vram=%.2fGB", job_id, old_host_id, reserved
             )
 
-        retries = j.get("retries", 0) + 1
-        max_retries = j.get("max_retries", 3)
+        # Manual UI relaunch resets the failover counter — user explicitly opted in.
+        if user_initiated:
+            retries = 0
+        elif user_cancelled:
+            retries = int(j.get("retries", 0) or 0)
+        else:
+            retries = int(j.get("retries", 0) or 0) + 1
+        max_retries = int(j.get("max_retries", 3) or 3)
 
-        if retries > max_retries:
+        if not user_initiated and retries > max_retries:
             j["status"] = "failed"
             j["completed_at"] = time.time()
             j["vram_reserved_gb"] = 0
@@ -3051,8 +3133,14 @@ def requeue_job(job_id):
             j["completed_at"] = None
             j["retries"] = retries
             j["vram_reserved_gb"] = 0
+            j.pop("failure_reason", None)
+            j.pop("host_gpu_model", None)
+            j.pop("host_vram_gb", None)
+            j.pop("error_message", None)
+            if user_initiated:
+                j["relaunch_count"] = int(j.get("relaunch_count", 0) or 0) + 1
             _upsert_job_row(conn, j)
-            requeued = (j, retries, max_retries, old_host_id or "—")
+            requeued = (j, retries, max_retries, old_host_id or "—", old_status)
 
     if exhausted:
         retries, max_retries, name, host_id = exhausted
@@ -3076,7 +3164,7 @@ def requeue_job(job_id):
         return None
 
     if requeued:
-        j, retries, max_retries, old_host = requeued
+        j, retries, max_retries, old_host, old_status = requeued
         log.warning(
             "FAILOVER REQUEUE job=%s retry=%d/%d old_host=%s",
             job_id,
@@ -3084,6 +3172,12 @@ def requeue_job(job_id):
             max_retries,
             old_host,
         )
+        try:
+            from routes.instances import emit_lifecycle_log
+
+            emit_lifecycle_log(job_id, old_status, "queued", j)
+        except Exception:
+            pass
         return j
 
     return None

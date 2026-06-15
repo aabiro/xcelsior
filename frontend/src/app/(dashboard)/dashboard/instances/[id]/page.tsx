@@ -271,19 +271,24 @@ export default function InstanceDetailPage() {
     });
     toast.warning(t("dash.instances.preempted_toast"));
   }, [t]);
+  const onWsStatusChange = useCallback((_jobId: string, _newStatus: string) => {
+    load(true);
+  }, [load]);
   const wsState = useInstanceWebSocket(id, {
     onInstance: onWsInstance,
     onJobError: onWsJobError,
     onLog: onWsLog,
     onPreempted: onWsPreempted,
+    onStatusChange: onWsStatusChange,
     enabled: isLive,
   });
 
+  // Poll even when WS is connected — reaper/scheduler updates can lag NOTIFY.
   useEffect(() => {
-    if (!isLive || wsState.connected) return;
+    if (!isLive) return;
     const interval = setInterval(() => load(true), 5000);
     return () => clearInterval(interval);
-  }, [isLive, wsState.connected, load]);
+  }, [isLive, load]);
 
   async function executeAction(action: ConfirmAction) {
     if (!action) return;
@@ -324,17 +329,21 @@ export default function InstanceDetailPage() {
   }
 
   async function handleRequeue() {
+    setActionPending(true);
     try {
       const res = await requeueInstance(id);
       toast.success("Instance requeued");
       const newId = res.instance?.job_id;
       if (newId && newId !== id) {
         router.push(`/dashboard/instances/${newId}`);
-      } else {
-        load();
+      } else if (res.instance) {
+        setInstance(res.instance);
       }
+      load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Requeue failed");
+    } finally {
+      setActionPending(false);
     }
   }
 
@@ -378,12 +387,26 @@ export default function InstanceDetailPage() {
   //   started_at → actually transitioned to running at some point
   //   host_id    → scheduler assigned a host
   //   status     → current state (authoritative for in-flight values)
+  const waitSeconds = instance.submitted_at
+    ? Math.max(0, Math.floor(Date.now() / 1000 - instance.submitted_at))
+    : 0;
+  const stuckProvisioning =
+    (status === "starting" || status === "leased" || status === "assigned")
+    && waitSeconds >= 600;
+
   const furthestStep: typeof STATUS_STEPS[number] = (() => {
     if (status === "completed") return "completed";
     if (status === "running") return "running";
-    if (instance.started_at) return "running"; // was running then stopped/failed
-    if (status === "starting") return "starting";
-    if (instance.host_id) return "assigned";
+    if (status === "failed" || status === "cancelled" || status === "terminated") {
+      if (instance.started_at) return "running";
+      const reason = String(instance.failure_reason || "").toLowerCase();
+      if (reason.includes("starting") || reason.includes("leased")) return "starting";
+      if (instance.host_id || instance.host_gpu_model) return "assigned";
+      return "queued";
+    }
+    if (instance.started_at) return "running";
+    if (status === "starting" || status === "leased") return "starting";
+    if (status === "assigned" || instance.host_id) return "assigned";
     return "queued";
   })();
   const currentStepIdx = STATUS_STEPS.indexOf(furthestStep);
@@ -498,8 +521,8 @@ export default function InstanceDetailPage() {
               <XCircle className="h-3.5 w-3.5" /> {t("dash.instances.cancel")}
             </Button>
           )}
-          {/* Failed requeue */}
-          {isFailed && !readOnly && (
+          {/* Requeue failed, cancelled, or stuck assignment */}
+          {(isFailed || status === "cancelled" || (isQueued && instance.host_id)) && !readOnly && (
             <Button variant="outline" size="sm" onClick={handleRequeue} disabled={actionPending}>
               <RotateCcw className="h-3.5 w-3.5" /> {t("dash.instances.requeue")}
             </Button>
@@ -557,14 +580,28 @@ export default function InstanceDetailPage() {
             </span>
           </div>
         )}
-        {status === "queued" && (
+        {stuckProvisioning && (
+          <div className="mt-3 flex items-start gap-2 rounded-md bg-accent-red/10 border border-accent-red/30 px-3 py-2">
+            <AlertTriangle className="h-4 w-4 text-accent-red shrink-0 mt-0.5" />
+            <span className="text-xs text-text-secondary">
+              Provisioning has taken over 10 minutes ({formatUptime(waitSeconds)}).
+              Large image pulls or a busy host can cause delays — try Requeue, pick &quot;Any GPU&quot;,
+              or check host logs. The job will auto-fail if stuck too long.
+            </span>
+          </div>
+        )}
+        {(status === "queued" || status === "assigned" || status === "leased" || status === "starting") && (
           <div className="mt-3 flex items-start gap-2 rounded-md bg-amber-500/10 border border-amber-500/20 px-3 py-2">
             <Info className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
             <span className="text-xs text-text-secondary">
-              {instance.queue_reason_detail
-                || (instance.gpu_model
-                  ? t("dash.instances.queue_waiting_gpu", { gpu: instance.gpu_model })
-                  : t("dash.instances.queue_waiting_any"))}
+              {status === "starting" || status === "leased"
+                ? `Host ${instance.host_id || "worker"} is pulling your image and starting the container — large CUDA images can take several minutes.`
+                : status === "assigned"
+                ? `Host ${instance.host_id || "assigned"} is preparing your instance — worker should claim the lease within ~30s.`
+                : instance.queue_reason_detail
+                  || (instance.gpu_model
+                    ? t("dash.instances.queue_waiting_gpu", { gpu: instance.gpu_model })
+                    : t("dash.instances.queue_waiting_any"))}
             </span>
           </div>
         )}
@@ -611,7 +648,10 @@ export default function InstanceDetailPage() {
           </div>
           <div>
             <p className="text-xs text-text-muted">{t("dash.instances.label_gpu")}</p>
-            <p className="font-medium">{instance.gpu_type || instance.host_gpu || instance.gpu_model || (instance.host_id ? t("dash.instances.auto") : "Pending assignment")}</p>
+            <p className="font-medium">
+              {instance.gpu_type || instance.host_gpu || instance.gpu_model || instance.gpu_display
+                || (instance.host_id ? t("dash.instances.auto") : "Pending assignment")}
+            </p>
           </div>
         </Card>
 
@@ -626,7 +666,9 @@ export default function InstanceDetailPage() {
                 ? `${(instance.duration_sec / 3600).toFixed(1)}h`
                 : instance.elapsed_sec
                   ? `${(instance.elapsed_sec / 60).toFixed(0)}m`
-                  : "—"}
+                  : instance.wait_elapsed_sec
+                    ? `${Math.max(1, Math.round(instance.wait_elapsed_sec / 60))}m waiting`
+                    : "—"}
             </p>
           </div>
         </Card>
@@ -675,9 +717,11 @@ export default function InstanceDetailPage() {
             <p className="font-mono font-medium mt-0.5">
               {pricingMode === "spot" && instance.spot_rate_cad != null
                 ? `$${instance.spot_rate_cad.toFixed(2)}/hr CAD`
-                : instance.cost_cad != null && instance.elapsed_sec
-                  ? `~$${((instance.cost_cad / (instance.elapsed_sec / 3600)) || 0).toFixed(2)}/hr`
-                  : "—"}
+                : instance.rate_per_hour_cad != null
+                  ? `$${instance.rate_per_hour_cad.toFixed(2)}/hr CAD${instance.rate_is_estimate ? " (est.)" : ""}`
+                  : instance.cost_cad != null && instance.elapsed_sec
+                    ? `~$${((instance.cost_cad / (instance.elapsed_sec / 3600)) || 0).toFixed(2)}/hr`
+                    : "—"}
             </p>
           </div>
           <div>
@@ -745,23 +789,20 @@ export default function InstanceDetailPage() {
               Waiting for assignment…
             </span>
           )}
-          {status === "assigned" && (
+          {(status === "assigned" || status === "leased" || status === "starting") && (
             <span className="ml-auto flex items-center gap-1.5 text-xs text-ice-blue">
               <Loader2 className="h-3 w-3 animate-spin" />
-              Host assigned, preparing…
-            </span>
-          )}
-          {status === "starting" && (
-            <span className="ml-auto flex items-center gap-1.5 text-xs text-ice-blue">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              Pulling image &amp; starting container…
+              {status === "assigned"
+                ? "Host assigned, preparing…"
+                : "Pulling image & starting container…"}
             </span>
           )}
         </div>
         <LogViewer
           jobId={id}
-          live={isRunning || status === "starting" || status === "assigned" || status === "queued"}
-          wsLogs={wsState.connected ? wsLogs : undefined}
+          refreshToken={`${status}-${instance.retries ?? 0}-${instance.relaunch_count ?? 0}-${instance.updated_at ?? instance.submitted_at}`}
+          live={isRunning || status === "starting" || status === "assigned" || status === "queued" || status === "leased"}
+          wsLogs={wsLogs}
           wsConnected={wsState.connected}
         />
       </Card>
