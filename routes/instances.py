@@ -828,6 +828,14 @@ def api_submit_instance(j: JobIn, request: Request):
         return {"ok": True, "instance": job}
 
 
+def _compute_public_ssh_port(job_id: str) -> int:
+    """Gateway-side SSH port (mirrors worker_agent / ssh_gateway mapping)."""
+    try:
+        return 10000 + (int(str(job_id)[:4], 16) % 55000)
+    except (ValueError, TypeError):
+        return 0
+
+
 def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
     """Shared enrichment for every instance response — list and detail.
 
@@ -918,6 +926,10 @@ def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
     pub_port = j.get("public_ssh_port")
     if pub_port:
         j["ssh_port"] = pub_port
+    elif j.get("interactive") and j.get("status") in ("running", "starting", "stopped", "restarting"):
+        computed = _compute_public_ssh_port(str(j.get("job_id") or ""))
+        if computed:
+            j.setdefault("ssh_port", computed)
 
     pricing_mode = j.get("pricing_mode") or (
         "spot" if j.get("preemptible") or j.get("spot") else "on_demand"

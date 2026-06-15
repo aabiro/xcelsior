@@ -823,7 +823,7 @@ const en: Record<string, string> = {
   "dash.instances.terminate_title": "Terminate Instance?",
   "dash.instances.terminate_desc": "This will hard-kill and permanently destroy the container. Named volumes are preserved, but all other container data will be lost. This action cannot be undone.",
   "dash.instances.timeline": "Status Timeline",
-  "dash.instances.during_exec": "Instance {status} during execution",
+  "dash.instances.during_exec": "Instance ended while running ({status})",
   "dash.instances.queue_waiting_gpu": "Waiting for an idle {gpu}. Your instance will start automatically as soon as a matching GPU frees up.",
   "dash.instances.queue_waiting_any": "Waiting for an available GPU. Your instance will start automatically once capacity opens up.",
   "dash.instances.label_gpu": "GPU",

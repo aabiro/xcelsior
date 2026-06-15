@@ -4116,13 +4116,15 @@ def _monitor_interactive(job_id, container_name, log_forwarder=None):
     )
 
     while not _shutdown.is_set():
-        # Check if this job has been preempted/cancelled
+        # Another control path removed this job from tracking (requeue,
+        # graceful shutdown, preemption, billing pause/restart). That path
+        # already owns the DB status — do not clobber it with "cancelled".
         with _active_lock:
             if job_id not in _active_containers:
-                log.info("Interactive job %s removed from active containers — stopping", job_id)
-                _kill_container(container_name)
-                report_job_status(job_id, "cancelled")
-                release_lease(job_id, "cancelled")
+                log.info(
+                    "Interactive job %s removed from active containers — monitor exiting",
+                    job_id,
+                )
                 return
 
         try:
@@ -4205,10 +4207,9 @@ def _monitor_interactive(job_id, container_name, log_forwarder=None):
         # Sleep in small increments to respond to shutdown/cancel/requeue quickly
         for _ in range(check_interval):
             if _shutdown.is_set():
-                log.info("Shutdown signal — stopping interactive container %s", container_name)
-                _kill_container(container_name)
-                report_job_status(job_id, "cancelled")
-                release_lease(job_id, "cancelled")
+                # graceful_shutdown() stops agent-started containers and marks
+                # them queued; adopted containers are left running. Either way
+                # this monitor must not report "cancelled" on worker restart.
                 return
             with _active_lock:
                 if job_id not in _active_containers:
@@ -4881,15 +4882,15 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
 
             # Set up MOTD + custom shell prompt for the interactive instance.
             short = job_id[:8]
-            # ASCII box — fixed width so xterm/customGlyphs never misalign borders.
-            _motd_w = 53
+            # ASCII box — inner width matches "| " + title + " |" exactly.
+            _motd_inner = 55
             _motd_title = "Xcelsior - GPU compute, on demand"
-            _motd_pad = _motd_title[:_motd_w].ljust(_motd_w)
+            _motd_pad = _motd_title[: _motd_inner - 2].ljust(_motd_inner - 2)
             motd = (
                 "\n"
-                f"  \033[36m+{'-' * _motd_w}+\033[0m\n"
+                f"  \033[36m+{'-' * _motd_inner}+\033[0m\n"
                 f"  \033[36m|\033[0m {_motd_pad} \033[36m|\033[0m\n"
-                f"  \033[36m+{'-' * _motd_w}+\033[0m\n"
+                f"  \033[36m+{'-' * _motd_inner}+\033[0m\n"
                 "\n"
                 f"  \033[2mInstance\033[0m  \033[1m{short}\033[0m\n"
                 f"  \033[2mContainer\033[0m \033[1m{container_name}\033[0m\n"
