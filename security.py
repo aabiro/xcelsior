@@ -493,6 +493,17 @@ DEFAULT_EGRESS_ALLOWLIST = [
 ]
 
 
+def container_cpu_limit(host_cpus: int | None = None) -> str:
+    """Docker --cpus value capped to what the host actually has.
+
+    Defaults to min(16, os.cpu_count()) so towers with 12 logical CPUs do not
+    fail container create with "range of CPUs is from 0.01 to 12.00".
+    """
+    ceiling = int(os.environ.get("XCELSIOR_CONTAINER_CPUS_MAX", "16"))
+    available = host_cpus if host_cpus and host_cpus > 0 else (os.cpu_count() or ceiling)
+    return str(max(1, min(ceiling, int(available))))
+
+
 def build_secure_docker_args(
     image,
     container_name,
@@ -574,7 +585,7 @@ def build_secure_docker_args(
     args.extend(["--memory", "32g"])
     args.extend(["--memory-swap", "32g"])
     args.extend(["--pids-limit", "4096"])
-    args.extend(["--cpus", "16"])
+    args.extend(["--cpus", container_cpu_limit()])
     args.extend(["--ulimit", "nofile=65535:65535"])
     args.extend(["--ulimit", "nproc=4096:4096"])
 
@@ -830,6 +841,21 @@ GVISOR_SUPPORTED_GPUS = {
 GVISOR_RELEASE_URL = "https://storage.googleapis.com/gvisor/releases/release/latest/x86_64"
 
 
+def _run_privileged(cmd: list[str], **kwargs):
+    """Run a command as root, using passwordless sudo when needed."""
+    if os.geteuid() == 0:
+        return subprocess.run(cmd, **kwargs)
+    return subprocess.run(["sudo", "-n", *cmd], **kwargs)
+
+
+def _chmod_privileged(path: str, mode: int) -> None:
+    if os.geteuid() == 0:
+        os.chmod(path, mode)
+        return
+    octal_mode = oct(mode)[-3:]
+    subprocess.run(["sudo", "-n", "chmod", octal_mode, path], check=False, timeout=10)
+
+
 def install_gvisor(enable_nvproxy=True):
     """Auto-install gVisor (runsc) runtime with optional nvproxy for GPU passthrough.
 
@@ -846,14 +872,18 @@ def install_gvisor(enable_nvproxy=True):
 
     log.info("Installing gVisor (runsc) runtime...")
 
-    # Require root for installation
     if os.geteuid() != 0:
-        return False, "gVisor install requires root privileges (run with sudo)"
+        try:
+            probe = subprocess.run(["sudo", "-n", "true"], capture_output=True, timeout=5)
+            if probe.returncode != 0:
+                return False, "gVisor install requires root or passwordless sudo (NOPASSWD)"
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return False, "gVisor install requires root or passwordless sudo"
 
     try:
         # 1. Download runsc binary
         log.info("Downloading runsc binary...")
-        dl_runsc = subprocess.run(
+        dl_runsc = _run_privileged(
             ["wget", "-q", f"{GVISOR_RELEASE_URL}/runsc", "-O", "/usr/local/bin/runsc"],
             capture_output=True,
             text=True,
@@ -864,7 +894,7 @@ def install_gvisor(enable_nvproxy=True):
 
         # 2. Download containerd-shim-runsc-v1
         log.info("Downloading containerd-shim-runsc-v1...")
-        dl_shim = subprocess.run(
+        dl_shim = _run_privileged(
             [
                 "wget",
                 "-q",
@@ -880,8 +910,8 @@ def install_gvisor(enable_nvproxy=True):
             return False, f"Failed to download containerd-shim: {dl_shim.stderr.strip()}"
 
         # 3. Make executable
-        os.chmod("/usr/local/bin/runsc", 0o755)
-        os.chmod("/usr/local/bin/containerd-shim-runsc-v1", 0o755)
+        _chmod_privileged("/usr/local/bin/runsc", 0o755)
+        _chmod_privileged("/usr/local/bin/containerd-shim-runsc-v1", 0o755)
 
         # 4. Configure Docker daemon with runsc runtime
         daemon_config_path = "/etc/docker/daemon.json"
@@ -903,16 +933,29 @@ def install_gvisor(enable_nvproxy=True):
         }
         daemon_config["runtimes"] = runtimes
 
-        os.makedirs(os.path.dirname(daemon_config_path), exist_ok=True)
-        with open(daemon_config_path, "w") as f:
-            json.dump(daemon_config, f, indent=2)
+        if os.geteuid() == 0:
+            os.makedirs(os.path.dirname(daemon_config_path), exist_ok=True)
+            with open(daemon_config_path, "w") as f:
+                json.dump(daemon_config, f, indent=2)
+        else:
+            import tempfile
+
+            with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json") as tmp:
+                json.dump(daemon_config, tmp, indent=2)
+                tmp_path = tmp.name
+            _run_privileged(["mkdir", "-p", os.path.dirname(daemon_config_path)], timeout=10)
+            _run_privileged(["cp", tmp_path, daemon_config_path], timeout=10)
+            os.unlink(tmp_path)
 
         # 5. Create log directory for runsc
-        os.makedirs("/var/log/runsc", exist_ok=True)
+        if os.geteuid() == 0:
+            os.makedirs("/var/log/runsc", exist_ok=True)
+        else:
+            _run_privileged(["mkdir", "-p", "/var/log/runsc"], timeout=10)
 
         # 6. Restart Docker to pick up new runtime
         log.info("Restarting Docker to register runsc runtime...")
-        restart = subprocess.run(
+        restart = _run_privileged(
             ["systemctl", "restart", "docker"],
             capture_output=True,
             text=True,

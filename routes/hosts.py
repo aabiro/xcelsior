@@ -80,6 +80,11 @@ def _resolve_host_owner_from_user(user: dict) -> str:
     creator = _oauth_client_creator(user)
     if creator:
         return str(creator.get("user_id") or creator.get("sub") or creator.get("email") or "")
+    grant = str(user.get("grant_type") or user.get("auth_type") or "")
+    if grant == "client_credentials":
+        client_id = str(user.get("client_id") or "").strip()
+        if client_id:
+            return f"client:{client_id}"
     return str(user.get("user_id") or user.get("sub") or user.get("email") or "")
 
 
@@ -106,7 +111,11 @@ def _require_host_operator(user: dict, host_id: str) -> None:
     if entry and caller_ids & _host_owner_ids(entry):
         return
 
-    if creator and entry is None:
+    # Worker OAuth clients (hosts:write) may register new hosts or claim rows
+    # with no owner. Creator email lookup can fail for machine-owned clients
+    # (e.g. created_by_email=api-token@xcelsior.ca), so gate on grant_type.
+    grant = str(user.get("grant_type") or user.get("auth_type") or "")
+    if grant == "client_credentials" and (entry is None or not _host_owner_ids(entry)):
         return
 
     raise HTTPException(403, "Forbidden")
@@ -194,6 +203,7 @@ class HostIn(BaseModel):
     # agents that haven't been rolled out yet still pass validation.
     agent_version: str | None = Field(default=None, max_length=32)
     agent_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$|^$")
+    cpu_count: int | None = Field(default=None, ge=1, le=512)
     spot_enabled: bool | None = None
     spot_gpu_slots: int | None = Field(default=None, ge=0, le=64)
     spot_min_cents: int | None = Field(default=None, ge=0, le=1_000_000)
@@ -284,6 +294,8 @@ def api_register_host(h: HostIn, request: Request):
         entry["agent_version"] = h.agent_version
     if h.agent_sha256:
         entry["agent_sha256"] = h.agent_sha256
+    if h.cpu_count:
+        entry["cpu_count"] = int(h.cpu_count)
     # Persist Canadian company info if provided
     if h.corporation_name:
         entry["corporation_name"] = h.corporation_name

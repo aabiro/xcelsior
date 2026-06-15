@@ -154,6 +154,20 @@ class TestJobCRUD:
             assert loaded["status"] == "running"
             assert loaded["host_id"] == "h-1"
 
+    def test_get_job_overlays_indexed_columns(self):
+        """Indexed status/host_id columns win over stale JSON payload."""
+        job = self._make_job("j-drift", status="queued", host_id=None)
+        with sqlite_transaction() as conn:
+            DatabaseOps.upsert_job(conn, job)
+            conn.execute(
+                "UPDATE jobs SET status = ?, host_id = ? WHERE job_id = ?",
+                ("assigned", "tower-rtx3060", "j-drift"),
+            )
+        with sqlite_connection() as conn:
+            loaded = DatabaseOps.get_job(conn, "j-drift")
+            assert loaded["status"] == "assigned"
+            assert loaded["host_id"] == "tower-rtx3060"
+
     def test_load_jobs_all(self):
         with sqlite_transaction() as conn:
             for i in range(3):

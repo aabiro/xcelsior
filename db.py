@@ -870,13 +870,35 @@ class DatabaseOps:
 
     @staticmethod
     def get_job(conn, job_id, backend="sqlite"):
-        """Fetch a single job by ID."""
+        """Fetch a single job by ID.
+
+        Indexed ``status`` and ``host_id`` columns are authoritative when they
+        diverge from the JSONB payload (legacy reaper SQL, partial migrations).
+        """
         ph = "%s" if backend == "postgres" else "?"
-        row = conn.execute(f"SELECT payload FROM jobs WHERE job_id = {ph}", (job_id,)).fetchone()
+        row = conn.execute(
+            f"SELECT status, host_id, payload FROM jobs WHERE job_id = {ph}",
+            (job_id,),
+        ).fetchone()
         if not row:
             return None
-        payload = row["payload"] if isinstance(row, dict) else row[0]
-        return DatabaseOps.decode_payload(payload)
+        if isinstance(row, dict):
+            col_status = row.get("status")
+            col_host_id = row.get("host_id")
+            payload = row.get("payload")
+        else:
+            col_status, col_host_id, payload = row[0], row[1], row[2]
+        job = DatabaseOps.decode_payload(payload)
+        if not isinstance(job, dict):
+            return job
+        if col_status and job.get("status") != col_status:
+            job["status"] = col_status
+        # Indexed host_id column wins; NULL clears stale payload after reaper/unassign.
+        if col_host_id:
+            job["host_id"] = col_host_id
+        else:
+            job["host_id"] = None
+        return job
 
     @staticmethod
     def get_host(conn, host_id, backend="sqlite"):

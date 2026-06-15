@@ -2288,7 +2288,11 @@ export interface Instance {
   image?: string;  // raw backend field — normalizeInstance maps this to docker_image
   duration_sec?: number;
   elapsed_sec?: number;
+  wait_elapsed_sec?: number;
   cost_cad?: number;
+  rate_per_hour_cad?: number;
+  rate_is_estimate?: boolean;
+  gpu_display?: string;
   tier?: string;
   pricing_mode?: "on_demand" | "spot" | "reserved";
   spot_rate_cad?: number;
@@ -2343,6 +2347,10 @@ export interface Instance {
   // Queue diagnostics
   queue_reason?: string;
   queue_reason_detail?: string;
+  relaunch_count?: number;
+  retries?: number;
+  updated_at?: number;
+  failure_reason?: string;
   // Provenance: launched from a saved template
   source_template_id?: string;
   // Raw payload from backend (some fields not promoted to top-level)

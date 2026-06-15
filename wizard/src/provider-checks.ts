@@ -686,6 +686,8 @@ export async function installWorkerAgent(
         `XCELSIOR_HOST_ID=${hostId}`,
         `XCELSIOR_SCHEDULER_URL=${apiUrl}`,
         `XCELSIOR_HOST_IP=${hostIp}`,
+        // Interactive instances use hardened runc; skip gVisor auto-install on first boot.
+        `XCELSIOR_PREFER_GVISOR=false`,
     ];
     if (oauthClientId && oauthClientSecret) {
         envLines.push(`XCELSIOR_OAUTH_CLIENT_ID=${oauthClientId}`);

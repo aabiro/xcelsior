@@ -1,3 +1,10 @@
+# Wizard Improvements — DONE (2026-06-15)
+
+**Status:** Shipped in wizard v2 — PostHog-caliber onboarding plan implemented. Items below are the original design spec (archived for reference). Active work moved to provider-checks automated setup (OAuth, Tailscale IP, worker systemd).
+
+---
+
+
 Done with all three tasks — packages fixed, 21 screenshots absorbed, and the plan rewritten and roughly tripled. Here's everything.
 
 ---

@@ -14,6 +14,8 @@ const AT_BOTTOM_THRESHOLD_PX = 80;
 interface LogViewerProps {
   jobId: string;
   live?: boolean;
+  /** Bust fetch cache when status/attempt changes (e.g. after requeue). */
+  refreshToken?: string;
   /** Logs delivered from an external source (e.g. WebSocket) – skips SSE when provided. */
   wsLogs?: InstanceLog[];
   /** Connection status from external source. */
@@ -43,28 +45,29 @@ const LEVEL_COLORS: Record<string, string> = {
   debug: "text-text-muted",
 };
 
-export function LogViewer({ jobId, live = false, wsLogs, wsConnected }: LogViewerProps) {
+export function LogViewer({ jobId, live = false, refreshToken, wsLogs, wsConnected }: LogViewerProps) {
   const [logs, setLogs] = useState<InstanceLog[]>([]);
   const [connected, setConnected] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const prevLogLen = useRef(0);
 
-  // When WS logs are provided, use those instead of internal state
-  const useWs = wsLogs !== undefined;
-  const displayLogs = useWs ? mergeLogs(logs, wsLogs) : logs;
-  const displayConnected = useWs ? !!wsConnected : connected;
+  // Merge WS container logs with SSE/PG-tailed lifecycle logs — never skip SSE
+  // when live; scheduler-worker writes lifecycle lines from another process.
+  const hasWsLogs = wsLogs !== undefined && (wsLogs?.length ?? 0) > 0;
+  const displayLogs = hasWsLogs ? mergeLogs(logs, wsLogs!) : logs;
+  const displayConnected = connected || !!wsConnected;
 
-  // Load historical logs
+  // Load historical logs (re-fetch when refreshToken changes after requeue/relaunch)
   useEffect(() => {
     fetchInstanceLogs(jobId, 300)
       .then((r) => setLogs(r.logs || []))
       .catch((e) => console.error("Failed to load logs", e));
-  }, [jobId]);
+  }, [jobId, refreshToken]);
 
-  // SSE live stream — skip when WS logs are provided
+  // SSE live stream — always on for live jobs (PG poll tails cross-process logs).
   useEffect(() => {
-    if (!live || useWs) return;
+    if (!live) return;
 
     const es = createInstanceLogStream(jobId);
 
@@ -90,7 +93,7 @@ export function LogViewer({ jobId, live = false, wsLogs, wsConnected }: LogViewe
     es.onerror = () => setConnected(false);
 
     return () => es.close();
-  }, [jobId, live, useWs]);
+  }, [jobId, live]);
 
   // Auto-scroll when new logs arrive and the user is at (or scrolled back to)
   // the bottom. useLayoutEffect so the scroll happens synchronously before
