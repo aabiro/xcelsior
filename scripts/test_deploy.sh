@@ -232,11 +232,12 @@ fi
 # ── scripts/deploy.sh ────────────────────────────────────────────────
 section "scripts/deploy.sh"
 
-# 23. Blue-green state file
-if grep -q 'deploy_colour' scripts/deploy.sh; then
-    pass "Blue-green state file (.deploy_colour)"
+# 23. Blue-green state persisted outside synced tree
+if grep -q 'remote_deploy_state_dir' scripts/deploy.sh \
+    && grep -q 'remote_api_colour_file' scripts/deploy.sh; then
+    pass "Blue-green state outside /opt/xcelsior (survives rsync)"
 else
-    fail "No state file for tracking live colour"
+    fail "Deploy colour state not persisted outside synced tree"
 fi
 
 # 24. Standby health check before swap
@@ -262,9 +263,9 @@ fi
 
 # 26b. SSH gateway blue-green handoff
 if grep -q 'deploy_ssh_gateway_blue_green' scripts/deploy.sh \
-    && grep -q 'deploy_ssh_colour' scripts/deploy.sh \
-    && grep -q 'stop -t 3600' scripts/deploy.sh; then
-    pass "SSH gateway blue-green handoff (reuseport overlap + 1h drain)"
+    && grep -q 'remote_ssh_colour_file' scripts/deploy.sh \
+    && grep -q 'XCELSIOR_SSH_GW_DEPLOY_STOP_SEC' scripts/deploy.sh; then
+    pass "SSH gateway blue-green handoff (persistent state + bounded deploy wait)"
 else
     fail "SSH gateway blue-green handoff missing"
 fi
