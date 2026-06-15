@@ -227,7 +227,7 @@ else
 fi
 
 # 25. nginx sed swap
-if grep -q 'sed.*upstream' scripts/deploy.sh || grep -q "sed.*xcelsior_api" scripts/deploy.sh; then
+if grep -q 'sudo sed -i' scripts/deploy.sh && grep -q 'xcelsior_api' scripts/deploy.sh; then
     pass "nginx upstream sed swap"
 else
     fail "No nginx upstream swap logic"
@@ -240,11 +240,11 @@ else
     fail "No graceful stop timeout"
 fi
 
-# 27. Fallback path
-if grep -q 'Falling back to in-place restart' scripts/deploy.sh; then
-    pass "Fallback to in-place restart on failure"
+# 27. Standby failure must not restart live API in-place (zero-downtime)
+if grep -q 'live API.*left running' scripts/deploy.sh; then
+    pass "Standby failure aborts swap, keeps live API up"
 else
-    fail "No fallback — deploy stuck if standby fails"
+    fail "Standby failure may restart live API in-place (causes downtime)"
 fi
 
 # 28. --profile blue on ALL docker compose commands that touch api-blue
