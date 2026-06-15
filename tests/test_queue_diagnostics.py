@@ -103,8 +103,19 @@ class TestDiagnoseQueueBlock:
             }
         ]
         reason, detail = scheduler._diagnose_queue_block(job, hosts)
-        assert reason == "no_matching_gpu"
+        assert reason == "gpu_upgrade_available"
         assert "H100" in detail
+
+    def test_gpu_busy_when_host_fully_utilized(self):
+        scheduler.register_host("tower", "10.0.0.1", "RTX 3060", 12, 12)
+        _admit_host("tower")
+        running = scheduler.submit_job("busy", 0, gpu_model="RTX 3060")
+        scheduler.update_job_status(running["job_id"], "running", host_id="tower")
+        hosts = scheduler.list_hosts()
+        job = {"job_id": "waiter", "vram_needed_gb": 0, "gpu_model": "RTX 3060"}
+        reason, detail = scheduler._diagnose_queue_block(job, hosts)
+        assert reason == "gpu_busy"
+        assert "fully in use" in detail.lower() or "frees up" in detail.lower()
 
     def test_hosts_not_admitted(self):
         """Hosts match VRAM+GPU but aren't admitted."""

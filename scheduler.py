@@ -1082,6 +1082,19 @@ def _diagnose_queue_block(job: dict | None, hosts: list[dict]) -> tuple[str, str
         ]
         if not with_gpu:
             admitted_upgrades = [h for h in with_vram if h.get("admitted", False)]
+            upgrade_candidates = _gpu_model_candidates(admitted_upgrades, job.get("gpu_model") or "")
+            if upgrade_candidates:
+                jobs = list_jobs()
+                if not _filter_host_capacity(job, upgrade_candidates, jobs):
+                    models = sorted({str(h.get("gpu_model") or "GPU") for h in upgrade_candidates})
+                    return (
+                        "gpu_busy",
+                        (
+                            f"No {job.get('gpu_model', gpu_model)} hosts are online; "
+                            f"{', '.join(models)} GPU(s) match but are fully in use. "
+                            "Your job will start when a GPU frees up."
+                        ),
+                    )
             if admitted_upgrades:
                 models = sorted({h.get("gpu_model", "GPU") for h in admitted_upgrades})
                 return (
@@ -1119,6 +1132,20 @@ def _diagnose_queue_block(job: dict | None, hosts: list[dict]) -> tuple[str, str
             return (
                 "no_spot_capacity",
                 "No hosts have free spot GPU capacity right now. Your job remains queued.",
+            )
+
+    jobs = list_jobs()
+    alloc_candidates = _allocate_candidates(job, active, jobs)
+    if alloc_candidates:
+        with_capacity = _filter_host_capacity(job, alloc_candidates, jobs)
+        if not with_capacity:
+            models = sorted({str(h.get("gpu_model") or "GPU") for h in alloc_candidates})
+            return (
+                "gpu_busy",
+                (
+                    f"Matching {', '.join(models)} GPU(s) are online but fully in use. "
+                    "Your job will start automatically when a GPU frees up."
+                ),
             )
 
     return (

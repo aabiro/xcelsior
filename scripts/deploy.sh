@@ -1292,7 +1292,7 @@ wait \"\$fe_pid\"
     fi
 
     log "Verifying /readyz and PayPal (parallel)…"
-    local readyz_out paypal_out
+    local readyz_out="" paypal_out=""
     readyz_out=$(ssh_cmd "curl -sf --max-time 10 http://localhost:$final_port/readyz" 2>/dev/null || true) &
     local pid_readyz=$!
     paypal_out=$(ssh_cmd "curl -sf --max-time 10 http://localhost:$final_port/api/billing/paypal/enabled" 2>/dev/null || true) &
