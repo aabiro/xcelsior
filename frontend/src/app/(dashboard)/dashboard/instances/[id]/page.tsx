@@ -39,6 +39,17 @@ const WebTerminal = dynamic(
 const SSH_HOST = process.env.NEXT_PUBLIC_SSH_HOST || "connect.xcelsior.ca";
 const STATUS_STEPS = ["queued", "assigned", "starting", "running", "completed"] as const;
 
+/** Deterministic public SSH port (matches worker + ssh_gateway). */
+function publicSshPort(jobId: string): number | undefined {
+  try {
+    const n = parseInt(jobId.slice(0, 4), 16);
+    if (Number.isNaN(n)) return undefined;
+    return 10000 + (n % 55000);
+  } catch {
+    return undefined;
+  }
+}
+
 function formatUptime(seconds: number): string {
   const d = Math.floor(seconds / 86400);
   const h = Math.floor((seconds % 86400) / 3600);
@@ -857,18 +868,21 @@ export default function InstanceDetailPage() {
             )}
           </div>
           {/* Connection Info — visible whenever SSH proxy is available */}
-          {isRunning && (instance.ssh_port || instance.ssh_status) && (
+          {isRunning && instance.interactive !== false && (() => {
+            const sshPort = instance.ssh_port || publicSshPort(instance.job_id);
+            if (!sshPort && !instance.ssh_status) return null;
+            return (
             <div className="rounded-lg bg-ice-blue/5 border border-ice-blue/20 mb-3 px-3 py-2 space-y-2">
               <div className="flex items-center gap-3">
                 <Globe className="h-4 w-4 text-ice-blue shrink-0" />
                 <div className="flex items-center gap-2 flex-1 min-w-0">
                   <span className="text-xs text-text-muted shrink-0">SSH:</span>
                   <code className="text-xs font-mono text-ice-blue select-all truncate">
-                    ssh root@{SSH_HOST} -p {instance.ssh_port || 22}
+                    ssh root@{SSH_HOST} -p {sshPort || 22}
                   </code>
                 </div>
                 <button
-                  onClick={() => { navigator.clipboard.writeText(`ssh root@${SSH_HOST} -p ${instance.ssh_port || 22}`); toast.success("Copied SSH command"); }}
+                  onClick={() => { navigator.clipboard.writeText(`ssh root@${SSH_HOST} -p ${sshPort || 22}`); toast.success("Copied SSH command"); }}
                   className="text-text-muted hover:text-ice-blue transition-colors shrink-0"
                   title="Copy SSH command"
                 >
@@ -886,7 +900,8 @@ export default function InstanceDetailPage() {
                 <RootPasswordRow password={instance.ssh_status.root_password} />
               ) : null}
             </div>
-          )}
+            );
+          })()}
           {readOnly && (isRunning || status === "starting") && (
             <p className="text-sm text-text-muted">
               Team viewers cannot open the web terminal. Ask a team admin or member for shell access.
