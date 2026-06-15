@@ -74,25 +74,52 @@ def api_gpu_available(request: Request):
                 "price_per_hour_cad": price,
             }
 
+        from scheduler import (
+            _gpus_active_on_host,
+            _host_gpu_count,
+            list_hosts,
+            list_jobs,
+        )
+
+        hosts_by_id = {h.get("host_id"): h for h in list_hosts(active_only=False)}
+        active_jobs = list_jobs()
+
+        def _host_admitted(host: dict) -> bool:
+            admitted = host.get("admitted", False)
+            if isinstance(admitted, str):
+                return admitted.strip().lower() in ("true", "1", "yes")
+            return bool(admitted)
+
+        def _host_free_slots(host: dict) -> int:
+            host_id = host.get("host_id", "")
+            return max(0, _host_gpu_count(host) - _gpus_active_on_host(active_jobs, host_id))
+
         try:
             with pool.connection() as conn:
                 conn.row_factory = dict_row
                 rows = conn.execute(
-                    """SELECT gpu_model, vram_gb, region, province,
+                    """SELECT host_id, gpu_model, vram_gb, region, province,
                               COUNT(*) FILTER (WHERE available = true) AS count_available,
                               MIN(ask_cents_per_hour) AS min_price_cents
                        FROM gpu_offers
-                       GROUP BY gpu_model, vram_gb, region, province
+                       GROUP BY host_id, gpu_model, vram_gb, region, province
                        ORDER BY gpu_model, region""",
                 ).fetchall()
             for r in rows:
+                host = hosts_by_id.get(r.get("host_id") or "")
+                if not host or not _host_admitted(host) or host.get("status") != "active":
+                    continue
+                free_slots = _host_free_slots(host)
+                if free_slots <= 0:
+                    continue
                 offers_seen = True
+                offer_count = int(r.get("count_available") or 0)
                 add_gpu(
                     gpu_model=r.get("gpu_model", ""),
                     vram_gb=r.get("vram_gb", 0),
                     region=r.get("region", ""),
                     province=r.get("province", ""),
-                    count_available=r.get("count_available", 0),
+                    count_available=min(offer_count, free_slots) if offer_count else free_slots,
                     price_per_hour_cad=(
                         float(r["min_price_cents"]) / 100 if r.get("min_price_cents") else 0
                     ),
@@ -112,14 +139,6 @@ def api_gpu_available(request: Request):
             #      into a separate group with a missing key
             #   3. a missing `total_vram_gb` key making the ::float cast yield NULL
             # add_gpu() already normalizes model/region and max-count de-dupes.
-            from scheduler import (
-                _gpus_active_on_host,
-                _host_gpu_count,
-                list_hosts,
-                list_jobs,
-            )
-
-            active_jobs = list_jobs()
             for host in list_hosts(active_only=True):
                 admitted = host.get("admitted", False)
                 if isinstance(admitted, str):

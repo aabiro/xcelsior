@@ -3549,6 +3549,8 @@ def run_job(job):
             # Remove --read-only and add writable tmpfs for home/ssh
             extra_docker_args.extend(
                 [
+                    "-w",
+                    "/workspace",
                     "--tmpfs",
                     "/home:rw,size=1g",
                     "--tmpfs",
@@ -4849,6 +4851,34 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
                 log.warning("chpasswd exception in %s: %s", container_name, e)
                 root_password = ""
 
+            # Common CLI tools (rsync, git, curl, jq) — best-effort apt/apk install.
+            try:
+                tools_script = (
+                    "need=''; "
+                    "for b in rsync git curl jq; do "
+                    "  command -v \"$b\" >/dev/null 2>&1 || need=\"$need $b\"; "
+                    "done; "
+                    "[ -z \"$need\" ] && exit 0; "
+                    "if command -v apt-get >/dev/null 2>&1; then "
+                    "  export DEBIAN_FRONTEND=noninteractive; "
+                    "  apt-get update -qq && "
+                    "  apt-get install -y -qq rsync git curl jq ca-certificates "
+                    "  >/tmp/xcelsior-apt.log 2>&1; "
+                    "elif command -v apk >/dev/null 2>&1; then "
+                    "  apk add --no-cache rsync git curl jq ca-certificates "
+                    "  >/tmp/xcelsior-apk.log 2>&1; "
+                    "fi"
+                )
+                tools = subprocess.run(
+                    ["docker", "exec", container_name, "sh", "-c", tools_script],
+                    capture_output=True,
+                    timeout=_remaining(90),
+                )
+                if tools.returncode == 0:
+                    log.info("CLI tools ready in %s", container_name)
+            except Exception as e:
+                log.debug("CLI tools install skipped for %s: %s", container_name, e)
+
             # Set up MOTD + custom shell prompt for the interactive instance.
             short = job_id[:8]
             motd = (
@@ -4871,6 +4901,10 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
             profile = (
                 "# Xcelsior interactive shell setup (managed — safe to re-run)\n"
                 f"export XCELSIOR_INSTANCE='{short}'\n"
+                "# Host-side tools (rsync, git, …) when bind-mounted\n"
+                'if [ -d /opt/xcelsior/bin ]; then export PATH="/opt/xcelsior/bin:$PATH"; fi\n'
+                "# Always land in /workspace (override vendor images like runpod/*)\n"
+                "if [ -d /workspace ]; then cd /workspace 2>/dev/null || true; fi\n"
                 "# Coloured prompt: user@xcelsior-<id>:cwd $\n"
                 "PS1='\\[\\e[1;36m\\]\\u\\[\\e[0m\\]@\\[\\e[1;35m\\]xcelsior-'\"$XCELSIOR_INSTANCE\"'\\[\\e[0m\\]:\\[\\e[1;33m\\]\\w\\[\\e[0m\\]\\$ '\n"
                 "export PS1\n"
