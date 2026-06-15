@@ -4881,11 +4881,15 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
 
             # Set up MOTD + custom shell prompt for the interactive instance.
             short = job_id[:8]
+            # ASCII box — fixed width so xterm/customGlyphs never misalign borders.
+            _motd_w = 53
+            _motd_title = "Xcelsior - GPU compute, on demand"
+            _motd_pad = _motd_title[:_motd_w].ljust(_motd_w)
             motd = (
                 "\n"
-                "  \033[36m╔═══════════════════════════════════════════════════════╗\033[0m\n"
-                "  \033[36m║\033[0m  \033[1;35m✦ Xcelsior\033[0m \033[2m— GPU compute, on demand\033[0m              \033[36m║\033[0m\n"
-                "  \033[36m╚═══════════════════════════════════════════════════════╝\033[0m\n"
+                f"  \033[36m+{'-' * _motd_w}+\033[0m\n"
+                f"  \033[36m|\033[0m {_motd_pad} \033[36m|\033[0m\n"
+                f"  \033[36m+{'-' * _motd_w}+\033[0m\n"
                 "\n"
                 f"  \033[2mInstance\033[0m  \033[1m{short}\033[0m\n"
                 f"  \033[2mContainer\033[0m \033[1m{container_name}\033[0m\n"

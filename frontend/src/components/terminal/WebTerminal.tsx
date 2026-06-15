@@ -396,7 +396,14 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
     term.focus();
     termReadyRef.current = true;
 
-    // Canvas renderer — WebGL breaks cursor blink on some GPUs/browsers.
+    try {
+      const { WebglAddon } = await import("@xterm/addon-webgl");
+      const webgl = new WebglAddon();
+      term.loadAddon(webgl);
+      webglAddonRef.current = webgl;
+    } catch {
+      webglAddonRef.current = null;
+    }
     term.options.cursorBlink = true;
 
     // Clear texture atlas on tab restore to fix glyph artifacts after sleep
