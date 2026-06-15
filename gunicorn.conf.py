@@ -16,7 +16,7 @@ worker_class = "uvicorn.workers.UvicornWorker"
 worker_tmp_dir = "/dev/shm"  # faster heartbeat on Linux
 
 # ---------- Graceful lifecycle ----------
-graceful_timeout = 30  # seconds to finish in-flight requests
+graceful_timeout = int(os.getenv("GUNICORN_GRACEFUL_TIMEOUT", "120"))
 timeout = 120  # hard kill after this
 keepalive = 5  # keep-alive between nginx ↔ gunicorn
 

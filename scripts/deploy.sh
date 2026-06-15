@@ -1108,6 +1108,59 @@ persist_deploy_inputs() {
     store_remote_deploy_hashes
 }
 
+deploy_ssh_gateway_blue_green() {
+    # SSH listeners bind instance ports with SO_REUSEPORT — start standby first so
+    # it shares listeners, then drain the live gateway (up to 1h grace).
+    local state_file="/opt/xcelsior/.deploy_ssh_colour"
+    local live_colour
+    live_colour=$(ssh_cmd "tr -d '[:space:]' < $state_file 2>/dev/null || echo green")
+
+    local live_service standby_service live_health standby_health
+    if [[ "$live_colour" == "green" ]]; then
+        live_service="ssh-gateway"
+        standby_service="ssh-gateway-blue"
+        live_health=9510
+        standby_health=9511
+    else
+        live_service="ssh-gateway-blue"
+        standby_service="ssh-gateway"
+        live_health=9511
+        standby_health=9510
+    fi
+
+    log "SSH gateway blue-green: live=$live_colour ($live_service:$live_health) → $standby_service:$standby_health"
+
+    log "Starting standby SSH gateway ($standby_service)..."
+    ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps $standby_service" \
+        || error "Standby SSH gateway ($standby_service) failed to start"
+
+    local standby_ok=false
+    for i in {1..60}; do
+        if ssh_cmd "curl -sf http://127.0.0.1:$standby_health/ >/dev/null" &>/dev/null; then
+            standby_ok=true
+            break
+        fi
+        sleep 2
+    done
+
+    if [[ "$standby_ok" != true ]]; then
+        warn "Standby SSH gateway ($standby_service:$standby_health) not healthy after 120s — aborting handoff"
+        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue stop $standby_service 2>/dev/null" || true
+        error "SSH gateway handoff aborted — live ($live_service) left running. Check standby logs and retry."
+    fi
+    success "Standby SSH gateway ($standby_service:$standby_health) is healthy"
+
+    log "Draining live SSH gateway ($live_service) — active relays may take up to 1h..."
+    ssh_cmd "cd /opt/xcelsior && docker compose --profile blue stop -t 3600 $live_service" \
+        || warn "Live SSH gateway stop returned non-zero (check for stuck relays)"
+    success "Live SSH gateway ($live_service) stopped"
+
+    local new_colour
+    if [[ "$live_colour" == "green" ]]; then new_colour="blue"; else new_colour="green"; fi
+    ssh_cmd "echo $new_colour > $state_file"
+    success "SSH gateway live colour: $new_colour ($standby_service)"
+}
+
 deploy_docker() {
     log "Deploying with Docker Compose ($TARGET_ENV)..."
     
@@ -1127,7 +1180,7 @@ deploy_docker() {
 $build_prefix
 api_pid=''
 fe_pid=''
-(docker compose --profile blue build api api-blue scheduler-worker bg-worker) & api_pid=\$!
+(docker compose --profile blue build api api-blue scheduler-worker bg-worker ssh-gateway ssh-gateway-blue) & api_pid=\$!
 (docker compose build $build_args frontend) & fe_pid=\$!
 wait \"\$api_pid\"
 wait \"\$fe_pid\"
@@ -1135,7 +1188,7 @@ wait \"\$fe_pid\"
         success "API + frontend images built (parallel)"
     elif [[ "$DEPLOY_BUILD_API" == true ]]; then
         log "Building API + scheduler-worker + bg-worker images (BuildKit cache=${DEPLOY_BUILD_CACHE})..."
-        ssh_cmd "cd /opt/xcelsior && $build_prefix docker compose --profile blue build api api-blue scheduler-worker bg-worker" || error "API/scheduler-worker/bg-worker build failed"
+        ssh_cmd "cd /opt/xcelsior && $build_prefix docker compose --profile blue build api api-blue scheduler-worker bg-worker ssh-gateway ssh-gateway-blue" || error "API/scheduler-worker/bg-worker/ssh-gateway build failed"
         success "API + scheduler-worker + bg-worker images built"
     elif [[ "$DEPLOY_BUILD_FRONTEND" == true ]]; then
         validate_build_env
@@ -1212,9 +1265,9 @@ wait \"\$fe_pid\"
             || error "Nginx upstream swap failed"
         success "Nginx now routing to $standby_service:$standby_port"
 
-        # 4. Gracefully stop the old live service (30s drain via stop_grace_period)
+        # 4. Gracefully stop the old live service (120s drain — terminals + SSE)
         log "Draining old API ($live_service:$live_port)..."
-        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue stop -t 30 $live_service" || warn "Old API stop returned non-zero"
+        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue stop -t 120 $live_service" || warn "Old API stop returned non-zero"
         success "Old API ($live_service) stopped"
 
         # 5. Record the new live colour
@@ -1229,9 +1282,7 @@ wait \"\$fe_pid\"
         ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps bg-worker" || error "bg-worker restart failed"
         success "bg-worker restarted"
 
-        # ssh-gateway shares API/terminal routes — restart only when API code changed.
-        ssh_cmd "cd /opt/xcelsior && $build_prefix docker compose up -d --no-deps --build ssh-gateway" || error "ssh-gateway restart failed"
-        success "ssh-gateway restarted"
+        deploy_ssh_gateway_blue_green
     else
         log "API image/runtime unchanged — skipping blue-green swap (live API + ssh-gateway untouched)"
     fi

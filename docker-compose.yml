@@ -201,7 +201,7 @@ services:
       - SYS_ADMIN
     volumes: *api-volumes
     restart: unless-stopped
-    stop_grace_period: 30s
+    stop_grace_period: 120s
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:${XCELSIOR_API_PORT:-9500}/healthz"]
       interval: 10s
@@ -222,7 +222,7 @@ services:
     profiles: ["blue"]
     volumes: *api-volumes
     restart: unless-stopped
-    stop_grace_period: 30s
+    stop_grace_period: 120s
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:${XCELSIOR_API_BLUE_PORT:-9501}/healthz"]
       interval: 10s
@@ -361,14 +361,39 @@ services:
       SSH_GW_MAX_CONNS: "10"
       SSH_GW_IDLE_TIMEOUT: "3600"
       SSH_GW_SYNC_INTERVAL: "30"
+      SSH_GW_SHUTDOWN_DRAIN_SEC: "300"
     depends_on:
       - api
     restart: unless-stopped
+    stop_grace_period: 3600s
     # Real liveness: the gateway serves an HTTP health endpoint on
     # SSH_GW_HEALTH_PORT (returns 200 whenever the asyncio loop is alive),
     # so probe that instead of the image's API /healthz default.
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:9510/ >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  ssh-gateway-blue:
+    build: .
+    command: python ssh_gateway.py
+    network_mode: host
+    profiles: ["blue"]
+    environment:
+      XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@127.0.0.1:5432/${XCELSIOR_POSTGRES_DB:-xcelsior}
+      SSH_GW_HEALTH_PORT: "9511"
+      SSH_GW_MAX_CONNS: "10"
+      SSH_GW_IDLE_TIMEOUT: "3600"
+      SSH_GW_SYNC_INTERVAL: "30"
+      SSH_GW_SHUTDOWN_DRAIN_SEC: "300"
+    depends_on:
+      - api
+    restart: unless-stopped
+    stop_grace_period: 3600s
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9511/ >/dev/null"]
       interval: 30s
       timeout: 5s
       start_period: 20s

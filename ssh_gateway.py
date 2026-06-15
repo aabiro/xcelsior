@@ -40,6 +40,7 @@ MAX_CONNS_PER_INSTANCE = int(os.environ.get("SSH_GW_MAX_CONNS", "10"))
 IDLE_TIMEOUT_SEC = int(os.environ.get("SSH_GW_IDLE_TIMEOUT", "3600"))  # 1 hour
 RELAY_BUFFER_SIZE = 65536  # 64 KiB — optimal for SSH traffic
 SYNC_INTERVAL_SEC = int(os.environ.get("SSH_GW_SYNC_INTERVAL", "10"))
+SHUTDOWN_DRAIN_SEC = int(os.environ.get("SSH_GW_SHUTDOWN_DRAIN_SEC", "300"))
 BIND_ADDR = os.environ.get("SSH_GW_BIND", "0.0.0.0")
 
 # TCP keepalive — without these, NAT/firewalls drop idle SSH sessions in ~60s
@@ -165,10 +166,12 @@ class SSHGateway:
     """
     Async TCP relay gateway. Manages per-instance listeners, relays SSH
     traffic bidirectionally with backpressure, idle timeouts, and conn limits.
+    Uses SO_REUSEPORT so blue-green handoffs can overlap during deploy.
     """
 
     def __init__(self):
         self.listeners: dict[int, ListenerState] = {}  # port → state
+        self._health_server: Optional[asyncio.AbstractServer] = None
         self._shutting_down = False
         self._stats = {
             "total_connections": 0,
@@ -381,11 +384,15 @@ class SSHGateway:
                 port,
                 state.route.job_id[:8],
             )
-            # Give active connections 10s to finish gracefully
-            for _ in range(100):
-                if state.active_connections <= 0:
-                    break
-                await asyncio.sleep(0.1)
+            deadline = time.time() + max(1, SHUTDOWN_DRAIN_SEC)
+            while state.active_connections > 0 and time.time() < deadline:
+                await asyncio.sleep(0.5)
+            if state.active_connections > 0:
+                log.warning(
+                    "Drain timeout on port %d — %d connections still active",
+                    port,
+                    state.active_connections,
+                )
 
         log.info(
             "Closed listener :%d (instance %s, %d total connections served)",
@@ -581,14 +588,14 @@ class SSHGateway:
         await writer.wait_closed()
 
     async def _start_health_server(self):
-        server = await asyncio.start_server(
+        self._health_server = await asyncio.start_server(
             self._health_handler,
             "127.0.0.1",
             HEALTH_PORT,
         )
         log.info("Health endpoint on http://127.0.0.1:%d/", HEALTH_PORT)
-        async with server:
-            await server.serve_forever()
+        async with self._health_server:
+            await self._health_server.serve_forever()
 
     # ── Main entry ───────────────────────────────────────────────────────
 
@@ -615,9 +622,14 @@ class SSHGateway:
         )
 
     async def shutdown(self):
-        """Graceful shutdown — close all listeners with drain."""
+        """Graceful shutdown — stop accepting new relays, drain active TCP sessions."""
+        if self._shutting_down:
+            return
         log.info("Shutting down — draining %d listeners...", len(self.listeners))
         self._shutting_down = True
+        if self._health_server is not None:
+            self._health_server.close()
+            await self._health_server.wait_closed()
         ports = list(self.listeners.keys())
         for port in ports:
             await self.close_listener(port, drain=True)
