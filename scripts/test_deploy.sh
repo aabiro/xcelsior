@@ -89,7 +89,20 @@ assert av == bv, f'api={av} blue={bv}'
 print(f'{len(av)} volumes match')
 " 2>&1) && pass "Volumes: $vols_ok" || fail "Volumes: $vols_ok"
 
-# 8. docker compose config validates (if docker available)
+# 8. ssh-gateway-blue profile + health port
+ssh_blue_ok=$(python3 -c "
+import yaml
+d = yaml.safe_load(open('docker-compose.yml'))
+assert 'ssh-gateway-blue' in d['services'], 'missing ssh-gateway-blue'
+p = d['services']['ssh-gateway-blue'].get('profiles', [])
+assert 'blue' in p, f'profiles={p}'
+hp = d['services']['ssh-gateway-blue']['environment']['SSH_GW_HEALTH_PORT']
+gp = d['services']['ssh-gateway']['environment']['SSH_GW_HEALTH_PORT']
+assert hp != gp, f'same health port {hp}'
+print(f'green={gp} blue={hp}')
+" 2>&1) && pass "ssh-gateway-blue $ssh_blue_ok" || fail "ssh-gateway-blue: $ssh_blue_ok"
+
+# 9. docker compose config validates (if docker available)
 if command -v docker &>/dev/null; then
     if docker compose --profile blue config --quiet 2>/dev/null; then
         pass "docker compose config validates"
@@ -209,6 +222,13 @@ else
     fail "proxy_next_upstream missing error codes"
 fi
 
+# 22b. WebSocket /ws has failover for blue-green API swap
+if awk '/location \/ws/,/^    }/' nginx/xcelsior.conf | grep -q 'proxy_next_upstream'; then
+    pass "/ws WebSocket location has proxy_next_upstream failover"
+else
+    fail "/ws missing proxy_next_upstream — terminals drop on API swap"
+fi
+
 # ── scripts/deploy.sh ────────────────────────────────────────────────
 section "scripts/deploy.sh"
 
@@ -233,11 +253,20 @@ else
     fail "No nginx upstream swap logic"
 fi
 
-# 26. Graceful stop with timeout
-if grep -q 'stop -t 30' scripts/deploy.sh; then
-    pass "Graceful stop with 30s drain"
+# 26. Graceful API stop (terminals/SSE drain)
+if grep -q 'stop -t 120' scripts/deploy.sh; then
+    pass "Graceful API stop with 120s drain"
 else
-    fail "No graceful stop timeout"
+    fail "No graceful API stop timeout"
+fi
+
+# 26b. SSH gateway blue-green handoff
+if grep -q 'deploy_ssh_gateway_blue_green' scripts/deploy.sh \
+    && grep -q 'deploy_ssh_colour' scripts/deploy.sh \
+    && grep -q 'stop -t 3600' scripts/deploy.sh; then
+    pass "SSH gateway blue-green handoff (reuseport overlap + 1h drain)"
+else
+    fail "SSH gateway blue-green handoff missing"
 fi
 
 # 27. Standby failure must not restart live API in-place (zero-downtime)
