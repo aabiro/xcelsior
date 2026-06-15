@@ -240,6 +240,7 @@ export default function InstanceDetailPage() {
   useEffect(() => { setJobError(null); setPreemptionNotice(false); load(); }, [id, load]);
 
   const isLive = instance?.status === "queued" || instance?.status === "assigned"
+    || instance?.status === "leased"
     || instance?.status === "starting" || instance?.status === "running" || instance?.status === "stopping"
     || instance?.status === "restarting";
   const onWsInstance = useCallback((i: Instance) => {
@@ -271,7 +272,8 @@ export default function InstanceDetailPage() {
     });
     toast.warning(t("dash.instances.preempted_toast"));
   }, [t]);
-  const onWsStatusChange = useCallback((_jobId: string, _newStatus: string) => {
+  const onWsStatusChange = useCallback((_jobId: string, newStatus: string) => {
+    setInstance((prev) => (prev ? { ...prev, status: newStatus } : prev));
     load(true);
   }, [load]);
   const wsState = useInstanceWebSocket(id, {

@@ -112,8 +112,14 @@ def api_gpu_available(request: Request):
             #      into a separate group with a missing key
             #   3. a missing `total_vram_gb` key making the ::float cast yield NULL
             # add_gpu() already normalizes model/region and max-count de-dupes.
-            from scheduler import list_hosts
+            from scheduler import (
+                _gpus_active_on_host,
+                _host_gpu_count,
+                list_hosts,
+                list_jobs,
+            )
 
+            active_jobs = list_jobs()
             for host in list_hosts(active_only=True):
                 admitted = host.get("admitted", False)
                 if isinstance(admitted, str):
@@ -121,12 +127,17 @@ def api_gpu_available(request: Request):
                 if not admitted:
                     continue
                 hosts_seen = True
+                host_id = host.get("host_id", "")
+                free_slots = max(
+                    0,
+                    _host_gpu_count(host) - _gpus_active_on_host(active_jobs, host_id),
+                )
                 add_gpu(
                     gpu_model=host.get("gpu_model", ""),
                     vram_gb=float(host.get("total_vram_gb") or host.get("vram_gb") or 0),
                     region=host.get("region", ""),
                     province=host.get("province", "") or "",
-                    count_available=1,
+                    count_available=free_slots,
                     price_per_hour_cad=float(host.get("cost_per_hour") or host.get("price_per_hour") or 0),
                 )
         except Exception as e:
