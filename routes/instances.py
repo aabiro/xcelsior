@@ -52,6 +52,7 @@ from scheduler import (
     API_TOKEN,
     failover_and_reassign,
     get_job,
+    get_job,
     host_accepts_spot_job,
     kill_job,
     list_hosts,
@@ -70,7 +71,7 @@ from collections import defaultdict
 
 # Maximum concurrent active (queued/assigned/starting/running) instances per user
 # if the user has no explicit `users.max_concurrent_instances` override.
-MAX_CONCURRENT_INSTANCES_PER_USER = int(os.environ.get("MAX_CONCURRENT_INSTANCES", "5"))
+MAX_CONCURRENT_INSTANCES_PER_USER = int(os.environ.get("MAX_CONCURRENT_INSTANCES", "20"))
 
 # Shared pool limits for team contexts (aligned with team member tiers).
 _TEAM_PLAN_CONCURRENCY_CAPS = {
@@ -258,13 +259,26 @@ _ws_connections: dict[str, set] = defaultdict(set)
 
 
 def _require_worker_status_update(request: Request) -> dict:
-    """PATCH /instance/{job_id} is for worker agents (API token), not end users."""
+    """PATCH /instance/{job_id} is for worker agents, not end users.
+
+    Accepts the platform master token, admin principals, and OAuth
+    client_credentials tokens issued to worker agents (``hosts:write`` or
+    ``api`` scope). Without this, agents can heartbeat and claim leases but
+    cannot advance leased → starting → running, leaving jobs to die in the
+    reaper's short ``leased`` budget during long image pulls.
+    """
     user = _get_current_user(request)
-    if user and (_is_platform_admin(user) or user.get("user_id") in ("api-admin", "api-token")):
+    if not user:
+        raise HTTPException(401, "Authentication required")
+    if _is_platform_admin(user) or user.get("user_id") in ("api-admin", "api-token"):
+        return user
+    grant = str(user.get("grant_type") or user.get("auth_type") or "")
+    if grant == "client_credentials":
+        _require_scope(user, "hosts:write")
         return user
     if os.environ.get("XCELSIOR_ENV", "").lower() == "test":
-        return _require_auth(request)
-    raise HTTPException(401, "Authentication required")
+        return user
+    raise HTTPException(403, "Worker authentication required")
 
 
 class JobIn(BaseModel):
@@ -701,11 +715,14 @@ def api_submit_instance(j: JobIn, request: Request):
         # Lifecycle log — record the queued event so users and admin audit can
         # see the job entered the system even if it never advances further.
         try:
-            tier_label = j.tier or "any"
-            gpu_label = j.gpu_model or "any"
+            tier_label = job.get("tier") or getattr(j, "tier", None) or "standard"
+            gpu_label = job.get("gpu_model") or getattr(j, "gpu_model", None) or "any"
+            vram = job.get("vram_needed_gb")
             push_job_log(
                 job["job_id"],
-                f"Queued — waiting for GPU matching tier={tier_label}, gpu_model={gpu_label}",
+                f"Submitted — tier={tier_label}, gpu_model={gpu_label}"
+                + (f", vram={vram}GB" if vram else "")
+                + " — waiting for scheduler to assign a host",
                 level="info",
             )
         except Exception:
@@ -821,33 +838,75 @@ def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
     if j.get("image") is not None and not j.get("docker_image"):
         j["docker_image"] = j["image"]
 
-    # Host GPU info — prefer the host_gpu_model stored at assignment time,
-    # fall back to live host lookup
+    # Host GPU info — prefer assignment-time fields, fall back to live host lookup
     hid = j.get("host_id")
     host = host_map.get(hid) if hid else None
-    actual_gpu = j.get("host_gpu_model") or (host.get("gpu_model", "") if host else "")
+    if host:
+        try:
+            from host_metadata import enrich_host_for_api
+
+            host = enrich_host_for_api(host)
+        except Exception:
+            pass
+    actual_gpu = (
+        (j.get("host_gpu_model") or "").strip()
+        or (host.get("gpu_model", "") if host else "").strip()
+    )
+    if not actual_gpu and hid:
+        try:
+            from host_metadata import infer_gpu_from_host_id
+
+            actual_gpu = infer_gpu_from_host_id(str(hid))
+        except Exception:
+            pass
     if actual_gpu:
         j["gpu_type"] = actual_gpu
         j["host_gpu"] = actual_gpu
-        if not j.get("gpu_model"):
+        if not (j.get("gpu_model") or "").strip():
             j["gpu_model"] = actual_gpu
+    elif j.get("status") == "queued":
+        tier_label = (j.get("tier") or "standard").capitalize()
+        req_gpu = (j.get("gpu_model") or "").strip()
+        j["gpu_display"] = f"{req_gpu} ({tier_label})" if req_gpu else f"{tier_label} tier · any GPU"
+
+    # Host + VRAM visible as soon as a host is assigned (not only when running)
+    if hid and host:
+        vram = j.get("host_vram_gb") or host.get("total_vram_gb", 0)
+        if not vram and actual_gpu:
+            try:
+                from host_metadata import default_vram_gb
+
+                vram = default_vram_gb(actual_gpu)
+            except Exception:
+                pass
+        j.setdefault("host_vram_gb", vram)
+    elif hid and not j.get("host_vram_gb") and actual_gpu:
+        try:
+            from host_metadata import default_vram_gb
+
+            j.setdefault("host_vram_gb", default_vram_gb(actual_gpu))
+        except Exception:
+            pass
+        if not actual_gpu and host.get("gpu_model"):
+            j["host_gpu"] = host["gpu_model"]
+            j["gpu_type"] = host["gpu_model"]
+        if j.get("status") in ("running", "starting", "completed", "failed"):
+            j.setdefault("host_ip", host.get("ip", ""))
 
     # Elapsed / duration
     started = float(j.get("started_at") or 0)
     completed = float(j.get("completed_at") or 0)
+    submitted = float(j.get("submitted_at") or 0)
     if started > 0:
         if completed > started:
             j.setdefault("duration_sec", round(completed - started, 2))
             j.setdefault("elapsed_sec", j["duration_sec"])
         elif j.get("status") == "running":
             j.setdefault("elapsed_sec", round(time.time() - started, 2))
-
-    # Connection details (host IP, VRAM) — available once job has run
-    if host and j.get("status") in ("running", "starting", "completed", "failed"):
-        j.setdefault("host_ip", host.get("ip", ""))
-        j.setdefault("host_gpu", host.get("gpu_model", ""))
-        j.setdefault("host_vram_gb", host.get("total_vram_gb", 0))
-        j.setdefault("gpu_type", host.get("gpu_model", ""))
+    elif submitted > 0 and j.get("status") in ("queued", "assigned", "leased", "starting"):
+        j.setdefault("wait_elapsed_sec", round(time.time() - submitted, 1))
+    elif submitted > 0 and completed > submitted and j.get("status") in ("failed", "cancelled"):
+        j.setdefault("wait_elapsed_sec", round(completed - submitted, 1))
 
     # SSH port surfaced to clients is the GATEWAY-SIDE public port. Prefer
     # the new `public_ssh_port` field (written by api_update_instance); fall
@@ -868,14 +927,39 @@ def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
     j.setdefault("preempted_at", j.get("preempted_at"))
     j.setdefault("preemption_count", int(j.get("preemption_count", 0) or 0))
 
-    # Cost
+    # Estimated hourly rate (for pricing card even before billing starts)
+    try:
+        from billing import resolve_compute_rate_cad
+
+        rate_hr, _ = resolve_compute_rate_cad(j, host)
+        if rate_hr > 0:
+            j["rate_per_hour_cad"] = round(rate_hr, 4)
+    except Exception:
+        pass
+    if not j.get("rate_per_hour_cad") and pricing_mode != "spot":
+        tier = j.get("tier") or "standard"
+        try:
+            from db import _get_pg_pool
+
+            with _get_pg_pool().connection() as conn:
+                row = conn.execute(
+                    """SELECT MIN(base_rate_cad) FROM gpu_pricing
+                       WHERE tier = %s AND pricing_mode = 'on_demand' AND active = TRUE""",
+                    (tier,),
+                ).fetchone()
+            if row and row[0]:
+                j["rate_per_hour_cad"] = round(
+                    float(row[0]) * max(1, int(j.get("num_gpus", 1) or 1)),
+                    4,
+                )
+                j["rate_is_estimate"] = True
+        except Exception:
+            pass
+
+    # Cost (billable elapsed only — not queue wait time)
     elapsed = j.get("elapsed_sec") or j.get("duration_sec") or 0
     if elapsed > 0 and j.get("cost_cad") is None:
-        rate = 0.20  # default CAD/hr
-        if pricing_mode == "spot" and j.get("spot_rate_cad"):
-            rate = float(j["spot_rate_cad"]) * max(1, int(j.get("num_gpus", 1) or 1))
-        elif host and host.get("cost_per_hour"):
-            rate = float(host["cost_per_hour"])
+        rate = float(j.get("rate_per_hour_cad") or 0.20)
         j["cost_cad"] = round((elapsed / 3600) * rate, 4)
 
     # Encrypted workspace flag
@@ -979,8 +1063,12 @@ def api_update_instance(job_id: str, update: StatusUpdate, request: Request):
             except Exception as exc:
                 log.warning("Worker preempt billing close failed for %s: %s", job_id, exc)
 
+        status_kwargs: dict = {}
+        if update.error_message:
+            status_kwargs["error_message"] = update.error_message[:500]
+            status_kwargs["failure_reason"] = update.error_message[:500]
         try:
-            update_job_status(job_id, update.status, host_id=update.host_id)
+            update_job_status(job_id, update.status, host_id=update.host_id, **status_kwargs)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
@@ -1040,9 +1128,6 @@ def api_update_instance(job_id: str, update: StatusUpdate, request: Request):
             from scheduler import _set_job_fields
 
             _set_job_fields(job_id, **extras)
-        # Push error_message as a log line so it appears in the UI log viewer
-        if update.error_message and update.status == "failed":
-            push_job_log(job_id, f"Instance failed: {update.error_message[:500]}", "error")
         broadcast_sse("job_status", {"job_id": job_id, "status": update.status})
         return {"ok": True, "job_id": job_id, "status": update.status}
 
@@ -1137,27 +1222,49 @@ def api_cancel_instance(job_id: str, request: Request):
 
 @router.post("/instance/{job_id}/requeue", tags=["Instances"])
 def api_requeue_instance(job_id: str, request: Request):
-    """Manually requeue a failed or stuck job."""
+    """Manually requeue a failed, cancelled, or stuck job."""
     user = _require_auth(request)
     _require_scope(user, "instances:write")
     _check_job_write_access(user, job_id)
-    result = requeue_job(job_id)
-    if not result:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Could not requeue job {job_id} (max retries exceeded or not found)",
-        )
-    # Clear stale logs from previous attempt so the UI starts fresh
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
+
+    status = job.get("status")
+    if status == "completed":
+        raise HTTPException(status_code=400, detail="Instance already completed — cannot requeue")
+    if status == "queued":
+        raise HTTPException(status_code=400, detail="Instance is already queued")
+
+    # Wipe previous attempt logs BEFORE requeue — never after, or we delete
+    # the lifecycle lines emit_lifecycle_log just wrote.
     _job_log_buffers.pop(job_id, None)
     try:
         from db import _get_pg_pool
 
         with _get_pg_pool().connection() as conn:
             conn.execute("DELETE FROM job_logs WHERE job_id = %s", (job_id,))
+            conn.commit()
     except Exception:
-        pass  # non-critical — logs will be overwritten anyway
-    push_job_log(job_id, "Requeued — waiting for GPU assignment", "info")
-    return {"ok": True, "instance": result}
+        pass
+
+    result = requeue_job(job_id, user_initiated=True)
+    if not result:
+        refreshed = get_job(job_id) or job
+        retries = int(refreshed.get("retries", 0) or 0)
+        max_retries = int(refreshed.get("max_retries", 3) or 3)
+        if refreshed.get("status") == "failed" and retries >= max_retries:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Max retries ({max_retries}) exceeded — instance is permanently failed",
+            )
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot requeue instance in '{status}' state",
+        )
+
+    host_map = {h["host_id"]: h for h in list_hosts()}
+    return {"ok": True, "instance": _enrich_instance(result, host_map)}
 
 
 # ── Lock / Unlock / Reset ────────────────────────────────────────────
@@ -1442,6 +1549,109 @@ def api_terminate_instance(job_id: str, request: Request):
     return {"ok": True, "instance": result}
 
 
+# ── Lifecycle log messages (user-visible + durable in job_logs) ──
+
+
+def emit_lifecycle_log(
+    job_id: str,
+    old_status: str | None,
+    new_status: str,
+    job: dict,
+) -> None:
+    """Push a human-readable line for every meaningful status transition."""
+    if not job_id or not new_status or old_status == new_status:
+        return
+
+    host_id = job.get("host_id") or "—"
+    tier = job.get("tier") or "standard"
+    gpu = (
+        job.get("host_gpu_model")
+        or job.get("gpu_model")
+        or job.get("gpu_type")
+        or ""
+    )
+    if not gpu and host_id and host_id != "—":
+        try:
+            from host_metadata import infer_gpu_from_host_id
+
+            gpu = infer_gpu_from_host_id(str(host_id))
+        except Exception:
+            pass
+    if not gpu:
+        gpu = "any"
+    image = (job.get("image") or job.get("docker_image") or "")[:80]
+    retry = int(job.get("retries", 0) or 0)
+    max_r = int(job.get("max_retries", 3) or 3)
+    reason = (
+        job.get("failure_reason")
+        or job.get("error_message")
+        or job.get("queue_reason_detail")
+        or ""
+    )
+
+    msg: str | None = None
+    level = "info"
+
+    if new_status == "assigned":
+        vram = job.get("host_vram_gb", "?")
+        if (not vram or vram == "?") and gpu and gpu != "any":
+            try:
+                from host_metadata import default_vram_gb
+
+                vram = default_vram_gb(gpu) or vram
+            except Exception:
+                pass
+        msg = (
+            f"Assigned to host {host_id} ({gpu}, {vram} GB VRAM) — "
+            "worker should claim the lease within ~30s"
+        )
+    elif new_status == "leased":
+        msg = f"Worker on {host_id} claimed lease — preparing container"
+    elif new_status == "starting":
+        msg = f"Starting — pulling image and creating container ({image or 'default image'})"
+    elif new_status == "running":
+        msg = f"Running on {host_id} ({gpu})"
+    elif new_status == "failed":
+        msg = f"Failed: {reason}" if reason else "Failed — see logs above for details"
+        level = "error"
+    elif new_status == "cancelled":
+        msg = "Cancelled"
+    elif new_status == "completed":
+        msg = "Completed"
+    elif new_status == "preempted":
+        msg = "Preempted — requeued for available spot capacity"
+        level = "warning"
+    elif new_status == "stopped":
+        msg = "Stopped — storage billing continues"
+    elif new_status == "stopping":
+        msg = "Stopping container…"
+    elif new_status == "restarting":
+        msg = "Restarting container…"
+    elif new_status == "terminated":
+        msg = "Terminated"
+    elif new_status == "queued" and old_status in (
+        "failed",
+        "cancelled",
+        "assigned",
+        "leased",
+        "starting",
+        "running",
+        "preempted",
+    ):
+        relaunch = int(job.get("relaunch_count", 0) or 0)
+        relaunch_note = f", relaunch #{relaunch}" if relaunch else ""
+        msg = (
+            f"Requeued — waiting for GPU (tier={tier}, gpu_model={gpu}, "
+            f"retry {retry}/{max_r}{relaunch_note})"
+        )
+
+    if msg:
+        try:
+            push_job_log(job_id, msg, level)
+        except Exception:
+            pass
+
+
 # ── Helper: push_job_log ──
 
 
@@ -1489,15 +1699,53 @@ def push_job_log(
                     "INSERT INTO job_logs (job_id, ts, level, line) VALUES (%s, %s, %s, %s)",
                     (job_id, ts, level, line),
                 )
+                conn.commit()
         except Exception:
             # Intentionally silent — in-memory + SSE still delivered the message.
             pass
 
-    # Also broadcast to general SSE stream
+    # In-process SSE subscribers (API workers with open WS/SSE clients).
     broadcast_sse("job_log", {"job_id": job_id, **entry})
+    # Cross-process bridge: scheduler-worker / bg-worker / reaper write logs from
+    # other containers — NOTIFY so API workers' LISTEN threads fan out to WS/SSE.
+    try:
+        from db import emit_event
+
+        emit_event("job_log", {"job_id": job_id, **entry})
+    except Exception:
+        pass
 
 
 # ── Helper: _load_pg_logs ──
+
+
+def _poll_pg_job_tail(job_id: str, last_ts: float) -> tuple[list[dict], str, str | None]:
+    """Fetch new PG log rows and authoritative job status/host_id for WS tailing."""
+    new_rows: list[dict] = []
+    cur_status = ""
+    cur_host_id: str | None = None
+    try:
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+
+        with _get_pg_pool().connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                new_rows = cur.execute(
+                    "SELECT ts AS timestamp, level, line, line AS message "
+                    "FROM job_logs WHERE job_id = %s AND ts > %s "
+                    "ORDER BY ts ASC LIMIT 200",
+                    (job_id, last_ts),
+                ).fetchall()
+                status_row = cur.execute(
+                    "SELECT status, host_id FROM jobs WHERE job_id = %s",
+                    (job_id,),
+                ).fetchone()
+                if status_row:
+                    cur_status = status_row.get("status") or ""
+                    cur_host_id = status_row.get("host_id")
+    except Exception:
+        pass
+    return new_rows, cur_status, cur_host_id
 
 
 def _load_pg_logs(job_id: str, limit: int = 200) -> list[dict]:
@@ -1815,7 +2063,15 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
         # scan was the expensive part.
         now_ts = time.time()
         if now_ts - _host_map_ts > 15.0:
-            _host_map_cache = {h["host_id"]: h for h in list_hosts(active_only=False)}
+            try:
+                from host_metadata import enrich_host_for_api
+
+                _host_map_cache = {
+                    h["host_id"]: enrich_host_for_api(h)
+                    for h in list_hosts(active_only=False)
+                }
+            except Exception:
+                _host_map_cache = {h["host_id"]: h for h in list_hosts(active_only=False)}
             _host_map_ts = now_ts
         _enrich_instance(j, _host_map_cache)
         return j
@@ -1855,10 +2111,18 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
     replay = list(_job_log_buffers.get(job_id, []))[-50:]
     if not replay:
         replay = await asyncio.to_thread(_load_pg_logs, job_id, 50)
+    last_log_ts = 0.0
     for entry in replay:
         if not await _safe_send({"event": "job_log", "data": {"job_id": job_id, **entry}}):
             _ws_connections[job_id].discard(websocket)
             return
+        try:
+            last_log_ts = max(last_log_ts, float(entry.get("timestamp") or 0))
+        except (TypeError, ValueError):
+            pass
+
+    last_status = instance.get("status")
+    last_host_id = instance.get("host_id")
 
     # Subscribe to the broadcast SSE bus
     queue: asyncio.Queue = asyncio.Queue(maxsize=256)
@@ -1908,9 +2172,55 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
             except (json.JSONDecodeError, KeyError):
                 pass
 
+    async def _pg_poll_loop():
+        """Tail PG for cross-process lifecycle logs and status/host_id drift."""
+        nonlocal closed, last_log_ts, last_status, last_host_id
+        while not closed:
+            await asyncio.sleep(2)
+            if closed:
+                return
+            try:
+                new_rows, cur_status, cur_host_id = await asyncio.to_thread(
+                    _poll_pg_job_tail, job_id, last_log_ts
+                )
+            except Exception:
+                continue
+            for row in new_rows:
+                if not await _safe_send({"event": "job_log", "data": {"job_id": job_id, **row}}):
+                    closed = True
+                    return
+                try:
+                    last_log_ts = max(last_log_ts, float(row.get("timestamp") or 0))
+                except (TypeError, ValueError):
+                    pass
+            if cur_status and (cur_status != last_status or cur_host_id != last_host_id):
+                fresh = await _load_snapshot_async()
+                if fresh:
+                    if not await _safe_send(
+                        {
+                            "event": "job_status",
+                            "data": {
+                                "job_id": job_id,
+                                "status": cur_status,
+                                "host_id": cur_host_id,
+                            },
+                        }
+                    ):
+                        closed = True
+                        return
+                    if not await _safe_send({"event": "instance", "data": fresh}):
+                        closed = True
+                        return
+                last_status = cur_status
+                last_host_id = cur_host_id
+
     try:
         done, pending = await asyncio.wait(
-            [asyncio.ensure_future(_send_loop()), asyncio.ensure_future(_recv_loop())],
+            [
+                asyncio.ensure_future(_send_loop()),
+                asyncio.ensure_future(_recv_loop()),
+                asyncio.ensure_future(_pg_poll_loop()),
+            ],
             return_when=asyncio.FIRST_COMPLETED,
         )
         for task in pending:

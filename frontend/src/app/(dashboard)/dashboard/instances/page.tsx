@@ -170,7 +170,7 @@ function RowActions({
   const isRunning = status === "running";
   const isStopped = status === "stopped";
   const isQueued = ["queued", "assigned", "leased"].includes(status);
-  const isTerminal = ["completed", "failed", "cancelled", "terminated", "preempted"].includes(status);
+  const canRequeue = ["failed", "cancelled", "terminated", "preempted"].includes(status);
 
   // Locked: only Unlock works. Everything else is visibly disabled so the
   // user understands *why* actions are ghosted rather than silently failing.
@@ -274,9 +274,17 @@ function RowActions({
           <XCircle className="h-3.5 w-3.5" />
         </IconButton>
       )}
-      {isTerminal && (
+      {canRequeue && (
         <IconButton
           title="Requeue"
+          onClick={() => onAction(inst.job_id, "requeue")}
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+        </IconButton>
+      )}
+      {isQueued && inst.host_id && (
+        <IconButton
+          title="Requeue stuck assignment"
           onClick={() => onAction(inst.job_id, "requeue")}
         >
           <RotateCcw className="h-3.5 w-3.5" />

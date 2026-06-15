@@ -600,7 +600,17 @@ def main():
 
     tasks.append(("agent_rollout_watchdog", _agent_rollout_watchdog, 30))
 
-    # 19. Lightning Network deposit watcher (every 5 seconds)
+    # 20. Stuck-job reaper — fails jobs wedged in queued/assigned/leased/starting.
+    # Registered in api.py lifespan too, but production API sets
+    # XCELSIOR_BG_TASKS=false; this worker must run the reaper.
+    try:
+        from reaper import reaper_tick
+
+        tasks.append(("reaper_tick", reaper_tick, 60))
+    except Exception as e:
+        log.warning("reaper_tick not registered: %s", e)
+
+    # 21. Lightning Network deposit watcher (every 5 seconds)
     try:
         import lightning as _ln
 

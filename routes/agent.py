@@ -662,7 +662,7 @@ def api_agent_lease_claim(req: LeaseClaimRequest, request: Request):
         except ValueError:
             pass  # Event already recorded by grant_lease
 
-        # Update scheduler's job status to leased
+        # Update scheduler's job status to leased (lifecycle log emitted by update_job_status)
         update_job_status(req.job_id, "leased", host_id=req.host_id)
     else:
         # Restart-recovery reclaim: job already past "leased", don't regress its status.

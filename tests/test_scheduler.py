@@ -156,6 +156,53 @@ class TestAllocate:
         result = scheduler.allocate({"name": "job1", "vram_needed_gb": 8}, hosts)
         assert result["host_id"] == "h2"
 
+    def test_allocate_gpu_upgrade_when_exact_unavailable(self):
+        """RTX 2060 request should land on RTX 3060 when no 2060 host is online."""
+        hosts = [
+            {
+                "host_id": "tower",
+                "total_vram_gb": 12,
+                "free_vram_gb": 12,
+                "latency_ms": 10,
+                "gpu_model": "RTX 3060",
+                "cost_per_hour": 0.35,
+                "admitted": True,
+            },
+        ]
+        result = scheduler.allocate(
+            {"name": "upgrade-job", "vram_needed_gb": 0, "gpu_model": "RTX 2060"},
+            hosts,
+        )
+        assert result is not None
+        assert result["host_id"] == "tower"
+
+    def test_allocate_prefers_exact_gpu_model(self):
+        hosts = [
+            {
+                "host_id": "h2060",
+                "total_vram_gb": 6,
+                "free_vram_gb": 6,
+                "latency_ms": 10,
+                "gpu_model": "RTX 2060",
+                "cost_per_hour": 0.20,
+                "admitted": True,
+            },
+            {
+                "host_id": "h3060",
+                "total_vram_gb": 12,
+                "free_vram_gb": 12,
+                "latency_ms": 10,
+                "gpu_model": "RTX 3060",
+                "cost_per_hour": 0.35,
+                "admitted": True,
+            },
+        ]
+        result = scheduler.allocate(
+            {"name": "exact-job", "vram_needed_gb": 0, "gpu_model": "RTX 2060"},
+            hosts,
+        )
+        assert result["host_id"] == "h2060"
+
 
 # ── Phase 2: Host Registry ──────────────────────────────────────────
 
@@ -398,6 +445,14 @@ class TestFailover:
         result = scheduler.requeue_job(job["job_id"])
         assert result is not None
         assert result["status"] == "queued"
+
+    def test_requeue_cancelled_job(self):
+        job = scheduler.submit_job("test", 8)
+        scheduler.update_job_status(job["job_id"], "cancelled")
+        result = scheduler.requeue_job(job["job_id"])
+        assert result is not None
+        assert result["status"] == "queued"
+        assert result.get("retries", 0) == 0
 
     def test_requeue_completed_job_rejected(self):
         job = scheduler.submit_job("test", 8)

@@ -270,6 +270,7 @@ _active_containers = {}  # job_id -> container_name
 _missing_stop_container_log_at = {}  # container_name -> last absent-stop log time
 _adopted_containers = set()  # job_ids of containers adopted from scheduler (don't stop on shutdown)
 _active_lock = threading.Lock()
+_image_pull_lock = threading.Lock()  # serialize job pulls vs idle/startup warmers
 _oauth_lock = threading.Lock()
 _oauth_access_token = ""
 _oauth_access_token_expires_at = 0.0
@@ -497,19 +498,19 @@ def get_host_ip():
     if override:
         return override
 
-    # If Headscale mesh is active, prefer the mesh IP
-    if TAILSCALE_ENABLED:
-        try:
-            r = subprocess.run(
-                ["tailscale", "ip", "-4"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if r.returncode == 0 and r.stdout.strip():
-                return r.stdout.strip().split("\n")[0]
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            pass
+    # Prefer mesh IP when tailscale is installed and joined — reachable from the
+    # API gateway for SSH/terminal even if XCELSIOR_TAILSCALE_ENABLED is off.
+    try:
+        r = subprocess.run(
+            ["tailscale", "ip", "-4"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip().split("\n")[0]
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
 
     # hostname -I
     try:
@@ -907,12 +908,14 @@ def heartbeat(gpu_info, host_ip, compute_score=None):
     PUT /host — same as v1 but with optional compute_score.
     Returns True on success.
     """
+    cpu_count = os.cpu_count() or 0
     data = {
         "host_id": HOST_ID,
         "ip": host_ip,
         "gpu_model": gpu_info["gpu_model"],
         "total_vram_gb": gpu_info["total_vram_gb"],
         "free_vram_gb": gpu_info["free_vram_gb"],
+        "cpu_count": cpu_count,
         "cost_per_hour": COST_PER_HOUR,
         # P1.2: report our own version + sha so the control plane knows
         # which bytes are running and can schedule rolling self-updates.
@@ -1682,7 +1685,16 @@ def report_job_status(
             headers=_api_headers(),
             timeout=10,
         )
-        return resp.status_code == 200
+        if resp.status_code != 200:
+            log.warning(
+                "Status update %s for job %s failed: HTTP %s %s",
+                status,
+                job_id,
+                resp.status_code,
+                (resp.text or "")[:200],
+            )
+            return False
+        return True
     except requests.RequestException as e:
         log.error("Status update failed for job %s: %s", job_id, e)
         return False
@@ -2088,13 +2100,17 @@ def cache_prepull_popular(popular_images, max_concurrent=3):
 
     Called from the main loop when the agent has no active work.
     Only pulls images not already cached, respecting cache limits.
-    Pulls up to max_concurrent images in parallel.
+    Pulls up to max_concurrent images in parallel (serialized when jobs run).
 
     Args:
         popular_images: List of image tags ordered by popularity.
         max_concurrent: Max simultaneous docker pulls.
     """
     import concurrent.futures
+
+    if _active_containers:
+        log.debug("Skipping image pre-pull — %d active job(s)", len(_active_containers))
+        return
 
     to_pull = []
     for image_tag in popular_images:
@@ -2112,30 +2128,32 @@ def cache_prepull_popular(popular_images, max_concurrent=3):
         return
 
     def _pull_one(img_tag):
-        if _shutdown.is_set():
+        if _shutdown.is_set() or _active_containers:
             return False
         log.info("Pre-pulling: %s", img_tag)
         try:
-            pull = subprocess.Popen(
-                ["docker", "pull", img_tag],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-            )
-            # Poll with shutdown check so we can abort quickly on SIGTERM
-            while pull.poll() is None:
-                if _shutdown.is_set():
-                    pull.terminate()
-                    pull.wait(timeout=5)
+            with _image_pull_lock:
+                if _active_containers:
                     return False
-                time.sleep(1)
-            if pull.returncode == 0:
-                images = _get_local_images()
-                size_mb = images.get(img_tag, 0)
-                cache_track_pull(img_tag, size_mb)
-                log.info("Pre-pulled %s (%.0f MB)", img_tag, size_mb)
-                return True
-            else:
+                pull = subprocess.Popen(
+                    ["docker", "pull", img_tag],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                )
+                # Poll with shutdown check so we can abort quickly on SIGTERM
+                while pull.poll() is None:
+                    if _shutdown.is_set():
+                        pull.terminate()
+                        pull.wait(timeout=5)
+                        return False
+                    time.sleep(1)
+                if pull.returncode == 0:
+                    images = _get_local_images()
+                    size_mb = images.get(img_tag, 0)
+                    cache_track_pull(img_tag, size_mb)
+                    log.info("Pre-pulled %s (%.0f MB)", img_tag, size_mb)
+                    return True
                 stderr = pull.stdout.read() if pull.stdout else ""
                 log.warning(
                     "Pre-pull failed %s: %s", img_tag, stderr[:200] if stderr else "unknown"
@@ -2146,7 +2164,8 @@ def cache_prepull_popular(popular_images, max_concurrent=3):
             log.error("docker not found — cannot pre-pull")
         return False
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_concurrent) as pool:
+    workers = 1 if _active_containers else max_concurrent
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         list(pool.map(_pull_one, to_pull))  # list() forces consumption, surfaces exceptions
 
 
@@ -3320,7 +3339,7 @@ def run_job(job):
                 )
             else:
                 log.error("Encrypted workspace provisioning failed for job %s — aborting", job_id)
-                report_job_status(job_id, "failed")
+                report_job_status(job_id, "failed", error_message="encrypted workspace provisioning failed")
                 return
 
         # 1. Pull image (with cache tracking + LRU eviction)
@@ -3351,46 +3370,48 @@ def run_job(job):
                 [{"message": f"Pulling image {image}…", "level": "info", "timestamp": time.time()}],
             )
 
-            pull_proc = subprocess.Popen(
-                ["docker", "pull", image],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-            )
-            pull_last_send = time.time()
-            pull_lines = []
-            for raw_line in pull_proc.stdout:
-                line = raw_line.rstrip("\n")
-                if not line:
-                    continue
-                # Send pull progress to API every 3 seconds (avoid flooding)
-                now = time.time()
-                if now - pull_last_send >= 3.0:
-                    pull_lines.append({"message": line, "level": "info", "timestamp": now})
+            with _image_pull_lock:
+                pull_proc = subprocess.Popen(
+                    ["docker", "pull", image],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                )
+                pull_last_send = time.time()
+                pull_lines = []
+                for raw_line in pull_proc.stdout:
+                    line = raw_line.rstrip("\n")
+                    if not line:
+                        continue
+                    # Send pull progress to API every 3 seconds (avoid flooding)
+                    now = time.time()
+                    if now - pull_last_send >= 3.0:
+                        pull_lines.append({"message": line, "level": "info", "timestamp": now})
+                        _push_log_lines(job_id, pull_lines)
+                        pull_lines = []
+                        pull_last_send = now
+                    else:
+                        pull_lines.append({"message": line, "level": "info", "timestamp": now})
+                # Flush remaining
+                if pull_lines:
                     _push_log_lines(job_id, pull_lines)
-                    pull_lines = []
-                    pull_last_send = now
-                else:
-                    pull_lines.append({"message": line, "level": "info", "timestamp": now})
-            # Flush remaining
-            if pull_lines:
-                _push_log_lines(job_id, pull_lines)
 
-            pull_rc = pull_proc.wait(timeout=1800)
+                pull_rc = pull_proc.wait(timeout=1800)
             if pull_rc != 0:
+                err = f"Image pull failed (exit {pull_rc})"
                 log.error("Image pull failed for %s (exit %d)", image, pull_rc)
                 _push_log_lines(
                     job_id,
                     [
                         {
-                            "message": f"Image pull failed (exit {pull_rc})",
+                            "message": err,
                             "level": "error",
                             "timestamp": time.time(),
                         }
                     ],
                 )
-                report_job_status(job_id, "failed")
+                report_job_status(job_id, "failed", error_message=err)
                 return
 
             # Track in LRU cache index
@@ -3577,18 +3598,19 @@ def run_job(job):
             timeout=CONTAINER_START_TIMEOUT,
         )
         if start.returncode != 0:
-            log.error("Container start failed: %s", start.stderr.strip())
+            err = f"Container start failed: {start.stderr.strip()}"
+            log.error("%s", err)
             _push_log_lines(
                 job_id,
                 [
                     {
-                        "message": f"Container start failed: {start.stderr.strip()}",
+                        "message": err,
                         "level": "error",
                         "timestamp": time.time(),
                     }
                 ],
             )
-            report_job_status(job_id, "failed")
+            report_job_status(job_id, "failed", error_message=err[:500])
             return
 
         container_id = start.stdout.strip()[:12]
@@ -5894,6 +5916,20 @@ def main():
     def _startup_image_warmer():
         """Pre-pull entire IMAGE_TEMPLATES catalog on startup."""
         try:
+            # Wait for any adopted/running containers before warming — job pulls win.
+            for _ in range(120):
+                if _shutdown.is_set():
+                    return
+                if not _active_containers:
+                    break
+                time.sleep(5)
+            if _active_containers:
+                log.info(
+                    "Image warmer: deferred — %d active container(s)",
+                    len(_active_containers),
+                )
+                return
+
             from security import IMAGE_TEMPLATES
 
             catalog_images = [t["image"] for t in IMAGE_TEMPLATES]
@@ -5920,7 +5956,7 @@ def main():
                 len(to_pull),
                 len(catalog_images),
             )
-            cache_prepull_popular(to_pull, max_concurrent=2)
+            cache_prepull_popular(to_pull, max_concurrent=1)
             log.info("Image warmer: done — all catalog images cached")
         except Exception as e:
             log.warning("Image warmer error: %s", e)

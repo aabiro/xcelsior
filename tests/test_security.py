@@ -13,6 +13,7 @@ from security import (
     DEFAULT_EGRESS_ALLOWLIST,
     admit_node,
     build_secure_docker_args,
+    container_cpu_limit,
     check_mining_heuristic,
     check_node_versions,
     is_gvisor_available,
@@ -167,6 +168,26 @@ class TestBuildSecureDockerArgs:
                 runtime="runc",
                 labels={"bad label": "value"},
             )
+
+    def test_cpus_capped_to_host(self, monkeypatch):
+        monkeypatch.setattr("security.os.cpu_count", lambda: 12)
+        args = build_secure_docker_args("python:3.12", "test-job", runtime="runc")
+        idx = args.index("--cpus")
+        assert args[idx + 1] == "12"
+
+
+class TestContainerCpuLimit:
+    def test_caps_to_host_when_below_ceiling(self, monkeypatch):
+        monkeypatch.setattr("security.os.cpu_count", lambda: 12)
+        assert container_cpu_limit() == "12"
+
+    def test_uses_explicit_host_cpus(self, monkeypatch):
+        monkeypatch.setattr("security.os.cpu_count", lambda: 64)
+        assert container_cpu_limit(12) == "12"
+
+    def test_ceiling_default_16(self, monkeypatch):
+        monkeypatch.setattr("security.os.cpu_count", lambda: 32)
+        assert container_cpu_limit() == "16"
 
 
 # ── Egress Rules ─────────────────────────────────────────────────────
