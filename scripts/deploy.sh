@@ -1157,60 +1157,50 @@ wait \"\$fe_pid\"
     success "Migrations applied"
 
     # ── Blue-green zero-downtime swap ────────────────────────────────────
-    # State file tracks which colour is currently live.
-    # Default: "green" (api on 9500).  After swap: "blue" (api-blue on 9501).
+    # Only roll the API when the image or runtime (.env) changed. Frontend-only
+    # deploys must not touch the live API, ssh-gateway, or scheduler (keeps
+    # running instances + web terminals connected).
     local state_file="/opt/xcelsior/.deploy_colour"
-    local live_colour
-    live_colour=$(ssh_cmd "cat $state_file 2>/dev/null || echo green")
+    local final_port final_colour
+    if [[ "$DEPLOY_BUILD_API" == true || "$DEPLOY_RUNTIME_CHANGED" == true ]]; then
+        # State file tracks which colour is currently live.
+        # Default: "green" (api on 9500).  After swap: "blue" (api-blue on 9501).
+        local live_colour
+        live_colour=$(ssh_cmd "cat $state_file 2>/dev/null || echo green")
 
-    local standby_service standby_port live_service live_port
-    if [[ "$live_colour" == "green" ]]; then
-        live_service="api"        ; live_port=9500
-        standby_service="api-blue"; standby_port=9501
-    else
-        live_service="api-blue"   ; live_port=9501
-        standby_service="api"     ; standby_port=9500
-    fi
-
-    log "Blue-green deploy: live=$live_colour ($live_service:$live_port) → standby=$standby_service:$standby_port"
-
-    # 1. Start the standby service on the other port
-    log "Starting standby API on port $standby_port..."
-    ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps $standby_service" || error "Standby API ($standby_service) failed to start"
-
-    # 2. Wait for standby to become healthy
-    local standby_ok=false
-    for i in {1..30}; do
-        if ssh_cmd "curl -sf http://localhost:$standby_port/healthz" &>/dev/null; then
-            standby_ok=true
-            break
+        local standby_service standby_port live_service live_port
+        if [[ "$live_colour" == "green" ]]; then
+            live_service="api"        ; live_port=9500
+            standby_service="api-blue"; standby_port=9501
+        else
+            live_service="api-blue"   ; live_port=9501
+            standby_service="api"     ; standby_port=9500
         fi
-        sleep 2
-    done
 
-    if [ "$standby_ok" != true ]; then
-        warn "Standby API ($standby_service:$standby_port) not healthy after 60s — aborting swap"
-        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue stop $standby_service 2>/dev/null" || true
-        # Fall back: just restart the live service in-place
-        log "Falling back to in-place restart of $live_service..."
-        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps $live_service" || error "In-place API restart failed"
-        local fallback_ok=false
-        for i in {1..20}; do
-            if ssh_cmd "curl -sf http://localhost:$live_port/healthz" &>/dev/null; then
-                fallback_ok=true; break
+        log "Blue-green deploy: live=$live_colour ($live_service:$live_port) → standby=$standby_service:$standby_port"
+
+        # 1. Start the standby service on the other port
+        log "Starting standby API on port $standby_port..."
+        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps $standby_service" || error "Standby API ($standby_service) failed to start"
+
+        # 2. Wait for standby to become healthy (cold start can exceed 60s)
+        local standby_ok=false
+        for i in {1..60}; do
+            if ssh_cmd "curl -sf http://localhost:$standby_port/healthz" &>/dev/null; then
+                standby_ok=true
+                break
             fi
             sleep 2
         done
-        if [ "$fallback_ok" = true ]; then
-            success "API is healthy (in-place restart — no zero-downtime this deploy)"
-        else
-            warn "API not healthy after in-place restart"
+
+        if [ "$standby_ok" != true ]; then
+            warn "Standby API ($standby_service:$standby_port) not healthy after 120s — aborting swap"
+            ssh_cmd "cd /opt/xcelsior && docker compose --profile blue stop $standby_service 2>/dev/null" || true
+            error "Blue-green swap aborted — live API ($live_service:$live_port) left running. Check standby logs and retry."
         fi
-    else
         success "Standby API ($standby_service:$standby_port) is healthy"
 
         # 3. Swap nginx upstream to point at the standby (now primary)
-        #    We use sed to reorder the upstream servers so the new primary is first.
         log "Swapping nginx upstream to port $standby_port..."
         ssh_cmd "sudo sed -i \
             -e '/upstream xcelsior_api/,/}/{ \
@@ -1232,24 +1222,26 @@ wait \"\$fe_pid\"
         if [[ "$live_colour" == "green" ]]; then new_colour="blue"; else new_colour="green"; fi
         ssh_cmd "echo $new_colour > $state_file"
         success "Deploy state: $new_colour is now live"
+
+        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps scheduler-worker" || error "Scheduler-worker restart failed"
+        success "Scheduler-worker restarted"
+
+        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps bg-worker" || error "bg-worker restart failed"
+        success "bg-worker restarted"
+
+        # ssh-gateway shares API/terminal routes — restart only when API code changed.
+        ssh_cmd "cd /opt/xcelsior && $build_prefix docker compose up -d --no-deps --build ssh-gateway" || error "ssh-gateway restart failed"
+        success "ssh-gateway restarted"
+    else
+        log "API image/runtime unchanged — skipping blue-green swap (live API + ssh-gateway untouched)"
     fi
 
-    ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps scheduler-worker" || error "Scheduler-worker restart failed"
-    success "Scheduler-worker restarted"
-
-    ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps bg-worker" || error "bg-worker restart failed"
-    success "bg-worker restarted"
-
-    # ssh-gateway shares the same codebase (ssh_gateway.py) and is
-    # rebuilt from the same Dockerfile, so it must be restarted whenever
-    # we ship new code. `--no-deps` keeps docker-compose from touching
-    # unrelated services. `--build` ensures the image picks up the new
-    # ssh_gateway.py (the main api build above doesn't target this image).
-    ssh_cmd "cd /opt/xcelsior && $build_prefix docker compose up -d --no-deps --build ssh-gateway" || error "ssh-gateway restart failed"
-    success "ssh-gateway restarted"
-
-    ssh_cmd "cd /opt/xcelsior && docker compose up -d --no-deps frontend" || error "Frontend restart failed"
-    success "Frontend restarted"
+    if [[ "$DEPLOY_BUILD_FRONTEND" == true ]]; then
+        ssh_cmd "cd /opt/xcelsior && docker compose up -d --no-deps frontend" || error "Frontend restart failed"
+        success "Frontend restarted"
+    else
+        log "Frontend image unchanged — skipping frontend restart"
+    fi
 
     log "Starting Jaeger (OTLP trace collector)..."
     ssh_cmd "cd /opt/xcelsior && docker compose up -d jaeger" || warn "Jaeger failed to start — traces will not export"
@@ -1261,7 +1253,6 @@ wait \"\$fe_pid\"
     fi
 
     # Final health check — whichever port is now live
-    local final_port final_colour
     final_colour=$(ssh_cmd "cat $state_file 2>/dev/null || echo green")
     if [[ "$final_colour" == "blue" ]]; then final_port=9501; else final_port=9500; fi
 
@@ -1738,14 +1729,7 @@ main() {
                 log "Nginx configs unchanged — skipping"
             fi
 
-            if [[ "$DEPLOY_BUILD_API" == true || "$DEPLOY_BUILD_FRONTEND" == true ]]; then
-                deploy_docker
-            else
-                log "Image build inputs unchanged — running migrations and container refresh only"
-                # P3/C8 — fatal on migration failure; see note at deploy_docker().
-                ssh_cmd "cd /opt/xcelsior && docker compose run --rm api alembic upgrade head" || error "Migration failed — aborting deploy. Fix the migration then rerun scripts/deploy.sh."
-                ssh_cmd "cd /opt/xcelsior && docker compose up -d" || error "Docker up failed"
-            fi
+            deploy_docker
 
             wait_mirror_syncs
             persist_deploy_inputs
