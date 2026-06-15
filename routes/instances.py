@@ -880,6 +880,8 @@ def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
             except Exception:
                 pass
         j.setdefault("host_vram_gb", vram)
+        if j.get("status") in ("running", "starting", "completed", "failed"):
+            j.setdefault("host_ip", host.get("ip", ""))
     elif hid and not j.get("host_vram_gb") and actual_gpu:
         try:
             from host_metadata import default_vram_gb

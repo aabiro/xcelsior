@@ -856,28 +856,35 @@ export default function InstanceDetailPage() {
               </div>
             )}
           </div>
-          {/* Connection Info — always visible when running */}
-          {isRunning && instance.host_ip && (
-            <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-ice-blue/5 border border-ice-blue/20 mb-3">
-              <Globe className="h-4 w-4 text-ice-blue shrink-0" />
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                <span className="text-xs text-text-muted shrink-0">SSH:</span>
-                <code className="text-xs font-mono text-ice-blue select-all truncate">ssh root@{SSH_HOST} -p {instance.ssh_port || 22}</code>
+          {/* Connection Info — visible whenever SSH proxy is available */}
+          {isRunning && (instance.ssh_port || instance.ssh_status) && (
+            <div className="rounded-lg bg-ice-blue/5 border border-ice-blue/20 mb-3 px-3 py-2 space-y-2">
+              <div className="flex items-center gap-3">
+                <Globe className="h-4 w-4 text-ice-blue shrink-0" />
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <span className="text-xs text-text-muted shrink-0">SSH:</span>
+                  <code className="text-xs font-mono text-ice-blue select-all truncate">
+                    ssh root@{SSH_HOST} -p {instance.ssh_port || 22}
+                  </code>
+                </div>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(`ssh root@${SSH_HOST} -p ${instance.ssh_port || 22}`); toast.success("Copied SSH command"); }}
+                  className="text-text-muted hover:text-ice-blue transition-colors shrink-0"
+                  title="Copy SSH command"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={() => setShowConnectModal(true)}
+                  className="text-text-muted hover:text-ice-blue transition-colors shrink-0"
+                  title="More connection details"
+                >
+                  <Info className="h-3.5 w-3.5" />
+                </button>
               </div>
-              <button
-                onClick={() => { navigator.clipboard.writeText(`ssh root@${SSH_HOST} -p ${instance.ssh_port || 22}`); toast.success("Copied SSH command"); }}
-                className="text-text-muted hover:text-ice-blue transition-colors shrink-0"
-                title="Copy SSH command"
-              >
-                <Copy className="h-3.5 w-3.5" />
-              </button>
-              <button
-                onClick={() => setShowConnectModal(true)}
-                className="text-text-muted hover:text-ice-blue transition-colors shrink-0"
-                title="More connection details"
-              >
-                <Info className="h-3.5 w-3.5" />
-              </button>
+              {instance.ssh_status?.root_password ? (
+                <RootPasswordRow password={instance.ssh_status.root_password} />
+              ) : null}
             </div>
           )}
           {readOnly && (isRunning || status === "starting") && (
