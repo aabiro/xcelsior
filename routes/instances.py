@@ -1926,6 +1926,41 @@ async def api_instance_log_stream(request: Request, job_id: str):
     )
 
 
+@router.get("/api/instances/{job_id}/telemetry", tags=["Instances"])
+def api_instance_telemetry(job_id: str, request: Request):
+    """Latest GPU telemetry for the host running this instance (for agents/MCP watch_instance)."""
+    import time as _time
+
+    user = _require_auth(request)
+    _require_scope(user, "instances:read")
+    _check_job_access(user, job_id)
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    host_id = job.get("host_id")
+    if not host_id:
+        return {
+            "ok": True,
+            "job_id": job_id,
+            "host_id": None,
+            "telemetry": None,
+            "message": "Instance not yet assigned to a host",
+        }
+    from routes.agent import _host_telemetry
+
+    data = _host_telemetry.get(host_id)
+    if not data:
+        raise HTTPException(status_code=404, detail=f"No telemetry for host {host_id}")
+    stale = (_time.time() - data.get("received_at", 0)) > 30
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "host_id": host_id,
+        "stale": stale,
+        "telemetry": data,
+    }
+
+
 @router.get("/instances/{job_id}/logs", tags=["Instances"])
 def api_instance_logs(job_id: str, request: Request, limit: int = 100):
     """Get buffered log lines for a job (non-streaming).

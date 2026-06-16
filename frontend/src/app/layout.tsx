@@ -120,7 +120,7 @@ export default function RootLayout({
               "@context": "https://schema.org",
               "@type": "Organization",
               "@id": "https://xcelsior.ca/#organization",
-              name: "Xcelsior Computing Inc.",
+              name: "Xcelsior Compute Inc.",
               url: "https://xcelsior.ca",
               logo: "https://xcelsior.ca/xcelsior_icon_512x512.png",
               description:

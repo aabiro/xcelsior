@@ -102,6 +102,13 @@ CLIENT_OPERATION_ALLOWLIST = {
     ("/api/v2/inference/endpoints/{endpoint_id}", "delete"),
     ("/api/v2/inference/endpoints/{endpoint_id}/health", "get"),
     ("/api/v2/inference/endpoints/{endpoint_id}/usage", "get"),
+    ("/api/v2/gpu/available", "get"),
+    ("/api/reputation/{entity_id}", "get"),
+    ("/api/instances/{job_id}/telemetry", "get"),
+    ("/instances/{job_id}/terminate", "post"),
+    ("/instances/{job_id}/start", "post"),
+    ("/instances/{job_id}/stop", "post"),
+    ("/api/events/{entity_type}/{entity_id}", "get"),
 }
 
 if str(ROOT) not in sys.path:

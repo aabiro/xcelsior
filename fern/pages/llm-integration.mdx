@@ -59,7 +59,28 @@ spec = httpx.get("https://xcelsior.ca/openapi.json").json()
 
 ### MCP Integration
 
-Xcelsior's API is designed to work with Model Context Protocol (MCP) servers. The OpenAPI spec can be used to create an MCP server that gives AI agents direct access to GPU compute:
+Xcelsior ships a **hosted MCP server** at `https://xcelsior.ca/mcp` (Streamable HTTP). Agents connect with a Bearer token from an OAuth machine client — no local install required.
+
+**Setup:** Dashboard → Settings → **Connect AI Agents** (or visit [xcelsior.ca/mcp](https://xcelsior.ca/mcp)).
+
+**Cursor config:**
+
+```json
+{
+  "mcpServers": {
+    "xcelsior": {
+      "url": "https://xcelsior.ca/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_OAUTH_ACCESS_TOKEN"
+      }
+    }
+  }
+}
+```
+
+**Curated agent tools** (not a raw OpenAPI dump): `list_available_gpus`, `create_instance`, `should_i_run_this`, `run_training_job`, `get_wallet_balance`, and more. Destructive tools require `confirm: true`; use `should_i_run_this` for cost + wallet checks first.
+
+The public OpenAPI spec remains available for custom integrations:
 
 ```json
 {

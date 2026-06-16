@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 
 type SortKey = "hostname" | "gpu_model" | "status" | "vram_gb" | "cost_per_hour";
 type SortDir = "asc" | "desc";
+type InstallView = "sdk" | "quickstart";
 
 function HostSortIcon({
   col,
@@ -52,6 +53,14 @@ export default function HostsPage() {
   const [page, setPage] = useState(1);
   const [showRegister, setShowRegister] = useState(false);
   const [showInstall, setShowInstall] = useState(false);
+  const [installInitialView, setInstallInitialView] = useState<InstallView>("sdk");
+  const [installOpenKey, setInstallOpenKey] = useState(0);
+
+  const openInstallModal = useCallback((view: InstallView) => {
+    setInstallInitialView(view);
+    setInstallOpenKey((k) => k + 1);
+    setShowInstall(true);
+  }, []);
   const [deleteTarget, setDeleteTarget] = useState<Host | null>(null);
   const api = useApi();
   const { t } = useLocale();
@@ -158,7 +167,7 @@ export default function HostsPage() {
               variant="outline"
               className="h-10 border-accent-cyan/30 text-accent-cyan hover:bg-accent-cyan/10 hover:border-accent-cyan/50 shadow-sm shadow-accent-cyan/10 hover:shadow-accent-cyan/20 transition-all duration-200"
               data-action="install"
-              onClick={() => setShowInstall(true)}
+              onClick={() => openInstallModal("sdk")}
             >
               <Terminal className="h-4 w-4" />
               Install Worker
@@ -175,7 +184,11 @@ export default function HostsPage() {
         <StatCard label="Total VRAM" value={`${totalVram} GB`} icon={HardDrive} glow="violet" />
       </div>
 
-      <HostSetupGuideCard onRegister={() => setShowRegister(true)} />
+      <HostSetupGuideCard
+        onRegister={() => setShowRegister(true)}
+        onInstall={() => openInstallModal("sdk")}
+        onManualSetup={() => openInstallModal("quickstart")}
+      />
 
       {/* Register Host Modal */}
       <Dialog
@@ -209,7 +222,7 @@ export default function HostsPage() {
         className="border-accent-cyan/20 shadow-lg shadow-accent-cyan/5 h-[82vh]"
         bodyClassName="flex-1 min-h-0 flex flex-col overflow-hidden"
       >
-        <InstallWorkerSection />
+        <InstallWorkerSection key={installOpenKey} initialView={installInitialView} />
       </Dialog>
 
       {/* Architecture — always visible */}
@@ -272,7 +285,7 @@ export default function HostsPage() {
                   <Plus className="h-4 w-4" />
                   Register Your First Host
                 </Button>
-                <Button variant="outline" className="h-11" onClick={() => setShowInstall(true)}>
+                <Button variant="outline" className="h-11" onClick={() => openInstallModal("sdk")}>
                   <Terminal className="h-4 w-4" />
                   View Installation Guide
                 </Button>
@@ -744,20 +757,35 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://xcelsior.ca";
 const APP_HOST = APP_URL.replace(/^https?:\/\//, "");
+const WIZARD_CMD = "npx @xcelsior-gpu/wizard@latest";
+const SDK_INSTALL_CMD = "npm install @xcelsior-gpu/sdk";
 
 const LLM_INSTALL_PROMPT = `I am setting up an Xcelsior GPU worker node to join the distributed GPU compute marketplace at ${APP_HOST}. Walk me through setup step-by-step. Mark any values I need to fill in with placeholder comments.
 
 ## Option A: AI Onboarding Wizard (Recommended)
 
+### 1. Register host (dashboard)
+Register at ${APP_URL}/dashboard/hosts → "Register Host" (the wizard can also register for you).
+
+### 2. Run the wizard (one command on the GPU host)
+
 \`\`\`bash
 npx @xcelsior-gpu/wizard@latest
 \`\`\`
 
-(\`npx\` runs the wizard without a global install, so it never hits the
-\`/usr/lib/node_modules\` permission error. To use the SDK in your own project,
-\`npm install @xcelsior-gpu/sdk\` locally — no \`-g\`.)
+(\`npx\` runs the wizard without a global install — no \`-g\`, no \`/usr/lib/node_modules\` permission issues.)
 
-The AI Onboarding Wizard will ask whether you want to rent GPUs, provide GPUs, or both — then handle hardware detection, host registration, pricing, and worker service setup automatically.
+**Provide GPUs** (host setup): hardware detection, host registration, pricing, and worker service install.
+
+**Integrate SDK** (app setup, wizard): same command from your project directory — detects your framework, installs the package, creates API credentials, writes your env file, and verifies the connection.
+
+### SDK without the wizard (manual)
+
+\`\`\`bash
+${SDK_INSTALL_CMD}
+\`\`\`
+
+Then add your API token from Settings → API & SSH (\`XCELSIOR_API_TOKEN\` or OAuth client). Docs: ${APP_URL}/docs/typescript-sdk
 
 ### SDK Commands (available after setup)
 
@@ -835,6 +863,98 @@ journalctl -u xcelsior-worker -f
 - Can't connect → check firewall allows outbound HTTPS to ${APP_HOST}:443
 - Not picking up jobs → \`xcelsior pricing compare\` to check competitiveness`;
 
+function SdkIntegrateInfoCard({
+  compact = false,
+  copied,
+  onCopy,
+}: {
+  compact?: boolean;
+  copied?: string | null;
+  onCopy?: (label: string, text: string) => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-lg border border-accent-violet/20 bg-accent-violet/5",
+        compact ? "p-3" : "p-3.5",
+      )}
+    >
+      <div className="flex gap-2.5">
+        <Code2 className="h-4 w-4 text-accent-violet shrink-0 mt-0.5" />
+        <div className="min-w-0 flex-1 space-y-3">
+          <div>
+            <p className="text-xs font-medium text-text-primary">
+              {compact ? "Building an app?" : "Integrate the TypeScript SDK"}
+            </p>
+            {!compact && (
+              <p className="text-xs text-text-muted mt-0.5">
+                Same <code className="bg-surface-hover px-1 py-0.5 rounded text-[11px]">@xcelsior-gpu/sdk</code> package — wizard or manual install.
+              </p>
+            )}
+          </div>
+
+          <div className={compact ? "space-y-2" : "space-y-2.5"}>
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-accent-cyan mb-1">
+                Recommended — wizard
+              </p>
+              {compact ? (
+                <p className="text-xs text-text-secondary leading-relaxed">
+                  Run <code className="bg-surface-hover px-1 py-0.5 rounded text-[11px]">{WIZARD_CMD}</code> from your project and choose{" "}
+                  <span className="font-medium text-text-primary">Integrate SDK</span>. Installs the package, credentials, and env for you.
+                </p>
+              ) : (
+                <>
+                  <p className="text-xs text-text-secondary mb-2 leading-relaxed">
+                    From your project directory, run the wizard and choose <span className="font-medium text-text-primary">Integrate SDK</span>.
+                    It detects your framework, installs <code className="bg-surface-hover px-1 py-0.5 rounded text-[11px]">@xcelsior-gpu/sdk</code>,
+                    creates API credentials, writes your <code className="bg-surface-hover px-1 py-0.5 rounded text-[11px]">.env</code> snippet, and verifies the connection.
+                  </p>
+                  {onCopy ? (
+                    <CodeSnippet label="sdk-wizard-cmd" text={WIZARD_CMD} copied={copied ?? null} onCopy={onCopy} />
+                  ) : null}
+                </>
+              )}
+            </div>
+
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-text-muted mb-1">
+                Or install manually
+              </p>
+              {compact ? (
+                <p className="text-xs text-text-secondary leading-relaxed">
+                  <code className="bg-surface-hover px-1 py-0.5 rounded text-[11px]">{SDK_INSTALL_CMD}</code> in your project, then add an API token from Settings → API &amp; SSH.
+                </p>
+              ) : (
+                <>
+                  <p className="text-xs text-text-secondary mb-2 leading-relaxed">
+                    Skip the wizard and add the package yourself. Create an API token or OAuth client in Settings → API &amp; SSH, then wire it into your app.
+                  </p>
+                  {onCopy ? (
+                    <CodeSnippet label="sdk-install-cmd" text={SDK_INSTALL_CMD} copied={copied ?? null} onCopy={onCopy} />
+                  ) : (
+                    <code className="block rounded-lg bg-surface-hover px-3 py-2 text-[13px] font-mono text-text-secondary">{SDK_INSTALL_CMD}</code>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+
+          <a
+            href={`${APP_URL}/docs/typescript-sdk`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-accent-violet hover:underline"
+          >
+            TypeScript SDK docs
+            <ChevronRight className="h-3 w-3" />
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CodeSnippet({
   label,
   text,
@@ -874,10 +994,16 @@ function CodeSnippet({
   );
 }
 
-function HostSetupGuideCard({ onRegister }: { onRegister: () => void }) {
+function HostSetupGuideCard({
+  onRegister,
+  onInstall,
+  onManualSetup,
+}: {
+  onRegister: () => void;
+  onInstall: () => void;
+  onManualSetup: () => void;
+}) {
   const [copied, setCopied] = useState<string | null>(null);
-  const sdkInstall = "npx @xcelsior-gpu/wizard@latest";
-  const wizardCmd = "npm install @xcelsior-gpu/sdk   # optional: SDK in your own project";
 
   function handleCopy(label: string, text: string) {
     navigator.clipboard.writeText(text);
@@ -887,7 +1013,8 @@ function HostSetupGuideCard({ onRegister }: { onRegister: () => void }) {
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[0.98fr_1.02fr]">
+    <div className="space-y-4">
+      <div className="grid gap-4 xl:grid-cols-[0.98fr_1.02fr]">
       {/* Steps card */}
       <Card className="relative overflow-hidden border-border/60 bg-gradient-to-br from-surface via-surface to-accent-cyan/[0.04]">
         <div className="absolute -right-16 top-0 h-40 w-40 rounded-full bg-accent-cyan/10 blur-3xl" />
@@ -903,7 +1030,7 @@ function HostSetupGuideCard({ onRegister }: { onRegister: () => void }) {
               </span>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-text-primary">Register host</p>
-                <p className="mt-0.5 text-xs text-text-muted">Create the machine record.</p>
+                <p className="mt-0.5 text-xs text-text-muted">Create the machine record in your dashboard.</p>
                 <Button
                   className="mt-3 h-10 rounded-full bg-accent-cyan px-4 text-navy hover:bg-accent-cyan/90"
                   onClick={onRegister}
@@ -922,11 +1049,23 @@ function HostSetupGuideCard({ onRegister }: { onRegister: () => void }) {
                 2
               </span>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-text-primary">Install SDK</p>
-                <p className="mt-0.5 text-xs text-text-muted">Add the setup tools globally.</p>
+                <p className="text-sm font-medium text-text-primary">Run AI Onboarding Wizard</p>
+                <p className="mt-0.5 text-xs text-text-muted">
+                  One command on your GPU host. Choose <span className="font-medium text-text-secondary">Provide GPUs</span> when prompted.
+                </p>
                 <div className="mt-3">
-                  <CodeSnippet label="host-card-sdk" text={sdkInstall} copied={copied} onCopy={handleCopy} />
+                  <CodeSnippet label="host-card-wizard" text={WIZARD_CMD} copied={copied} onCopy={handleCopy} />
                 </div>
+                <p className="mt-2 text-xs text-text-muted">
+                  or{" "}
+                  <button
+                    type="button"
+                    onClick={onManualSetup}
+                    className="font-medium text-accent-violet hover:underline"
+                  >
+                    manual setup
+                  </button>
+                </p>
               </div>
             </div>
 
@@ -934,15 +1073,22 @@ function HostSetupGuideCard({ onRegister }: { onRegister: () => void }) {
 
             {/* Step 3 */}
             <div className="flex items-start gap-3">
-              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-accent-gold/25 bg-accent-gold/10 text-sm font-semibold text-accent-gold">
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-emerald/25 bg-emerald/10 text-sm font-semibold text-emerald">
                 3
               </span>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-text-primary">Run AI Onboarding Wizard</p>
-                <p className="mt-0.5 text-xs text-text-muted">Detect, register, and configure.</p>
-                <div className="mt-3">
-                  <CodeSnippet label="host-card-wizard" text={wizardCmd} copied={copied} onCopy={handleCopy} />
-                </div>
+                <p className="text-sm font-medium text-text-primary">Install worker</p>
+                <p className="mt-0.5 text-xs text-text-muted">
+                  Connect your machine and start accepting jobs from the marketplace.
+                </p>
+                <Button
+                  variant="outline"
+                  className="mt-3 h-10 border-accent-cyan/30 text-accent-cyan hover:bg-accent-cyan/10"
+                  onClick={onInstall}
+                >
+                  <Terminal className="h-4 w-4" />
+                  Install Worker
+                </Button>
               </div>
             </div>
           </div>
@@ -976,6 +1122,21 @@ function HostSetupGuideCard({ onRegister }: { onRegister: () => void }) {
         <div className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(to bottom, var(--background) 0%, color-mix(in srgb, var(--background) 60%, transparent) 20%, color-mix(in srgb, var(--background) 25%, transparent) 45%, transparent 70%)" }} />
         <div className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(to right, var(--background) 0%, color-mix(in srgb, var(--background) 60%, transparent) 15%, color-mix(in srgb, var(--background) 25%, transparent) 35%, transparent 60%)" }} />
       </div>
+      </div>
+
+      {/* SDK integration — same content as Install Worker modal */}
+      <Card className="border-border/60 bg-gradient-to-br from-surface via-surface to-accent-violet/[0.04]">
+        <div className="p-6 md:p-7">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="flex items-center gap-1.5 rounded-full bg-accent-violet/10 border border-accent-violet/20 px-3 py-1 text-xs font-medium text-accent-violet">
+              <Code2 className="h-3.5 w-3.5" />
+              TypeScript SDK
+            </div>
+            <span className="text-[11px] text-text-muted">For app developers</span>
+          </div>
+          <SdkIntegrateInfoCard copied={copied} onCopy={handleCopy} />
+        </div>
+      </Card>
     </div>
   );
 }
@@ -1157,10 +1318,12 @@ function ArchitectureCard() {
   );
 }
 
-type InstallView = "sdk" | "quickstart";
-
-function InstallWorkerSection() {
-  const [view, setView] = useState<InstallView>("sdk");
+function InstallWorkerSection({
+  initialView = "sdk",
+}: {
+  initialView?: InstallView;
+}) {
+  const [view, setView] = useState<InstallView>(initialView);
   const [copied, setCopied] = useState<string | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -1211,7 +1374,7 @@ function InstallWorkerSection() {
               {view === "sdk" ? (
                 <>View Quickstart <ArrowRight className="h-3.5 w-3.5" /></>
               ) : (
-                <><ArrowLeft className="h-3.5 w-3.5" /> View SDK Setup</>
+                <><ArrowLeft className="h-3.5 w-3.5" /> View Wizard Setup</>
               )}
             </button>
           </div>
@@ -1225,8 +1388,6 @@ function InstallWorkerSection() {
 /* ── SDK + AI Onboarding Wizard View ──────────────────────────────── */
 
 function SdkSetupView({ copied, onCopy }: { copied: string | null; onCopy: (label: string, text: string) => void }) {
-  const sdkInstall = `npx @xcelsior-gpu/wizard@latest`;
-  const wizardCmd = `npm install @xcelsior-gpu/sdk   # optional: SDK in your own project`;
   const quickCmds = `# Check worker status
 xcelsior status
 
@@ -1248,47 +1409,47 @@ xcelsior earnings --period 30d`;
       <div className="flex items-center gap-2">
         <div className="flex items-center gap-1.5 rounded-full bg-accent-cyan/10 border border-accent-cyan/20 px-3 py-1 text-xs font-medium text-accent-cyan">
           <Package className="h-3.5 w-3.5" />
-          SDK &amp; AI Onboarding Wizard
+          AI Onboarding Wizard
         </div>
         <span className="text-[11px] text-text-muted">Recommended</span>
       </div>
 
-      {/* Step 1: Install */}
+      {/* Step 1: Run wizard */}
       <div>
-        <p className="text-sm font-medium mb-1.5">1. Install the SDK</p>
+        <p className="text-sm font-medium mb-1.5">1. Run the AI Onboarding Wizard</p>
         <p className="text-xs text-text-secondary mb-2">
-          Install the Xcelsior CLI tools globally. Requires Node.js &ge; 18.
+          One command for host setup <em>and</em> SDK integration. <code className="text-[11px] bg-surface-hover px-1 py-0.5 rounded">npx</code> runs the wizard without a global install (no <code className="text-[11px] bg-surface-hover px-1 py-0.5 rounded">/usr/lib/node_modules</code> permission issues). Requires Node.js &ge; 18.
         </p>
-        <CodeSnippet label="sdk-install" text={sdkInstall} copied={copied} onCopy={onCopy} />
+        <CodeSnippet label="wizard-cmd" text={WIZARD_CMD} copied={copied} onCopy={onCopy} />
+        <p className="text-[11px] text-text-muted mt-2">
+          At the first prompt, pick your path: <span className="font-medium text-text-secondary">Provide GPUs</span> on your GPU machine for host setup. For app integration, see below — wizard or manual <code className="bg-surface-hover px-1 py-0.5 rounded">{SDK_INSTALL_CMD}</code>.
+        </p>
       </div>
 
-      {/* Step 2: Run AI Onboarding Wizard */}
-      <div>
-        <p className="text-sm font-medium mb-1.5">2. Run the AI Onboarding Wizard</p>
-        <p className="text-xs text-text-secondary mb-2">
-          The AI Onboarding Wizard walks you through setup — it will ask whether you want to rent, provide, or both, then handle everything from there.
-        </p>
-        <CodeSnippet label="wizard-cmd" text={wizardCmd} copied={copied} onCopy={onCopy} />
-      </div>
+      <SdkIntegrateInfoCard copied={copied} onCopy={onCopy} />
 
       {/* What the wizard does */}
       <div className="rounded-lg border border-border/60 bg-surface-hover/30 p-3.5">
-        <p className="text-xs font-medium text-text-primary mb-2">The AI Onboarding Wizard will:</p>
+        <p className="text-xs font-medium text-text-primary mb-2">Wizard paths at the first prompt:</p>
         <ul className="text-xs text-text-secondary space-y-1.5">
           <li className="flex items-start gap-2">
             <span className="text-accent-cyan mt-0.5">&#x2022;</span>
-            Ask your intent (rent GPUs, provide GPUs, or both) and tailor the flow accordingly
+            <span><span className="font-medium text-text-primary">Provide GPUs</span> — detect hardware, register host, set pricing, install worker service</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="text-accent-violet mt-0.5">&#x2022;</span>
+            <span><span className="font-medium text-text-primary">Integrate SDK</span> — detect project, install package, create credentials, verify API, starter snippet</span>
           </li>
           <li className="flex items-start gap-2">
             <span className="text-accent-cyan mt-0.5">&#x2022;</span>
-            Auto-detect hardware, register your host, configure pricing, and install the worker service
+            <span><span className="font-medium text-text-primary">Rent GPUs</span> or <span className="font-medium text-text-primary">Both</span> — marketplace onboarding for running jobs</span>
           </li>
         </ul>
       </div>
 
-      {/* Step 3: Quick-start commands */}
+      {/* Step 2: Quick-start commands */}
       <div>
-        <p className="text-sm font-medium mb-1.5">3. Quick-start commands</p>
+        <p className="text-sm font-medium mb-1.5">2. Quick-start commands</p>
         <p className="text-xs text-text-secondary mb-2">
           After setup, use these SDK commands to manage your worker:
         </p>

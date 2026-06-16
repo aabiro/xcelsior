@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 200" fill="none">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00d4ff"/>
+      <stop offset="45%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#dc2626"/>
+    </linearGradient>
+    <linearGradient id="gSoft" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#dc2626" stop-opacity="0.08"/>
+    </linearGradient>
+    <linearGradient id="chip" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="softGlow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+</defs>
+  <rect width="640" height="200" rx="24" fill="#0a0e1a"/>
+  <rect width="640" height="200" rx="24" fill="url(#gSoft)"/>
+  <path d="M88,100 H200 M440,100 H552" stroke="url(#g)" stroke-width="2" stroke-dasharray="6 8" opacity="0.45"/>
+  <circle cx="88" cy="100" r="36" fill="#111827" stroke="url(#g)" stroke-width="1.5"/>
+  <circle cx="320" cy="100" r="44" fill="#111827" stroke="url(#g)" stroke-width="2" filter="url(#glow)"/>
+  <circle cx="552" cy="100" r="36" fill="#111827" stroke="url(#g)" stroke-width="1.5"/>
+  <path d="M308,92 L320,76 L332,92 L324,92 L324,108 L316,108 L316,92 Z" fill="url(#g)"/>
+  <rect x="68" y="86" width="40" height="28" rx="6" fill="url(#chip)" stroke="#334155"/>
+  <rect x="532" y="86" width="40" height="28" rx="6" fill="url(#chip)" stroke="#334155"/>
+  <circle cx="552" cy="100" r="8" fill="#10b981" opacity="0.9"/>
+</svg>

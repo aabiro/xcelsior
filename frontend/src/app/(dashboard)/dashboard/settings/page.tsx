@@ -6,7 +6,7 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { PasswordRequirements } from "@/components/auth/password-requirements";
 import Link from "next/link";
 import {
-  Settings as SettingsIcon, Save, Shield, Bell, Globe, Key, Terminal,
+  Settings as SettingsIcon, Save, Shield, Bell, Globe, Key, Terminal, Bot,
   Lock, Trash2, Download, Eye, EyeOff, Copy, Plus, AlertTriangle,
   CheckCircle, Loader2, ShieldCheck, X, Users, UserPlus, UserMinus,
   User, Fingerprint, MonitorSmartphone, KeyRound, Wallet, TrendingDown,
@@ -22,6 +22,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DesktopAppPreferences } from "@/components/settings/DesktopAppPreferences";
 import { NativeDesktopPreferences } from "@/components/settings/NativeDesktopPreferences";
 import { OAuthClientManager } from "@/components/settings/OAuthClientManager";
+import { McpAgentSetup } from "@/components/settings/McpAgentSetup";
 import { COUNTRY_CODES } from "@/lib/country-codes";
 import { FadeIn, StaggerList, StaggerItem } from "@/components/ui/motion";
 import { motion, AnimatePresence } from "framer-motion";
@@ -52,6 +53,7 @@ import {
 const TABS = [
   { id: "profile", labelKey: "dash.settings.tab_profile", fallback: "Profile", icon: User, color: "text-accent-cyan" },
   { id: "security", labelKey: "dash.settings.tab_security", fallback: "Security", icon: Shield, color: "text-accent-violet" },
+  { id: "mcp", labelKey: "dash.settings.tab_mcp", fallback: "AI Agents", icon: Bot, color: "text-accent-violet" },
   { id: "api-keys", labelKey: "dash.settings.tab_api", fallback: "API & SSH", icon: Key, color: "text-accent-gold" },
   { id: "team", labelKey: "dash.settings.tab_team", fallback: "Team", icon: Users, color: "text-emerald" },
   { id: "privacy", labelKey: "dash.settings.tab_privacy", fallback: "Privacy", icon: ShieldCheck, color: "text-accent-cyan" },
@@ -718,6 +720,12 @@ export default function SettingsPage() {
               onDisableAllMfa={handleDisableAllMfa}
               sessions={sessions} sessionsLoading={sessionsLoading}
               revokingSession={revokingSession} onRevokeSession={handleRevokeSession}
+            />
+          )}
+          {activeTab === "mcp" && (
+            <McpAgentSetup
+              oauthClients={oauthClients}
+              onOAuthClientsChange={setOauthClients}
             />
           )}
           {activeTab === "api-keys" && (

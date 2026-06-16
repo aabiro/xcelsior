@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Check, DollarSign, Zap, CalendarClock, ShieldCheck, TrendingDown, Leaf } from "lucide-react";
+import { ArrowRight, Check, DollarSign, Zap, CalendarClock, ShieldCheck, TrendingDown, Leaf, Cpu } from "lucide-react";
 import { m } from "@/components/marketing/motion";
 import { AuroraBackground } from "@/components/ui/aurora-bg";
 import { useLocale } from "@/lib/locale";
 import posthog from "posthog-js";
+import { cn } from "@/lib/utils";
+import { gpuTierBadge, marketingGpuLabel } from "@/lib/marketing-gpu";
 
 const SavingsCalculator = dynamic(
   () => import("./calculator").then((mod) => mod.SavingsCalculator),
@@ -33,15 +35,22 @@ interface GpuRow {
   reserved1y: number;
 }
 
+const TIER_STYLES = {
+  flagship: "border-accent-gold/30 bg-gradient-to-br from-accent-gold/10 to-surface/40",
+  datacenter: "border-accent-cyan/25 bg-gradient-to-br from-accent-cyan/8 to-surface/40",
+  pro: "border-accent-violet/25 bg-gradient-to-br from-accent-violet/8 to-surface/40",
+  value: "border-border/60 bg-surface/40",
+} as const;
+
 export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
   const { t } = useLocale();
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
     posthog.capture("pricing_page_viewed", { gpu_count: gpus.length });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Headline numbers computed from live data so the hero never drifts from the table.
   const cheapestSpot = gpus.length ? Math.min(...gpus.map((g) => g.spot)) : 0.3;
   const maxSpotSaving = gpus.reduce((best, g) => {
     if (!g.onDemand) return best;
@@ -51,16 +60,30 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
     if (!g.onDemand) return best;
     return Math.max(best, Math.round((1 - g.reserved1y / g.onDemand) * 100));
   }, 0);
-  // Cheapest spot row gets a "best value" highlight.
   const bestModel = gpus.length
     ? gpus.reduce((a, b) => (a.spot <= b.spot ? a : b)).model
     : "";
+
+  const grouped = useMemo(() => {
+    const order = ["flagship", "datacenter", "pro", "value"] as const;
+    const buckets: Record<(typeof order)[number], GpuRow[]> = {
+      flagship: [],
+      datacenter: [],
+      pro: [],
+      value: [],
+    };
+    for (const gpu of gpus) {
+      buckets[gpuTierBadge(gpu.model)].push(gpu);
+    }
+    return order
+      .map((tier) => ({ tier, rows: buckets[tier] }))
+      .filter((g) => g.rows.length > 0);
+  }, [gpus]);
 
   return (
     <div className="relative mx-auto max-w-7xl px-6 py-28">
       <AuroraBackground className="-z-10 opacity-60" />
 
-      {/* Header */}
       <m.div
         className="text-center mb-10"
         initial="hidden"
@@ -69,19 +92,14 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
       >
         <m.div variants={fadeUp} custom={0} className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent-gold/30 bg-accent-gold/10 px-4 py-1.5 backdrop-blur-sm">
           <DollarSign className="h-3 w-3 text-accent-gold" />
-          <span className="text-xs font-medium text-accent-gold">
-            {t("pricing.badge")}
-          </span>
+          <span className="text-xs font-medium text-accent-gold">{t("pricing.badge")}</span>
         </m.div>
-        <m.h1 variants={fadeUp} custom={1} className="text-4xl font-bold md:text-5xl">
-          {t("pricing.title")}
-        </m.h1>
+        <m.h1 variants={fadeUp} custom={1} className="text-4xl font-bold md:text-5xl">{t("pricing.title")}</m.h1>
         <m.p variants={fadeUp} custom={2} className="mt-4 text-lg text-text-secondary max-w-2xl mx-auto">
           {t("pricing.subtitle")}
         </m.p>
       </m.div>
 
-      {/* Headline stat strip — pure pizzazz, numbers derived from live pricing */}
       <m.div
         className="mb-16 grid grid-cols-1 gap-4 sm:grid-cols-3 max-w-3xl mx-auto"
         initial="hidden"
@@ -89,71 +107,110 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
         viewport={{ once: true }}
       >
         <HeroStat i={0} icon={DollarSign} accent="gold" value={`$${cheapestSpot.toFixed(2)}`} suffix="CAD/hr" label={t("pricing.col_spot")} />
-        <HeroStat i={1} icon={TrendingDown} accent="emerald" value={`${maxSpotSaving || 70}%`} suffix="off" label={t("pricing.col_spot")} />
+        <HeroStat i={1} icon={TrendingDown} accent="emerald" value={`${maxSpotSaving || 70}%`} suffix="off" label={t("pricing.stat_spot_save")} />
         <HeroStat i={2} icon={Leaf} accent="cyan" value="100%" suffix="hydro" label="Clean power" />
       </m.div>
 
-      <p className="mb-3 text-center text-sm text-text-muted md:hidden" role="note">
-        {t("pricing.scroll_hint")}
-      </p>
-
-      {/* GPU Pricing Table */}
+      {/* Curated GPU cards */}
       <m.div
-        className="overflow-x-auto mb-20 rounded-xl border border-border bg-surface/50 backdrop-blur-sm scroll-smooth"
-        tabIndex={0}
-        aria-label={t("pricing.table_label")}
+        className="mb-20 space-y-12"
         initial={{ opacity: 0, y: 20 }}
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true }}
         transition={{ duration: 0.5 }}
       >
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border">
-              <th className="py-4 pl-6 pr-4 text-left font-medium text-text-secondary">{t("pricing.col_gpu")}</th>
-              <th className="py-4 px-4 text-center font-medium text-text-secondary">{t("pricing.col_vram")}</th>
-              <th className="py-4 px-4 text-center font-medium text-text-primary">{t("pricing.col_ondemand")}</th>
-              <th className="py-4 px-4 text-center font-medium text-emerald">{t("pricing.col_spot")}</th>
-              <th className="py-4 px-4 text-center font-medium text-accent-cyan">{t("pricing.col_reserved1")}</th>
-              <th className="py-4 px-4 text-center font-medium text-accent-gold">{t("pricing.col_reserved12")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {gpus.map((gpu) => {
-              const spotOff = gpu.onDemand ? Math.round((1 - gpu.spot / gpu.onDemand) * 100) : 0;
-              const isBest = gpu.model === bestModel;
-              return (
-                <tr
-                  key={gpu.model}
-                  className={`border-b border-border/50 transition-colors ${isBest ? "bg-emerald/[0.06] hover:bg-emerald/10" : "hover:bg-surface-hover"}`}
-                >
-                  <td className="py-4 pl-6 pr-4 font-medium">
-                    <span className="inline-flex items-center gap-2">
-                      {gpu.model}
+        <div className="text-center max-w-2xl mx-auto">
+          <h2 className="text-2xl font-bold tracking-tight">{t("pricing.fleet_title")}</h2>
+          <p className="mt-2 text-sm text-text-secondary">{t("pricing.fleet_desc")}</p>
+        </div>
+
+        {grouped.map(({ tier, rows }) => (
+          <div key={tier}>
+            <p className="mb-4 text-xs font-semibold uppercase tracking-widest text-text-muted">
+              {t(`pricing.tier_${tier}`)}
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {rows.map((gpu) => {
+                const spotOff = gpu.onDemand ? Math.round((1 - gpu.spot / gpu.onDemand) * 100) : 0;
+                const isBest = gpu.model === bestModel;
+                const isOpen = expanded === gpu.model;
+                return (
+                  <button
+                    key={gpu.model}
+                    type="button"
+                    onClick={() => setExpanded(isOpen ? null : gpu.model)}
+                    className={cn(
+                      "group relative rounded-2xl border p-5 text-left transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-accent-cyan/5",
+                      TIER_STYLES[tier],
+                      isBest && "ring-1 ring-emerald/30",
+                      isOpen && "ring-2 ring-accent-cyan/30",
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-background/50 ring-1 ring-border/60">
+                          <Cpu className="h-4 w-4 text-accent-cyan" />
+                        </span>
+                        <div>
+                          <p className="font-semibold tracking-tight">{marketingGpuLabel(gpu.model)}</p>
+                          <p className="text-xs text-text-muted">{gpu.vram} GB VRAM</p>
+                        </div>
+                      </div>
                       {isBest && (
-                        <span className="rounded-full bg-emerald/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald">
+                        <span className="rounded-full bg-emerald/15 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald">
                           Best value
                         </span>
                       )}
-                    </span>
-                  </td>
-                  <td className="py-4 px-4 text-center text-text-secondary">{gpu.vram}GB</td>
-                  <td className="py-4 px-4 text-center font-mono">${gpu.onDemand.toFixed(2)}/hr</td>
-                  <td className="py-4 px-4 text-center font-mono text-emerald">
-                    ${gpu.spot.toFixed(2)}/hr
-                    {spotOff > 0 && (
-                      <span className="ml-1.5 rounded bg-emerald/12 px-1.5 py-0.5 text-[10px] font-semibold text-emerald align-middle">
-                        −{spotOff}%
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-4 px-4 text-center font-mono text-accent-cyan">${gpu.reserved1m.toFixed(2)}/hr</td>
-                  <td className="py-4 px-4 text-center font-mono text-accent-gold">${gpu.reserved1y.toFixed(2)}/hr</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                    </div>
+
+                    <div className="mt-5 flex items-end justify-between gap-4">
+                      <div>
+                        <p className="text-[10px] font-medium uppercase tracking-wider text-emerald/90">{t("pricing.col_spot")}</p>
+                        <p className="text-3xl font-bold tabular-nums text-emerald">
+                          ${gpu.spot.toFixed(2)}
+                          <span className="text-sm font-normal text-text-muted">/hr</span>
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[10px] font-medium uppercase tracking-wider text-text-muted">{t("pricing.col_ondemand")}</p>
+                        <p className="text-lg font-mono tabular-nums text-text-secondary">
+                          ${gpu.onDemand.toFixed(2)}/hr
+                        </p>
+                        {spotOff > 0 && (
+                          <p className="text-[10px] font-semibold text-emerald">−{spotOff}%</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div
+                      className={cn(
+                        "grid transition-all duration-300 ease-out",
+                        isOpen ? "mt-4 grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+                      )}
+                    >
+                      <div className="overflow-hidden">
+                        <div className="flex gap-3 border-t border-border/50 pt-4">
+                          <div className="flex-1 rounded-lg bg-background/40 px-3 py-2">
+                            <p className="text-[10px] uppercase tracking-wider text-accent-cyan">{t("pricing.col_reserved1")}</p>
+                            <p className="font-mono text-sm">${gpu.reserved1m.toFixed(2)}/hr</p>
+                          </div>
+                          <div className="flex-1 rounded-lg bg-background/40 px-3 py-2">
+                            <p className="text-[10px] uppercase tracking-wider text-accent-gold">{t("pricing.col_reserved12")}</p>
+                            <p className="font-mono text-sm">${gpu.reserved1y.toFixed(2)}/hr</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <p className="mt-3 text-[11px] text-text-muted opacity-70 group-hover:opacity-100">
+                      {isOpen ? t("pricing.card_collapse") : t("pricing.card_expand")}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </m.div>
 
       {/* Plans */}
@@ -200,13 +257,11 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
         />
       </m.div>
 
-      {/* Savings Calculator */}
       <div className="mb-20">
         <h2 className="text-2xl font-bold text-center mb-8">{t("pricing.savings_calculator")}</h2>
         <SavingsCalculator gpus={gpus.map((g) => ({ model: g.model, onDemand: g.onDemand }))} />
       </div>
 
-      {/* CTA */}
       <m.div
         className="text-center"
         initial={{ opacity: 0, y: 20 }}
@@ -242,11 +297,7 @@ function HeroStat({
   label: string;
 }) {
   return (
-    <m.div
-      variants={fadeUp}
-      custom={i}
-      className="glow-card flex items-center gap-3 rounded-xl p-4"
-    >
+    <m.div variants={fadeUp} custom={i} className="glow-card flex items-center gap-3 rounded-xl p-4">
       <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ring-1 ${ACCENT_RING[accent]}`}>
         <Icon className="h-5 w-5" />
       </span>
@@ -261,17 +312,7 @@ function HeroStat({
 }
 
 function PlanCard({
-  t,
-  i,
-  icon: Icon,
-  accent,
-  name,
-  description,
-  price,
-  unit,
-  features,
-  highlighted,
-  badge,
+  t, i, icon: Icon, accent, name, description, price, unit, features, highlighted, badge,
 }: {
   t: (key: string) => string;
   i: number;
@@ -291,9 +332,7 @@ function PlanCard({
       custom={i}
       className={`glow-card rounded-xl p-8 relative transition-transform hover:-translate-y-1 ${highlighted ? "ring-1 ring-accent-gold/40 brand-top-accent" : ""}`}
       style={{
-        "--glow-color": highlighted
-          ? "rgba(245,158,11,0.15)"
-          : "rgba(0,212,255,0.08)",
+        "--glow-color": highlighted ? "rgba(245,158,11,0.15)" : "rgba(0,212,255,0.08)",
       } as React.CSSProperties}
     >
       <div className="mb-4 flex items-center justify-between">
@@ -301,9 +340,7 @@ function PlanCard({
           <Icon className="h-5 w-5" />
         </span>
         {badge && (
-          <span className="rounded-full bg-accent-gold/20 px-3 py-0.5 text-xs font-medium text-accent-gold">
-            {badge}
-          </span>
+          <span className="rounded-full bg-accent-gold/20 px-3 py-0.5 text-xs font-medium text-accent-gold">{badge}</span>
         )}
       </div>
       <h3 className="text-xl font-bold">{name}</h3>

@@ -20,9 +20,22 @@ Headscale (mesh networking), Docker + gVisor (container isolation).
 **Regions**: Canada-first (PIPEDA/Law 25 compliant). Supports CA-only
 data residency with province-level filtering.
 
+## Xcelsior MCP (AI Agents)
+
+Hosted Model Context Protocol server for Cursor, Claude, and other agents:
+
+- Endpoint: `https://xcelsior.ca/mcp` (Streamable HTTP)
+- Health: `GET https://xcelsior.ca/mcp/health`
+- Auth: `Authorization: Bearer <oauth_access_token>` (create client at `/api/oauth/clients`)
+- Scopes: `instances:read`, `instances:write`, `billing:read`, `gpu:read`, `marketplace:read`, or `api`
+- Tools: discovery, compute (`create_instance`, `watch_instance`), billing, guardrails (`should_i_run_this`), serverless, workflows
+- Resources: `xcelsior://docs/llms`, `xcelsior://pricing/reference`
+- Stdio: `npx @xcelsior-gpu/mcp` with `XCELSIOR_ACCESS_TOKEN`
+- Setup: https://xcelsior.ca/mcp
+
 ## API Base URL
 
-- Production: `https://xcelsior.ca/api`
+- Production: `https://xcelsior.ca`
 - Development: `http://localhost:8000`
 
 ## Authentication
@@ -45,11 +58,12 @@ Public endpoints (no auth): `/`, `/docs`, `/openapi.json`, `/dashboard`,
 - `GET /hosts` — List hosts (query: `active_only`)
 - `DELETE /host/{host_id}` — Remove a host
 
-### Jobs
-- `POST /job` — Submit a job (fields: name, vram_needed_gb, priority, tier)
-- `GET /jobs` — List all jobs
-- `GET /job/{job_id}` — Get job details
-- `PATCH /job/{job_id}` — Update job status
+### Instances (Jobs)
+- `POST /instance` — Submit an instance (fields: name, vram_needed_gb, gpu_model, pricing_mode, git_repo, init_script)
+- `GET /instances` — List instances
+- `GET /instance/{job_id}` — Get instance details
+- `GET /api/instances/{job_id}/telemetry` — GPU telemetry for running instance
+- `POST /instances/{job_id}/cancel` — Cancel instance
 - `POST /queue/process` — Trigger scheduler allocation
 
 ### Spot Pricing

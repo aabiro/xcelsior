@@ -1,0 +1,285 @@
+"use client";
+
+import { useCallback, useMemo, useState } from "react";
+import Image from "next/image";
+import Link from "next/link";
+import {
+  Bot, Copy, CheckCircle, Loader2, ChevronRight, ExternalLink,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input, Label } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { SettingsSection } from "@/components/settings/settings-layout";
+import { OAuthSecretRevealModal } from "@/components/settings/oauth-secret-reveal-modal";
+import { useLocale } from "@/lib/locale";
+import * as api from "@/lib/api";
+import type { OAuthClientInfo } from "@/lib/api";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+
+const MCP_SCOPES = [
+  "instances:read",
+  "instances:write",
+  "billing:read",
+  "gpu:read",
+  "marketplace:read",
+] as const;
+
+const STEPS = ["create", "copy", "token", "paste"] as const;
+
+const AGENTS = [
+  { id: "cursor", art: "/mcp/agent-cursor.svg", labelKey: "dash.settings.mcp.agent_cursor" },
+  { id: "claude", art: "/mcp/agent-claude.svg", labelKey: "dash.settings.mcp.agent_claude" },
+  { id: "vscode", art: "/mcp/agent-vscode.svg", labelKey: "dash.settings.mcp.agent_vscode" },
+] as const;
+
+function mcpUrl(): string {
+  if (typeof window !== "undefined" && window.location.hostname === "localhost") {
+    return "http://localhost:3100/mcp";
+  }
+  return "https://xcelsior.ca/mcp";
+}
+
+function configJson(tokenPlaceholder = "YOUR_OAUTH_TOKEN"): string {
+  return JSON.stringify(
+    {
+      mcpServers: {
+        xcelsior: {
+          url: mcpUrl(),
+          headers: { Authorization: `Bearer ${tokenPlaceholder}` },
+        },
+      },
+    },
+    null,
+    2,
+  );
+}
+
+function tokenCurl(clientId: string, clientSecret: string): string {
+  const base = process.env.NEXT_PUBLIC_API_URL || "https://xcelsior.ca";
+  return `curl -s -X POST '${base}/oauth/token' \\
+  -H 'Content-Type: application/x-www-form-urlencoded' \\
+  -d 'grant_type=client_credentials&client_id=${clientId}&client_secret=${clientSecret}'`;
+}
+
+export function McpAgentSetup({
+  oauthClients,
+  onOAuthClientsChange,
+}: {
+  oauthClients: OAuthClientInfo[];
+  onOAuthClientsChange: (clients: OAuthClientInfo[]) => void;
+}) {
+  const { t } = useLocale();
+  const [step, setStep] = useState(0);
+  const [creating, setCreating] = useState(false);
+  const [agent, setAgent] = useState<(typeof AGENTS)[number]["id"]>("cursor");
+  const [reveal, setReveal] = useState<{
+    clientId: string;
+    clientSecret: string;
+    name: string;
+  } | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+
+  const mcpClient = useMemo(
+    () => oauthClients.find((c) => c.client_name?.toLowerCase().includes("mcp") || c.scopes?.includes("gpu:read")),
+    [oauthClients],
+  );
+
+  const copyText = useCallback((key: string, text: string) => {
+    void navigator.clipboard.writeText(text);
+    setCopied(key);
+    toast.success(t("dash.settings.mcp.copied"));
+    setTimeout(() => setCopied(null), 2000);
+  }, [t]);
+
+  const handleCreateClient = async () => {
+    setCreating(true);
+    try {
+      const name = `mcp-agent-${new Date().toISOString().slice(0, 10)}`;
+      const res = await api.createOAuthClient(name, [...MCP_SCOPES]);
+      const client = res.client;
+      const { client_secret: _secret, ...listed } = client;
+      onOAuthClientsChange([...oauthClients, listed]);
+      if (client.client_secret) {
+        setReveal({
+          clientId: client.client_id,
+          clientSecret: client.client_secret,
+          name: client.client_name,
+        });
+      }
+      setStep(1);
+      toast.success(t("dash.settings.mcp.client_created"));
+    } catch {
+      toast.error(t("dash.settings.mcp.client_failed"));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleTestHealth = async () => {
+    setTesting(true);
+    try {
+      const url = mcpUrl().replace(/\/mcp$/, "/health");
+      const res = await fetch(url);
+      const body = await res.json();
+      if (res.ok && body.status === "healthy") {
+        toast.success(t("dash.settings.mcp.test_ok"));
+      } else {
+        toast.error(t("dash.settings.mcp.test_fail"));
+      }
+    } catch {
+      toast.error(t("dash.settings.mcp.test_fail"));
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <SettingsSection
+      title={t("dash.settings.mcp.title")}
+      description={t("dash.settings.mcp.subtitle")}
+      icon={Bot}
+      accent="violet"
+    >
+      <div className="mb-6 overflow-hidden rounded-xl border border-border/60">
+        <Image
+          src="/mcp/settings-hero.svg"
+          alt=""
+          width={480}
+          height={160}
+          className="h-auto w-full"
+        />
+      </div>
+
+      <div className="grid gap-8 lg:grid-cols-[1fr_1fr]">
+        <div className="space-y-4">
+          <div className="flex gap-2">
+            {STEPS.map((s, i) => (
+              <div
+                key={s}
+                className={cn(
+                  "flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold",
+                  i <= step ? "bg-accent-violet text-white" : "bg-border/40 text-text-muted",
+                )}
+              >
+                {i < step ? <CheckCircle className="h-4 w-4" /> : i + 1}
+              </div>
+            ))}
+          </div>
+
+          {step === 0 && (
+            <div className="space-y-3">
+              <p className="text-sm text-text-secondary">{t("dash.settings.mcp.step_create")}</p>
+              <div className="flex flex-wrap gap-2">
+                {MCP_SCOPES.map((s) => (
+                  <Badge key={s} variant="default" className="font-mono text-xs">{s}</Badge>
+                ))}
+              </div>
+              <Button onClick={handleCreateClient} disabled={creating} className="gap-2">
+                {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
+                {t("dash.settings.mcp.create_btn")}
+              </Button>
+              {mcpClient && (
+                <p className="text-xs text-text-muted">
+                  {t("dash.settings.mcp.existing_client")}: <code>{mcpClient.client_name}</code>
+                  <button type="button" className="ml-2 text-accent-cyan underline" onClick={() => setStep(1)}>
+                    {t("dash.settings.mcp.use_existing")}
+                  </button>
+                </p>
+              )}
+            </div>
+          )}
+
+          {step >= 1 && mcpClient && (
+            <div className="space-y-3 rounded-xl border border-border/60 bg-surface/30 p-4">
+              <p className="text-sm font-medium">{t("dash.settings.mcp.step_copy")}</p>
+              <div>
+                <Label className="text-xs">{t("dash.settings.oauth.client_id_label")}</Label>
+                <div className="mt-1 flex gap-2">
+                  <Input readOnly value={mcpClient.client_id} className="font-mono text-xs" />
+                  <Button size="icon" variant="outline" onClick={() => copyText("id", mcpClient.client_id)}>
+                    {copied === "id" ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </div>
+              <p className="text-xs text-text-muted">{t("dash.settings.mcp.secret_hint")}</p>
+              <Button variant="outline" size="sm" onClick={() => setStep(2)}>
+                {t("dash.settings.mcp.next_token")} <ChevronRight className="ml-1 h-3 w-3" />
+              </Button>
+            </div>
+          )}
+
+          {step >= 2 && mcpClient && reveal && (
+            <div className="space-y-3 rounded-xl border border-border/60 bg-surface/30 p-4">
+              <p className="text-sm font-medium">{t("dash.settings.mcp.step_token")}</p>
+              <pre className="overflow-x-auto rounded-lg bg-[#0a0e1a] p-3 text-[10px] text-accent-cyan/90">
+                {tokenCurl(reveal.clientId, reveal.clientSecret)}
+              </pre>
+              <Button size="sm" variant="outline" onClick={() => copyText("curl", tokenCurl(reveal.clientId, reveal.clientSecret))}>
+                <Copy className="mr-1 h-3 w-3" /> {t("dash.settings.mcp.copy_curl")}
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setStep(3)}>
+                {t("dash.settings.mcp.next_paste")} <ChevronRight className="ml-1 h-3 w-3" />
+              </Button>
+            </div>
+          )}
+
+          {step >= 3 && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium">{t("dash.settings.mcp.step_paste")}</p>
+              <div className="flex gap-2">
+                {AGENTS.map((a) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => setAgent(a.id)}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs",
+                      agent === a.id ? "border-accent-violet/50 bg-accent-violet/10" : "border-border/60",
+                    )}
+                  >
+                    <Image src={a.art} alt="" width={16} height={16} />
+                    {t(a.labelKey)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-3">
+          <p className="text-xs font-medium uppercase tracking-wider text-text-muted">
+            {t("dash.settings.mcp.preview")}
+          </p>
+          <pre className="min-h-[200px] overflow-x-auto rounded-xl border border-border/60 bg-[#0a0e1a] p-4 text-xs leading-relaxed text-accent-cyan/90">
+            {configJson()}
+          </pre>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={() => copyText("cfg", configJson())}>
+              <Copy className="mr-1 h-3 w-3" />
+              {t("dash.settings.mcp.copy_config")}
+            </Button>
+            <Button size="sm" variant="outline" onClick={handleTestHealth} disabled={testing}>
+              {testing ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+              {t("dash.settings.mcp.test_health")}
+            </Button>
+            <Link href="/mcp" target="_blank" className="inline-flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary">
+              {t("dash.settings.mcp.docs_link")} <ExternalLink className="h-3 w-3" />
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {reveal && (
+        <OAuthSecretRevealModal
+          open={!!reveal}
+          onClose={() => setReveal(null)}
+          clientId={reveal.clientId}
+          clientSecret={reveal.clientSecret}
+          scopes={[...MCP_SCOPES]}
+        />
+      )}
+    </SettingsSection>
+  );
+}

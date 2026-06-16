@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { Camera, Loader2, Sparkles, Trash2, Upload } from "lucide-react";
+import { Camera, Loader2, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -105,13 +105,12 @@ export function ProfileAvatarUpload({
       </div>
 
       <div className="flex-1 w-full space-y-3">
-        <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-accent-violet shrink-0" />
-          <p className="text-sm font-medium text-text-primary">Profile photo</p>
-        </div>
-        <p className="text-xs text-text-muted leading-relaxed max-w-md">
-          Shown in the sidebar and top bar. Square images work best — we crop to a circle with a cyan–violet ring.
-        </p>
+        <p className="text-sm font-medium text-text-primary">Profile photo</p>
+        <ul className="text-xs text-text-muted space-y-1 max-w-md">
+          <li>Recommended: 400×400 px, square</li>
+          <li>Displayed as a circle (center crop)</li>
+          <li>JPEG, PNG, or WebP · max {MAX_MB} MB</li>
+        </ul>
 
         <div
           onDragOver={(e) => {
@@ -143,7 +142,6 @@ export function ProfileAvatarUpload({
               browse
             </button>
           </p>
-          <p className="text-[11px] text-text-muted mt-1">JPEG, PNG, WebP · max {MAX_MB} MB</p>
         </div>
 
         {hasPhoto && (

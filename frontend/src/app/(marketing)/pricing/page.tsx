@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import dynamic from "next/dynamic";
+import { curatePricingGpus } from "@/lib/marketing-gpu";
 
 const PricingContent = dynamic(
   () => import("./content").then((mod) => mod.PricingContent),
@@ -80,19 +81,21 @@ const FALLBACK_GPUS = [
 export default async function PricingPage() {
   const [apiPricing, liveSpot] = await Promise.all([fetchPricing(), fetchLiveSpotRates()]);
 
-  const gpus = apiPricing.length > 0
-    ? apiPricing
-        .filter((p) => p.base_rate_cad > 0)
-        .slice(0, 12)
-        .map((p) => ({
-          model: p.gpu_model,
-          vram: p.vram_gb ?? (p.gpu_model.includes("A100 80") ? 80 : p.gpu_model.includes("A100") ? 40 : p.gpu_model.includes("H100") ? 80 : p.gpu_model.includes("L40") ? 48 : 24),
-          onDemand: p.base_rate_cad,
-          spot: +(liveSpot[p.gpu_model] ?? p.spot_cad ?? p.min_rate_cad ?? p.base_rate_cad * 0.4).toFixed(2),
-          reserved1m: +(p.reserved_1mo_cad ?? p.base_rate_cad * 0.8).toFixed(2),
-          reserved1y: +(p.reserved_1yr_cad ?? p.base_rate_cad * 0.55).toFixed(2),
-        }))
-    : FALLBACK_GPUS;
+  const gpus = curatePricingGpus(
+    apiPricing.length > 0
+      ? apiPricing
+          .filter((p) => p.base_rate_cad > 0)
+          .map((p) => ({
+            model: p.gpu_model,
+            vram: p.vram_gb ?? (p.gpu_model.includes("A100 80") ? 80 : p.gpu_model.includes("A100") ? 40 : p.gpu_model.includes("H100") ? 80 : p.gpu_model.includes("L40") ? 48 : 24),
+            onDemand: p.base_rate_cad,
+            spot: +(liveSpot[p.gpu_model] ?? p.spot_cad ?? p.min_rate_cad ?? p.base_rate_cad * 0.4).toFixed(2),
+            reserved1m: +(p.reserved_1mo_cad ?? p.base_rate_cad * 0.8).toFixed(2),
+            reserved1y: +(p.reserved_1yr_cad ?? p.base_rate_cad * 0.55).toFixed(2),
+          }))
+      : FALLBACK_GPUS,
+    10,
+  );
 
   const productJsonLd = {
     "@context": "https://schema.org",

@@ -30,6 +30,14 @@ LOGO_MARK = """
   </g>
 """
 
+# Four-point AI spark (matches frontend AiSparkIcon)
+SPARKLE_MARK = """
+  <g filter="url(#glow)" transform="translate(216, 100) scale(2.4)" fill="url(#g)">
+    <path d="M12 1.8c.38 3.07 1.05 4.96 2.18 6.1 1.13 1.13 3.02 1.8 6.02 2.1-3 .38-4.89 1.05-6.02 2.18-1.13 1.13-1.8 3.02-2.18 6.02-.38-3-1.05-4.89-2.18-6.02-1.13-1.13-3.02-1.8-6.02-2.18 3-.3 4.89-.97 6.02-2.1C10.95 6.76 11.62 4.87 12 1.8Z" opacity="0.95"/>
+    <path d="M19 2.6c.16 1.18.45 1.9.95 2.4.5.5 1.22.79 2.4.95-1.18.16-1.9.45-2.4.95-.5.5-.79 1.22-.95 2.4-.16-1.18-.45-1.9-.95-2.4-.5-.5-1.22-.79-2.4-.95 1.18-.16 1.9-.45 2.4-.95.5-.5.79-1.22.95-2.4Z" opacity="0.65"/>
+  </g>
+"""
+
 SLIDES = {
     "hero.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 280" fill="none">
   <defs>{GRAD}</defs>
@@ -38,11 +46,9 @@ SLIDES = {
   <circle cx="400" cy="60" r="90" fill="#00d4ff" opacity="0.06"/>
   <circle cx="80" cy="220" r="70" fill="#7c3aed" opacity="0.08"/>
   {LOGO_MARK}
+  {SPARKLE_MARK}
   <text x="240" y="200" text-anchor="middle" fill="#e2e8f0" font-family="system-ui,sans-serif" font-size="22" font-weight="700">Xcel AI</text>
   <text x="240" y="228" text-anchor="middle" fill="#94a3b8" font-family="system-ui,sans-serif" font-size="13">Your sovereign compute copilot</text>
-  <g filter="url(#glow)" transform="translate(200,108)">
-    <path d="M0,32 L18,0 L36,32 L54,0 L72,32" stroke="url(#g)" stroke-width="3" fill="none" stroke-linecap="round"/>
-  </g>
 </svg>""",
     "actions.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 280" fill="none">
   <defs>{GRAD}</defs>
