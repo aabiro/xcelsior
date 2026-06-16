@@ -1,11 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+
 import {
   KeyRound, Plus, Copy, CheckCircle, AlertTriangle, Trash2,
-  Loader2, RotateCcw, Pencil, Power, PowerOff, Shield, Clock,
-  ChevronDown, ChevronRight, Eye, EyeOff, X,
+  Loader2, RotateCcw, Pencil, Power, PowerOff, Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
@@ -19,11 +18,7 @@ import { useLocale } from "@/lib/locale";
 import * as api from "@/lib/api";
 import type { OAuthClientInfo } from "@/lib/api";
 import type { TeamContext } from "@/lib/team-context";
-import {
-  CredentialScopePanel,
-  ScopeChipRow,
-  WorkspaceScopeBadge,
-} from "@/components/settings/credential-scope-panel";
+import { ScopeChipRow, WorkspaceScopeBadge } from "@/components/settings/credential-scope-panel";
 import { OAuthSecretRevealModal } from "@/components/settings/oauth-secret-reveal-modal";
 import { SettingsSection } from "@/components/settings/settings-layout";
 
@@ -58,6 +53,24 @@ const SCOPE_GROUPS_DEF = [
       { value: "profile", labelKey: "scope_profile", descKey: "scope_desc_profile" },
       { value: "email", labelKey: "scope_email", descKey: "scope_desc_email" },
       { value: "offline_access", labelKey: "scope_offline", descKey: "scope_desc_offline" },
+    ],
+  },
+  {
+    resourceKey: "scope_group_gpu",
+    scopes: [
+      { value: "gpu:read", labelKey: "scope_read", descKey: "scope_desc_gpu_read" },
+    ],
+  },
+  {
+    resourceKey: "scope_group_marketplace",
+    scopes: [
+      { value: "marketplace:read", labelKey: "scope_read", descKey: "scope_desc_marketplace_read" },
+    ],
+  },
+  {
+    resourceKey: "scope_group_events",
+    scopes: [
+      { value: "events:read", labelKey: "scope_read", descKey: "scope_desc_events_read" },
     ],
   },
   {
@@ -156,13 +169,10 @@ function ScopeMatrix({
                     )}>
                       {t(`dash.settings.oauth.${scope.labelKey}`)}
                     </span>
-                    <span className="ml-2 text-xs text-text-muted">
-                      {t(`dash.settings.oauth.${scope.descKey}`)}
-                    </span>
+                    <code className="ml-2 text-[10px] text-text-muted font-mono">
+                      {scope.value}
+                    </code>
                   </div>
-                  <code className="text-[10px] text-text-muted font-mono shrink-0 hidden sm:block">
-                    {scope.value}
-                  </code>
                 </label>
               );
             })}
@@ -173,22 +183,29 @@ function ScopeMatrix({
   );
 }
 
-// ── Create Client Form ───────────────────────────────────────────────
+// ── Create Client Dialog ─────────────────────────────────────────────
 
-function CreateClientForm({
+function CreateClientDialog({
+  open,
+  onClose,
   onCreated,
   team,
-  disabled,
 }: {
+  open: boolean;
+  onClose: () => void;
   onCreated: (client: OAuthClientInfo, secret: string) => void;
   team: TeamContext;
-  disabled?: boolean;
 }) {
   const { t } = useLocale();
-  const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState("");
   const [scopes, setScopes] = useState<Set<string>>(new Set(["instances:read"]));
   const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setName("");
+    setScopes(new Set(["instances:read"]));
+  }, [open]);
 
   const handleCreate = async () => {
     const trimmed = name.trim();
@@ -199,9 +216,7 @@ function CreateClientForm({
       const res = await api.createOAuthClient(trimmed, Array.from(scopes));
       const secret = res.client_secret || res.client.client_secret || "";
       onCreated({ ...res.client, status: "active" }, secret);
-      setName("");
-      setScopes(new Set(["instances:read"]));
-      setExpanded(false);
+      onClose();
       if (!secret) {
         toast.error(t("dash.settings.oauth.secret_missing"));
       }
@@ -213,67 +228,44 @@ function CreateClientForm({
   };
 
   return (
-    <div className="rounded-lg border border-dashed border-border/80 bg-navy-light/20 overflow-hidden">
-      <button
-        onClick={() => !disabled && setExpanded(!expanded)}
-        disabled={disabled}
-        className={cn(
-          "flex w-full items-center gap-2 px-4 py-3 text-left transition-colors",
-          disabled ? "cursor-not-allowed opacity-60" : "hover:bg-surface-hover/30",
-        )}
-      >
-        {expanded
-          ? <ChevronDown className="h-3.5 w-3.5 text-text-muted" />
-          : <ChevronRight className="h-3.5 w-3.5 text-text-muted" />
-        }
-        <Plus className="h-3.5 w-3.5 text-accent-cyan" />
-        <span className="text-xs font-medium text-text-secondary">{t("dash.settings.oauth.create_btn")}</span>
-      </button>
-      <AnimatePresence>
-        {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden"
-          >
-            <div className="px-4 pb-4 space-y-3 border-t border-border/40">
-              <div className="pt-3 flex flex-wrap items-center justify-between gap-2">
-                <WorkspaceScopeBadge
-                  workspaceLabel={team.isTeamMember ? "team" : "personal"}
-                  teamName={team.teamName}
-                />
-                <span className="text-[10px] text-text-muted">
-                  {t("dash.settings.credentials.create_in_workspace")}
-                </span>
-              </div>
-              <div>
-                <Label className="text-xs text-text-muted mb-1.5 block">{t("dash.settings.oauth.create_name_label")}</Label>
-                <Input
-                  placeholder={t("dash.settings.oauth.create_name_placeholder")}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
-              </div>
-              <div>
-                <Label className="text-xs text-text-muted mb-1.5 block">{t("dash.settings.oauth.create_scopes_label")}</Label>
-                <ScopeMatrix selected={scopes} onChange={setScopes} />
-              </div>
-              <div className="flex items-center justify-between gap-3 pt-1">
-                <p className="text-xs text-text-muted">
-                  {t("dash.settings.oauth.create_hint", { grantType: "client_credentials" })}
-                </p>
-                <Button onClick={handleCreate} disabled={creating} size="sm">
-                  {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                  {t("dash.settings.oauth.create")}
-                </Button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title={t("dash.settings.oauth.create_btn")}
+      description={t("dash.settings.oauth.create_hint", { grantType: "client_credentials" })}
+      maxWidth="max-w-xl"
+    >
+      <div className="space-y-4 pt-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <WorkspaceScopeBadge
+            workspaceLabel={team.isTeamMember ? "team" : "personal"}
+            teamName={team.teamName}
+          />
+        </div>
+        <div>
+          <Label className="text-xs text-text-muted mb-1.5 block">{t("dash.settings.oauth.create_name_label")}</Label>
+          <Input
+            placeholder={t("dash.settings.oauth.create_name_placeholder")}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+          />
+        </div>
+        <div>
+          <Label className="text-xs text-text-muted mb-1.5 block">{t("dash.settings.oauth.create_scopes_label")}</Label>
+          <ScopeMatrix selected={scopes} onChange={setScopes} />
+        </div>
+        <div className="flex justify-end gap-3 pt-2">
+          <Button variant="outline" size="sm" onClick={onClose} disabled={creating}>
+            {t("dash.settings.oauth.edit_cancel")}
+          </Button>
+          <Button onClick={handleCreate} disabled={creating} size="sm">
+            {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+            {t("dash.settings.oauth.create")}
+          </Button>
+        </div>
+      </div>
+    </Dialog>
   );
 }
 
@@ -432,7 +424,6 @@ function ClientRow({
 }) {
   const { t } = useLocale();
   const timeAgo = useTimeAgo();
-  const [expanded, setExpanded] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const isDisabled = client.status === "disabled";
 
@@ -446,190 +437,89 @@ function ClientRow({
   return (
     <div
       className={cn(
-        "group rounded-lg border overflow-hidden transition-all",
+        "rounded-xl border p-4 transition-colors",
         isDisabled
-          ? "border-border/40 bg-navy-light/15 opacity-75"
-          : "border-border/60 bg-navy-light/30 hover:border-border hover:bg-surface-hover",
+          ? "border-border/40 bg-navy-light/15 opacity-80"
+          : "border-border/60 bg-navy-light/25 hover:border-border",
       )}
     >
-      {/* Main row */}
-      <div className="flex items-center gap-3 p-3">
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-cyan/8 ring-1 ring-accent-cyan/15 transition-colors hover:bg-accent-cyan/15"
-        >
-          {expanded
-            ? <ChevronDown className="h-4 w-4 text-accent-cyan" />
-            : <KeyRound className="h-4 w-4 text-accent-cyan" />
-          }
-        </button>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className={cn("text-sm font-medium truncate", isDisabled && "line-through opacity-70")}>
-              {client.client_name}
-            </p>
-            <Badge variant={isDisabled ? "dead" : "active"}>
-              {isDisabled ? t("dash.settings.oauth.status_disabled") : t("dash.settings.oauth.status_active")}
-            </Badge>
-            <span className="shrink-0 rounded-full bg-accent-cyan/10 px-2 py-0.5 text-[10px] font-medium text-accent-cyan ring-1 ring-accent-cyan/20">
-              {client.client_type}
-            </span>
-            {client.is_first_party && (
-              <span className="shrink-0 rounded-full bg-accent-gold/10 px-2 py-0.5 text-[10px] font-medium text-accent-gold ring-1 ring-accent-gold/20">
-                {t("dash.settings.oauth.first_party")}
-              </span>
-            )}
-            <WorkspaceScopeBadge
-              workspaceLabel={client.workspace_label}
-              teamName={client.workspace_label === "team" ? team.teamName : undefined}
-              compact
-            />
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 flex-1 space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-cyan/10 ring-1 ring-accent-cyan/20">
+              <KeyRound className="h-4 w-4 text-accent-cyan" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className={cn("text-sm font-semibold truncate", isDisabled && "line-through opacity-70")}>
+                  {client.client_name}
+                </p>
+                <Badge variant={isDisabled ? "dead" : "active"}>
+                  {isDisabled ? t("dash.settings.oauth.status_disabled") : t("dash.settings.oauth.status_active")}
+                </Badge>
+                {client.is_first_party && (
+                  <span className="rounded-full bg-accent-gold/10 px-2 py-0.5 text-[10px] font-medium text-accent-gold ring-1 ring-accent-gold/20">
+                    {t("dash.settings.oauth.first_party")}
+                  </span>
+                )}
+                <WorkspaceScopeBadge
+                  workspaceLabel={client.workspace_label}
+                  teamName={client.workspace_label === "team" ? team.teamName : undefined}
+                  compact
+                />
+              </div>
+              <code className="mt-1 block text-xs text-text-muted font-mono truncate">
+                {client.client_id}
+              </code>
+            </div>
           </div>
-          <p className="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-text-muted">
-            {t("dash.settings.oauth.client_id_short")}
-          </p>
-          <code className="block text-xs text-text-muted font-mono truncate">
-            {client.client_id}
-          </code>
-          <div className="mt-2">
-            <ScopeChipRow scopes={client.scopes || []} maxVisible={4} />
-          </div>
-          <div className="mt-1.5 flex items-center gap-3 text-[11px] text-text-muted flex-wrap">
+          <ScopeChipRow scopes={client.scopes || []} maxVisible={6} />
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-text-muted">
             {client.last_used != null && (
               <span className="flex items-center gap-1">
                 <Clock className="h-3 w-3" />
                 {t("dash.settings.oauth.used_ago", { time: timeAgo(client.last_used) })}
               </span>
             )}
+            <span>{t("dash.settings.oauth.detail_created")}: {formatDate(client.created_at)}</span>
           </div>
         </div>
 
-        {/* Action buttons */}
-        <div className="flex shrink-0 items-center gap-0.5 opacity-60 group-hover:opacity-100 transition-opacity">
-          <button
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => copy(client.client_id, client.client_id)}
-            className={cn(
-              "flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
-              copiedId === client.client_id ? "text-emerald bg-emerald/10" : "text-text-muted hover:text-text-primary hover:bg-surface-hover",
-            )}
-            title={t("dash.settings.oauth.tip_copy_id")}
           >
             {copiedId === client.client_id ? <CheckCircle className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-          </button>
+            {t("dash.settings.oauth.tip_copy_id")}
+          </Button>
           {!client.is_first_party && !readOnly && (
             <>
-              <button
-                onClick={onEdit}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted hover:text-accent-cyan hover:bg-accent-cyan/10 transition-colors"
-                title={t("dash.settings.oauth.tip_edit")}
-              >
+              <Button variant="outline" size="sm" onClick={onEdit}>
                 <Pencil className="h-3.5 w-3.5" />
-              </button>
-              <button
-                onClick={onRotate}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted hover:text-accent-gold hover:bg-accent-gold/10 transition-colors"
-                title={t("dash.settings.oauth.tip_rotate")}
-              >
+                {t("dash.settings.oauth.tip_edit")}
+              </Button>
+              <Button variant="outline" size="sm" onClick={onRotate}>
                 <RotateCcw className="h-3.5 w-3.5" />
-              </button>
-              <button
+                {t("dash.settings.oauth.tip_rotate")}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={onToggleStatus}
-                className={cn(
-                  "flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
-                  isDisabled
-                    ? "text-text-muted hover:text-emerald hover:bg-emerald/10"
-                    : "text-text-muted hover:text-accent-gold hover:bg-accent-gold/10",
-                )}
-                title={isDisabled ? t("dash.settings.oauth.tip_enable") : t("dash.settings.oauth.tip_disable")}
               >
                 {isDisabled ? <Power className="h-3.5 w-3.5" /> : <PowerOff className="h-3.5 w-3.5" />}
-              </button>
-              <button
-                onClick={onDelete}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted hover:text-accent-red hover:bg-accent-red/10 transition-colors"
-                title={t("dash.settings.oauth.tip_delete")}
-              >
+                {isDisabled ? t("dash.settings.oauth.tip_enable") : t("dash.settings.oauth.tip_disable")}
+              </Button>
+              <Button variant="outline" size="sm" className="border-accent-red/30 text-accent-red hover:bg-accent-red/10" onClick={onDelete}>
                 <Trash2 className="h-3.5 w-3.5" />
-              </button>
+                {t("dash.settings.oauth.tip_delete")}
+              </Button>
             </>
           )}
         </div>
       </div>
-
-      {/* Expanded detail panel */}
-      <AnimatePresence>
-        {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden"
-          >
-            <div className="border-t border-border/40 px-3 py-3 space-y-3">
-              {/* Timestamps */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="rounded-lg bg-surface-hover/40 p-2.5">
-                  <p className="text-[10px] font-medium uppercase tracking-wider text-text-muted mb-0.5">{t("dash.settings.oauth.detail_created")}</p>
-                  <p className="text-xs text-text-secondary">{formatDate(client.created_at)}</p>
-                </div>
-                <div className="rounded-lg bg-surface-hover/40 p-2.5">
-                  <p className="text-[10px] font-medium uppercase tracking-wider text-text-muted mb-0.5">{t("dash.settings.oauth.detail_updated")}</p>
-                  <p className="text-xs text-text-secondary">{formatDate(client.updated_at)}</p>
-                </div>
-                <div className="rounded-lg bg-surface-hover/40 p-2.5">
-                  <p className="text-[10px] font-medium uppercase tracking-wider text-text-muted mb-0.5">{t("dash.settings.oauth.detail_last_used")}</p>
-                  <p className="text-xs text-text-secondary">{client.last_used ? formatDate(client.last_used) : t("dash.settings.oauth.detail_never")}</p>
-                </div>
-              </div>
-
-              {/* Grant types */}
-              <div>
-                <p className="text-[10px] font-medium uppercase tracking-wider text-text-muted mb-1.5">{t("dash.settings.oauth.detail_grant_types")}</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {(client.grant_types || []).map((g) => (
-                    <code key={g} className="rounded-md bg-surface-hover px-2 py-0.5 text-[11px] font-mono text-text-secondary">
-                      {g}
-                    </code>
-                  ))}
-                </div>
-              </div>
-
-              {/* Scopes as chips */}
-              <div>
-                <p className="text-[10px] font-medium uppercase tracking-wider text-text-muted mb-1.5">{t("dash.settings.oauth.detail_scopes")}</p>
-                <ScopeChipRow scopes={client.scopes || []} size="md" />
-              </div>
-
-              {client.client_type === "confidential" && !client.is_first_party && (
-                <p className="text-xs text-text-muted leading-relaxed">
-                  {t("dash.settings.oauth.secret_hidden_hint")}
-                </p>
-              )}
-
-              {/* Redirect URIs */}
-              {client.redirect_uris && client.redirect_uris.length > 0 && (
-                <div>
-                  <p className="text-[10px] font-medium uppercase tracking-wider text-text-muted mb-1.5">{t("dash.settings.oauth.detail_redirect_uris")}</p>
-                  <div className="space-y-1">
-                    {client.redirect_uris.map((uri) => (
-                      <code key={uri} className="block rounded-md bg-surface-hover px-2 py-1 text-[11px] font-mono text-text-secondary break-all">
-                        {uri}
-                      </code>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {client.created_by_email && (
-                <p className="text-[10px] text-text-muted">
-                  {t("dash.settings.oauth.detail_created_by", { email: client.created_by_email })}
-                </p>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
@@ -644,7 +534,7 @@ interface OAuthClientManagerProps {
 
 export function OAuthClientManager({ clients, onClientsChange, team }: OAuthClientManagerProps) {
   const { t } = useLocale();
-  // Modal state
+  const [showCreate, setShowCreate] = useState(false);
   const [editingClient, setEditingClient] = useState<OAuthClientInfo | null>(null);
   const [rotatingClient, setRotatingClient] = useState<OAuthClientInfo | null>(null);
   const [deletingClient, setDeletingClient] = useState<OAuthClientInfo | null>(null);
@@ -747,16 +637,24 @@ export function OAuthClientManager({ clients, onClientsChange, team }: OAuthClie
           ) : undefined
         }
       >
-        <div className="space-y-4">
-          <CredentialScopePanel team={team} clientCount={clients.length} />
-
-          {/* Info callout */}
-          <div className="rounded-lg border border-accent-cyan/20 bg-accent-cyan/5 p-3 text-xs text-text-secondary space-y-1">
-            <p>{t("dash.settings.oauth.info", { grantType: "client_credentials" })}</p>
-            <p className="text-text-muted">
-              Session tokens for the CLI use the <code className="font-mono text-accent-cyan">xoa_</code> prefix.
-              OAuth client IDs (<code className="font-mono">oauth_…</code>) are not access tokens — run the setup wizard or device sign-in to obtain an <code className="font-mono">xoa_</code> token.
-            </p>
+        <div className="space-y-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <WorkspaceScopeBadge
+                workspaceLabel={team.isTeamMember ? "team" : "personal"}
+                teamName={team.teamName}
+              />
+              <p className="text-xs text-text-muted">{t("dash.settings.oauth.info", { grantType: "client_credentials" })}</p>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => setShowCreate(true)}
+              disabled={writeBlocked}
+              className="shrink-0"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              {t("dash.settings.oauth.create_btn")}
+            </Button>
           </div>
 
           {writeBlocked && (
@@ -765,36 +663,46 @@ export function OAuthClientManager({ clients, onClientsChange, team }: OAuthClie
             </div>
           )}
 
-          {/* Create form */}
-          <CreateClientForm onCreated={handleCreated} team={team} disabled={writeBlocked} />
-
-          {/* Client list */}
           {clients.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 text-center">
+            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/70 py-12 text-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-surface-hover mb-3">
                 <KeyRound className="h-5 w-5 text-text-muted" />
               </div>
-              <p className="text-sm text-text-muted">{t("dash.settings.oauth.no_clients")}</p>
-              <p className="text-xs text-text-muted mt-1">{t("dash.settings.oauth.no_clients_hint")}</p>
+              <p className="text-sm font-medium text-text-secondary">{t("dash.settings.oauth.no_clients")}</p>
+              <p className="text-xs text-text-muted mt-1 mb-4">{t("dash.settings.oauth.no_clients_hint")}</p>
+              {!writeBlocked && (
+                <Button size="sm" onClick={() => setShowCreate(true)}>
+                  <Plus className="h-3.5 w-3.5" />
+                  {t("dash.settings.oauth.create_btn")}
+                </Button>
+              )}
             </div>
           ) : (
-            <div className="space-y-2">
+            <StaggerList className="space-y-3">
               {clients.map((client) => (
-                <ClientRow
-                  key={client.client_id}
-                  client={client}
-                  team={team}
-                  readOnly={writeBlocked}
-                  onEdit={() => !writeBlocked && setEditingClient(client)}
-                  onRotate={() => !writeBlocked && setRotatingClient(client)}
-                  onToggleStatus={() => !writeBlocked && setTogglingClient(client)}
-                  onDelete={() => !writeBlocked && setDeletingClient(client)}
-                />
+                <StaggerItem key={client.client_id}>
+                  <ClientRow
+                    client={client}
+                    team={team}
+                    readOnly={writeBlocked}
+                    onEdit={() => !writeBlocked && setEditingClient(client)}
+                    onRotate={() => !writeBlocked && setRotatingClient(client)}
+                    onToggleStatus={() => !writeBlocked && setTogglingClient(client)}
+                    onDelete={() => !writeBlocked && setDeletingClient(client)}
+                  />
+                </StaggerItem>
               ))}
-            </div>
+            </StaggerList>
           )}
         </div>
       </SettingsSection>
+
+      <CreateClientDialog
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={handleCreated}
+        team={team}
+      />
 
       {/* Edit dialog */}
       {editingClient && (

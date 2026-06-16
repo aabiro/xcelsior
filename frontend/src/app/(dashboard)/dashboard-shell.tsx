@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Settings, Users, ChevronLeft, ChevronRight, LogOut, Menu, X, Key, ChevronDown,
-  BookOpen, Rocket, ExternalLink, HelpCircle, Clock, MessageCircle, Camera,
+  BookOpen, Rocket, ExternalLink, HelpCircle, Clock, MessageCircle,
 } from "lucide-react";
 import { DashboardNav } from "@/components/nav/dashboard-nav";
 import { UserAvatar } from "@/components/user/user-avatar";
@@ -565,14 +565,6 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                       >
                         <Settings className="h-4 w-4" />
                         {t("dash.settings")}
-                      </Link>
-                      <Link
-                        href="/dashboard/settings#profile"
-                        className="flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-accent-cyan transition-colors"
-                        onClick={() => setProfileOpen(false)}
-                      >
-                        <Camera className="h-4 w-4" />
-                        {t("dash.profile_photo")}
                       </Link>
                       <Link
                         href="/dashboard/settings#team"

@@ -119,7 +119,7 @@ export function EmailLayout({
           {children}
           <Hr style={baseStyles.hr} />
           <Text style={baseStyles.footer}>
-            Xcelsior Computing Inc. · Canada
+            Xcelsior Compute Inc. · Canada
             <br />
             <Link href="https://xcelsior.ca/privacy" style={baseStyles.link}>
               Privacy Policy

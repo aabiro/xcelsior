@@ -1,0 +1,26 @@
+{
+  "name": "@xcelsior-gpu/mcp-server",
+  "version": "0.1.0",
+  "description": "Hosted Model Context Protocol server for Xcelsior GPU platform",
+  "type": "module",
+  "main": "dist/index.js",
+  "files": ["dist"],
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.1.0"
+  }
+}

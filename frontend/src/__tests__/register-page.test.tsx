@@ -31,7 +31,7 @@ const translations: Record<string, string> = {
   "auth.register_signin": "Already have an account?",
   "auth.register_signin_link": "Sign in",
   "auth.register_title": "Create your account",
-  "auth.register_subtitle": "Start computing on Canada's sovereign GPU cloud",
+  "auth.register_subtitle": "Spin up GPUs on a Canada-first compute platform for teams worldwide",
   "auth.github": "Continue with GitHub",
   "auth.google": "Continue with Google",
   "auth.huggingface": "Continue with Hugging Face",

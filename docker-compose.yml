@@ -328,6 +328,25 @@ services:
       start_period: 20s
       retries: 3
 
+  mcp:
+    build: ./mcp
+    network_mode: host
+    environment:
+      XCELSIOR_API_URL: ${XCELSIOR_API_URL:-http://127.0.0.1:9500}
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: ${MCP_PORT:-3100}
+      MCP_PATH: /mcp
+      MCP_RATE_LIMIT_PER_MIN: ${MCP_RATE_LIMIT_PER_MIN:-120}
+    depends_on:
+      - api
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3100/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
   frontend:
     build:
       context: ./frontend
