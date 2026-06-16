@@ -133,7 +133,7 @@ export default function BillingPage() {
   const [btcStatus, setBtcStatus] = useState(DEFAULT_BTC_STATUS);
   const [lnStatus, setLnStatus] = useState(DEFAULT_LIGHTNING_STATUS);
   const [paymentRailsLoading, setPaymentRailsLoading] = useState(true);
-  const [cafLoading, setCafLoading] = useState(false);
+
   const [csvLoading, setCsvLoading] = useState(false);
   const [subscribing, setSubscribing] = useState<string | null>(null);
   const [resettingWallet, setResettingWallet] = useState(false);
@@ -491,49 +491,7 @@ export default function BillingPage() {
     }
   };
 
-  // CAF rebate export
-  const handleCafExport = async () => {
-    if (!customerId) return;
-    setCafLoading(true);
-    try {
-      const now = Math.floor(Date.now() / 1000);
-      const ninetyDaysAgo = now - 90 * 86400;
-      const blob = await api.exportCaf(customerId, ninetyDaysAgo, now, "csv");
-      if (blob instanceof Blob) {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `xcelsior-caf-rebate-${new Date().toISOString().slice(0, 10)}.csv`;
-        a.click();
-        URL.revokeObjectURL(url);
-        toast.success("CAF report downloaded");
-      }
-    } catch {
-      toast.error("CAF export failed");
-    } finally {
-      setCafLoading(false);
-    }
-  };
 
-  const handleCafPrintable = async () => {
-    if (!customerId) return;
-    try {
-      const now = Math.floor(Date.now() / 1000);
-      const ninetyDaysAgo = now - 90 * 86400;
-      const blob = await api.exportCaf(customerId, ninetyDaysAgo, now, "pdf");
-      if (blob instanceof Blob) {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `xcelsior-caf-${new Date().toISOString().slice(0, 10)}.pdf`;
-        a.click();
-        URL.revokeObjectURL(url);
-        toast.success("CAF claim form downloaded");
-      }
-    } catch {
-      toast.error("Could not generate CAF claim form");
-    }
-  };
 
   // Invoice download
   const handleInvoiceDownload = async (inv: Invoice) => {
@@ -832,7 +790,7 @@ export default function BillingPage() {
             </Card>
           )}
 
-          {/* Add Credits + CAF Banner */}
+          {/* Wallet & burn rate */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {/* Burn Rate / Depletion Estimate */}
             <Card className="border-ice/20">
@@ -919,30 +877,6 @@ export default function BillingPage() {
           </div>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <Card className="border-gold/20 bg-gold/5">
-              <CardContent className="flex items-center justify-between p-5">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <Leaf className="h-4 w-4 text-gold" />
-                    <p className="font-medium text-gold">{t("dash.billing.fund_title")}</p>
-                  </div>
-                  <p className="text-xs text-text-secondary">
-                    {t("dash.billing.fund_desc")}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button variant="gold" size="sm" onClick={handleCafPrintable}>
-                    <FileText className="h-3.5 w-3.5" />
-                    Claim Form (PDF)
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={handleCafExport} disabled={cafLoading}>
-                    {cafLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-                    CSV
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
             {/* Storage Costs */}
             {(() => {
               const storageTxs = transactions.filter((tx) =>

@@ -90,3 +90,7 @@ jobs:
         env:
           NEXT_PUBLIC_API_URL: https://xcelsior.ca
         run: npm run test:pwa:smoke
+      - name: Run MCP Visual Regression
+        env:
+          NEXT_PUBLIC_API_URL: https://xcelsior.ca
+        run: npm run test:mcp:visual

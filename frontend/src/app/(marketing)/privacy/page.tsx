@@ -4,7 +4,7 @@ import { PrivacyContent } from "./content";
 export const metadata: Metadata = {
   title: "Privacy Policy",
   description:
-    "How Xcelsior Computing Inc. collects, uses, and protects your personal information under PIPEDA and Canadian provincial privacy law.",
+    "How Xcelsior Compute Inc. collects, uses, and protects your personal information under PIPEDA and Canadian provincial privacy law.",
   alternates: { canonical: "https://xcelsior.ca/privacy" },
   openGraph: {
     title: "Privacy Policy | Xcelsior",
