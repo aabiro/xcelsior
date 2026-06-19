@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { User } from "@/lib/auth";
 
@@ -34,6 +35,10 @@ export function UserAvatar({
 }) {
   const dim = SIZE_MAP[size];
   const imageSrc = src ?? user?.avatar_url ?? null;
+  // Fall back to initials if the avatar image fails to load (e.g. a 401/404 on
+  // /api/auth/me/avatar) instead of showing the browser's broken-image icon.
+  const [imgError, setImgError] = useState(false);
+  useEffect(() => setImgError(false), [imageSrc]);
 
   return (
     <div
@@ -54,13 +59,14 @@ export function UserAvatar({
           !showRing && "ring-1 ring-border/80",
         )}
       >
-        {imageSrc ? (
+        {imageSrc && !imgError ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={imageSrc}
             alt=""
             className="h-full w-full object-cover"
             referrerPolicy="no-referrer"
+            onError={() => setImgError(true)}
           />
         ) : (
           <span

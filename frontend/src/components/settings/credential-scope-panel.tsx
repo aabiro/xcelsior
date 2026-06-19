@@ -260,9 +260,9 @@ export function ScopeChipRow({
           <span
             key={scope}
             className={cn(
-              "inline-flex items-center gap-1 rounded-md font-mono ring-1",
+              "inline-flex items-center gap-1 rounded-full font-medium ring-1",
               TONE_CLASS[meta.tone],
-              size === "sm" ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-[11px]",
+              size === "sm" ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-xs",
             )}
           >
             {scope === "api" && <Sparkles className="h-2.5 w-2.5" />}
@@ -272,7 +272,7 @@ export function ScopeChipRow({
         );
       })}
       {overflow > 0 && (
-        <span className="rounded-md bg-surface-hover px-1.5 py-0.5 text-[10px] font-mono text-text-muted ring-1 ring-border/50">
+        <span className="rounded-full bg-surface-hover px-2 py-0.5 text-[11px] font-medium text-text-muted ring-1 ring-border/50">
           +{overflow}
         </span>
       )}
