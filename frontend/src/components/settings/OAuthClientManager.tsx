@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import {
   KeyRound, Plus, Copy, CheckCircle, AlertTriangle, Trash2,
-  Loader2, RotateCcw, Pencil, Power, PowerOff, Clock,
+  Loader2, RotateCcw, Pencil, Power, PowerOff, Clock, MoreVertical,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
@@ -21,6 +21,57 @@ import type { TeamContext } from "@/lib/team-context";
 import { ScopeChipRow, WorkspaceScopeBadge } from "@/components/settings/credential-scope-panel";
 import { OAuthSecretRevealModal } from "@/components/settings/oauth-secret-reveal-modal";
 import { SettingsSection } from "@/components/settings/settings-layout";
+
+type MenuAction = { label: string; icon: ReactNode; onClick: () => void; danger?: boolean };
+
+/** Compact "⋯" dropdown so cards don't sprawl with a row of buttons. */
+function ClientActionsMenu({ actions }: { actions: MenuAction[] }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+  return (
+    <div ref={ref} className="relative">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="More actions"
+      >
+        <MoreVertical className="h-3.5 w-3.5" />
+      </Button>
+      {open && (
+        <div role="menu" className="absolute right-0 top-full z-30 mt-1 w-44 overflow-hidden rounded-lg border border-border bg-surface shadow-xl">
+          {actions.map((a, i) => (
+            <button
+              key={i}
+              role="menuitem"
+              type="button"
+              onClick={() => { setOpen(false); a.onClick(); }}
+              className={cn(
+                "flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors",
+                a.danger
+                  ? "text-accent-red hover:bg-accent-red/10"
+                  : "text-text-secondary hover:bg-surface-hover hover:text-text-primary",
+              )}
+            >
+              {a.icon}
+              {a.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -485,7 +536,7 @@ function ClientRow({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 self-start">
           <Button
             variant="outline"
             size="sm"
@@ -495,28 +546,18 @@ function ClientRow({
             {t("dash.settings.oauth.tip_copy_id")}
           </Button>
           {!client.is_first_party && !readOnly && (
-            <>
-              <Button variant="outline" size="sm" onClick={onEdit}>
-                <Pencil className="h-3.5 w-3.5" />
-                {t("dash.settings.oauth.tip_edit")}
-              </Button>
-              <Button variant="outline" size="sm" onClick={onRotate}>
-                <RotateCcw className="h-3.5 w-3.5" />
-                {t("dash.settings.oauth.tip_rotate")}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onToggleStatus}
-              >
-                {isDisabled ? <Power className="h-3.5 w-3.5" /> : <PowerOff className="h-3.5 w-3.5" />}
-                {isDisabled ? t("dash.settings.oauth.tip_enable") : t("dash.settings.oauth.tip_disable")}
-              </Button>
-              <Button variant="outline" size="sm" className="border-accent-red/30 text-accent-red hover:bg-accent-red/10" onClick={onDelete}>
-                <Trash2 className="h-3.5 w-3.5" />
-                {t("dash.settings.oauth.tip_delete")}
-              </Button>
-            </>
+            <ClientActionsMenu
+              actions={[
+                { label: t("dash.settings.oauth.tip_edit"), icon: <Pencil className="h-3.5 w-3.5" />, onClick: onEdit },
+                { label: t("dash.settings.oauth.tip_rotate"), icon: <RotateCcw className="h-3.5 w-3.5" />, onClick: onRotate },
+                {
+                  label: isDisabled ? t("dash.settings.oauth.tip_enable") : t("dash.settings.oauth.tip_disable"),
+                  icon: isDisabled ? <Power className="h-3.5 w-3.5" /> : <PowerOff className="h-3.5 w-3.5" />,
+                  onClick: onToggleStatus,
+                },
+                { label: t("dash.settings.oauth.tip_delete"), icon: <Trash2 className="h-3.5 w-3.5" />, onClick: onDelete, danger: true },
+              ]}
+            />
           )}
         </div>
       </div>
