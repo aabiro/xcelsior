@@ -40,19 +40,27 @@ function mcpUrl(): string {
   return "https://xcelsior.ca/mcp";
 }
 
-function configJson(tokenPlaceholder = "YOUR_OAUTH_TOKEN"): string {
-  return JSON.stringify(
-    {
-      mcpServers: {
-        xcelsior: {
-          url: mcpUrl(),
-          headers: { Authorization: `Bearer ${tokenPlaceholder}` },
-        },
-      },
-    },
-    null,
-    2,
-  );
+// MCP client config formats differ by agent:
+//  - Cursor  (~/.cursor/mcp.json):  `mcpServers` + `url` (transport inferred)
+//  - Claude  (.mcp.json):           `mcpServers` + explicit `type: "http"`
+//  - VS Code (.vscode/mcp.json):    `servers` (not mcpServers) + `type: "http"`
+function configJson(agentId: string, tokenPlaceholder = "YOUR_OAUTH_TOKEN"): string {
+  const url = mcpUrl();
+  const headers = { Authorization: `Bearer ${tokenPlaceholder}` };
+  if (agentId === "vscode") {
+    return JSON.stringify({ servers: { xcelsior: { type: "http", url, headers } } }, null, 2);
+  }
+  if (agentId === "claude") {
+    return JSON.stringify({ mcpServers: { xcelsior: { type: "http", url, headers } } }, null, 2);
+  }
+  return JSON.stringify({ mcpServers: { xcelsior: { url, headers } } }, null, 2);
+}
+
+// Where each client expects the config file to live (shown above the snippet).
+function configPath(agentId: string): string {
+  if (agentId === "vscode") return ".vscode/mcp.json";
+  if (agentId === "claude") return ".mcp.json (project root) or claude_desktop_config.json";
+  return "~/.cursor/mcp.json";
 }
 
 function tokenCurl(clientId: string, clientSecret: string): string {
@@ -252,11 +260,12 @@ export function McpAgentSetup({
           <p className="text-xs font-medium uppercase tracking-wider text-text-muted">
             {t("dash.settings.mcp.preview")}
           </p>
+          <p className="font-mono text-[11px] text-text-muted">{configPath(agent)}</p>
           <pre className="min-h-[200px] overflow-x-auto rounded-xl border border-border/60 bg-[#0a0e1a] p-4 text-xs leading-relaxed text-accent-cyan/90">
-            {configJson()}
+            {configJson(agent)}
           </pre>
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" onClick={() => copyText("cfg", configJson())}>
+            <Button size="sm" variant="outline" onClick={() => copyText("cfg", configJson(agent))}>
               <Copy className="mr-1 h-3 w-3" />
               {t("dash.settings.mcp.copy_config")}
             </Button>

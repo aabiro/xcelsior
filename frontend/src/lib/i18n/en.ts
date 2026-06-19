@@ -589,7 +589,7 @@ const en: Record<string, string> = {
   "download.feature_login_desc": "Start minimized to tray so route recovery and notifications are ready before you open a browser.",
   "download.mobile_title": "Mobile - no download needed",
   "download.mobile_p1": "On phones and tablets, Xcelsior runs as a Progressive Web App directly in your browser. There is nothing to install from an app store. Just visit xcelsior.ca on your phone and use it.",
-  "download.mobile_p2": "If you want the home-screen icon, your browser will prompt you to \"Add to Home Screen\" after a couple of visits. That gives you a full-screen app experience with offline support and push notifications - same as a native app, without the 200 MB download.",
+  "download.mobile_p2": "Want the home-screen icon? Open your browser menu and tap \"Add to Home Screen.\" You get a full-screen app with offline support and push notifications — same as a native app, without the 200 MB download.",
   "download.mobile_b1": "Works in Safari, Chrome, Firefox",
   "download.mobile_b2": "Push notifications",
   "download.mobile_b3": "Offline-capable",

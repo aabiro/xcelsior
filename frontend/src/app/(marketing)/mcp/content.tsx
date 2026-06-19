@@ -55,6 +55,26 @@ function accentClass(accent: "cyan" | "violet" | "emerald" | "gold") {
   return map[accent];
 }
 
+// MCP client config formats differ by agent: Cursor uses `mcpServers`+`url`,
+// Claude Code adds `type: "http"`, and VS Code uses `servers`+`type: "http"`.
+function mcpConfigSnippet(agentId: string): string {
+  const url = "https://xcelsior.ca/mcp";
+  const headers = { Authorization: "Bearer YOUR_OAUTH_TOKEN" };
+  if (agentId === "vscode") {
+    return JSON.stringify({ servers: { xcelsior: { type: "http", url, headers } } }, null, 2);
+  }
+  if (agentId === "claude") {
+    return JSON.stringify({ mcpServers: { xcelsior: { type: "http", url, headers } } }, null, 2);
+  }
+  return JSON.stringify({ mcpServers: { xcelsior: { url, headers } } }, null, 2);
+}
+
+function mcpConfigPath(agentId: string): string {
+  if (agentId === "vscode") return ".vscode/mcp.json";
+  if (agentId === "claude") return ".mcp.json (project root)";
+  return "~/.cursor/mcp.json";
+}
+
 export function McpLandingContent() {
   const { t } = useLocale();
   const [gpuCount, setGpuCount] = useState<number | null>(null);
@@ -72,16 +92,7 @@ export function McpLandingContent() {
       .catch(() => {});
   }, []);
 
-  const configSnippet = `{
-  "mcpServers": {
-    "xcelsior": {
-      "url": "https://xcelsior.ca/mcp",
-      "headers": {
-        "Authorization": "Bearer YOUR_OAUTH_TOKEN"
-      }
-    }
-  }
-}`;
+  const configSnippet = mcpConfigSnippet(agentTab);
 
   return (
     <div className="relative overflow-hidden">
@@ -240,7 +251,8 @@ export function McpLandingContent() {
             </button>
           ))}
         </div>
-        <pre className="mt-6 overflow-x-auto rounded-xl border border-border/60 bg-[#0a0e1a] p-4 text-xs leading-relaxed text-accent-cyan/90">
+        <p className="mt-6 font-mono text-[11px] text-text-muted">{mcpConfigPath(agentTab)}</p>
+        <pre className="mt-2 overflow-x-auto rounded-xl border border-border/60 bg-[#0a0e1a] p-4 text-xs leading-relaxed text-accent-cyan/90">
           {configSnippet}
         </pre>
         <div className="mt-6 flex justify-center">
