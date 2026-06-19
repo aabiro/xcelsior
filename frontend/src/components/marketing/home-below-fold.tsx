@@ -119,7 +119,13 @@ export function HomeBelowFold() {
               <thead>
                 <tr className="border-b border-border">
                   <th scope="col" className="py-4 pl-6 pr-4 text-left text-text-secondary font-medium">{t("home.compare_feature")}</th>
-                  <th scope="col" className="py-4 px-4 text-center font-bold text-accent-cyan">{t("home.compare_xcelsior")}</th>
+                  <th scope="col" className="py-4 px-4 text-center font-bold text-accent-cyan">
+                    <div className="flex flex-col items-center gap-1.5">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src="/xcelsior_icon_192x192.png" alt="Xcelsior" width={34} height={34} className="h-[34px] w-[34px] rounded-xl border border-accent-cyan/40 bg-background/70 object-contain" />
+                      {t("home.compare_xcelsior")}
+                    </div>
+                  </th>
                   <th scope="col" className="py-4 px-4 text-center text-text-secondary">
                     <div className="flex flex-col items-center gap-1.5">
                       <ProviderLogo provider="aws" framed size={34} className="rounded-xl border-border/60 bg-background/70 shadow-none" />

@@ -178,14 +178,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Probe session on protected routes. Only block the UI on the first probe —
   // tab changes revalidate in the background without clearing the user.
   useEffect(() => {
-    if (!needsSessionOnMount(pathname)) {
-      if (!sessionFetched.current) {
-        setLoading(false);
-      }
+    const isInitialProbe = !sessionFetched.current;
+    // Probe the session once on first mount regardless of route, so the
+    // marketing navbar can reflect signed-in state; afterwards only re-probe on
+    // session-sensitive routes (dashboard, auth flows).
+    if (!isInitialProbe && !needsSessionOnMount(pathname)) {
       return;
     }
     let cancelled = false;
-    const isInitialProbe = !sessionFetched.current;
     if (isInitialProbe) {
       setLoading(true);
     }

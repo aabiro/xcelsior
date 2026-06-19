@@ -9,6 +9,8 @@ const en_public: Record<string, string> = {
   "nav.download": "Download",
   "nav.docs": "Docs",
   "nav.sign_in": "Sign In",
+  "nav.sign_out": "Sign Out",
+  "nav.dashboard": "Dashboard",
   "nav.get_started": "Get Started",
   "nav.canadian_owned": "Built in Canada",
   "home.badge": "🍁 Built in Canada — GPUs from $0.30 CAD/hr",
