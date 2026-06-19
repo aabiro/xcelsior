@@ -8,6 +8,7 @@ import { AnimatePresence, m } from "@/components/marketing/motion";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { LocaleToggle } from "@/components/ui/locale-toggle";
 import { useLocale } from "@/lib/locale";
+import { useAuth } from "@/lib/auth";
 
 const navKeys = [
   { href: "/features", key: "nav.features" },
@@ -22,6 +23,7 @@ const navKeys = [
 export function Navbar() {
   const [open, setOpen] = useState(false);
   const { t } = useLocale();
+  const { user, logout } = useAuth();
   const pathname = usePathname();
 
   useEffect(() => {
@@ -80,18 +82,38 @@ export function Navbar() {
             <ThemeToggle />
           </div>
           <div className="hidden sm:block h-5 w-px bg-border" />
-          <Link
-            href="/login"
-            className="hidden sm:inline-flex min-h-11 items-center whitespace-nowrap px-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
-          >
-            {t("nav.sign_in")}
-          </Link>
-          <Link
-            href="/register"
-            className="hidden sm:inline-flex min-h-11 items-center whitespace-nowrap rounded-lg bg-accent-red px-4 text-sm font-medium text-white hover:bg-accent-red-hover transition-colors"
-          >
-            {t("nav.get_started")}
-          </Link>
+          {user ? (
+            <>
+              <button
+                type="button"
+                onClick={() => { void logout(); }}
+                className="hidden sm:inline-flex min-h-11 items-center whitespace-nowrap px-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
+              >
+                {t("nav.sign_out")}
+              </button>
+              <Link
+                href="/dashboard"
+                className="hidden sm:inline-flex min-h-11 items-center whitespace-nowrap rounded-lg bg-accent-red px-4 text-sm font-medium text-white hover:bg-accent-red-hover transition-colors"
+              >
+                {t("nav.dashboard")}
+              </Link>
+            </>
+          ) : (
+            <>
+              <Link
+                href="/login"
+                className="hidden sm:inline-flex min-h-11 items-center whitespace-nowrap px-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
+              >
+                {t("nav.sign_in")}
+              </Link>
+              <Link
+                href="/register"
+                className="hidden sm:inline-flex min-h-11 items-center whitespace-nowrap rounded-lg bg-accent-red px-4 text-sm font-medium text-white hover:bg-accent-red-hover transition-colors"
+              >
+                {t("nav.get_started")}
+              </Link>
+            </>
+          )}
           {/* Mobile hamburger */}
           <button
             type="button"
@@ -148,20 +170,41 @@ export function Navbar() {
                   <LocaleToggle />
                   <ThemeToggle />
                 </div>
-                <Link
-                  href="/login"
-                  onClick={() => setOpen(false)}
-                  className="flex min-h-11 items-center rounded-lg px-3 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
-                >
-                  {t("nav.sign_in")}
-                </Link>
-                <Link
-                  href="/register"
-                  onClick={() => setOpen(false)}
-                  className="inline-flex min-h-11 items-center justify-center rounded-lg bg-accent-red px-4 text-sm font-medium text-white hover:bg-accent-red-hover transition-colors"
-                >
-                  {t("nav.get_started")}
-                </Link>
+                {user ? (
+                  <>
+                    <Link
+                      href="/dashboard"
+                      onClick={() => setOpen(false)}
+                      className="inline-flex min-h-11 items-center justify-center rounded-lg bg-accent-red px-4 text-sm font-medium text-white hover:bg-accent-red-hover transition-colors"
+                    >
+                      {t("nav.dashboard")}
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => { setOpen(false); void logout(); }}
+                      className="flex min-h-11 items-center rounded-lg px-3 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
+                    >
+                      {t("nav.sign_out")}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <Link
+                      href="/login"
+                      onClick={() => setOpen(false)}
+                      className="flex min-h-11 items-center rounded-lg px-3 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
+                    >
+                      {t("nav.sign_in")}
+                    </Link>
+                    <Link
+                      href="/register"
+                      onClick={() => setOpen(false)}
+                      className="inline-flex min-h-11 items-center justify-center rounded-lg bg-accent-red px-4 text-sm font-medium text-white hover:bg-accent-red-hover transition-colors"
+                    >
+                      {t("nav.get_started")}
+                    </Link>
+                  </>
+                )}
               </div>
             </div>
           </m.nav>
