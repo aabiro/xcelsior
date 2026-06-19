@@ -81,7 +81,9 @@ def gpu_card(cx, cy, s=1.0):
     <g stroke="#0a1322" stroke-opacity="0.55" stroke-width="1.2">
       <path d="M19,-34 V34 M32,-34 V34 M45,-34 V34 M58,-34 V34 M71,-34 V34 M6,-21 H84 M6,-8 H84 M6,5 H84 M6,18 H84"/>
     </g>
-    <circle cx="45" cy="0" r="11" fill="#eafcff" opacity="0.85" filter="url(#glow)"/>
+    <circle cx="45" cy="0" r="20" fill="none" stroke="#7cf2ff" stroke-opacity="0.45" stroke-width="1.5"/>
+    <circle cx="45" cy="0" r="12" fill="#eafcff" opacity="0.95" filter="url(#glow)"/>
+    <path d="M10,-30 Q45,-37 80,-30 L80,-19 Q45,-25 10,-19 Z" fill="#ffffff" opacity="0.10"/>
     <!-- gold pin edge -->
     <rect x="-104" y="50" width="208" height="8" rx="2" fill="url(#gold)" opacity="0.8"/>
     <g stroke="#0a1322" stroke-width="1.4">
