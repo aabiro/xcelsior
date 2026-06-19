@@ -1,33 +1,71 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" fill="none">
   <defs>
-    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#00d4ff"/>
-      <stop offset="45%" stop-color="#7c3aed"/>
-      <stop offset="100%" stop-color="#dc2626"/>
+    <linearGradient id="brand" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22e0ff"/>
+      <stop offset="48%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#f43f5e"/>
     </linearGradient>
-    <linearGradient id="gSoft" x1="0%" y1="100%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.18"/>
-      <stop offset="100%" stop-color="#7c3aed" stop-opacity="0.1"/>
+    <linearGradient id="brandSoft" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#22e0ff" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#7c3aed" stop-opacity="0.06"/>
     </linearGradient>
-    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#fbbf24"/>
-      <stop offset="100%" stop-color="#f59e0b"/>
+    <radialGradient id="spot" cx="50%" cy="34%" r="75%">
+      <stop offset="0%" stop-color="#1b2740"/>
+      <stop offset="100%" stop-color="#070b15"/>
+    </radialGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.14"/>
+      <stop offset="24%" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
-    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="5" result="b"/>
+    <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#16233c"/>
+      <stop offset="100%" stop-color="#0b1322"/>
+    </linearGradient>
+    <radialGradient id="core" cx="50%" cy="42%" r="62%">
+      <stop offset="0%" stop-color="#5eeaff"/>
+      <stop offset="42%" stop-color="#2a8cff"/>
+      <stop offset="100%" stop-color="#0b1b3a"/>
+    </radialGradient>
+    <linearGradient id="violet" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#a78bfa"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fde68a"/>
+      <stop offset="100%" stop-color="#d4a233"/>
+    </linearGradient>
+    <linearGradient id="emerald" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#10b981"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
       <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
-    <filter id="softGlow" x="-80%" y="-80%" width="260%" height="260%">
-      <feGaussianBlur stdDeviation="14"/>
+    <filter id="bloom" x="-120%" y="-120%" width="340%" height="340%">
+      <feGaussianBlur stdDeviation="22"/>
     </filter>
+    <filter id="cardShadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="9" stdDeviation="13" flood-color="#000" flood-opacity="0.45"/>
+    </filter>
+    <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+      <path d="M24 0H0V24" fill="none" stroke="#22e0ff" stroke-opacity="0.06" stroke-width="1"/>
+    </pattern>
 </defs>
-  <rect width="320" height="200" rx="20" fill="#0a0e1a" stroke="#334155"/>
-  <path d="M160,44 L200,60 V96 C200,120 160,140 160,140 C160,140 120,120 120,96 V60 Z" fill="#1e293b" stroke="url(#gold)" stroke-width="1.5"/>
-  <rect x="56" y="152" width="80" height="10" rx="5" fill="#334155"/>
-  <rect x="56" y="152" width="52" height="10" rx="5" fill="url(#gold)"/>
-  <text x="96" y="178" text-anchor="middle" fill="#94a3b8" font-size="9">wallet</text>
-  <rect x="184" y="152" width="80" height="10" rx="5" fill="#334155"/>
-  <rect x="184" y="152" width="64" height="10" rx="5" fill="url(#g)"/>
-  <text x="224" y="178" text-anchor="middle" fill="#94a3b8" font-size="9">estimate</text>
-  <text x="160" y="24" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="700" letter-spacing="0.12em">GUARDRAILS</text>
+  <rect width="320" height="200" rx="20" fill="url(#spot)"/>
+  <rect width="320" height="200" rx="20" fill="url(#grid)"/>
+
+  <circle cx="160" cy="70" r="64" fill="#fbbf24" filter="url(#bloom)" opacity="0.12"/>
+  <g filter="url(#cardShadow)">
+    <path d="M160,30 L206,48 V92 C206,124 160,146 160,146 C160,146 114,124 114,92 V48 Z" fill="url(#panel)" stroke="url(#gold)" stroke-width="1.75"/>
+    <path d="M160,30 L206,48 V92 C206,124 160,146 160,146 C160,146 114,124 114,92 V48 Z" fill="url(#glass)"/>
+    <path d="M146,86 L156,98 L178,72" stroke="url(#gold)" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+  </g>
+  <rect x="52" y="160" width="84" height="10" rx="5" fill="#1a2740"/>
+  <rect x="52" y="160" width="54" height="10" rx="5" fill="url(#gold)"/>
+  <rect x="184" y="160" width="84" height="10" rx="5" fill="#1a2740"/>
+  <rect x="184" y="160" width="66" height="10" rx="5" fill="url(#brand)"/>
+
+  <rect width="320" height="200" rx="20" fill="url(#brandSoft)"/>
 </svg>

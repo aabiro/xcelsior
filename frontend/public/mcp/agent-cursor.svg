@@ -1,27 +1,65 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
   <defs>
-    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#00d4ff"/>
-      <stop offset="45%" stop-color="#7c3aed"/>
-      <stop offset="100%" stop-color="#dc2626"/>
+    <linearGradient id="brand" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22e0ff"/>
+      <stop offset="48%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#f43f5e"/>
     </linearGradient>
-    <linearGradient id="gSoft" x1="0%" y1="100%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.18"/>
-      <stop offset="100%" stop-color="#7c3aed" stop-opacity="0.1"/>
+    <linearGradient id="brandSoft" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#22e0ff" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#7c3aed" stop-opacity="0.06"/>
     </linearGradient>
-    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#fbbf24"/>
-      <stop offset="100%" stop-color="#f59e0b"/>
+    <radialGradient id="spot" cx="50%" cy="34%" r="75%">
+      <stop offset="0%" stop-color="#1b2740"/>
+      <stop offset="100%" stop-color="#070b15"/>
+    </radialGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.14"/>
+      <stop offset="24%" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
-    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="5" result="b"/>
+    <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#16233c"/>
+      <stop offset="100%" stop-color="#0b1322"/>
+    </linearGradient>
+    <radialGradient id="core" cx="50%" cy="42%" r="62%">
+      <stop offset="0%" stop-color="#5eeaff"/>
+      <stop offset="42%" stop-color="#2a8cff"/>
+      <stop offset="100%" stop-color="#0b1b3a"/>
+    </radialGradient>
+    <linearGradient id="violet" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#a78bfa"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fde68a"/>
+      <stop offset="100%" stop-color="#d4a233"/>
+    </linearGradient>
+    <linearGradient id="emerald" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#10b981"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
       <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
-    <filter id="softGlow" x="-80%" y="-80%" width="260%" height="260%">
-      <feGaussianBlur stdDeviation="14"/>
+    <filter id="bloom" x="-120%" y="-120%" width="340%" height="340%">
+      <feGaussianBlur stdDeviation="22"/>
     </filter>
+    <filter id="cardShadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="9" stdDeviation="13" flood-color="#000" flood-opacity="0.45"/>
+    </filter>
+    <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+      <path d="M24 0H0V24" fill="none" stroke="#22e0ff" stroke-opacity="0.06" stroke-width="1"/>
+    </pattern>
 </defs>
-  <rect width="64" height="64" rx="14" fill="#0a0e1a" stroke="#334155"/>
-  <rect x="12" y="14" width="40" height="36" rx="6" fill="#111827" stroke="url(#g)" stroke-width="1"/>
-  <path d="M18,42 L28,32 L34,38 L46,24" stroke="#00d4ff" stroke-width="2" fill="none"/>
+  <rect width="64" height="64" rx="14" fill="url(#spot)"/>
+  <rect width="64" height="64" rx="14" fill="url(#grid)"/>
+
+  <g transform="translate(32,32)">
+    <rect x="-18" y="-16" width="36" height="28" rx="6" fill="url(#panel)" stroke="url(#brand)" stroke-width="1.25"/>
+    <path d="M-12,8 L-2,-2 L4,4 L14,-8" stroke="#22e0ff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <rect width="64" height="64" rx="14" fill="url(#brandSoft)"/>
 </svg>
