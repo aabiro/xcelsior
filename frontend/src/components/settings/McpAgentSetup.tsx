@@ -70,6 +70,31 @@ function tokenCurl(clientId: string, clientSecret: string): string {
   -d 'grant_type=client_credentials&client_id=${clientId}&client_secret=${clientSecret}'`;
 }
 
+/** Terminal-style code block: window chrome (filename + traffic lights) + copy. */
+function CodeBlock({ filename, code, copied, onCopy }: { filename?: string; code: string; copied: boolean; onCopy: () => void }) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-border/70 bg-[#0a0e13] shadow-lg shadow-black/30">
+      <div className="flex items-center justify-between gap-2 border-b border-white/10 bg-white/[0.03] px-3 py-2">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
+          <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
+          <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
+          {filename && <span className="ml-2 truncate font-mono text-[11px] text-text-muted">{filename}</span>}
+        </div>
+        <button
+          type="button"
+          onClick={onCopy}
+          className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] text-text-muted transition-colors hover:bg-white/5 hover:text-text-primary"
+        >
+          {copied ? <CheckCircle className="h-3 w-3 text-emerald" /> : <Copy className="h-3 w-3" />}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <pre className="overflow-x-auto p-4 font-mono text-xs leading-relaxed text-accent-cyan/90">{code}</pre>
+    </div>
+  );
+}
+
 export function McpAgentSetup({
   oauthClients,
   onOAuthClientsChange,
@@ -220,12 +245,12 @@ export function McpAgentSetup({
           {step >= 2 && mcpClient && reveal && (
             <div className="space-y-3 rounded-xl border border-border/60 bg-surface/30 p-4">
               <p className="text-sm font-medium">{t("dash.settings.mcp.step_token")}</p>
-              <pre className="overflow-x-auto rounded-lg bg-[#0a0e1a] p-3 text-[10px] text-accent-cyan/90">
-                {tokenCurl(reveal.clientId, reveal.clientSecret)}
-              </pre>
-              <Button size="sm" variant="outline" onClick={() => copyText("curl", tokenCurl(reveal.clientId, reveal.clientSecret))}>
-                <Copy className="mr-1 h-3 w-3" /> {t("dash.settings.mcp.copy_curl")}
-              </Button>
+              <CodeBlock
+                filename="get-token.sh"
+                code={tokenCurl(reveal.clientId, reveal.clientSecret)}
+                copied={copied === "curl"}
+                onCopy={() => copyText("curl", tokenCurl(reveal.clientId, reveal.clientSecret))}
+              />
               <Button variant="outline" size="sm" onClick={() => setStep(3)}>
                 {t("dash.settings.mcp.next_paste")} <ChevronRight className="ml-1 h-3 w-3" />
               </Button>
@@ -259,15 +284,13 @@ export function McpAgentSetup({
           <p className="text-xs font-medium uppercase tracking-wider text-text-muted">
             {t("dash.settings.mcp.preview")}
           </p>
-          <p className="font-mono text-[11px] text-text-muted">{configPath(agent)}</p>
-          <pre className="min-h-[200px] overflow-x-auto rounded-xl border border-border/60 bg-[#0a0e1a] p-4 text-xs leading-relaxed text-accent-cyan/90">
-            {configJson(agent)}
-          </pre>
+          <CodeBlock
+            filename={configPath(agent)}
+            code={configJson(agent)}
+            copied={copied === "cfg"}
+            onCopy={() => copyText("cfg", configJson(agent))}
+          />
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" onClick={() => copyText("cfg", configJson(agent))}>
-              <Copy className="mr-1 h-3 w-3" />
-              {t("dash.settings.mcp.copy_config")}
-            </Button>
             <Button size="sm" variant="outline" onClick={handleTestHealth} disabled={testing}>
               {testing ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
               {t("dash.settings.mcp.test_health")}
