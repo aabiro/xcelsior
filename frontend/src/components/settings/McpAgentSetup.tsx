@@ -8,9 +8,9 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { SettingsSection } from "@/components/settings/settings-layout";
 import { OAuthSecretRevealModal } from "@/components/settings/oauth-secret-reveal-modal";
+import { ScopeChipRow } from "@/components/settings/credential-scope-panel";
 import { useLocale } from "@/lib/locale";
 import * as api from "@/lib/api";
 import type { OAuthClientInfo } from "@/lib/api";
@@ -182,11 +182,7 @@ export function McpAgentSetup({
           {step === 0 && (
             <div className="space-y-3">
               <p className="text-sm text-text-secondary">{t("dash.settings.mcp.step_create")}</p>
-              <div className="flex flex-wrap gap-2">
-                {MCP_SCOPES.map((s) => (
-                  <Badge key={s} variant="default" className="font-mono text-xs">{s}</Badge>
-                ))}
-              </div>
+              <ScopeChipRow scopes={[...MCP_SCOPES]} maxVisible={20} size="md" />
               <Button onClick={handleCreateClient} disabled={creating} className="gap-2">
                 {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
                 {t("dash.settings.mcp.create_btn")}
