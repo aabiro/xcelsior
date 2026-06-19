@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 320" fill="none">
+  <defs>
+    <linearGradient id="brand" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22e0ff"/>
+      <stop offset="48%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#f43f5e"/>
+    </linearGradient>
+    <linearGradient id="brandSoft" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#22e0ff" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#f43f5e" stop-opacity="0.04"/>
+    </linearGradient>
+    <radialGradient id="spot" cx="50%" cy="36%" r="72%">
+      <stop offset="0%" stop-color="#1b2740"/>
+      <stop offset="100%" stop-color="#070b15"/>
+    </radialGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.14"/>
+      <stop offset="24%" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#16233c"/>
+      <stop offset="100%" stop-color="#0b1322"/>
+    </linearGradient>
+    <radialGradient id="core" cx="50%" cy="42%" r="62%">
+      <stop offset="0%" stop-color="#5eeaff"/>
+      <stop offset="42%" stop-color="#2a8cff"/>
+      <stop offset="100%" stop-color="#0b1b3a"/>
+    </radialGradient>
+    <linearGradient id="emerald" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#10b981"/>
+    </linearGradient>
+    <linearGradient id="violet" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#a78bfa"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fde68a"/>
+      <stop offset="100%" stop-color="#d4a233"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="bloom" x="-120%" y="-120%" width="340%" height="340%">
+      <feGaussianBlur stdDeviation="24"/>
+    </filter>
+    <filter id="cardShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000" flood-opacity="0.45"/>
+    </filter>
+    <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+      <path d="M24 0H0V24" fill="none" stroke="#22e0ff" stroke-opacity="0.06" stroke-width="1"/>
+    </pattern>
+</defs>
+  <rect width="480" height="320" rx="28" fill="url(#spot)"/>
+  <rect width="480" height="320" rx="28" fill="url(#grid)"/>
+
+  <circle cx="372" cy="78" r="78" fill="#22e0ff" filter="url(#bloom)" opacity="0.14"/>
+  <g filter="url(#cardShadow)">
+    <rect x="150" y="78" width="150" height="92" rx="14" fill="url(#panel)" stroke="url(#brand)" stroke-width="1.5" transform="rotate(-7 225 124)"/>
+    <rect x="170" y="96" width="150" height="92" rx="14" fill="url(#panel)" stroke="url(#brand)" stroke-width="1.5" transform="rotate(-2 245 142)"/>
+    <rect x="190" y="116" width="150" height="92" rx="14" fill="url(#panel)" stroke="#22e0ff" stroke-width="1.5"/>
+    <rect x="190" y="116" width="150" height="92" rx="14" fill="url(#glass)"/>
+    <path d="M262,140 L250,166 H266 L258,188 L284,156 H266 L274,140 Z" fill="url(#brand)" filter="url(#glow)"/>
+  </g>
+  <!-- autoscale bars -->
+  <g>
+    <rect x="60" y="206" width="16" height="34" rx="3" fill="url(#brand)" opacity="0.5"/>
+    <rect x="84" y="190" width="16" height="50" rx="3" fill="url(#brand)" opacity="0.7"/>
+    <rect x="108" y="170" width="16" height="70" rx="3" fill="url(#brand)" opacity="0.9"/>
+    <rect x="132" y="154" width="16" height="86" rx="3" fill="#34d399"/>
+  </g>
+  <circle cx="360" cy="234" r="6" fill="#34d399" filter="url(#glow)"/>
+
+  <rect width="480" height="320" rx="28" fill="url(#brandSoft)"/>
+</svg>
