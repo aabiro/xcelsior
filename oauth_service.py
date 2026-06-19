@@ -50,6 +50,11 @@ except Exception:
 
 
 ACCESS_TOKEN_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_ACCESS_TTL_SEC", "900"))
+# First-party browser sessions get a longer-lived access token than OAuth agent
+# tokens (which stay short for security), so users remain signed in across normal
+# navigation (e.g. dashboard -> marketing -> back) without a refresh round-trip.
+# The refresh token still governs the 30-day "remember me" window.
+BROWSER_SESSION_TTL_SEC = int(os.environ.get("XCELSIOR_BROWSER_SESSION_TTL_SEC", str(60 * 60 * 12)))
 REFRESH_TOKEN_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_REFRESH_TTL_SEC", str(86400 * 30)))
 AUTH_CODE_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_CODE_TTL_SEC", "300"))
 DEVICE_CODE_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_DEVICE_TTL_SEC", "900"))
@@ -707,6 +712,11 @@ def _issue_opaque_access_token(
 ) -> dict[str, Any]:
     token = f"{ACCESS_TOKEN_PREFIX}{secrets.token_urlsafe(32)}"
     now = time.time()
+    # Only the first-party web app gets the long browser-session TTL. OAuth
+    # authorization-code grants for third-party agents (different client_id) keep
+    # the short access-token TTL even though they also carry session_type=browser.
+    is_first_party_web = session_type == "browser" and client_id == "xcelsior-web"
+    ttl = BROWSER_SESSION_TTL_SEC if is_first_party_web else ACCESS_TOKEN_TTL_SEC
     payload = {
         "auth_type": "oauth_access_token",
         "email": user.get("email", ""),
@@ -721,9 +731,9 @@ def _issue_opaque_access_token(
         "session_token": session_token,
         "session_type": session_type,
         "issued_at": now,
-        "expires_at": now + ACCESS_TOKEN_TTL_SEC,
+        "expires_at": now + ttl,
     }
-    if not _cache_set_json("access_token", token, payload, ACCESS_TOKEN_TTL_SEC):
+    if not _cache_set_json("access_token", token, payload, ttl):
         raise OAuthGrantError(
             "server_error",
             "Dedicated auth cache unavailable for access token issuance",
@@ -731,7 +741,7 @@ def _issue_opaque_access_token(
         )
     return {
         "access_token": token,
-        "expires_in": ACCESS_TOKEN_TTL_SEC,
+        "expires_in": ttl,
         "payload": payload,
     }
 
