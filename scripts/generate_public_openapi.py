@@ -116,6 +116,31 @@ if str(ROOT) not in sys.path:
 
 from api import app
 
+# Title-case words that should render as proper acronyms / brand casing in the
+# docs sidebar (Fern uses the operation `summary` as the endpoint title).
+_ACRONYMS = {
+    "Api": "API",
+    "Oauth": "OAuth",
+    "Paypal": "PayPal",
+    "Gpu": "GPU",
+    "Ssh": "SSH",
+    "Url": "URL",
+    "Id": "ID",
+    "Llm": "LLM",
+    "Ca": "CA",
+}
+
+
+def _clean_summary(summary: str) -> str:
+    """Strip the leading FastAPI ``Api `` function-name prefix and fix acronym
+    casing so the Fern API-reference sidebar shows clean titles
+    (e.g. ``Api List Artifacts`` -> ``List Artifacts``)."""
+    text = (summary or "").strip()
+    if text.lower().startswith("api "):
+        text = text[4:].strip()
+    words = [_ACRONYMS.get(word, word) for word in text.split()]
+    return " ".join(words).strip()
+
 
 def _load_allowlist() -> set[tuple[str, str]]:
     overrides = yaml.safe_load(OVERRIDES_PATH.read_text(encoding="utf-8")) or {}
@@ -210,6 +235,8 @@ def build_public_spec() -> dict:
                 or (path, method_lc) not in CLIENT_OPERATION_ALLOWLIST
             ):
                 continue
+            if isinstance(operation.get("summary"), str):
+                operation["summary"] = _clean_summary(operation["summary"])
             kept_ops[method] = operation
         if kept_ops:
             filtered_paths[path] = kept_ops
@@ -242,6 +269,40 @@ def build_public_spec() -> dict:
             "This published OpenAPI document contains the public developer surface only. "
             "Account settings, internal worker, admin, maintenance, and callback endpoints are intentionally omitted."
         )
+
+    # Declare a bearer-token security scheme so the Fern API playground renders
+    # an Authorization input and attaches `Authorization: Bearer <token>` to
+    # every "Try it" request. Without this the playground sends no credentials
+    # and the API rejects every call with 401 unauthorized. Added before
+    # _prune_components so the (now globally-referenced) scheme is retained.
+    components = full_spec.setdefault("components", {})
+    schemes = components.setdefault("securitySchemes", {})
+    schemes["bearerAuth"] = {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": (
+            "OAuth access token or API key. Obtain one via the OAuth flow "
+            "(`POST /oauth/token`) or from your dashboard, then send it as "
+            "`Authorization: Bearer <token>`."
+        ),
+    }
+    full_spec["security"] = [{"bearerAuth": []}]
+
+    # Bootstrap endpoints are how a caller *obtains* a token, so they must stay
+    # callable without one. Override the global requirement with empty security.
+    public_operations = {
+        ("/.well-known/oauth-authorization-server", "get"),
+        ("/oauth/authorize", "get"),
+        ("/oauth/token", "post"),
+        ("/oauth/device/authorize", "post"),
+        ("/api/auth/register", "post"),
+        ("/api/auth/login", "post"),
+    }
+    for path, path_item in (full_spec.get("paths") or {}).items():
+        for method, operation in path_item.items():
+            if (path, method.lower()) in public_operations and isinstance(operation, dict):
+                operation["security"] = []
 
     _prune_components(full_spec)
     return full_spec
