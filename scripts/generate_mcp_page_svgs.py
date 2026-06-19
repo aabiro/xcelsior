@@ -216,10 +216,13 @@ SLIDES = {
   <defs>{DEFS}</defs>
   <rect width="480" height="160" rx="16" fill="url(#spot)"/>
   <rect width="480" height="160" rx="16" fill="url(#grid)"/>
-  <circle cx="80" cy="60" r="60" fill="#7c3aed" filter="url(#bloom)" opacity="0.16"/>
-  {mcp_hex(86, 80, 0.78)}
-  <text x="170" y="74" fill="#eafcff" font-family="system-ui,sans-serif" font-size="20" font-weight="700">Connect AI Agents</text>
-  <text x="170" y="100" fill="#9fb3c8" font-family="system-ui,sans-serif" font-size="13">From prompt to compute in seconds</text>
+  <circle cx="92" cy="46" r="80" fill="#7c3aed" filter="url(#bloom)" opacity="0.18"/>
+  <ellipse cx="92" cy="80" rx="62" ry="44" fill="none" stroke="url(#brand)" stroke-width="1" opacity="0.28"/>
+  <circle cx="154" cy="80" r="3.5" fill="#22e0ff" filter="url(#glow)"/>
+  <circle cx="30" cy="80" r="3.5" fill="#f43f5e" filter="url(#glow)"/>
+  {mcp_hex(92, 80, 0.92)}
+  <text x="198" y="72" fill="#eafcff" font-family="system-ui,sans-serif" font-size="22" font-weight="800">Connect AI Agents</text>
+  <text x="198" y="100" fill="#9fb3c8" font-family="system-ui,sans-serif" font-size="13">Natural language to real GPUs, in seconds</text>
   <rect width="480" height="160" rx="16" fill="url(#brandSoft)"/>
 </svg>""",
     "og-mcp-card.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" fill="none">
