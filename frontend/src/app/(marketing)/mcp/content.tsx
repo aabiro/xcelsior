@@ -152,8 +152,11 @@ export function McpLandingContent() {
           </p>
           <ul className="mt-6 grid gap-4 text-left sm:grid-cols-3">
             {(["pain_1", "pain_2", "pain_3"] as const).map((k, i) => (
-              <li key={k} className="rounded-xl border border-border/60 bg-surface/30 px-4 py-3 text-sm text-text-secondary">
-                {t(`mcp.landing.${k}`)}
+              <li key={k} className="rounded-xl border border-border/60 bg-surface/30 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Today</p>
+                <p className="mt-1 text-sm text-text-secondary">{t(`mcp.landing.${k}`)}</p>
+                <p className="mt-3 text-[11px] font-semibold uppercase tracking-wider text-accent-cyan">With Xcelsior</p>
+                <p className="mt-1 text-sm font-medium text-text-primary">{t(`mcp.landing.solution_${i + 1}`)}</p>
               </li>
             ))}
           </ul>
