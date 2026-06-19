@@ -1,54 +1,32 @@
-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<svg
-   xmlns:dc="http://purl.org/dc/elements/1.1/"
-   xmlns:cc="http://creativecommons.org/ns#"
-   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-   xmlns:svg="http://www.w3.org/2000/svg"
-   xmlns="http://www.w3.org/2000/svg"
-   viewBox="680 360 1280 1800"
-   xml:space="preserve"
-   id="svg2"
-   version="1.1"><metadata
-     id="metadata8"><rdf:RDF><cc:Work
-         rdf:about=""><dc:format>image/svg+xml</dc:format><dc:type
-           rdf:resource="http://purl.org/dc/dcmitype/StillImage" /></cc:Work></rdf:RDF></metadata><defs
-     id="defs6">
-    <linearGradient id="provinceFill" gradientUnits="userSpaceOnUse" x1="3700" y1="14600" x2="12500" y2="2600">
-      <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.8"/>
-      <stop offset="55%" stop-color="#7c3aed" stop-opacity="0.8"/>
-      <stop offset="100%" stop-color="#dc2626" stop-opacity="0.8"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 320" fill="none">
+  <defs>
+    <linearGradient id="brand" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22e0ff"/><stop offset="48%" stop-color="#7c3aed"/><stop offset="100%" stop-color="#f43f5e"/>
     </linearGradient>
-    <linearGradient id="cornerFill" gradientUnits="userSpaceOnUse" x1="3700" y1="14600" x2="12500" y2="2600">
-      <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.08"/>
-      <stop offset="55%" stop-color="#7c3aed" stop-opacity="0.05"/>
-      <stop offset="100%" stop-color="#dc2626" stop-opacity="0.04"/>
-    </linearGradient>
-    <linearGradient id="arcHighlight" gradientUnits="userSpaceOnUse" x1="2000" y1="9000" x2="16000" y2="9000">
-      <stop offset="0%" stop-color="#00d4ff"/>
-      <stop offset="100%" stop-color="#7c3aed"/>
-    </linearGradient>
-  </defs><g
-     transform="matrix(1.3333333,0,0,-1.3333333,0,2666.6667)"
-     id="g10"><g
-       transform="scale(0.1)"
-       id="g12"><g
-         transform="scale(1.22699)"
-         id="g14"><path
-           id="path16"
-           style="fill:none;fill-opacity:0;fill-rule:nonzero;stroke:none"
-           d="M 16300,0 H 0 V 16300 H 16300 V 0" /></g><path
-         id="path18"
-         style="fill:url(#cornerFill);fill-opacity:1;fill-rule:nonzero;stroke:url(#provinceFill);stroke-width:75;stroke-opacity:0.78;stroke-linejoin:round;stroke-linecap:round"
-         d="m 6813.86,5580.3 c -1258.8,1446 -406.33,4248.7 1904.07,6260.1 395.62,344.4 808.33,643.3 1227,894.8 C 9191.2,12450.7 8426.87,11997.7 7724.37,11386.1 5566.06,9507.1 4808.91,6843.8 6033.2,5437.5 6756.48,4606.8 8009.49,4400.6 9358.91,4758.3 8309.73,4655.4 7390.36,4918.1 6813.86,5580.3" /><path
-         id="path20"
-         style="fill:url(#cornerFill);fill-opacity:1;fill-rule:nonzero;stroke:url(#provinceFill);stroke-width:75;stroke-opacity:0.78;stroke-linejoin:round;stroke-linecap:round"
-         d="m 12160.1,13098.9 c -146.8,-76.3 -301,-152.1 -458.2,-225.4 l -68.6,-32 -3.7,6.3 -216.7,-1011.8 942.5,1048.1 39.7,330.8 c -78.6,-37.5 -158.1,-76 -235,-116" /><path
-         id="path22"
-         style="fill:url(#cornerFill);fill-opacity:1;fill-rule:nonzero;stroke:url(#provinceFill);stroke-width:75;stroke-opacity:0.78;stroke-linejoin:round;stroke-linecap:round"
-         d="m 11356.5,14487.9 c -139.4,-89.1 -281.9,-185 -423.9,-284.8 l -61.9,-43.5 3.7,-6.3 -985.24,316.5 1378.44,294.6 306.6,-130.5 c -71.7,-49.5 -144.7,-99.2 -217.7,-146" /><path
-         id="path24"
-         style="fill:url(#cornerFill);fill-opacity:1;fill-rule:nonzero;stroke:url(#provinceFill);stroke-width:75;stroke-opacity:0.78;stroke-linejoin:round;stroke-linecap:round"
-         d="m 10379.3,12481.7 1077.4,419.5 -622.3,1075.6 -900.69,-724.9 445.59,-770.2" /><path
-         id="path26"
-         style="fill:url(#cornerFill);fill-opacity:1;fill-rule:nonzero;stroke:url(#provinceFill);stroke-width:75;stroke-opacity:0.78;stroke-linejoin:round;stroke-linecap:round"
-         d="m 12395.1,13903.3 c -205,0 -371.2,166.3 -371.2,371.3 0,205 166.2,371.2 371.2,371.2 205.1,0 371.3,-166.2 371.3,-371.2 0,-205 -166.2,-371.3 -371.3,-371.3 z m 173.1,1184.9 c -421.8,-111.3 -777.8,-420.6 -1167.1,-669.9 -141.2,-90.4 -282.2,-185.3 -420.9,-282.8 l 343.4,-593.5 343.3,-593.6 c 153.7,71.7 306.3,146.6 455,223.9 410.2,213.3 855.7,367.7 1162.5,677.9 381.2,385.5 895.4,955.5 1268.1,1559.8 -709.6,-21.9 -1460.1,-183.5 -1984.3,-321.8" /></g></g></svg>
+    <linearGradient id="emerald" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#10b981"/></linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fde68a"/><stop offset="100%" stop-color="#d4a233"/></linearGradient>
+    <radialGradient id="core" cx="50%" cy="40%" r="62%">
+      <stop offset="0%" stop-color="#5eeaff"/><stop offset="42%" stop-color="#2a8cff"/><stop offset="100%" stop-color="#0b1b3a"/></radialGradient>
+    <linearGradient id="glassHi" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.14"/><stop offset="40%" stop-color="#ffffff" stop-opacity="0.03"/><stop offset="100%" stop-color="#ffffff" stop-opacity="0"/></linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#16233c"/><stop offset="100%" stop-color="#0b1322"/></linearGradient><filter id="depth" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter><filter id="bloom" x="-120%" y="-120%" width="340%" height="340%"><feGaussianBlur stdDeviation="20"/></filter>
+    <!--detail:#7cf2ff--></defs>
+  <circle cx="150" cy="84" r="70" fill="#22e0ff" filter="url(#bloom)" opacity="0.16"/>
+  <!-- exhaust trail -->
+  <path d="M120,196 C96,232 70,250 40,300" stroke="url(#brand)" stroke-width="7" stroke-linecap="round" fill="none" opacity="0.55"/>
+  <g filter="url(#depth)" transform="rotate(36 132 132)">
+    <!-- body -->
+    <path d="M132,66 C156,66 168,96 168,134 L168,176 C168,190 156,202 132,202 C108,202 96,190 96,176 L96,134 C96,96 108,66 132,66 Z" fill="url(#panel)" stroke="url(#brand)" stroke-width="2.5"/>
+    <path d="M132,66 C156,66 168,96 168,134 L168,176 C168,190 156,202 132,202 C108,202 96,190 96,176 L96,134 C96,96 108,66 132,66 Z" fill="url(#glassHi)"/>
+    <!-- window -->
+    <circle cx="132" cy="118" r="20" fill="url(#core)" stroke="#7cf2ff" stroke-opacity="0.5" stroke-width="1.5"/>
+    <circle cx="132" cy="118" r="8" fill="#eafcff" opacity="0.9" filter="url(#depth)"/>
+    <!-- fins -->
+    <path d="M96,168 L72,206 L96,194 Z" fill="url(#brand)" opacity="0.85"/>
+    <path d="M168,168 L192,206 L168,194 Z" fill="url(#brand)" opacity="0.85"/>
+    <!-- flame -->
+    <path d="M118,202 L132,238 L146,202 Z" fill="url(#gold)" filter="url(#depth)"/>
+  </g>
+</svg>
