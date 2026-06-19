@@ -1,153 +1,235 @@
 #!/usr/bin/env python3
-"""Generate MCP marketing + settings SVG assets (brand-aligned agent-bridge visuals)."""
+"""Generate MCP marketing + settings SVG assets.
+
+Premium agent->MCP->GPU visuals matching the gpu-fleet / features style
+(glass panels, radial lighting, glows). Flow-step assets carry NO baked-in
+titles — the page renders Discover / Launch / Monitor labels itself.
+"""
 
 from pathlib import Path
 
 OUT = Path(__file__).resolve().parents[1] / "frontend" / "public" / "mcp"
 OUT.mkdir(parents=True, exist_ok=True)
 
-GRAD = """
-    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#00d4ff"/>
-      <stop offset="45%" stop-color="#7c3aed"/>
-      <stop offset="100%" stop-color="#dc2626"/>
+DEFS = """
+    <linearGradient id="brand" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22e0ff"/>
+      <stop offset="48%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#f43f5e"/>
     </linearGradient>
-    <linearGradient id="gSoft" x1="0%" y1="100%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.18"/>
-      <stop offset="100%" stop-color="#7c3aed" stop-opacity="0.1"/>
+    <linearGradient id="brandSoft" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#22e0ff" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#7c3aed" stop-opacity="0.06"/>
     </linearGradient>
-    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#fbbf24"/>
-      <stop offset="100%" stop-color="#f59e0b"/>
+    <radialGradient id="spot" cx="50%" cy="34%" r="75%">
+      <stop offset="0%" stop-color="#1b2740"/>
+      <stop offset="100%" stop-color="#070b15"/>
+    </radialGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.14"/>
+      <stop offset="24%" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
-    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="5" result="b"/>
+    <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#16233c"/>
+      <stop offset="100%" stop-color="#0b1322"/>
+    </linearGradient>
+    <radialGradient id="core" cx="50%" cy="42%" r="62%">
+      <stop offset="0%" stop-color="#5eeaff"/>
+      <stop offset="42%" stop-color="#2a8cff"/>
+      <stop offset="100%" stop-color="#0b1b3a"/>
+    </radialGradient>
+    <linearGradient id="violet" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#a78bfa"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fde68a"/>
+      <stop offset="100%" stop-color="#d4a233"/>
+    </linearGradient>
+    <linearGradient id="emerald" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#10b981"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
       <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
-    <filter id="softGlow" x="-80%" y="-80%" width="260%" height="260%">
-      <feGaussianBlur stdDeviation="14"/>
+    <filter id="bloom" x="-120%" y="-120%" width="340%" height="340%">
+      <feGaussianBlur stdDeviation="22"/>
     </filter>
+    <filter id="cardShadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="9" stdDeviation="13" flood-color="#000" flood-opacity="0.45"/>
+    </filter>
+    <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+      <path d="M24 0H0V24" fill="none" stroke="#22e0ff" stroke-opacity="0.06" stroke-width="1"/>
+    </pattern>
 """
 
-SPARK = """
-  <g filter="url(#glow)" transform="translate(72,140) scale(1.8)" fill="url(#g)">
-    <path d="M12 1.8c.38 3.07 1.05 4.96 2.18 6.1 1.13 1.13 3.02 1.8 6.02 2.1-3 .38-4.89 1.05-6.02 2.18-1.13 1.13-1.8 3.02-2.18 6.02-.38-3-1.05-4.89-2.18-6.02-1.13-1.13-3.02-1.8-6.02-2.18 3-.3 4.89-.97 6.02-2.1C10.95 6.76 11.62 4.87 12 1.8Z"/>
-  </g>
-"""
 
-MCP_HEX = """
-  <g filter="url(#glow)" transform="translate(200,108)">
-    <polygon points="40,0 80,22 80,66 40,88 0,66 0,22" fill="#111827" stroke="url(#g)" stroke-width="1.5"/>
-    <text x="40" y="48" text-anchor="middle" fill="#e2e8f0" font-family="ui-monospace,monospace" font-size="11" font-weight="700">MCP</text>
-  </g>
-"""
+def mcp_hex(cx, cy, s=1.0):
+    return f"""
+  <g transform="translate({cx},{cy}) scale({s})" filter="url(#cardShadow)">
+    <polygon points="0,-46 40,-23 40,23 0,46 -40,23 -40,-23" fill="url(#panel)" stroke="url(#brand)" stroke-width="1.75"/>
+    <polygon points="0,-46 40,-23 40,23 0,46 -40,23 -40,-23" fill="url(#glass)"/>
+    <polygon points="0,-26 22,-13 22,13 0,26 -22,13 -22,-13" fill="none" stroke="#7cf2ff" stroke-opacity="0.5" stroke-width="1.5"/>
+    <text x="0" y="6" text-anchor="middle" fill="#eafcff" font-family="ui-monospace,monospace" font-size="14" font-weight="700">MCP</text>
+  </g>"""
 
-GPU_DIE = """
-  <g filter="url(#glow)" transform="translate(328,96)">
-    <rect width="112" height="80" rx="10" fill="#0f172a" stroke="url(#g)" stroke-width="1.25"/>
-    <rect x="12" y="12" width="88" height="56" rx="5" fill="#0a0e1a" stroke="#334155"/>
-    <path d="M56,28 L56,52 M44,40 L68,40" stroke="url(#g)" stroke-width="2" stroke-linecap="round"/>
-  </g>
-"""
 
-FLOW_PATH = """
-  <path d="M108,152 C160,152 180,132 240,132" stroke="url(#g)" stroke-width="2" stroke-dasharray="6 8" fill="none" opacity="0.85"/>
-  <path d="M280,152 C320,152 340,168 384,168" stroke="url(#g)" stroke-width="2" stroke-dasharray="6 8" fill="none" opacity="0.85"/>
-  <circle cx="108" cy="152" r="4" fill="#00d4ff"/>
-  <circle cx="240" cy="132" r="4" fill="#7c3aed"/>
-  <circle cx="384" cy="168" r="4" fill="#dc2626"/>
-"""
+def agent_node(cx, cy):
+    return f"""
+  <g transform="translate({cx},{cy})" filter="url(#cardShadow)">
+    <rect x="-44" y="-34" width="88" height="60" rx="14" fill="url(#panel)" stroke="url(#violet)" stroke-width="1.5"/>
+    <rect x="-44" y="-34" width="88" height="60" rx="14" fill="url(#glass)"/>
+    <path d="M-22,26 L-22,40 L-4,26 Z" fill="url(#panel)" stroke="url(#violet)" stroke-width="1.5"/>
+    <g fill="#c4b5fd" opacity="0.85"><rect x="-30" y="-18" width="48" height="6" rx="3"/><rect x="-30" y="-4" width="60" height="6" rx="3" opacity="0.6"/><rect x="-30" y="10" width="34" height="6" rx="3" opacity="0.4"/></g>
+  </g>"""
+
+
+def gpu_node(cx, cy):
+    return f"""
+  <g transform="translate({cx},{cy})" filter="url(#cardShadow)">
+    <rect x="-46" y="-36" width="92" height="72" rx="12" fill="url(#panel)" stroke="url(#brand)" stroke-width="1.5"/>
+    <rect x="-46" y="-36" width="92" height="72" rx="12" fill="url(#glass)"/>
+    <rect x="-30" y="-22" width="60" height="44" rx="7" fill="url(#core)" opacity="0.85" stroke="#7cf2ff" stroke-opacity="0.4"/>
+    <g stroke="#0a1322" stroke-opacity="0.5" stroke-width="1"><path d="M-10,-22 V22 M10,-22 V22 M-30,0 H30"/></g>
+    <circle cx="0" cy="0" r="7" fill="#eafcff" opacity="0.9" filter="url(#glow)"/>
+  </g>"""
+
+
+def beam(x1, x2, y):
+    return f'<path d="M{x1},{y} H{x2}" stroke="url(#brand)" stroke-width="2.5" stroke-dasharray="2 9" stroke-linecap="round" opacity="0.7" filter="url(#glow)"/>'
+
+
+def frame(inner, w, h, rx=20):
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" fill="none">
+  <defs>{DEFS}</defs>
+  <rect width="{w}" height="{h}" rx="{rx}" fill="url(#spot)"/>
+  <rect width="{w}" height="{h}" rx="{rx}" fill="url(#grid)"/>
+{inner}
+  <rect width="{w}" height="{h}" rx="{rx}" fill="url(#brandSoft)"/>
+</svg>"""
+
 
 SLIDES = {
-    "hero-agent-gpu.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 280" fill="none">
-  <defs>{GRAD}</defs>
-  <rect width="480" height="280" rx="24" fill="#0a0e1a"/>
-  <rect width="480" height="280" rx="24" fill="url(#gSoft)"/>
-  <circle cx="400" cy="56" r="72" fill="#7c3aed" filter="url(#softGlow)" opacity="0.12"/>
-  {SPARK}{MCP_HEX}{GPU_DIE}{FLOW_PATH}
-  <text x="240" y="248" text-anchor="middle" fill="#e2e8f0" font-family="system-ui,sans-serif" font-size="18" font-weight="700">Agent → MCP → GPU</text>
-</svg>""",
-    "flow-discover.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" fill="none">
-  <defs>{GRAD}</defs>
-  <rect width="320" height="200" rx="20" fill="#0a0e1a" stroke="#334155" stroke-width="0.75"/>
-  <rect width="320" height="200" rx="20" fill="url(#gSoft)"/>
-  <circle cx="100" cy="88" r="36" stroke="url(#g)" stroke-width="2" fill="#111827"/>
-  <path d="M118,88 L148,88" stroke="#00d4ff" stroke-width="2.5" stroke-linecap="round"/>
-  <path d="M128,78 L148,88 L128,98" stroke="#00d4ff" stroke-width="2" fill="none"/>
-  <g transform="translate(168,52)">
-    <rect width="56" height="36" rx="6" fill="#1e293b" stroke="#475569"/>
-    <rect x="72" y="8" width="56" height="36" rx="6" fill="#1e293b" stroke="#475569"/>
-    <rect x="36" y="56" width="56" height="36" rx="6" fill="#1e293b" stroke="#475569"/>
-    <text x="28" y="24" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="system-ui">4090</text>
-    <text x="100" y="32" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="system-ui">H100</text>
+    # Hero: agent -> MCP -> GPU bridge, no baked title
+    "hero-agent-gpu.svg": frame(f"""
+  <circle cx="400" cy="60" r="78" fill="#7c3aed" filter="url(#bloom)" opacity="0.16"/>
+  <circle cx="80" cy="220" r="70" fill="#22e0ff" filter="url(#bloom)" opacity="0.12"/>
+  {beam(118, 196, 140)}{beam(284, 372, 140)}
+  {agent_node(74, 140)}
+  {mcp_hex(240, 140, 1.0)}
+  {gpu_node(418, 140)}
+""", 480, 280, 24),
+
+    # Discover: magnifier over glass GPU price cards
+    "flow-discover.svg": frame("""
+  <circle cx="96" cy="80" r="60" fill="#22e0ff" filter="url(#bloom)" opacity="0.14"/>
+  <g filter="url(#cardShadow)">
+    <rect x="150" y="44" width="120" height="34" rx="8" fill="url(#panel)" stroke="url(#brand)" stroke-width="1.25"/>
+    <rect x="150" y="44" width="120" height="34" rx="8" fill="url(#glass)"/>
+    <rect x="162" y="56" width="40" height="6" rx="3" fill="#7cf2ff" opacity="0.8"/><rect x="232" y="56" width="26" height="6" rx="3" fill="#34d399"/>
+    <rect x="150" y="86" width="120" height="34" rx="8" fill="url(#panel)" stroke="#26405f" stroke-width="1"/>
+    <rect x="162" y="98" width="34" height="6" rx="3" fill="#7cf2ff" opacity="0.6"/><rect x="232" y="98" width="26" height="6" rx="3" fill="#34d399" opacity="0.7"/>
+    <rect x="150" y="128" width="120" height="34" rx="8" fill="url(#panel)" stroke="#26405f" stroke-width="1"/>
+    <rect x="162" y="140" width="46" height="6" rx="3" fill="#7cf2ff" opacity="0.45"/><rect x="232" y="140" width="26" height="6" rx="3" fill="#34d399" opacity="0.5"/>
   </g>
-  <text x="160" y="176" text-anchor="middle" fill="#64748b" font-size="10" font-weight="600" letter-spacing="0.1em">DISCOVER</text>
-</svg>""",
-    "flow-launch.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" fill="none">
-  <defs>{GRAD}</defs>
-  <rect width="320" height="200" rx="20" fill="#0a0e1a" stroke="#334155"/>
-  <rect x="32" y="40" width="256" height="56" rx="10" fill="#111827" stroke="#334155"/>
-  <text x="48" y="62" fill="#00d4ff" font-family="ui-monospace,monospace" font-size="10">$ spin up 4x A100...</text>
-  <path d="M160,96 V120" stroke="url(#g)" stroke-width="2" marker-end="url(#arr)"/>
-  <rect x="72" y="124" width="176" height="48" rx="10" fill="#0f172a" stroke="url(#g)" stroke-width="1.25" filter="url(#glow)"/>
-  <text x="160" y="152" text-anchor="middle" fill="#e2e8f0" font-size="11" font-weight="600">instance running</text>
-  <text x="160" y="184" text-anchor="middle" fill="#64748b" font-size="10" font-weight="600" letter-spacing="0.1em">LAUNCH</text>
-</svg>""",
-    "flow-guardrails.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" fill="none">
-  <defs>{GRAD}</defs>
-  <rect width="320" height="200" rx="20" fill="#0a0e1a" stroke="#334155"/>
-  <path d="M160,44 L200,60 V96 C200,120 160,140 160,140 C160,140 120,120 120,96 V60 Z" fill="#1e293b" stroke="url(#gold)" stroke-width="1.5"/>
-  <rect x="56" y="152" width="80" height="10" rx="5" fill="#334155"/>
-  <rect x="56" y="152" width="52" height="10" rx="5" fill="url(#gold)"/>
-  <text x="96" y="178" text-anchor="middle" fill="#94a3b8" font-size="9">wallet</text>
-  <rect x="184" y="152" width="80" height="10" rx="5" fill="#334155"/>
-  <rect x="184" y="152" width="64" height="10" rx="5" fill="url(#g)"/>
-  <text x="224" y="178" text-anchor="middle" fill="#94a3b8" font-size="9">estimate</text>
-  <text x="160" y="24" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="700" letter-spacing="0.12em">GUARDRAILS</text>
-</svg>""",
-    "flow-monitor.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" fill="none">
-  <defs>{GRAD}</defs>
-  <rect width="320" height="200" rx="20" fill="#0a0e1a" stroke="#334155"/>
-  <path d="M40,120 L72,100 L104,108 L136,72 L168,80 L200,48 L232,56 L264,40 L280,36" stroke="url(#g)" stroke-width="2.5" fill="none" filter="url(#glow)"/>
-  <rect x="48" y="136" width="224" height="40" rx="8" fill="#111827" stroke="#334155"/>
-  <text x="160" y="162" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="ui-monospace">GPU 94% · 22GB · 68°C</text>
-  <text x="160" y="24" text-anchor="middle" fill="#64748b" font-size="10" font-weight="600" letter-spacing="0.1em">MONITOR</text>
-</svg>""",
-    "agent-cursor.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
-  <defs>{GRAD}</defs>
-  <rect width="64" height="64" rx="14" fill="#0a0e1a" stroke="#334155"/>
-  <rect x="12" y="14" width="40" height="36" rx="6" fill="#111827" stroke="url(#g)" stroke-width="1"/>
-  <path d="M18,42 L28,32 L34,38 L46,24" stroke="#00d4ff" stroke-width="2" fill="none"/>
-</svg>""",
-    "agent-claude.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
-  <defs>{GRAD}</defs>
-  <rect width="64" height="64" rx="14" fill="#0a0e1a" stroke="#334155"/>
-  <ellipse cx="32" cy="32" rx="18" ry="14" fill="#111827" stroke="url(#g)"/>
-  <path d="M22,32 Q32,22 42,32 Q32,42 22,32" fill="url(#g)" opacity="0.35"/>
-</svg>""",
-    "agent-vscode.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
-  <defs>{GRAD}</defs>
-  <rect width="64" height="64" rx="14" fill="#0a0e1a" stroke="#334155"/>
-  <path d="M16,20 L40,32 L16,44 Z" fill="url(#g)" opacity="0.5"/>
-  <path d="M40,20 L48,32 L40,44" stroke="#00d4ff" stroke-width="2" fill="none"/>
-</svg>""",
+  <g transform="translate(96,96)" filter="url(#glow)">
+    <circle r="34" fill="#0c1526" stroke="url(#brand)" stroke-width="3"/>
+    <circle r="34" fill="url(#glass)"/>
+    <circle r="16" fill="none" stroke="#7cf2ff" stroke-width="2.5" opacity="0.8"/>
+    <path d="M24,24 L42,42" stroke="url(#brand)" stroke-width="6" stroke-linecap="round"/>
+  </g>
+""", 320, 200),
+
+    # Launch: prompt -> running instance
+    "flow-launch.svg": frame("""
+  <circle cx="250" cy="150" r="64" fill="#34d399" filter="url(#bloom)" opacity="0.12"/>
+  <g filter="url(#cardShadow)">
+    <rect x="40" y="40" width="240" height="52" rx="12" fill="url(#panel)" stroke="url(#brand)" stroke-width="1.25"/>
+    <rect x="40" y="40" width="240" height="52" rx="12" fill="url(#glass)"/>
+    <circle cx="56" cy="52" r="3" fill="#f43f5e"/><circle cx="66" cy="52" r="3" fill="#fbbf24"/><circle cx="76" cy="52" r="3" fill="#34d399"/>
+    <text x="56" y="78" fill="#7cf2ff" font-family="ui-monospace,monospace" font-size="11">$ launch 4x A100</text>
+  </g>
+  <path d="M160,92 V116" stroke="url(#brand)" stroke-width="2.5" stroke-linecap="round" filter="url(#glow)"/>
+  <path d="M152,108 L160,118 L168,108" stroke="#22e0ff" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <g filter="url(#cardShadow)">
+    <rect x="72" y="122" width="176" height="52" rx="12" fill="#0c1526" stroke="url(#emerald)" stroke-width="1.5"/>
+    <rect x="72" y="122" width="176" height="52" rx="12" fill="url(#glass)"/>
+    <circle cx="92" cy="148" r="6" fill="#34d399" filter="url(#glow)"/>
+    <rect x="108" y="138" width="84" height="7" rx="3.5" fill="#7cf2ff" opacity="0.8"/>
+    <rect x="108" y="152" width="56" height="6" rx="3" fill="#64748b"/>
+  </g>
+""", 320, 200),
+
+    # Guardrails: shield + wallet/estimate gauges
+    "flow-guardrails.svg": frame("""
+  <circle cx="160" cy="70" r="64" fill="#fbbf24" filter="url(#bloom)" opacity="0.12"/>
+  <g filter="url(#cardShadow)">
+    <path d="M160,30 L206,48 V92 C206,124 160,146 160,146 C160,146 114,124 114,92 V48 Z" fill="url(#panel)" stroke="url(#gold)" stroke-width="1.75"/>
+    <path d="M160,30 L206,48 V92 C206,124 160,146 160,146 C160,146 114,124 114,92 V48 Z" fill="url(#glass)"/>
+    <path d="M146,86 L156,98 L178,72" stroke="url(#gold)" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+  </g>
+  <rect x="52" y="160" width="84" height="10" rx="5" fill="#1a2740"/>
+  <rect x="52" y="160" width="54" height="10" rx="5" fill="url(#gold)"/>
+  <rect x="184" y="160" width="84" height="10" rx="5" fill="#1a2740"/>
+  <rect x="184" y="160" width="66" height="10" rx="5" fill="url(#brand)"/>
+""", 320, 200),
+
+    # Monitor: live util chart + readout
+    "flow-monitor.svg": frame("""
+  <circle cx="250" cy="60" r="60" fill="#22e0ff" filter="url(#bloom)" opacity="0.12"/>
+  <g filter="url(#cardShadow)">
+    <rect x="36" y="36" width="248" height="128" rx="14" fill="url(#panel)" stroke="url(#brand)" stroke-width="1.25"/>
+    <rect x="36" y="36" width="248" height="128" rx="14" fill="url(#glass)"/>
+    <path d="M36,60 H284" stroke="#22324d" stroke-width="1"/>
+    <circle cx="52" cy="48" r="3" fill="#34d399"/><rect x="62" y="45" width="40" height="6" rx="3" fill="#7cf2ff" opacity="0.7"/>
+    <path d="M56,124 L92,104 L120,112 L152,82 L184,92 L216,66 L252,76 L268,70" stroke="url(#brand)" stroke-width="2.6" fill="none" stroke-linecap="round" filter="url(#glow)"/>
+    <path d="M56,140 L100,134 L150,138 L210,130 L268,134" stroke="#34d399" stroke-width="1.6" fill="none" stroke-linecap="round" opacity="0.7"/>
+  </g>
+  <circle cx="268" cy="70" r="4.5" fill="#34d399" filter="url(#glow)"/>
+""", 320, 200),
+
+    # Client icons (kept compact; subtle polish)
+    "agent-cursor.svg": frame("""
+  <g transform="translate(32,32)">
+    <rect x="-18" y="-16" width="36" height="28" rx="6" fill="url(#panel)" stroke="url(#brand)" stroke-width="1.25"/>
+    <path d="M-12,8 L-2,-2 L4,4 L14,-8" stroke="#22e0ff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+""", 64, 64, 14),
+    "agent-claude.svg": frame("""
+  <g transform="translate(32,32)">
+    <circle r="17" fill="url(#panel)" stroke="url(#brand)" stroke-width="1.25"/>
+    <path d="M-10,4 Q0,-12 10,4 Q0,12 -10,4 Z" fill="url(#brand)" opacity="0.45"/>
+  </g>
+""", 64, 64, 14),
+    "agent-vscode.svg": frame("""
+  <g transform="translate(32,32)">
+    <path d="M-16,-12 L8,0 L-16,12 Z" fill="url(#brand)" opacity="0.55"/>
+    <path d="M8,-12 L16,0 L8,12" stroke="#22e0ff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+""", 64, 64, 14),
+
+    # Settings + OG keep their text (standalone banners)
     "settings-hero.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 160" fill="none">
-  <defs>{GRAD}</defs>
-  <rect width="480" height="160" rx="16" fill="#0a0e1a"/>
-  <rect width="480" height="160" rx="16" fill="url(#gSoft)"/>
-  {SPARK}
-  <g transform="translate(200,36) scale(0.7)">{MCP_HEX}</g>
-  <text x="300" y="72" fill="#e2e8f0" font-family="system-ui,sans-serif" font-size="20" font-weight="700">Connect AI Agents</text>
-  <text x="300" y="98" fill="#94a3b8" font-family="system-ui,sans-serif" font-size="13">From prompt to compute in seconds</text>
+  <defs>{DEFS}</defs>
+  <rect width="480" height="160" rx="16" fill="url(#spot)"/>
+  <rect width="480" height="160" rx="16" fill="url(#grid)"/>
+  <circle cx="80" cy="60" r="60" fill="#7c3aed" filter="url(#bloom)" opacity="0.16"/>
+  {mcp_hex(86, 80, 0.78)}
+  <text x="170" y="74" fill="#eafcff" font-family="system-ui,sans-serif" font-size="20" font-weight="700">Connect AI Agents</text>
+  <text x="170" y="100" fill="#9fb3c8" font-family="system-ui,sans-serif" font-size="13">From prompt to compute in seconds</text>
+  <rect width="480" height="160" rx="16" fill="url(#brandSoft)"/>
 </svg>""",
     "og-mcp-card.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" fill="none">
-  <defs>{GRAD}</defs>
-  <rect width="1200" height="630" fill="#0a0e1a"/>
-  <rect width="1200" height="630" fill="url(#gSoft)"/>
-  <g transform="translate(120,140) scale(1.4)">{SPARK}{MCP_HEX}{GPU_DIE}{FLOW_PATH}</g>
-  <text x="640" y="280" fill="#e2e8f0" font-family="system-ui,sans-serif" font-size="56" font-weight="800">Let AI agents control real GPUs</text>
-  <text x="640" y="360" fill="#94a3b8" font-family="system-ui,sans-serif" font-size="28">Xcelsior MCP — natural language to compute</text>
-  <text x="640" y="480" fill="#00d4ff" font-family="system-ui,sans-serif" font-size="22" font-weight="600">xcelsior.ca/mcp</text>
+  <defs>{DEFS}</defs>
+  <rect width="1200" height="630" fill="url(#spot)"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+  <circle cx="980" cy="150" r="220" fill="#7c3aed" filter="url(#bloom)" opacity="0.14"/>
+  <g transform="translate(150,150) scale(1.5)">{beam(118,196,140)}{beam(284,372,140)}{agent_node(74,140)}{mcp_hex(240,140,1.0)}{gpu_node(418,140)}</g>
+  <text x="120" y="470" fill="#eafcff" font-family="system-ui,sans-serif" font-size="56" font-weight="800">Let AI agents control real GPUs</text>
+  <text x="120" y="540" fill="#9fb3c8" font-family="system-ui,sans-serif" font-size="28">Xcelsior MCP — natural language to compute · xcelsior.ca/mcp</text>
 </svg>""",
 }
 

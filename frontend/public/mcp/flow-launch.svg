@@ -1,31 +1,77 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" fill="none">
   <defs>
-    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#00d4ff"/>
-      <stop offset="45%" stop-color="#7c3aed"/>
-      <stop offset="100%" stop-color="#dc2626"/>
+    <linearGradient id="brand" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22e0ff"/>
+      <stop offset="48%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#f43f5e"/>
     </linearGradient>
-    <linearGradient id="gSoft" x1="0%" y1="100%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.18"/>
-      <stop offset="100%" stop-color="#7c3aed" stop-opacity="0.1"/>
+    <linearGradient id="brandSoft" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#22e0ff" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#7c3aed" stop-opacity="0.06"/>
     </linearGradient>
-    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#fbbf24"/>
-      <stop offset="100%" stop-color="#f59e0b"/>
+    <radialGradient id="spot" cx="50%" cy="34%" r="75%">
+      <stop offset="0%" stop-color="#1b2740"/>
+      <stop offset="100%" stop-color="#070b15"/>
+    </radialGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.14"/>
+      <stop offset="24%" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
-    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="5" result="b"/>
+    <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#16233c"/>
+      <stop offset="100%" stop-color="#0b1322"/>
+    </linearGradient>
+    <radialGradient id="core" cx="50%" cy="42%" r="62%">
+      <stop offset="0%" stop-color="#5eeaff"/>
+      <stop offset="42%" stop-color="#2a8cff"/>
+      <stop offset="100%" stop-color="#0b1b3a"/>
+    </radialGradient>
+    <linearGradient id="violet" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#a78bfa"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fde68a"/>
+      <stop offset="100%" stop-color="#d4a233"/>
+    </linearGradient>
+    <linearGradient id="emerald" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#10b981"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
       <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
-    <filter id="softGlow" x="-80%" y="-80%" width="260%" height="260%">
-      <feGaussianBlur stdDeviation="14"/>
+    <filter id="bloom" x="-120%" y="-120%" width="340%" height="340%">
+      <feGaussianBlur stdDeviation="22"/>
     </filter>
+    <filter id="cardShadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="9" stdDeviation="13" flood-color="#000" flood-opacity="0.45"/>
+    </filter>
+    <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+      <path d="M24 0H0V24" fill="none" stroke="#22e0ff" stroke-opacity="0.06" stroke-width="1"/>
+    </pattern>
 </defs>
-  <rect width="320" height="200" rx="20" fill="#0a0e1a" stroke="#334155"/>
-  <rect x="32" y="40" width="256" height="56" rx="10" fill="#111827" stroke="#334155"/>
-  <text x="48" y="62" fill="#00d4ff" font-family="ui-monospace,monospace" font-size="10">$ spin up 4x A100...</text>
-  <path d="M160,96 V120" stroke="url(#g)" stroke-width="2" marker-end="url(#arr)"/>
-  <rect x="72" y="124" width="176" height="48" rx="10" fill="#0f172a" stroke="url(#g)" stroke-width="1.25" filter="url(#glow)"/>
-  <text x="160" y="152" text-anchor="middle" fill="#e2e8f0" font-size="11" font-weight="600">instance running</text>
-  <text x="160" y="184" text-anchor="middle" fill="#64748b" font-size="10" font-weight="600" letter-spacing="0.1em">LAUNCH</text>
+  <rect width="320" height="200" rx="20" fill="url(#spot)"/>
+  <rect width="320" height="200" rx="20" fill="url(#grid)"/>
+
+  <circle cx="250" cy="150" r="64" fill="#34d399" filter="url(#bloom)" opacity="0.12"/>
+  <g filter="url(#cardShadow)">
+    <rect x="40" y="40" width="240" height="52" rx="12" fill="url(#panel)" stroke="url(#brand)" stroke-width="1.25"/>
+    <rect x="40" y="40" width="240" height="52" rx="12" fill="url(#glass)"/>
+    <circle cx="56" cy="52" r="3" fill="#f43f5e"/><circle cx="66" cy="52" r="3" fill="#fbbf24"/><circle cx="76" cy="52" r="3" fill="#34d399"/>
+    <text x="56" y="78" fill="#7cf2ff" font-family="ui-monospace,monospace" font-size="11">$ launch 4x A100</text>
+  </g>
+  <path d="M160,92 V116" stroke="url(#brand)" stroke-width="2.5" stroke-linecap="round" filter="url(#glow)"/>
+  <path d="M152,108 L160,118 L168,108" stroke="#22e0ff" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <g filter="url(#cardShadow)">
+    <rect x="72" y="122" width="176" height="52" rx="12" fill="#0c1526" stroke="url(#emerald)" stroke-width="1.5"/>
+    <rect x="72" y="122" width="176" height="52" rx="12" fill="url(#glass)"/>
+    <circle cx="92" cy="148" r="6" fill="#34d399" filter="url(#glow)"/>
+    <rect x="108" y="138" width="84" height="7" rx="3.5" fill="#7cf2ff" opacity="0.8"/>
+    <rect x="108" y="152" width="56" height="6" rx="3" fill="#64748b"/>
+  </g>
+
+  <rect width="320" height="200" rx="20" fill="url(#brandSoft)"/>
 </svg>
