@@ -1,31 +1,69 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120" fill="none">
   <defs>
-    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#00d4ff"/>
-      <stop offset="45%" stop-color="#7c3aed"/>
-      <stop offset="100%" stop-color="#dc2626"/>
+    <linearGradient id="brand" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22e0ff"/>
+      <stop offset="48%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#f43f5e"/>
     </linearGradient>
-    <linearGradient id="gSoft" x1="0%" y1="100%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.2"/>
-      <stop offset="100%" stop-color="#dc2626" stop-opacity="0.08"/>
+    <linearGradient id="brandSoft" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#22e0ff" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#f43f5e" stop-opacity="0.05"/>
     </linearGradient>
-    <linearGradient id="chip" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#1e293b"/>
-      <stop offset="100%" stop-color="#0f172a"/>
+    <radialGradient id="spot" cx="50%" cy="38%" r="70%">
+      <stop offset="0%" stop-color="#1b2740"/>
+      <stop offset="100%" stop-color="#070b15"/>
+    </radialGradient>
+    <linearGradient id="glass" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.14"/>
+      <stop offset="22%" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
-    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="6" result="b"/>
+    <linearGradient id="pcb" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#16233c"/>
+      <stop offset="100%" stop-color="#0a1322"/>
+    </linearGradient>
+    <radialGradient id="core" cx="50%" cy="42%" r="62%">
+      <stop offset="0%" stop-color="#5eeaff"/>
+      <stop offset="40%" stop-color="#2a8cff"/>
+      <stop offset="100%" stop-color="#0b1b3a"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#fde68a"/>
+      <stop offset="100%" stop-color="#b8862f"/>
+    </linearGradient>
+    <linearGradient id="emerald" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#10b981"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="3.2" result="b"/>
       <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
-    <filter id="softGlow" x="-80%" y="-80%" width="260%" height="260%">
-      <feGaussianBlur stdDeviation="18"/>
+    <filter id="bloom" x="-120%" y="-120%" width="340%" height="340%">
+      <feGaussianBlur stdDeviation="22"/>
     </filter>
+    <filter id="cardShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+    <pattern id="grid" width="22" height="22" patternUnits="userSpaceOnUse">
+      <path d="M22 0H0V22" fill="none" stroke="#22e0ff" stroke-opacity="0.06" stroke-width="1"/>
+    </pattern>
 </defs>
-  <rect width="200" height="120" rx="16" fill="#0a0e1a" stroke="#334155" stroke-width="0.75"/>
-  <rect width="200" height="120" rx="16" fill="url(#gSoft)"/>
-  <g transform="translate(100,52)">
-    <circle r="28" stroke="url(#g)" stroke-width="1.5" fill="#111827" opacity="0.9"/>
-    <path d="M-8,-4 L8,-4 L4,8 L-4,8 Z" fill="url(#g)" opacity="0.85"/>
-    <path d="M-18,0 A18,18 0 1,1 18,0" stroke="#00d4ff" stroke-width="1.5" fill="none" stroke-dasharray="4 6" opacity="0.6"/>
+  <rect width="200" height="120" rx="16" fill="url(#spot)" stroke="#22324d" stroke-width="0.75"/>
+  <rect width="200" height="120" rx="16" fill="url(#grid)"/>
+  <g transform="translate(58,60)">
+    <rect x="-26" y="-26" width="52" height="52" rx="10" fill="#0a1322" stroke="url(#brand)" stroke-width="1.5"/>
+    <rect x="-26" y="-26" width="52" height="52" rx="10" fill="url(#core)" opacity="0.55"/>
+    <g stroke="#0a1322" stroke-opacity="0.5" stroke-width="1"><path d="M-13,-26 V26 M0,-26 V26 M13,-26 V26 M-26,-13 H26 M-26,0 H26 M-26,13 H26"/></g>
+    <g stroke="url(#brand)" stroke-width="1.5" stroke-linecap="round" opacity="0.7">
+      <path d="M-26,-14 H-36 M-26,0 H-38 M-26,14 H-36 M26,-14 H36 M26,0 H38 M26,14 H36"/>
+    </g>
   </g>
+  <g fill="url(#brand)">
+    <rect x="104" y="46" width="18" height="7" rx="3.5" opacity="0.9"/>
+    <rect x="128" y="56" width="26" height="7" rx="3.5" opacity="0.7"/>
+    <rect x="104" y="66" width="20" height="7" rx="3.5" opacity="0.5"/>
+    <rect x="130" y="76" width="14" height="7" rx="3.5" opacity="0.35"/>
+  </g>
+  <path d="M150,30 A40,40 0 0,1 150,90" stroke="#34d399" stroke-width="1.5" stroke-dasharray="3 6" fill="none" opacity="0.6"/>
 </svg>

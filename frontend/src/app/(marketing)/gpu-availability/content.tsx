@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -201,9 +201,14 @@ function GpuPriceDock({
               {active > 0 ? `$${active.toFixed(2)}` : "—"}
               <span className="text-xs font-normal text-text-muted">/hr</span>
             </p>
-            {priceMode === "spot" && spotOff > 0 && (
-              <p className="text-[10px] font-semibold text-emerald">−{spotOff}% vs on-demand</p>
-            )}
+            {/* Always reserve this line's height so cycling spot/on-demand
+                doesn't change the dock height (no jitter). */}
+            <p className={cn(
+              "text-[10px] font-semibold text-emerald",
+              !(priceMode === "spot" && spotOff > 0) && "invisible",
+            )}>
+              −{spotOff > 0 ? spotOff : 0}% vs on-demand
+            </p>
           </div>
           <ChevronRight className="h-4 w-4 shrink-0 text-text-muted transition-transform group-hover:translate-x-0.5" />
         </button>
@@ -227,6 +232,8 @@ export function GPUAvailabilityContent() {
   const [hoveredModel, setHoveredModel] = useState<string | null>(null);
   const [priceMode, setPriceMode] = useState<PriceMode>("spot");
   const [cyclePrices, setCyclePrices] = useState(false);
+  const cardsRef = useRef<HTMLDivElement>(null);
+  const [cardsInView, setCardsInView] = useState(false);
 
   async function load(opts?: { refresh?: boolean }) {
     if (opts?.refresh) {
@@ -289,6 +296,18 @@ export function GPUAvailabilityContent() {
     }, 2200);
     return () => clearInterval(id);
   }, [cyclePrices]);
+
+  // Only show the sticky price dock while the GPU cards are in view.
+  useEffect(() => {
+    const el = cardsRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([entry]) => setCardsInView(entry.isIntersecting),
+      { rootMargin: "0px 0px -10% 0px" },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [gpus.length]);
 
   const handleCardInteract = useCallback((model: string) => {
     setSelectedModel(model);
@@ -552,7 +571,7 @@ export function GPUAvailabilityContent() {
           <p>{t("gpus.empty")}</p>
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div ref={cardsRef} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {gpus.map((gpu, i) => {
             const isActive = gpu.gpu_model === activeModel;
             const isBest = gpu.gpu_model === bestSpotGpu?.gpu_model && gpu.spot_cad > 0;
@@ -677,7 +696,7 @@ export function GPUAvailabilityContent() {
         </div>
       </m.div>
 
-      {activeGpu && (
+      {activeGpu && cardsInView && (
         <GpuPriceDock
           gpu={activeGpu}
           priceMode={priceMode}

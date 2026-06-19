@@ -128,7 +128,10 @@ export function McpAgentSetup({
   const handleTestHealth = async () => {
     setTesting(true);
     try {
-      const url = mcpUrl().replace(/\/mcp$/, "/health");
+      // MCP health lives at /mcp/health (nginx proxies it to the MCP service in
+      // prod; the server also matches /mcp/health directly in local dev).
+      // The old code stripped /mcp and hit the API root /health by mistake.
+      const url = `${mcpUrl()}/health`;
       const res = await fetch(url);
       const body = await res.json();
       if (res.ok && body.status === "healthy") {
