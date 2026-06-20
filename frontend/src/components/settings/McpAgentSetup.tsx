@@ -36,7 +36,7 @@ const AGENTS = [
 
 function mcpUrl(): string {
   if (typeof window !== "undefined" && window.location.hostname === "localhost") {
-    return "http://localhost:3100/mcp";
+    return "http://localhost:8770/mcp";
   }
   return "https://xcelsior.ca/mcp";
 }

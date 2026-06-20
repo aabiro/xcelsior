@@ -11,7 +11,7 @@ export function loadConfig(): AppConfig {
   return {
     apiUrl,
     host: process.env.MCP_HOST || "0.0.0.0",
-    port: Number(process.env.MCP_PORT || "3100"),
+    port: Number(process.env.MCP_PORT || "8770"),
     mcpPath: process.env.MCP_PATH || "/mcp",
     rateLimitPerMinute: Number(process.env.MCP_RATE_LIMIT_PER_MIN || "60"),
   };
