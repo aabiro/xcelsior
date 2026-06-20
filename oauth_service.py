@@ -585,7 +585,8 @@ def create_oauth_client(
     secret_hash = None
     secret_salt = None
     if client_type == "confidential":
-        client_secret = secrets.token_urlsafe(32)
+        # Industry-standard client secret: a long, unprefixed 256-bit hex token.
+        client_secret = secrets.token_hex(32)
         secret_hash, secret_salt = hash_secret(client_secret)
 
     client = {
