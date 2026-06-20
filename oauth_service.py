@@ -579,7 +579,8 @@ def create_oauth_client(
     team_id: str | None = None,
 ) -> dict[str, Any]:
     now = time.time()
-    client_id = f"oauth_{uuid.uuid4().hex[:16]}"
+    # Branded, API-key-length client identifier (e.g. xoa_<40 hex>).
+    client_id = f"xoa_{secrets.token_hex(20)}"
     client_secret = ""
     secret_hash = None
     secret_salt = None

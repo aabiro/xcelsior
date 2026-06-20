@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AuroraBackground } from "@/components/ui/aurora-bg";
+import { CodeBlock } from "@/components/ui/code-block";
 import { m } from "@/components/marketing/motion";
 import { useLocale } from "@/lib/locale";
 import { cn } from "@/lib/utils";
@@ -254,10 +255,7 @@ export function McpLandingContent() {
             </button>
           ))}
         </div>
-        <p className="mt-6 font-mono text-[11px] text-text-muted">{mcpConfigPath(agentTab)}</p>
-        <pre className="mt-2 overflow-x-auto rounded-xl border border-border/60 bg-[#0a0e1a] p-4 text-xs leading-relaxed text-accent-cyan/90">
-          {configSnippet}
-        </pre>
+        <CodeBlock filename={mcpConfigPath(agentTab)} code={configSnippet} className="mx-auto mt-4 max-w-xl text-left" />
         <div className="mt-6 flex justify-center">
           <Link href="/dashboard/settings#mcp">
             <Button>{t("mcp.landing.setup_cta")}</Button>
