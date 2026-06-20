@@ -11,6 +11,7 @@ import { Input, Label } from "@/components/ui/input";
 import { SettingsSection } from "@/components/settings/settings-layout";
 import { OAuthSecretRevealModal } from "@/components/settings/oauth-secret-reveal-modal";
 import { ScopeChipRow } from "@/components/settings/credential-scope-panel";
+import { CodeBlock } from "@/components/ui/code-block";
 import { useLocale } from "@/lib/locale";
 import * as api from "@/lib/api";
 import type { OAuthClientInfo } from "@/lib/api";
@@ -68,31 +69,6 @@ function tokenCurl(clientId: string, clientSecret: string): string {
   return `curl -s -X POST '${base}/oauth/token' \\
   -H 'Content-Type: application/x-www-form-urlencoded' \\
   -d 'grant_type=client_credentials&client_id=${clientId}&client_secret=${clientSecret}'`;
-}
-
-/** Terminal-style code block: window chrome (filename + traffic lights) + copy. */
-function CodeBlock({ filename, code, copied, onCopy }: { filename?: string; code: string; copied: boolean; onCopy: () => void }) {
-  return (
-    <div className="overflow-hidden rounded-xl border border-border/70 bg-[#0a0e13] shadow-lg shadow-black/30">
-      <div className="flex items-center justify-between gap-2 border-b border-white/10 bg-white/[0.03] px-3 py-2">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
-          <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
-          <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
-          {filename && <span className="ml-2 truncate font-mono text-[11px] text-text-muted">{filename}</span>}
-        </div>
-        <button
-          type="button"
-          onClick={onCopy}
-          className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] text-text-muted transition-colors hover:bg-white/5 hover:text-text-primary"
-        >
-          {copied ? <CheckCircle className="h-3 w-3 text-emerald" /> : <Copy className="h-3 w-3" />}
-          {copied ? "Copied" : "Copy"}
-        </button>
-      </div>
-      <pre className="overflow-x-auto p-4 font-mono text-xs leading-relaxed text-accent-cyan/90">{code}</pre>
-    </div>
-  );
 }
 
 export function McpAgentSetup({
@@ -248,8 +224,7 @@ export function McpAgentSetup({
               <CodeBlock
                 filename="get-token.sh"
                 code={tokenCurl(reveal.clientId, reveal.clientSecret)}
-                copied={copied === "curl"}
-                onCopy={() => copyText("curl", tokenCurl(reveal.clientId, reveal.clientSecret))}
+                onCopy={() => toast.success(t("dash.settings.mcp.copied"))}
               />
               <Button variant="outline" size="sm" onClick={() => setStep(3)}>
                 {t("dash.settings.mcp.next_paste")} <ChevronRight className="ml-1 h-3 w-3" />
@@ -287,8 +262,7 @@ export function McpAgentSetup({
           <CodeBlock
             filename={configPath(agent)}
             code={configJson(agent)}
-            copied={copied === "cfg"}
-            onCopy={() => copyText("cfg", configJson(agent))}
+            onCopy={() => toast.success(t("dash.settings.mcp.copied"))}
           />
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" onClick={handleTestHealth} disabled={testing}>
