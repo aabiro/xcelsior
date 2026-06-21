@@ -53,7 +53,7 @@ async function handleMcp(
   if (!bearer) {
     json(res, 401, {
       error: "unauthorized",
-      message: "Authorization: Bearer <oauth_token> required. Create an MCP client at Xcelsior dashboard settings.",
+      message: "Authorization: Bearer <xoa_token> required. Create an MCP client at Xcelsior dashboard settings.",
     });
     return;
   }
