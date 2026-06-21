@@ -1378,6 +1378,14 @@ wait \"\$fe_pid\"
         warn "Jaeger container not running — set OTEL_EXPORTER_OTLP_ENDPOINT after fixing"
     fi
 
+    log "Starting MCP server (agent gateway on :8770)..."
+    ssh_cmd "cd /opt/xcelsior && docker compose up -d --build mcp" || warn "MCP server failed to start — /mcp will 502 until fixed"
+    if ssh_cmd "curl -sf http://127.0.0.1:8770/health >/dev/null 2>&1"; then
+        success "MCP server running (https://xcelsior.ca/mcp)"
+    else
+        warn "MCP health check failed on :8770 — check 'docker compose logs mcp'"
+    fi
+
     # Final health check — whichever port is now live
     final_colour=$(read_remote_api_colour)
     if [[ "$final_colour" == "blue" ]]; then final_port=9501; else final_port=9500; fi
