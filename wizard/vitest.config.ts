@@ -8,6 +8,10 @@ export default defineConfig({
             {
                 test: {
                     name: "unit",
+                    // Full-App Ink renders + async gate/service checks are slow
+                    // under host load; the 5s default flakes. Give real headroom.
+                    testTimeout: 20000,
+                    hookTimeout: 30000,
                     include: ["src/__tests__/**/*.test.{ts,tsx}"],
                     exclude: ["src/__tests__/api-client-hardening.test.ts"],
                     alias: {

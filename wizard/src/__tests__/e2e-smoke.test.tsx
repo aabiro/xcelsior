@@ -37,6 +37,9 @@ const DEGRADED = { ok: true, verdict: "degraded", services: [svc("API", "operati
 const BLOCKED = { ok: false, verdict: "blocked", services: [svc("API", "operational", true), svc("Database", "down", true)] };
 
 beforeEach(() => {
+    // Full-App renders + async gate are slow under host load; the slowest path
+    // (4 keystrokes → SDK) can exceed the 5s default. Override per-file.
+    vi.setConfig({ testTimeout: 20000, hookTimeout: 20000 });
     process.env.XCELSIOR_NO_SPRITE = "1";
     process.env.XCELSIOR_NO_BROWSER = "1";
     clearWizardCheckpoint(); // deterministic fresh start
@@ -49,7 +52,7 @@ describe("e2e — gate verdicts", () => {
     it("operational falls straight into mode select (no gate panel)", async () => {
         installFetch(OPERATIONAL);
         const { lastFrame } = render(<App />);
-        await delay(80);
+        await delay(1500);
         const out = lastFrame() ?? "";
         expect(out).toContain("Rent GPUs");
         expect(out).toContain("Provide GPUs");
@@ -59,23 +62,23 @@ describe("e2e — gate verdicts", () => {
     it("degraded shows the gate, then Enter proceeds to mode select", async () => {
         installFetch(DEGRADED);
         const { lastFrame, stdin } = render(<App />);
-        await delay(80);
+        await delay(1500);
         expect(lastFrame()).toContain("degraded");
         expect(lastFrame()).toContain("AI (Hexara)");
         stdin.write("\r"); // proceed
-        await delay(40);
+        await delay(300);
         expect(lastFrame()).toContain("Rent GPUs");
     });
 
     it("blocked shows continue-anyway, then c proceeds to mode select", async () => {
         installFetch(BLOCKED);
         const { lastFrame, stdin } = render(<App />);
-        await delay(80);
+        await delay(1500);
         const out = lastFrame() ?? "";
         expect(out).toContain("continue anyway");
         expect(out).toContain("Database");
         stdin.write("c");
-        await delay(40);
+        await delay(300);
         expect(lastFrame()).toContain("Rent GPUs");
     });
 });
@@ -84,7 +87,7 @@ describe("e2e — mode selection (rent / provide / both)", () => {
     async function startAtModeSelect() {
         installFetch(OPERATIONAL);
         const h = render(<App />);
-        await delay(80);
+        await delay(1500);
         expect(h.lastFrame()).toContain("Rent GPUs");
         return h;
     }
@@ -92,27 +95,27 @@ describe("e2e — mode selection (rent / provide / both)", () => {
     it("selecting Rent transitions", async () => {
         const { lastFrame, stdin } = await startAtModeSelect();
         stdin.write("\r"); // first option = rent
-        await delay(40);
+        await delay(300);
         expect(lastFrame()).toContain("Great choice");
     });
 
     it("selecting Provide transitions", async () => {
         const { lastFrame, stdin } = await startAtModeSelect();
         stdin.write(DOWN); // → provide
-        await delay(20);
+        await delay(150);
         stdin.write("\r");
-        await delay(40);
+        await delay(300);
         expect(lastFrame()).toContain("Great choice");
     });
 
     it("selecting Both transitions", async () => {
         const { lastFrame, stdin } = await startAtModeSelect();
         stdin.write(DOWN);
-        await delay(20);
+        await delay(150);
         stdin.write(DOWN); // → both
-        await delay(20);
+        await delay(150);
         stdin.write("\r");
-        await delay(40);
+        await delay(300);
         expect(lastFrame()).toContain("Great choice");
     });
 
@@ -120,22 +123,22 @@ describe("e2e — mode selection (rent / provide / both)", () => {
         const { lastFrame, stdin } = await startAtModeSelect();
         expect(lastFrame()).toContain("Integrate SDK");
         stdin.write(DOWN);
-        await delay(20);
+        await delay(150);
         stdin.write(DOWN);
-        await delay(20);
+        await delay(150);
         stdin.write(DOWN); // → sdk
-        await delay(20);
+        await delay(150);
         stdin.write("\r");
-        await delay(40);
+        await delay(300);
         expect(lastFrame()).toContain("SDK track");
-    });
+    }, 20000);
 });
 
 describe("e2e — title bar & footer chrome render", () => {
     it("shows the persistent title bar and a contextual footer", async () => {
         installFetch(OPERATIONAL);
         const { lastFrame } = render(<App />);
-        await delay(80);
+        await delay(1500);
         const out = lastFrame() ?? "";
         expect(out).toContain("Xcelsior Setup");
         expect(out).toContain("navigate"); // footer hint for the select step
