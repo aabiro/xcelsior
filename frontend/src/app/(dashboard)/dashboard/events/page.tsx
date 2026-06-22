@@ -193,7 +193,7 @@ export default function EventsPage() {
           }`}
         >
           <EyeOff className="h-3 w-3" />
-          {showVerbose ? "Hiding verbose" : `Verbose hidden${verboseCount > 0 ? ` (${verboseCount})` : ""}`}
+          {showVerbose ? "Hide verbose" : `Show verbose${verboseCount > 0 ? ` (${verboseCount})` : ""}`}
         </button>
         {events.length > 0 && (
           <span className="flex items-center text-xs text-text-muted">
