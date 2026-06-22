@@ -90,6 +90,7 @@ docs/*
 
 # ── Editor / OS ──────────────────────────────────────────────────────
 .vscode/settings.json
+.vscode/mcp.json
 .idea/
 *.swp
 *.swo
