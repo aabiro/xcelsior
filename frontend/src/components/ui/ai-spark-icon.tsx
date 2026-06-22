@@ -15,17 +15,22 @@ export function AiSparkIcon({ className }: { className?: string }) {
       className={cn("shrink-0", className)}
       aria-hidden
     >
-      {/* Primary four-point star */}
-      <path
-        d="M12 1.8c.38 3.07 1.05 4.96 2.18 6.1 1.13 1.13 3.02 1.8 6.02 2.1-3 .38-4.89 1.05-6.02 2.18-1.13 1.13-1.8 3.02-2.18 6.02-.38-3-1.05-4.89-2.18-6.02-1.13-1.13-3.02-1.8-6.02-2.18 3-.3 4.89-.97 6.02-2.1C10.95 6.76 11.62 4.87 12 1.8Z"
-        fill="currentColor"
-      />
-      {/* Small accent star, top-right */}
-      <path
-        d="M19 2.6c.16 1.18.45 1.9.95 2.4.5.5 1.22.79 2.4.95-1.18.16-1.9.45-2.4.95-.5.5-.79 1.22-.95 2.4-.16-1.18-.45-1.9-.95-2.4-.5-.5-1.22-.79-2.4-.95 1.18-.16 1.9-.45 2.4-.95.5-.5.79-1.22.95-2.4Z"
-        fill="currentColor"
-        opacity="0.65"
-      />
+      {/* The primary star centers at x=12, but the top-right accent star pushes the
+          combined artwork's bounding box right of centre. Nudge the whole mark left
+          so it reads as horizontally centred in its box (and the rail). */}
+      <g transform="translate(-1.08 0)">
+        {/* Primary four-point star */}
+        <path
+          d="M12 1.8c.38 3.07 1.05 4.96 2.18 6.1 1.13 1.13 3.02 1.8 6.02 2.1-3 .38-4.89 1.05-6.02 2.18-1.13 1.13-1.8 3.02-2.18 6.02-.38-3-1.05-4.89-2.18-6.02-1.13-1.13-3.02-1.8-6.02-2.18 3-.3 4.89-.97 6.02-2.1C10.95 6.76 11.62 4.87 12 1.8Z"
+          fill="currentColor"
+        />
+        {/* Small accent star, top-right */}
+        <path
+          d="M19 2.6c.16 1.18.45 1.9.95 2.4.5.5 1.22.79 2.4.95-1.18.16-1.9.45-2.4.95-.5.5-.79 1.22-.95 2.4-.16-1.18-.45-1.9-.95-2.4-.5-.5-1.22-.79-2.4-.95 1.18-.16 1.9-.45 2.4-.95.5-.5.79-1.22.95-2.4Z"
+          fill="currentColor"
+          opacity="0.65"
+        />
+      </g>
     </svg>
   );
 }
