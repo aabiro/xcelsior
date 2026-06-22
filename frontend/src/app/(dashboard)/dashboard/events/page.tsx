@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
-import { Calendar, RefreshCw, Radio, Download, Trash2, Wifi, WifiOff } from "lucide-react";
+import { Calendar, RefreshCw, Radio, Download, Wifi, WifiOff, EyeOff } from "lucide-react";
 import { createEventSource, isEventStreamAvailable } from "@/lib/api";
 import { toast } from "sonner";
 import { useLocale } from "@/lib/locale";
@@ -26,6 +26,9 @@ const SEVERITY_COLORS: Record<string, { dot: string; badge: "info" | "warning" |
   critical: { dot: "bg-accent-red animate-pulse", badge: "failed" },
 };
 
+/** Event types that are verbose logs, not meaningful lifecycle events. */
+const VERBOSE_EVENT_TYPES = new Set(["job_log", "spot_prices", "host_update"]);
+
 const MAX_RECONNECT_DELAY = 30000;
 
 type ConnectionStatus = "disconnected" | "connecting" | "connected" | "reconnecting";
@@ -35,6 +38,7 @@ export default function EventsPage() {
   const [events, setEvents] = useState<Event[]>([]);
   const [filter, setFilter] = useState("all");
   const [severityFilter, setSeverityFilter] = useState("all");
+  const [showVerbose, setShowVerbose] = useState(false);
   const [live, setLive] = useState(false);
   const [connStatus, setConnStatus] = useState<ConnectionStatus>("disconnected");
   const esRef = useRef<EventSource | null>(null);
@@ -103,12 +107,20 @@ export default function EventsPage() {
   }, [live, connectSSE]);
 
   const filtered = events.filter((e) => {
+    if (!showVerbose && VERBOSE_EVENT_TYPES.has(e.type)) return false;
     if (filter !== "all" && e.type !== filter) return false;
     if (severityFilter !== "all" && (e.severity || "info") !== severityFilter) return false;
     return true;
   });
 
-  const eventTypes = [...new Set(events.map((e) => e.type).filter(Boolean))];
+  // Only show non-verbose types in the type dropdown by default
+  const eventTypes = [...new Set(
+    events
+      .filter((e) => showVerbose || !VERBOSE_EVENT_TYPES.has(e.type))
+      .map((e) => e.type)
+      .filter(Boolean),
+  )];
+  const verboseCount = events.filter((e) => VERBOSE_EVENT_TYPES.has(e.type)).length;
 
   // Download events as JSON log
   const handleDownload = () => {
@@ -171,6 +183,18 @@ export default function EventsPage() {
           <option value="error">Error</option>
           <option value="critical">Critical</option>
         </Select>
+        <button
+          type="button"
+          onClick={() => { setShowVerbose((v) => !v); setFilter("all"); }}
+          className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs transition-colors ${
+            showVerbose
+              ? "border-accent-violet/40 bg-accent-violet/10 text-accent-violet"
+              : "border-border text-text-muted hover:text-text-primary hover:bg-surface-hover"
+          }`}
+        >
+          <EyeOff className="h-3 w-3" />
+          {showVerbose ? "Hiding verbose" : `Verbose hidden${verboseCount > 0 ? ` (${verboseCount})` : ""}`}
+        </button>
         {events.length > 0 && (
           <span className="flex items-center text-xs text-text-muted">
             {filtered.length} of {events.length} events
