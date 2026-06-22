@@ -66,6 +66,7 @@ export function SavingsCalculator({ gpus }: { gpus: GpuOption[] }) {
           label={t("calc.reserved_monthly")}
           value={monthlyCostReserved}
           original={monthlyCostOnDemand}
+          strikeLabel={t("calc.reserved_strikethrough_label")}
           sublabel={t("calc.reserved_note")}
           highlighted
         />
@@ -84,6 +85,7 @@ function ResultBox({
   label,
   value,
   original,
+  strikeLabel,
   sublabel,
   highlighted,
   accent,
@@ -91,6 +93,7 @@ function ResultBox({
   label: string;
   value: number;
   original?: number;
+  strikeLabel?: string;
   sublabel: string;
   highlighted?: boolean;
   accent?: boolean;
@@ -107,7 +110,12 @@ function ResultBox({
     >
       <p className="text-xs text-text-muted mb-1">{label}</p>
       {original != null && (
-        <p className="text-sm text-text-muted line-through">${original.toFixed(2)}</p>
+        <>
+          {strikeLabel && (
+            <p className="text-[10px] text-text-muted/70 leading-none mb-0.5">{strikeLabel}</p>
+          )}
+          <p className="text-sm text-text-muted line-through">${original.toFixed(2)}</p>
+        </>
       )}
       <p className={`text-2xl font-bold font-mono ${accent ? "text-emerald" : highlighted ? "text-accent-gold" : ""}`}>
         ${value.toFixed(2)}
