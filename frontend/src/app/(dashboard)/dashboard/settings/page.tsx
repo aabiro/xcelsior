@@ -252,7 +252,17 @@ export default function SettingsPage() {
     setSessionsLoading(true);
     try {
       const res = await api.fetchSessions();
-      setSessions(res.sessions || []);
+      const raw: api.SessionInfo[] = res.sessions || [];
+      // Deduplicate: collapse multiple rows with the same user-agent string
+      // (e.g. background refresh rotations) to the most recently active one.
+      const seen = new Map<string, api.SessionInfo>();
+      for (const s of raw) {
+        const key = s.user_agent || s.token_prefix;
+        if (!seen.has(key) || (s.last_active ?? 0) > (seen.get(key)!.last_active ?? 0)) {
+          seen.set(key, s);
+        }
+      }
+      setSessions([...seen.values()].sort((a, b) => (b.last_active ?? 0) - (a.last_active ?? 0)));
     } catch { /* sessions not available yet */ }
     finally { setSessionsLoading(false); }
   }, []);

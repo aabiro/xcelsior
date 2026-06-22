@@ -15,6 +15,7 @@ import { useLocale } from "@/lib/locale";
 import { cn } from "@/lib/utils";
 import {
   curateMarketingGpus,
+  gpuTierBadge,
   marketingGpuLabel,
   normalizeGpuModel,
   type MarketingGpuRow,
@@ -611,15 +612,38 @@ export function GPUAvailabilityContent() {
                 <h3 className="text-lg font-semibold tracking-tight">{marketingGpuLabel(gpu.gpu_model)}</h3>
                 <p className="mt-0.5 text-sm text-text-muted">{gpu.vram_gb} GB VRAM</p>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <span
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium",
-                      gpu.available > 0 ? "bg-emerald-500/10 text-emerald-400" : "bg-yellow-500/10 text-yellow-400",
-                    )}
-                  >
-                    <span className={cn("h-1.5 w-1.5 rounded-full", gpu.available > 0 ? "bg-emerald-400 animate-pulse" : "bg-yellow-400")} />
-                    {gpu.available > 0 ? `${gpu.available} ${t("gpus.available")}` : t("gpus.on_request")}
-                  </span>
+                  {(() => {
+                    const tier = gpuTierBadge(gpu.gpu_model);
+                    const isFlagshipOrDc = tier === "flagship" || tier === "datacenter";
+                    return (
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium",
+                          gpu.available > 0
+                            ? "bg-emerald-500/10 text-emerald-400"
+                            : isFlagshipOrDc
+                              ? "bg-accent-cyan/10 text-accent-cyan"
+                              : "bg-yellow-500/10 text-yellow-400",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "h-1.5 w-1.5 rounded-full",
+                            gpu.available > 0
+                              ? "bg-emerald-400 animate-pulse"
+                              : isFlagshipOrDc
+                                ? "bg-accent-cyan/60"
+                                : "bg-yellow-400",
+                          )}
+                        />
+                        {gpu.available > 0
+                          ? `${gpu.available} ${t("gpus.available")}`
+                          : isFlagshipOrDc
+                            ? t("gpus.on_request_reserved")
+                            : t("gpus.on_request")}
+                      </span>
+                    );
+                  })()}
                   {gpu.locations.length > 0 && (
                     <span className="flex items-center gap-1 text-xs text-text-muted">
                       <MapPin className="h-3 w-3 shrink-0" />

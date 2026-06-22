@@ -228,10 +228,11 @@ def _get_pg_pool() -> Any:
 # (gpu_model, vram_gb, form_factor, high_frequency, standard_on_demand_cad)
 _GPU_PRICING_BASE: list[tuple[str, int, str, bool, float]] = [
     # ── NVIDIA Data Center ──
-    ("H200", 141, "SXM", False, 5.50),
-    ("H100", 80, "SXM", False, 4.20),
-    ("H100", 80, "PCIe", False, 3.50),
-    ("H100 NVL", 94, "PCIe", False, 4.00),
+    ("B200",     192, "OAM",  False, 12.00),
+    ("H200",     141, "SXM",  False,  5.50),
+    ("H100",      80, "SXM",  False,  4.20),
+    ("H100",      80, "PCIe", False,  3.50),
+    ("H100 NVL",  94, "PCIe", False,  4.00),
     ("A100", 80, "SXM", False, 2.60),
     ("A100", 80, "PCIe", False, 2.20),
     ("A100", 40, "SXM", False, 1.80),
@@ -1538,12 +1539,23 @@ class UserStore:
 
     @staticmethod
     def list_user_sessions(email: str) -> list[dict]:
+        """Return active browser/legacy sessions for a user.
+
+        Excludes machine-principal sessions (client_credentials, API tokens)
+        so the Settings → Active Sessions panel shows only real user devices.
+        Capped at 20 rows to prevent UI flooding.
+        """
         now = time.time()
         max_lifetime = 86400 * 30  # Must match MAX_SESSION_LIFETIME in routes/_deps.py
         with auth_connection() as conn:
             rows = conn.execute(
                 "SELECT token, email, user_id, role, name, created_at, expires_at, ip_address, user_agent, last_active, session_type, client_id "
-                "FROM sessions WHERE email = %s AND expires_at > %s AND created_at > %s ORDER BY last_active DESC",
+                "FROM sessions "
+                "WHERE email = %s AND expires_at > %s AND created_at > %s "
+                "  AND session_type IN ('browser', 'legacy') "
+                "  AND (client_id IS NULL OR client_id = 'xcelsior-web') "
+                "ORDER BY last_active DESC "
+                "LIMIT 20",
                 (email, now, now - max_lifetime),
             ).fetchall()
             return [dict(r) for r in rows]
