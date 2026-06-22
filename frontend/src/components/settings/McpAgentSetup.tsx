@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
-  Bot, Copy, CheckCircle, Loader2, ChevronRight, ExternalLink,
+  Bot, Copy, CheckCircle, Loader2, ChevronRight, ExternalLink, KeyRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
@@ -89,6 +89,10 @@ export function McpAgentSetup({
   } | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
+  const [minting, setMinting] = useState(false);
+  // The live Bearer token: minted in-app or pasted by hand. When set, it's spliced
+  // straight into the config preview so there's no YOUR_OAUTH_TOKEN left to edit.
+  const [token, setToken] = useState("");
 
   const mcpClient = useMemo(
     () => oauthClients.find((c) => c.client_name?.toLowerCase().includes("mcp") || c.scopes?.includes("gpu:read")),
@@ -123,6 +127,37 @@ export function McpAgentSetup({
       toast.error(t("dash.settings.mcp.client_failed"));
     } finally {
       setCreating(false);
+    }
+  };
+
+  // Exchange the freshly-revealed client credentials for a Bearer token directly,
+  // so the user never has to leave the page to run the curl by hand. The secret is
+  // only available while `reveal` is set (right after creation / rotation).
+  const handleGetToken = async () => {
+    if (!reveal) return;
+    setMinting(true);
+    try {
+      const base = process.env.NEXT_PUBLIC_API_URL || "";
+      const res = await fetch(`${base}/oauth/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "client_credentials",
+          client_id: reveal.clientId,
+          client_secret: reveal.clientSecret,
+        }).toString(),
+      });
+      const body = (await res.json()) as { access_token?: string };
+      if (res.ok && body.access_token) {
+        setToken(body.access_token);
+        toast.success(t("dash.settings.mcp.token_minted"));
+      } else {
+        toast.error(t("dash.settings.mcp.token_failed"));
+      }
+    } catch {
+      toast.error(t("dash.settings.mcp.token_failed"));
+    } finally {
+      setMinting(false);
     }
   };
 
@@ -221,11 +256,33 @@ export function McpAgentSetup({
           {step >= 2 && mcpClient && reveal && (
             <div className="space-y-3 rounded-xl border border-border/60 bg-surface/30 p-4">
               <p className="text-sm font-medium">{t("dash.settings.mcp.step_token")}</p>
-              <CodeBlock
-                filename="get-token.sh"
-                code={tokenCurl(reveal.clientId, reveal.clientSecret)}
-                onCopy={() => toast.success(t("dash.settings.mcp.copied"))}
-              />
+              <Button size="sm" onClick={handleGetToken} disabled={minting} className="gap-2">
+                {minting ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+                {minting ? t("dash.settings.mcp.minting") : t("dash.settings.mcp.get_token_btn")}
+              </Button>
+              {token && (
+                <div>
+                  <Label className="text-xs">{t("dash.settings.mcp.minted_token_label")}</Label>
+                  <div className="mt-1 flex gap-2">
+                    <Input readOnly value={token} className="font-mono text-xs" />
+                    <Button size="icon" variant="outline" onClick={() => copyText("token", token)}>
+                      {copied === "token" ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                </div>
+              )}
+              <details className="text-xs text-text-muted">
+                <summary className="cursor-pointer select-none hover:text-text-secondary">
+                  {t("dash.settings.mcp.copy_curl")}
+                </summary>
+                <div className="mt-2">
+                  <CodeBlock
+                    filename="get-token.sh"
+                    code={tokenCurl(reveal.clientId, reveal.clientSecret)}
+                    onCopy={() => toast.success(t("dash.settings.mcp.copied"))}
+                  />
+                </div>
+              </details>
               <Button variant="outline" size="sm" onClick={() => setStep(3)}>
                 {t("dash.settings.mcp.next_paste")} <ChevronRight className="ml-1 h-3 w-3" />
               </Button>
@@ -261,9 +318,19 @@ export function McpAgentSetup({
           </p>
           <CodeBlock
             filename={configPath(agent)}
-            code={configJson(agent)}
+            code={configJson(agent, token || undefined)}
             onCopy={() => toast.success(t("dash.settings.mcp.copied"))}
           />
+          <div>
+            <Label className="text-xs">{t("dash.settings.mcp.token_input_label")}</Label>
+            <Input
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder={t("dash.settings.mcp.token_input_placeholder")}
+              className="mt-1 font-mono text-xs"
+            />
+            <p className="mt-1 text-[11px] text-text-muted">{t("dash.settings.mcp.token_input_hint")}</p>
+          </div>
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" onClick={handleTestHealth} disabled={testing}>
               {testing ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
