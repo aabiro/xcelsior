@@ -487,6 +487,81 @@ def oauth_authorization_server_metadata(request: Request):
     }
 
 
+def _oauth_error_page(title: str, detail: str, status: int) -> str:
+    """Branded, self-contained HTML error page for browser-facing OAuth failures."""
+    import html as _html
+
+    safe_title = _html.escape(title)
+    safe_detail = _html.escape(detail)
+    return f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{safe_title} — Xcelsior</title>
+<style>
+  :root {{ color-scheme: dark; }}
+  * {{ box-sizing: border-box; }}
+  body {{
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    color: #e6edf3; padding: 24px;
+    background: radial-gradient(1200px 600px at 50% -10%, rgba(124,58,237,0.18), transparent 60%),
+                radial-gradient(900px 500px at 80% 110%, rgba(34,211,238,0.12), transparent 55%),
+                #070b12;
+  }}
+  .card {{
+    width: 100%; max-width: 460px; padding: 40px 36px; text-align: center;
+    background: rgba(14,20,31,0.85); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 20px; box-shadow: 0 30px 80px -20px rgba(0,0,0,0.7);
+    backdrop-filter: blur(12px);
+  }}
+  .glyph {{
+    width: 56px; height: 56px; margin: 0 auto 20px; border-radius: 16px;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, rgba(34,211,238,0.18), rgba(124,58,237,0.18));
+    border: 1px solid rgba(255,255,255,0.1);
+  }}
+  .glyph svg {{ width: 28px; height: 28px; stroke: #38bdf8; }}
+  .code {{ font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: #6b7689; font-weight: 600; }}
+  h1 {{ margin: 8px 0 12px; font-size: 22px; font-weight: 700;
+        background: linear-gradient(120deg, #e6edf3, #9bd2ff 60%, #c4b5fd);
+        -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }}
+  p {{ margin: 0 0 28px; font-size: 15px; line-height: 1.6; color: #9aa6b8; }}
+  .actions {{ display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }}
+  a.btn {{
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 10px 20px; border-radius: 10px; font-size: 14px; font-weight: 600;
+    text-decoration: none; transition: transform .12s ease, filter .12s ease;
+  }}
+  a.btn:hover {{ transform: translateY(-1px); filter: brightness(1.08); }}
+  a.primary {{ color: #06121a; background: linear-gradient(120deg, #38bdf8, #818cf8); }}
+  a.ghost {{ color: #cbd5e1; border: 1px solid rgba(255,255,255,0.12); }}
+  .brand {{ margin-top: 28px; font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: #4a5568; }}
+</style></head>
+<body><main class="card">
+  <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+    <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
+  <div class="code">Error {status}</div>
+  <h1>{safe_title}</h1>
+  <p>{safe_detail}</p>
+  <div class="actions">
+    <a class="btn primary" href="/login">Sign in</a>
+    <a class="btn ghost" href="/dashboard">Go to dashboard</a>
+  </div>
+  <div class="brand">Xcelsior</div>
+</main></body></html>"""
+
+
+def _oauth_browser_error(request: Request, status: int, title: str, detail: str):
+    """Render a branded HTML page for browser callers; raise JSON HTTPException for API clients."""
+    from fastapi.responses import HTMLResponse
+
+    wants_html = "text/html" in request.headers.get("accept", "").lower()
+    if not wants_html:
+        raise HTTPException(status, detail)
+    return HTMLResponse(content=_oauth_error_page(title, detail, status), status_code=status)
+
+
 @router.get("/oauth/authorize", tags=["Auth"])
 def oauth_authorize(request: Request):
     user = _get_current_user(request)
@@ -510,16 +585,39 @@ def oauth_authorize(request: Request):
     code_challenge = str(request.query_params.get("code_challenge", "")).strip()
     code_challenge_method = str(request.query_params.get("code_challenge_method", "S256")).strip()
     if response_type != "code":
-        raise HTTPException(400, "response_type=code is required")
+        return _oauth_browser_error(
+            request, 400, "Unsupported request",
+            "This authorization link is malformed (response_type=code is required). "
+            "Please start the connection again from your app.",
+        )
     if not client_id or not redirect_uri or not code_challenge:
-        raise HTTPException(400, "client_id, redirect_uri, and code_challenge are required")
+        return _oauth_browser_error(
+            request, 400, "Incomplete request",
+            "This authorization link is missing required parameters. "
+            "Please start the connection again from your app.",
+        )
 
     client = get_client(client_id)
     if not client:
-        raise HTTPException(400, "Unknown OAuth client")
+        return _oauth_browser_error(
+            request, 400, "Unknown application",
+            "We couldn't find an Xcelsior app matching that client ID. It may have been "
+            "deleted, or the link is out of date. Create a new client in Settings → AI Agents.",
+        )
     if "authorization_code" not in list(client.get("grant_types") or []):
-        raise HTTPException(403, "Client is not allowed to use authorization_code")
-    _validate_oauth_client_redirect(client, redirect_uri)
+        return _oauth_browser_error(
+            request, 403, "Not permitted",
+            "This application isn't allowed to sign you in interactively. "
+            "Check its grant types in Settings → AI Agents.",
+        )
+    try:
+        _validate_oauth_client_redirect(client, redirect_uri)
+    except OAuthGrantError:
+        return _oauth_browser_error(
+            request, 400, "Redirect not allowed",
+            "The redirect URL in this request isn't registered for this application. "
+            "Update the client's allowed redirect URIs in Settings → AI Agents.",
+        )
     scopes = str(request.query_params.get("scope", "")).strip().split()
     try:
         code = issue_authorization_code(

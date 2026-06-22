@@ -43,7 +43,7 @@ export function OAuthSecretRevealModal({
   return (
     <Dialog
       open={open}
-      onClose={() => {}}
+      onClose={handleClose}
       title={t("dash.settings.oauth.secret_reveal_title")}
       description={t("dash.settings.oauth.secret_reveal_desc")}
     >
