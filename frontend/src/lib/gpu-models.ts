@@ -49,6 +49,7 @@ export const GPU_CATEGORIES: GpuCategory[] = [
 
 export const GPU_MODELS: GpuModel[] = [
     // ── NVIDIA Data Center ──
+    { value: "B200", label: "B200", vram_gb: 192, form_factors: ["OAM"], category: "NVIDIA Data Center" },
     { value: "H200", label: "H200", vram_gb: 141, form_factors: ["SXM"], category: "NVIDIA Data Center" },
     { value: "H100", label: "H100", vram_gb: 80, form_factors: ["SXM", "PCIe"], category: "NVIDIA Data Center" },
     { value: "H100 NVL", label: "H100 NVL", vram_gb: 94, form_factors: ["PCIe"], category: "NVIDIA Data Center" },
