@@ -297,6 +297,7 @@ signal.signal(signal.SIGINT, _signal_handler)
 # no regex normalizer. Unknown names cause the host to quarantine.
 _NVIDIA_SMI_NAME_MAP: dict[str, str] = {
     # ── NVIDIA Data Center ──
+    "NVIDIA B200": "B200",
     "NVIDIA H200": "H200",
     "NVIDIA H100 80GB HBM3": "H100",
     "NVIDIA H100 PCIe": "H100",
@@ -359,6 +360,13 @@ _NVIDIA_SMI_NAME_MAP: dict[str, str] = {
     "NVIDIA RTX A6000": "RTX A6000",
     "NVIDIA RTX A5000": "RTX A5000",
     "NVIDIA RTX A4000": "RTX A4000",
+    # ── AMD Data Center ──
+    "AMD Instinct MI300X": "MI300X",
+    "AMD Instinct MI250X": "MI250X",
+    "AMD Instinct MI210":  "MI210",
+    # ── AMD Consumer ──
+    "AMD Radeon RX 7900 XTX": "RX 7900 XTX",
+    "AMD Radeon RX 7900 XT":  "RX 7900 XT",
 }
 
 
