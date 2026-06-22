@@ -135,11 +135,12 @@ def upgrade() -> None:
     # ── 3. Composite index for filtered list_user_sessions query ─────────────
     # Replaces the single-column idx_sessions_session_type with a covering
     # index that satisfies: WHERE email = ? AND session_type IN (...)
+    # No partial predicate: EXTRACT(EPOCH FROM NOW()) is not immutable and
+    # would cause index creation to fail in Postgres.
     op.execute("DROP INDEX IF EXISTS idx_sessions_session_type")
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_sessions_email_type "
-        "ON sessions (email, session_type, last_active DESC) "
-        "WHERE expires_at > EXTRACT(EPOCH FROM NOW())"
+        "ON sessions (email, session_type, last_active DESC)"
     )
 
 

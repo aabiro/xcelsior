@@ -97,8 +97,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    models = tuple(m for m, *_ in _NEW_BASE)
-    # Only remove rows that were introduced here (not pre-existing AMD rows)
-    op.execute(
-        "DELETE FROM gpu_pricing WHERE gpu_model IN %s" % (models,)
-    )
+    # Only delete B200 rows — AMD GPU rows may have pre-existed this migration
+    # (seeded by _GPU_PRICING_BASE on an earlier boot) and must not be removed.
+    op.execute("DELETE FROM gpu_pricing WHERE gpu_model = 'B200'")

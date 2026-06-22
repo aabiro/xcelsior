@@ -1306,7 +1306,10 @@ def _ensure_oauth_auth_tables(conn) -> None:
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_expires ON oauth_refresh_tokens (expires_at)"
     )
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_session_type ON sessions (session_type)")
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sessions_email_type "
+        "ON sessions (email, session_type, last_active DESC)"
+    )
 
     cur.execute(
         "ALTER TABLE teams ADD COLUMN IF NOT EXISTS billing_customer_id TEXT NOT NULL DEFAULT ''"
