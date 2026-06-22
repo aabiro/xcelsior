@@ -20,9 +20,11 @@ export function extractBearer(req: IncomingMessage): string | null {
 export async function validateBearer(apiUrl: string, bearer: string): Promise<AuthUser | null> {
   try {
     const client = new Client({ baseUrl: apiUrl, bearer });
-    const me = await client.get<AuthUser & { ok?: boolean }>("/api/auth/me");
-    if (!me || (me as { ok?: boolean }).ok === false) return null;
-    return me;
+    // /api/auth/introspect accepts machine (client_credentials) tokens, which the
+    // MCP gateway uses; /api/auth/me rejects them with 403.
+    const principal = await client.get<AuthUser & { ok?: boolean }>("/api/auth/introspect");
+    if (!principal || (principal as { ok?: boolean }).ok === false) return null;
+    return principal;
   } catch {
     return null;
   }

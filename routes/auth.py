@@ -1308,6 +1308,27 @@ def api_auth_me(request: Request):
     return {"ok": True, "user": merged_user}
 
 
+@router.get("/api/auth/introspect", tags=["Auth"], include_in_schema=False)
+def api_auth_introspect(request: Request):
+    """Validate any bearer token — interactive user OR machine/client_credentials —
+    and return the principal. The MCP gateway uses this to authenticate agents,
+    whose client_credentials tokens /api/auth/me intentionally rejects (403)."""
+    from routes._deps import _get_current_user
+
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Invalid or expired token")
+    return {
+        "ok": True,
+        "auth_type": user.get("auth_type"),
+        "client_id": user.get("client_id"),
+        "email": user.get("email"),
+        "user_id": user.get("user_id"),
+        "customer_id": user.get("customer_id"),
+        "scopes": list(user.get("scopes") or []),
+    }
+
+
 @router.patch("/api/auth/me", tags=["Auth"])
 def api_auth_update_profile(body: ProfileUpdateRequest, request: Request):
     """Update the current user's profile fields."""

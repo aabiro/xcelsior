@@ -1,5 +1,4 @@
 import http from "node:http";
-import { randomUUID } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { loadConfig } from "./config.js";
 import { createMcpServer } from "./server.js";
@@ -72,8 +71,11 @@ async function handleMcp(
 
   const client = createApiClient(config.apiUrl, bearer);
   const mcp = createMcpServer(client, user);
+  // Stateless mode: each request is self-contained (no Mcp-Session-Id round-trip),
+  // so the client's `initialize` POST gets an immediate JSON response instead of
+  // hanging on a session-scoped stream we tear down per request.
   const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: () => randomUUID(),
+    sessionIdGenerator: undefined,
   });
 
   res.on("close", () => {

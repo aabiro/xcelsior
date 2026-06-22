@@ -59,7 +59,10 @@ REFRESH_TOKEN_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_REFRESH_TTL_SEC", str
 AUTH_CODE_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_CODE_TTL_SEC", "300"))
 DEVICE_CODE_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_DEVICE_TTL_SEC", "900"))
 DEVICE_CODE_INTERVAL_SEC = int(os.environ.get("XCELSIOR_OAUTH_DEVICE_INTERVAL_SEC", "5"))
-CLIENT_CREDENTIALS_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_CLIENT_CREDENTIALS_TTL_SEC", "900"))
+# Agent / MCP tokens are pasted into client config and left there, so a short TTL
+# just forces clients (e.g. VS Code) into the interactive OAuth fallback. Default
+# to 90 days; override with XCELSIOR_OAUTH_CLIENT_CREDENTIALS_TTL_SEC.
+CLIENT_CREDENTIALS_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_CLIENT_CREDENTIALS_TTL_SEC", str(86400 * 90)))
 ACCESS_TOKEN_PREFIX = os.environ.get("XCELSIOR_OAUTH_ACCESS_TOKEN_PREFIX", "xoa_")
 AUTH_CACHE_BACKEND = os.environ.get(
     "XCELSIOR_AUTH_CACHE_BACKEND",
