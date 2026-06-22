@@ -203,14 +203,16 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       {/* Logo */}
       <div className="flex h-[72px] items-center border-b border-border/60 px-4 justify-between">
         <Link href="/dashboard" className="flex items-center overflow-visible pr-2">
-          <div className="relative shrink-0" style={{ width: collapsed && !mobile ? 40 : undefined }}>
-            {/* Rounded icon — visible when collapsed */}
+          <div className="relative shrink-0" style={{ width: collapsed && !mobile ? 45 : undefined }}>
+            {/* Collapsed icon — rendered at 45px so its leaf+X glyph matches the
+                glyph height inside the expanded wordmark (which is taller than the
+                old 40px icon), eliminating the height drift when toggling. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/xcelsior-logo-rounded.svg"
               alt="Xcelsior"
               className={cn(
-                "h-[40px] w-[40px] transition-all duration-300 ease-in-out absolute top-1/2 left-0",
+                "h-[45px] w-[45px] transition-all duration-300 ease-in-out absolute top-1/2 left-0",
                 collapsed && !mobile
                   ? "opacity-100 scale-100 -translate-y-1/2"
                   : "opacity-0 scale-75 -translate-y-1/2 pointer-events-none"
@@ -222,7 +224,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 collapsed && !mobile ? "pointer-events-none w-0 overflow-hidden opacity-0 scale-95" : "opacity-100 scale-100"
               )}
             >
-              {/* Wordmark — visible when expanded (+20% from 47px) */}
+              {/* Wordmark — visible when expanded. Its glyph height is the target the
+                  collapsed icon above matches. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/xcelsior-logo-wordmark-iconbg.svg"
@@ -235,9 +238,6 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 alt="Xcelsior"
                 className="block h-[56px] w-auto shrink-0 dark:hidden"
               />
-              {/* Wordmark SVG is now cropped to the letters, so the badge sits at
-                  the standard gap-2 right beside it — matching the "New" chip
-                  next to "Xcel AI" in the nav. shrink-0 keeps it from overflowing. */}
               <span className="shrink-0 rounded-full bg-accent-cyan/8 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-widest text-accent-cyan/70">Beta</span>
             </div>
           </div>
