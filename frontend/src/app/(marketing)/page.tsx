@@ -81,7 +81,7 @@ export default function HomePage() {
               </Link>
             </m.div>
 
-            <m.div variants={fadeUp} custom={4} className="mt-14 flex flex-wrap gap-8 text-sm text-text-secondary">
+            <m.div variants={fadeUp} custom={4} className="mt-14 flex flex-wrap gap-4 sm:gap-8 text-sm text-text-secondary">
               <div className="flex items-center gap-2">
                 <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-gold/10">
                   <DollarSign className="h-3.5 w-3.5 text-accent-gold" />
