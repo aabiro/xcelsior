@@ -36,14 +36,22 @@ export class XcelsiorApiClient {
   }
 
   private async request<T>(url: string, init: RequestInit): Promise<T> {
-    const res = await fetch(url, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${this.opts.bearer}`,
-        Accept: "application/json",
-        ...(init.headers as Record<string, string> | undefined),
-      },
-    });
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15_000);
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        ...init,
+        signal: ctrl.signal,
+        headers: {
+          Authorization: `Bearer ${this.opts.bearer}`,
+          Accept: "application/json",
+          ...(init.headers as Record<string, string> | undefined),
+        },
+      });
+    } finally {
+      clearTimeout(timer);
+    }
     const text = await res.text();
     let parsed: unknown = null;
     if (text) {
