@@ -253,11 +253,13 @@ export default function SettingsPage() {
     try {
       const res = await api.fetchSessions();
       const raw: api.SessionInfo[] = res.sessions || [];
-      // Deduplicate: collapse multiple rows with the same user-agent string
-      // (e.g. background refresh rotations) to the most recently active one.
+      // Deduplicate: collapse multiple rows with the same device (user-agent +
+      // ip_address) to the most recently active one. Using both fields prevents
+      // merging distinct devices that happen to share the same UA string
+      // (managed fleets, VDI, mobile Safari, etc.).
       const seen = new Map<string, api.SessionInfo>();
       for (const s of raw) {
-        const key = s.user_agent || s.token_prefix;
+        const key = `${s.user_agent || ""}|${s.ip_address || s.token_prefix}`;
         if (!seen.has(key) || (s.last_active ?? 0) > (seen.get(key)!.last_active ?? 0)) {
           seen.set(key, s);
         }
