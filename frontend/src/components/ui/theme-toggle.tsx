@@ -21,10 +21,12 @@ export function ThemeToggle({ className }: { className?: string }) {
       title={isDark ? "Switch to light mode" : "Switch to dark mode"}
       aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
     >
+      {/* Status convention: the icon shows the mode you're currently in
+          (dark → moon, light → sun). The tooltip/aria-label describes the action. */}
       {isDark ? (
-        <Sun className="h-6 w-6" />
-      ) : (
         <Moon className="h-6 w-6" />
+      ) : (
+        <Sun className="h-6 w-6" />
       )}
     </button>
   );
