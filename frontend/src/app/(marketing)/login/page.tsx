@@ -74,6 +74,16 @@ function LoginPageContent() {
     return null;
   }
 
+  // While the session probe is in flight, show a spinner instead of flashing the
+  // login form — an already-signed-in visitor is redirected without ever seeing it.
+  if (authLoading) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
+      </div>
+    );
+  }
+
   async function completeBrowserLogin(method: string = "password") {
     const loggedIn = await login().catch(() => false);
     if (loggedIn) {

@@ -3265,6 +3265,33 @@ export async function resendVerification(email: string) {
   });
 }
 
+// ── Profile + email change ────────────────────────────────────────────
+
+/** Update display name (and optionally country/province). Email is changed via
+ *  the verified flow below, not here. */
+export async function updateProfile(updates: { name?: string; country?: string; province?: string }) {
+  return apiFetch<{ ok: boolean; name?: string }>("/api/auth/me/profile", {
+    method: "PUT",
+    body: JSON.stringify(updates),
+  });
+}
+
+/** Begin a verified email change — emails a confirmation link to the new address. */
+export async function requestEmailChange(newEmail: string) {
+  return apiFetch<{ ok: boolean; pending_email: string; message: string }>("/api/auth/me/email-change", {
+    method: "POST",
+    body: JSON.stringify({ new_email: newEmail }),
+  });
+}
+
+/** Confirm a pending email change via the token from the verification email. */
+export async function confirmEmailChange(token: string) {
+  return apiFetch<{ ok: boolean; email: string; message: string }>("/api/auth/me/email-change/confirm", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+}
+
 // ── Session Management ────────────────────────────────────────────────
 
 export interface SessionInfo {
