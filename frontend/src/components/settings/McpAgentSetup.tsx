@@ -32,7 +32,14 @@ const AGENTS = [
   { id: "cursor", art: "/mcp/agent-cursor.svg", labelKey: "dash.settings.mcp.agent_cursor" },
   { id: "claude", art: "/mcp/agent-claude.svg", labelKey: "dash.settings.mcp.agent_claude" },
   { id: "vscode", art: "/mcp/agent-vscode.svg", labelKey: "dash.settings.mcp.agent_vscode" },
+  { id: "github", art: "/logos/github.svg", labelKey: "dash.settings.mcp.agent_github" },
 ] as const;
+
+type FreshClientCredentials = {
+  clientId: string;
+  clientSecret: string;
+  name: string;
+};
 
 function mcpUrl(): string {
   if (typeof window !== "undefined" && window.location.hostname === "localhost") {
@@ -48,6 +55,30 @@ function mcpUrl(): string {
 function configJson(agentId: string, tokenPlaceholder = "YOUR_OAUTH_TOKEN"): string {
   const url = mcpUrl();
   const headers = { Authorization: `Bearer ${tokenPlaceholder}` };
+  if (agentId === "github") {
+    return JSON.stringify(
+      {
+        mcpServers: {
+          "xcelsior-readonly": {
+            type: "http",
+            url,
+            headers: {
+              Authorization: "Bearer ${COPILOT_MCP_XCELSIOR_ACCESS_TOKEN}",
+            },
+            tools: [
+              "list_available_gpus",
+              "get_spot_prices",
+              "get_pricing_reference",
+              "search_marketplace",
+              "list_tiers",
+            ],
+          },
+        },
+      },
+      null,
+      2,
+    );
+  }
   if (agentId === "vscode") {
     return JSON.stringify({ servers: { xcelsior: { type: "http", url, headers } } }, null, 2);
   }
@@ -59,6 +90,7 @@ function configJson(agentId: string, tokenPlaceholder = "YOUR_OAUTH_TOKEN"): str
 
 // Where each client expects the config file to live (shown above the snippet).
 function configPath(agentId: string): string {
+  if (agentId === "github") return "GitHub -> Settings -> Copilot -> MCP servers";
   if (agentId === "vscode") return ".vscode/mcp.json";
   if (agentId === "claude") return ".mcp.json (project root) or claude_desktop_config.json";
   return "~/.cursor/mcp.json";
@@ -82,11 +114,8 @@ export function McpAgentSetup({
   const [step, setStep] = useState(0);
   const [creating, setCreating] = useState(false);
   const [agent, setAgent] = useState<(typeof AGENTS)[number]["id"]>("cursor");
-  const [reveal, setReveal] = useState<{
-    clientId: string;
-    clientSecret: string;
-    name: string;
-  } | null>(null);
+  const [freshCredentials, setFreshCredentials] = useState<FreshClientCredentials | null>(null);
+  const [showSecretModal, setShowSecretModal] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [minting, setMinting] = useState(false);
@@ -115,11 +144,12 @@ export function McpAgentSetup({
       const { client_secret: _secret, ...listed } = client;
       onOAuthClientsChange([...oauthClients, listed]);
       if (client.client_secret) {
-        setReveal({
+        setFreshCredentials({
           clientId: client.client_id,
           clientSecret: client.client_secret,
           name: client.client_name,
         });
+        setShowSecretModal(true);
       }
       setStep(1);
       toast.success(t("dash.settings.mcp.client_created"));
@@ -132,9 +162,9 @@ export function McpAgentSetup({
 
   // Exchange the freshly-revealed client credentials for a Bearer token directly,
   // so the user never has to leave the page to run the curl by hand. The secret is
-  // only available while `reveal` is set (right after creation / rotation).
+  // only available for this setup session (right after creation / rotation).
   const handleGetToken = async () => {
-    if (!reveal) return;
+    if (!freshCredentials) return;
     setMinting(true);
     try {
       const base = process.env.NEXT_PUBLIC_API_URL || "";
@@ -143,13 +173,14 @@ export function McpAgentSetup({
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
           grant_type: "client_credentials",
-          client_id: reveal.clientId,
-          client_secret: reveal.clientSecret,
+          client_id: freshCredentials.clientId,
+          client_secret: freshCredentials.clientSecret,
         }).toString(),
       });
       const body = (await res.json()) as { access_token?: string };
       if (res.ok && body.access_token) {
         setToken(body.access_token);
+        setStep(3);
         toast.success(t("dash.settings.mcp.token_minted"));
       } else {
         toast.error(t("dash.settings.mcp.token_failed"));
@@ -162,15 +193,26 @@ export function McpAgentSetup({
   };
 
   const handleTestHealth = async () => {
+    const bearer = token.trim();
+    if (!bearer) {
+      toast.error(t("dash.settings.mcp.token_required"));
+      setStep(Math.max(step, 2));
+      return;
+    }
     setTesting(true);
     try {
       // MCP health lives at /mcp/health (nginx proxies it to the MCP service in
       // prod; the server also matches /mcp/health directly in local dev).
       // The old code stripped /mcp and hit the API root /health by mistake.
       const url = `${mcpUrl()}/health`;
-      const res = await fetch(url);
-      const body = await res.json();
-      if (res.ok && body.status === "healthy") {
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${bearer}` } });
+      const body = (await res.json()) as { status?: string };
+      const base = process.env.NEXT_PUBLIC_API_URL || "";
+      const tokenRes = await fetch(`${base}/api/auth/introspect`, {
+        headers: { Authorization: `Bearer ${bearer}` },
+      });
+      if (res.ok && body.status === "healthy" && tokenRes.ok) {
+        setStep(3);
         toast.success(t("dash.settings.mcp.test_ok"));
       } else {
         toast.error(t("dash.settings.mcp.test_fail"));
@@ -253,13 +295,17 @@ export function McpAgentSetup({
             </div>
           )}
 
-          {step >= 2 && mcpClient && reveal && (
+          {step >= 2 && mcpClient && (
             <div className="space-y-3 rounded-xl border border-border/60 bg-surface/30 p-4">
               <p className="text-sm font-medium">{t("dash.settings.mcp.step_token")}</p>
-              <Button size="sm" onClick={handleGetToken} disabled={minting} className="gap-2">
-                {minting ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
-                {minting ? t("dash.settings.mcp.minting") : t("dash.settings.mcp.get_token_btn")}
-              </Button>
+              {freshCredentials ? (
+                <Button size="sm" onClick={handleGetToken} disabled={minting} className="gap-2">
+                  {minting ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+                  {minting ? t("dash.settings.mcp.minting") : t("dash.settings.mcp.get_token_btn")}
+                </Button>
+              ) : (
+                <p className="text-xs text-text-muted">{t("dash.settings.mcp.token_secret_missing")}</p>
+              )}
               {token && (
                 <div>
                   <Label className="text-xs">{t("dash.settings.mcp.minted_token_label")}</Label>
@@ -271,18 +317,20 @@ export function McpAgentSetup({
                   </div>
                 </div>
               )}
-              <details className="text-xs text-text-muted">
-                <summary className="cursor-pointer select-none hover:text-text-secondary">
-                  {t("dash.settings.mcp.copy_curl")}
-                </summary>
-                <div className="mt-2">
-                  <CodeBlock
-                    filename="get-token.sh"
-                    code={tokenCurl(reveal.clientId, reveal.clientSecret)}
-                    onCopy={() => toast.success(t("dash.settings.mcp.copied"))}
-                  />
-                </div>
-              </details>
+              {freshCredentials && (
+                <details className="text-xs text-text-muted">
+                  <summary className="cursor-pointer select-none hover:text-text-secondary">
+                    {t("dash.settings.mcp.copy_curl")}
+                  </summary>
+                  <div className="mt-2">
+                    <CodeBlock
+                      filename="get-token.sh"
+                      code={tokenCurl(freshCredentials.clientId, freshCredentials.clientSecret)}
+                      onCopy={() => toast.success(t("dash.settings.mcp.copied"))}
+                    />
+                  </div>
+                </details>
+              )}
               <Button variant="outline" size="sm" onClick={() => setStep(3)}>
                 {t("dash.settings.mcp.next_paste")} <ChevronRight className="ml-1 h-3 w-3" />
               </Button>
@@ -330,6 +378,11 @@ export function McpAgentSetup({
               className="mt-1 font-mono text-xs"
             />
             <p className="mt-1 text-[11px] text-text-muted">{t("dash.settings.mcp.token_input_hint")}</p>
+            {agent === "github" && token && (
+              <p className="mt-1 text-[11px] text-accent-cyan">
+                {t("dash.settings.mcp.github_secret_hint")}
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" onClick={handleTestHealth} disabled={testing}>
@@ -343,12 +396,12 @@ export function McpAgentSetup({
         </div>
       </div>
 
-      {reveal && (
+      {freshCredentials && (
         <OAuthSecretRevealModal
-          open={!!reveal}
-          onClose={() => setReveal(null)}
-          clientId={reveal.clientId}
-          clientSecret={reveal.clientSecret}
+          open={showSecretModal}
+          onClose={() => setShowSecretModal(false)}
+          clientId={freshCredentials.clientId}
+          clientSecret={freshCredentials.clientSecret}
           scopes={[...MCP_SCOPES]}
         />
       )}
