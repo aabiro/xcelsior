@@ -817,7 +817,7 @@ function ProfileTab({
   t, user, name, setName, email, canadaOnly, setCanadaOnly,
   notifications, setNotifications, saving, onSave, onAvatarUpdated,
 }: {
-  t: (k: string) => string;
+  t: (k: string, vars?: Record<string, string | number>) => string;
   user: import("@/lib/auth").User;
   name: string; setName: (v: string) => void;
   email: string;
