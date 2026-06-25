@@ -14,9 +14,33 @@ SUPPORTED_ROUTES = frozenset(
         "chat/completions",
         "completions",
         "embeddings",
+        "rerank",
+        "score",
         "models",
     }
 )
+
+# Preset model-task classification by model id. Embedding/reranker presets launch
+# vLLM with --task embed / --task score and expose /v1/embeddings or /v1/rerank.
+_RERANK_MARKERS = ("rerank", "reranker", "cross-encoder")
+_EMBED_MARKERS = (
+    "bge-m3", "bge-large", "bge-base", "bge-small", "nomic-embed", "gte-",
+    "e5-large", "e5-base", "e5-small", "stella", "snowflake-arctic-embed",
+    "embed",
+)
+
+
+def model_task(model_ref: str | None) -> str:
+    """Classify a preset model as 'embed', 'rerank', or 'chat' (default)."""
+    if not model_ref:
+        return "chat"
+    s = model_ref.lower()
+    if any(m in s for m in _RERANK_MARKERS):
+        return "rerank"
+    if any(m in s for m in _EMBED_MARKERS):
+        return "embed"
+    return "chat"
+
 
 CAPABILITY_REQUIREMENTS: dict[str, set[str]] = {
     "embeddings": {"embeddings"},
@@ -46,7 +70,10 @@ def normalize_route(path: str) -> str:
 def capability_gate(route: str, endpoint: dict, body: dict | None = None) -> None:
     """
     Reject unsupported routes/features with explicit 4xx (§11.2).
-    Preset vLLM endpoints support chat + models in v1; embeddings gated.
+
+    The OpenAI route must match the endpoint's model task: chat models serve
+    /v1/chat/completions, embedding models serve /v1/embeddings, reranker models
+    serve /v1/rerank|/v1/score.
     """
     norm = normalize_route(route)
     if norm not in SUPPORTED_ROUTES:
@@ -62,12 +89,29 @@ def capability_gate(route: str, endpoint: dict, body: dict | None = None) -> Non
             "preset_only",
             "OpenAI proxy is only available for preset (managed) endpoints",
         )
-    if norm == "embeddings":
+
+    # Route ↔ model-task must agree (skip 'models', which works for any task).
+    task = model_task(endpoint.get("model_ref"))
+    if norm == "embeddings" and task != "embed":
         raise OpenAIProxyError(
-            501,
-            "capability_not_available",
-            "Embeddings are not enabled on this endpoint in the first increment",
+            400,
+            "wrong_model_task",
+            f"/v1/embeddings requires an embeddings model; this endpoint serves a {task} model.",
         )
+    if norm in ("rerank", "score") and task != "rerank":
+        raise OpenAIProxyError(
+            400,
+            "wrong_model_task",
+            f"/v1/{norm} requires a reranker model; this endpoint serves a {task} model.",
+        )
+    if norm in ("chat/completions", "completions") and task in ("embed", "rerank"):
+        alt = "embeddings" if task == "embed" else "rerank"
+        raise OpenAIProxyError(
+            400,
+            "wrong_model_task",
+            f"This endpoint serves a {task} model — use /v1/{alt} instead.",
+        )
+
     if body and _body_requests_vision(body) and norm == "chat/completions":
         raise OpenAIProxyError(
             400,

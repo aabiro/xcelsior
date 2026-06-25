@@ -17,6 +17,17 @@ import { ServerlessPanel, ServerlessSegmentedTabs } from "./serverless-ui";
 
 type ConsoleMode = "chat" | "job" | "snippets";
 
+/** Classify a preset model so the snippets show the right OpenAI route. Mirrors
+ *  serverless/openai_proxy.py:model_task. */
+function presetTaskFor(modelId: string): "chat" | "embed" | "rerank" {
+  const s = modelId.toLowerCase();
+  if (/rerank|cross-encoder/.test(s)) return "rerank";
+  if (/bge-m3|bge-large|bge-base|bge-small|nomic-embed|gte-|e5-(?:large|base|small)|stella|snowflake-arctic-embed|embed/.test(s)) {
+    return "embed";
+  }
+  return "chat";
+}
+
 interface TryItConsoleProps {
   endpoint: ServerlessEndpoint;
   canWrite: boolean;
@@ -127,21 +138,67 @@ export function TryItConsole({ endpoint, canWrite }: TryItConsoleProps) {
     }
   };
 
-  const curlSnippet = isPreset
-    ? `curl -X POST '${baseUrl}/chat/completions' \\
+  const task = isPreset ? presetTaskFor(modelId) : "chat";
+
+  const presetCurl =
+    task === "embed"
+      ? `curl -X POST '${baseUrl}/embeddings' \\
+  -H 'Content-Type: application/json' \\
+  -H 'Authorization: Bearer YOUR_API_KEY' \\
+  -d '{
+    "model": "${modelId}",
+    "input": ["The quick brown fox jumps over the lazy dog"]
+  }'`
+      : task === "rerank"
+      ? `curl -X POST '${baseUrl}/rerank' \\
+  -H 'Content-Type: application/json' \\
+  -H 'Authorization: Bearer YOUR_API_KEY' \\
+  -d '{
+    "model": "${modelId}",
+    "query": "What is the capital of France?",
+    "documents": ["Paris is the capital of France.", "Berlin is in Germany."]
+  }'`
+      : `curl -X POST '${baseUrl}/chat/completions' \\
   -H 'Content-Type: application/json' \\
   -H 'Authorization: Bearer YOUR_API_KEY' \\
   -d '{
     "model": "${modelId}",
     "messages": [{"role": "user", "content": "Hello"}],
     "stream": true
-  }'`
+  }'`;
+
+  const curlSnippet = isPreset
+    ? presetCurl
     : `curl -X POST '${typeof window !== "undefined" ? window.location.origin : ""}/v1/serverless/${endpointId}/run' \\
   -H 'Content-Type: application/json' \\
   -H 'Authorization: Bearer YOUR_API_KEY' \\
   -d '{"input": ${jobPayload}}'`;
 
-  const openaiSnippet = `from openai import OpenAI
+  const openaiSnippet =
+    task === "embed"
+      ? `from openai import OpenAI
+
+client = OpenAI(base_url="${baseUrl}", api_key="YOUR_API_KEY")
+
+resp = client.embeddings.create(
+    model="${modelId}",
+    input=["The quick brown fox jumps over the lazy dog"],
+)
+print(resp.data[0].embedding[:8])`
+      : task === "rerank"
+      ? `import requests
+
+resp = requests.post(
+    "${baseUrl}/rerank",
+    headers={"Authorization": "Bearer YOUR_API_KEY"},
+    json={
+        "model": "${modelId}",
+        "query": "What is the capital of France?",
+        "documents": ["Paris is the capital of France.", "Berlin is in Germany."],
+    },
+)
+print(resp.json())`
+      : `from openai import OpenAI
 
 client = OpenAI(
     base_url="${baseUrl}",

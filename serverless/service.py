@@ -82,6 +82,15 @@ def _preset_startup_command(managed_engine: str, model_ref: str) -> str:
         return f"--model-id {model_ref}"
     if managed_engine == "sglang":
         return f"--model-path {model_ref} --port 8080"
+    # vLLM: embedding/reranker presets need an explicit --task (and no chat
+    # template); chat models keep the chat-tuned flags.
+    from serverless.openai_proxy import model_task
+
+    task = model_task(model_ref)
+    if task == "embed":
+        return f"--model {model_ref} --task embed"
+    if task == "rerank":
+        return f"--model {model_ref} --task score"
     return (
         f"--model {model_ref} --max-model-len 4096 "
         f"--chat-template-content-format openai"

@@ -23,6 +23,7 @@ from serverless.metering import compute_gpu_seconds, estimate_cost_cad, token_co
 from serverless.openai_proxy import (
     OpenAIProxyError,
     capability_gate,
+    model_task,
     normalize_route,
     worker_base_url,
 )
@@ -57,6 +58,52 @@ class TestManagedEngines:
         assert "--model" in _preset_startup_command("vllm", model)
         assert _preset_startup_command("tgi", model) == f"--model-id {model}"
         assert model in _preset_startup_command("sglang", model)
+
+    def test_preset_startup_command_task_aware(self):
+        # Chat models get the chat-tuned flags; embed/rerank get --task.
+        chat = _preset_startup_command("vllm", "meta-llama/Llama-3.3-70B-Instruct")
+        assert "--chat-template-content-format openai" in chat
+        assert "--task" not in chat
+        embed = _preset_startup_command("vllm", "BAAI/bge-m3")
+        assert "--task embed" in embed
+        assert "--chat-template" not in embed
+        rerank = _preset_startup_command("vllm", "BAAI/bge-reranker-v2-m3")
+        assert "--task score" in rerank
+
+
+class TestModelTask:
+    def test_classification(self):
+        assert model_task("deepseek-ai/DeepSeek-R1-Distill-Qwen-32B") == "chat"
+        assert model_task("meta-llama/Llama-3.3-70B-Instruct") == "chat"
+        assert model_task("Qwen/Qwen2.5-Coder-32B-Instruct") == "chat"
+        assert model_task("BAAI/bge-m3") == "embed"
+        assert model_task("nomic-ai/nomic-embed-text-v1.5") == "embed"
+        assert model_task("BAAI/bge-reranker-v2-m3") == "rerank"
+        assert model_task(None) == "chat"
+
+    def test_embeddings_gate_matches_task(self):
+        # /v1/embeddings allowed on an embedding endpoint, rejected on a chat one.
+        embed_ep = {"mode": "preset", "model_ref": "BAAI/bge-m3"}
+        capability_gate("embeddings", embed_ep)  # no raise
+
+        chat_ep = {"mode": "preset", "model_ref": "meta-llama/Llama-3.3-70B-Instruct"}
+        with pytest.raises(OpenAIProxyError) as exc:
+            capability_gate("embeddings", chat_ep)
+        assert exc.value.status_code == 400
+        assert exc.value.code == "wrong_model_task"
+
+    def test_chat_gate_rejected_on_embed_endpoint(self):
+        embed_ep = {"mode": "preset", "model_ref": "BAAI/bge-m3"}
+        with pytest.raises(OpenAIProxyError) as exc:
+            capability_gate("chat/completions", embed_ep)
+        assert exc.value.code == "wrong_model_task"
+
+    def test_rerank_gate(self):
+        rr_ep = {"mode": "preset", "model_ref": "BAAI/bge-reranker-v2-m3"}
+        capability_gate("rerank", rr_ep)  # no raise
+        chat_ep = {"mode": "preset", "model_ref": "meta-llama/Llama-3.1-8B-Instruct"}
+        with pytest.raises(OpenAIProxyError):
+            capability_gate("rerank", chat_ep)
 
     def test_rejects_unknown_managed_engine(self):
         spec = EndpointCreate(
@@ -179,11 +226,14 @@ class TestOpenAIProxy:
         assert normalize_route("/openai/v1/chat/completions") == "chat/completions"
         assert normalize_route("v1/models") == "models"
 
-    def test_capability_gate_rejects_embeddings(self):
+    def test_capability_gate_rejects_embeddings_on_chat_model(self):
+        # Embeddings are now supported on embedding endpoints, but rejected on a
+        # chat endpoint with a clear wrong-model-task error.
         ep = {"mode": "preset", "model_ref": "llama"}
         with pytest.raises(OpenAIProxyError) as exc:
             capability_gate("embeddings", ep, {})
-        assert exc.value.status_code == 501
+        assert exc.value.status_code == 400
+        assert exc.value.code == "wrong_model_task"
 
     def test_capability_gate_rejects_vision(self):
         ep = {"mode": "preset"}
