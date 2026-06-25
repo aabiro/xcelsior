@@ -2021,6 +2021,181 @@ def api_auth_resend_verification(req: ResendVerificationRequest, request: Reques
     }
 
 
+# ── Profile + email change (self-service) ────────────────────────────────
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class EmailChangeRequest(BaseModel):
+    new_email: str = Field(..., max_length=254)
+
+
+class EmailChangeConfirmRequest(BaseModel):
+    token: str = Field(..., max_length=128)
+
+
+@router.put("/api/auth/me/profile", tags=["Auth"])
+def api_auth_update_profile(body: ProfileUpdateRequest, request: Request):
+    """Update the signed-in user's display name (and optional locale fields).
+
+    Email is NOT changed here — that goes through the verified email-change flow.
+    """
+    user = _require_user_grant(request)
+    email = str(user.get("email") or "")
+    updates: dict = {}
+    if body.name is not None:
+        updates["name"] = body.name.strip()[:64]
+    if body.country is not None:
+        updates["country"] = body.country.strip()[:32]
+    if body.province is not None:
+        updates["province"] = body.province.strip()[:32]
+    if not updates:
+        return {"ok": True}
+    if _USE_PERSISTENT_AUTH:
+        UserStore.update_user(email, updates)
+    else:
+        with _user_lock:
+            if email in _users_db:
+                _users_db[email].update(updates)
+    return {"ok": True, **updates}
+
+
+@router.post("/api/auth/me/email-change", tags=["Auth"])
+def api_auth_email_change(body: EmailChangeRequest, request: Request):
+    """Start a verified email change: emails a confirmation link to the NEW
+    address. The account keeps its current email until the link is confirmed."""
+    _check_auth_rate_limit(request)
+    user = _require_user_grant(request)
+    current_email = user.get("email") or ""
+    new_email = body.new_email.strip().lower()
+    if not _EMAIL_RE.match(new_email):
+        raise HTTPException(400, "Enter a valid email address")
+    if new_email == current_email.lower():
+        raise HTTPException(400, "That is already your email address")
+
+    if _USE_PERSISTENT_AUTH:
+        existing = UserStore.get_user(new_email)
+    else:
+        with _user_lock:
+            existing = _users_db.get(new_email)
+    if existing:
+        raise HTTPException(409, "That email is already registered to another account")
+
+    token = secrets.token_urlsafe(32)
+    expires = time.time() + 86400  # 24h
+    change_fields = {
+        "pending_email": new_email,
+        "email_change_token": token,
+        "email_change_expires": expires,
+    }
+    if _USE_PERSISTENT_AUTH:
+        UserStore.update_user(current_email, change_fields)
+    else:
+        with _user_lock:
+            if current_email in _users_db:
+                _users_db[current_email].update(change_fields)
+
+    base_url = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
+    confirm_url = f"{base_url}/verify-email-change?token={token}"
+    display_name = user.get("name") or new_email.split("@")[0]
+    try:
+        _send_team_email(
+            new_email,
+            "Confirm your new Xcelsior email",
+            f"Hi {display_name},\n\n"
+            f"We received a request to change the email on your Xcelsior account to {new_email}.\n\n"
+            "Click the button below to confirm. This link expires in 24 hours, and your account "
+            "keeps using your current email until you confirm.\n\n"
+            f"{confirm_url}\n\n"
+            "If you didn't request this, you can safely ignore this email — nothing will change.",
+            cta_url=confirm_url,
+            cta_label="Confirm New Email",
+        )
+    except Exception as e:
+        log.debug("email-change verification send failed: %s", e)
+
+    return {
+        "ok": True,
+        "pending_email": new_email,
+        "message": f"We sent a confirmation link to {new_email}.",
+    }
+
+
+@router.post("/api/auth/me/email-change/confirm", tags=["Auth"])
+def api_auth_email_change_confirm(body: EmailChangeConfirmRequest, request: Request):
+    """Confirm a pending email change via the token from the verification email.
+    Works without an active session (the link may be opened from any device)."""
+    _check_auth_rate_limit(request)
+    token = body.token.strip()
+    if not token:
+        raise HTTPException(400, "Invalid confirmation link")
+
+    if _USE_PERSISTENT_AUTH:
+        from db import auth_connection
+
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT email, pending_email, email_change_expires FROM users "
+                "WHERE email_change_token = %s",
+                (token,),
+            ).fetchone()
+        if not row or not row.get("pending_email"):
+            raise HTTPException(400, "This confirmation link is invalid or has already been used")
+        if time.time() > (row["email_change_expires"] or 0):
+            raise HTTPException(400, "This confirmation link has expired. Please request a new email change.")
+        old_email = row["email"]
+        new_email = row["pending_email"]
+        try:
+            UserStore.change_email(old_email, new_email)
+        except ValueError:
+            raise HTTPException(409, "That email is now registered to another account")
+    else:
+        old_email = None
+        new_email = None
+        with _user_lock:
+            for em, u in list(_users_db.items()):
+                if u.get("email_change_token") == token and u.get("pending_email"):
+                    if time.time() > u.get("email_change_expires", 0):
+                        raise HTTPException(400, "This confirmation link has expired. Please request a new email change.")
+                    new_email = u["pending_email"]
+                    if new_email in _users_db:
+                        raise HTTPException(409, "That email is now registered to another account")
+                    updated = {**u, "email": new_email, "email_verified": 1}
+                    for k in ("pending_email", "email_change_token", "email_change_expires"):
+                        updated.pop(k, None)
+                    del _users_db[em]
+                    _users_db[new_email] = updated
+                    old_email = em
+                    break
+            else:
+                raise HTTPException(400, "This confirmation link is invalid or has already been used")
+
+    # In-app notification + confirmation email to the new address
+    try:
+        NotificationStore.create(
+            new_email,
+            "system",
+            "Email address updated",
+            f"Your account email was successfully changed to {new_email}.",
+            {},
+        )
+    except Exception as e:
+        log.debug("email-change notification failed: %s", e)
+    try:
+        _send_team_email(
+            new_email,
+            "Your Xcelsior email was changed",
+            f"This confirms your Xcelsior account email is now {new_email}.\n\n"
+            "If you didn't make this change, contact support immediately.",
+            cta_url="https://xcelsior.ca/dashboard/settings#profile",
+            cta_label="Go to Settings",
+        )
+    except Exception as e:
+        log.debug("email-change confirmation send failed: %s", e)
+
+    return {"ok": True, "email": new_email, "message": "Email address updated"}
+
+
 @router.get("/api/auth/sessions", tags=["Auth"])
 def api_auth_list_sessions(request: Request):
     """List active sessions for the current user."""

@@ -14,6 +14,7 @@ import type { ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { getMe, logout as apiLogout, refreshToken } from "@/lib/api";
 import { needsSessionOnMount } from "@/lib/session-routes";
+import { setSessionHint, clearSessionHint, hasSessionHint } from "@/lib/session-hint";
 
 /** Revoke the session server-side then redirect to the login page. */
 function forceLogout(reason: string) {
@@ -79,7 +80,9 @@ const AuthContext = createContext<AuthState>({
 export function AuthProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(() => needsSessionOnMount(pathname));
+  // Start in the loading state when a session is likely (auth-sensitive route or a
+  // prior session hint), so the navbar can show the signed-in state without a flash.
+  const [loading, setLoading] = useState(() => needsSessionOnMount(pathname) || hasSessionHint());
   const [sessionExpiring, setSessionExpiring] = useState(false);
   const sessionFetched = useRef(false);
 
@@ -99,6 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     warnTimer.current = setTimeout(() => setSessionExpiring(true), IDLE_WARN_MIN * 60_000);
     logoutTimer.current = setTimeout(() => {
       // Inactivity exceeded — revoke session server-side and redirect
+      clearSessionHint();
       setUser(null);
       forceLogout("idle");
     }, IDLE_LOGOUT_MIN * 60_000);
@@ -133,6 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const nextUser = res.user ?? null;
       setUser(nextUser);
       if (nextUser) {
+        setSessionHint();
         phIdentify(nextUser.user_id, {
           email: nextUser.email,
           name: nextUser.name,
@@ -140,6 +145,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           country: nextUser.country,
           province: nextUser.province,
         });
+      } else {
+        clearSessionHint();
       }
       return Boolean(nextUser);
     } catch {
@@ -164,6 +171,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       /* cookie already cleared or network error — fine */
     }
     phReset();
+    clearSessionHint();
     setUser(null);
     if (typeof window !== "undefined") {
       window.location.href = "/login";
@@ -195,6 +203,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const nextUser = res.user ?? null;
           setUser(nextUser);
           if (nextUser) {
+            setSessionHint();
             phIdentify(nextUser.user_id, {
               email: nextUser.email,
               name: nextUser.name,
@@ -202,11 +211,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               country: nextUser.country,
               province: nextUser.province,
             });
+          } else {
+            clearSessionHint();
           }
         }
       })
       .catch(() => {
-        if (!cancelled && isInitialProbe) setUser(null);
+        if (!cancelled && isInitialProbe) {
+          setUser(null);
+          clearSessionHint();
+        }
       })
       .finally(() => {
         if (!cancelled) {

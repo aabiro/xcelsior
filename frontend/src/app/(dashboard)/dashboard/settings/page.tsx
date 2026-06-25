@@ -10,7 +10,7 @@ import {
   Lock, Trash2, Download, Eye, EyeOff, Copy, Plus, AlertTriangle,
   CheckCircle, Loader2, ShieldCheck, X, Users, UserPlus, UserMinus,
   User, Fingerprint, MonitorSmartphone, KeyRound, Wallet, TrendingDown,
-  ChevronRight,
+  ChevronRight, Pencil, Mail, MailCheck,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
@@ -179,14 +179,32 @@ export default function SettingsPage() {
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [revokingSession, setRevokingSession] = useState<string | null>(null);
 
-  // ── Hash-based tab routing ──
+  // ── Hash ⇄ tab routing ──
+  // Apply the tab from the URL hash on mount AND on every hashchange, so both
+  // deep links (/dashboard/settings#team) and same-page links (the topbar profile
+  // dropdown's #team / #api-keys) select the right tab.
   useEffect(() => {
-    const hash = window.location.hash.replace("#", "");
-    if (TABS.some((tab) => tab.id === hash)) setActiveTab(hash as TabId);
+    const applyHash = () => {
+      const hash = window.location.hash.replace("#", "");
+      if (TABS.some((tab) => tab.id === hash)) setActiveTab(hash as TabId);
+    };
+    applyHash();
+    window.addEventListener("hashchange", applyHash);
+    return () => window.removeEventListener("hashchange", applyHash);
   }, []);
 
+  // Reflect the active tab back into the URL — but skip the first run so we don't
+  // clobber an incoming hash, and use replaceState (no history spam, no scroll
+  // jump, no hashchange loop).
+  const hashSynced = useRef(false);
   useEffect(() => {
-    window.location.hash = activeTab;
+    if (!hashSynced.current) {
+      hashSynced.current = true;
+      return;
+    }
+    if (typeof window !== "undefined" && window.location.hash.replace("#", "") !== activeTab) {
+      window.history.replaceState(null, "", `#${activeTab}`);
+    }
   }, [activeTab]);
 
   // ── Animated tab indicator ──
@@ -808,6 +826,50 @@ function ProfileTab({
   saving: boolean; onSave: () => void;
   onAvatarUpdated: () => Promise<void>;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [nameDraft, setNameDraft] = useState(name);
+  const [savingName, setSavingName] = useState(false);
+  const [newEmail, setNewEmail] = useState("");
+  const [confirmEmail, setConfirmEmail] = useState("");
+  const [requestingEmail, setRequestingEmail] = useState(false);
+  const [emailSent, setEmailSent] = useState<string | null>(null);
+
+  const emailValid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(newEmail.trim());
+  const emailsMatch = newEmail.trim().toLowerCase() === confirmEmail.trim().toLowerCase();
+
+  const startEdit = () => { setNameDraft(name); setEditing(true); };
+  const cancelEdit = () => {
+    setEditing(false);
+    setNameDraft(name);
+    setNewEmail(""); setConfirmEmail(""); setEmailSent(null);
+  };
+
+  const saveName = async () => {
+    const next = nameDraft.trim();
+    if (!next || next === name.trim()) return;
+    setSavingName(true);
+    try {
+      await api.updateProfile({ name: next });
+      setName(next);
+      await onAvatarUpdated();
+      toast.success(t("dash.settings.profile_saved"));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("dash.settings.profile_save_failed"));
+    } finally { setSavingName(false); }
+  };
+
+  const requestEmail = async () => {
+    if (!emailValid || !emailsMatch) return;
+    setRequestingEmail(true);
+    try {
+      const res = await api.requestEmailChange(newEmail.trim().toLowerCase());
+      setEmailSent(res.pending_email);
+      toast.success(res.message);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("dash.settings.email_change_failed"));
+    } finally { setRequestingEmail(false); }
+  };
+
   return (
     <SettingsTabPanel>
       <StaggerList className="space-y-5">
@@ -818,17 +880,105 @@ function ProfileTab({
             description="Your public identity on the platform"
             accent="cyan"
             highlight
+            action={
+              editing ? (
+                <button
+                  type="button"
+                  onClick={cancelEdit}
+                  title={t("dash.settings.cancel")}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={startEdit}
+                  title={t("dash.settings.edit_profile")}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-accent-cyan/10 hover:text-accent-cyan"
+                >
+                  <Pencil className="h-4 w-4" />
+                </button>
+              )
+            }
           >
             <div className="space-y-6">
               <ProfileAvatarUpload user={user} onUpdated={onAvatarUpdated} />
+              {/* Divider above name */}
+              <div className="h-px bg-border/50" />
               <div className="space-y-2">
                 <Label>{t("dash.settings.name")}</Label>
-                <Input value={name} onChange={(e) => setName(e.target.value)} />
+                {editing ? (
+                  <div className="flex gap-2">
+                    <Input
+                      value={nameDraft}
+                      onChange={(e) => setNameDraft(e.target.value)}
+                      maxLength={64}
+                      autoFocus
+                    />
+                    <Button
+                      size="sm"
+                      onClick={saveName}
+                      disabled={savingName || !nameDraft.trim() || nameDraft.trim() === name.trim()}
+                    >
+                      {savingName ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      {t("dash.settings.save")}
+                    </Button>
+                  </div>
+                ) : (
+                  <Input value={name} disabled className="opacity-70" />
+                )}
               </div>
               <div className="space-y-2">
                 <Label>{t("dash.settings.email")}</Label>
-                <Input value={email} disabled className="opacity-60" />
-                <p className="text-xs text-text-muted">{t("dash.settings.email_note")}</p>
+                {!editing ? (
+                  <Input value={email} disabled className="opacity-60" />
+                ) : emailSent ? (
+                  <div className="flex items-start gap-3 rounded-xl border border-accent-cyan/30 bg-accent-cyan/5 px-4 py-3">
+                    <MailCheck className="mt-0.5 h-4 w-4 shrink-0 text-accent-cyan" />
+                    <div className="text-sm text-text-secondary">
+                      {t("dash.settings.email_change_sent", { email: emailSent })}{" "}
+                      <button
+                        type="button"
+                        onClick={() => { setEmailSent(null); setNewEmail(""); setConfirmEmail(""); }}
+                        className="text-accent-cyan underline hover:no-underline"
+                      >
+                        {t("dash.settings.email_change_use_different")}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Input value={email} disabled className="opacity-60" />
+                    <Input
+                      type="email"
+                      value={newEmail}
+                      onChange={(e) => setNewEmail(e.target.value)}
+                      placeholder={t("dash.settings.email_change_new")}
+                    />
+                    <Input
+                      type="email"
+                      value={confirmEmail}
+                      onChange={(e) => setConfirmEmail(e.target.value)}
+                      placeholder={t("dash.settings.email_change_confirm")}
+                    />
+                    {newEmail && confirmEmail && !emailsMatch && (
+                      <p className="text-xs text-accent-red">{t("dash.settings.email_change_mismatch")}</p>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={requestEmail}
+                      disabled={requestingEmail || !emailValid || !emailsMatch}
+                    >
+                      {requestingEmail ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+                      {t("dash.settings.email_change_send")}
+                    </Button>
+                  </div>
+                )}
+                <p className="text-xs text-text-muted">
+                  {editing && !emailSent ? t("dash.settings.email_change_note") : t("dash.settings.email_note")}
+                </p>
               </div>
             </div>
           </SettingsSection>

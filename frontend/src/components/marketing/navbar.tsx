@@ -9,6 +9,8 @@ import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { LocaleToggle } from "@/components/ui/locale-toggle";
 import { useLocale } from "@/lib/locale";
 import { useAuth } from "@/lib/auth";
+import { hasSessionHint } from "@/lib/session-hint";
+import { useMounted } from "@/hooks/useMounted";
 
 const navKeys = [
   { href: "/features", key: "nav.features" },
@@ -23,8 +25,13 @@ const navKeys = [
 export function Navbar() {
   const [open, setOpen] = useState(false);
   const { t } = useLocale();
-  const { user, logout } = useAuth();
+  const { user, loading, logout } = useAuth();
   const pathname = usePathname();
+  const mounted = useMounted();
+  // Treat the user as signed in while the session probe is still in flight if a
+  // prior session hint exists — so signed-in visitors see "Dashboard", never a
+  // "Sign In" flash. The server probe corrects a stale hint on resolve.
+  const signedIn = !!user || (loading && hasSessionHint());
 
   useEffect(() => {
     if (!open) return;
@@ -82,7 +89,11 @@ export function Navbar() {
             <ThemeToggle />
           </div>
           <div className="hidden sm:block h-5 w-px bg-border" />
-          {user ? (
+          {/* Pre-mount we can't know auth state (httpOnly cookie), so reserve space
+              instead of rendering the wrong buttons — avoids the Sign In flash. */}
+          {!mounted ? (
+            <div className="hidden sm:block h-11 w-[150px]" aria-hidden />
+          ) : signedIn ? (
             <>
               <button
                 type="button"
@@ -170,7 +181,7 @@ export function Navbar() {
                   <LocaleToggle />
                   <ThemeToggle />
                 </div>
-                {user ? (
+                {signedIn ? (
                   <>
                     <Link
                       href="/dashboard"

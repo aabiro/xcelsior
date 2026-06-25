@@ -1291,6 +1291,11 @@ def _ensure_oauth_auth_tables(conn) -> None:
     )
     cur.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS client_id TEXT")
 
+    # Pending email-change verification (self-service email update flow).
+    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_email TEXT")
+    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_change_token TEXT")
+    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_change_expires DOUBLE PRECISION")
+
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_oauth_clients_owner ON oauth_clients (created_by_email)"
     )
@@ -1430,6 +1435,9 @@ class UserStore:
             "email_verified",
             "email_verification_token",
             "email_verification_expires",
+            "pending_email",
+            "email_change_token",
+            "email_change_expires",
         }
         fields = {k: v for k, v in updates.items() if k in allowed}
         if not fields:
@@ -1452,6 +1460,44 @@ class UserStore:
         """Set user admin flag. Only callable from admin endpoints."""
         with auth_connection() as conn:
             conn.execute("UPDATE users SET is_admin = %s WHERE email = %s", (int(is_admin), email))
+
+    @staticmethod
+    def change_email(old_email: str, new_email: str) -> None:
+        """Re-key a user's email across every email-referencing auth table.
+
+        Email is the cross-table identifier (sessions, api_keys, tokens,
+        notifications, team membership), so a verified email change must cascade
+        atomically. Marks the new address verified and clears the pending-change
+        fields. Raises if new_email already belongs to another account.
+        """
+        with auth_connection() as conn:
+            taken = conn.execute(
+                "SELECT 1 FROM users WHERE email = %s", (new_email,)
+            ).fetchone()
+            if taken:
+                raise ValueError("Email already in use")
+            # Re-point every table keyed by the old address, then the user row.
+            conn.execute("UPDATE sessions SET email = %s WHERE email = %s", (new_email, old_email))
+            conn.execute("UPDATE api_keys SET email = %s WHERE email = %s", (new_email, old_email))
+            conn.execute(
+                "UPDATE oauth_refresh_tokens SET email = %s WHERE email = %s", (new_email, old_email)
+            )
+            conn.execute(
+                "UPDATE web_push_subscriptions SET user_email = %s WHERE user_email = %s",
+                (new_email, old_email),
+            )
+            conn.execute(
+                "UPDATE notifications SET user_email = %s WHERE user_email = %s",
+                (new_email, old_email),
+            )
+            conn.execute(
+                "UPDATE team_members SET email = %s WHERE email = %s", (new_email, old_email)
+            )
+            conn.execute(
+                "UPDATE users SET email = %s, email_verified = 1, pending_email = NULL, "
+                "email_change_token = NULL, email_change_expires = NULL WHERE email = %s",
+                (new_email, old_email),
+            )
 
     @staticmethod
     def delete_user(email: str) -> None:

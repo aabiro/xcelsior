@@ -204,15 +204,18 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       <div className="flex h-[72px] items-center border-b border-border/60 px-4 justify-between">
         <Link href="/dashboard" className="flex items-center overflow-visible pr-2">
           <div className="relative shrink-0" style={{ width: collapsed && !mobile ? 45 : undefined }}>
-            {/* Collapsed icon — rendered at 45px so its leaf+X glyph matches the
-                glyph height inside the expanded wordmark (which is taller than the
-                old 40px icon), eliminating the height drift when toggling. */}
+            {/* Collapsed icon — matched to the icon *within* the expanded wordmark
+                so toggling never moves it. The wordmark's leaf+X glyph renders at
+                ~40.7px tall starting ~5.5px right of the wordmark's left edge (the
+                badge inset); a 45px standalone icon reproduces that glyph size, and
+                the left-[5.5px] offset lands it on the same x as the wordmark glyph.
+                Result: identical size, x, and y in both states. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/xcelsior-logo-rounded.svg"
               alt="Xcelsior"
               className={cn(
-                "h-[45px] w-[45px] transition-all duration-300 ease-in-out absolute top-1/2 left-0",
+                "h-[45px] w-[45px] transition-all duration-300 ease-in-out absolute top-1/2 left-[5.5px]",
                 collapsed && !mobile
                   ? "opacity-100 scale-100 -translate-y-1/2"
                   : "opacity-0 scale-75 -translate-y-1/2 pointer-events-none"
