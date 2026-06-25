@@ -8,6 +8,8 @@ import { FadeIn, StaggerList, StaggerItem } from "@/components/ui/motion";
 import { Server, Activity, Zap, Users, Cpu, Rocket, ArrowUpRight, Plus, type LucideIcon } from "lucide-react";
 import { useApi } from "@/lib/use-api";
 import { useLocale } from "@/lib/locale";
+import { useAuth } from "@/lib/auth";
+import { FirstRunCard } from "@/components/onboarding/first-run-card";
 import type { Host, Instance, ReputationEntry } from "@/lib/api";
 import { useEventStream } from "@/hooks/useEventStream";
 import { AuroraBackground } from "@/components/ui/aurora-bg";
@@ -219,6 +221,7 @@ export default function DashboardOverview() {
   const [loading, setLoading] = useState(true);
   const api = useApi();
   const { t } = useLocale();
+  const { user } = useAuth();
 
   const load = useCallback(() => {
     Promise.allSettled([
@@ -272,6 +275,12 @@ export default function DashboardOverview() {
 
       <div className="relative z-10 space-y-6">
         <h1 className="text-2xl font-bold">{t("dash.overview.title")}</h1>
+
+        {/* First-run activation — shows until the user has launched something */}
+        <FirstRunCard
+          customerId={user?.customer_id || user?.user_id}
+          show={instances.length === 0}
+        />
 
         {/* Canada Map Hero */}
         <FadeIn>
