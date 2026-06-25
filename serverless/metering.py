@@ -223,7 +223,7 @@ def charge_serverless_execution(
     final: bool = False,
     resource_type: str = "serverless_gpu",
     description: str | None = None,
-    token_cost_cad: float = 0.0,
+    token_cost_cad: float | None = None,
 ) -> dict:
     """
     Debit wallet for an unbilled worker uptime slice (incremental; no double-charge).
@@ -231,8 +231,10 @@ def charge_serverless_execution(
     Novita: Worker cost = running_duration_seconds × unit_price_per_second.
 
     When ``BLENDED_BILLING_ENABLED``, the slice is charged the higher of the
-    GPU-seconds cost and the token cost accrued for the period (``token_cost_cad``);
-    both are always recorded for dual-write validation before the flag is flipped.
+    GPU-seconds cost and the token cost accrued for the period; both are always
+    recorded for dual-write validation before the flag is flipped. The period's
+    token cost is consumed from the endpoint's accrual, unless ``token_cost_cad``
+    is passed explicitly (tests).
     """
     owner_id = str(endpoint.get("owner_id") or "")
     job_id = _billing_job_id(worker)
@@ -256,6 +258,16 @@ def charge_serverless_execution(
             "amount_cad": 0.0,
             "reason": "below_minimum_interval",
         }
+
+    # Resolve the period's token cost for the blended meter: explicit value (tests)
+    # or consume the endpoint's accrued unbilled token cost. Consumed here (after the
+    # billing gates) so it aligns with the slice that's actually billed.
+    if token_cost_cad is None:
+        try:
+            raw = repo.consume_endpoint_token_cost(str(endpoint.get("endpoint_id") or ""))
+            token_cost_cad = float(raw) if isinstance(raw, (int, float)) else 0.0
+        except Exception:
+            token_cost_cad = 0.0
 
     rate = get_gpu_rate_per_hour(
         str(endpoint.get("gpu_tier") or ""),

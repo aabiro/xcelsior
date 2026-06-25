@@ -233,10 +233,10 @@ _GPU_PRICING_BASE: list[tuple[str, int, str, bool, float]] = [
     ("H100",      80, "SXM",  False,  4.20),
     ("H100",      80, "PCIe", False,  3.50),
     ("H100 NVL",  94, "PCIe", False,  4.00),
-    ("A100", 80, "SXM", False, 2.60),
-    ("A100", 80, "PCIe", False, 2.20),
-    ("A100", 40, "SXM", False, 1.80),
-    ("A100", 40, "PCIe", False, 1.50),
+    ("A100", 80, "SXM", False, 2.00),   # repriced toward market (Vast/RunPod A100-80)
+    ("A100", 80, "PCIe", False, 1.70),
+    ("A100", 40, "SXM", False, 1.40),
+    ("A100", 40, "PCIe", False, 1.20),
     ("A40", 48, "PCIe", False, 1.20),
     ("A30", 24, "PCIe", False, 0.80),
     ("A10", 24, "PCIe", False, 0.70),
@@ -288,7 +288,7 @@ _GPU_PRICING_BASE: list[tuple[str, int, str, bool, float]] = [
     ("RTX 6000 Ada", 48, "PCIe", False, 2.00),
     ("RTX 5000 Ada", 32, "PCIe", False, 1.40),
     ("RTX 4000 Ada", 20, "PCIe", False, 0.85),
-    ("RTX A6000", 48, "PCIe", False, 1.60),
+    ("RTX A6000", 48, "PCIe", False, 1.10),  # repriced toward market (RunPod/Vast A6000)
     ("RTX A5000", 24, "PCIe", False, 0.95),
     ("RTX A4000", 16, "PCIe", False, 0.60),
     # ── AMD Data Center ──
@@ -301,7 +301,11 @@ _GPU_PRICING_BASE: list[tuple[str, int, str, bool, float]] = [
 ]
 
 # Deterministic expansion of base rates into the full tier × mode matrix.
-_TIER_MULT = {"standard": 1.0, "premium": 1.30, "sovereign": 1.43}  # sovereign = premium × 1.10
+# Sovereign premium dropped (was 1.43 = premium × 1.10): we compete on price/DX,
+# not a sovereignty surcharge, so the sovereign tier no longer costs more than
+# standard. The tier string is retained (referenced by sla.py, scheduler, Stripe
+# catalog) but carries no price premium.
+_TIER_MULT = {"standard": 1.0, "premium": 1.30, "sovereign": 1.0}
 _MODE_MULT = {
     "on_demand": 1.0,
     "spot": 0.40,
@@ -309,7 +313,7 @@ _MODE_MULT = {
     "reserved_3mo": 0.70,  # 30% off — matches billing API 3_month commitment
     "reserved_1yr": 0.55,
 }
-_TIER_SOVEREIGNTY = {"standard": 0.0, "premium": 0.0, "sovereign": 0.10}
+_TIER_SOVEREIGNTY = {"standard": 0.0, "premium": 0.0, "sovereign": 0.0}
 
 
 def _generate_gpu_pricing_rows() -> list[tuple]:

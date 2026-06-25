@@ -1041,6 +1041,47 @@ class ServerlessRepo:
                 (requests, gpu_seconds, cost_cad, time.time(), endpoint_id),
             )
 
+    def accrue_endpoint_token_cost(self, endpoint_id: str, cost_cad: float) -> None:
+        """Add request token cost to the endpoint's unbilled accrual (blended meter)."""
+        if not endpoint_id or cost_cad <= 0:
+            return
+        with self._conn() as conn:
+            conn.execute(
+                """
+                UPDATE serverless_endpoints
+                   SET unbilled_token_cost_cad = unbilled_token_cost_cad + %s,
+                       updated_at = %s
+                 WHERE endpoint_id = %s
+                """,
+                (float(cost_cad), time.time(), endpoint_id),
+            )
+
+    def consume_endpoint_token_cost(self, endpoint_id: str) -> float:
+        """Atomically read and zero the endpoint's accrued unbilled token cost,
+        returning the amount consumed (for the blended meter's billing slice)."""
+        if not endpoint_id:
+            return 0.0
+        with self._conn() as conn:
+            row = conn.execute(
+                """
+                WITH old AS (
+                    SELECT unbilled_token_cost_cad AS v
+                    FROM serverless_endpoints
+                    WHERE endpoint_id = %s
+                    FOR UPDATE
+                )
+                UPDATE serverless_endpoints e
+                   SET unbilled_token_cost_cad = 0, updated_at = %s
+                  FROM old
+                 WHERE e.endpoint_id = %s
+                RETURNING old.v
+                """,
+                (endpoint_id, time.time(), endpoint_id),
+            ).fetchone()
+        if not row:
+            return 0.0
+        return float(row["v"] or 0.0)
+
     def get_worker_job_row(self, worker_id: str) -> dict | None:
         """Join serverless_workers → jobs → host IP for proxy routing."""
         with self._conn() as conn:
