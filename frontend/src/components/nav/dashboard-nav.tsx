@@ -21,7 +21,6 @@ import {
   Server,
   Shield,
   Sparkles,
-  Star,
   Store,
   TrendingUp,
   Users,
@@ -102,7 +101,8 @@ const NAV_GROUPS: NavGroupDef[] = [
     id: "trust",
     labelKey: "dash.nav.trust",
     items: [
-      { href: "/dashboard/reputation", key: "dash.reputation", icon: Star },
+      // Reputation page hidden for now — Phase 1 uses a flat platform fee, so
+      // reputation tiers don't yet affect economics. Re-add when incentives return.
       { href: "/dashboard/compliance", key: "dash.compliance", icon: FileCheck },
       { href: "/dashboard/trust", key: "dash.trust", icon: Shield },
     ],
