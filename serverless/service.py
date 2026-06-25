@@ -403,6 +403,14 @@ class ServerlessService:
         token_meta = token_cost_metadata(
             input_tokens, output_tokens, model_ref=str(ep.get("model_ref") or "") if ep else None
         )
+        # Accrue this request's token cost so the blended meter can later charge the
+        # higher of GPU-seconds vs. token cost. Best-effort: never block completion.
+        try:
+            self.repo.accrue_endpoint_token_cost(
+                str(w["endpoint_id"]), float(token_meta.get("total_token_cost_cad") or 0.0)
+            )
+        except Exception:
+            log.debug("token cost accrual skipped for endpoint %s", w.get("endpoint_id"))
 
         completed = self.repo.complete_job(
             job_id,
