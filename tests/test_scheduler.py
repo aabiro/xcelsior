@@ -510,7 +510,9 @@ class TestMarketplace:
         assert listing["host_id"] == "h1"
         assert listing["active"]
 
-    def test_list_rig_applies_reputation_platform_cut(self, monkeypatch):
+    def test_list_rig_uses_flat_platform_cut(self, monkeypatch):
+        # Phase 1: flat platform fee — a top-tier (Diamond, 900) host no longer
+        # gets the old 8% discount; everyone pays PLATFORM_CUT.
         class _FakeScore:
             final_score = 900
             raw_score = 900
@@ -522,8 +524,7 @@ class TestMarketplace:
         monkeypatch.setattr(scheduler, "get_reputation_engine", lambda: _FakeReputationEngine())
 
         listing = scheduler.list_rig("h1", "RTX 4090", 24, 0.30, owner="alice")
-        assert listing["platform_cut"] == 0.08
-        assert listing["platform_cut_source"] == "reputation"
+        assert listing["platform_cut"] == scheduler.PLATFORM_CUT
 
     def test_marketplace_preserves_manual_platform_cut(self, monkeypatch):
         class _FakeScore:
@@ -571,7 +572,9 @@ class TestMarketplace:
         assert "platform_revenue" in stats
         assert stats["default_platform_cut_pct"] == scheduler.PLATFORM_CUT
 
-    def test_marketplace_bill_syncs_legacy_default_cut_to_reputation(self, monkeypatch):
+    def test_marketplace_bill_uses_flat_platform_cut(self, monkeypatch):
+        # Phase 1: flat platform fee — a Platinum (700) host no longer gets the
+        # old 10% discount; the bill and listing both use PLATFORM_CUT.
         class _FakeScore:
             final_score = 700
             raw_score = 700
@@ -607,11 +610,10 @@ class TestMarketplace:
         scheduler.update_job_status(job["job_id"], "completed")
 
         bill = scheduler.marketplace_bill(job["job_id"])
-        assert bill["platform_cut_pct"] == 0.10
+        assert bill["platform_cut_pct"] == scheduler.PLATFORM_CUT
 
         listing = scheduler.load_marketplace()[0]
-        assert listing["platform_cut"] == 0.10
-        assert listing["platform_cut_source"] == "reputation"
+        assert listing["platform_cut"] == scheduler.PLATFORM_CUT
         assert listing["total_platform_fees"] == bill["platform_fee"]
 
 
