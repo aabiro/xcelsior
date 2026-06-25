@@ -400,7 +400,9 @@ class ServerlessService:
         started = float(job.get("started_at") or now)
         execution_seconds = max(0, int(math.ceil(now - started)))
         cold_start_seconds = int(job.get("cold_start_seconds") or 0)
-        token_meta = token_cost_metadata(input_tokens, output_tokens)
+        token_meta = token_cost_metadata(
+            input_tokens, output_tokens, model_ref=str(ep.get("model_ref") or "") if ep else None
+        )
 
         completed = self.repo.complete_job(
             job_id,

@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import re
 import time
 import uuid
 from typing import TYPE_CHECKING, Any
@@ -15,9 +16,72 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("xcelsior.serverless.metering")
 
+# Fallback flat token prices (used only when model size can't be inferred).
 INPUT_TOKEN_PRICE_CAD_PER_M = float(os.environ.get("XCELSIOR_INPUT_TOKEN_PRICE", "0.50"))
 OUTPUT_TOKEN_PRICE_CAD_PER_M = float(os.environ.get("XCELSIOR_OUTPUT_TOKEN_PRICE", "1.50"))
 MIN_BILLING_INTERVAL_SEC = int(os.environ.get("XCELSIOR_SERVERLESS_MIN_BILLING_INTERVAL_SEC", "60"))
+
+# Blended serverless meter: when enabled, a worker's billing slice is charged the
+# higher of (GPU-seconds cost, token cost) so low-utilization workers are protected
+# and high-throughput workers are priced by tokens. Default OFF — flip on only after
+# the dual-write validation period (see token-accrual wiring).
+BLENDED_BILLING_ENABLED = os.environ.get("XCELSIOR_SERVERLESS_BLENDED_BILLING", "0").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+
+# Size-tiered token pricing (CAD per million tokens), by model parameter count.
+# (max_params_b_inclusive, input_price, output_price)
+_TOKEN_PRICE_BANDS: list[tuple[float, float, float]] = [
+    (9.0, 0.15, 0.45),          # ≤ 9B
+    (34.0, 0.35, 1.05),         # 10–34B
+    (80.0, 0.70, 2.10),         # 35–80B
+    (float("inf"), 1.10, 3.30),  # 80B+ / MoE
+]
+# Model families that should price at the top band even without an explicit size.
+_LARGE_MODEL_MARKERS = ("deepseek", "mixtral", "8x7b", "8x22b", "wizardlm-2-8x")
+_PARAM_RE = re.compile(r"(\d+(?:\.\d+)?)\s*[bB]\b")
+
+
+def infer_model_params_b(model_ref: str | None) -> float | None:
+    """Best-effort parameter count (billions) parsed from a model id/name.
+
+    Recognizes e.g. ``Llama-3.1-70B``, ``mistral-7b``, ``gemma-2-9b-it``; MoE /
+    very large families (DeepSeek, Mixtral) map to the top band. Returns None when
+    the size can't be determined, so callers fall back to flat pricing.
+    """
+    if not model_ref:
+        return None
+    s = model_ref.lower()
+    if any(marker in s for marker in _LARGE_MODEL_MARKERS):
+        return float("inf")
+    m = _PARAM_RE.search(s)
+    if m:
+        try:
+            return float(m.group(1))
+        except ValueError:
+            return None
+    return None
+
+
+def token_prices_for_model(model_ref: str | None) -> tuple[float, float]:
+    """(input, output) CAD per million tokens for the model's size band.
+
+    Unknown size → the flat env fallback prices (back-compat).
+    """
+    params_b = infer_model_params_b(model_ref)
+    if params_b is None:
+        return INPUT_TOKEN_PRICE_CAD_PER_M, OUTPUT_TOKEN_PRICE_CAD_PER_M
+    for max_b, in_price, out_price in _TOKEN_PRICE_BANDS:
+        if params_b <= max_b:
+            return in_price, out_price
+    return INPUT_TOKEN_PRICE_CAD_PER_M, OUTPUT_TOKEN_PRICE_CAD_PER_M
+
+
+def blended_period_amount(gpu_amount_cad: float, token_cost_cad: float) -> float:
+    """Blended meter for a billing slice: the higher of GPU-seconds or token cost."""
+    return round(max(float(gpu_amount_cad or 0.0), float(token_cost_cad or 0.0)), 6)
 
 
 def compute_gpu_seconds(allocated_at: float | None, released_at: float | None) -> int:
@@ -68,13 +132,20 @@ def estimate_worker_cost_for_duration_sec(
     return estimate_cost_cad(max(0, int(math.ceil(duration_sec))), rate_per_hour_cad, gpu_count)
 
 
-def token_cost_metadata(input_tokens: int, output_tokens: int) -> dict:
-    """Observability-only token costs — never debited as primary meter."""
-    in_cost = (input_tokens / 1_000_000.0) * INPUT_TOKEN_PRICE_CAD_PER_M
-    out_cost = (output_tokens / 1_000_000.0) * OUTPUT_TOKEN_PRICE_CAD_PER_M
+def token_cost_metadata(
+    input_tokens: int, output_tokens: int, model_ref: str | None = None
+) -> dict:
+    """Size-tiered token costs for a request. Observability until blended billing
+    is enabled, at which point this feeds the blended meter. ``model_ref`` selects
+    the size band; omitted → flat fallback prices."""
+    in_price, out_price = token_prices_for_model(model_ref)
+    in_cost = (input_tokens / 1_000_000.0) * in_price
+    out_cost = (output_tokens / 1_000_000.0) * out_price
     return {
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
+        "input_price_cad_per_m": in_price,
+        "output_price_cad_per_m": out_price,
         "input_cost_cad": round(in_cost, 6),
         "output_cost_cad": round(out_cost, 6),
         "total_token_cost_cad": round(in_cost + out_cost, 6),
@@ -152,11 +223,16 @@ def charge_serverless_execution(
     final: bool = False,
     resource_type: str = "serverless_gpu",
     description: str | None = None,
+    token_cost_cad: float = 0.0,
 ) -> dict:
     """
     Debit wallet for an unbilled worker uptime slice (incremental; no double-charge).
 
     Novita: Worker cost = running_duration_seconds × unit_price_per_second.
+
+    When ``BLENDED_BILLING_ENABLED``, the slice is charged the higher of the
+    GPU-seconds cost and the token cost accrued for the period (``token_cost_cad``);
+    both are always recorded for dual-write validation before the flag is flipped.
     """
     owner_id = str(endpoint.get("owner_id") or "")
     job_id = _billing_job_id(worker)
@@ -187,12 +263,22 @@ def charge_serverless_execution(
     )
     gpu_count = int(endpoint.get("gpu_count") or 1)
     gpu_seconds = max(0, int(math.ceil(duration_sec)))
-    amount_cad = estimate_cost_cad(gpu_seconds, rate, gpu_count)
+    gpu_amount_cad = estimate_cost_cad(gpu_seconds, rate, gpu_count)
+    # Blended meter: charge the higher of GPU-seconds vs. token cost (flag-gated).
+    blended_cad = blended_period_amount(gpu_amount_cad, token_cost_cad)
+    amount_cad = blended_cad if BLENDED_BILLING_ENABLED else gpu_amount_cad
+    if BLENDED_BILLING_ENABLED and token_cost_cad > 0:
+        log.info(
+            "blended-meter job=%s gpu=%.6f token=%.6f charged=%.6f",
+            job_id, gpu_amount_cad, token_cost_cad, amount_cad,
+        )
     if amount_cad <= 0 or not owner_id:
         return {
             "charged": False,
             "gpu_seconds": gpu_seconds,
             "amount_cad": 0.0,
+            "gpu_amount_cad": gpu_amount_cad,
+            "token_cost_cad": round(float(token_cost_cad or 0.0), 6),
             "reason": "zero_amount",
         }
 
@@ -255,6 +341,10 @@ def charge_serverless_execution(
         "charged": bool(charge_result.get("charged")),
         "gpu_seconds": gpu_seconds,
         "amount_cad": amount_cad,
+        "gpu_amount_cad": gpu_amount_cad,
+        "token_cost_cad": round(float(token_cost_cad or 0.0), 6),
+        "blended_amount_cad": blended_cad,
+        "blended_billing": BLENDED_BILLING_ENABLED,
         "cycle_id": cycle_id,
         "period_start": period_start,
         "period_end": period_end,

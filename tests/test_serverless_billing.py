@@ -11,12 +11,15 @@ os.environ.setdefault("XCELSIOR_ENV", "test")
 os.environ.setdefault("XCELSIOR_API_TOKEN", "")
 
 from serverless.metering import (
+    blended_period_amount,
     charge_serverless_execution,
     estimate_cost_cad,
     estimate_worker_cost_for_duration_sec,
+    infer_model_params_b,
     last_billed_period_end,
     pricing_for_endpoint,
     token_cost_metadata,
+    token_prices_for_model,
     worker_rate_cad_per_second,
 )
 from serverless.repo import EndpointCreate, ServerlessRepo
@@ -102,6 +105,47 @@ class TestTokenMetadataOnly:
         meta = token_cost_metadata(1000, 2000)
         assert meta["total_token_cost_cad"] > 0
         assert "input_tokens" in meta
+
+
+class TestSizeTieredTokenPricing:
+    def test_param_inference(self):
+        assert infer_model_params_b("meta-llama/Llama-3.1-8B-Instruct") == 8.0
+        assert infer_model_params_b("meta-llama/Llama-3.3-70B-Instruct") == 70.0
+        assert infer_model_params_b("google/gemma-2-9b-it") == 9.0
+        # MoE / large families map to the top band even without an explicit size.
+        assert infer_model_params_b("deepseek-ai/DeepSeek-R1") == float("inf")
+        assert infer_model_params_b("mistralai/Mixtral-8x7B") == float("inf")
+        assert infer_model_params_b(None) is None
+        assert infer_model_params_b("some-unknown-model") is None
+
+    def test_bands(self):
+        # ≤ 9B band
+        assert token_prices_for_model("gemma-2-9b-it") == (0.15, 0.45)
+        # 10–34B band
+        assert token_prices_for_model("Qwen2.5-32B") == (0.35, 1.05)
+        # 35–80B band
+        assert token_prices_for_model("Llama-3.3-70B") == (0.70, 2.10)
+        # 80B+ / MoE band
+        assert token_prices_for_model("DeepSeek-V3") == (1.10, 3.30)
+
+    def test_small_model_cheaper_than_large(self):
+        small = token_cost_metadata(1_000_000, 1_000_000, model_ref="Mistral-7B")
+        large = token_cost_metadata(1_000_000, 1_000_000, model_ref="Llama-3.3-70B")
+        assert small["total_token_cost_cad"] < large["total_token_cost_cad"]
+        # 7B → 0.15 + 0.45 = 0.60 CAD per 1M+1M
+        assert small["total_token_cost_cad"] == pytest.approx(0.60, rel=1e-6)
+
+    def test_unknown_model_falls_back_to_flat(self):
+        meta = token_cost_metadata(1_000_000, 1_000_000)  # no model_ref
+        assert meta["input_price_cad_per_m"] == token_prices_for_model(None)[0]
+
+
+class TestBlendedMeter:
+    def test_charges_the_higher(self):
+        assert blended_period_amount(0.10, 0.25) == 0.25  # token cost wins
+        assert blended_period_amount(0.40, 0.05) == 0.40  # gpu cost wins
+        assert blended_period_amount(0.0, 0.0) == 0.0
+        assert blended_period_amount(0.30, 0.30) == 0.30
 
 
 class TestWalletPreflight:
