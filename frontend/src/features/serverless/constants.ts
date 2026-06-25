@@ -9,12 +9,23 @@ export const MANAGED_ENGINES = [
   { id: "sglang", label: "SGLang", image: "lmsysorg/sglang:latest" },
 ] as const;
 
+/** Preset model task: chat (default), embed (/v1/embeddings), or rerank (/v1/rerank). */
+export type PresetTask = "chat" | "embed" | "rerank";
+
 export const PRESET_MODELS = [
-  { id: "meta-llama/Llama-3.1-8B-Instruct", label: "Llama 3.1 8B Instruct", vram: 16 },
-  { id: "meta-llama/Llama-3.1-70B-Instruct", label: "Llama 3.1 70B Instruct", vram: 80 },
-  { id: "mistralai/Mistral-7B-Instruct-v0.3", label: "Mistral 7B Instruct", vram: 16 },
-  { id: "Qwen/Qwen2.5-7B-Instruct", label: "Qwen 2.5 7B Instruct", vram: 16 },
-  { id: "google/gemma-2-9b-it", label: "Gemma 2 9B IT", vram: 20 },
+  // ── Chat / completions ──
+  { id: "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B", label: "DeepSeek R1 Distill 32B", vram: 80, task: "chat" },
+  { id: "deepseek-ai/DeepSeek-R1-Distill-Llama-8B", label: "DeepSeek R1 Distill 8B", vram: 24, task: "chat" },
+  { id: "meta-llama/Llama-3.3-70B-Instruct", label: "Llama 3.3 70B Instruct", vram: 80, task: "chat" },
+  { id: "meta-llama/Llama-3.1-8B-Instruct", label: "Llama 3.1 8B Instruct", vram: 16, task: "chat" },
+  { id: "Qwen/Qwen2.5-Coder-32B-Instruct", label: "Qwen 2.5 Coder 32B", vram: 80, task: "chat" },
+  { id: "Qwen/Qwen2.5-7B-Instruct", label: "Qwen 2.5 7B Instruct", vram: 16, task: "chat" },
+  { id: "mistralai/Mistral-7B-Instruct-v0.3", label: "Mistral 7B Instruct", vram: 16, task: "chat" },
+  { id: "google/gemma-2-9b-it", label: "Gemma 2 9B IT", vram: 20, task: "chat" },
+  // ── Embeddings ──
+  { id: "BAAI/bge-m3", label: "BGE-M3 (embeddings)", vram: 8, task: "embed" },
+  // ── Reranker ──
+  { id: "BAAI/bge-reranker-v2-m3", label: "BGE Reranker v2 (rerank)", vram: 8, task: "rerank" },
 ] as const;
 
 export const DEPLOY_STUDIO_STEPS = [
