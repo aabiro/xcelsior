@@ -44,8 +44,7 @@ from jurisdiction import (
     generate_residency_trace,
 )
 from billing import get_billing_engine
-from reputation import get_reputation_engine, score_to_tier
-from reputation import TIER_PLATFORM_COMMISSION
+from reputation import get_reputation_engine
 
 HOSTS_FILE = os.environ.get(
     "XCELSIOR_HOSTS_FILE", os.path.join(os.path.dirname(__file__), "hosts.json")
@@ -3809,18 +3808,14 @@ def _infer_platform_fees_from_payout(payout: float, cut: float) -> float:
 
 
 def _platform_cut_for_host(host_id: str) -> float:
-    """Resolve the platform cut for a host from its current reputation tier."""
-    if not host_id:
-        return PLATFORM_CUT
-    try:
-        re_engine = get_reputation_engine()
-        score = re_engine.compute_score(host_id)
-        final_score = float(getattr(score, "final_score", 0) or getattr(score, "raw_score", 0) or 0)
-        tier = score_to_tier(final_score)
-        return float(TIER_PLATFORM_COMMISSION.get(tier, PLATFORM_CUT))
-    except Exception as e:
-        log.debug("platform cut lookup failed for host=%s: %s", host_id, e)
-        return PLATFORM_CUT
+    """Resolve the platform cut for a host.
+
+    Phase 1: a flat platform fee (``PLATFORM_CUT``) for everyone — reputation-based
+    commission discounts are deferred until we have real volume. The tier data
+    (``TIER_PLATFORM_COMMISSION``) is kept in reputation.py for when we re-enable
+    provider incentives.
+    """
+    return PLATFORM_CUT
 
 
 def _sync_marketplace_listing(listing: dict) -> bool:
