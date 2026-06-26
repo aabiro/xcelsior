@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   DollarSign, TrendingUp, RefreshCw, ArrowUpRight, ExternalLink,
-  Percent, AlertTriangle, CheckCircle, Loader2, LinkIcon, Unlink,
+  Percent, AlertTriangle, CheckCircle, Loader2, LinkIcon, Unlink, Gift,
 } from "lucide-react";
 import { StripeLogo } from "@/components/ui/payment-logos";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -48,6 +48,7 @@ export default function EarningsPage() {
     spot_earned_cad?: number; on_demand_earned_cad?: number;
   } | null>(null);
   const [payouts, setPayouts] = useState<Payout[]>([]);
+  const [introFee, setIntroFee] = useState<{ window_days: number; active: boolean; days_remaining: number } | null>(null);
   const [provider, setProvider] = useState<ProviderInfo | null>(null);
   const [gst, setGst] = useState<{
     total_revenue_cad: number; threshold_cad: number;
@@ -79,6 +80,7 @@ export default function EarningsPage() {
       if (earningsRes.status === "fulfilled" && earningsRes.value) {
         setEarnings(earningsRes.value.earnings);
         setPayouts(earningsRes.value.recent_payouts || []);
+        setIntroFee(earningsRes.value.intro_fee || null);
       }
       if (providerRes.status === "fulfilled" && providerRes.value?.provider) {
         setProvider(providerRes.value.provider as ProviderInfo);
@@ -260,6 +262,20 @@ export default function EarningsPage() {
           <RefreshCw className="h-3.5 w-3.5" /> {t("common.refresh")}
         </Button>
       </div>
+
+      {/* New-provider 0% platform-fee window */}
+      {introFee?.active && (
+        <div className="flex items-center gap-3 rounded-xl border border-emerald/30 bg-emerald/10 px-4 py-3">
+          <Gift className="h-5 w-5 shrink-0 text-emerald" />
+          <div className="text-sm">
+            <span className="font-semibold text-emerald">0% platform fee active.</span>{" "}
+            <span className="text-text-secondary">
+              You keep 100% of your earnings for {introFee.days_remaining} more{" "}
+              {introFee.days_remaining === 1 ? "day" : "days"} (new-provider intro).
+            </span>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">

@@ -15,7 +15,7 @@ import { GpuModelSelector } from "@/components/ui/gpu-model-selector";
 import {
   Server, Plus, Search, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, Terminal,
   Cpu, Copy, Check, DollarSign, Activity, Zap, ChevronRight, Info, AlertCircle,
-  HardDrive, Globe, Shield, ShieldAlert, Package, Code2, Clipboard, ArrowRight, ArrowLeft, Trash2,
+  HardDrive, Globe, Shield, ShieldAlert, Package, Code2, Clipboard, ArrowRight, ArrowLeft, Trash2, Gift,
 } from "lucide-react";
 import { DeleteHostDialog } from "@/components/hosts/delete-host-dialog";
 import { deleteHost } from "@/lib/api";
@@ -145,6 +145,11 @@ export default function HostsPage() {
               </button>{" "}
               to accept and execute jobs.
             </p>
+            {/* Phase 4 supply incentive — mirrors PROVIDER_INTRO_FEE_DAYS (default 90). */}
+            <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-emerald/30 bg-emerald/10 px-3 py-1 text-xs font-medium text-emerald">
+              <Gift className="h-3.5 w-3.5" />
+              New providers keep 100% — 0% platform fee for your first 90 days.
+            </div>
           </div>
           <div className="flex flex-wrap gap-3">
             <Button
