@@ -741,6 +741,111 @@ def api_admin_revenue(request: Request, days: int = 90):
     return result
 
 
+@router.get("/api/admin/unit-economics", tags=["Admin"])
+def api_admin_unit_economics(request: Request, days: int = 30):
+    """Phase-0 truth: are we making money (margin) and where do users drop off (funnel)."""
+    _require_admin(request)
+    since = time.time() - days * 86400
+    result: dict = {"ok": True, "days": days}
+    try:
+        be = get_billing_engine()
+    except Exception:
+        log.warning("unit_economics: no billing engine", exc_info=True)
+        return {**result, "marketplace": {}, "serverless": {}, "funnel": {}, "weekly": []}
+
+    # ── Marketplace margin (dedicated): gross charged vs paid to providers ──
+    try:
+        with be._conn() as conn:
+            r = conn.execute(
+                "SELECT ROUND(COALESCE(SUM(amount_cad),0)::numeric,2) AS gross, "
+                "ROUND(COALESCE(SUM(provider_payout_cad),0)::numeric,2) AS payout, "
+                "ROUND(COALESCE(SUM(platform_fee_cad),0)::numeric,2) AS margin, "
+                "COUNT(*) AS payouts FROM payout_ledger WHERE created_at >= %s",
+                (since,),
+            ).fetchone()
+            gross = float(r["gross"]) if r else 0.0
+            margin = float(r["margin"]) if r else 0.0
+            result["marketplace"] = {
+                "gross_cad": gross,
+                "provider_payout_cad": float(r["payout"]) if r else 0.0,
+                "platform_margin_cad": margin,
+                "margin_pct": round(margin / gross * 100, 1) if gross > 0 else 0.0,
+                "payouts": int(r["payouts"]) if r else 0,
+            }
+    except Exception:
+        log.warning("unit_economics: marketplace margin failed", exc_info=True)
+        result["marketplace"] = {}
+
+    # ── Serverless revenue + GPU-seconds (what customers paid us) ──
+    try:
+        with be._conn() as conn:
+            r = conn.execute(
+                "SELECT ROUND(COALESCE(SUM(amount_cad),0)::numeric,2) AS revenue, "
+                "COALESCE(SUM(duration_seconds),0) AS gpu_seconds, COUNT(*) AS cycles "
+                "FROM billing_cycles WHERE created_at >= %s AND status = 'charged' "
+                "AND resource_type LIKE 'serverless%%'",
+                (since,),
+            ).fetchone()
+            gpu_seconds = int(r["gpu_seconds"]) if r else 0
+            result["serverless"] = {
+                "revenue_cad": float(r["revenue"]) if r else 0.0,
+                "gpu_seconds": gpu_seconds,
+                "gpu_hours": round(gpu_seconds / 3600, 1),
+                "billed_cycles": int(r["cycles"]) if r else 0,
+            }
+    except Exception:
+        log.warning("unit_economics: serverless revenue failed", exc_info=True)
+        result["serverless"] = {}
+
+    # ── Activation funnel (all-time): of everyone who signed up, how far did they get? ──
+    try:
+        with be._conn() as conn:
+            def _count(sql: str) -> int:
+                row = conn.execute(sql).fetchone()
+                return int(row["c"]) if row and row.get("c") is not None else 0
+
+            signups = _count("SELECT COUNT(*) AS c FROM users")
+            deployed = _count(
+                "SELECT COUNT(DISTINCT owner_id) AS c FROM serverless_endpoints WHERE deleted_at = 0"
+            )
+            ran = _count("SELECT COUNT(DISTINCT customer_id) AS c FROM billing_cycles")
+            paid = _count(
+                "SELECT COUNT(DISTINCT customer_id) AS c FROM billing_cycles "
+                "WHERE amount_cad > 0 AND status = 'charged'"
+            )
+            result["funnel"] = {
+                "signups": signups,
+                "deployed_model": deployed,
+                "ran_inference": ran,
+                "paid": paid,
+                "activation_pct": round(ran / signups * 100, 1) if signups > 0 else 0.0,
+                "paid_pct": round(paid / signups * 100, 1) if signups > 0 else 0.0,
+            }
+    except Exception:
+        log.warning("unit_economics: funnel failed", exc_info=True)
+        result["funnel"] = {}
+
+    # ── Weekly trend: revenue + GPU-hours (last 8 ISO weeks) ──
+    try:
+        with be._conn() as conn:
+            rows = conn.execute(
+                "SELECT to_char(to_timestamp(created_at), 'IYYY-\"W\"IW') AS week, "
+                "ROUND(COALESCE(SUM(total_cost_cad),0)::numeric,2) AS revenue, "
+                "ROUND(COALESCE(SUM(gpu_seconds),0)::numeric/3600,1) AS gpu_hours "
+                "FROM usage_meters WHERE created_at >= %s GROUP BY week ORDER BY week",
+                (time.time() - 56 * 86400,),
+            ).fetchall()
+            result["weekly"] = [
+                {"week": r["week"], "revenue": float(r["revenue"]), "gpu_hours": float(r["gpu_hours"])}
+                for r in rows
+            ]
+    except Exception:
+        log.warning("unit_economics: weekly trend failed", exc_info=True)
+        result["weekly"] = []
+
+    return result
+
+
 @router.get("/api/admin/infrastructure", tags=["Admin"])
 def api_admin_infrastructure(request: Request):
     """Admin infrastructure view — hosts by state, GPU model, province, verification, reputation."""

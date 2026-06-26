@@ -6,12 +6,13 @@ import { useEffect } from "react";
 import Link from "next/link";
 import {
   LayoutDashboard, Users, DollarSign, Server, Activity,
-  ShieldCheck, Bell, Shield, MessageSquare,
+  ShieldCheck, Bell, Shield, MessageSquare, Scale,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const adminNav = [
   { href: "/dashboard/admin", label: "Overview", icon: LayoutDashboard, exact: true },
+  { href: "/dashboard/admin/unit-economics", label: "Unit Economics", icon: Scale },
   { href: "/dashboard/admin/users", label: "Users", icon: Users },
   { href: "/dashboard/admin/revenue", label: "Revenue", icon: DollarSign },
   { href: "/dashboard/admin/infrastructure", label: "Infrastructure", icon: Server },
