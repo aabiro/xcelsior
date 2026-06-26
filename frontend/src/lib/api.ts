@@ -973,6 +973,7 @@ export async function fetchProviderEarnings(providerId: string) {
       on_demand_earned_cad?: number;
     };
     recent_payouts: Payout[];
+    intro_fee?: { window_days: number; active: boolean; days_remaining: number };
   }>(`/api/providers/${encodeURIComponent(providerId)}/earnings`);
 }
 

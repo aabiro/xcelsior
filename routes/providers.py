@@ -269,7 +269,42 @@ def api_provider_earnings(provider_id: str, request: Request):
     mgr = get_stripe_manager()
     earnings = mgr.get_provider_earnings(provider_id)
     payouts = mgr.get_provider_payouts(provider_id, limit=20)
-    return {"ok": True, "earnings": earnings, "recent_payouts": payouts}
+    return {
+        "ok": True,
+        "earnings": earnings,
+        "recent_payouts": payouts,
+        "intro_fee": _provider_intro_fee_status(provider_id, user),
+    }
+
+
+def _provider_intro_fee_status(provider_id: str, user: dict) -> dict:
+    """New-provider 0% platform-fee window status, from the provider's listings."""
+    import math
+    import time
+
+    from scheduler import PROVIDER_INTRO_FEE_DAYS, load_marketplace
+
+    status = {"window_days": PROVIDER_INTRO_FEE_DAYS, "active": False, "days_remaining": 0}
+    if PROVIDER_INTRO_FEE_DAYS <= 0:
+        return status
+    ids = {provider_id, str(user.get("user_id") or ""), str(user.get("email") or "")}
+    ids.discard("")
+    try:
+        mine = [
+            l for l in load_marketplace()
+            if str(l.get("owner") or "") in ids or str(l.get("host_id") or "") in ids
+        ]
+    except Exception:
+        return status
+    if not mine:
+        return status
+    now = time.time()
+    earliest = min(float(l.get("listed_at") or now) for l in mine)
+    remaining_days = PROVIDER_INTRO_FEE_DAYS - (now - earliest) / 86400
+    if remaining_days > 0:
+        status["active"] = True
+        status["days_remaining"] = int(math.ceil(remaining_days))
+    return status
 
 
 @router.get("/api/providers/{provider_id}/paypal", tags=["Providers"])
