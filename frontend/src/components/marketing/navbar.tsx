@@ -9,6 +9,7 @@ import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { LocaleToggle } from "@/components/ui/locale-toggle";
 import { useLocale } from "@/lib/locale";
 import { useAuth } from "@/lib/auth";
+import { BRAND_ASSETS } from "@/lib/brand-assets";
 import { hasSessionHint } from "@/lib/session-hint";
 import { useMounted } from "@/hooks/useMounted";
 
@@ -53,9 +54,9 @@ export function Navbar() {
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-2 px-4 sm:px-6">
         <Link href="/" className="flex min-w-0 shrink items-center gap-1.5 sm:gap-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/xcelsior-logo-wordmark-iconbg.svg" alt="Xcelsior" className="hidden dark:block h-9 w-auto max-w-[7.5rem] sm:h-11 sm:max-w-none" width={160} height={44} fetchPriority="high" />
+          <img src={BRAND_ASSETS.lockupLight} alt="Xcelsior" className="hidden h-auto w-[8.75rem] dark:block sm:w-[10rem]" width={206} height={34} fetchPriority="high" loading="eager" />
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/xcelsior-logo-wordmark-iconbg-light.svg" alt="Xcelsior" className="block h-9 w-auto max-w-[7.5rem] sm:h-11 sm:max-w-none dark:hidden" width={160} height={44} fetchPriority="high" />
+          <img src={BRAND_ASSETS.lockupDark} alt="Xcelsior" className="block h-auto w-[8.75rem] dark:hidden sm:w-[10rem]" width={206} height={34} fetchPriority="high" loading="eager" />
           <span className="shrink-0 rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white dark:bg-accent-red/20 dark:text-red-100">
             Beta
           </span>

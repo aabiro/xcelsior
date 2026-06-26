@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { usePwaInstallPrompt } from "@/hooks/usePwaInstallPrompt";
+import { BRAND_PNG_ASSETS } from "@/lib/brand-assets";
 import { useLocale } from "@/lib/locale";
 
 const LS_DISMISSED = "xcelsior-pwa-dismissed";
@@ -130,11 +131,11 @@ export function InstallBanner() {
       <div className={`fixed ${isDashboard ? "bottom-4" : "bottom-24"} right-4 z-40 hidden md:block ${motionClasses} max-w-sm`}>
         <div className="flex items-center gap-3 rounded-xl border border-border bg-surface-elevated p-4 shadow-lg backdrop-blur-sm">
           <img
-            src="/xcelsior_icon_192x192.png"
+            src={BRAND_PNG_ASSETS.appGradientRounded512}
             alt="Xcelsior"
             width={36}
             height={36}
-            className="rounded-lg flex-shrink-0"
+            className="h-9 w-9 flex-shrink-0 rounded-lg"
           />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-text-primary">
@@ -181,11 +182,11 @@ export function InstallBanner() {
     <div className={`fixed bottom-4 left-4 right-4 z-50 md:hidden ${motionClasses}`}>
       <div className="flex items-center gap-3 rounded-xl border border-border bg-surface-elevated p-4 shadow-lg backdrop-blur-sm">
         <img
-          src="/xcelsior_icon_192x192.png"
+          src={BRAND_PNG_ASSETS.appGradientRounded512}
           alt="Xcelsior"
           width={40}
           height={40}
-          className="rounded-lg flex-shrink-0"
+          className="h-10 w-10 flex-shrink-0 rounded-lg"
         />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-text-primary truncate">

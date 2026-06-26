@@ -4,6 +4,7 @@ import Script from "next/script";
 import { Providers } from "./providers";
 import { RootClientWidgets } from "@/components/RootClientWidgets";
 import { DeferredClientToaster } from "@/components/DeferredClientToaster";
+import { BRAND_ASSET_ORIGIN, BRAND_PNG_ASSETS } from "@/lib/brand-assets";
 import "./globals.css";
 
 const GA_ID = /^G-[A-Z0-9]+$/.test(process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID ?? "")
@@ -52,7 +53,7 @@ export const metadata: Metadata = {
   openGraph: {
     images: [
       {
-        url: "/og-image.png",
+        url: BRAND_PNG_ASSETS.ogImage1200x630,
         width: 1200,
         height: 630,
         alt: "The Cheapest Compliant GPU Compute in Canada",
@@ -69,7 +70,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    images: ["/og-image.png"],
+    images: [BRAND_PNG_ASSETS.ogImage1200x630],
     title: "The Cheapest Compliant GPU Compute in Canada",
     description: "The Cheapest Compliant GPU Compute in Canada. Ever upward.",
   },
@@ -83,9 +84,13 @@ export const metadata: Metadata = {
     google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || undefined,
   },
   icons: {
-    icon: "/favicon.svg",
+    icon: [
+      { url: BRAND_PNG_ASSETS.favicon16, sizes: "16x16", type: "image/png" },
+      { url: BRAND_PNG_ASSETS.favicon32, sizes: "32x32", type: "image/png" },
+      { url: BRAND_PNG_ASSETS.favicon48, sizes: "48x48", type: "image/png" },
+    ],
     apple: [
-      { url: "/xcelsior_icon_180x180.png", sizes: "180x180", type: "image/png" },
+      { url: BRAND_PNG_ASSETS.appleTouchIcon180, sizes: "180x180", type: "image/png" },
     ],
   },
   manifest: "/manifest.webmanifest",
@@ -122,7 +127,7 @@ export default function RootLayout({
               "@id": "https://xcelsior.ca/#organization",
               name: "Xcelsior Compute Inc.",
               url: "https://xcelsior.ca",
-              logo: "https://xcelsior.ca/xcelsior_icon_512x512.png",
+              logo: `${BRAND_ASSET_ORIGIN}${BRAND_PNG_ASSETS.appGradientRounded512}`,
               description:
                 "Rent verified GPUs by the hour in Canadian dollars — sovereignty, PIPEDA, and clean hydro built in. From $0.30 CAD/hr, with dynamic spot pricing up to 70% off.",
               foundingDate: "2024",
