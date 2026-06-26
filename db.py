@@ -478,6 +478,11 @@ def _ensure_pg_tables(conn):
         "ALTER TABLE billing_cycles "
         "ADD COLUMN IF NOT EXISTS pricing_mode TEXT NOT NULL DEFAULT 'on_demand'"
     )
+    # Token cost accrued for the slice (blended serverless meter / token-revenue reporting).
+    cur.execute(
+        "ALTER TABLE billing_cycles "
+        "ADD COLUMN IF NOT EXISTS token_cost_cad DOUBLE PRECISION NOT NULL DEFAULT 0"
+    )
     cur.execute(
         "ALTER TABLE usage_meters "
         "ADD COLUMN IF NOT EXISTS pricing_mode TEXT NOT NULL DEFAULT 'on_demand'"

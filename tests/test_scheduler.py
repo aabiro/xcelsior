@@ -510,21 +510,19 @@ class TestMarketplace:
         assert listing["host_id"] == "h1"
         assert listing["active"]
 
-    def test_list_rig_uses_flat_platform_cut(self, monkeypatch):
-        # Phase 1: flat platform fee — a top-tier (Diamond, 900) host no longer
-        # gets the old 8% discount; everyone pays PLATFORM_CUT.
-        class _FakeScore:
-            final_score = 900
-            raw_score = 900
-
-        class _FakeReputationEngine:
-            def compute_score(self, entity_id):
-                return _FakeScore()
-
-        monkeypatch.setattr(scheduler, "get_reputation_engine", lambda: _FakeReputationEngine())
-
+    def test_new_provider_gets_intro_fee(self):
+        # Phase 4 supply incentive: a freshly-listed rig (within the intro window)
+        # pays 0% platform fee, regardless of reputation.
+        assert scheduler.PROVIDER_INTRO_FEE_DAYS > 0
         listing = scheduler.list_rig("h1", "RTX 4090", 24, 0.30, owner="alice")
-        assert listing["platform_cut"] == scheduler.PLATFORM_CUT
+        assert listing["platform_cut"] == 0.0
+
+    def test_established_provider_pays_platform_cut(self):
+        # A listing older than the intro window pays the flat PLATFORM_CUT.
+        old = time.time() - (scheduler.PROVIDER_INTRO_FEE_DAYS + 5) * 86400
+        assert scheduler._platform_cut_for_host("h1", listed_at=old) == scheduler.PLATFORM_CUT
+        # No listed_at → default to PLATFORM_CUT (don't hand out free fees).
+        assert scheduler._platform_cut_for_host("h1") == scheduler.PLATFORM_CUT
 
     def test_marketplace_preserves_manual_platform_cut(self, monkeypatch):
         class _FakeScore:
@@ -595,7 +593,8 @@ class TestMarketplace:
                     "description": "",
                     "owner": "alice",
                     "platform_cut": scheduler.PLATFORM_CUT,
-                    "listed_at": time.time(),
+                    # Established listing (past the intro window) → pays PLATFORM_CUT.
+                    "listed_at": time.time() - (scheduler.PROVIDER_INTRO_FEE_DAYS + 5) * 86400,
                     "updated_at": time.time(),
                     "active": True,
                     "total_jobs": 0,

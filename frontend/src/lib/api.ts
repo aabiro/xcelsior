@@ -2024,12 +2024,14 @@ export async function fetchAdminUnitEconomics(days = 30) {
       platform_margin_cad?: number; margin_pct?: number; payouts?: number;
     };
     serverless: {
-      revenue_cad?: number; gpu_seconds?: number; gpu_hours?: number; billed_cycles?: number;
+      revenue_cad?: number; token_revenue_cad?: number; gpu_seconds?: number;
+      gpu_hours?: number; billed_cycles?: number;
     };
     funnel: {
       signups?: number; deployed_model?: number; ran_inference?: number;
       paid?: number; activation_pct?: number; paid_pct?: number;
     };
+    liquidity: { requested?: number; fulfilled?: number; liquidity_pct?: number };
     weekly: { week: string; revenue: number; gpu_hours: number }[];
   }>(`/api/admin/unit-economics?days=${days}`);
 }
