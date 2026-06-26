@@ -28,7 +28,19 @@ const ROUTE_LABELS: Record<string, string> = {
   notifications: "Notifications",
   new: "New",
   inference: "Serverless",
+  // Admin sub-tabs (most are handled by the title-case fallback; these need
+  // explicit casing for acronyms / multi-word labels).
+  "ai-insights": "AI Insights",
+  "unit-economics": "Unit Economics",
 };
+
+/** Title-case an unknown path segment ("unit-economics" → "Unit Economics"). */
+function prettifySegment(seg: string): string {
+  return decodeURIComponent(seg)
+    .split("-")
+    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+    .join(" ");
+}
 
 export function Breadcrumb() {
   const pathname = usePathname();
@@ -38,7 +50,7 @@ export function Breadcrumb() {
 
   const crumbs = segments.map((seg, i) => {
     const href = "/" + segments.slice(0, i + 1).join("/");
-    const label = ROUTE_LABELS[seg] || decodeURIComponent(seg);
+    const label = ROUTE_LABELS[seg] || prettifySegment(seg);
     const isLast = i === segments.length - 1;
     return { href, label, isLast };
   });
