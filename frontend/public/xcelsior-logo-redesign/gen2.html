@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Xcelsior text path generator</title>
+<script src="https://cdn.jsdelivr.net/npm/opentype.js@1.3.4/dist/opentype.min.js"></script>
+<style>
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    background:#0d1320;
+    color:#e8edf5;
+    font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  }
+  main{
+    width:min(1120px,100%);
+    margin:0 auto;
+    padding:56px 28px 80px;
+  }
+  h1{
+    margin:0;
+    font-size:clamp(32px,5vw,56px);
+    line-height:1;
+    font-weight:700;
+  }
+  p{
+    max-width:720px;
+    margin:16px 0 0;
+    color:#9aa7b8;
+    line-height:1.6;
+  }
+  .status{
+    margin:28px 0 24px;
+    padding:14px 16px;
+    border:1px solid #253047;
+    border-radius:12px;
+    background:#121a2b;
+    color:#c7d2e1;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-size:13px;
+  }
+  .status.error{
+    border-color:#7f1d1d;
+    background:#2a1118;
+    color:#fecaca;
+  }
+  .grid{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:18px;
+  }
+  .preview-card{
+    overflow:hidden;
+    border:1px solid #253047;
+    border-radius:16px;
+    background:#111827;
+  }
+  .preview-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:16px;
+    padding:14px 16px;
+    border-bottom:1px solid #253047;
+  }
+  .preview-head h2{
+    margin:0;
+    font-size:13px;
+    letter-spacing:0.02em;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  .preview-head span{
+    color:#9aa7b8;
+    font-size:12px;
+  }
+  .preview-body{
+    padding:24px;
+    background:#060a13;
+  }
+  svg{
+    display:block;
+    width:100%;
+    height:120px;
+    overflow:visible;
+  }
+  .text-label{
+    padding:12px 16px 16px;
+    color:#9aa7b8;
+    font-size:13px;
+  }
+  pre{
+    margin:24px 0 0;
+    overflow:auto;
+    max-height:460px;
+    padding:18px;
+    border:1px solid #253047;
+    border-radius:16px;
+    background:#070b14;
+    color:#dbeafe;
+    font-size:12px;
+    line-height:1.55;
+  }
+  @media (max-width:760px){
+    main{padding:40px 18px 64px}
+    .grid{grid-template-columns:1fr}
+    .preview-body{padding:18px}
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Xcelsior text paths</h1>
+  <p>Generates the outlined text paths used by the logo assets and renders each result in-page so the output is visible before copying it into an SVG.</p>
+  <div id="out" class="status">Loading opentype.js and local Geist fonts...</div>
+  <section id="previews" class="grid" aria-label="Generated path previews"></section>
+  <pre id="json" aria-label="Generated path data">{}</pre>
+</main>
+<script>
+window.__tx = {};
+const jobs = [
+  {key:'ever_med',   file:'./Geist-Medium.ttf',   text:'Ever upward.', tracking:0},
+  {key:'url_med',    file:'./Geist-Medium.ttf',   text:'xcelsior.ca', tracking:0},
+  {key:'ever_sb',    file:'./Geist-SemiBold.ttf', text:'Ever upward.', tracking:-2},
+  {key:'tag_med',    file:'./Geist-Medium.ttf',   text:'GPU compute, accelerated', tracking:0}
+];
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const statusEl = document.getElementById('out');
+const previewsEl = document.getElementById('previews');
+const jsonEl = document.getElementById('json');
+const fontCache = new Map();
+
+function setStatus(message, isError){
+  statusEl.textContent = message;
+  statusEl.classList.toggle('error', Boolean(isError));
+}
+
+async function loadFont(file){
+  if(!fontCache.has(file)){
+    fontCache.set(file, fetch(file).then(async response => {
+      if(!response.ok){
+        throw new Error(file + ' returned HTTP ' + response.status);
+      }
+      return opentype.parse(await response.arrayBuffer());
+    }));
+  }
+  return fontCache.get(file);
+}
+
+function buildPath(font, job){
+  const size = 200;
+  let x = 0;
+  const full = new opentype.Path();
+  for(const ch of job.text){
+    const glyph = font.charToGlyph(ch);
+    full.extend(glyph.getPath(x, 0, size));
+    x += glyph.advanceWidth / font.unitsPerEm * size + job.tracking;
+  }
+  const bb = full.getBoundingBox();
+  const pad = 24;
+  return {
+    d: full.toPathData(2),
+    x1: Number(bb.x1.toFixed(2)),
+    y1: Number(bb.y1.toFixed(2)),
+    x2: Number(bb.x2.toFixed(2)),
+    y2: Number(bb.y2.toFixed(2)),
+    viewBox: [
+      Number((bb.x1 - pad).toFixed(2)),
+      Number((bb.y1 - pad).toFixed(2)),
+      Number((bb.x2 - bb.x1 + pad * 2).toFixed(2)),
+      Number((bb.y2 - bb.y1 + pad * 2).toFixed(2))
+    ].join(' ')
+  };
+}
+
+function renderPreview(job, result){
+  const card = document.createElement('article');
+  card.className = 'preview-card';
+
+  const head = document.createElement('div');
+  head.className = 'preview-head';
+
+  const title = document.createElement('h2');
+  title.textContent = job.key;
+
+  const meta = document.createElement('span');
+  meta.textContent = job.file.replace('./', '') + ', tracking ' + job.tracking;
+
+  head.append(title, meta);
+
+  const body = document.createElement('div');
+  body.className = 'preview-body';
+
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', result.viewBox);
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', job.key + ' generated path preview');
+
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('d', result.d);
+  path.setAttribute('fill', '#e8edf5');
+
+  svg.append(path);
+  body.append(svg);
+
+  const label = document.createElement('div');
+  label.className = 'text-label';
+  label.textContent = job.text;
+
+  card.append(head, body, label);
+  previewsEl.append(card);
+}
+
+async function build(){
+  if(!window.opentype){
+    throw new Error('opentype.js did not load from the CDN');
+  }
+  previewsEl.textContent = '';
+  setStatus('Generating text paths...');
+  for(const j of jobs){
+    setStatus('Generating ' + j.key + '...');
+    const font = await loadFont(j.file);
+    const result = buildPath(font, j);
+    window.__tx[j.key] = result;
+    renderPreview(j, result);
+  }
+  jsonEl.textContent = JSON.stringify(window.__tx, null, 2);
+  setStatus('Done: ' + Object.keys(window.__tx).join(', '));
+  document.title = 'Xcelsior text paths ready';
+}
+build().catch(error => {
+  setStatus('Error: ' + error.message, true);
+  jsonEl.textContent = JSON.stringify({error:error.message}, null, 2);
+});
+</script>
+</body>
+</html>

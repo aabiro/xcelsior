@@ -11,6 +11,7 @@ import { ProviderLogo } from "@/components/ui/provider-logo";
 import { Eye, EyeOff, Loader2, Shield, Key } from "lucide-react";
 import { login as apiLogin, normalizeAuthRedirectPath, oauthInitiate, verifyMfaLogin, sendMfaSms, passkeyAuthenticateOptions, passkeyAuthenticateComplete, resendVerification, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { BRAND_PNG_ASSETS } from "@/lib/brand-assets";
 import { useLocale } from "@/lib/locale";
 import posthog from "posthog-js";
 
@@ -400,7 +401,7 @@ function LoginPageContent() {
         /* ── Normal Login ── */
         <>
         <div className="mb-8 text-center">
-          <Image src="/xcelsior-logo.svg" alt="Xcelsior" width={48} height={48} className="mx-auto mb-4" />
+          <Image src={BRAND_PNG_ASSETS.iconGradient512} alt="Xcelsior" width={48} height={48} className="mx-auto mb-4 h-12 w-12 object-contain" />
           <h1 className="text-2xl font-bold">{t("auth.login_title")}</h1>
           <p className="mt-1 text-sm text-text-secondary">
             {t("auth.login_subtitle")}

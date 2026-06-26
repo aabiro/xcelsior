@@ -11,6 +11,7 @@ import {
   Section,
   Text,
 } from "@react-email/components";
+import { BRAND_ASSET_ORIGIN, BRAND_ASSETS } from "@/lib/brand-assets";
 
 const baseStyles = {
   body: {
@@ -113,7 +114,7 @@ export function EmailLayout({
         <Container style={baseStyles.container}>
           <Section style={baseStyles.logo}>
             <Link href="https://xcelsior.ca" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "12px" }}>
-              <Img src="https://xcelsior.ca/xcelsior-logo-wordmark-iconbg.svg" width="180" height="50" alt="Xcelsior" style={{ borderRadius: "6px" }} />
+              <Img src={`${BRAND_ASSET_ORIGIN}${BRAND_ASSETS.lockupLight}`} width="180" height="30" alt="Xcelsior" />
             </Link>
           </Section>
           {children}
