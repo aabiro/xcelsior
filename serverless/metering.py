@@ -319,8 +319,9 @@ def charge_serverless_execution(
             INSERT INTO billing_cycles
                 (cycle_id, job_id, customer_id, host_id, resource_type,
                  period_start, period_end, duration_seconds, rate_per_hour,
-                 gpu_model, tier, tier_multiplier, amount_cad, status, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 gpu_model, tier, tier_multiplier, amount_cad, status, created_at,
+                 token_cost_cad)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 cycle_id,
@@ -338,6 +339,7 @@ def charge_serverless_execution(
                 amount_cad,
                 status,
                 now,
+                round(float(token_cost_cad or 0.0), 6),
             ),
         )
         conn.commit()
