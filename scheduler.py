@@ -3788,6 +3788,9 @@ MARKETPLACE_FILE = os.environ.get(
     "XCELSIOR_MARKETPLACE_FILE", os.path.join(os.path.dirname(__file__), "marketplace.json")
 )
 PLATFORM_CUT = float(os.environ.get("XCELSIOR_PLATFORM_CUT", "0.15"))  # 15%
+# Phase 4 supply incentive: new providers pay 0% platform fee for their first
+# N days of listing, to bootstrap liquidity. Set to 0 to disable.
+PROVIDER_INTRO_FEE_DAYS = int(os.environ.get("XCELSIOR_PROVIDER_INTRO_FEE_DAYS", "90"))
 
 
 def load_marketplace():
@@ -3807,14 +3810,18 @@ def _infer_platform_fees_from_payout(payout: float, cut: float) -> float:
     return round(payout * cut / (1 - cut), 6)
 
 
-def _platform_cut_for_host(host_id: str) -> float:
-    """Resolve the platform cut for a host.
+def _platform_cut_for_host(host_id: str, *, listed_at: float | None = None) -> float:
+    """Resolve the platform cut for a host's listing.
 
-    Phase 1: a flat platform fee (``PLATFORM_CUT``) for everyone — reputation-based
-    commission discounts are deferred until we have real volume. The tier data
-    (``TIER_PLATFORM_COMMISSION``) is kept in reputation.py for when we re-enable
-    provider incentives.
+    Flat ``PLATFORM_CUT`` for everyone (reputation-based discounts deferred), except
+    the Phase 4 new-provider incentive: listings within their first
+    ``PROVIDER_INTRO_FEE_DAYS`` pay 0% platform fee to bootstrap supply. The window
+    is keyed off the listing date (``listed_at``); a stricter per-provider window
+    could later key off the host's registration date.
     """
+    if listed_at and PROVIDER_INTRO_FEE_DAYS > 0:
+        if time.time() - float(listed_at) < PROVIDER_INTRO_FEE_DAYS * 86400:
+            return 0.0
     return PLATFORM_CUT
 
 
@@ -3845,7 +3852,10 @@ def _sync_marketplace_listing(listing: dict) -> bool:
         listing["platform_cut_source"] = "manual"
         return True
 
-    desired_cut = _platform_cut_for_host(str(listing.get("host_id", "")).strip())
+    desired_cut = _platform_cut_for_host(
+        str(listing.get("host_id", "")).strip(),
+        listed_at=listing.get("listed_at"),
+    )
     if (
         source == "reputation"
         or "platform_cut" not in listing
@@ -3914,7 +3924,8 @@ def list_rig(
             )
             return listings[i]
 
-    platform_cut = _platform_cut_for_host(host_id)
+    now = time.time()
+    platform_cut = _platform_cut_for_host(host_id, listed_at=now)
     listing = {
         "host_id": host_id,
         "gpu_model": gpu_model,
@@ -3926,8 +3937,8 @@ def list_rig(
         "province": province.upper() if province else "",
         "platform_cut": platform_cut,
         "platform_cut_source": "reputation",
-        "listed_at": time.time(),
-        "updated_at": time.time(),
+        "listed_at": now,
+        "updated_at": now,
         "active": True,
         "total_jobs": 0,
         "total_earned": 0.0,

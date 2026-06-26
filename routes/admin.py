@@ -781,6 +781,7 @@ def api_admin_unit_economics(request: Request, days: int = 30):
         with be._conn() as conn:
             r = conn.execute(
                 "SELECT ROUND(COALESCE(SUM(amount_cad),0)::numeric,2) AS revenue, "
+                "ROUND(COALESCE(SUM(token_cost_cad),0)::numeric,2) AS token_cost, "
                 "COALESCE(SUM(duration_seconds),0) AS gpu_seconds, COUNT(*) AS cycles "
                 "FROM billing_cycles WHERE created_at >= %s AND status = 'charged' "
                 "AND resource_type LIKE 'serverless%%'",
@@ -789,6 +790,7 @@ def api_admin_unit_economics(request: Request, days: int = 30):
             gpu_seconds = int(r["gpu_seconds"]) if r else 0
             result["serverless"] = {
                 "revenue_cad": float(r["revenue"]) if r else 0.0,
+                "token_revenue_cad": float(r["token_cost"]) if r else 0.0,
                 "gpu_seconds": gpu_seconds,
                 "gpu_hours": round(gpu_seconds / 3600, 1),
                 "billed_cycles": int(r["cycles"]) if r else 0,
@@ -824,6 +826,26 @@ def api_admin_unit_economics(request: Request, days: int = 30):
     except Exception:
         log.warning("unit_economics: funnel failed", exc_info=True)
         result["funnel"] = {}
+
+    # ── Supply liquidity: of jobs requested, how many got a GPU (host assigned)? ──
+    try:
+        with be._conn() as conn:
+            r = conn.execute(
+                "SELECT COUNT(*) AS requested, "
+                "COUNT(*) FILTER (WHERE host_id IS NOT NULL AND host_id <> '') AS fulfilled "
+                "FROM jobs WHERE submitted_at >= %s",
+                (since,),
+            ).fetchone()
+            requested = int(r["requested"]) if r else 0
+            fulfilled = int(r["fulfilled"]) if r else 0
+            result["liquidity"] = {
+                "requested": requested,
+                "fulfilled": fulfilled,
+                "liquidity_pct": round(fulfilled / requested * 100, 1) if requested > 0 else 0.0,
+            }
+    except Exception:
+        log.warning("unit_economics: liquidity failed", exc_info=True)
+        result["liquidity"] = {}
 
     # ── Weekly trend: revenue + GPU-hours (last 8 ISO weeks) ──
     try:

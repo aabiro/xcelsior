@@ -37,6 +37,7 @@ export default function AdminUnitEconomicsPage() {
   const mk = data?.marketplace ?? {};
   const sl = data?.serverless ?? {};
   const fn = data?.funnel ?? {};
+  const lq = data?.liquidity ?? {};
 
   // Are we making money? Margin = platform fee kept on marketplace + serverless revenue.
   const makingMoney = (mk.platform_margin_cad ?? 0) + (sl.revenue_cad ?? 0);
@@ -105,11 +106,33 @@ export default function AdminUnitEconomicsPage() {
       {/* Serverless */}
       <div>
         <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-text-muted">Serverless</h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard label="Revenue" value={money(sl.revenue_cad)} icon={DollarSign} glow="cyan" />
-          <StatCard label="GPU-hours billed" value={`${(sl.gpu_hours ?? 0).toFixed(1)}h`} icon={Zap} glow="violet" />
-          <StatCard label="Billed cycles" value={String(sl.billed_cycles ?? 0)} icon={Rocket} glow="emerald" />
+          <StatCard label="Token revenue" value={money(sl.token_revenue_cad)} icon={TrendingUp} glow="violet" />
+          <StatCard label="GPU-hours billed" value={`${(sl.gpu_hours ?? 0).toFixed(1)}h`} icon={Zap} glow="emerald" />
+          <StatCard label="Billed cycles" value={String(sl.billed_cycles ?? 0)} icon={Rocket} glow="gold" />
         </div>
+        <p className="mt-1.5 text-xs text-text-muted">
+          Token revenue is the size-tiered token cost recorded per slice (charged once blended billing is enabled).
+        </p>
+      </div>
+
+      {/* Supply liquidity */}
+      <div>
+        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-text-muted">Supply liquidity (last {days}d)</h2>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <StatCard
+            label="Got a GPU"
+            value={`${(lq.liquidity_pct ?? 0).toFixed(1)}%`}
+            icon={Zap}
+            glow={(lq.liquidity_pct ?? 0) >= 80 ? "emerald" : "gold"}
+          />
+          <StatCard label="Jobs fulfilled" value={String(lq.fulfilled ?? 0)} icon={Rocket} glow="cyan" />
+          <StatCard label="Jobs requested" value={String(lq.requested ?? 0)} icon={Users} glow="violet" />
+        </div>
+        <p className="mt-1.5 text-xs text-text-muted">
+          Share of submitted jobs that got a host assigned — target ≥ 70–80% during business hours.
+        </p>
       </div>
 
       {/* Activation funnel */}
