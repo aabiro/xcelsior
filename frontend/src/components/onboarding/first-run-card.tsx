@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowRight, BookOpen, Gift, Sparkles, X } from "lucide-react";
 import { CodeBlock } from "@/components/ui/code-block";
 import { fetchWallet } from "@/lib/api";
+import posthog from "posthog-js";
 
 const DISMISS_KEY = "xcelsior.first_run_dismissed";
 
@@ -54,6 +55,7 @@ export function FirstRunCard({ customerId, show }: { customerId?: string; show: 
   const dismiss = useCallback(() => {
     setDismissed(true);
     try { localStorage.setItem(DISMISS_KEY, "1"); } catch { /* noop */ }
+    posthog.capture("first_run_card_dismissed");
   }, []);
 
   if (!show || dismissed) return null;
@@ -95,6 +97,7 @@ export function FirstRunCard({ customerId, show }: { customerId?: string; show: 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <Link
           href="/dashboard/inference"
+          onClick={() => posthog.capture("first_run_card_deploy_clicked")}
           className="inline-flex min-h-10 items-center gap-1.5 rounded-lg bg-accent-cyan px-4 text-sm font-medium text-[#06121a] transition-colors hover:bg-accent-cyan/90"
         >
           Deploy a model <ArrowRight className="h-4 w-4" />

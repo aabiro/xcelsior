@@ -11,6 +11,7 @@ import type { ServerlessEndpoint } from "@/lib/api";
 import * as api from "@/lib/api";
 import { useLocale } from "@/lib/locale";
 import { toast } from "sonner";
+import posthog from "posthog-js";
 
 import { CopyableText } from "./copyable-text";
 import { ServerlessPanel, ServerlessSegmentedTabs } from "./serverless-ui";
@@ -90,6 +91,13 @@ export function TryItConsole({ endpoint, canWrite }: TryItConsoleProps) {
         stream ? (chunk) => setOutput((prev) => prev + chunk) : undefined,
       );
       if (!stream) setOutput(text);
+      // Activation funnel: the user actually ran an inference.
+      posthog.capture("serverless_inference_run", {
+        mode: "chat",
+        model: modelId,
+        task: presetTaskFor(modelId),
+        stream,
+      });
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : t("dash.serverless.run_failed"));
     } finally {
@@ -111,6 +119,8 @@ export function TryItConsole({ endpoint, canWrite }: TryItConsoleProps) {
       const res = await api.runServerlessJob(endpointId, input);
       setActiveJobId(res.id);
       setOutput(`Job ${res.id} — ${res.status}\n`);
+      // Activation funnel: the user actually ran an inference (custom job).
+      posthog.capture("serverless_inference_run", { mode: "job", model: modelId });
 
       const es = api.createServerlessJobStream(endpointId, res.id);
       esRef.current = es;
