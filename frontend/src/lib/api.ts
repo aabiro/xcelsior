@@ -2016,6 +2016,24 @@ export async function fetchAdminRevenue(days = 90) {
   }>(`/api/admin/revenue?days=${days}`);
 }
 
+export async function fetchAdminUnitEconomics(days = 30) {
+  return apiFetch<{
+    ok: boolean; days: number;
+    marketplace: {
+      gross_cad?: number; provider_payout_cad?: number;
+      platform_margin_cad?: number; margin_pct?: number; payouts?: number;
+    };
+    serverless: {
+      revenue_cad?: number; gpu_seconds?: number; gpu_hours?: number; billed_cycles?: number;
+    };
+    funnel: {
+      signups?: number; deployed_model?: number; ran_inference?: number;
+      paid?: number; activation_pct?: number; paid_pct?: number;
+    };
+    weekly: { week: string; revenue: number; gpu_hours: number }[];
+  }>(`/api/admin/unit-economics?days=${days}`);
+}
+
 export async function fetchAdminInfrastructure() {
   return apiFetch<{
     ok: boolean; total_hosts: number;
