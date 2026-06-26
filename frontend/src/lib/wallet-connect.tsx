@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { AppKitProvider } from "@reown/appkit/react";
 import { BitcoinAdapter } from "@reown/appkit-adapter-bitcoin";
 import { bitcoin } from "@reown/appkit/networks";
+import { BRAND_PNG_ASSETS } from "@/lib/brand-assets";
 
 const projectId = process.env.NEXT_PUBLIC_REOWN_PROJECT_ID?.trim() || "";
 const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim() || "https://xcelsior.ca";
@@ -12,7 +13,7 @@ const metadata = {
   name: "Xcelsior",
   description: "Canada-first GPU compute marketplace with transparent pricing and CAD wallet funding for teams worldwide.",
   url: appUrl,
-  icons: [`${appUrl}/favicon.svg`],
+  icons: [`${appUrl}${BRAND_PNG_ASSETS.appGradientRounded512}`],
 };
 
 const bitcoinAdapter = projectId

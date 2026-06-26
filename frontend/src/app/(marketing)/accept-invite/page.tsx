@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { CheckCircle, Loader2, Users, XCircle } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
+import { BRAND_PNG_ASSETS } from "@/lib/brand-assets";
 
 function AcceptInviteContent() {
   const searchParams = useSearchParams();
@@ -108,7 +109,7 @@ function AcceptInviteContent() {
           <Users className="h-8 w-8 text-accent-cyan" />
         </div>
         <div className="flex items-center justify-center gap-2 mb-4">
-          <Image src="/xcelsior-logo-rounded.svg" alt="Xcelsior" width={32} height={32} className="rounded-lg" />
+          <Image src={BRAND_PNG_ASSETS.appGradientRounded512} alt="Xcelsior" width={32} height={32} className="h-8 w-8 rounded-lg" />
           <span className="text-lg font-bold">Xcelsior</span>
         </div>
         <h1 className="text-2xl font-bold mb-2">Team Invitation</h1>

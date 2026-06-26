@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { m } from "@/components/marketing/motion";
 import { Button } from "@/components/ui/button";
+import { BRAND_ASSETS } from "@/lib/brand-assets";
 import { useLocale } from "@/lib/locale";
 
 const HomeBelowFold = dynamic(
@@ -52,7 +53,14 @@ export default function HomePage() {
               </span>
             </m.div>
 
-            <m.h1 variants={fadeUp} custom={1} className="text-5xl font-bold leading-[1.08] tracking-tight md:text-6xl lg:text-7xl">
+            <m.div variants={fadeUp} custom={1} className="mb-4 flex" aria-label="GPU compute, accelerated">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={BRAND_ASSETS.textTagMedLight} alt="" className="hidden h-5 w-auto dark:block" aria-hidden="true" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={BRAND_ASSETS.textTagMedDark} alt="" className="block h-5 w-auto dark:hidden" aria-hidden="true" />
+            </m.div>
+
+            <m.h1 variants={fadeUp} custom={2} className="text-5xl font-bold leading-[1.08] tracking-tight md:text-6xl lg:text-7xl">
               <span>{t("home.hero_line1")}</span>
               <br />
               <span>
@@ -63,11 +71,11 @@ export default function HomePage() {
               </span>
             </m.h1>
 
-            <m.p variants={fadeUp} custom={2} className="mt-6 text-lg text-text-secondary leading-relaxed max-w-2xl">
+            <m.p variants={fadeUp} custom={3} className="mt-6 text-lg text-text-secondary leading-relaxed max-w-2xl">
               {t("home.hero_desc")}
             </m.p>
 
-            <m.div variants={fadeUp} custom={3} className="mt-10 flex flex-wrap gap-4">
+            <m.div variants={fadeUp} custom={4} className="mt-10 flex flex-wrap gap-4">
               <Link href="/register">
                 <Button size="lg" className="text-base px-8 shadow-lg shadow-accent-cyan/10">
                   {t("home.cta_start")}
@@ -81,7 +89,7 @@ export default function HomePage() {
               </Link>
             </m.div>
 
-            <m.div variants={fadeUp} custom={4} className="mt-14 flex flex-wrap gap-4 sm:gap-8 text-sm text-text-secondary">
+            <m.div variants={fadeUp} custom={5} className="mt-14 flex flex-wrap gap-4 sm:gap-8 text-sm text-text-secondary">
               <div className="flex items-center gap-2">
                 <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-gold/10">
                   <DollarSign className="h-3.5 w-3.5 text-accent-gold" />

@@ -17,6 +17,7 @@ import {
 import { m } from "@/components/marketing/motion";
 import { Button } from "@/components/ui/button";
 import { ProviderLogo } from "@/components/ui/provider-logo";
+import { BRAND_PNG_ASSETS } from "@/lib/brand-assets";
 import { useLocale } from "@/lib/locale";
 
 const fadeUp = {
@@ -122,7 +123,7 @@ export function HomeBelowFold() {
                   <th scope="col" className="py-4 px-4 text-center font-bold text-accent-cyan">
                     <div className="flex flex-col items-center gap-1.5">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src="/xcelsior_icon_192x192.png" alt="Xcelsior" width={34} height={34} className="h-[34px] w-[34px] rounded-xl border border-accent-cyan/40 bg-background/70 object-contain" />
+                      <img src={BRAND_PNG_ASSETS.appGradientRounded512} alt="Xcelsior" width={34} height={34} className="h-[34px] w-[34px] rounded-xl border border-accent-cyan/40 bg-background/70 object-contain" />
                       {t("home.compare_xcelsior")}
                     </div>
                   </th>

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
+import { BRAND_ASSETS } from "@/lib/brand-assets";
 import { useLocale } from "@/lib/locale";
 
 export function Footer() {
@@ -15,24 +16,38 @@ export function Footer() {
           <div>
             <div className="flex items-center gap-2 mb-4">
               <Image
-                src="/xcelsior-logo-wordmark-iconbg.svg"
+                src={BRAND_ASSETS.lockupLight}
                 alt="Xcelsior"
-                width={160}
-                height={44}
-                className="h-11 w-auto hidden dark:block"
+                width={206}
+                height={34}
+                className="hidden h-auto w-40 dark:block"
               />
               <Image
-                src="/xcelsior-logo-wordmark-iconbg-light.svg"
+                src={BRAND_ASSETS.lockupDark}
                 alt="Xcelsior"
-                width={160}
-                height={44}
-                className="h-11 w-auto block dark:hidden"
+                width={206}
+                height={34}
+                className="block h-auto w-40 dark:hidden"
               />
             </div>
             <p className="text-sm text-text-secondary leading-relaxed">
               {t("footer.tagline")}
               <br />
-              <span className="text-accent-gold italic">{t("footer.motto")}</span>
+              <span className="sr-only">{t("footer.motto")}</span>
+              <Image
+                src={BRAND_ASSETS.textEverSbLight}
+                alt=""
+                width={127}
+                height={22}
+                className="mt-2 hidden h-4 w-auto dark:block"
+              />
+              <Image
+                src={BRAND_ASSETS.textEverSbDark}
+                alt=""
+                width={127}
+                height={22}
+                className="mt-2 block h-4 w-auto dark:hidden"
+              />
             </p>
           </div>
 
@@ -122,6 +137,22 @@ export function Footer() {
           <p className="text-xs text-text-muted">
             {t("footer.copyright", { year: 2026 })}
           </p>
+          <a href="https://xcelsior.ca" className="inline-flex opacity-70 transition-opacity hover:opacity-100" aria-label="xcelsior.ca">
+            <Image
+              src={BRAND_ASSETS.textUrlMedLight}
+              alt=""
+              width={106}
+              height={19}
+              className="hidden h-3.5 w-auto dark:block"
+            />
+            <Image
+              src={BRAND_ASSETS.textUrlMedDark}
+              alt=""
+              width={106}
+              height={19}
+              className="block h-3.5 w-auto dark:hidden"
+            />
+          </a>
           <p className="text-xs text-text-muted">
             {t("footer.hydro")}
           </p>

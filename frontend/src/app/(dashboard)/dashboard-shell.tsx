@@ -10,6 +10,7 @@ import {
 import { DashboardNav } from "@/components/nav/dashboard-nav";
 import { UserAvatar } from "@/components/user/user-avatar";
 import { useAuth } from "@/lib/auth";
+import { BRAND_ASSETS } from "@/lib/brand-assets";
 import { getTeamContext, formatTeamRoleLabel } from "@/lib/team-context";
 import { useLocale } from "@/lib/locale";
 import { cn } from "@/lib/utils";
@@ -203,22 +204,16 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       {/* Logo */}
       <div className="flex h-[72px] items-center border-b border-border/60 px-4 justify-between">
         <Link href="/dashboard" className="flex items-center overflow-visible pr-2">
-          <div className="relative shrink-0" style={{ width: collapsed && !mobile ? 45 : undefined }}>
-            {/* Collapsed icon — matched to the icon *within* the expanded wordmark
-                so toggling never moves it. The wordmark's leaf+X glyph renders at
-                ~40.7px tall starting ~5.5px right of the wordmark's left edge (the
-                badge inset); a 45px standalone icon reproduces that glyph size, and
-                the left-[5.5px] offset lands it on the same x as the wordmark glyph.
-                Result: identical size, x, and y in both states. */}
+          <div className="relative flex min-w-0 items-center" style={{ width: collapsed && !mobile ? 36 : undefined }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/xcelsior-logo-rounded.svg"
+              src={BRAND_ASSETS.iconGradientTight}
               alt="Xcelsior"
               className={cn(
-                "h-[45px] w-[45px] transition-all duration-300 ease-in-out absolute top-1/2 left-[5.5px]",
+                "absolute left-1/2 top-1/2 h-8 w-8 -translate-x-1/2 -translate-y-1/2 object-contain transition-all duration-300 ease-in-out",
                 collapsed && !mobile
-                  ? "opacity-100 scale-100 -translate-y-1/2"
-                  : "opacity-0 scale-75 -translate-y-1/2 pointer-events-none"
+                  ? "opacity-100 scale-100"
+                  : "pointer-events-none opacity-0 scale-75"
               )}
             />
             <div
@@ -227,19 +222,17 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 collapsed && !mobile ? "pointer-events-none w-0 overflow-hidden opacity-0 scale-95" : "opacity-100 scale-100"
               )}
             >
-              {/* Wordmark — visible when expanded. Its glyph height is the target the
-                  collapsed icon above matches. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/xcelsior-logo-wordmark-iconbg.svg"
+                src={BRAND_ASSETS.lockupLight}
                 alt="Xcelsior"
-                className="hidden h-[56px] w-auto shrink-0 dark:block"
+                className="hidden h-auto w-[140px] shrink-0 dark:block"
               />
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/xcelsior-logo-wordmark-iconbg-light.svg"
+                src={BRAND_ASSETS.lockupDark}
                 alt="Xcelsior"
-                className="block h-[56px] w-auto shrink-0 dark:hidden"
+                className="block h-auto w-[140px] shrink-0 dark:hidden"
               />
               <span className="shrink-0 rounded-full bg-accent-cyan/8 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-widest text-accent-cyan/70">Beta</span>
             </div>
@@ -675,5 +668,3 @@ function SessionExpiryBanner() {
     </AnimatePresence>
   );
 }
-
-

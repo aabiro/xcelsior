@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { BRAND_PNG_ASSETS } from "@/lib/brand-assets";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
@@ -15,25 +16,29 @@ export default function manifest(): MetadataRoute.Manifest {
     orientation: "any",
     categories: ["business", "productivity", "utilities"],
     icons: [
-      { src: "/favicon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
-      { src: "/xcelsior_icon_16x16.png", sizes: "16x16", type: "image/png" },
-      { src: "/xcelsior_icon_32x32.png", sizes: "32x32", type: "image/png" },
-      { src: "/xcelsior_icon_48x48.png", sizes: "48x48", type: "image/png" },
-      { src: "/xcelsior_icon_60x60.png", sizes: "60x60", type: "image/png" },
-      { src: "/xcelsior_icon_120x120.png", sizes: "120x120", type: "image/png" },
-      { src: "/xcelsior_icon_150x150.png", sizes: "150x150", type: "image/png" },
-      { src: "/xcelsior_icon_180x180.png", sizes: "180x180", type: "image/png" },
       {
-        src: "/xcelsior_icon_192x192.png",
+        src: BRAND_PNG_ASSETS.icon192,
         sizes: "192x192",
+        type: "image/png",
+        purpose: "any",
+      },
+      {
+        src: BRAND_PNG_ASSETS.icon512,
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "any",
+      },
+      {
+        src: BRAND_PNG_ASSETS.iconMaskable512,
+        sizes: "512x512",
         type: "image/png",
         purpose: "maskable",
       },
       {
-        src: "/xcelsior_icon_512x512.png",
+        src: BRAND_PNG_ASSETS.appGradientRounded512,
         sizes: "512x512",
         type: "image/png",
-        purpose: "maskable",
+        purpose: "any",
       },
     ],
     shortcuts: [
@@ -41,25 +46,25 @@ export default function manifest(): MetadataRoute.Manifest {
         name: "Marketplace",
         short_name: "Market",
         url: "/dashboard/marketplace",
-        icons: [{ src: "/xcelsior_icon_192x192.png", sizes: "192x192", type: "image/png" }],
+        icons: [{ src: BRAND_PNG_ASSETS.icon192, sizes: "192x192", type: "image/png" }],
       },
       {
         name: "Instances",
         short_name: "Instances",
         url: "/dashboard/instances",
-        icons: [{ src: "/xcelsior_icon_192x192.png", sizes: "192x192", type: "image/png" }],
+        icons: [{ src: BRAND_PNG_ASSETS.icon192, sizes: "192x192", type: "image/png" }],
       },
       {
         name: "Notifications",
         short_name: "Alerts",
         url: "/dashboard/notifications",
-        icons: [{ src: "/xcelsior_icon_192x192.png", sizes: "192x192", type: "image/png" }],
+        icons: [{ src: BRAND_PNG_ASSETS.icon192, sizes: "192x192", type: "image/png" }],
       },
       {
         name: "Billing",
         short_name: "Billing",
         url: "/dashboard/billing",
-        icons: [{ src: "/xcelsior_icon_192x192.png", sizes: "192x192", type: "image/png" }],
+        icons: [{ src: BRAND_PNG_ASSETS.icon192, sizes: "192x192", type: "image/png" }],
       },
     ],
     screenshots: [

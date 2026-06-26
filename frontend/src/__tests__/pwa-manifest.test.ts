@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import manifest from "@/app/manifest";
+import { BRAND_PNG_ASSETS } from "@/lib/brand-assets";
 
 describe("desktop PWA manifest", () => {
   it("exposes standalone install metadata for the desktop app", () => {
@@ -19,12 +20,12 @@ describe("desktop PWA manifest", () => {
     expect(appManifest.icons).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          src: "/xcelsior_icon_192x192.png",
+          src: BRAND_PNG_ASSETS.icon192,
           sizes: "192x192",
-          purpose: "maskable",
+          purpose: "any",
         }),
         expect.objectContaining({
-          src: "/xcelsior_icon_512x512.png",
+          src: BRAND_PNG_ASSETS.iconMaskable512,
           sizes: "512x512",
           purpose: "maskable",
         }),
