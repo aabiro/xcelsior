@@ -50,8 +50,8 @@ const RANGE_PRESETS = [
 type Tab = "overview" | "compute" | "financial" | "provider";
 
 const TABS: { key: Tab; label: string; icon: React.ElementType; description: string; providerOnly?: boolean }[] = [
-  { key: "provider", label: "Provider", icon: Server, description: "Host earnings & uptime", providerOnly: true },
   { key: "overview", label: "Overview", icon: LayoutGrid, description: "Key metrics at a glance" },
+  { key: "provider", label: "Provider", icon: Server, description: "Host earnings & uptime", providerOnly: true },
   { key: "compute", label: "Compute", icon: Cpu, description: "GPU usage & performance" },
   { key: "financial", label: "Financial", icon: DollarSign, description: "Spend, efficiency & wallet" },
 ];
@@ -501,10 +501,10 @@ export default function AnalyticsPage() {
 
   useEffect(() => {
     if (loading || tab !== null) return;
-    setTab(isProvider || isAdmin ? "provider" : "overview");
+    setTab("overview");
   }, [isAdmin, isProvider, loading, tab]);
 
-  const activeTab: Tab = tab ?? ((isProvider || isAdmin) ? "provider" : "overview");
+  const activeTab: Tab = tab ?? "overview";
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

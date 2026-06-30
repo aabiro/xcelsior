@@ -78,7 +78,7 @@ const fr_dashboard: Record<string, string> = {
   "dash.serverless.err_model": "Sélectionnez ou saisissez un modèle",
   "dash.serverless.err_gpu": "Sélectionnez un type de GPU",
   "dash.serverless.continue": "Continuer",
-  "dash.serverless.back_list": "← Retour aux endpoints",
+  "dash.serverless.back_list": "Retour aux endpoints",
   "dash.serverless.feature_off_title": "Serverless désactivé",
   "dash.serverless.feature_off_desc": "L’inférence serverless n’est pas activée dans cet environnement.",
   "dash.volumes": "Volumes",

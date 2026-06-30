@@ -693,7 +693,7 @@ const en: Record<string, string> = {
   "dash.serverless.err_model": "Select or enter a model",
   "dash.serverless.err_gpu": "Select a GPU type",
   "dash.serverless.continue": "Continue",
-  "dash.serverless.back_list": "← Back to endpoints",
+  "dash.serverless.back_list": "Back to endpoints",
   "dash.serverless.feature_off_title": "Serverless is disabled",
   "dash.serverless.feature_off_desc": "This environment has not enabled serverless inference yet.",
 

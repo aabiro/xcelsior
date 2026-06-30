@@ -12,7 +12,7 @@ import { PasswordRequirements } from "@/components/auth/password-requirements";
 import { Eye, EyeOff, Mail, CheckCircle } from "lucide-react";
 import { register as apiRegister, normalizeAuthRedirectPath, oauthInitiate, resendVerification } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { BRAND_PNG_ASSETS } from "@/lib/brand-assets";
+import { BRAND_ASSETS } from "@/lib/brand-assets";
 import { useLocale } from "@/lib/locale";
 import posthog from "posthog-js";
 import {
@@ -172,7 +172,8 @@ function RegisterPageContent() {
     <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-12">
       <Card className="w-full max-w-md p-8">
         <div className="mb-8 text-center">
-          <Image src={BRAND_PNG_ASSETS.iconGradient512} alt="Xcelsior" width={48} height={48} className="mx-auto mb-4 h-12 w-12 object-contain" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={BRAND_ASSETS.iconGradient} alt="Xcelsior" width={56} height={56} className="mx-auto mb-4 h-14 w-14 object-contain" />
           <h1 className="text-2xl font-bold">{t("auth.register_title")}</h1>
           <p className="mt-1 text-sm text-text-secondary">
             {t("auth.register_subtitle")}

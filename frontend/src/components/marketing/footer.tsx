@@ -66,11 +66,6 @@ export function Footer() {
                 </Link>
               </li>
               <li>
-                <Link href="/sovereignty" className="text-sm text-text-secondary hover:text-text-primary">
-                  {t("footer.sovereignty")}
-                </Link>
-              </li>
-              <li>
                 <Link href="/download" className="text-sm text-text-secondary hover:text-text-primary">
                   {t("footer.download")}
                 </Link>
@@ -122,11 +117,6 @@ export function Footer() {
               <li>
                 <Link href="/terms" className="text-sm text-text-secondary hover:text-text-primary">
                   {t("footer.terms")}
-                </Link>
-              </li>
-              <li>
-                <Link href="/sovereignty" className="text-sm text-text-secondary hover:text-text-primary">
-                  {t("footer.data_sovereignty")}
                 </Link>
               </li>
             </ul>
