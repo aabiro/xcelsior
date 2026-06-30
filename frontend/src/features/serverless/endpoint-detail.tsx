@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -52,6 +51,8 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
   const [jobs, setJobs] = useState<ServerlessJob[]>([]);
   const [keys, setKeys] = useState<ServerlessApiKey[]>([]);
   const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -70,8 +71,20 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
       setWorkers(workersRes.workers || []);
       setJobs(jobsRes.jobs || []);
       setKeys(keysRes.keys || []);
-    } catch {
-      toast.error(t("dash.serverless.load_failed"));
+      setNotFound(false);
+      setLoadError(false);
+    } catch (err) {
+      // Only treat a real 404 as "not found". Transient errors (auth refresh,
+      // 5xx, network) should offer a retry instead of masquerading as a deleted
+      // endpoint — otherwise a flaky load looks like "endpoint not found".
+      const status = err instanceof api.ApiError ? err.status : 0;
+      if (status === 404) {
+        setNotFound(true);
+        setLoadError(false);
+      } else {
+        setLoadError(true);
+        toast.error(t("dash.serverless.load_failed"));
+      }
     } finally {
       setLoading(false);
     }
@@ -143,13 +156,31 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
     );
   }
 
+  // Transient failure (auth refresh, 5xx, network) — offer a retry rather than
+  // claiming the endpoint doesn't exist.
+  if (!endpoint && loadError && !notFound) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-24 text-center text-text-muted">
+        <p>{t("dash.serverless.load_failed")}</p>
+        <div className="flex items-center gap-3">
+          <Button variant="outline" size="sm" onClick={() => void load(true)}>
+            <RefreshCw className="h-3.5 w-3.5" /> {t("gear.retry")}
+          </Button>
+          <ServerlessBackLink href="/dashboard/inference">
+            {t("dash.serverless.back_list")}
+          </ServerlessBackLink>
+        </div>
+      </div>
+    );
+  }
+
   if (!endpoint) {
     return (
-      <div className="text-center py-24 text-text-muted">
+      <div className="flex flex-col items-center gap-2 py-24 text-center text-text-muted">
         <p>{t("dash.serverless.not_found")}</p>
-        <Link href="/dashboard/inference" className="text-accent-violet text-sm mt-2 inline-block">
+        <ServerlessBackLink href="/dashboard/inference">
           {t("dash.serverless.back_list")}
-        </Link>
+        </ServerlessBackLink>
       </div>
     );
   }
