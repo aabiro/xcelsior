@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -16,7 +16,6 @@ import {
   Layers,
   LayoutDashboard,
   Monitor,
-  MoreHorizontal,
   Package,
   Server,
   Shield,
@@ -211,9 +210,7 @@ export function DashboardNav({
 }) {
   const pathname = usePathname();
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
-  const [moreOpen, setMoreOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
-  const moreRef = useRef<HTMLDivElement>(null);
 
   const visibleGroups = useMemo(
     () =>
@@ -245,17 +242,6 @@ export function DashboardNav({
     setHydrated(true);
   }, [activeGroupId, visibleGroups]);
 
-  useEffect(() => {
-    if (!moreOpen) return;
-    function handleClick(e: MouseEvent) {
-      if (moreRef.current && !moreRef.current.contains(e.target as Node)) {
-        setMoreOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [moreOpen]);
-
   const toggleGroup = useCallback((id: string) => {
     setOpenGroups((prev) => {
       const next = { ...prev, [id]: !prev[id] };
@@ -266,14 +252,6 @@ export function DashboardNav({
       }
       return next;
     });
-  }, []);
-
-  const collapsedQuick = useMemo(() => {
-    const items: NavItemDef[] = [
-      { href: "/dashboard/instances", key: "dash.instances", icon: Monitor },
-      { href: "/dashboard/billing", key: "dash.billing", icon: CreditCard },
-    ];
-    return items;
   }, []);
 
   const expanded = mobile || !collapsed;
@@ -344,73 +322,22 @@ export function DashboardNav({
           );
         })
       ) : (
-        <>
-          {collapsedQuick.map((item) => (
-            <NavLink
-              key={item.href}
-              item={item}
-              label={t(item.key)}
-              active={isItemActive(pathname, item.href)}
-              collapsed
-              mobile={false}
-              onNavigate={onNavigate}
-            />
-          ))}
-          <div className="relative pt-1" ref={moreRef}>
-            <button
-              type="button"
-              onClick={() => setMoreOpen((v) => !v)}
-              title={t("dash.nav.more")}
-              className={cn(
-                "flex w-full items-center justify-center rounded-lg px-3 py-2 text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors",
-                moreOpen && "bg-surface-hover text-text-primary",
-              )}
-            >
-              <MoreHorizontal className="h-5 w-5" />
-            </button>
-            <AnimatePresence>
-              {moreOpen && (
-                <motion.div
-                  initial={{ opacity: 0, x: -4 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -4 }}
-                  transition={{ duration: 0.15 }}
-                  className="absolute left-full top-0 z-50 ml-2 w-56 max-h-[70vh] overflow-y-auto rounded-xl border border-border/60 bg-surface shadow-xl py-2"
-                >
-                  {visibleGroups.map((group) => (
-                    <div key={group.id} className="px-2 py-1">
-                      <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-widest text-text-muted">
-                        {t(group.labelKey)}
-                      </p>
-                      {group.items.map((item) => {
-                        const active = isItemActive(pathname, item.href);
-                        return (
-                          <Link
-                            key={item.href}
-                            href={item.href}
-                            onClick={() => {
-                              setMoreOpen(false);
-                              onNavigate?.();
-                            }}
-                            className={cn(
-                              "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors",
-                              active
-                                ? "bg-accent-cyan/8 text-accent-cyan"
-                                : "text-text-secondary hover:bg-surface-hover hover:text-text-primary",
-                            )}
-                          >
-                            <item.icon className="h-4 w-4 shrink-0" />
-                            <span className="truncate">{t(item.key)}</span>
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        </>
+        // Collapsed: show every nav icon (flattened groups) — no "More" popout.
+        <div className="space-y-0.5">
+          {visibleGroups
+            .flatMap((group) => group.items)
+            .map((item) => (
+              <NavLink
+                key={item.href}
+                item={item}
+                label={t(item.key)}
+                active={isItemActive(pathname, item.href)}
+                collapsed
+                mobile={false}
+                onNavigate={onNavigate}
+              />
+            ))}
+        </div>
       )}
     </nav>
   );
