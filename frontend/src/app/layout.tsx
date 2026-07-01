@@ -1,17 +1,19 @@
 import type { Metadata, Viewport } from "next";
-import { Geist } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import { Providers } from "./providers";
 import { RootClientWidgets } from "@/components/RootClientWidgets";
 import { DeferredClientToaster } from "@/components/DeferredClientToaster";
-import { BRAND_ASSET_ORIGIN, BRAND_PNG_ASSETS } from "@/lib/brand-assets";
+import { BRAND_ASSET_ORIGIN, SITE_ASSETS } from "@/lib/brand-assets";
 import "./globals.css";
+import "@/components/marketing/marketing-theme.css";
 
 const GA_ID = /^G-[A-Z0-9]+$/.test(process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID ?? "")
   ? process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID!
   : null;
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"], display: "swap", preload: false });
+const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"], display: "swap", preload: false });
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -53,7 +55,7 @@ export const metadata: Metadata = {
   openGraph: {
     images: [
       {
-        url: BRAND_PNG_ASSETS.ogImage1200x630,
+        url: SITE_ASSETS.ogImage1200x630,
         width: 1200,
         height: 630,
         alt: "The Cheapest Compliant GPU Compute in Canada",
@@ -70,7 +72,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    images: [BRAND_PNG_ASSETS.ogImage1200x630],
+    images: [SITE_ASSETS.ogImage1200x630],
     title: "The Cheapest Compliant GPU Compute in Canada",
     description: "The Cheapest Compliant GPU Compute in Canada. Ever upward.",
   },
@@ -85,12 +87,12 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: BRAND_PNG_ASSETS.favicon16, sizes: "16x16", type: "image/png" },
-      { url: BRAND_PNG_ASSETS.favicon32, sizes: "32x32", type: "image/png" },
-      { url: BRAND_PNG_ASSETS.favicon48, sizes: "48x48", type: "image/png" },
+      { url: SITE_ASSETS.favicon16, sizes: "16x16", type: "image/png" },
+      { url: SITE_ASSETS.favicon32, sizes: "32x32", type: "image/png" },
+      { url: SITE_ASSETS.favicon48, sizes: "48x48", type: "image/png" },
     ],
     apple: [
-      { url: BRAND_PNG_ASSETS.appleTouchIcon180, sizes: "180x180", type: "image/png" },
+      { url: SITE_ASSETS.appleTouchIcon180, sizes: "180x180", type: "image/png" },
     ],
   },
   manifest: "/manifest.webmanifest",
@@ -127,7 +129,7 @@ export default function RootLayout({
               "@id": "https://xcelsior.ca/#organization",
               name: "Xcelsior Compute Inc.",
               url: "https://xcelsior.ca",
-              logo: `${BRAND_ASSET_ORIGIN}${BRAND_PNG_ASSETS.appGradientRounded512}`,
+              logo: `${BRAND_ASSET_ORIGIN}${SITE_ASSETS.appGradientRounded512}`,
               description:
                 "Rent verified GPUs by the hour in Canadian dollars — sovereignty, PIPEDA, and clean hydro built in. From $0.30 CAD/hr, with dynamic spot pricing up to 70% off.",
               foundingDate: "2024",
@@ -147,7 +149,7 @@ export default function RootLayout({
       </head>
       <body
         suppressHydrationWarning
-        className={`${geistSans.variable} font-sans antialiased bg-navy text-text-primary`}
+        className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased bg-navy text-text-primary`}
       >
         <Providers>
           {children}

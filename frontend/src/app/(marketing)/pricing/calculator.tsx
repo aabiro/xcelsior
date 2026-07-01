@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Select, Input, Label } from "@/components/ui/input";
 import { useLocale } from "@/lib/locale";
+import { marketingGpuLabel } from "@/lib/marketing-gpu";
 
 interface GpuOption {
   model: string;
@@ -15,52 +15,53 @@ export function SavingsCalculator({ gpus }: { gpus: GpuOption[] }) {
   const [hoursPerDay, setHoursPerDay] = useState(8);
   const [daysPerMonth, setDaysPerMonth] = useState(22);
 
-  const gpu = gpus.find((g) => g.model === selectedGpu);
+  const gpu = gpus.find((item) => item.model === selectedGpu);
   const rate = gpu?.onDemand ?? 0;
-
   const totalHours = hoursPerDay * daysPerMonth;
   const monthlyCostOnDemand = totalHours * rate;
-  const monthlyCostReserved = monthlyCostOnDemand * 0.55; // 45% discount for yearly
+  const monthlyCostReserved = monthlyCostOnDemand * 0.55;
   const savings = monthlyCostOnDemand - monthlyCostReserved;
 
   return (
-    <div className="rounded-xl border border-border bg-surface p-6 md:p-8 max-w-3xl mx-auto">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-6">
-        <div className="space-y-1.5">
-          <Label className="text-xs">{t("calc.gpu_model")}</Label>
-          <Select value={selectedGpu} onChange={(e) => setSelectedGpu(e.target.value)}>
-            {gpus.map((g) => (
-              <option key={g.model} value={g.model}>{g.model}</option>
+    <div className="site-calculator">
+      <div className="site-calculator-controls">
+        <label className="site-field-wrap">
+          <span>{t("calc.gpu_model")}</span>
+          <select value={selectedGpu} onChange={(event) => setSelectedGpu(event.target.value)} className="site-field">
+            {gpus.map((item) => (
+              <option key={item.model} value={item.model}>{marketingGpuLabel(item.model)}</option>
             ))}
-          </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label className="text-xs">{t("calc.hours_day")}</Label>
-          <Input
+          </select>
+        </label>
+        <label className="site-field-wrap">
+          <span>{t("calc.hours_day")}</span>
+          <input
             type="number"
             min={1}
             max={24}
             value={hoursPerDay}
-            onChange={(e) => setHoursPerDay(Math.max(1, Math.min(24, Number(e.target.value))))}
+            onChange={(event) => setHoursPerDay(Math.max(1, Math.min(24, Number(event.target.value))))}
+            className="site-field"
           />
-        </div>
-        <div className="space-y-1.5">
-          <Label className="text-xs">{t("calc.days_month")}</Label>
-          <Input
+        </label>
+        <label className="site-field-wrap">
+          <span>{t("calc.days_month")}</span>
+          <input
             type="number"
             min={1}
             max={31}
             value={daysPerMonth}
-            onChange={(e) => setDaysPerMonth(Math.max(1, Math.min(31, Number(e.target.value))))}
+            onChange={(event) => setDaysPerMonth(Math.max(1, Math.min(31, Number(event.target.value))))}
+            className="site-field"
           />
-        </div>
+        </label>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="site-result-grid">
         <ResultBox
           label={t("calc.ondemand_monthly")}
           value={monthlyCostOnDemand}
-          sublabel={`${totalHours}h × $${rate.toFixed(2)}/hr`}
+          sublabel={`${totalHours}h x $${rate.toFixed(2)}/hr`}
         />
         <ResultBox
           label={t("calc.reserved_monthly")}
@@ -98,29 +99,19 @@ function ResultBox({
   highlighted?: boolean;
   accent?: boolean;
 }) {
+  const tone = highlighted ? "gold" : accent ? "green" : "default";
+
   return (
-    <div
-      className={`rounded-lg border p-4 text-center ${
-        highlighted
-          ? "border-accent-gold/30 bg-accent-gold/5"
-          : accent
-            ? "border-emerald/30 bg-emerald/5"
-            : "border-border bg-navy-light"
-      }`}
-    >
-      <p className="text-xs text-text-muted mb-1">{label}</p>
-      {original != null && (
-        <>
-          {strikeLabel && (
-            <p className="text-[10px] text-text-muted/70 leading-none mb-0.5">{strikeLabel}</p>
-          )}
-          <p className="text-sm text-text-muted line-through">${original.toFixed(2)}</p>
-        </>
-      )}
-      <p className={`text-2xl font-bold font-mono ${accent ? "text-emerald" : highlighted ? "text-accent-gold" : ""}`}>
-        ${value.toFixed(2)}
-      </p>
-      <p className="text-xs text-text-muted mt-0.5">{sublabel}</p>
+    <div className="site-result-box" data-tone={tone}>
+      <p className="site-result-label">{label}</p>
+      {original != null ? (
+        <div className="site-result-original">
+          {strikeLabel ? <span>{strikeLabel}</span> : null}
+          <s>${original.toFixed(2)}</s>
+        </div>
+      ) : null}
+      <p className="site-result-value">${value.toFixed(2)}</p>
+      <p className="site-result-note">{sublabel}</p>
     </div>
   );
 }
