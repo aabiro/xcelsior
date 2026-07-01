@@ -3,16 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import {
-  Cpu, Activity, MapPin, Clock, RefreshCw, AlertCircle,
-  Leaf, ShieldCheck, Zap, ArrowRight, TrendingDown,
-  Brain, Layers, Bot, Sparkles, ChevronRight,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { AuroraBackground } from "@/components/ui/aurora-bg";
-import { m } from "@/components/marketing/motion";
+import { AlertCircle, ArrowRight, ChevronRight, Clock, RefreshCw } from "lucide-react";
+import { SITE_ASSETS, siteIcon } from "@/lib/brand-assets";
 import { useLocale } from "@/lib/locale";
-import { cn } from "@/lib/utils";
 import {
   curateMarketingGpus,
   gpuTierBadge,
@@ -25,63 +18,37 @@ const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 type LoadState = "loading" | "ready" | "degraded" | "error";
 type PriceMode = "spot" | "ondemand";
-
-const fadeUp = {
-  hidden: { opacity: 0, y: 24 },
-  visible: (i: number) => ({
-    opacity: 1,
-    y: 0,
-    transition: { delay: i * 0.08, duration: 0.5, ease: "easeOut" as const },
-  }),
-};
+type SiteTone = "cyan" | "coral" | "gold" | "green" | "violet";
 
 const WORKLOADS = [
-  { key: "training", icon: Brain, art: "/gpu-fleet/workload-training.svg" },
-  { key: "inference", icon: Layers, art: "/gpu-fleet/workload-inference.svg" },
+  { key: "training", icon: "activity", art: "/gpu-fleet/workload-training.svg", tone: "violet" as const },
+  { key: "inference", icon: "sparkle", art: "/gpu-fleet/workload-inference.svg", tone: "cyan" as const },
 ] as const;
 
 const FLAGSHIP = [
-  { key: "b200", tier: "B200", accent: "from-accent-gold/20 to-accent-red/10 border-accent-gold/30" },
-  { key: "h100", tier: "H100", accent: "from-accent-cyan/20 to-accent-violet/10 border-accent-cyan/30" },
-  { key: "a100", tier: "A100", accent: "from-emerald/15 to-accent-cyan/5 border-emerald/25" },
+  { key: "b200", tier: "B200", tone: "gold" as const },
+  { key: "h100", tier: "H100", tone: "cyan" as const },
+  { key: "a100", tier: "A100", tone: "green" as const },
 ] as const;
 
-function HeroStat({
-  i, icon: Icon, accent, value, suffix, label,
-}: {
-  i: number;
-  icon: typeof Cpu;
-  accent: "gold" | "emerald" | "cyan";
-  value: string;
-  suffix: string;
-  label: string;
-}) {
-  const accentMap = {
-    gold: "text-accent-gold border-accent-gold/30 bg-accent-gold/10",
-    emerald: "text-emerald border-emerald/30 bg-emerald/10",
-    cyan: "text-accent-cyan border-accent-cyan/30 bg-accent-cyan/10",
-  };
-  const iconMap = {
-    gold: "text-accent-gold",
-    emerald: "text-emerald",
-    cyan: "text-accent-cyan",
-  };
-
+function ThemeIcon({ name }: { name: string }) {
   return (
-    <m.div
-      variants={fadeUp}
-      custom={i}
-      className={`rounded-2xl border px-6 py-5 backdrop-blur-sm ${accentMap[accent]}`}
-    >
-      <div className="flex items-center gap-2 mb-2">
-        <Icon className={`h-4 w-4 ${iconMap[accent]}`} />
-        <span className="text-xs font-medium uppercase tracking-wider text-text-muted">{label}</span>
-      </div>
-      <p className="text-3xl font-bold tabular-nums tracking-tight">
-        {value}
-        <span className="ml-1.5 text-sm font-normal text-text-muted">{suffix}</span>
-      </p>
-    </m.div>
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={siteIcon(name, "dark")} className="site-theme-dark" alt="" aria-hidden />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={siteIcon(name, "light")} className="site-theme-light" alt="" aria-hidden />
+    </>
+  );
+}
+
+function SectionMarker({ code, label }: { code: string; label: string }) {
+  return (
+    <div className="site-marker">
+      <span className="site-marker-code">{code}</span>
+      <span className="site-marker-line" />
+      <span>{label}</span>
+    </div>
   );
 }
 
@@ -159,6 +126,49 @@ async function fetchGpuSummaries(): Promise<{
   };
 }
 
+function tierColor(tier: ReturnType<typeof gpuTierBadge>) {
+  switch (tier) {
+    case "flagship":
+      return "var(--gold)";
+    case "datacenter":
+      return "var(--cyan)";
+    case "pro":
+      return "var(--violet)";
+    default:
+      return "var(--green)";
+  }
+}
+
+function formatPrice(value: number) {
+  return value > 0 ? `$${value.toFixed(2)}` : "—";
+}
+
+function availabilityMeta(gpu: MarketingGpuRow, t: (key: string) => string) {
+  const tier = gpuTierBadge(gpu.gpu_model);
+  const isFlagshipOrDc = tier === "flagship" || tier === "datacenter";
+
+  if (gpu.available > 0) {
+    return {
+      color: "var(--green)",
+      label: `${gpu.available} ${t("gpus.available")}`,
+      pulse: true,
+      tone: "green" as const,
+    };
+  }
+
+  return {
+    color: isFlagshipOrDc ? "var(--cyan)" : "var(--gold)",
+    label: isFlagshipOrDc ? t("gpus.on_request_reserved") : t("gpus.on_request"),
+    pulse: false,
+    tone: isFlagshipOrDc ? ("cyan" as const) : ("gold" as const),
+  };
+}
+
+function barWidth(value: number, total: number, fallback: number) {
+  if (total <= 0) return `${fallback}%`;
+  return `${Math.max(18, Math.min(100, Math.round((value / total) * 100)))}%`;
+}
+
 function GpuPriceDock({
   gpu,
   priceMode,
@@ -178,46 +188,38 @@ function GpuPriceDock({
 
   return (
     <div
-      className="fixed bottom-0 left-0 right-0 z-40 border-t border-border/70 bg-background/92 backdrop-blur-xl shadow-[0_-12px_40px_rgba(0,0,0,0.35)]"
+      className="site-price-dock"
       style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
     >
-      <div className="mx-auto flex max-w-6xl items-center gap-4 px-4 py-3 sm:px-6 pr-24 sm:pr-28">
-        <button
-          type="button"
-          onClick={onToggleMode}
-          className="group flex min-w-0 flex-1 items-center gap-4 rounded-xl border border-border/60 bg-surface/50 px-4 py-2.5 text-left transition-colors hover:border-accent-cyan/40"
-        >
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent-red/10 ring-1 ring-accent-red/20">
-            <Cpu className="h-5 w-5 text-accent-red" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold">{marketingGpuLabel(gpu.gpu_model)}</p>
-            <p className="text-xs text-text-muted">{gpu.vram_gb} GB · {label}</p>
-          </div>
-          <div className="shrink-0 text-right">
-            <p className={cn(
-              "text-2xl font-bold tabular-nums transition-all duration-300",
-              priceMode === "spot" ? "text-emerald" : "text-text-primary",
-            )}>
-              {active > 0 ? `$${active.toFixed(2)}` : "—"}
-              <span className="text-xs font-normal text-text-muted">/hr</span>
-            </p>
-            {/* Always reserve this line's height so cycling spot/on-demand
-                doesn't change the dock height (no jitter). */}
-            <p className={cn(
-              "text-[10px] font-semibold text-emerald",
-              !(priceMode === "spot" && spotOff > 0) && "invisible",
-            )}>
-              −{spotOff > 0 ? spotOff : 0}% vs on-demand
-            </p>
-          </div>
-          <ChevronRight className="h-4 w-4 shrink-0 text-text-muted transition-transform group-hover:translate-x-0.5" />
-        </button>
-        <Link href="/register" className="hidden sm:block shrink-0">
-          <Button size="sm" className="gap-1.5 shadow-lg shadow-accent-red/15">
+      <div className="site-container">
+        <div className="site-rails site-price-dock-shell">
+          <button
+            type="button"
+            onClick={onToggleMode}
+            className="site-price-dock-card"
+          >
+            <span className="site-icon-box site-price-dock-icon" aria-hidden>
+              <ThemeIcon name="gpu" />
+            </span>
+            <span className="site-price-dock-main">
+              <span className="site-price-dock-title">{marketingGpuLabel(gpu.gpu_model)}</span>
+              <span className="site-price-dock-copy">{gpu.vram_gb} GB · {label}</span>
+            </span>
+            <span className="site-price-dock-value">
+              <strong>
+                {formatPrice(active)}
+                <span>/hr</span>
+              </strong>
+              <span className={priceMode === "spot" && spotOff > 0 ? "site-price-dock-note" : "site-price-dock-note site-price-dock-note-hidden"}>
+                −{spotOff > 0 ? spotOff : 0}% vs on-demand
+              </span>
+            </span>
+            <ChevronRight className="site-price-dock-chevron" />
+          </button>
+          <Link href="/register" className="site-button site-button-primary site-price-dock-cta">
             {t("gpus.deploy")} <ArrowRight className="h-3.5 w-3.5" />
-          </Button>
-        </Link>
+          </Link>
+        </div>
       </div>
     </div>
   );
@@ -281,6 +283,10 @@ export function GPUAvailabilityContent() {
   const cheapestSpot = spotPrices.length ? Math.min(...spotPrices) : 0.3;
   const totalAvailable = gpus.reduce((sum, g) => sum + g.available, 0);
   const modelsWithStock = gpus.filter((g) => g.available > 0).length;
+  const regionsLive = useMemo(
+    () => new Set(gpus.flatMap((gpu) => gpu.locations)).size,
+    [gpus],
+  );
   const bestSpotGpu = useMemo(() => {
     const withSpot = gpus.filter((g) => g.spot_cad > 0);
     if (!withSpot.length) return gpus[0] ?? null;
@@ -298,7 +304,6 @@ export function GPUAvailabilityContent() {
     return () => clearInterval(id);
   }, [cyclePrices]);
 
-  // Only show the sticky price dock while the GPU cards are in view.
   useEffect(() => {
     const el = cardsRef.current;
     if (!el) return;
@@ -321,413 +326,383 @@ export function GPUAvailabilityContent() {
     setCyclePrices(false);
   }, []);
 
+  const handleRowKeyDown = useCallback((event: React.KeyboardEvent<HTMLTableRowElement>, model: string) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    handleCardInteract(model);
+  }, [handleCardInteract]);
+
+  const telemetryBars = [
+    {
+      label: t("gpus.stat_cheapest"),
+      value: `${formatPrice(cheapestSpot)}/hr`,
+      width: "100%",
+    },
+    {
+      label: t("gpus.stat_models"),
+      value: `${modelsWithStock}/${gpus.length || 0}`,
+      width: barWidth(modelsWithStock, gpus.length || 1, 44),
+    },
+    {
+      label: t("gpus.updated"),
+      value: lastUpdated ? lastUpdated.toLocaleTimeString() : "—",
+      width: liveData ? "82%" : "48%",
+    },
+  ];
+
   return (
-    <div className="relative mx-auto max-w-6xl px-6 py-28 pb-36">
-      <AuroraBackground className="-z-10 opacity-50" />
-      <Image
-        src="/gpu-fleet/accent-flare.svg"
-        alt=""
-        width={120}
-        height={120}
-        className="pointer-events-none absolute right-8 top-32 opacity-40 hidden lg:block"
-        aria-hidden
-      />
-
-      {/* Hero */}
-      <m.div
-        className="mb-20 grid gap-12 lg:grid-cols-[1fr_1.05fr] lg:items-center"
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true }}
-      >
-        <div className="text-center lg:text-left">
-          <m.div variants={fadeUp} custom={0} className="mb-6 inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-1.5 backdrop-blur-sm">
-            <Activity className="h-3.5 w-3.5 text-emerald-400" />
-            <span className="text-xs font-medium text-emerald-400">
-              {liveData ? t("gpus.badge_live") : t("gpus.badge_reference")}
-            </span>
-          </m.div>
-          <m.h1 variants={fadeUp} custom={1} className="text-4xl font-bold md:text-5xl lg:text-6xl tracking-tight leading-[1.08]">
-            {t("gpus.title")}
-          </m.h1>
-          <m.p variants={fadeUp} custom={2} className="mt-6 text-lg text-text-secondary max-w-xl mx-auto lg:mx-0 leading-relaxed">
-            {t("gpus.subtitle")}
-          </m.p>
-          <m.div variants={fadeUp} custom={3} className="mt-8 flex flex-wrap justify-center lg:justify-start gap-3">
-            <Link href="/register">
-              <Button size="lg" className="px-8 shadow-lg shadow-accent-red/15">
-                {t("gpus.deploy")} <ArrowRight className="h-4 w-4" />
-              </Button>
-            </Link>
-            <Link href="/pricing">
-              <Button variant="outline" size="lg">{t("gpus.cta_pricing")}</Button>
-            </Link>
-          </m.div>
-        </div>
-        <m.div
-          variants={fadeUp}
-          custom={2}
-          className="relative aspect-[3/2] overflow-hidden rounded-3xl border border-border/50 bg-surface/30 shadow-2xl shadow-accent-cyan/5"
-        >
-          <Image src="/gpu-fleet/hero-power.svg" alt="" fill className="object-cover" priority />
-        </m.div>
-      </m.div>
-
-      {/* MCP cross-promo */}
-      <m.div
-        className="mb-16 rounded-2xl border border-accent-violet/30 bg-gradient-to-r from-accent-violet/10 via-surface/40 to-accent-cyan/10 p-6 md:p-8"
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true }}
-        variants={fadeUp}
-        custom={0}
-      >
-        <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-start gap-4">
-            <div className="rounded-xl border border-accent-violet/30 bg-accent-violet/10 p-3">
-              <Bot className="h-6 w-6 text-accent-violet" />
+    <>
+      <section className="site-hero">
+        <div className="site-grid-bg" aria-hidden />
+        <div className="site-container">
+          <div className="site-rails site-hero-rails">
+            <div style={{ animation: "heroUp .7s ease both" }}>
+              <div className="site-pill">
+                <span className="site-live-dot" />
+                <span>{liveData ? t("gpus.badge_live") : t("gpus.badge_reference")}</span>
+              </div>
+              <h1 className="site-hero-title">
+                <span className="site-gradient-text">{t("gpus.title")}</span>
+              </h1>
+              <p className="site-hero-copy">{t("gpus.subtitle")}</p>
+              <div className="site-hero-actions">
+                <Link href="/register" className="site-button site-button-primary">
+                  {t("gpus.deploy")} <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+                <Link href="/pricing" className="site-button site-button-ghost">
+                  {t("gpus.cta_pricing")}
+                </Link>
+              </div>
             </div>
+
+            <div className="site-telemetry-wrap" aria-label="Live GPU market preview" aria-live="polite">
+              <div className="site-telemetry-card">
+                <div className="site-telemetry-head">
+                  <div className="site-telemetry-model">
+                    <span className="site-telemetry-mark">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={SITE_ASSETS.iconGradient} style={{ width: 20, height: 20 }} alt="" aria-hidden />
+                    </span>
+                    <div>
+                      <div className="site-mono" style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>
+                        {bestSpotGpu ? marketingGpuLabel(bestSpotGpu.gpu_model) : "RTX 4090"}
+                      </div>
+                      <div className="site-mono" style={{ color: "var(--text-4)", fontSize: 11 }}>
+                        {bestSpotGpu ? `${bestSpotGpu.vram_gb} GB VRAM` : "Live inventory"}
+                      </div>
+                    </div>
+                  </div>
+                  <span className="site-live-badge">
+                    <span className="site-live-dot" />
+                    {liveData ? t("gpus.badge_live") : t("gpus.badge_reference")}
+                  </span>
+                </div>
+
+                {telemetryBars.map((bar) => (
+                  <div key={bar.label} className="site-meter">
+                    <div className="site-meter-label">
+                      <span style={{ color: "var(--text-4)" }}>{bar.label}</span>
+                      <span style={{ color: "var(--text-2)" }}>{bar.value}</span>
+                    </div>
+                    <div className="site-meter-track">
+                      <div className="site-meter-bar" style={{ width: bar.width }} />
+                    </div>
+                  </div>
+                ))}
+
+                <div className="site-telemetry-price">
+                  <span className="site-mono" style={{ color: "var(--text-4)", fontSize: 11, textTransform: "uppercase" }}>
+                    {t("gpus.stat_models")}
+                  </span>
+                  <strong style={{ color: "var(--text)", fontSize: 25 }}>{regionsLive || 0} regions</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="site-rails site-kpi-strip">
+            <div className="site-kpi">
+              <div className="site-kpi-label">{t("gpus.stat_cheapest")}</div>
+              <div className="site-kpi-value">${cheapestSpot.toFixed(2)}</div>
+            </div>
+            <div className="site-kpi">
+              <div className="site-kpi-label">{t("gpus.stat_models")}</div>
+              <div className="site-kpi-value">{gpus.length || "—"}</div>
+            </div>
+            <div className="site-kpi">
+              <div className="site-kpi-label">{t("gpus.stat_hydro")}</div>
+              <div className="site-kpi-value">100%</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div className="site-container">
+        <section className="site-rails site-section">
+          <div className="site-callout site-callout-grid site-callout-violet">
             <div>
-              <p className="text-sm font-medium uppercase tracking-wider text-accent-violet">{t("gpus.mcp_badge")}</p>
-              <h2 className="mt-1 text-xl font-semibold tracking-tight md:text-2xl">{t("gpus.mcp_title")}</h2>
-              <p className="mt-2 max-w-xl text-sm text-text-secondary leading-relaxed">{t("gpus.mcp_desc")}</p>
+              <div className="site-product-badge" style={{ color: "var(--violet)" }}>{t("gpus.mcp_badge")}</div>
+              <h2 className="site-callout-title">{t("gpus.mcp_title")}</h2>
+              <p className="site-callout-copy">{t("gpus.mcp_desc")}</p>
+            </div>
+            <div className="site-callout-actions">
+              <span className="site-icon-box" aria-hidden>
+                <ThemeIcon name="bot" />
+              </span>
+              <Link href="/mcp" className="site-button site-button-ghost site-callout-button">
+                {t("gpus.mcp_cta")} <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
             </div>
           </div>
-          <Link href="/mcp" className="shrink-0">
-            <Button size="lg" variant="outline" className="border-accent-violet/40 hover:bg-accent-violet/10">
-              {t("gpus.mcp_cta")} <ArrowRight className="h-4 w-4" />
-            </Button>
-          </Link>
-        </div>
-      </m.div>
+        </section>
 
-      {/* Stat strip */}
-      <m.div
-        className="mb-28 grid grid-cols-1 gap-5 sm:grid-cols-3"
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true }}
-      >
-        <HeroStat i={0} icon={TrendingDown} accent="gold" value={`$${cheapestSpot.toFixed(2)}`} suffix="CAD/hr" label={t("gpus.stat_cheapest")} />
-        <HeroStat i={1} icon={Cpu} accent="cyan" value={String(gpus.length || "—")} suffix={modelsWithStock > 0 ? `· ${totalAvailable} live` : ""} label={t("gpus.stat_models")} />
-        <HeroStat i={2} icon={Leaf} accent="emerald" value="100%" suffix="" label={t("gpus.stat_hydro")} />
-      </m.div>
-
-      {/* Workloads — training + inference only */}
-      <m.div
-        className="mb-28"
-        initial={{ opacity: 0, y: 28 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.55 }}
-      >
-        <div className="mb-10 max-w-2xl">
-          <h2 className="text-3xl font-bold tracking-tight">{t("gpus.power_title")}</h2>
-          <p className="mt-4 text-text-secondary leading-relaxed">{t("gpus.power_desc")}</p>
-        </div>
-        <div className="grid gap-6 md:grid-cols-2">
-          {WORKLOADS.map(({ key, icon: Icon, art }, i) => (
-            <m.div
-              key={key}
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: i * 0.08, duration: 0.45 }}
-              className="group overflow-hidden rounded-2xl border border-border/60 bg-surface/40 backdrop-blur-sm transition-colors hover:border-accent-cyan/30"
-            >
-              <div className="relative h-28 overflow-hidden bg-gradient-to-br from-surface/80 to-background/40">
-                <Image src={art} alt="" fill className="object-cover opacity-90 transition-transform duration-500 group-hover:scale-[1.03]" />
-              </div>
-              <div className="p-6">
-                <span className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-accent-cyan/10 ring-1 ring-accent-cyan/20">
-                  <Icon className="h-5 w-5 text-accent-cyan" />
-                </span>
-                <h3 className="text-lg font-semibold">{t(`gpus.workload_${key}`)}</h3>
-                <p className="mt-2 text-sm text-text-secondary leading-relaxed">{t(`gpus.workload_${key}_desc`)}</p>
-              </div>
-            </m.div>
-          ))}
-        </div>
-      </m.div>
-
-      {/* Flagship strip */}
-      <m.div
-        className="mb-28 rounded-3xl border border-border/60 bg-gradient-to-br from-surface/60 via-background/40 to-surface/30 p-8 md:p-10 backdrop-blur-sm"
-        initial={{ opacity: 0, y: 24 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.5 }}
-      >
-        <div className="mb-8 max-w-2xl">
-          <p className="text-xs font-semibold uppercase tracking-widest text-accent-gold mb-2">{t("gpus.featured_title")}</p>
-          <p className="text-text-secondary leading-relaxed">{t("gpus.featured_desc")}</p>
-        </div>
-        <div className="grid gap-4 md:grid-cols-3">
-          {FLAGSHIP.map(({ key, tier, accent }, i) => (
-            <div key={key} className={`rounded-2xl border bg-gradient-to-br p-6 ${accent}`}>
-              <p className="text-2xl font-bold tracking-tight">{tier}</p>
-              <p className="mt-2 text-sm text-text-secondary">{t(`gpus.featured_${key}`)}</p>
-              {i === 0 && (
-                <span className="mt-4 inline-flex rounded-full bg-accent-gold/15 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent-gold">
-                  Latest gen
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-      </m.div>
-
-      {/* Sovereign story + glam map */}
-      <m.div
-        className="mb-32 grid gap-14 lg:grid-cols-2 lg:items-center"
-        initial={{ opacity: 0, y: 28 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.55 }}
-      >
-        <div className="space-y-6">
-          <div className="inline-flex items-center gap-2 rounded-full border border-accent-cyan/30 bg-accent-cyan/10 px-3 py-1 text-xs font-medium text-accent-cyan">
-            <ShieldCheck className="h-3.5 w-3.5" />
-            {t("gpus.sovereign_badge")}
-          </div>
-          <h2 className="text-3xl font-bold leading-tight tracking-tight">{t("gpus.sovereign_title")}</h2>
-          <p className="text-text-secondary leading-relaxed text-lg">{t("gpus.sovereign_desc")}</p>
-          <ul className="space-y-4 pt-2">
-            {[t("gpus.sovereign_i1"), t("gpus.sovereign_i2"), t("gpus.sovereign_i3")].map((item) => (
-              <li key={item} className="flex items-start gap-3 text-sm text-text-secondary">
-                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald/15 text-emerald">
-                  <Zap className="h-3 w-3" />
-                </span>
-                {item}
-              </li>
+        <section className="site-rails site-section" style={{ paddingBottom: 0 }}>
+          <SectionMarker code="01" label={t("gpus.power_title")} />
+          <h2 className="site-section-heading">{t("gpus.power_title")}</h2>
+          <p className="site-section-copy">{t("gpus.power_desc")}</p>
+          <div className="site-feature-grid site-duo-grid site-section-flush">
+            {WORKLOADS.map(({ key, icon, art, tone }) => (
+              <article key={key} className="site-feature-card site-media-card" data-tone={tone}>
+                <div className="site-media-art">
+                  <Image src={art} alt="" fill className="site-media-art-image" />
+                </div>
+                <div className="site-media-card-body">
+                  <div className="site-icon-box">
+                    <ThemeIcon name={icon} />
+                  </div>
+                  <h3 className="site-card-title">{t(`gpus.workload_${key}`)}</h3>
+                  <p className="site-card-copy">{t(`gpus.workload_${key}_desc`)}</p>
+                </div>
+              </article>
             ))}
-          </ul>
-        </div>
-        <div className="relative aspect-[4/3] overflow-hidden rounded-3xl border border-accent-cyan/20 bg-[#060a14] shadow-2xl shadow-accent-cyan/10">
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_30%_20%,rgba(0,212,255,0.18),transparent_55%),radial-gradient(ellipse_at_80%_60%,rgba(124,58,237,0.14),transparent_50%)]" />
-          <Image
-            src="/gpu-fleet/canada-sovereign.svg"
-            alt={t("gpus.sovereign_map_alt")}
-            fill
-            className="object-contain p-6 text-text-primary"
-          />
-          <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between rounded-xl border border-border/50 bg-background/70 px-4 py-2.5 backdrop-blur-md">
-            <span className="text-xs font-medium text-text-secondary">{t("gpus.sovereign_map_caption")}</span>
-            <span className="flex items-center gap-1.5 text-xs text-emerald">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald animate-pulse" />
-              {t("gpus.sovereign_map_live")}
-            </span>
           </div>
-        </div>
-      </m.div>
+        </section>
 
-      {/* Fleet section */}
-      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">{t("gpus.fleet_title")}</h2>
-          <p className="mt-3 text-text-secondary max-w-xl leading-relaxed">{t("gpus.fleet_desc")}</p>
-          <p className="mt-2 text-xs text-text-muted">{t("gpus.fleet_hint")}</p>
-        </div>
-        <div className="flex items-center gap-3 shrink-0">
-          <div className="flex items-center gap-2 text-sm text-text-muted">
-            <Clock className="h-3.5 w-3.5" />
-            {lastUpdated ? `${t("gpus.updated")} ${lastUpdated.toLocaleTimeString()}` : "…"}
+        <section className="site-rails site-section" style={{ paddingBottom: 0 }}>
+          <SectionMarker code="02" label={t("gpus.featured_title")} />
+          <h2 className="site-section-heading">{t("gpus.featured_title")}</h2>
+          <p className="site-section-copy">{t("gpus.featured_desc")}</p>
+          <div className="site-foundation-grid site-section-flush">
+            {FLAGSHIP.map(({ key, tier, tone }, index) => (
+              <article key={key} className="site-foundation-card site-flagship-card" data-tone={tone}>
+                <div className="site-product-badge" style={{ color: `var(--${tone})` }}>{tier}</div>
+                <h3 className="site-card-title">{tier}</h3>
+                <p className="site-card-copy">{t(`gpus.featured_${key}`)}</p>
+                {index === 0 ? (
+                  <span className="site-chip" data-tone="gold">Latest gen</span>
+                ) : null}
+              </article>
+            ))}
           </div>
-          <button
-            type="button"
-            onClick={() => void load({ refresh: true })}
-            disabled={loadState === "loading"}
-            className="flex min-h-10 items-center gap-1.5 rounded-lg border border-border px-3 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors disabled:opacity-50"
-            aria-label={t("gpus.refresh")}
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${loadState === "loading" ? "animate-spin" : ""}`} />
-            <span className="hidden sm:inline">{t("gpus.refresh")}</span>
-          </button>
-        </div>
+        </section>
+
+        <section className="site-rails site-section">
+          <SectionMarker code="03" label={t("gpus.sovereign_badge")} />
+          <div className="site-feature-grid site-duo-grid">
+            <article className="site-feature-card site-story-card">
+              <div className="site-icon-box">
+                <ThemeIcon name="shield-check" />
+              </div>
+              <div className="site-product-badge" style={{ color: "var(--cyan)" }}>{t("gpus.sovereign_badge")}</div>
+              <h2 className="site-card-title site-story-title">{t("gpus.sovereign_title")}</h2>
+              <p className="site-card-copy site-story-copy">{t("gpus.sovereign_desc")}</p>
+              <div className="site-story-points">
+                {[t("gpus.sovereign_i1"), t("gpus.sovereign_i2"), t("gpus.sovereign_i3")].map((item) => (
+                  <p key={item} className="site-product-point">
+                    <span style={{ color: "var(--green)" }}>+</span>
+                    <span>{item}</span>
+                  </p>
+                ))}
+              </div>
+            </article>
+            <div className="site-media-panel site-map-panel">
+              <Image
+                src="/gpu-fleet/canada-sovereign.svg"
+                alt={t("gpus.sovereign_map_alt")}
+                fill
+                className="site-map-image"
+              />
+              <div className="site-map-footer">
+                <span>{t("gpus.sovereign_map_caption")}</span>
+                <span className="site-map-live">
+                  <span className="site-live-dot" />
+                  {t("gpus.sovereign_map_live")}
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="site-rails site-section">
+          <SectionMarker code="04" label={t("gpus.fleet_title")} />
+          <div className="site-section-head-row">
+            <div>
+              <h2 className="site-section-heading site-section-heading-compact">{t("gpus.fleet_title")}</h2>
+              <p className="site-section-copy">{t("gpus.fleet_desc")}</p>
+              <p className="site-fleet-hint">{t("gpus.fleet_hint")}</p>
+            </div>
+            <div className="site-fleet-controls" aria-live="polite">
+              <div className="site-fleet-updated">
+                <Clock className="h-3.5 w-3.5" />
+                <span>{lastUpdated ? `${t("gpus.updated")} ${lastUpdated.toLocaleTimeString()}` : "…"}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => void load({ refresh: true })}
+                disabled={loadState === "loading"}
+                className="site-button site-button-ghost site-refresh-button"
+                aria-label={t("gpus.refresh")}
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${loadState === "loading" ? "animate-spin" : ""}`} />
+                <span>{t("gpus.refresh")}</span>
+              </button>
+            </div>
+          </div>
+
+          {loadState === "degraded" ? (
+            <div role="status" className="site-status-banner" data-tone="gold">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <p>{t("gpus.degraded")}</p>
+            </div>
+          ) : null}
+
+          {loadState === "error" ? (
+            <div role="alert" className="site-status-banner" data-tone="coral">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <p>{t("gpus.error")}</p>
+            </div>
+          ) : null}
+
+          {loadState === "loading" && gpus.length === 0 ? (
+            <div className="site-fleet-loading" aria-hidden>
+              {[...Array(6)].map((_, index) => (
+                <div key={index} className="site-fleet-skeleton" />
+              ))}
+            </div>
+          ) : gpus.length === 0 ? (
+            <div className="site-empty-state">
+              <span className="site-icon-box" aria-hidden>
+                <ThemeIcon name="gpu" />
+              </span>
+              <p>{t("gpus.empty")}</p>
+            </div>
+          ) : (
+            <div ref={cardsRef} className="site-table-wrap" style={{ marginTop: 36 }}>
+              <table className="site-table" aria-label={t("pricing.table_label")}>
+                <thead>
+                  <tr>
+                    <th>{t("pricing.col_gpu")}</th>
+                    <th>{t("gpus.available")}</th>
+                    <th>{t("pricing.col_vram")}</th>
+                    <th>{t("pricing.col_spot")}</th>
+                    <th>{t("pricing.col_ondemand")}</th>
+                    <th>{t("gpus.updated")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {gpus.map((gpu) => {
+                    const isActive = gpu.gpu_model === activeModel;
+                    const isBest = gpu.gpu_model === bestSpotGpu?.gpu_model && gpu.spot_cad > 0;
+                    const availability = availabilityMeta(gpu, t);
+                    return (
+                      <tr
+                        key={gpu.gpu_model}
+                        role="button"
+                        tabIndex={0}
+                        aria-pressed={isActive}
+                        onClick={() => handleCardInteract(gpu.gpu_model)}
+                        onKeyDown={(event) => handleRowKeyDown(event, gpu.gpu_model)}
+                        onMouseEnter={() => {
+                          setHoveredModel(gpu.gpu_model);
+                          setCyclePrices(true);
+                        }}
+                        onMouseLeave={() => setHoveredModel(null)}
+                        onFocus={() => {
+                          setHoveredModel(gpu.gpu_model);
+                          setCyclePrices(true);
+                        }}
+                        onBlur={() => setHoveredModel(null)}
+                        className={`site-fleet-row${isActive ? " site-fleet-row-active" : ""}${isBest ? " site-fleet-row-best" : ""}`}
+                      >
+                        <td className="site-table-feature">
+                          <div className="site-fleet-model">
+                            <span className="site-fleet-dot" style={{ color: availability.color }} />
+                            <div>
+                              <div>{marketingGpuLabel(gpu.gpu_model)}</div>
+                              <div className="site-table-subtle">
+                                {gpu.locations.length > 0 ? gpu.locations.join(" · ") : t("gpus.on_request")}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td>
+                          <span className="site-chip" data-tone={availability.tone}>{availability.label}</span>
+                        </td>
+                        <td>{gpu.vram_gb} GB</td>
+                        <td className={priceMode === "spot" ? "site-table-x" : undefined}>{formatPrice(gpu.spot_cad)}</td>
+                        <td className={priceMode === "ondemand" ? "site-table-x" : undefined}>{formatPrice(gpu.price_cad)}</td>
+                        <td>
+                          <span className="site-row-action">
+                            {isBest ? "Best value" : t("gpus.card_price_hint")}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        <section className="site-rails site-section">
+          <SectionMarker code="05" label={t("gpus.velocity_badge")} />
+          <div className="site-callout site-callout-split">
+            <div>
+              <div className="site-product-badge" style={{ color: "var(--violet)" }}>{t("gpus.velocity_badge")}</div>
+              <h2 className="site-callout-title">{t("gpus.velocity_title")}</h2>
+              <p className="site-callout-copy">{t("gpus.velocity_desc")}</p>
+              <div className="site-callout-visual">
+                <Image src="/gpu-fleet/deploy-pipeline.svg" alt="" fill className="site-callout-visual-image" />
+              </div>
+            </div>
+            <div className="site-timeline">
+              {(["pick", "provision", "pulse"] as const).map((step, index) => (
+                <div key={step} className="site-timeline-item">
+                  <span className="site-timeline-dot" />
+                  <span className="site-timeline-year">0{index + 1}</span>
+                  <strong className="site-card-title" style={{ fontSize: 20, marginBottom: 8 }}>{t(`gpus.velocity_${step}`)}</strong>
+                  <p className="site-timeline-copy">{t(`gpus.velocity_${step}_desc`)}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="site-rails site-cta">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={SITE_ASSETS.iconGradient} className="site-cta-mark" alt="" aria-hidden />
+          <h2 className="site-cta-title">{t("gpus.cta_title")}</h2>
+          <p className="site-section-copy" style={{ marginBottom: 28 }}>{t("gpus.cta_desc")}</p>
+          <div className="site-hero-actions">
+            <Link href="/register" className="site-button site-button-primary" style={{ padding: "15px 28px" }}>
+              {t("gpus.cta_start")} <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+            <Link href="/pricing" className="site-button site-button-ghost" style={{ padding: "15px 28px" }}>
+              {t("gpus.cta_pricing")}
+            </Link>
+          </div>
+        </section>
       </div>
 
-      {loadState === "degraded" && (
-        <div role="status" className="mb-8 flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-          <p>{t("gpus.degraded")}</p>
-        </div>
-      )}
-
-      {loadState === "error" && (
-        <div role="alert" className="mb-8 flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-          <p>{t("gpus.error")}</p>
-        </div>
-      )}
-
-      {loadState === "loading" && gpus.length === 0 ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="h-36 rounded-2xl border border-border bg-surface/30 animate-pulse" />
-          ))}
-        </div>
-      ) : gpus.length === 0 ? (
-        <div className="text-center py-28 text-text-muted rounded-2xl border border-dashed border-border">
-          <Cpu className="h-12 w-12 mx-auto mb-4 opacity-40" />
-          <p>{t("gpus.empty")}</p>
-        </div>
-      ) : (
-        <div ref={cardsRef} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {gpus.map((gpu, i) => {
-            const isActive = gpu.gpu_model === activeModel;
-            const isBest = gpu.gpu_model === bestSpotGpu?.gpu_model && gpu.spot_cad > 0;
-            return (
-              <m.button
-                key={gpu.gpu_model}
-                type="button"
-                initial={{ opacity: 0, y: 16 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, margin: "-40px" }}
-                transition={{ delay: (i % 6) * 0.05, duration: 0.4 }}
-                onClick={() => handleCardInteract(gpu.gpu_model)}
-                onMouseEnter={() => {
-                  setHoveredModel(gpu.gpu_model);
-                  setCyclePrices(true);
-                }}
-                onMouseLeave={() => setHoveredModel(null)}
-                className={cn(
-                  "group relative flex flex-col rounded-2xl border bg-surface/40 p-5 text-left backdrop-blur-sm transition-all hover:shadow-lg hover:shadow-accent-cyan/5",
-                  isActive
-                    ? "border-accent-cyan/50 ring-2 ring-accent-cyan/25 shadow-lg shadow-accent-cyan/10"
-                    : "border-border/70 hover:border-border",
-                  isBest && !isActive && "border-emerald/30",
-                )}
-              >
-                <div className="mb-4 flex items-start justify-between gap-3">
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-accent-red/10 ring-1 ring-accent-red/20">
-                    <Image src="/gpu-light.svg" alt="" width={28} height={28} className="dark:hidden" />
-                    <Image src="/gpu.svg" alt="" width={28} height={28} className="hidden dark:block" />
-                  </div>
-                  {isBest && (
-                    <span className="rounded-full bg-emerald/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald">
-                      Best value
-                    </span>
-                  )}
-                </div>
-                <h3 className="text-lg font-semibold tracking-tight">{marketingGpuLabel(gpu.gpu_model)}</h3>
-                <p className="mt-0.5 text-sm text-text-muted">{gpu.vram_gb} GB VRAM</p>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  {(() => {
-                    const tier = gpuTierBadge(gpu.gpu_model);
-                    const isFlagshipOrDc = tier === "flagship" || tier === "datacenter";
-                    return (
-                      <span
-                        className={cn(
-                          "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium",
-                          gpu.available > 0
-                            ? "bg-emerald-500/10 text-emerald-400"
-                            : isFlagshipOrDc
-                              ? "bg-accent-cyan/10 text-accent-cyan"
-                              : "bg-yellow-500/10 text-yellow-400",
-                        )}
-                      >
-                        <span
-                          className={cn(
-                            "h-1.5 w-1.5 rounded-full",
-                            gpu.available > 0
-                              ? "bg-emerald-400 animate-pulse"
-                              : isFlagshipOrDc
-                                ? "bg-accent-cyan/60"
-                                : "bg-yellow-400",
-                          )}
-                        />
-                        {gpu.available > 0
-                          ? `${gpu.available} ${t("gpus.available")}`
-                          : isFlagshipOrDc
-                            ? t("gpus.on_request_reserved")
-                            : t("gpus.on_request")}
-                      </span>
-                    );
-                  })()}
-                  {gpu.locations.length > 0 && (
-                    <span className="flex items-center gap-1 text-xs text-text-muted">
-                      <MapPin className="h-3 w-3 shrink-0" />
-                      {gpu.locations.slice(0, 2).join(" · ")}
-                      {gpu.locations.length > 2 ? ` +${gpu.locations.length - 2}` : ""}
-                    </span>
-                  )}
-                </div>
-                <p className="mt-4 flex items-center gap-1 text-xs text-accent-cyan opacity-0 transition-opacity group-hover:opacity-100">
-                  <Sparkles className="h-3 w-3" />
-                  {t("gpus.card_price_hint")}
-                </p>
-              </m.button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Deploy velocity — under fleet */}
-      <m.div
-        className="mt-20 overflow-hidden rounded-3xl border border-border/60 bg-gradient-to-br from-surface/50 via-background/30 to-accent-violet/5"
-        initial={{ opacity: 0, y: 24 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.5 }}
-      >
-        <div className="grid gap-0 lg:grid-cols-[1fr_1.1fr] lg:items-center">
-          <div className="p-8 md:p-10">
-            <p className="text-xs font-semibold uppercase tracking-widest text-accent-violet mb-3">{t("gpus.velocity_badge")}</p>
-            <h3 className="text-2xl font-bold tracking-tight md:text-3xl">{t("gpus.velocity_title")}</h3>
-            <p className="mt-4 text-text-secondary leading-relaxed">{t("gpus.velocity_desc")}</p>
-            <ol className="mt-8 space-y-4">
-              {(["pick", "provision", "pulse"] as const).map((step, idx) => (
-                <li key={step} className="flex gap-4">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-cyan/15 text-sm font-bold text-accent-cyan">
-                    {idx + 1}
-                  </span>
-                  <div>
-                    <p className="font-medium">{t(`gpus.velocity_${step}`)}</p>
-                    <p className="text-sm text-text-muted">{t(`gpus.velocity_${step}_desc`)}</p>
-                  </div>
-                </li>
-              ))}
-            </ol>
-          </div>
-          <div className="relative min-h-[200px] border-t border-border/40 lg:border-l lg:border-t-0">
-            <Image src="/gpu-fleet/deploy-pipeline.svg" alt="" fill className="object-cover" />
-            <div className="absolute bottom-4 right-4 hidden md:block w-48 opacity-80">
-              <Image src="/gpu-fleet/spot-pulse.svg" alt="" width={480} height={120} className="w-full h-auto rounded-xl" />
-            </div>
-          </div>
-        </div>
-      </m.div>
-
-      {/* CTA */}
-      <m.div
-        className="mt-36 text-center rounded-3xl border border-border/60 bg-surface/40 backdrop-blur-sm px-8 py-20"
-        initial={{ opacity: 0, y: 24 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.5 }}
-      >
-        <h2 className="text-3xl md:text-4xl font-bold mb-4 tracking-tight">{t("gpus.cta_title")}</h2>
-        <p className="text-text-secondary max-w-lg mx-auto mb-10 leading-relaxed">{t("gpus.cta_desc")}</p>
-        <div className="flex flex-wrap justify-center gap-4">
-          <Link href="/register">
-            <Button size="lg" className="px-10 shadow-lg shadow-accent-red/15">
-              {t("gpus.cta_start")} <ArrowRight className="h-4 w-4" />
-            </Button>
-          </Link>
-          <Link href="/pricing">
-            <Button variant="outline" size="lg">{t("gpus.cta_pricing")}</Button>
-          </Link>
-        </div>
-      </m.div>
-
-      {activeGpu && cardsInView && (
+      {activeGpu && cardsInView ? (
         <GpuPriceDock
           gpu={activeGpu}
           priceMode={priceMode}
           onToggleMode={togglePriceMode}
           t={t}
         />
-      )}
-    </div>
+      ) : null}
+    </>
   );
 }
