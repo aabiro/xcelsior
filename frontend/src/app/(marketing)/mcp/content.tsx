@@ -3,16 +3,11 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import {
-  Bot, Shield, Zap, ArrowRight, Sparkles, Wallet, Activity,
-  Search, Server, Layers, CheckCircle2,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { AuroraBackground } from "@/components/ui/aurora-bg";
+import { ArrowRight, CheckCircle2, Zap } from "lucide-react";
 import { CodeBlock } from "@/components/ui/code-block";
 import { m } from "@/components/marketing/motion";
+import { siteIcon } from "@/lib/brand-assets";
 import { useLocale } from "@/lib/locale";
-import { cn } from "@/lib/utils";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -32,12 +27,12 @@ const FLOW_STEPS = [
 ] as const;
 
 const BENTO = [
-  { key: "discovery", icon: Search, tools: 5, accent: "cyan" as const },
-  { key: "compute", icon: Server, tools: 2, accent: "violet" as const },
-  { key: "serverless", icon: Layers, tools: 4, accent: "emerald" as const },
-  { key: "billing", icon: Wallet, tools: 3, accent: "gold" as const },
-  { key: "guardrails", icon: Shield, tools: 1, accent: "gold" as const },
-  { key: "monitoring", icon: Activity, tools: 1, accent: "cyan" as const },
+  { key: "discovery", icon: "globe", tools: 5, accent: "cyan" as const },
+  { key: "compute", icon: "server", tools: 2, accent: "violet" as const },
+  { key: "serverless", icon: "grid", tools: 4, accent: "green" as const },
+  { key: "billing", icon: "coins", tools: 3, accent: "gold" as const },
+  { key: "guardrails", icon: "shield-check", tools: 1, accent: "gold" as const },
+  { key: "monitoring", icon: "activity", tools: 1, accent: "cyan" as const },
 ] as const;
 
 const AGENT_TABS = [
@@ -46,21 +41,32 @@ const AGENT_TABS = [
   { id: "vscode", art: "/mcp/agent-vscode.svg", labelKey: "mcp.landing.agent_vscode" },
 ] as const;
 
-function accentClass(accent: "cyan" | "violet" | "emerald" | "gold") {
-  const map = {
-    cyan: "border-accent-cyan/30 bg-accent-cyan/10 text-accent-cyan",
-    violet: "border-accent-violet/30 bg-accent-violet/10 text-accent-violet",
-    emerald: "border-emerald/30 bg-emerald/10 text-emerald",
-    gold: "border-accent-gold/30 bg-accent-gold/10 text-accent-gold",
-  };
-  return map[accent];
+function ThemeIcon({ name }: { name: string }) {
+  return (
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={siteIcon(name, "dark")} className="site-theme-dark" alt="" aria-hidden />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={siteIcon(name, "light")} className="site-theme-light" alt="" aria-hidden />
+    </>
+  );
+}
+
+function SectionMarker({ code, label }: { code: string; label: string }) {
+  return (
+    <div className="site-marker">
+      <span className="site-marker-code">{code}</span>
+      <span className="site-marker-line" />
+      <span>{label}</span>
+    </div>
+  );
 }
 
 // MCP client config formats differ by agent: Cursor uses `mcpServers`+`url`,
 // Claude Code adds `type: "http"`, and VS Code uses `servers`+`type: "http"`.
 function mcpConfigSnippet(agentId: string): string {
   const url = "https://xcelsior.ca/mcp";
-  const headers = { Authorization: "Bearer YOUR_OAUTH_TOKEN" };
+  const headers = { Authorization: "******" };
   if (agentId === "vscode") {
     return JSON.stringify({ servers: { xcelsior: { type: "http", url, headers } } }, null, 2);
   }
@@ -96,180 +102,191 @@ export function McpLandingContent() {
   const configSnippet = mcpConfigSnippet(agentTab);
 
   return (
-    <div className="relative overflow-hidden">
-      <AuroraBackground className="-z-10 opacity-50" />
-      <section className="relative mx-auto max-w-6xl px-4 pb-20 pt-16 sm:px-6 lg:px-8 min-h-[70vh]">
-          <div className="grid items-center gap-12 lg:grid-cols-2">
+    <>
+      <section className="site-hero">
+        <div className="site-grid-bg" aria-hidden />
+        <div className="site-container">
+          <div className="site-rails site-hero-rails">
             <m.div initial="hidden" animate="visible" variants={fadeUp} custom={0}>
-              <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-accent-violet/30 bg-accent-violet/10 px-3 py-1 text-xs font-medium text-accent-violet">
-                <Sparkles className="h-3.5 w-3.5" />
-                {t("mcp.landing.badge")}
+              <div className="site-pill">
+                <span className="site-live-dot" />
+                <span>{t("mcp.landing.badge")}</span>
               </div>
-              <h1 className="text-4xl font-bold tracking-tight sm:text-5xl lg:text-[3.25rem] lg:leading-[1.1]">
-                {t("mcp.landing.headline")}
-              </h1>
-              <p className="mt-5 max-w-xl text-lg text-text-secondary leading-relaxed">
-                {t("mcp.landing.subheadline")}
-              </p>
-              <div className="mt-8 flex flex-wrap gap-3">
-                <Link href="/dashboard/settings#mcp">
-                  <Button size="lg" className="gap-2">
-                    {t("mcp.landing.cta_connect")}
-                    <ArrowRight className="h-4 w-4" />
-                  </Button>
+              <h1 className="site-hero-title">{t("mcp.landing.headline")}</h1>
+              <p className="site-hero-copy">{t("mcp.landing.subheadline")}</p>
+              <div className="site-hero-actions">
+                <Link href="/dashboard/settings#mcp" className="site-button site-button-primary">
+                  <span>{t("mcp.landing.cta_connect")}</span>
+                  <ArrowRight className="site-button-icon" />
                 </Link>
-                <a href="#tools">
-                  <Button variant="outline" size="lg">{t("mcp.landing.cta_tools")}</Button>
-                </a>
-              </div>
-              <div className="mt-10 flex flex-wrap gap-4">
-                <div className="rounded-xl border border-border/60 bg-surface/40 px-4 py-3 backdrop-blur-sm">
-                  <p className="text-2xl font-bold tabular-nums">{gpuCount ?? "—"}</p>
-                  <p className="text-xs text-text-muted uppercase tracking-wider">{t("mcp.landing.stat_gpus")}</p>
-                </div>
-                <div className="rounded-xl border border-accent-violet/25 bg-accent-violet/8 px-4 py-3">
-                  <p className="text-2xl font-bold">10+</p>
-                  <p className="text-xs text-text-muted uppercase tracking-wider">{t("mcp.landing.stat_tools")}</p>
-                </div>
+                <Link href="#tools" className="site-button site-button-ghost">
+                  {t("mcp.landing.cta_tools")}
+                </Link>
               </div>
             </m.div>
-            <m.div initial="hidden" animate="visible" variants={fadeUp} custom={1} className="relative">
-              <Image
-                src="/mcp/hero-agent-gpu.svg"
-                alt=""
-                width={480}
-                height={280}
-                priority
-                className="w-full max-w-lg mx-auto drop-shadow-2xl"
-              />
+
+            <m.div initial="hidden" animate="visible" variants={fadeUp} custom={1} className="site-telemetry-wrap">
+              <div className="site-telemetry-card site-hero-visual-card">
+                <Image
+                  src="/mcp/hero-agent-gpu.svg"
+                  alt=""
+                  width={480}
+                  height={280}
+                  priority
+                  className="site-hero-illustration"
+                />
+                <div className="site-hero-stat-grid">
+                  <div className="site-hero-stat-card">
+                    <div className="site-kpi-value">{gpuCount ?? "—"}</div>
+                    <div className="site-kpi-label">{t("mcp.landing.stat_gpus")}</div>
+                  </div>
+                  <div className="site-hero-stat-card site-hero-stat-card-accent">
+                    <div className="site-kpi-value">10+</div>
+                    <div className="site-kpi-label">{t("mcp.landing.stat_tools")}</div>
+                  </div>
+                </div>
+              </div>
             </m.div>
           </div>
+        </div>
       </section>
 
-      <section className="border-y border-border/50 bg-navy-light/40 py-12">
-        <div className="mx-auto max-w-4xl px-4 text-center sm:px-6">
-          <p className="text-sm font-semibold uppercase tracking-widest text-accent-violet">
-            {t("mcp.landing.problem_tagline")}
-          </p>
-          <ul className="mt-6 grid gap-4 text-left sm:grid-cols-3">
-            {(["pain_1", "pain_2", "pain_3"] as const).map((k, i) => (
-              <li key={k} className="rounded-xl border border-border/60 bg-surface/30 p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Today</p>
-                <p className="mt-1 text-sm text-text-secondary">{t(`mcp.landing.${k}`)}</p>
-                <p className="mt-3 text-[11px] font-semibold uppercase tracking-wider text-accent-cyan">With Xcelsior</p>
-                <p className="mt-1 text-sm font-medium text-text-primary">{t(`mcp.landing.solution_${i + 1}`)}</p>
-              </li>
+      <div className="site-container">
+        <section className="site-rails site-section">
+          <SectionMarker code="01" label={t("mcp.landing.problem_tagline")} />
+          <h2 className="site-section-heading">{t("mcp.landing.problem_tagline")}</h2>
+          <div className="site-contrast-grid" style={{ marginTop: 52 }}>
+            {(["pain_1", "pain_2", "pain_3"] as const).map((key, index) => (
+              <m.article
+                key={key}
+                variants={fadeUp}
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true }}
+                custom={index}
+                className="site-contrast-card"
+              >
+                <p className="site-product-badge">Today</p>
+                <p className="site-card-copy">{t(`mcp.landing.${key}`)}</p>
+                <div className="site-contrast-divider" />
+                <p className="site-product-badge" style={{ color: "var(--cyan)" }}>With Xcelsior</p>
+                <p className="site-card-copy" style={{ color: "var(--text-2)" }}>{t(`mcp.landing.solution_${index + 1}`)}</p>
+              </m.article>
             ))}
-          </ul>
-        </div>
-      </section>
+          </div>
+        </section>
 
-      <section className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
-        <h2 className="text-center text-3xl font-bold tracking-tight">{t("mcp.landing.flow_title")}</h2>
-        <div className="mt-12 grid gap-8 lg:grid-cols-3">
-          {FLOW_STEPS.map((step, i) => (
-            <m.div key={step.key} variants={fadeUp} initial="hidden" whileInView="visible" viewport={{ once: true }} custom={i}
-              className="rounded-2xl border border-border/60 bg-surface/20 p-6 backdrop-blur-sm">
-              <Image src={step.art} alt="" width={320} height={200} className="w-full rounded-xl" />
-              <p className="mt-4 text-xs font-medium uppercase tracking-wider text-text-muted">
-                {t(`mcp.landing.flow_${step.key}`)}
-              </p>
-              <p className="mt-2 font-mono text-sm text-accent-cyan/90">&ldquo;{t(step.prompt)}&rdquo;</p>
-            </m.div>
-          ))}
-        </div>
-      </section>
+        <section className="site-rails site-section">
+          <SectionMarker code="02" label={t("mcp.landing.flow_title")} />
+          <h2 className="site-section-heading">{t("mcp.landing.flow_title")}</h2>
+          <div className="site-flow-grid site-section-flush">
+            {FLOW_STEPS.map((step, index) => (
+              <m.article
+                key={step.key}
+                variants={fadeUp}
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true }}
+                custom={index}
+                className="site-feature-card site-flow-card"
+              >
+                <Image src={step.art} alt="" width={320} height={200} className="site-flow-art" />
+                <p className="site-product-badge">{t(`mcp.landing.flow_${step.key}`)}</p>
+                <p className="site-flow-prompt">&ldquo;{t(step.prompt)}&rdquo;</p>
+              </m.article>
+            ))}
+          </div>
+        </section>
 
-      <section id="tools" className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
-        <h2 className="text-center text-3xl font-bold tracking-tight">{t("mcp.landing.bento_title")}</h2>
-        <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {BENTO.map((card, i) => {
-            const Icon = card.icon;
-            return (
-              <m.div
+        <section id="tools" className="site-rails site-section">
+          <SectionMarker code="03" label={t("mcp.landing.bento_title")} />
+          <h2 className="site-section-heading">{t("mcp.landing.bento_title")}</h2>
+          <div className="site-bento-grid" style={{ marginTop: 52 }}>
+            {BENTO.map((card, index) => (
+              <m.article
                 key={card.key}
                 variants={fadeUp}
                 initial="hidden"
                 whileInView="visible"
                 viewport={{ once: true }}
-                custom={i}
-                className={cn(
-                  "group rounded-2xl border p-6 transition-transform hover:-translate-y-1",
-                  accentClass(card.accent),
-                )}
+                custom={index}
+                className="site-bento-card"
+                data-accent={card.accent}
               >
-                <div className="flex items-center justify-between">
-                  <Icon className="h-5 w-5" />
-                  <span className="rounded-full bg-black/20 px-2 py-0.5 text-xs font-medium">
+                <div className="site-bento-head">
+                  <div className="site-icon-box">
+                    <ThemeIcon name={card.icon} />
+                  </div>
+                  <span className="site-bento-badge">
                     {card.tools} {t("mcp.landing.tools_label")}
                   </span>
                 </div>
-                <h3 className="mt-4 text-lg font-semibold text-text-primary">
-                  {t(`mcp.landing.bento_${card.key}_title`)}
-                </h3>
-                <p className="mt-2 text-sm text-text-secondary opacity-90">
-                  {t(`mcp.landing.bento_${card.key}_desc`)}
-                </p>
-              </m.div>
-            );
-          })}
-        </div>
-      </section>
-
-      <section className="bg-gradient-to-br from-accent-gold/5 via-transparent to-accent-violet/5 py-20">
-        <div className="mx-auto grid max-w-6xl items-center gap-10 px-4 sm:px-6 lg:grid-cols-2">
-          <Image src="/mcp/flow-guardrails.svg" alt="" width={320} height={200} className="w-full max-w-md mx-auto" />
-          <div>
-            <h2 className="text-3xl font-bold tracking-tight text-accent-gold">{t("mcp.landing.guardrails_title")}</h2>
-            <p className="mt-4 text-text-secondary leading-relaxed">{t("mcp.landing.guardrails_desc")}</p>
-            <ul className="mt-6 space-y-3">
-              {(["guard_1", "guard_2", "guard_3"] as const).map((k) => (
-                <li key={k} className="flex items-start gap-2 text-sm text-text-secondary">
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-accent-gold" />
-                  {t(`mcp.landing.${k}`)}
-                </li>
-              ))}
-            </ul>
+                <h3 className="site-card-title">{t(`mcp.landing.bento_${card.key}_title`)}</h3>
+                <p className="site-card-copy">{t(`mcp.landing.bento_${card.key}_desc`)}</p>
+              </m.article>
+            ))}
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section className="mx-auto max-w-3xl px-4 py-20 sm:px-6">
-        <h2 className="text-center text-3xl font-bold">{t("mcp.landing.setup_title")}</h2>
-        <p className="mt-3 text-center text-text-secondary">{t("mcp.landing.setup_desc")}</p>
-        <div className="mt-8 flex justify-center gap-2">
-          {AGENT_TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setAgentTab(tab.id)}
-              className={cn(
-                "flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors",
-                agentTab === tab.id
-                  ? "border-accent-cyan/50 bg-accent-cyan/10 text-accent-cyan"
-                  : "border-border/60 text-text-muted hover:text-text-primary",
-              )}
-            >
-              <Image src={tab.art} alt="" width={20} height={20} />
-              {t(tab.labelKey)}
-            </button>
-          ))}
-        </div>
-        <CodeBlock filename={mcpConfigPath(agentTab)} code={configSnippet} className="mx-auto mt-4 max-w-xl text-left" />
-        <div className="mt-6 flex justify-center">
-          <Link href="/dashboard/settings#mcp">
-            <Button>{t("mcp.landing.setup_cta")}</Button>
+        <section className="site-rails site-section">
+          <SectionMarker code="04" label={t("mcp.landing.guardrails_title")} />
+          <div className="site-split-panel">
+            <div className="site-split-panel-media">
+              <Image src="/mcp/flow-guardrails.svg" alt="" width={320} height={200} className="site-guardrails-art" />
+            </div>
+            <div className="site-split-panel-body">
+              <h2 className="site-callout-title" style={{ color: "var(--gold)" }}>{t("mcp.landing.guardrails_title")}</h2>
+              <p className="site-callout-copy">{t("mcp.landing.guardrails_desc")}</p>
+              <ul className="site-checklist">
+                {(["guard_1", "guard_2", "guard_3"] as const).map((key) => (
+                  <li key={key} className="site-check-item">
+                    <CheckCircle2 className="site-check-icon" />
+                    <span>{t(`mcp.landing.${key}`)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section className="site-rails site-section">
+          <SectionMarker code="05" label={t("mcp.landing.setup_title")} />
+          <h2 className="site-section-heading">{t("mcp.landing.setup_title")}</h2>
+          <p className="site-section-copy">{t("mcp.landing.setup_desc")}</p>
+          <div className="site-setup-shell">
+            <div className="site-tab-list" role="tablist" aria-label={t("mcp.landing.setup_title")}>
+              {AGENT_TABS.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setAgentTab(tab.id)}
+                  className="site-tab"
+                  data-active={agentTab === tab.id}
+                  role="tab"
+                  aria-selected={agentTab === tab.id}
+                >
+                  <Image src={tab.art} alt="" width={20} height={20} className="site-tab-art" />
+                  <span>{t(tab.labelKey)}</span>
+                </button>
+              ))}
+            </div>
+            <CodeBlock filename={mcpConfigPath(agentTab)} code={configSnippet} className="site-marketing-code" />
+            <div className="site-hero-actions" style={{ marginTop: 24 }}>
+              <Link href="/dashboard/settings#mcp" className="site-button site-button-primary">
+                {t("mcp.landing.setup_cta")}
+              </Link>
+            </div>
+          </div>
+        </section>
+
+        <section className="site-rails site-cta">
+          <h2 className="site-cta-title">{t("mcp.landing.footer_line")}</h2>
+          <Link href="/gpu-availability" className="site-button site-button-primary" style={{ padding: "15px 28px" }}>
+            <span>{t("mcp.landing.footer_cta")}</span>
+            <Zap className="site-button-icon" />
           </Link>
-        </div>
-      </section>
-
-      <section className="border-t border-border/50 py-16 text-center">
-        <p className="text-lg font-medium text-text-secondary">{t("mcp.landing.footer_line")}</p>
-        <Link href="/gpu-availability" className="mt-2 inline-flex items-center gap-1 text-accent-cyan hover:underline">
-          {t("mcp.landing.footer_cta")}
-          <Zap className="h-4 w-4" />
-        </Link>
-      </section>
-    </div>
+        </section>
+      </div>
+    </>
   );
 }
