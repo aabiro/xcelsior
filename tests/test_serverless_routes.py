@@ -147,6 +147,39 @@ def test_serverless_openai_models(user_headers, endpoint_id):
     assert r.json().get("object") == "list"
 
 
+def test_serverless_endpoint_with_lora_adapters(user_headers):
+    r = client.post(
+        "/api/v2/serverless/endpoints",
+        headers=user_headers,
+        json={
+            "name": "test-llama-lora",
+            "mode": "preset",
+            "model_name": "meta-llama/Llama-3.1-8B-Instruct",
+            "gpu_type": "",
+            "min_workers": 0,
+            "max_workers": 1,
+            "lora_adapters": [
+                {"name": "sql-helper", "source": "acme/llama3-sql-lora"},
+            ],
+        },
+    )
+    assert r.status_code == 200, r.text[:300]
+    ep = r.json()["endpoint"]
+    assert ep["lora_adapters"] == [{"name": "sql-helper", "source": "acme/llama3-sql-lora"}]
+    assert "--enable-lora" in ep["startup_command"]
+    assert "sql-helper=acme/llama3-sql-lora" in ep["startup_command"]
+
+    models = client.get(
+        f"/v1/serverless/{ep['endpoint_id']}/openai/v1/models",
+        headers=user_headers,
+    )
+    assert models.status_code == 200
+    ids = {m["id"] for m in models.json()["data"]}
+    assert ids == {"meta-llama/Llama-3.1-8B-Instruct", "sql-helper"}
+
+    client.delete(f"/api/v2/serverless/endpoints/{ep['endpoint_id']}", headers=user_headers)
+
+
 def test_serverless_openai_chat_requires_worker(user_headers, endpoint_id):
     r = client.post(
         f"/v1/serverless/{endpoint_id}/openai/v1/chat/completions",

@@ -149,6 +149,20 @@ verify_agent_signature() {
     ok "Agent ed25519 signature verified"
 }
 
+# Files whose bytes are ed25519-signed by the release pipeline (must match
+# scripts/sign-static-agent.py::SIGNABLE and routes/static.py::_SIGNABLE).
+# These are imported/executed with full worker-agent privileges, so every
+# one of them — not just worker_agent.py itself — must be signature-checked.
+SIGNABLE_FILES="worker_agent.py security.py nvml_telemetry.py worker_image_cache.py worker_nfs.py worker_nvme_cache.py worker_luks_volumes.py"
+
+_is_signable() {
+    local name="$1" f
+    for f in $SIGNABLE_FILES; do
+        [ "$f" = "$name" ] && return 0
+    done
+    return 1
+}
+
 download_static_file() {
     local name="$1"
     local dest="$2"
@@ -167,10 +181,10 @@ download_static_file() {
         rm -f "$headers" "$dest"
         fail "$name hash mismatch (expected $expected_sha, got $actual_sha)"
     fi
-    if [ "$name" = "worker_agent.py" ]; then
+    if _is_signable "$name"; then
         if [ -z "$sig_b64" ]; then
             rm -f "$headers" "$dest"
-            fail "Server did not advertise X-Xcelsior-Agent-Signature for worker_agent.py — refusing install"
+            fail "Server did not advertise X-Xcelsior-Agent-Signature for $name — refusing install"
         fi
         verify_agent_signature "$dest" "$sig_b64"
     fi
@@ -196,6 +210,10 @@ install_agent() {
     download_static_file "worker_agent.py" "$AGENT_PATH"
     download_static_file "security.py" "$CONFIG_DIR/lib/security.py"
     download_static_file "nvml_telemetry.py" "$CONFIG_DIR/lib/nvml_telemetry.py"
+    download_static_file "worker_image_cache.py" "$CONFIG_DIR/lib/worker_image_cache.py"
+    download_static_file "worker_nfs.py" "$CONFIG_DIR/lib/worker_nfs.py"
+    download_static_file "worker_nvme_cache.py" "$CONFIG_DIR/lib/worker_nvme_cache.py"
+    download_static_file "worker_luks_volumes.py" "$CONFIG_DIR/lib/worker_luks_volumes.py"
     chmod +x "$AGENT_PATH"
 
     setup_agent_venv

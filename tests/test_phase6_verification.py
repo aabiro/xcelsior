@@ -354,11 +354,16 @@ class TestVolumeLifecycle:
         assert "detach" in text
 
     def test_luks_encryption_support(self):
-        source = Path(__file__).resolve().parent.parent / "worker_agent.py"
-        text = source.read_text()
-        assert "provision_encrypted_volume" in text
-        assert "destroy_encrypted_volume" in text
-        assert "cryptsetup" in text
+        # LUKS provisioning was extracted from worker_agent.py into
+        # worker_luks_volumes.py; worker_agent still re-exports the function
+        # names so callers are unaffected, but the "cryptsetup" implementation
+        # detail now lives in the extracted module.
+        root = Path(__file__).resolve().parent.parent
+        agent_text = (root / "worker_agent.py").read_text()
+        luks_text = (root / "worker_luks_volumes.py").read_text()
+        assert "provision_encrypted_volume" in agent_text
+        assert "destroy_encrypted_volume" in agent_text
+        assert "cryptsetup" in luks_text
 
 
 class TestMIGScheduling:

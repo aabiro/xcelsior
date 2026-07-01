@@ -36,6 +36,7 @@ export default function AdminUnitEconomicsPage() {
 
   const mk = data?.marketplace ?? {};
   const sl = data?.serverless ?? {};
+  const slBySize = data?.serverless_by_model_size ?? [];
   const fn = data?.funnel ?? {};
   const lq = data?.liquidity ?? {};
 
@@ -116,6 +117,46 @@ export default function AdminUnitEconomicsPage() {
           Token revenue is the size-tiered token cost recorded per slice (charged once blended billing is enabled).
         </p>
       </div>
+
+      {/* Margin-per-model-size (Phase 1 exit criterion) */}
+      {slBySize.length > 0 && (
+        <div>
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-text-muted">
+            Serverless by model size (last {days}d)
+          </h2>
+          <Card>
+            <CardContent className="overflow-x-auto p-0">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border/60 text-left text-xs uppercase tracking-wider text-text-muted">
+                    <th className="px-4 py-2">Model size</th>
+                    <th className="px-4 py-2">GPU-seconds revenue</th>
+                    <th className="px-4 py-2">Token revenue</th>
+                    <th className="px-4 py-2">GPU-hours</th>
+                    <th className="px-4 py-2">Billed cycles</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {slBySize.map((row) => (
+                    <tr key={row.band} className="border-b border-border/30 last:border-0">
+                      <td className="px-4 py-2 font-medium">{row.band}</td>
+                      <td className="px-4 py-2">{money(row.gpu_revenue_cad)}</td>
+                      <td className="px-4 py-2">{money(row.token_revenue_cad)}</td>
+                      <td className="px-4 py-2">{(row.gpu_seconds / 3600).toFixed(1)}h</td>
+                      <td className="px-4 py-2">{row.billed_cycles}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+          <p className="mt-1.5 text-xs text-text-muted">
+            GPU-seconds vs. token revenue per size band — the same comparison the blended meter uses,
+            so you can see which model sizes are worth pricing by tokens before flipping
+            <code className="mx-1">XCELSIOR_SERVERLESS_BLENDED_BILLING</code> on.
+          </p>
+        </div>
+      )}
 
       {/* Supply liquidity */}
       <div>

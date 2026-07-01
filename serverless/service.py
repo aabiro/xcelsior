@@ -77,7 +77,9 @@ def _preset_image_for_engine(managed_engine: str) -> str:
     return MANAGED_ENGINE_IMAGES.get(managed_engine, DEFAULT_VLLM_IMAGE)
 
 
-def _preset_startup_command(managed_engine: str, model_ref: str) -> str:
+def _preset_startup_command(
+    managed_engine: str, model_ref: str, lora_adapters: list[dict[str, str]] | None = None
+) -> str:
     if managed_engine == "tgi":
         return f"--model-id {model_ref}"
     if managed_engine == "sglang":
@@ -91,10 +93,17 @@ def _preset_startup_command(managed_engine: str, model_ref: str) -> str:
         return f"--model {model_ref} --task embed"
     if task == "rerank":
         return f"--model {model_ref} --task score"
-    return (
+    cmd = (
         f"--model {model_ref} --max-model-len 4096 "
         f"--chat-template-content-format openai"
     )
+    if lora_adapters:
+        # vLLM multiplexes several LoRA adapters on one running engine;
+        # requests select an adapter via the OpenAI "model" field, matching
+        # one of these registered names.
+        modules = " ".join(f"{a['name']}={a['source']}" for a in lora_adapters)
+        cmd += f" --enable-lora --max-loras {len(lora_adapters)} --lora-modules {modules}"
+    return cmd
 
 
 @dataclass
@@ -145,6 +154,20 @@ class ServerlessService:
             raise ValueError("invalid min_workers / max_workers")
         if spec.scaling_policy_type not in ("queue_request_count", "queue_delay"):
             raise ValueError("scaling_policy_type must be queue_request_count or queue_delay")
+        if spec.lora_adapters:
+            if spec.mode != "preset" or spec.managed_engine != "vllm":
+                raise ValueError("lora_adapters are only supported on preset vLLM endpoints")
+            seen_names: set[str] = set()
+            for adapter in spec.lora_adapters:
+                name = str(adapter.get("name") or "").strip()
+                source = str(adapter.get("source") or "").strip()
+                if not name or not source:
+                    raise ValueError("each lora adapter needs a 'name' and a 'source' (HF repo or path)")
+                if not name.replace("-", "").replace("_", "").replace(".", "").isalnum():
+                    raise ValueError(f"invalid lora adapter name: {name!r}")
+                if name in seen_names:
+                    raise ValueError(f"duplicate lora adapter name: {name!r}")
+                seen_names.add(name)
 
     @staticmethod
     def estimate_vram_gb(model_ref: str) -> float:
@@ -174,7 +197,9 @@ class ServerlessService:
         if spec.mode == "preset" and spec.vram_required_gb <= 0:
             spec.vram_required_gb = self.estimate_vram_gb(spec.model_ref)
         if spec.mode == "preset" and not spec.startup_command:
-            spec.startup_command = _preset_startup_command(spec.managed_engine, spec.model_ref)
+            spec.startup_command = _preset_startup_command(
+                spec.managed_engine, spec.model_ref, spec.lora_adapters
+            )
 
         if spec.mode == "custom" and (spec.source_type or "").strip().lower() == "github":
             try:

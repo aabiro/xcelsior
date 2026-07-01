@@ -95,3 +95,32 @@ def test_static_path_exempt_from_auth_middleware():
     # client with no credentials.
     resp = client.get("/static/worker_agent.py")
     assert resp.status_code != 401
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "worker_image_cache.py",
+        "worker_nfs.py",
+        "worker_nvme_cache.py",
+        "worker_luks_volumes.py",
+    ],
+)
+def test_worker_split_modules_served_and_signed(name: str):
+    # These modules were extracted out of worker_agent.py and are imported by
+    # it at load time, so installers/self-update must fetch + verify them
+    # exactly like worker_agent.py itself (B6 supply-chain protection).
+    resp = client.get(f"/static/{name}")
+    assert resp.status_code == 200, resp.text
+    body = resp.content
+    assert len(body) > 0
+
+    advertised_sha = resp.headers.get("X-Xcelsior-Agent-SHA256")
+    assert advertised_sha == hashlib.sha256(body).hexdigest()
+
+    on_disk = (REPO_ROOT / name).read_bytes()
+    assert body == on_disk
+
+    assert resp.headers.get(
+        "X-Xcelsior-Agent-Signature"
+    ), f"{name} must carry a signature header (it's in _SIGNABLE)"

@@ -707,7 +707,24 @@ input[type="number"]:focus {
   box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.15);
 }
 
-/* ── Sonner toast: replace × icon with faint clickable "Dismiss" text */
+/* ── Sonner toast: replace × icon with faint clickable "Dismiss" text ─
+   The dismiss control is pulled out of normal flow (bottom-right) so it
+   doesn't push toast width around. Longer messages (e.g. "Template image
+   not found or not yet ready") wrap to 2+ lines and, without reserved
+   space + stacking order, render on top of the absolutely-positioned
+   button — visually covering it and making it unclickable. Since the
+   button can't be clicked, the cursor lingers over the toast and
+   sonner's hover-to-pause behavior keeps the auto-dismiss timer from
+   ever elapsing, so the toast appears stuck forever. Reserve bottom
+   padding on the content area and force the button above the text via
+   z-index so it's always visible and clickable regardless of message
+   length. */
+[data-sonner-toast] {
+  position: relative !important;
+}
+[data-sonner-toast] [data-content] {
+  padding-bottom: 22px !important;
+}
 [data-sonner-toast] .xcelsior-toast-dismiss,
 [data-sonner-toast] [data-close-button].xcelsior-toast-dismiss {
   position: absolute !important;
@@ -730,6 +747,8 @@ input[type="number"]:focus {
   transform: none !important;
   opacity: 1 !important;
   transition: color 120ms ease;
+  z-index: 2 !important;
+  pointer-events: auto !important;
 }
 [data-sonner-toast] .xcelsior-toast-dismiss:hover {
   color: rgba(248, 250, 252, 0.95) !important;

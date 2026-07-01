@@ -125,6 +125,100 @@ class TestModelTask:
         ServerlessService.validate_endpoint_spec(spec)
 
 
+class TestMultiLora:
+    def test_startup_command_adds_lora_flags(self):
+        model = "meta-llama/Llama-3.1-8B-Instruct"
+        adapters = [
+            {"name": "sql-helper", "source": "acme/llama3-sql-lora"},
+            {"name": "chat-tune", "source": "acme/llama3-chat-lora"},
+        ]
+        cmd = _preset_startup_command("vllm", model, adapters)
+        assert "--enable-lora" in cmd
+        assert "--max-loras 2" in cmd
+        assert "sql-helper=acme/llama3-sql-lora" in cmd
+        assert "chat-tune=acme/llama3-chat-lora" in cmd
+
+    def test_startup_command_no_lora_flags_without_adapters(self):
+        cmd = _preset_startup_command("vllm", "meta-llama/Llama-3.1-8B-Instruct")
+        assert "--enable-lora" not in cmd
+
+    def test_valid_spec_with_lora_adapters(self):
+        spec = EndpointCreate(
+            owner_id="cust-test",
+            mode="preset",
+            managed_engine="vllm",
+            model_ref="meta-llama/Llama-3.1-8B-Instruct",
+            lora_adapters=[{"name": "sql-helper", "source": "acme/llama3-sql-lora"}],
+        )
+        ServerlessService.validate_endpoint_spec(spec)  # no raise
+
+    def test_rejects_lora_on_non_vllm_engine(self):
+        spec = EndpointCreate(
+            owner_id="cust-test",
+            mode="preset",
+            managed_engine="tgi",
+            model_ref="meta-llama/Llama-3.1-8B-Instruct",
+            lora_adapters=[{"name": "sql-helper", "source": "acme/llama3-sql-lora"}],
+        )
+        with pytest.raises(ValueError, match="preset vLLM"):
+            ServerlessService.validate_endpoint_spec(spec)
+
+    def test_rejects_lora_missing_source(self):
+        spec = EndpointCreate(
+            owner_id="cust-test",
+            mode="preset",
+            managed_engine="vllm",
+            model_ref="meta-llama/Llama-3.1-8B-Instruct",
+            lora_adapters=[{"name": "sql-helper"}],
+        )
+        with pytest.raises(ValueError, match="name.*and.*source"):
+            ServerlessService.validate_endpoint_spec(spec)
+
+    def test_rejects_duplicate_lora_names(self):
+        spec = EndpointCreate(
+            owner_id="cust-test",
+            mode="preset",
+            managed_engine="vllm",
+            model_ref="meta-llama/Llama-3.1-8B-Instruct",
+            lora_adapters=[
+                {"name": "sql-helper", "source": "acme/a"},
+                {"name": "sql-helper", "source": "acme/b"},
+            ],
+        )
+        with pytest.raises(ValueError, match="duplicate"):
+            ServerlessService.validate_endpoint_spec(spec)
+
+    def test_rejects_invalid_lora_name(self):
+        spec = EndpointCreate(
+            owner_id="cust-test",
+            mode="preset",
+            managed_engine="vllm",
+            model_ref="meta-llama/Llama-3.1-8B-Instruct",
+            lora_adapters=[{"name": "bad name!", "source": "acme/a"}],
+        )
+        with pytest.raises(ValueError, match="invalid lora adapter name"):
+            ServerlessService.validate_endpoint_spec(spec)
+
+    def test_capability_gate_allows_base_and_adapter_models(self):
+        ep = {
+            "mode": "preset",
+            "model_ref": "meta-llama/Llama-3.1-8B-Instruct",
+            "lora_adapters": [{"name": "sql-helper", "source": "acme/llama3-sql-lora"}],
+        }
+        capability_gate("chat/completions", ep, {"model": "meta-llama/Llama-3.1-8B-Instruct"})
+        capability_gate("chat/completions", ep, {"model": "sql-helper"})
+
+    def test_capability_gate_rejects_unknown_model(self):
+        ep = {
+            "mode": "preset",
+            "model_ref": "meta-llama/Llama-3.1-8B-Instruct",
+            "lora_adapters": [{"name": "sql-helper", "source": "acme/llama3-sql-lora"}],
+        }
+        with pytest.raises(OpenAIProxyError) as exc:
+            capability_gate("chat/completions", ep, {"model": "not-a-real-model"})
+        assert exc.value.code == "model_not_found"
+
+
 class TestAutoscalerMath:
     def test_no_scale_when_queue_empty(self):
         inp = AutoscalerInput(

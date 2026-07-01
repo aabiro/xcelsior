@@ -483,6 +483,11 @@ def _ensure_pg_tables(conn):
         "ALTER TABLE billing_cycles "
         "ADD COLUMN IF NOT EXISTS token_cost_cad DOUBLE PRECISION NOT NULL DEFAULT 0"
     )
+    # Serverless model reference for the slice (margin-per-model-size reporting).
+    cur.execute(
+        "ALTER TABLE billing_cycles "
+        "ADD COLUMN IF NOT EXISTS model_ref TEXT NOT NULL DEFAULT ''"
+    )
     cur.execute(
         "ALTER TABLE usage_meters "
         "ADD COLUMN IF NOT EXISTS pricing_mode TEXT NOT NULL DEFAULT 'on_demand'"

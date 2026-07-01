@@ -89,6 +89,7 @@ def _serialize_endpoint(ep: dict) -> dict:
         "docker_image": ep.get("image_ref"),
         "image_ref": ep.get("image_ref"),
         "startup_command": ep.get("startup_command"),
+        "lora_adapters": ep.get("lora_adapters") or [],
         "http_port": ep.get("http_port"),
         "health_check_path": ep.get("health_check_path"),
         "health_endpoint": ep.get("health_check_path"),
@@ -142,6 +143,7 @@ class ServerlessEndpointCreate(BaseModel):
     request_timeout_sec: int = Field(120, ge=10, le=3600)
     max_request_bytes: int = Field(10_485_760, ge=1024, le=52_428_800)
     env: dict[str, str] = Field(default_factory=dict)
+    lora_adapters: list[dict[str, str]] = Field(default_factory=list)
 
 
 class ServerlessEndpointPatch(BaseModel):
@@ -215,6 +217,7 @@ def _body_to_endpoint_create(body: ServerlessEndpointCreate, owner_id: str) -> E
         request_timeout_sec=body.request_timeout_sec,
         max_request_bytes=body.max_request_bytes,
         env=encrypt_env_for_storage(body.env),
+        lora_adapters=body.lora_adapters,
     )
 
 
@@ -780,17 +783,29 @@ def api_serverless_openai_models(endpoint_id: str, request: Request):
     if not ep:
         raise HTTPException(404, "Endpoint not found")
     model_id = str(ep.get("model_ref") or "unknown")
-    return {
-        "object": "list",
-        "data": [
+    created = int(ep.get("created_at") or time.time())
+    data = [
+        {
+            "id": model_id,
+            "object": "model",
+            "created": created,
+            "owned_by": "xcelsior",
+        }
+    ]
+    for adapter in ep.get("lora_adapters") or []:
+        name = str(adapter.get("name") or "").strip()
+        if not name:
+            continue
+        data.append(
             {
-                "id": model_id,
+                "id": name,
                 "object": "model",
-                "created": int(ep.get("created_at") or time.time()),
+                "created": created,
                 "owned_by": "xcelsior",
+                "parent": model_id,
             }
-        ],
-    }
+        )
+    return {"object": "list", "data": data}
 
 
 # ── Worker callbacks (agent / scheduler) ─────────────────────────────
