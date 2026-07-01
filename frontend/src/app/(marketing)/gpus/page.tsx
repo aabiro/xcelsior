@@ -3,7 +3,7 @@ import dynamic from "next/dynamic";
 
 const GPUAvailabilityContent = dynamic(
   () => import("../gpu-availability/content").then((mod) => mod.GPUAvailabilityContent),
-  { loading: () => <div className="min-h-[50vh]" aria-hidden /> },
+  { loading: () => <div className="site-container" style={{ minHeight: "50vh" }} aria-hidden /> },
 );
 
 export const metadata: Metadata = {
