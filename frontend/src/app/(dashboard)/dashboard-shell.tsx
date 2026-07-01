@@ -13,10 +13,10 @@ import { useAuth } from "@/lib/auth";
 import { BRAND_ASSETS } from "@/lib/brand-assets";
 import { getTeamContext, formatTeamRoleLabel } from "@/lib/team-context";
 import { useLocale } from "@/lib/locale";
+import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "framer-motion";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
-import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { LocaleToggle } from "@/components/ui/locale-toggle";
 import { ChatWidget } from "@/components/ChatWidget";
@@ -60,6 +60,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, loading: authLoading, logout } = useAuth();
   const { t } = useLocale();
+  const { theme } = useTheme();
   const team = getTeamContext(user);
   const canWriteServerless = team.canWriteInstances;
   const { state: desktopState, openControlCenter } = useDesktopRuntime();
@@ -186,8 +187,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   // Full-screen gate only on first session probe (not every tab change).
   if (authLoading && !user) {
     return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent-red border-t-transparent" />
+      <div className="dashboard-shell" data-theme={theme}>
+        <div className="dashboard-shell-loading">
+          <div className="dashboard-shell-loading-spinner animate-spin" />
+        </div>
       </div>
     );
   }
@@ -202,7 +205,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const sidebarContent = (mobile: boolean) => (
     <>
       {/* Logo */}
-      <div className="flex h-[72px] items-center border-b border-border/60 px-4 justify-between">
+      <div className="dashboard-site-sidebar-header flex items-center justify-between">
         <Link href="/dashboard" className="flex items-center overflow-visible pr-2">
           <div className="relative flex min-w-0 items-center" style={{ width: collapsed && !mobile ? 36 : undefined }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -234,37 +237,39 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 alt="Xcelsior"
                 className="block h-auto w-[140px] shrink-0 dark:hidden"
               />
-              <span className="shrink-0 rounded-full bg-accent-cyan/8 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-widest text-accent-cyan/70">Beta</span>
+              <span className="dashboard-site-beta shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-semibold uppercase">
+                Beta
+              </span>
             </div>
           </div>
         </Link>
         {mobile && (
-          <button onClick={() => setMobileOpen(false)} className="text-text-muted hover:text-text-primary" aria-label="Close menu">
+          <button onClick={() => setMobileOpen(false)} className="dashboard-site-close rounded-xl p-2" aria-label="Close menu">
             <X className="h-5 w-5" />
           </button>
         )}
       </div>
 
-      <DashboardNav
-        collapsed={collapsed}
-        mobile={mobile}
-        showServerless={showServerless}
-        canAccessRole={canAccessRole}
-        t={t}
-        onNavigate={mobile ? () => setMobileOpen(false) : undefined}
-      />
+      <div className="dashboard-site-nav">
+        <DashboardNav
+          collapsed={collapsed}
+          mobile={mobile}
+          showServerless={showServerless}
+          canAccessRole={canAccessRole}
+          t={t}
+          onNavigate={mobile ? () => setMobileOpen(false) : undefined}
+        />
+      </div>
 
       {/* Gear Popout + Collapse (desktop only) */}
       {!mobile && (
-        <div className="border-t border-border p-2 space-y-0.5">
+        <div className="dashboard-site-sidebar-footer p-2 space-y-0.5">
           <div className="relative" ref={gearRef}>
             <button
               onClick={() => setGearOpen(!gearOpen)}
               className={cn(
-                "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-base transition-colors",
-                gearOpen
-                  ? "bg-accent-cyan/8 text-accent-cyan"
-                  : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+                "dashboard-site-sidebutton flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-base",
+                gearOpen && "dashboard-site-sidebutton-active"
               )}
               title={collapsed ? t("gear.title") : undefined}
             >
@@ -280,13 +285,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 8, scale: 0.96 }}
                   transition={{ duration: 0.15 }}
-                  className="absolute bottom-full left-0 mb-2 w-72 rounded-xl border border-border/60 bg-surface shadow-xl z-50"
+                  className="dashboard-site-popout absolute bottom-full left-0 z-50 mb-2 w-72 rounded-[22px]"
                 >
                   {/* Quick links */}
                   <div className="p-2">
                     <Link
                       href="/dashboard/settings"
-                      className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
+                      className="dashboard-site-popout-link flex items-center gap-2.5 rounded-2xl px-3 py-2 text-sm"
                       onClick={() => setGearOpen(false)}
                     >
                       <Settings className="h-4 w-4" />
@@ -296,7 +301,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                       href="https://docs.xcelsior.ca"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
+                      className="dashboard-site-popout-link flex items-center gap-2.5 rounded-2xl px-3 py-2 text-sm"
                       onClick={() => setGearOpen(false)}
                     >
                       <BookOpen className="h-4 w-4" />
@@ -306,10 +311,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                     <button
                       onClick={() => { setSupportPopoutOpen(!supportPopoutOpen); setOnboardingOpen(false); }}
                       className={cn(
-                        "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
-                        supportPopoutOpen
-                          ? "bg-accent-cyan/8 text-accent-cyan"
-                          : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+                        "dashboard-site-popout-link flex w-full items-center gap-2.5 rounded-2xl px-3 py-2 text-sm",
+                        supportPopoutOpen && "dashboard-site-popout-link-active"
                       )}
                     >
                       <MessageCircle className="h-4 w-4" />
@@ -319,10 +322,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                     <button
                       onClick={() => { setOnboardingOpen(!onboardingOpen); setSupportPopoutOpen(false); }}
                       className={cn(
-                        "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
-                        onboardingOpen
-                          ? "bg-accent-cyan/8 text-accent-cyan"
-                          : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+                        "dashboard-site-popout-link flex w-full items-center gap-2.5 rounded-2xl px-3 py-2 text-sm",
+                        onboardingOpen && "dashboard-site-popout-link-active"
                       )}
                     >
                       <Rocket className="h-4 w-4" />
@@ -339,7 +340,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                         animate={{ opacity: 1, x: 0, scale: 1 }}
                         exit={{ opacity: 0, x: -8, scale: 0.96 }}
                         transition={{ duration: 0.15 }}
-                        className="absolute left-full bottom-0 ml-2 w-72 rounded-xl border border-border/60 bg-surface shadow-xl z-50 overflow-hidden"
+                        className="dashboard-site-subpanel absolute bottom-0 left-full z-50 ml-2 w-72 overflow-hidden rounded-[22px]"
                       >
                         <GearOnboarding t={t} onNavigate={() => { setGearOpen(false); setOnboardingOpen(false); }} user={user} pathname={pathname} />
                       </motion.div>
@@ -354,7 +355,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                         animate={{ opacity: 1, x: 0, scale: 1 }}
                         exit={{ opacity: 0, x: -8, scale: 0.96 }}
                         transition={{ duration: 0.15 }}
-                        className="absolute left-full bottom-0 ml-2 w-[360px] h-[500px] rounded-xl border border-border/60 bg-surface shadow-xl z-50 overflow-hidden"
+                        className="dashboard-site-subpanel absolute bottom-0 left-full z-50 ml-2 h-[500px] w-[360px] overflow-hidden rounded-[22px]"
                       >
                         <ChatWidget
                           showFab={false}
@@ -371,7 +372,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           </div>
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="flex w-full items-center justify-center rounded-lg px-3 py-2 text-text-muted hover:bg-surface-hover hover:text-text-primary"
+            className="dashboard-site-collapse flex w-full items-center justify-center rounded-2xl px-3 py-2"
             title={collapsed ? t("gear.expand") : t("gear.collapse")}
           >
             {collapsed ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
@@ -380,15 +381,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       )}
       {/* Settings + Docs + Getting Started (mobile drawer) */}
       {mobile && (
-        <div className="border-t border-border p-2 space-y-0.5">
+        <div className="dashboard-site-sidebar-footer p-2 space-y-0.5">
           <button
             type="button"
             onClick={() => setMobileOnboardingOpen((o) => !o)}
             className={cn(
-              "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-base transition-colors",
-              mobileOnboardingOpen
-                ? "bg-accent-cyan/8 text-accent-cyan"
-                : "text-text-secondary hover:bg-surface-hover hover:text-text-primary",
+              "dashboard-site-mobile-link flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-base",
+              mobileOnboardingOpen && "dashboard-site-sidebutton-active",
             )}
             aria-expanded={mobileOnboardingOpen}
           >
@@ -426,10 +425,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           <Link
             href="/dashboard/settings"
             className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 text-base transition-colors",
-              pathname.startsWith("/dashboard/settings")
-                ? "bg-accent-cyan/8 text-accent-cyan nav-active"
-                : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+              "dashboard-site-mobile-link flex items-center gap-3 rounded-2xl px-3 py-2 text-base",
+              pathname.startsWith("/dashboard/settings") && "dashboard-site-sidebutton-active nav-active"
             )}
           >
             <Settings className="h-5 w-5 shrink-0" />
@@ -439,7 +436,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             href="https://docs.xcelsior.ca"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-3 rounded-lg px-3 py-2 text-base text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
+            className="dashboard-site-mobile-link flex items-center gap-3 rounded-2xl px-3 py-2 text-base"
           >
             <BookOpen className="h-5 w-5 shrink-0" />
             <span>{t("gear.docs")}</span>
@@ -451,192 +448,199 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <div className={cn("flex h-screen overflow-hidden bg-navy", desktopMode && "desktop-shell-root")}>
-      {/* Desktop Sidebar */}
-      <aside
-        className={cn(
-          "hidden md:flex flex-col border-r border-border/60 glass transition-all duration-200",
-          desktopMode && "desktop-sidebar-surface",
-          collapsed ? "w-16" : "w-60"
-        )}
-      >
-        {sidebarContent(false)}
-      </aside>
-
-      {/* Mobile Drawer Overlay */}
-      <AnimatePresence>
-        {mobileOpen && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="fixed inset-0 z-40 bg-black/60 md:hidden"
-              onClick={() => setMobileOpen(false)}
-            />
-            <motion.aside
-              initial={{ x: -280 }}
-              animate={{ x: 0 }}
-              exit={{ x: -280 }}
-              transition={{ type: "spring", damping: 25, stiffness: 300 }}
-              className="fixed inset-y-0 left-0 z-50 flex w-[280px] flex-col border-r border-border/60 glass md:hidden"
-            >
-              {sidebarContent(true)}
-            </motion.aside>
-          </>
-        )}
-      </AnimatePresence>
-
-      {/* Main */}
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Session expiry warning — above topbar */}
-        <SessionExpiryBanner />
-
-        {/* Topbar */}
-        <header className={cn("flex h-[72px] items-center justify-between glass px-4 md:px-6 relative", desktopMode && "desktop-topbar")}>
-          <div className="brand-line absolute bottom-0 left-0 right-0" />
-          {/* Mobile menu button */}
-          <button
-            className="md:hidden flex items-center justify-center h-10 w-10 rounded-lg text-text-secondary hover:bg-surface-hover hover:text-text-primary"
-            onClick={() => setMobileOpen(true)}
-            aria-label="Open menu"
-          >
-            <Menu className="h-6 w-6" />
-          </button>
-          <div className="hidden md:block min-w-0">
-            <Breadcrumb />
-          </div>
-          <DesktopStatusStrip className="hidden xl:flex" />
-          <div className={cn("flex items-center gap-4", desktopMode && "desktop-topbar-actions")}>
-            <LocaleToggle />
-            <ThemeToggle />
-            <div className="h-6 w-px bg-border hidden sm:block" />
-            <NotificationBell />
-            <TeamSwitcher compact />
-            <CreditsButton />
-            <div className="h-7 w-px bg-border hidden sm:block" />
-            <div className="relative" ref={profileRef}>
-              <button
-                onClick={() => setProfileOpen(!profileOpen)}
-                className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-surface-hover transition-colors"
-              >
-                <UserAvatar user={user} size="md" />
-                {user && (
-                  <div className="hidden sm:block text-left">
-                    <p className="text-base font-medium leading-none">{user.name || user.email}</p>
-                    <p className="text-sm text-text-muted">
-                      {team.isTeamMember
-                        ? `${team.teamName || t("dash.team")} · ${formatTeamRoleLabel(team.teamRole)}`
-                        : user.is_admin
-                          ? (user.role && user.role !== "admin" ? `Admin · ${user.role}` : "Admin")
-                          : user.role || "user"}
-                    </p>
-                  </div>
-                )}
-                <ChevronDown className={cn("h-4 w-4 text-text-muted transition-transform hidden sm:block", profileOpen && "rotate-180")} />
-              </button>
-              {/* Profile dropdown */}
-              <AnimatePresence>
-                {profileOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -4 }}
-                    transition={{ duration: 0.15 }}
-                    className="absolute right-0 top-full mt-1 w-56 rounded-xl border border-border/60 bg-surface shadow-xl z-50 overflow-hidden"
-                  >
-                    <div className="px-3 py-3 border-b border-border flex items-center gap-3">
-                      <UserAvatar user={user} size="sm" />
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">{user?.name || user?.email}</p>
-                        <p className="text-xs text-text-muted truncate">{user?.email}</p>
-                      </div>
-                    </div>
-                    <div className="py-1">
-                      <Link
-                        href="/dashboard/settings"
-                        className="flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
-                        onClick={() => setProfileOpen(false)}
-                      >
-                        <Settings className="h-4 w-4" />
-                        {t("dash.settings")}
-                      </Link>
-                      <Link
-                        href="/dashboard/settings#team"
-                        className="flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
-                        onClick={() => setProfileOpen(false)}
-                      >
-                        <Users className="h-4 w-4" />
-                        {t("dash.team") || "Team"}
-                      </Link>
-                      <Link
-                        href="/dashboard/settings#api-keys"
-                        className="flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
-                        onClick={() => setProfileOpen(false)}
-                      >
-                        <Key className="h-4 w-4" />
-                        {t("dash.settings.api_keys") || "API Keys"}
-                      </Link>
-                    </div>
-                    <div className="border-t border-border py-1">
-                      <button
-                        onClick={() => { setProfileOpen(false); void logout(); }}
-                        className="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-accent-red transition-colors"
-                      >
-                        <LogOut className="h-4 w-4" />
-                        {t("dash.sign_out")}
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          </div>
-        </header>
-
-        {/* Content */}
-        <main className={cn("flex-1 overflow-y-auto p-4 md:p-6", desktopMode && "desktop-main-surface")}>{children}</main>
-      </div>
-
-      {/* Global Launch Instance modal — opened in place from any "Launch" button */}
-      <GlobalLaunchModal />
-
-      {/* AI Context Panel (right side) */}
-      <AnimatePresence>
-        {aiPanelOpen && (
-          <motion.aside
-            initial={{ width: 0, opacity: 0 }}
-            animate={{ width: 384, opacity: 1 }}
-            exit={{ width: 0, opacity: 0 }}
-            transition={{ type: "spring", damping: 30, stiffness: 280, mass: 0.8 }}
-            className="hidden md:flex flex-col border-l border-border/30 bg-background/95 backdrop-blur-md ai-panel-border overflow-hidden"
-          >
-            <AiPanel onClose={closeAiPanel} />
-          </motion.aside>
-        )}
-      </AnimatePresence>
-
-      <MobileDeployAction
-        serverlessEnabled={showServerless}
-        canWrite={canWriteServerless}
-      />
-
-      {/* AI Toggle Rail (persistent right edge) */}
-      <div className="hidden md:flex flex-col items-center justify-end border-l border-border/30 bg-surface/50 w-16 py-3 shrink-0">
-        <button
-          onClick={toggleAiPanel}
+    <div className="dashboard-shell" data-theme={theme}>
+      <div className={cn("dashboard-shell-frame flex h-screen overflow-hidden", desktopMode && "desktop-shell-root")}>
+        {/* Desktop Sidebar */}
+        <aside
           className={cn(
-            // 3px padding around a 54px mark (47px → +15%) inside a 60px button.
-            "flex h-[60px] w-[60px] items-center justify-center rounded-xl p-[3px] transition-all duration-200",
-            aiPanelOpen
-              ? "bg-accent-red text-white shadow-lg shadow-accent-red/25"
-              : "text-accent-red hover:bg-accent-red/15"
+            "dashboard-site-sidebar hidden md:flex flex-col transition-all duration-200",
+            desktopMode && "desktop-sidebar-surface",
+            collapsed ? "w-16" : "w-60"
           )}
-          title={aiPanelOpen ? t("ai.close_panel") : t("ai.open_panel")}
         >
-          <AiSparkIcon className={cn("h-[54px] w-[54px] transition-transform duration-200", aiPanelOpen && "rotate-12")} />
-        </button>
+          {sidebarContent(false)}
+        </aside>
+
+        {/* Mobile Drawer Overlay */}
+        <AnimatePresence>
+          {mobileOpen && (
+            <>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="dashboard-site-mobile-backdrop fixed inset-0 z-40 md:hidden"
+                onClick={() => setMobileOpen(false)}
+              />
+              <motion.aside
+                initial={{ x: -280 }}
+                animate={{ x: 0 }}
+                exit={{ x: -280 }}
+                transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                className="dashboard-site-mobile-drawer fixed inset-y-0 left-0 z-50 flex w-[280px] flex-col md:hidden"
+              >
+                {sidebarContent(true)}
+              </motion.aside>
+            </>
+          )}
+        </AnimatePresence>
+
+        {/* Main */}
+        <div className="flex flex-1 flex-col overflow-hidden">
+          {/* Session expiry warning — above topbar */}
+          <SessionExpiryBanner />
+
+          {/* Topbar */}
+          <header className={cn("dashboard-site-topbar glass relative", desktopMode && "desktop-topbar")}>
+            <div className="brand-line absolute bottom-0 left-0 right-0" />
+            <div className="dashboard-site-topbar-inner">
+              {/* Mobile menu button */}
+              <button
+                className="dashboard-site-icon-button flex h-11 w-11 items-center justify-center rounded-full md:hidden"
+                onClick={() => setMobileOpen(true)}
+                aria-label="Open menu"
+              >
+                <Menu className="h-6 w-6" />
+              </button>
+              <div className="dashboard-site-crumbs hidden min-w-0 md:block">
+                <Breadcrumb />
+              </div>
+              <DesktopStatusStrip className="dashboard-site-status hidden xl:flex" />
+              <div className={cn("dashboard-site-actions flex items-center", desktopMode && "desktop-topbar-actions")}>
+                <LocaleToggle className="dashboard-site-pill-control" />
+                <ThemeToggle className="dashboard-site-pill-control" />
+                <div className="h-6 w-px bg-[var(--line)] hidden sm:block" />
+                <div className="dashboard-site-control">
+                  <NotificationBell />
+                </div>
+                <TeamSwitcher compact className="dashboard-site-team-control" />
+                <div className="dashboard-site-control">
+                  <CreditsButton />
+                </div>
+                <div className="h-7 w-px bg-[var(--line)] hidden sm:block" />
+                <div className="relative" ref={profileRef}>
+                  <button
+                    onClick={() => setProfileOpen(!profileOpen)}
+                    className="dashboard-site-profile-trigger flex items-center gap-2 rounded-full px-3 py-2"
+                  >
+                    <UserAvatar user={user} size="md" />
+                    {user && (
+                      <div className="hidden text-left sm:block">
+                        <p className="text-base font-medium leading-none text-[var(--text)]">{user.name || user.email}</p>
+                        <p className="text-sm text-[var(--text-4)]">
+                          {team.isTeamMember
+                            ? `${team.teamName || t("dash.team")} · ${formatTeamRoleLabel(team.teamRole)}`
+                            : user.is_admin
+                              ? (user.role && user.role !== "admin" ? `Admin · ${user.role}` : "Admin")
+                              : user.role || "user"}
+                        </p>
+                      </div>
+                    )}
+                    <ChevronDown className={cn("hidden h-4 w-4 text-[var(--text-4)] transition-transform sm:block", profileOpen && "rotate-180")} />
+                  </button>
+                  {/* Profile dropdown */}
+                  <AnimatePresence>
+                    {profileOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -4 }}
+                        transition={{ duration: 0.15 }}
+                        className="dashboard-site-popout absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-[22px]"
+                      >
+                        <div className="dashboard-site-popout-section flex items-center gap-3 border-b px-3 py-3">
+                          <UserAvatar user={user} size="sm" />
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-[var(--text)]">{user?.name || user?.email}</p>
+                            <p className="truncate text-xs text-[var(--text-4)]">{user?.email}</p>
+                          </div>
+                        </div>
+                        <div className="py-1">
+                          <Link
+                            href="/dashboard/settings"
+                            className="dashboard-site-popout-link flex items-center gap-2.5 px-3 py-2 text-sm"
+                            onClick={() => setProfileOpen(false)}
+                          >
+                            <Settings className="h-4 w-4" />
+                            {t("dash.settings")}
+                          </Link>
+                          <Link
+                            href="/dashboard/settings#team"
+                            className="dashboard-site-popout-link flex items-center gap-2.5 px-3 py-2 text-sm"
+                            onClick={() => setProfileOpen(false)}
+                          >
+                            <Users className="h-4 w-4" />
+                            {t("dash.team") || "Team"}
+                          </Link>
+                          <Link
+                            href="/dashboard/settings#api-keys"
+                            className="dashboard-site-popout-link flex items-center gap-2.5 px-3 py-2 text-sm"
+                            onClick={() => setProfileOpen(false)}
+                          >
+                            <Key className="h-4 w-4" />
+                            {t("dash.settings.api_keys") || "API Keys"}
+                          </Link>
+                        </div>
+                        <div className="dashboard-site-popout-section border-t py-1">
+                          <button
+                            onClick={() => { setProfileOpen(false); void logout(); }}
+                            className="dashboard-site-popout-link flex w-full items-center gap-2.5 px-3 py-2 text-sm hover:text-[var(--coral)]"
+                          >
+                            <LogOut className="h-4 w-4" />
+                            {t("dash.sign_out")}
+                          </button>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
+            </div>
+          </header>
+
+          {/* Content */}
+          <main className={cn("dashboard-site-main flex-1 overflow-y-auto", desktopMode && "desktop-main-surface")}>
+            <div className="dashboard-site-main-inner">{children}</div>
+          </main>
+        </div>
+
+        {/* Global Launch Instance modal — opened in place from any "Launch" button */}
+        <GlobalLaunchModal />
+
+        {/* AI Context Panel (right side) */}
+        <AnimatePresence>
+          {aiPanelOpen && (
+            <motion.aside
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: 384, opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
+              transition={{ type: "spring", damping: 30, stiffness: 280, mass: 0.8 }}
+              className="dashboard-site-ai-panel ai-panel-border hidden overflow-hidden md:flex md:flex-col"
+            >
+              <AiPanel onClose={closeAiPanel} />
+            </motion.aside>
+          )}
+        </AnimatePresence>
+
+        <MobileDeployAction
+          serverlessEnabled={showServerless}
+          canWrite={canWriteServerless}
+        />
+
+        {/* AI Toggle Rail (persistent right edge) */}
+        <div className="dashboard-site-ai-rail hidden w-16 shrink-0 flex-col items-center justify-end py-3 md:flex">
+          <button
+            onClick={toggleAiPanel}
+            className={cn(
+              "dashboard-site-ai-toggle flex h-[60px] w-[60px] items-center justify-center rounded-[22px] p-[3px] transition-all duration-200",
+              aiPanelOpen && "dashboard-site-ai-toggle-active text-white"
+            )}
+            title={aiPanelOpen ? t("ai.close_panel") : t("ai.open_panel")}
+          >
+            <AiSparkIcon className={cn("h-[54px] w-[54px] transition-transform duration-200", aiPanelOpen && "rotate-12")} />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -654,16 +658,18 @@ function SessionExpiryBanner() {
         animate={{ height: "auto", opacity: 1 }}
         exit={{ height: 0, opacity: 0 }}
         transition={{ duration: 0.2 }}
-        className="flex items-center justify-center gap-3 bg-gradient-to-r from-accent-cyan/12 via-accent-violet/10 to-accent-cyan/12 border-b border-accent-cyan/20 px-4 py-2.5 text-sm text-accent-cyan"
+        className="dashboard-site-banner"
       >
-        <Clock className="h-4 w-4 shrink-0" />
-        <span>Your session will expire soon due to inactivity</span>
-        <button
-          onClick={continueSession}
-          className="ml-1 rounded-md bg-accent-cyan/15 border border-accent-cyan/30 px-3 py-1 text-xs font-medium text-accent-cyan hover:bg-accent-cyan/25 transition-colors"
-        >
-          Continue Session
-        </button>
+        <div className="dashboard-site-banner-content flex items-center justify-center gap-3 text-sm">
+          <Clock className="h-4 w-4 shrink-0" />
+          <span>Your session will expire soon due to inactivity</span>
+          <button
+            onClick={continueSession}
+            className="dashboard-site-banner-action ml-1 rounded-full px-3 py-1 text-xs font-medium"
+          >
+            Continue Session
+          </button>
+        </div>
       </motion.div>
     </AnimatePresence>
   );
