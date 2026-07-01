@@ -4,6 +4,7 @@ import { DashboardShell } from "./dashboard-shell";
 import { ApiStatusBanner } from "@/components/ApiStatusBanner";
 import { AuthProviderShell } from "@/components/AuthProviderShell";
 import { DashboardProviders } from "./dashboard-providers";
+import "@/components/marketing/dashboard-theme.css";
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
