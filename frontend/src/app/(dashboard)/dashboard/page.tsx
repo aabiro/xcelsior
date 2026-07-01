@@ -5,7 +5,7 @@ import Link from "next/link";
 import { StatCard } from "@/components/ui/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { FadeIn, StaggerList, StaggerItem } from "@/components/ui/motion";
-import { Server, Activity, Zap, Users, Cpu, Rocket, ArrowUpRight, Plus, type LucideIcon } from "lucide-react";
+import { Server, Activity, Zap, Users, Cpu, Plus } from "lucide-react";
 import { useApi } from "@/lib/use-api";
 import { useLocale } from "@/lib/locale";
 import { useAuth } from "@/lib/auth";
@@ -17,7 +17,6 @@ import { CanadaMapHero } from "@/components/ui/canada-hero";
 import { openLaunchModal } from "@/lib/launch-modal";
 import { cn } from "@/lib/utils";
 
-// Custom Canada-map-inspired SVG icons for the action cards
 function MapRocketIcon({ className, style }: { className?: string; style?: React.CSSProperties }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className} style={style}>
@@ -27,7 +26,6 @@ function MapRocketIcon({ className, style }: { className?: string; style?: React
           <stop offset="1" stopColor="currentColor" />
         </linearGradient>
       </defs>
-      {/* Abstract Canada Maple Leaf + Rocket hybrid silhouette */}
       <path
         fillRule="evenodd"
         clipRule="evenodd"
@@ -48,7 +46,6 @@ function MapServerIcon({ className, style }: { className?: string; style?: React
           <stop offset="1" stopColor="currentColor" stopOpacity="0.2" />
         </linearGradient>
       </defs>
-      {/* Abstract Server + Nodes mapping */}
       <path
         fillRule="evenodd"
         clipRule="evenodd"
@@ -61,7 +58,6 @@ function MapServerIcon({ className, style }: { className?: string; style?: React
         d="M4 15C4 13.8954 4.89543 13 6 13H18C19.1046 13 20 13.8954 20 15V18C20 19.1046 19.1046 20 18 20H6C4.89543 20 4 19.1046 4 18V15ZM7 15.5C6.44772 15.5 6 15.9477 6 16.5C6 17.0523 6.44772 17.5 7 17.5H9C9.55228 17.5 10 17.0523 10 16.5C10 15.9477 9.55228 15.5 9 15.5H7ZM16 17.5C16.5523 17.5 17 17.0523 17 16.5C17 15.9477 16.5523 15.5 16 15.5C15.4477 15.5 15 15.9477 15 16.5C15 17.0523 15.4477 17.5 16 17.5Z"
         fill="url(#serverGrad)"
       />
-      {/* Node connecting line */}
       <path d="M12 11V13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
@@ -70,46 +66,19 @@ function MapServerIcon({ className, style }: { className?: string; style?: React
 function OverviewActionVisual({
   accent,
   icon: Icon,
-  mirrored = false,
 }: {
   accent: "launch" | "provider";
   icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
-  mirrored?: boolean;
 }) {
-  const tones = {
-    launch: {
-      shell: "border-accent-violet/20 bg-[radial-gradient(circle_at_0%_0%,rgba(124,58,237,0.14),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(245,249,255,0.94))] dark:bg-[radial-gradient(circle_at_0%_0%,rgba(124,58,237,0.18),transparent_26%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
-      panel: "bg-white/[0.72] dark:bg-[#091120]/85",
-      ring: "text-accent-violet shadow-[0_18px_52px_rgba(124,58,237,0.14)] dark:shadow-[0_18px_52px_rgba(124,58,237,0.18)]",
-      cornerA: "bg-[radial-gradient(circle_at_0%_0%,rgba(124,58,237,0.22),transparent_55%)]",
-      cornerB: "bg-[radial-gradient(circle_at_100%_100%,rgba(0,212,255,0.18),transparent_55%)]",
-      img: "/rocket.svg?v=6",
-      imgLight: "/rocket-light.svg?v=6",
-    },
-    provider: {
-      shell: "border-accent-cyan/20 bg-[radial-gradient(circle_at_100%_0%,rgba(8,145,178,0.18),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,249,255,0.94))] dark:bg-[radial-gradient(circle_at_100%_0%,rgba(0,212,255,0.16),transparent_26%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
-      panel: "bg-white/[0.72] dark:bg-[#091120]/85",
-      ring: "text-accent-cyan shadow-[0_18px_52px_rgba(8,145,178,0.14)] dark:shadow-[0_14px_40px_rgba(0,212,255,0.08)]",
-      cornerA: "bg-[radial-gradient(circle_at_100%_0%,rgba(234,88,12,0.22),transparent_55%)]",
-      cornerB: "bg-[radial-gradient(circle_at_0%_100%,rgba(91,33,182,0.18),transparent_55%)]",
-      img: "/gpu.svg?v=2",
-      imgLight: "/gpu-light.svg?v=2",
-    },
-  } as const;
-  const tone = tones[accent];
-
   return (
-    <div className={cn("relative h-[180px] w-full max-w-[220px] overflow-hidden rounded-[30px] border p-4 backdrop-blur-sm", tone.shell)}>
-      <div className={cn("absolute inset-[18px] rounded-[24px] border border-white/[0.45] dark:border-white/[0.08]", tone.panel)} />
-      <div className={cn("pointer-events-none absolute inset-0 rounded-[30px]", tone.cornerA)} />
-      <div className={cn("pointer-events-none absolute inset-0 rounded-[30px]", tone.cornerB)} />
-      <div className="relative flex h-full items-center justify-center rounded-[26px] p-[1.5px] bg-gradient-to-br from-accent-cyan/30 via-accent-violet/20 to-accent-red/30">
-        <div className={cn("flex h-full w-full items-center justify-center rounded-[24.5px] bg-white dark:bg-[#080c18] overflow-hidden", tone.ring)}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={tone.imgLight} alt="" aria-hidden className="relative z-10 h-[85%] w-[85%] object-contain dark:hidden" loading="eager" fetchPriority="high" />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={tone.img} alt="" aria-hidden className="relative z-10 hidden h-[85%] w-[85%] object-contain dark:block" loading="eager" fetchPriority="high" />
-        </div>
+    <div className="dashboard-overview-visual-shell">
+      <Icon
+        className="dashboard-overview-visual-icon"
+        style={{ transform: accent === "launch" ? "translateY(-2px)" : undefined }}
+      />
+      <div className="site-live-badge absolute right-4 top-4">
+        <span className="site-live-dot" />
+        Live
       </div>
     </div>
   );
@@ -123,95 +92,95 @@ function OverviewActionCard({
   buttonLabel,
   accent,
   icon: Icon,
-  buttonIcon: ButtonIcon,
   reverse = false,
-  mirrorVisual = false,
 }: {
   title: string;
   description: string;
-  /** Navigation target. Ignored when onClick is provided. */
   href?: string;
-  /** When set, the action runs in place (e.g. open a modal) instead of navigating. */
   onClick?: () => void;
   buttonLabel: string;
   accent: "launch" | "provider";
   icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
-  buttonIcon: LucideIcon;
   reverse?: boolean;
-  mirrorVisual?: boolean;
 }) {
-  const styles = {
-    launch: {
-      shell:
-        "border-accent-violet/20 bg-[radial-gradient(circle_at_0%_0%,rgba(124,58,237,0.14),transparent_22%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(246,250,255,0.95))] dark:bg-[radial-gradient(circle_at_0%_0%,rgba(124,58,237,0.18),transparent_24%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
-      chip: "border-accent-violet/20 bg-accent-violet/10 text-accent-violet dark:border-accent-violet/25",
-      subchip: "border-accent-cyan/[0.18] bg-accent-cyan/[0.08] text-accent-cyan dark:border-accent-cyan/20",
-      button: "bg-accent-violet text-white hover:bg-accent-violet/90",
-    },
-    provider: {
-      shell:
-        "border-accent-cyan/20 bg-[radial-gradient(circle_at_100%_0%,rgba(8,145,178,0.16),transparent_22%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,249,255,0.94))] dark:bg-[radial-gradient(circle_at_100%_0%,rgba(0,212,255,0.16),transparent_24%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
-      chip: "border-accent-cyan/20 bg-accent-cyan/10 text-accent-cyan dark:border-accent-cyan/25",
-      subchip: "border-accent-violet/[0.18] bg-accent-violet/[0.08] text-accent-violet dark:border-accent-violet/20",
-      button: "border border-accent-cyan/25 bg-accent-cyan/10 text-accent-cyan hover:bg-accent-cyan/15",
-    },
-  } as const;
-
-  const tone = styles[accent];
-  const alignRight = accent === "launch";
-
   return (
-    <div className={cn("relative overflow-hidden rounded-[30px] border px-6 py-6 md:px-8 md:py-7", tone.shell)}>
-      <div className="relative flex flex-col gap-8 lg:min-h-[260px] lg:justify-between">
-        <div className={cn("flex flex-col gap-6 lg:items-start", reverse ? "lg:flex-row-reverse" : "lg:flex-row")}>
-          <OverviewActionVisual accent={accent} icon={Icon} mirrored={mirrorVisual} />
-
-          <div className={cn("flex flex-1 flex-col justify-start lg:self-start", alignRight ? "lg:items-end lg:text-right" : "lg:items-start lg:text-left")}>
-            <div className={cn("flex flex-wrap items-center gap-2", alignRight ? "lg:justify-end" : "lg:justify-start")}>
-              <span className={cn("inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em]", tone.chip)}>
-                {accent === "launch" ? "Launch" : "Supply"}
-              </span>
-              <span className={cn("inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-medium uppercase tracking-[0.2em]", tone.subchip)}>
-                {accent === "launch" ? "GPU Ready" : "Hosts"}
-              </span>
-            </div>
-
-            <div className="mt-1 max-w-xl space-y-2">
-              <h2 className="text-xl font-semibold text-text-primary md:text-[1.45rem]">{title}</h2>
-              <p className="text-sm leading-relaxed text-text-secondary">{description}</p>
-            </div>
-          </div>
+    <div className="dashboard-overview-action" data-accent={accent} data-reverse={reverse ? "true" : "false"}>
+      <div className="dashboard-overview-action-copy">
+        <div className="dashboard-overview-action-badges">
+          <span className={cn("dashboard-overview-chip", accent === "launch" ? "dashboard-overview-chip--violet" : "dashboard-overview-chip--accent")}>
+            {accent === "launch" ? "Launch" : "Supply"}
+          </span>
+          <span className="dashboard-overview-chip">{accent === "launch" ? "GPU Ready" : "Hosts"}</span>
         </div>
 
-        <div className={cn("flex", alignRight ? "lg:justify-end" : "lg:justify-start")}>
+        <h2 className="dashboard-overview-action-title">{title}</h2>
+        <p className="site-card-copy">{description}</p>
+
+        <div className="dashboard-overview-action-cta">
           {onClick ? (
             <button
               type="button"
               onClick={onClick}
-              className={cn(
-                "inline-flex h-10 w-fit items-center justify-center gap-2 rounded-full px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice-blue",
-                tone.button,
-              )}
+              className={cn("site-button gap-2 px-5 py-3 text-sm", accent === "launch" ? "site-button-primary" : "site-button-ghost")}
             >
-              <ButtonIcon className="h-4 w-4" />
+              <Plus className="h-4 w-4" />
               {buttonLabel}
             </button>
           ) : (
             <Link
               href={href ?? "#"}
-              className={cn(
-                "inline-flex h-10 w-fit items-center justify-center gap-2 rounded-full px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice-blue",
-                tone.button,
-              )}
+              className={cn("site-button gap-2 px-5 py-3 text-sm", accent === "launch" ? "site-button-primary" : "site-button-ghost")}
             >
-              <ButtonIcon className="h-4 w-4" />
+              <Plus className="h-4 w-4" />
               {buttonLabel}
             </Link>
           )}
         </div>
       </div>
+
+      <div className="dashboard-overview-action-visual">
+        <OverviewActionVisual accent={accent} icon={Icon} />
+      </div>
     </div>
   );
+}
+
+function SectionMarker({ code, label }: { code: string; label: string }) {
+  return (
+    <div className="site-marker">
+      <span className="site-marker-code">{code}</span>
+      <span className="site-marker-line" />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function DashboardSection({
+  code,
+  label,
+  children,
+}: {
+  code: string;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="dashboard-overview-section site-rails">
+      <SectionMarker code={code} label={label} />
+      {children}
+    </section>
+  );
+}
+
+function rankClass(index: number) {
+  if (index === 0) return "dashboard-rank dashboard-rank-gold";
+  if (index === 1) return "dashboard-rank dashboard-rank-silver";
+  if (index === 2) return "dashboard-rank dashboard-rank-coral";
+  return "dashboard-rank dashboard-rank-default";
+}
+
+function tierClass(tierKey: string) {
+  return `dashboard-chip dashboard-tier-${tierKey}`;
 }
 
 export default function DashboardOverview() {
@@ -238,14 +207,11 @@ export default function DashboardOverview() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Live updates — re-fetch on job/host status changes
   useEventStream({
     eventTypes: ["job_status", "job_submitted", "host_registered", "host_removed"],
     onEvent: () => { load(); },
   });
 
-  // Strict check matching /api/v2/gpu/available — the hero count must never
-  // promise capacity the GPU pickers won't offer.
   const admittedHosts = hosts.filter((h) => h.admitted === true || String(h.admitted) === "true");
   const activeHosts = admittedHosts.filter((h) => h.status === "active").length;
   const runningInstances = instances.filter((j) => j.status === "running").length;
@@ -253,11 +219,10 @@ export default function DashboardOverview() {
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        <h1 className="text-2xl font-bold">{t("dash.overview.title")}</h1>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="dashboard-overview">
+        <div className="dashboard-overview-loading-grid">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-28 rounded-xl bg-surface skeleton-pulse" />
+            <div key={i} className="dashboard-overview-loading-card skeleton-pulse" />
           ))}
         </div>
       </div>
@@ -265,83 +230,80 @@ export default function DashboardOverview() {
   }
 
   return (
-    <div className="space-y-6 relative">
-      {/* Preload hero SVGs — scoped to this page so other routes don't get unused-preload warnings */}
+    <div className="dashboard-overview">
       <link rel="preload" href="/rocket.svg?v=6" as="image" type="image/svg+xml" />
       <link rel="preload" href="/gpu.svg?v=2" as="image" type="image/svg+xml" />
       <link rel="preload" href="/rocket-light.svg?v=6" as="image" type="image/svg+xml" />
       <link rel="preload" href="/gpu-light.svg?v=2" as="image" type="image/svg+xml" />
       <AuroraBackground className="z-0" />
 
-      <div className="relative z-10 space-y-6">
-        <h1 className="text-2xl font-bold">{t("dash.overview.title")}</h1>
+      <FadeIn className="dashboard-overview-hero">
+        <div className="dashboard-overview-hero-grid">
+          <div style={{ animation: "heroUp .7s ease both" }}>
+            <SectionMarker code="01" label={t("dash.overview.title")} />
+            <h1 className="dashboard-overview-title">{t("dash.overview.title")}</h1>
+          </div>
+          <CanadaMapHero hostCount={admittedHosts.length} className="dashboard-overview-map" />
+        </div>
+      </FadeIn>
 
-        {/* First-run activation — shows until the user has launched something */}
-        <FirstRunCard
-          customerId={user?.customer_id || user?.user_id}
-          show={instances.length === 0}
-        />
+      <FirstRunCard
+        customerId={user?.customer_id || user?.user_id}
+        show={instances.length === 0}
+      />
 
-        {/* Canada Map Hero */}
-        <FadeIn>
-          <CanadaMapHero hostCount={admittedHosts.length} />
-        </FadeIn>
-
-        {/* Stats Row */}
+      <DashboardSection code="02" label={t("dash.overview.title")}>
         <StaggerList className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StaggerItem><StatCard label={t("dash.overview.active_hosts")} value={activeHosts} icon={Server} glow="cyan" /></StaggerItem>
           <StaggerItem><StatCard label={t("dash.overview.running_instances")} value={runningInstances} icon={Zap} glow="violet" /></StaggerItem>
           <StaggerItem><StatCard label={t("dash.overview.total_hosts")} value={admittedHosts.length} icon={Cpu} glow="emerald" /></StaggerItem>
           <StaggerItem><StatCard label={t("dash.overview.queued")} value={queuedInstances} icon={Activity} glow="gold" /></StaggerItem>
         </StaggerList>
+      </DashboardSection>
 
-          <FadeIn delay={0.18} className="space-y-4">
-            <OverviewActionCard
-              title="Launch your next instance"
-              description="Bring up compute fast, then tune workloads and containers from Instances."
-              onClick={() => openLaunchModal()}
-              buttonLabel="Launch Instance"
-              accent="launch"
-              icon={MapRocketIcon}
-              buttonIcon={Plus}
-              reverse={false}
-              mirrorVisual
-            />
-            <OverviewActionCard
-              title="Become a provider"
-              description="Bring spare GPUs online, register capacity, and start listing from Hosts."
-              href="/dashboard/hosts"
-              buttonLabel="Register Host"
-              accent="provider"
-              icon={MapServerIcon}
-              buttonIcon={Plus}
-              reverse
-              mirrorVisual
-            />
-          </FadeIn>
+      <DashboardSection code="03" label="Launch your next instance">
+        <FadeIn delay={0.18} className="dashboard-overview-actions">
+          <OverviewActionCard
+            title="Launch your next instance"
+            description="Bring up compute fast, then tune workloads and containers from Instances."
+            onClick={() => openLaunchModal()}
+            buttonLabel="Launch Instance"
+            accent="launch"
+            icon={MapRocketIcon}
+          />
+          <OverviewActionCard
+            title="Become a provider"
+            description="Bring spare GPUs online, register capacity, and start listing from Hosts."
+            href="/dashboard/hosts"
+            buttonLabel="Register Host"
+            accent="provider"
+            icon={MapServerIcon}
+            reverse
+          />
+        </FadeIn>
+      </DashboardSection>
 
-        <FadeIn delay={0.25} className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          {/* Recent Instances */}
-          <div className="glow-card rounded-xl border border-border bg-surface">
-            <div className="border-b border-border/60 px-5 py-3.5">
-              <h3 className="flex items-center gap-2 text-sm font-semibold">
-                <Zap className="h-4 w-4 text-accent-cyan" /> {t("dash.overview.recent_instances")}
-              </h3>
+      <DashboardSection code="04" label={t("dash.overview.recent_instances")}>
+        <FadeIn delay={0.25} className="dashboard-overview-data-grid">
+          <div className="dashboard-data-card glow-card">
+            <div className="dashboard-data-card-header">
+              <Zap className="h-4 w-4 text-[var(--cyan)]" />
+              <h3 className="text-sm font-semibold text-[var(--text)]">{t("dash.overview.recent_instances")}</h3>
             </div>
-            <div className="p-5">
+            <div className="dashboard-data-card-body">
               {instances.length === 0 ? (
-                <p className="text-sm text-text-muted">{t("dash.overview.no_instances")}</p>
+                <p className="text-sm text-[var(--text-4)]">{t("dash.overview.no_instances")}</p>
               ) : (
-                <div className="space-y-2.5">
+                <div className="dashboard-data-list">
                   {instances.slice(0, 5).map((inst) => (
-                    <div key={inst.job_id} className="flex items-center justify-between rounded-lg border border-border/60 bg-navy-light/50 p-3 transition-colors hover:bg-surface-hover">
+                    <div key={inst.job_id} className="dashboard-data-row">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-violet/10">
-                          <Zap className="h-3.5 w-3.5 text-accent-violet" />
+                        <div className="dashboard-data-row-icon">
+                          <Zap className="h-3.5 w-3.5 text-[var(--violet)]" />
                         </div>
                         <div>
-                          <p className="text-sm font-medium">{inst.name || inst.job_id}</p>
-                          <p className="text-xs text-text-muted font-mono">{inst.gpu_type || inst.gpu_model}</p>
+                          <p className="text-sm font-medium text-[var(--text)]">{inst.name || inst.job_id}</p>
+                          <p className="font-mono text-xs text-[var(--text-4)]">{inst.gpu_type || inst.gpu_model}</p>
                         </div>
                       </div>
                       <Badge variant={inst.status === "running" ? "active" : inst.status === "completed" ? "completed" : inst.status === "queued" ? "queued" : "default"}>
@@ -354,60 +316,44 @@ export default function DashboardOverview() {
             </div>
           </div>
 
-          {/* Top Providers / Leaderboard */}
-          <div className="glow-card rounded-xl border border-border bg-surface">
-            <div className="border-b border-border/60 px-5 py-3.5">
-              <h3 className="flex items-center gap-2 text-sm font-semibold">
-                <Users className="h-4 w-4 text-accent-gold" /> {t("dash.overview.top_providers")}
-              </h3>
+          <div className="dashboard-data-card glow-card">
+            <div className="dashboard-data-card-header">
+              <Users className="h-4 w-4 text-[var(--gold)]" />
+              <h3 className="text-sm font-semibold text-[var(--text)]">{t("dash.overview.top_providers")}</h3>
             </div>
-            <div className="p-5">
+            <div className="dashboard-data-card-body">
               {leaderboard.length === 0 ? (
-                <p className="text-sm text-text-muted">{t("dash.overview.no_leaderboard")}</p>
+                <p className="text-sm text-[var(--text-4)]">{t("dash.overview.no_leaderboard")}</p>
               ) : (
-                <div className="space-y-2.5">
+                <div className="dashboard-data-list">
                   {leaderboard.slice(0, 5).map((entry, i) => {
-                    const rankColors = ["text-accent-gold bg-accent-gold/15", "text-text-secondary bg-surface-hover", "text-accent-red bg-accent-red/10"];
-                    const rankClass = rankColors[i] || "text-text-muted bg-surface-hover";
-                    const tierStyles: Record<string, string> = {
-                      diamond: "bg-ice-blue/15 text-ice-blue border-ice-blue/30",
-                      platinum: "bg-accent-violet/15 text-accent-violet border-accent-violet/30",
-                      gold: "bg-accent-gold/15 text-accent-gold border-accent-gold/30",
-                      silver: "bg-text-secondary/15 text-text-secondary border-text-secondary/30",
-                      bronze: "bg-accent-red/15 text-accent-red border-accent-red/30",
-                      new_user: "bg-surface-hover text-text-muted border-border",
-                    };
                     const tierLabels: Record<string, string> = {
                       diamond: "Diamond", platinum: "Platinum", gold: "Gold",
                       silver: "Silver", bronze: "Bronze", new_user: "New",
                     };
                     const tierKey = (entry.tier || "new_user").toLowerCase();
-                    const tierClass = tierStyles[tierKey] || "bg-surface-hover text-text-muted border-border";
                     const gpuShort = entry.gpu_model
                       ? entry.gpu_model.replace(/NVIDIA\s*/i, "").replace(/GeForce\s*/i, "")
                       : null;
                     return (
-                      <div key={entry.entity_id || i} className="flex items-center justify-between rounded-lg border border-border/60 bg-navy-light/50 p-3 transition-colors hover:bg-surface-hover">
-                        <div className="flex items-center gap-3">
-                          <span className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${rankClass}`}>
-                            {i + 1}
-                          </span>
+                      <div key={entry.entity_id || i} className="dashboard-data-row">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <span className={rankClass(i)}>{i + 1}</span>
                           <div className="min-w-0">
-                            <span className="text-sm font-medium truncate block">{entry.user_id || entry.entity_id}</span>
+                            <span className="block truncate text-sm font-medium text-[var(--text)]">{entry.user_id || entry.entity_id}</span>
                             {entry.jobs_completed != null && entry.jobs_completed > 0 && (
-                              <span className="text-[10px] text-text-muted">{entry.jobs_completed} job{entry.jobs_completed !== 1 ? "s" : ""}</span>
+                              <span className="text-[10px] text-[var(--text-4)]">{entry.jobs_completed} job{entry.jobs_completed !== 1 ? "s" : ""}</span>
                             )}
                           </div>
                         </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="flex shrink-0 items-center gap-1.5">
                           {gpuShort && (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-emerald/30 bg-emerald/10 px-2 py-0.5 text-[10px] font-semibold text-emerald">
-                              <Cpu className="h-2.5 w-2.5" />{gpuShort}
+                            <span className="dashboard-chip dashboard-chip-emerald">
+                              <Cpu className="h-2.5 w-2.5" />
+                              {gpuShort}
                             </span>
                           )}
-                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${tierClass}`}>
-                            {tierLabels[tierKey] || tierKey}
-                          </span>
+                          <span className={tierClass(tierKey)}>{tierLabels[tierKey] || tierKey}</span>
                         </div>
                       </div>
                     );
@@ -417,7 +363,7 @@ export default function DashboardOverview() {
             </div>
           </div>
         </FadeIn>
-      </div>
+      </DashboardSection>
     </div>
   );
 }
