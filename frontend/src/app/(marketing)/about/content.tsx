@@ -1,168 +1,124 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, MapPin, Shield, Leaf, Users, Zap, Heart } from "lucide-react";
-import { m } from "@/components/marketing/motion";
-import { Button } from "@/components/ui/button";
+import { SITE_ASSETS, siteIcon } from "@/lib/brand-assets";
 import { useLocale } from "@/lib/locale";
 
-const fadeUp = {
-  hidden: { opacity: 0, y: 24 },
-  visible: (i: number) => ({
-    opacity: 1,
-    y: 0,
-    transition: { delay: i * 0.1, duration: 0.5, ease: "easeOut" as const },
-  }),
-};
+const values = [
+  { icon: "shield", title: "about.val_sovereignty_title", desc: "about.val_sovereignty_desc" },
+  { icon: "leaf", title: "about.val_green_title", desc: "about.val_green_desc" },
+  { icon: "users", title: "about.val_community_title", desc: "about.val_community_desc" },
+  { icon: "bolt", title: "about.val_access_title", desc: "about.val_access_desc" },
+  { icon: "sparkle", title: "about.val_canada_title", desc: "about.val_canada_desc" },
+  { icon: "globe", title: "about.val_local_title", desc: "about.val_local_desc" },
+] as const;
 
-const valueKeys = [
-  { icon: Shield, title: "about.val_sovereignty_title", desc: "about.val_sovereignty_desc", glow: "rgba(220,38,38,0.12)" },
-  { icon: Leaf, title: "about.val_green_title", desc: "about.val_green_desc", glow: "rgba(16,185,129,0.12)" },
-  { icon: Users, title: "about.val_community_title", desc: "about.val_community_desc", glow: "rgba(124,58,237,0.12)" },
-  { icon: Zap, title: "about.val_access_title", desc: "about.val_access_desc", glow: "rgba(0,212,255,0.12)" },
-  { icon: Heart, title: "about.val_canada_title", desc: "about.val_canada_desc", glow: "rgba(220,38,38,0.12)" },
-  { icon: MapPin, title: "about.val_local_title", desc: "about.val_local_desc", glow: "rgba(245,158,11,0.12)" },
-];
-
-const milestoneKeys = [
+const milestoneGroups = [
   { year: "about.journey_2024_title", events: ["about.journey_2024_p1", "about.journey_2024_p2"] },
   { year: "about.journey_2025_title", events: ["about.journey_2025_p1", "about.journey_2025_p2", "about.journey_2025_p3"] },
   { year: "about.journey_2026_title", events: ["about.journey_2026_p1"] },
 ];
 
+function ThemeIcon({ name }: { name: string }) {
+  return (
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={siteIcon(name, "dark")} className="site-theme-dark" alt="" aria-hidden />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={siteIcon(name, "light")} className="site-theme-light" alt="" aria-hidden />
+    </>
+  );
+}
+
+function SectionMarker({ code, label }: { code: string; label: string }) {
+  return (
+    <div className="site-marker">
+      <span className="site-marker-code">{code}</span>
+      <span className="site-marker-line" />
+      <span>{label}</span>
+    </div>
+  );
+}
+
 export function AboutContent() {
   const { t } = useLocale();
 
   return (
-    <div className="mx-auto max-w-7xl px-6 py-28">
-      {/* Hero */}
-      <m.div
-        className="text-center mb-20"
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true }}
-      >
-        <m.div variants={fadeUp} custom={0} className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent-red/30 bg-accent-red/10 px-4 py-1.5 backdrop-blur-sm">
-          <MapPin className="h-3.5 w-3.5 text-accent-red" />
-          <span className="text-xs font-medium text-accent-red">
-            {t("about.badge")}
-          </span>
-        </m.div>
-        <m.h1 variants={fadeUp} custom={1} className="text-4xl font-bold md:text-5xl lg:text-6xl">
-          {t("about.title").split(/(open to the world|ouvert au monde)/i).map((part, i) =>
-            /open to the world|ouvert au monde/i.test(part) ? (
-              <span key={i} className="bg-gradient-to-r from-accent-cyan via-accent-violet to-accent-red bg-clip-text text-transparent">
-                {part}
-              </span>
-            ) : (
-              <span key={i}>{part}</span>
-            ),
-          )}
-        </m.h1>
-        <m.p variants={fadeUp} custom={2} className="mt-6 text-lg text-text-secondary max-w-3xl mx-auto leading-relaxed">
-          {t("about.subtitle")}
-        </m.p>
-      </m.div>
-
-      {/* Mission */}
-      <m.div
-        className="glow-card rounded-xl p-8 md:p-12 mb-20"
-        style={{ "--glow-color": "rgba(245,158,11,0.12)" } as React.CSSProperties}
-        initial={{ opacity: 0, y: 20 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.5 }}
-      >
-        <h2 className="text-2xl font-bold mb-4">{t("about.mission_title")}</h2>
-        <p className="text-lg text-text-secondary leading-relaxed">
-          {t("about.mission_p1")}
-        </p>
-      </m.div>
-
-      {/* Values */}
-      <div className="mb-20">
-        <m.h2
-          className="text-2xl font-bold text-center mb-12"
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.5 }}
-        >
-          {t("about.values_title")}
-        </m.h2>
-        <m.div
-          className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true }}
-        >
-          {valueKeys.map((v, idx) => (
-            <m.div
-              key={v.title}
-              variants={fadeUp}
-              custom={idx}
-              className="group glow-card rounded-xl p-6"
-              style={{ "--glow-color": v.glow } as React.CSSProperties}
-            >
-              <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-accent-cyan/10 transition-transform group-hover:scale-110">
-                <v.icon className="h-5 w-5 text-accent-cyan" />
+    <>
+      <section className="site-hero">
+        <div className="site-grid-bg" aria-hidden />
+        <div className="site-container">
+          <div className="site-rails site-hero-rails" style={{ gridTemplateColumns: "1fr" }}>
+            <div style={{ animation: "heroUp .7s ease both" }}>
+              <div className="site-pill">
+                <span className="site-live-dot" />
+                <span>{t("about.badge")}</span>
               </div>
-              <h3 className="mb-2 text-lg font-semibold">{t(v.title)}</h3>
-              <p className="text-sm text-text-secondary leading-relaxed">{t(v.desc)}</p>
-            </m.div>
-          ))}
-        </m.div>
-      </div>
+              <h1 className="site-hero-title">
+                {t("about.title").split(/(open to the world|ouvert au monde)/i).map((part, i) =>
+                  /open to the world|ouvert au monde/i.test(part) ? (
+                    <span key={i} className="site-gradient-text">{part}</span>
+                  ) : (
+                    <span key={i}>{part}</span>
+                  ),
+                )}
+              </h1>
+              <p className="site-hero-copy" style={{ maxWidth: 640 }}>{t("about.subtitle")}</p>
+            </div>
+          </div>
+        </div>
+      </section>
 
-      {/* Timeline */}
-      <div className="mb-20">
-        <m.h2
-          className="text-2xl font-bold text-center mb-12"
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.5 }}
-        >
-          {t("about.journey_title")}
-        </m.h2>
-        <div className="relative mx-auto max-w-2xl">
-          <div className="absolute left-4 top-0 bottom-0 w-px bg-gradient-to-b from-accent-cyan via-accent-violet to-accent-gold" />
-          <m.div
-            className="space-y-8"
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true }}
-          >
-            {milestoneKeys.flatMap((group, gi) =>
+      <div className="site-container">
+        <section className="site-rails site-section">
+          <div className="site-callout">
+            <h2 className="site-callout-title">{t("about.mission_title")}</h2>
+            <p className="site-callout-copy">{t("about.mission_p1")}</p>
+          </div>
+        </section>
+
+        <section className="site-rails site-section" style={{ paddingBottom: 0 }}>
+          <SectionMarker code="01" label={t("about.values_title")} />
+          <h2 className="site-section-heading">{t("about.values_title")}</h2>
+          <div className="site-foundation-grid site-section-flush">
+            {values.map((value) => (
+              <article key={value.title} className="site-foundation-card">
+                <div className="site-icon-box">
+                  <ThemeIcon name={value.icon} />
+                </div>
+                <h3 className="site-card-title">{t(value.title)}</h3>
+                <p className="site-card-copy">{t(value.desc)}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="site-rails site-section">
+          <SectionMarker code="02" label={t("about.journey_title")} />
+          <h2 className="site-section-heading" style={{ marginBottom: 48 }}>{t("about.journey_title")}</h2>
+          <div className="site-timeline">
+            {milestoneGroups.flatMap((group) =>
               group.events.map((eventKey, ei) => (
-                <m.div key={eventKey} variants={fadeUp} custom={gi * 2 + ei} className="relative pl-12">
-                  <div className="absolute left-2.5 top-1.5 h-3 w-3 rounded-full border-2 border-accent-gold bg-navy shadow-[0_0_8px_rgba(245,158,11,0.4)]" />
-                  {ei === 0 && <span className="text-xs font-mono text-accent-gold">{t(group.year)}</span>}
-                  <p className="text-sm text-text-secondary mt-0.5">{t(eventKey)}</p>
-                </m.div>
+                <div key={eventKey} className="site-timeline-item">
+                  <span className="site-timeline-dot" />
+                  {ei === 0 && <span className="site-timeline-year">{t(group.year)}</span>}
+                  <p className="site-timeline-copy">{t(eventKey)}</p>
+                </div>
               )),
             )}
-          </m.div>
-        </div>
-      </div>
+          </div>
+        </section>
 
-      {/* CTA */}
-      <m.div
-        className="text-center"
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true }}
-      >
-        <m.h2 variants={fadeUp} custom={0} className="text-3xl font-bold mb-4">{t("about.cta_title")}</m.h2>
-        <m.p variants={fadeUp} custom={1} className="text-text-secondary mb-8">{t("about.cta_desc")}</m.p>
-        <m.div variants={fadeUp} custom={2}>
-          <Link href="/register">
-            <Button size="lg" className="text-base px-10 shadow-lg shadow-accent-cyan/10">
-              {t("about.cta_button")} <ArrowRight className="h-4 w-4" />
-            </Button>
+        <section className="site-rails site-cta">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={SITE_ASSETS.iconGradient} className="site-cta-mark" alt="" aria-hidden />
+          <h2 className="site-cta-title">{t("about.cta_title")}</h2>
+          <p className="site-section-copy" style={{ marginBottom: 28 }}>{t("about.cta_desc")}</p>
+          <Link href="/register" className="site-button site-button-primary" style={{ padding: "15px 28px" }}>
+            {t("about.cta_button")}
           </Link>
-        </m.div>
-      </m.div>
-    </div>
+        </section>
+      </div>
+    </>
   );
 }
