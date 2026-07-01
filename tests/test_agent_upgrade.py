@@ -155,3 +155,105 @@ def test_upgrade_agent_rejects_oversized_body(fake_agent_file):
     assert ok is False
     # File untouched
     assert b"pretend this is the running agent" in fake_agent_file.read_bytes()
+
+
+# ── Sibling module upgrade (worker_image_cache.py etc.) ────────────────
+
+
+def _url_dispatch_response(responses: dict[str, bytes]):
+    """requests.get side_effect that returns per-URL canned bodies."""
+
+    def _get(url, timeout=None, stream=None):
+        name = url.rsplit("/", 1)[-1]
+        return _fake_response(200, responses[name])
+
+    return _get
+
+
+def test_upgrade_agent_updates_sibling_modules_on_success(fake_agent_file, tmp_path, monkeypatch):
+    import worker_image_cache
+
+    new_bytes = b"# new agent\nVERSION = '99.0.0'\n"
+    correct_sha = hashlib.sha256(new_bytes).hexdigest()
+
+    sibling_dest = tmp_path / "worker_image_cache.py"
+    sibling_dest.write_text("# old sibling contents\n")
+    monkeypatch.setattr(worker_image_cache, "__file__", str(sibling_dest))
+
+    sibling_new_bytes = b"# updated sibling contents\n"
+    sibling_sha = hashlib.sha256(sibling_new_bytes).hexdigest()
+
+    exits: list[int] = []
+    monkeypatch.setattr(worker_agent.os, "_exit", lambda code: exits.append(code))
+
+    responses = {
+        "worker_agent.py": new_bytes,
+        "worker_image_cache.py": sibling_new_bytes,
+    }
+    with patch.object(worker_agent.requests, "get", side_effect=_url_dispatch_response(responses)):
+        worker_agent._handle_upgrade_agent(
+            {
+                "url": "https://x/static/worker_agent.py",
+                "sha256": correct_sha,
+                "modules": {"worker_image_cache.py": sibling_sha},
+            }
+        )
+
+    assert exits == [0]
+    assert fake_agent_file.read_bytes() == new_bytes
+    assert sibling_dest.read_bytes() == sibling_new_bytes
+    assert sibling_dest.with_suffix(".py.bak").read_bytes() == b"# old sibling contents\n"
+
+
+def test_upgrade_agent_aborts_everything_on_sibling_sha_mismatch(fake_agent_file, tmp_path, monkeypatch):
+    import worker_image_cache
+
+    original = fake_agent_file.read_bytes()
+    new_bytes = b"# new agent\nVERSION = '99.0.0'\n"
+    correct_sha = hashlib.sha256(new_bytes).hexdigest()
+
+    sibling_dest = tmp_path / "worker_image_cache.py"
+    sibling_dest.write_text("# old sibling contents\n")
+    monkeypatch.setattr(worker_image_cache, "__file__", str(sibling_dest))
+
+    sibling_bytes = b"# updated sibling contents\n"
+    wrong_sha = "0" * 64  # doesn't match sibling_bytes
+
+    responses = {
+        "worker_agent.py": new_bytes,
+        "worker_image_cache.py": sibling_bytes,
+    }
+    with patch.object(worker_agent.requests, "get", side_effect=_url_dispatch_response(responses)):
+        ok = worker_agent._handle_upgrade_agent(
+            {
+                "url": "https://x/static/worker_agent.py",
+                "sha256": correct_sha,
+                "modules": {"worker_image_cache.py": wrong_sha},
+            }
+        )
+
+    # All-or-nothing: main agent file must be untouched too.
+    assert ok is False
+    assert fake_agent_file.read_bytes() == original
+    assert sibling_dest.read_text() == "# old sibling contents\n"
+    assert not fake_agent_file.with_suffix(".py.new").exists()
+
+
+def test_upgrade_agent_ignores_unknown_module_names(fake_agent_file, monkeypatch):
+    new_bytes = b"# new agent\nVERSION = '99.0.0'\n"
+    correct_sha = hashlib.sha256(new_bytes).hexdigest()
+    exits: list[int] = []
+    monkeypatch.setattr(worker_agent.os, "_exit", lambda code: exits.append(code))
+
+    with patch.object(worker_agent.requests, "get", return_value=_fake_response(200, new_bytes)):
+        worker_agent._handle_upgrade_agent(
+            {
+                "url": "https://x/static/worker_agent.py",
+                "sha256": correct_sha,
+                "modules": {"not_a_real_module.py": "a" * 64},
+            }
+        )
+
+    # Unknown module name is skipped (not fatal); main upgrade still proceeds.
+    assert exits == [0]
+    assert fake_agent_file.read_bytes() == new_bytes

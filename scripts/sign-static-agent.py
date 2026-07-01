@@ -10,7 +10,15 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 ROOT = Path(__file__).resolve().parent.parent
 KEY = Path(__file__).resolve().parent / "agent-signing.key"
-SIGNABLE = ("worker_agent.py", "security.py", "nvml_telemetry.py")
+SIGNABLE = (
+    "worker_agent.py",
+    "security.py",
+    "nvml_telemetry.py",
+    "worker_image_cache.py",
+    "worker_nfs.py",
+    "worker_nvme_cache.py",
+    "worker_luks_volumes.py",
+)
 
 
 def main() -> None:

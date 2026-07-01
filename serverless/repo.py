@@ -65,6 +65,7 @@ class EndpointCreate:
     source_ref: str = ""
     source_ref_branch: str = "main"
     env: dict[str, Any] = field(default_factory=dict)
+    lora_adapters: list[dict[str, str]] = field(default_factory=list)
 
 
 class ServerlessRepo:
@@ -112,7 +113,8 @@ class ServerlessRepo:
                     min_workers, max_workers, max_concurrency, idle_timeout_sec,
                     scaling_policy_type, scaling_policy_value,
                     request_timeout_sec, max_request_bytes, max_queue_size, keep_warm,
-                    cache_volume_id, region, env, status, created_at, updated_at
+                    cache_volume_id, region, env, status, created_at, updated_at,
+                    lora_adapters
                 ) VALUES (
                     %s, %s, %s, %s, %s,
                     %s, %s, %s, %s,
@@ -121,7 +123,8 @@ class ServerlessRepo:
                     %s, %s, %s, %s,
                     %s, %s,
                     %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s,
+                    %s
                 )
                 """,
                 (
@@ -157,6 +160,7 @@ class ServerlessRepo:
                     status,
                     now,
                     now,
+                    self._jsonb(spec.lora_adapters),
                 ),
             )
         row = self.get_endpoint(endpoint_id)
@@ -210,6 +214,7 @@ class ServerlessRepo:
             "keep_warm",
             "env",
             "status",
+            "lora_adapters",
         }
         updates = {k: v for k, v in fields.items() if k in allowed}
         if not updates:
@@ -219,6 +224,9 @@ class ServerlessRepo:
         if "env" in updates:
             idx = list(updates.keys()).index("env")
             values[idx] = self._jsonb(updates["env"])
+        if "lora_adapters" in updates:
+            idx = list(updates.keys()).index("lora_adapters")
+            values[idx] = self._jsonb(updates["lora_adapters"])
         values.extend([time.time(), endpoint_id, owner_id])
         with self._conn() as conn:
             conn.execute(

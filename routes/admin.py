@@ -799,6 +799,59 @@ def api_admin_unit_economics(request: Request, days: int = 30):
         log.warning("unit_economics: serverless revenue failed", exc_info=True)
         result["serverless"] = {}
 
+    # ── Serverless margin signal by model-size band (Phase 1 exit criterion) ──
+    # billing_cycles has no separate GPU-infra-cost ledger for serverless, so
+    # "margin" here is the same gpu-vs-token comparison the blended meter uses:
+    # per size band, is token revenue outpacing the GPU-seconds cost we'd have
+    # charged otherwise? That answers "which model sizes are worth pricing by
+    # tokens" without inventing unmeasured COGS numbers.
+    try:
+        from serverless.metering import infer_model_params_b
+
+        with be._conn() as conn:
+            rows = conn.execute(
+                "SELECT model_ref, "
+                "ROUND(COALESCE(SUM(amount_cad),0)::numeric,4) AS gpu_revenue, "
+                "ROUND(COALESCE(SUM(token_cost_cad),0)::numeric,4) AS token_cost, "
+                "COALESCE(SUM(duration_seconds),0) AS gpu_seconds, COUNT(*) AS cycles "
+                "FROM billing_cycles WHERE created_at >= %s AND status = 'charged' "
+                "AND resource_type = 'serverless_gpu' AND model_ref <> '' "
+                "GROUP BY model_ref",
+                (since,),
+            ).fetchall()
+
+        bands: dict[str, dict[str, float | int]] = {}
+        band_labels = ["≤9B", "10–34B", "35–80B", "80B+ / MoE"]
+        for row in rows:
+            params_b = infer_model_params_b(row["model_ref"])
+            if params_b is None:
+                label = "unknown"
+            elif params_b <= 9.0:
+                label = band_labels[0]
+            elif params_b <= 34.0:
+                label = band_labels[1]
+            elif params_b <= 80.0:
+                label = band_labels[2]
+            else:
+                label = band_labels[3]
+            bucket = bands.setdefault(
+                label,
+                {"gpu_revenue_cad": 0.0, "token_revenue_cad": 0.0, "gpu_seconds": 0, "billed_cycles": 0},
+            )
+            bucket["gpu_revenue_cad"] = round(bucket["gpu_revenue_cad"] + float(row["gpu_revenue"] or 0.0), 4)
+            bucket["token_revenue_cad"] = round(
+                bucket["token_revenue_cad"] + float(row["token_cost"] or 0.0), 4
+            )
+            bucket["gpu_seconds"] += int(row["gpu_seconds"] or 0)
+            bucket["billed_cycles"] += int(row["cycles"] or 0)
+
+        result["serverless_by_model_size"] = [
+            {"band": label, **bands[label]} for label in band_labels + ["unknown"] if label in bands
+        ]
+    except Exception:
+        log.warning("unit_economics: serverless model-size margin failed", exc_info=True)
+        result["serverless_by_model_size"] = []
+
     # ── Activation funnel (all-time): of everyone who signed up, how far did they get? ──
     try:
         with be._conn() as conn:
@@ -1401,6 +1454,10 @@ def api_admin_agent_rollout(request: Request, body: dict):
       host_ids: list[str] | null — restrict to specific hosts (default: all admitted)
       batch_pct: int           — 1–100; percentage of fleet to target this call (default 5)
       min_version: str | null  — agents at/above this are no-ops
+      modules: dict | null     — optional {"worker_image_cache.py": "<sha256>", ...}
+                                  sibling modules worker_agent.py imports at load
+                                  time; include whenever any of them changed so
+                                  upgraded hosts fetch+verify them too.
 
     Returns the list of host_ids we enqueued, plus the generated command ids.
     This is deliberately stateless: call it repeatedly to roll waves (the
@@ -1416,6 +1473,12 @@ def api_admin_agent_rollout(request: Request, body: dict):
     host_ids = (body or {}).get("host_ids") or []
     batch_pct = int((body or {}).get("batch_pct") or 5)
     min_version = (body or {}).get("min_version") or version
+    # Optional {"worker_image_cache.py": "<sha256>", ...} — sibling modules
+    # worker_agent.py imports at load time (split out of the monolith).
+    # Required whenever the rollout targets a version that changed any of
+    # these files, so upgraded hosts don't crash importing a stale/missing
+    # sibling. See worker_agent.py::_fetch_sibling_modules.
+    modules = (body or {}).get("modules") or {}
 
     if not version or not sha256:
         raise HTTPException(400, "version and sha256 are required")
@@ -1425,6 +1488,12 @@ def api_admin_agent_rollout(request: Request, body: dict):
         raise HTTPException(400, "url must be https://")
     if batch_pct < 1 or batch_pct > 100:
         raise HTTPException(400, "batch_pct must be 1..100")
+    if not isinstance(modules, dict):
+        raise HTTPException(400, "modules must be an object of {filename: sha256}")
+    for _name, _msha in modules.items():
+        _msha = (_msha or "").strip().lower()
+        if len(_msha) != 64 or any(c not in "0123456789abcdef" for c in _msha):
+            raise HTTPException(400, f"modules[{_name!r}] sha256 must be 64 lowercase hex chars")
 
     # Target set: explicit host_ids or all currently-admitted hosts
     all_hosts = list_hosts()
@@ -1441,7 +1510,7 @@ def api_admin_agent_rollout(request: Request, body: dict):
     batch = targets[:batch_n]
 
     enqueued = []
-    args = {"url": url, "sha256": sha256, "min_version": min_version}
+    args = {"url": url, "sha256": sha256, "min_version": min_version, "modules": modules}
     for h in batch:
         hid = h.get("host_id")
         if not hid:

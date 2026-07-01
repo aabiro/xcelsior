@@ -790,7 +790,7 @@ npx @xcelsior-gpu/wizard@latest
 ${SDK_INSTALL_CMD}
 \`\`\`
 
-Then add your API token from Settings → API & SSH (\`XCELSIOR_API_TOKEN\` or OAuth client). Docs: ${APP_URL}/docs/typescript-sdk
+Then add your API token from Settings → API & SSH (\`XCELSIOR_API_TOKEN\` or OAuth client). Docs: ${APP_URL}/docs/sdk/typescript-sdk
 
 ### SDK Commands (available after setup)
 
@@ -946,7 +946,7 @@ function SdkIntegrateInfoCard({
           </div>
 
           <a
-            href={`${APP_URL}/docs/typescript-sdk`}
+            href={`${APP_URL}/docs/sdk/typescript-sdk`}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 text-[11px] font-medium text-accent-violet hover:underline"

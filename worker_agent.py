@@ -1037,6 +1037,103 @@ def check_preemption():
         return []
 
 
+#: Sibling modules that were split out of worker_agent.py (image cache, NFS,
+#: NVMe cache, LUKS volumes). worker_agent.py imports these at load time, so
+#: any host still running a pre-split agent needs them fetched + verified
+#: alongside the main file during self-update, or the restarted process will
+#: crash on ``import``. Must stay in sync with
+#: scripts/sign-static-agent.py::SIGNABLE / routes/static.py::_SIGNABLE.
+_SIBLING_MODULES = (
+    "worker_image_cache.py",
+    "worker_nfs.py",
+    "worker_nvme_cache.py",
+    "worker_luks_volumes.py",
+)
+
+
+def _sibling_module_dir(name: str) -> Path:
+    """Directory a sibling module should be (re)written to.
+
+    Uses the module's own ``__file__`` if it's already importable (i.e. this
+    is where it was actually loaded from — repo root in dev, ``lib/`` under
+    ``PYTHONPATH`` in prod installs). Falls back to the directory containing
+    this agent file for hosts that don't have the module yet.
+    """
+    mod_name = name[: -len(".py")] if name.endswith(".py") else name
+    try:
+        import importlib
+
+        mod = importlib.import_module(mod_name)
+        return Path(mod.__file__).resolve().parent
+    except Exception:
+        return Path(__file__).resolve().parent
+
+
+def _download_and_verify(url: str, expected_sha: str, max_bytes: int = 10 * 1024 * 1024) -> bytes | None:
+    """Download ``url``, verify its sha256, and return the bytes (or None on failure)."""
+    import hashlib
+
+    try:
+        resp = requests.get(url, timeout=30, stream=True)
+    except requests.RequestException as e:
+        log.warning("upgrade_agent download error for %s: %s", url, e)
+        return None
+    if resp.status_code != 200:
+        log.warning("upgrade_agent download failed for %s: status=%s", url, resp.status_code)
+        return None
+    hasher = hashlib.sha256()
+    buf = bytearray()
+    for chunk in resp.iter_content(chunk_size=64 * 1024):
+        if not chunk:
+            continue
+        buf.extend(chunk)
+        hasher.update(chunk)
+        if len(buf) > max_bytes:
+            log.error("upgrade_agent refusing oversized body for %s (> %d bytes)", url, max_bytes)
+            return None
+    data = bytes(buf)
+    actual_sha = hasher.hexdigest()
+    if actual_sha != expected_sha:
+        log.error(
+            "upgrade_agent sha mismatch for %s: expected=%s got=%s — aborting",
+            url,
+            expected_sha,
+            actual_sha,
+        )
+        return None
+    return data
+
+
+def _fetch_sibling_modules(base_url: str, modules: dict) -> dict[Path, bytes] | None:
+    """Fetch + verify every entry in ``modules`` ({filename: sha256}).
+
+    ``base_url`` is the primary ``worker_agent.py`` download URL — sibling
+    URLs are derived by swapping the filename component so callers only need
+    to pass a sha256 map, matching how ``/static/{filename}`` is served.
+
+    Returns a dict of {destination_path: verified_bytes} on full success, or
+    None if any single module fails to download/verify (all-or-nothing — we
+    never want to restart with a mix of old/new sibling modules).
+    """
+    if not modules:
+        return {}
+    staged: dict[Path, bytes] = {}
+    base = base_url.rsplit("/", 1)[0]
+    for name, expected_sha in modules.items():
+        if name not in _SIBLING_MODULES:
+            log.warning("upgrade_agent ignoring unknown sibling module %s", name)
+            continue
+        expected_sha = (expected_sha or "").lower().strip()
+        if len(expected_sha) != 64 or any(c not in "0123456789abcdef" for c in expected_sha):
+            log.warning("upgrade_agent bad sha256 for sibling module %s", name)
+            return None
+        data = _download_and_verify(f"{base}/{name}", expected_sha)
+        if data is None:
+            return None
+        staged[_sibling_module_dir(name) / name] = data
+    return staged
+
+
 def _handle_upgrade_agent(args: dict, cmd_id: str = "", by: str = "?") -> bool:
     """Handle an ``upgrade_agent`` directive from the control plane (P1.2).
 
@@ -1044,15 +1141,24 @@ def _handle_upgrade_agent(args: dict, cmd_id: str = "", by: str = "?") -> bool:
         "url": "https://xcelsior.ca/static/worker_agent.py",
         "sha256": "<hex>",          # required — we refuse to install unverified bytes
         "min_version": "2.1.0",      # optional — skip if our VERSION >= this
+        "modules": {                 # optional — sibling modules worker_agent.py
+            "worker_image_cache.py": "<sha256>",  # imports (split out of the
+            "worker_nfs.py": "<sha256>",           # monolith); fetched from
+            "worker_nvme_cache.py": "<sha256>",    # the same base URL dir as
+            "worker_luks_volumes.py": "<sha256>",  # `url` above.
+        },
     }
 
     Flow:
       1. If ``min_version`` <= VERSION, log + skip (we're already at/above target).
       2. Download ``url`` to ``~/.xcelsior/worker_agent.py.new``.
       3. Verify sha256 matches ``args["sha256"]``. Abort on mismatch.
-      4. Copy current file to ``~/.xcelsior/worker_agent.py.bak``.
-      5. ``os.replace`` new → current path (atomic on same filesystem).
-      6. Log + ``sys.exit(0)`` — systemd ``Restart=always`` respawns with the
+      4. If ``modules`` given, download + verify each one too — all-or-nothing;
+         abort the whole upgrade (leaving everything untouched) if any fails.
+      5. Copy current file(s) to ``.bak`` next to each.
+      6. ``os.replace`` new → current path for the main file and every
+         sibling module (atomic per-file on the same filesystem).
+      7. Log + ``sys.exit(0)`` — systemd ``Restart=always`` respawns with the
          new bytes. If the new bytes fail to start, the old VERSION heartbeat
          will cease and the control plane will see the upgrade stalled (the
          rolling-upgrade driver can then roll back from .bak).
@@ -1098,6 +1204,7 @@ def _handle_upgrade_agent(args: dict, cmd_id: str = "", by: str = "?") -> bool:
     self_path = Path(__file__).resolve()
     new_path = self_path.with_suffix(".py.new")
     bak_path = self_path.with_suffix(".py.bak")
+    modules = (args or {}).get("modules") or {}
 
     try:
         log.info(
@@ -1133,6 +1240,15 @@ def _handle_upgrade_agent(args: dict, cmd_id: str = "", by: str = "?") -> bool:
                 actual_sha,
             )
             return False
+
+        # Fetch + verify sibling modules (worker_image_cache.py etc.) *before*
+        # touching anything on disk — all-or-nothing so we never restart with
+        # a stale sibling that the new worker_agent.py can't import.
+        sibling_staged = _fetch_sibling_modules(url, modules)
+        if sibling_staged is None:
+            log.error("upgrade_agent cmd=%s aborting: sibling module fetch/verify failed", cmd_id)
+            return False
+
         new_path.write_bytes(data)
         try:
             os.chmod(new_path, 0o755)
@@ -1147,6 +1263,26 @@ def _handle_upgrade_agent(args: dict, cmd_id: str = "", by: str = "?") -> bool:
             log.warning("upgrade_agent backup failed (continuing): %s", e)
 
         os.replace(new_path, self_path)
+
+        # Swap in verified sibling modules the same way (backup + atomic replace).
+        for dest_path, sib_data in sibling_staged.items():
+            sib_new = dest_path.with_suffix(".py.new")
+            sib_bak = dest_path.with_suffix(".py.bak")
+            try:
+                sib_new.write_bytes(sib_data)
+                if dest_path.exists():
+                    try:
+                        sib_bak.write_bytes(dest_path.read_bytes())
+                    except OSError as e:
+                        log.warning("upgrade_agent sibling backup failed for %s (continuing): %s", dest_path, e)
+                os.replace(sib_new, dest_path)
+                log.info("upgrade_agent cmd=%s updated sibling module %s", cmd_id, dest_path)
+            except OSError as e:
+                # Sibling swap failures are logged but not fatal to the main
+                # upgrade — the new worker_agent.py may still import fine if
+                # this particular sibling module's contents are unchanged.
+                log.error("upgrade_agent cmd=%s failed to install sibling %s: %s", cmd_id, dest_path, e)
+
         # B12 — mark post-upgrade boot so heartbeat_loop can auto-rollback on failure.
         try:
             (self_path.parent / ".upgrade_boot").write_text(actual_sha[:12], encoding="utf-8")
@@ -1934,909 +2070,70 @@ def report_telemetry(metrics):
 # Per REPORT_XCELSIOR_TECHNICAL_FINAL.md: pull-based agent enables
 # "local image caching" (REPORT_EXCELSIOR_TECHNICAL_2.md §3.4).
 # LRU tracking, cache eviction, and idle-time pre-pulling.
-
-IMAGE_CACHE_MAX_GB = float(os.environ.get("XCELSIOR_IMAGE_CACHE_MAX_GB", "200"))
-IMAGE_CACHE_EVICT_LOW_GB = float(os.environ.get("XCELSIOR_IMAGE_CACHE_EVICT_LOW_GB", "150"))
-
-_image_cache_lock = threading.Lock()
-# {image_tag: {"last_used": timestamp, "size_mb": float, "pull_count": int}}
-_image_cache_index: dict[str, dict] = {}
-
-
-def _get_local_images():
-    """List locally cached Docker images with sizes."""
-    try:
-        result = subprocess.run(
-            ["docker", "images", "--format", "{{.Repository}}:{{.Tag}} {{.Size}}"],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        if result.returncode != 0:
-            return {}
-
-        images = {}
-        for line in result.stdout.strip().split("\n"):
-            if not line.strip():
-                continue
-            parts = line.rsplit(" ", 1)
-            if len(parts) != 2:
-                continue
-            tag, size_str = parts
-            # Parse size string (e.g., "2.5GB", "850MB")
-            size_mb = _parse_docker_size(size_str)
-            images[tag] = size_mb
-        return images
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return {}
-
-
-def _parse_docker_size(size_str):
-    """Parse Docker size string to MB."""
-    size_str = size_str.strip().upper()
-    try:
-        if "GB" in size_str:
-            return float(size_str.replace("GB", "")) * 1024
-        elif "MB" in size_str:
-            return float(size_str.replace("MB", ""))
-        elif "KB" in size_str:
-            return float(size_str.replace("KB", "")) / 1024
-        elif "B" in size_str:
-            return float(size_str.replace("B", "")) / (1024 * 1024)
-        return 0
-    except (ValueError, TypeError):
-        return 0
-
-
-def _total_cache_size_mb():
-    """Get total size of cached images in MB."""
-    with _image_cache_lock:
-        return sum(entry.get("size_mb", 0) for entry in _image_cache_index.values())
-
-
-def cache_track_pull(image_tag, size_mb=0):
-    """Record that an image was pulled/used. Update LRU tracking."""
-    with _image_cache_lock:
-        if image_tag in _image_cache_index:
-            _image_cache_index[image_tag]["last_used"] = time.time()
-            _image_cache_index[image_tag]["pull_count"] += 1
-            if size_mb > 0:
-                _image_cache_index[image_tag]["size_mb"] = size_mb
-        else:
-            _image_cache_index[image_tag] = {
-                "last_used": time.time(),
-                "size_mb": size_mb,
-                "pull_count": 1,
-            }
-
-
-def cache_evict_lru(exclude_images: set | None = None):
-    """Evict least-recently-used images when cache exceeds limit.
-
-    Evicts until cache is below IMAGE_CACHE_EVICT_LOW_GB.
-    Never evicts currently-running container images or images in *exclude_images*.
-    """
-    exclude_images = exclude_images or set()
-    total_mb = _total_cache_size_mb()
-    limit_mb = IMAGE_CACHE_MAX_GB * 1024
-
-    if total_mb <= limit_mb:
-        return 0
-
-    target_mb = IMAGE_CACHE_EVICT_LOW_GB * 1024
-    evicted = 0
-
-    # Get currently running images (do not evict)
-    try:
-        result = subprocess.run(
-            ["docker", "ps", "--format", "{{.Image}}"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        running_images = set(result.stdout.strip().split("\n")) if result.returncode == 0 else set()
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        running_images = set()
-
-    # Sort by last_used ascending (oldest first)
-    with _image_cache_lock:
-        sorted_images = sorted(
-            _image_cache_index.items(),
-            key=lambda x: x[1].get("last_used", 0),
-        )
-
-    for image_tag, entry in sorted_images:
-        if total_mb <= target_mb:
-            break
-        if image_tag in running_images or image_tag in exclude_images:
-            continue
-
-        # Remove image
-        try:
-            rm = subprocess.run(
-                ["docker", "rmi", image_tag],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            if rm.returncode == 0:
-                size = entry.get("size_mb", 0)
-                total_mb -= size
-                evicted += 1
-                with _image_cache_lock:
-                    _image_cache_index.pop(image_tag, None)
-                log.info("Cache evicted: %s (%.0f MB freed)", image_tag, size)
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            pass
-
-    return evicted
-
-
-def cache_init():
-    """Initialize cache index from locally available Docker images.
-
-    Prunes dangling (<none>:<none>) images first so the cache only
-    tracks real, reusable tagged images.
-    """
-    # Remove dangling images — they waste disk and inflate cache size
-    try:
-        subprocess.run(
-            ["docker", "image", "prune", "-f"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
-
-    images = _get_local_images()
-    with _image_cache_lock:
-        for tag, size_mb in images.items():
-            # Skip any residual untagged entries
-            if "<none>" in tag:
-                continue
-            if tag not in _image_cache_index:
-                _image_cache_index[tag] = {
-                    "last_used": time.time(),
-                    "size_mb": size_mb,
-                    "pull_count": 0,
-                }
-
-
-def cache_prepull_popular(popular_images, max_concurrent=3):
-    """Pre-pull popular images during idle time.
-
-    Called from the main loop when the agent has no active work.
-    Only pulls images not already cached, respecting cache limits.
-    Pulls up to max_concurrent images in parallel (serialized when jobs run).
-
-    Args:
-        popular_images: List of image tags ordered by popularity.
-        max_concurrent: Max simultaneous docker pulls.
-    """
-    import concurrent.futures
-
-    if _active_containers:
-        log.debug("Skipping image pre-pull — %d active job(s)", len(_active_containers))
-        return
-
-    to_pull = []
-    for image_tag in popular_images:
-        with _image_cache_lock:
-            if image_tag in _image_cache_index:
-                continue  # Already cached
-
-        total_mb = _total_cache_size_mb()
-        if total_mb >= IMAGE_CACHE_MAX_GB * 1024:
-            log.debug("Cache full — skipping pre-pull of %s", image_tag)
-            break
-        to_pull.append(image_tag)
-
-    if not to_pull:
-        return
-
-    def _pull_one(img_tag):
-        if _shutdown.is_set() or _active_containers:
-            return False
-        log.info("Pre-pulling: %s", img_tag)
-        try:
-            with _image_pull_lock:
-                if _active_containers:
-                    return False
-                pull = subprocess.Popen(
-                    ["docker", "pull", img_tag],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                )
-                # Poll with shutdown check so we can abort quickly on SIGTERM
-                while pull.poll() is None:
-                    if _shutdown.is_set():
-                        pull.terminate()
-                        pull.wait(timeout=5)
-                        return False
-                    time.sleep(1)
-                if pull.returncode == 0:
-                    images = _get_local_images()
-                    size_mb = images.get(img_tag, 0)
-                    cache_track_pull(img_tag, size_mb)
-                    log.info("Pre-pulled %s (%.0f MB)", img_tag, size_mb)
-                    return True
-                stderr = pull.stdout.read() if pull.stdout else ""
-                log.warning(
-                    "Pre-pull failed %s: %s", img_tag, stderr[:200] if stderr else "unknown"
-                )
-        except subprocess.TimeoutExpired:
-            log.warning("Pre-pull timed out: %s (>15 min)", img_tag)
-        except FileNotFoundError:
-            log.error("docker not found — cannot pre-pull")
-        return False
-
-    workers = 1 if _active_containers else max_concurrent
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-        list(pool.map(_pull_one, to_pull))  # list() forces consumption, surfaces exceptions
-
-
-def fetch_popular_images():
-    """Ask the scheduler for popular/frequently-used images.
-
-    GET /agent/popular-images
-    Returns list of image tags.
-    """
-    try:
-        resp = requests.get(
-            _api_url("/agent/popular-images"),
-            headers=_api_headers(),
-            timeout=10,
-        )
-        if resp.status_code == 200:
-            return resp.json().get("images", [])
-        return []
-    except requests.RequestException:
-        return []
-
+# Extracted to worker_image_cache.py; re-imported here so existing
+# worker_agent.* call sites (and tests patching worker_agent globals)
+# keep working unchanged.
+from worker_image_cache import (  # noqa: E402
+    IMAGE_CACHE_EVICT_LOW_GB,
+    IMAGE_CACHE_MAX_GB,
+    _get_local_images,
+    _image_cache_index,
+    _image_cache_lock,
+    _parse_docker_size,
+    _total_cache_size_mb,
+    cache_evict_lru,
+    cache_init,
+    cache_prepull_popular,
+    cache_track_pull,
+    fetch_popular_images,
+)
 
 # ── NFS Support ──────────────────────────────────────────────────────
-
-
-def _nfs_mount_fstype() -> str:
-    """Return ``mount -t`` type for configured NFS mount options."""
-    opts = os.environ.get(
-        "XCELSIOR_NFS_MOUNT_OPTS",
-        "hard,timeo=600,retrans=3,rsize=1048576,wsize=1048576,noatime,nosuid,nodev,_netdev,tcp",
-    )
-    return "nfs4" if "nfsvers=4" in opts else "nfs"
-
-
-def _mount_nfs(server, path, mount_point):
-    """Mount an NFS share for shared model/data storage.
-
-    Args:
-        server: NFS server hostname or IP
-        path: NFS export path (e.g., /exports/models)
-        mount_point: Local mount point (e.g., /mnt/xcelsior-nfs)
-
-    Returns:
-        True if mounted successfully, False otherwise.
-    """
-    try:
-        os.makedirs(mount_point, exist_ok=True)
-
-        # Check if already mounted
-        r = subprocess.run(
-            ["mountpoint", "-q", mount_point],
-            capture_output=True,
-            timeout=5,
-        )
-        if r.returncode == 0:
-            return True  # Already mounted
-
-        # Mount NFS
-        # Use `hard` mount + long timeo/retrans so I/O blocks-and-retries on
-        # NFS server reboot instead of silently returning errors (which would
-        # cause data corruption on write-back caches). Do not change to `soft`
-        # without an explicit durability review.
-        mount_cmd = [
-            "mount",
-            "-t",
-            _nfs_mount_fstype(),
-            "-o",
-            os.environ.get(
-                "XCELSIOR_NFS_MOUNT_OPTS",
-                "hard,timeo=600,retrans=3,rsize=1048576,wsize=1048576,noatime,nosuid,nodev,_netdev,tcp",
-            ),
-            f"{server}:{path}",
-            mount_point,
-        ]
-        r = subprocess.run(mount_cmd, capture_output=True, text=True, timeout=10)
-        if r.returncode != 0:
-            log.warning("NFS mount failed: %s", r.stderr.strip())
-            return False
-
-        return True
-    except Exception as e:
-        log.warning("NFS mount error: %s", e)
-        return False
-
-
-def _unmount_nfs(mount_point):
-    """Unmount an NFS share (best-effort, lazy unmount)."""
-    try:
-        subprocess.run(
-            ["umount", "-l", mount_point],
-            capture_output=True,
-            timeout=10,
-        )
-        log.info("NFS unmounted: %s", mount_point)
-    except Exception as e:
-        log.debug("NFS unmount failed (non-fatal): %s", e)
-
-
-MANAGED_VOLUME_HOST_DIR = "/mnt/xcelsior-volumes"
-
-
-def _container_pid(container_name: str) -> int | None:
-    """Return the host PID of a running container, or None."""
-    try:
-        r = subprocess.run(
-            ["docker", "inspect", "-f", "{{.State.Pid}}", container_name],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if r.returncode != 0:
-            return None
-        pid = int((r.stdout or "0").strip() or 0)
-        return pid if pid > 0 else None
-    except (subprocess.TimeoutExpired, ValueError):
-        return None
-
-
-def _nsenter_bind_mount(pid: int, host_src: str, container_dst: str, mode: str = "rw") -> bool:
-    """Bind-mount host_src into a running container's mount namespace."""
-    safe_src = shlex.quote(host_src)
-    safe_dst = shlex.quote(container_dst)
-    if mode == "ro":
-        mount_script = (
-            f"mkdir -p {safe_dst} && "
-            f"mount --bind {safe_src} {safe_dst} && "
-            f"mount -o remount,bind,ro {safe_dst}"
-        )
-    else:
-        mount_script = f"mkdir -p {safe_dst} && mount --bind {safe_src} {safe_dst}"
-    try:
-        r = subprocess.run(
-            ["nsenter", "-t", str(pid), "-m", "--", "sh", "-c", mount_script],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if r.returncode != 0:
-            log.warning(
-                "nsenter bind mount failed pid=%s %s→%s: %s",
-                pid,
-                host_src,
-                container_dst,
-                (r.stderr or "")[:200],
-            )
-            return False
-        return True
-    except subprocess.TimeoutExpired:
-        log.warning("nsenter bind mount timed out pid=%s dst=%s", pid, container_dst)
-        return False
-
-
-def _nsenter_lazy_umount(pid: int, container_dst: str) -> None:
-    """Lazy-unmount a path inside a container's mount namespace (best-effort)."""
-    safe_dst = shlex.quote(container_dst)
-    try:
-        subprocess.run(
-            ["nsenter", "-t", str(pid), "-m", "--", "umount", "-l", safe_dst],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-    except subprocess.TimeoutExpired:
-        pass
-
-
-def _hot_mount_volume(args: dict) -> bool:
-    """NFS-mount a managed volume on the host and bind it into a running container."""
-    job_id = str(args.get("job_id") or "")
-    volume_id = str(args.get("volume_id") or "")
-    container_path = str(args.get("container_path") or "/workspace")
-    mode = str(args.get("mode") or "rw")
-    if not job_id or not volume_id:
-        log.warning("mount_volume missing job_id/volume_id: %r", args)
-        return False
-
-    container_name = str(args.get("container_name") or f"xcl-{job_id}")
-    inspect = subprocess.run(
-        ["docker", "inspect", "-f", "{{.State.Running}}", container_name],
-        capture_output=True,
-        text=True,
-        timeout=5,
-    )
-    if inspect.returncode != 0 or inspect.stdout.strip() != "true":
-        log.warning("mount_volume container %s not running", container_name)
-        return False
-
-    host_mount = f"{MANAGED_VOLUME_HOST_DIR}/{volume_id}"
-    nfs_server = str(args.get("nfs_server") or os.environ.get("XCELSIOR_NFS_SERVER", ""))
-    nfs_export_base = str(
-        args.get("nfs_export_base") or os.environ.get("XCELSIOR_NFS_EXPORT_BASE", "/exports/volumes")
-    )
-    if not nfs_server:
-        log.warning("mount_volume: XCELSIOR_NFS_SERVER not configured")
-        return False
-
-    nfs_path = f"{nfs_export_base}/{volume_id}"
-    if not _mount_nfs(nfs_server, nfs_path, host_mount):
-        log.warning("mount_volume: NFS mount failed for %s", volume_id)
-        return False
-
-    pid = _container_pid(container_name)
-    if not pid:
-        log.warning("mount_volume: no PID for %s", container_name)
-        _unmount_nfs(host_mount)
-        return False
-
-    if not _nsenter_bind_mount(pid, host_mount, container_path, mode=mode):
-        _unmount_nfs(host_mount)
-        return False
-
-    log.info(
-        "Hot-mounted volume %s at %s in %s (host %s)",
-        volume_id,
-        container_path,
-        container_name,
-        host_mount,
-    )
-    return True
-
-
-def _hot_unmount_volume(args: dict) -> bool:
-    """Unbind a managed volume from a container and lazy-unmount the host NFS mount."""
-    job_id = str(args.get("job_id") or "")
-    volume_id = str(args.get("volume_id") or "")
-    container_path = str(args.get("container_path") or "/workspace")
-    if not job_id or not volume_id:
-        log.warning("unmount_volume missing job_id/volume_id: %r", args)
-        return False
-
-    container_name = str(args.get("container_name") or f"xcl-{job_id}")
-    host_mount = f"{MANAGED_VOLUME_HOST_DIR}/{volume_id}"
-
-    pid = _container_pid(container_name)
-    if pid:
-        _nsenter_lazy_umount(pid, container_path)
-
-    _unmount_nfs(host_mount)
-    log.info("Hot-unmounted volume %s from %s at %s", volume_id, container_name, container_path)
-    return True
-
+# Extracted to worker_nfs.py (NFS mounts + hot-mounting volumes into
+# running containers); re-imported here for existing call sites/tests.
+from worker_nfs import (  # noqa: E402
+    MANAGED_VOLUME_HOST_DIR,
+    _container_pid,
+    _hot_mount_volume,
+    _hot_unmount_volume,
+    _mount_nfs,
+    _nfs_mount_fstype,
+    _nsenter_bind_mount,
+    _nsenter_lazy_umount,
+    _unmount_nfs,
+)
 
 # ── NVMe Model Cache (Cold Start Optimization) ──────────────────────
 # Per Phase 3.4: pre-pull model weights to local NVMe cache on first deploy.
 # Tiered cache hierarchy: VRAM → NVMe SSD → Network Storage (NFS)
-
-NVME_CACHE_DIR = os.environ.get("XCELSIOR_NVME_CACHE_DIR", "/mnt/nvme/model-cache")
-NVME_CACHE_MAX_GB = int(os.environ.get("XCELSIOR_NVME_CACHE_MAX_GB", "200"))
-
-_nvme_cache_lock = threading.Lock()
-
-
-def nvme_cache_init():
-    """Initialize local NVMe model cache directory."""
-    os.makedirs(NVME_CACHE_DIR, exist_ok=True)
-    log.info("NVMe model cache initialized at %s (max %d GB)", NVME_CACHE_DIR, NVME_CACHE_MAX_GB)
-
-
-def nvme_cache_path(model_id: str, revision: str = "main") -> str:
-    """Return the local NVMe cache path for a model."""
-    safe_name = model_id.replace("/", "--")
-    return os.path.join(NVME_CACHE_DIR, f"{safe_name}_{revision}")
-
-
-def nvme_cache_has(model_id: str, revision: str = "main") -> bool:
-    """Check if a model is already cached on local NVMe."""
-    path = nvme_cache_path(model_id, revision)
-    return os.path.isdir(path) and any(os.scandir(path))
-
-
-def nvme_cache_size_gb() -> float:
-    """Total size of the NVMe model cache in GB."""
-    total = 0
-    if not os.path.isdir(NVME_CACHE_DIR):
-        return 0.0
-    for entry in os.scandir(NVME_CACHE_DIR):
-        if entry.is_dir():
-            for f in os.scandir(entry.path):
-                if f.is_file():
-                    total += f.stat().st_size
-    return total / (1024**3)
-
-
-def nvme_cache_evict_lru():
-    """Evict least-recently-used models from NVMe cache if over limit."""
-    import shutil
-
-    if not os.path.isdir(NVME_CACHE_DIR):
-        return
-
-    entries = []
-    for entry in os.scandir(NVME_CACHE_DIR):
-        if entry.is_dir():
-            entries.append((entry.path, entry.stat().st_mtime))
-
-    # Sort oldest first
-    entries.sort(key=lambda e: e[1])
-
-    while nvme_cache_size_gb() > NVME_CACHE_MAX_GB and entries:
-        oldest_path, _ = entries.pop(0)
-        log.info("NVMe cache evicting: %s", os.path.basename(oldest_path))
-        shutil.rmtree(oldest_path, ignore_errors=True)
-
-
-def nvme_prepull_model(model_id: str, revision: str = "main", source_nfs: str = "") -> bool:
-    """Pre-pull model weights to local NVMe cache for fast cold starts.
-
-    Per Phase 3.4: tiered cache — VRAM → NVMe → Network Storage.
-    Downloads model from NFS shared storage or HuggingFace Hub to local NVMe.
-
-    Args:
-        model_id: Model identifier (e.g. "meta-llama/Llama-3-70B")
-        revision: Model revision/branch
-        source_nfs: Optional NFS path to copy from (faster than download)
-
-    Returns:
-        True if model is now available on local NVMe.
-    """
-    if nvme_cache_has(model_id, revision):
-        log.debug("Model %s@%s already in NVMe cache", model_id, revision)
-        return True
-
-    with _nvme_cache_lock:
-        # Double-check under lock
-        if nvme_cache_has(model_id, revision):
-            return True
-
-        # Evict if cache is full
-        nvme_cache_evict_lru()
-
-        dest = nvme_cache_path(model_id, revision)
-        os.makedirs(dest, exist_ok=True)
-
-        # Strategy 1: Copy from NFS shared storage (fastest)
-        if source_nfs and os.path.isdir(source_nfs):
-            try:
-                import shutil
-
-                log.info("NVMe pre-pull: copying %s from NFS %s", model_id, source_nfs)
-                for item in os.listdir(source_nfs):
-                    src = os.path.join(source_nfs, item)
-                    dst = os.path.join(dest, item)
-                    if os.path.isfile(src):
-                        shutil.copy2(src, dst)
-                log.info("NVMe pre-pull complete: %s (from NFS)", model_id)
-                return True
-            except Exception as e:
-                log.warning("NFS copy failed for %s: %s, trying HuggingFace", model_id, e)
-
-        # Strategy 2: Download from HuggingFace Hub
-        try:
-            dl_cmd = [
-                "huggingface-cli",
-                "download",
-                model_id,
-                "--revision",
-                revision,
-                "--local-dir",
-                dest,
-                "--quiet",
-            ]
-            result = subprocess.run(
-                dl_cmd,
-                capture_output=True,
-                text=True,
-                timeout=3600,  # 1 hour max for large models
-            )
-            if result.returncode == 0:
-                log.info("NVMe pre-pull complete: %s (from HuggingFace)", model_id)
-                return True
-            else:
-                log.warning("HuggingFace download failed for %s: %s", model_id, result.stderr[:200])
-                return False
-        except FileNotFoundError:
-            log.warning("huggingface-cli not found — cannot pre-pull %s", model_id)
-            return False
-        except subprocess.TimeoutExpired:
-            log.warning("NVMe pre-pull timed out for %s", model_id)
-            return False
-
+# Extracted to worker_nvme_cache.py; re-imported here for existing call
+# sites/tests.
+from worker_nvme_cache import (  # noqa: E402
+    NVME_CACHE_DIR,
+    NVME_CACHE_MAX_GB,
+    nvme_cache_evict_lru,
+    nvme_cache_has,
+    nvme_cache_init,
+    nvme_cache_path,
+    nvme_cache_size_gb,
+    nvme_prepull_model,
+)
 
 # ── LUKS Encrypted Volume Provisioning ───────────────────────────────
 # Per Phase 10.2: encrypted at rest via LUKS with per-volume key.
 # Provides cryptographic erasure on volume delete (destroy LUKS key).
-
-VOLUME_BASE_DIR = os.environ.get("XCELSIOR_VOLUME_DIR", "/mnt/xcelsior/volumes")
-VOLUME_KEY_DIR = os.environ.get("XCELSIOR_VOLUME_KEY_DIR", "/etc/xcelsior/volume-keys")
-
-
-def _ensure_volume_dirs():
-    """Create base directories for volumes and keys (if running as root)."""
-    os.makedirs(VOLUME_BASE_DIR, exist_ok=True)
-    os.makedirs(VOLUME_KEY_DIR, mode=0o700, exist_ok=True)
-
-
-def provision_encrypted_volume(volume_id: str, size_gb: int) -> bool:
-    """Create a LUKS-encrypted volume with a per-volume key.
-
-    Steps:
-      1. Create a sparse file as the backing store
-      2. Generate a random 256-bit LUKS key
-      3. Format with LUKS2 using the key
-      4. Open the LUKS device
-      5. Create ext4 filesystem
-      6. Mount to /mnt/xcelsior/volumes/{volume_id}
-
-    Returns True on success, False on failure.
-    """
-    _ensure_volume_dirs()
-
-    backing_file = os.path.join(VOLUME_BASE_DIR, f"{volume_id}.img")
-    key_file = os.path.join(VOLUME_KEY_DIR, f"{volume_id}.key")
-    mapper_name = f"xcelsior-vol-{volume_id[:12]}"
-    mount_point = os.path.join(VOLUME_BASE_DIR, volume_id)
-
-    try:
-        # 1. Create sparse backing file
-        subprocess.run(
-            ["truncate", "-s", f"{size_gb}G", backing_file],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-
-        # 2. Generate per-volume random key (256-bit)
-        key_bytes = os.urandom(32)
-        old_umask = os.umask(0o077)
-        try:
-            with open(key_file, "wb") as f:
-                f.write(key_bytes)
-        finally:
-            os.umask(old_umask)
-
-        # 3. LUKS format the backing file
-        subprocess.run(
-            [
-                "cryptsetup",
-                "luksFormat",
-                "--batch-mode",
-                "--type",
-                "luks2",
-                "--key-file",
-                key_file,
-                "--cipher",
-                "aes-xts-plain64",
-                "--key-size",
-                "512",
-                "--hash",
-                "sha256",
-                backing_file,
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-
-        # 4. Open LUKS device
-        subprocess.run(
-            [
-                "cryptsetup",
-                "luksOpen",
-                "--key-file",
-                key_file,
-                backing_file,
-                mapper_name,
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-
-        # 5. Create ext4 filesystem
-        dm_path = f"/dev/mapper/{mapper_name}"
-        subprocess.run(
-            ["mkfs.ext4", "-q", "-L", f"vol-{volume_id[:8]}", dm_path],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-
-        # 6. Mount
-        os.makedirs(mount_point, exist_ok=True)
-        subprocess.run(
-            ["mount", dm_path, mount_point],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-
-        log.info("Volume %s provisioned: %dGB LUKS2+ext4 at %s", volume_id, size_gb, mount_point)
-        return True
-
-    except subprocess.CalledProcessError as e:
-        log.error("Volume provisioning failed for %s: %s (stderr: %s)", volume_id, e, e.stderr)
-        # Cleanup partial state
-        _cleanup_partial_volume(volume_id)
-        return False
-    except Exception as e:
-        log.error("Volume provisioning error for %s: %s", volume_id, e)
-        _cleanup_partial_volume(volume_id)
-        return False
-
-
-def attach_encrypted_volume(volume_id: str) -> str | None:
-    """Open and mount an existing LUKS volume. Returns mount path or None."""
-    backing_file = os.path.join(VOLUME_BASE_DIR, f"{volume_id}.img")
-    key_file = os.path.join(VOLUME_KEY_DIR, f"{volume_id}.key")
-    mapper_name = f"xcelsior-vol-{volume_id[:12]}"
-    mount_point = os.path.join(VOLUME_BASE_DIR, volume_id)
-    dm_path = f"/dev/mapper/{mapper_name}"
-
-    if not os.path.exists(backing_file) or not os.path.exists(key_file):
-        log.error("Volume %s: backing file or key not found", volume_id)
-        return None
-
-    try:
-        # Check if already open
-        if not os.path.exists(dm_path):
-            subprocess.run(
-                ["cryptsetup", "luksOpen", "--key-file", key_file, backing_file, mapper_name],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-
-        # Mount if not already mounted
-        os.makedirs(mount_point, exist_ok=True)
-        r = subprocess.run(["mountpoint", "-q", mount_point], capture_output=True, timeout=5)
-        if r.returncode != 0:
-            subprocess.run(
-                ["mount", dm_path, mount_point],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-
-        log.info("Volume %s attached at %s", volume_id, mount_point)
-        return mount_point
-
-    except subprocess.CalledProcessError as e:
-        log.error("Volume attach failed for %s: %s", volume_id, e.stderr)
-        return None
-
-
-def detach_encrypted_volume(volume_id: str) -> bool:
-    """Unmount and close a LUKS volume."""
-    mapper_name = f"xcelsior-vol-{volume_id[:12]}"
-    mount_point = os.path.join(VOLUME_BASE_DIR, volume_id)
-    dm_path = f"/dev/mapper/{mapper_name}"
-
-    try:
-        # Unmount
-        r = subprocess.run(["mountpoint", "-q", mount_point], capture_output=True, timeout=5)
-        if r.returncode == 0:
-            subprocess.run(
-                ["umount", mount_point],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-
-        # Close LUKS device
-        if os.path.exists(dm_path):
-            subprocess.run(
-                ["cryptsetup", "luksClose", mapper_name],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-
-        log.info("Volume %s detached", volume_id)
-        return True
-
-    except subprocess.CalledProcessError as e:
-        log.error("Volume detach failed for %s: %s", volume_id, e.stderr)
-        return False
-
-
-def destroy_encrypted_volume(volume_id: str) -> bool:
-    """Cryptographic erasure: destroy LUKS key then remove backing file.
-
-    Once the key is shredded, the data is irrecoverable regardless
-    of whether the backing file still exists.
-    """
-    key_file = os.path.join(VOLUME_KEY_DIR, f"{volume_id}.key")
-    backing_file = os.path.join(VOLUME_BASE_DIR, f"{volume_id}.img")
-    mount_point = os.path.join(VOLUME_BASE_DIR, volume_id)
-
-    # Detach first (best-effort)
-    detach_encrypted_volume(volume_id)
-
-    try:
-        # Destroy key — cryptographic erasure (overwrite with random then delete)
-        if os.path.exists(key_file):
-            r = subprocess.run(
-                ["shred", "-u", "-z", "-n", "3", key_file],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            if r.returncode != 0:
-                log.critical(
-                    "SECURITY: shred failed for volume %s key — key may remain on disk: %s",
-                    volume_id,
-                    r.stderr,
-                )
-                return False
-            log.info("Volume %s: LUKS key destroyed (cryptographic erasure)", volume_id)
-
-        # Remove backing file
-        if os.path.exists(backing_file):
-            os.remove(backing_file)
-
-        # Remove mount point directory
-        if os.path.isdir(mount_point):
-            os.rmdir(mount_point)
-
-        log.info("Volume %s destroyed", volume_id)
-        return True
-
-    except Exception as e:
-        log.error("Volume destroy failed for %s: %s", volume_id, e)
-        return False
-
-
-def _cleanup_partial_volume(volume_id: str):
-    """Best-effort cleanup after a failed provisioning attempt."""
-    mapper_name = f"xcelsior-vol-{volume_id[:12]}"
-    dm_path = f"/dev/mapper/{mapper_name}"
-    key_file = os.path.join(VOLUME_KEY_DIR, f"{volume_id}.key")
-    backing_file = os.path.join(VOLUME_BASE_DIR, f"{volume_id}.img")
-    mount_point = os.path.join(VOLUME_BASE_DIR, volume_id)
-
-    with suppress(Exception):
-        subprocess.run(["umount", mount_point], capture_output=True, timeout=10)
-    with suppress(Exception):
-        if os.path.exists(dm_path):
-            subprocess.run(
-                ["cryptsetup", "luksClose", mapper_name], capture_output=True, timeout=10
-            )
-    with suppress(Exception):
-        if os.path.exists(key_file):
-            subprocess.run(
-                ["shred", "-u", "-z", "-n", "3", key_file],
-                capture_output=True,
-                timeout=30,
-            )
-    with suppress(Exception):
-        if os.path.exists(backing_file):
-            os.remove(backing_file)
-    with suppress(Exception):
-        if os.path.isdir(mount_point):
-            os.rmdir(mount_point)
-
+# Extracted to worker_luks_volumes.py; re-imported here for existing call
+# sites/tests.
+from worker_luks_volumes import (  # noqa: E402
+    VOLUME_BASE_DIR,
+    VOLUME_KEY_DIR,
+    _cleanup_partial_volume,
+    _ensure_volume_dirs,
+    attach_encrypted_volume,
+    destroy_encrypted_volume,
+    detach_encrypted_volume,
+    provision_encrypted_volume,
+)
 
 # ── Phase 7 / §3: exclusive_gpu lifecycle ────────────────────────────
 #
