@@ -84,6 +84,7 @@ const en_public: Record<string, string> = {
   "home.cmp_green_aws": "Mixed",
   "home.cmp_green_vast": "Unknown",
   "home.cmp_green_rp": "Unknown",
+  "home.cta_eyebrow": "Get Started · $10 Free Credits",
   "home.cta_title_1": "Your data. Your jurisdiction.",
   "home.cta_title_2": "Your compute.",
   "home.cta_desc": "Start with $10 in free credits. No commitment, no USD conversion surprises.",

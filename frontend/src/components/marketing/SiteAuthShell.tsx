@@ -37,9 +37,9 @@ export function SiteAuthHeader({
         <img src={SITE_ASSETS.iconGradient} alt="" aria-hidden className="site-auth-brand-mark" />
         <div className="site-auth-brand-wordmark-wrap">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={SITE_ASSETS.wordmarkDark} alt="Xcelsior" className="site-auth-brand-wordmark site-theme-dark" />
+          <img src={SITE_ASSETS.wordmarkLight} alt="Xcelsior" className="site-auth-brand-wordmark site-theme-dark" />
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={SITE_ASSETS.wordmarkLight} alt="" aria-hidden className="site-auth-brand-wordmark site-theme-light" />
+          <img src={SITE_ASSETS.wordmarkDark} alt="" aria-hidden className="site-auth-brand-wordmark site-theme-light" />
         </div>
       </div>
       {eyebrow ? <div className="site-pill site-auth-pill">{eyebrow}</div> : null}

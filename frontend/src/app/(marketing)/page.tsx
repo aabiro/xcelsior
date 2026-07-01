@@ -49,7 +49,7 @@ function ThemeIcon({ name }: { name: string }) {
 function SectionMarker({ code, label }: { code: string; label: string }) {
   return (
     <div className="site-marker">
-      <span className="site-marker-code">{code}</span>
+      <span className="site-marker-code">[ {code} ]</span>
       <span className="site-marker-line" />
       <span>{label}</span>
     </div>
@@ -204,6 +204,7 @@ export default function HomePage() {
         <section className="site-rails site-cta">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={SITE_ASSETS.iconGradient} className="site-cta-mark" alt="" aria-hidden />
+          <div className="site-eyebrow site-cta-eyebrow">{t("home.cta_eyebrow")}</div>
           <h2 className="site-cta-title">
             {t("home.cta_title_1")} <span className="site-gradient-text">{t("home.cta_title_2")}</span>
           </h2>
