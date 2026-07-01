@@ -10,61 +10,64 @@ export function BlogContent({ posts }: { posts: BlogPost[] }) {
   const { t, displayLocale } = useLocale();
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-24">
-      <div className="text-center mb-16">
-        <h1 className="text-4xl font-bold md:text-5xl">{t("blog.title")}</h1>
-        <p className="mt-4 text-lg text-text-secondary max-w-2xl mx-auto">
-          {t("blog.subtitle")}
-        </p>
-      </div>
-
-      {posts.length === 0 ? (
-        <p className="text-center text-text-muted">{t("blog.empty")}</p>
-      ) : (
-        <div className="space-y-8">
-          {posts.map((post) => (
-            <article
-              key={post.slug}
-              className="group rounded-xl border border-border bg-surface p-6 card-hover"
-            >
-              <Link href={`/blog/${post.slug}`} className="block">
-                <div className="flex items-center gap-3 text-xs text-text-muted mb-3">
-                  <span className="flex items-center gap-1">
-                    <Calendar className="h-3 w-3" />
-                    {formatBlogDate(post.date, displayLocale)}
-                  </span>
-                  <span>&middot;</span>
-                  <span>{post.author}</span>
-                </div>
-
-                <h2 className="text-xl font-bold mb-2 group-hover:text-ice-blue transition-colors">
-                  {post.title}
-                </h2>
-                <p className="text-sm text-text-secondary leading-relaxed mb-4">
-                  {post.description}
-                </p>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex flex-wrap gap-2">
-                    {post.tags.slice(0, 3).map((tag) => (
-                      <span
-                        key={tag}
-                        className="inline-flex items-center gap-1 rounded-full bg-navy-light px-2.5 py-0.5 text-xs text-text-muted"
-                      >
-                        <Tag className="h-2.5 w-2.5" />
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                  <span className="text-sm text-ice-blue flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    {t("blog.read_more")} <ArrowRight className="h-3.5 w-3.5" />
-                  </span>
-                </div>
-              </Link>
-            </article>
-          ))}
+    <>
+      <section className="site-hero">
+        <div className="site-grid-bg" aria-hidden />
+        <div className="site-container">
+          <div className="site-rails site-hero-rails" style={{ gridTemplateColumns: "1fr" }}>
+            <div style={{ animation: "heroUp .7s ease both" }}>
+              <div className="site-pill">
+                <span className="site-live-dot" />
+                <span>{t("blog.title")}</span>
+              </div>
+              <h1 className="site-hero-title">{t("blog.title")}</h1>
+              <p className="site-hero-copy" style={{ maxWidth: 760 }}>{t("blog.subtitle")}</p>
+            </div>
+          </div>
         </div>
-      )}
-    </div>
+      </section>
+
+      <div className="site-container">
+        <section className="site-rails site-section">
+          {posts.length === 0 ? (
+            <div className="site-callout">
+              <p className="site-callout-copy">{t("blog.empty")}</p>
+            </div>
+          ) : (
+            <div className="site-blog-list">
+              {posts.map((post) => (
+                <article key={post.slug} className="site-blog-card">
+                  <Link href={`/blog/${post.slug}`} className="site-blog-link">
+                    <div className="site-blog-meta">
+                      <span className="site-blog-meta-item">
+                        <Calendar className="site-meta-icon" />
+                        {formatBlogDate(post.date, displayLocale)}
+                      </span>
+                      <span>&middot;</span>
+                      <span>{post.author}</span>
+                    </div>
+                    <h2 className="site-card-title" style={{ fontSize: 30, marginBottom: 14 }}>{post.title}</h2>
+                    <p className="site-card-copy" style={{ fontSize: 16 }}>{post.description}</p>
+                    <div className="site-blog-footer">
+                      <div className="site-blog-tags">
+                        {post.tags.slice(0, 3).map((tag) => (
+                          <span key={tag} className="site-blog-tag">
+                            <Tag className="site-tag-icon" />
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                      <span className="site-blog-readmore">
+                        {t("blog.read_more")} <ArrowRight className="site-meta-icon" />
+                      </span>
+                    </div>
+                  </Link>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+    </>
   );
 }

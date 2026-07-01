@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { MessageCircle, Mail, BookOpen, Shield, Clock, Headphones } from "lucide-react";
+import { BookOpen, Clock, Headphones, Mail, MessageCircle, Shield } from "lucide-react";
 import { m } from "@/components/marketing/motion";
 import { useLocale } from "@/lib/locale";
 
@@ -15,181 +15,127 @@ const fadeUp = {
 };
 
 const channels = [
-  {
-    icon: MessageCircle,
-    titleKey: "support.chat_title",
-    descKey: "support.chat_desc",
-    glow: "rgba(0,212,255,0.12)",
-    actionKey: "support.chat_action",
-    type: "chat" as const,
-  },
-  {
-    icon: Mail,
-    titleKey: "support.email_title",
-    descKey: "support.email_desc",
-    glow: "rgba(124,58,237,0.12)",
-    actionKey: "support.email_action",
-    type: "email" as const,
-  },
-  {
-    icon: BookOpen,
-    titleKey: "support.docs_title",
-    descKey: "support.docs_desc",
-    glow: "rgba(16,185,129,0.12)",
-    actionKey: "support.docs_action",
-    type: "docs" as const,
-  },
+  { icon: MessageCircle, titleKey: "support.chat_title", descKey: "support.chat_desc", actionKey: "support.chat_action", type: "chat" as const },
+  { icon: Mail, titleKey: "support.email_title", descKey: "support.email_desc", actionKey: "support.email_action", type: "email" as const },
+  { icon: BookOpen, titleKey: "support.docs_title", descKey: "support.docs_desc", actionKey: "support.docs_action", type: "docs" as const },
 ];
+
+function SectionMarker({ code, label }: { code: string; label: string }) {
+  return (
+    <div className="site-marker">
+      <span className="site-marker-code">{code}</span>
+      <span className="site-marker-line" />
+      <span>{label}</span>
+    </div>
+  );
+}
 
 export function SupportContent() {
   const { t } = useLocale();
 
   return (
-    <div className="mx-auto max-w-7xl px-6 py-28">
-      {/* Hero */}
-      <m.div
-        className="text-center mb-20"
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true }}
-      >
-        <m.div
-          variants={fadeUp}
-          custom={0}
-          className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent-cyan/30 bg-accent-cyan/10 px-4 py-1.5 backdrop-blur-sm"
-        >
-          <Headphones className="h-3.5 w-3.5 text-accent-cyan" />
-          <span className="text-xs font-medium text-accent-cyan">
-            {t("support.badge")}
-          </span>
-        </m.div>
+    <>
+      <section className="site-hero">
+        <div className="site-grid-bg" aria-hidden />
+        <div className="site-container">
+          <div className="site-rails site-hero-rails" style={{ gridTemplateColumns: "1fr" }}>
+            <m.div initial="hidden" animate="visible" variants={fadeUp} custom={0}>
+              <div className="site-pill">
+                <Headphones className="site-pill-icon" />
+                <span>{t("support.badge")}</span>
+              </div>
+              <h1 className="site-hero-title">{t("support.title")}</h1>
+              <p className="site-hero-copy" style={{ maxWidth: 760 }}>{t("support.subtitle")}</p>
+            </m.div>
+          </div>
+        </div>
+      </section>
 
-        <m.h1
-          variants={fadeUp}
-          custom={1}
-          className="text-4xl font-bold md:text-5xl lg:text-6xl"
-        >
-          {t("support.title")}
-        </m.h1>
+      <div className="site-container">
+        <section className="site-rails site-section" style={{ paddingBottom: 0 }}>
+          <SectionMarker code="01" label={t("support.title")} />
+          <h2 className="site-section-heading">{t("support.title")}</h2>
+          <div className="site-support-grid site-section-flush">
+            {channels.map((channel, index) => {
+              const Icon = channel.icon;
+              return (
+                <m.article
+                  key={channel.type}
+                  variants={fadeUp}
+                  initial="hidden"
+                  whileInView="visible"
+                  viewport={{ once: true }}
+                  custom={index}
+                  className="site-feature-card site-channel-card"
+                >
+                  <div className="site-icon-box">
+                    <Icon className="site-svg-icon" />
+                  </div>
+                  <h3 className="site-card-title">{t(channel.titleKey)}</h3>
+                  <p className="site-card-copy">{t(channel.descKey)}</p>
+                  {channel.type === "chat" ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        window.dispatchEvent(new CustomEvent("open-chat-widget"));
+                      }}
+                      className="site-button site-button-ghost"
+                      style={{ marginTop: 24, width: "fit-content", padding: "13px 18px" }}
+                    >
+                      {t(channel.actionKey)}
+                    </button>
+                  ) : null}
+                  {channel.type === "email" ? (
+                    <a
+                      href="mailto:support@xcelsior.ca"
+                      className="site-button site-button-ghost"
+                      style={{ marginTop: 24, width: "fit-content", padding: "13px 18px" }}
+                    >
+                      {t(channel.actionKey)}
+                    </a>
+                  ) : null}
+                  {channel.type === "docs" ? (
+                    <a
+                      href="https://docs.xcelsior.ca"
+                      className="site-button site-button-ghost"
+                      style={{ marginTop: 24, width: "fit-content", padding: "13px 18px" }}
+                    >
+                      {t(channel.actionKey)}
+                    </a>
+                  ) : null}
+                </m.article>
+              );
+            })}
+          </div>
+        </section>
 
-        <m.p
-          variants={fadeUp}
-          custom={2}
-          className="mt-6 text-lg text-text-secondary max-w-3xl mx-auto leading-relaxed"
-        >
-          {t("support.subtitle")}
-        </m.p>
-      </m.div>
-
-      {/* Support Channels */}
-      <m.div
-        className="grid gap-8 md:grid-cols-3 mb-20"
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true }}
-      >
-        {channels.map((ch, i) => (
-          <m.div
-            key={ch.type}
-            variants={fadeUp}
-            custom={i}
-            className="glow-card rounded-xl p-8 text-center"
-            style={{ "--glow-color": ch.glow } as React.CSSProperties}
-          >
-            <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-surface-elevated">
-              <ch.icon className="h-7 w-7 text-accent-cyan" />
+        <section className="site-rails site-section">
+          <SectionMarker code="02" label={t("support.hours_title")} />
+          <div className="site-support-notes">
+            <div className="site-callout">
+              <div className="site-inline-heading">
+                <Clock className="site-inline-icon" />
+                <h2 className="site-callout-title">{t("support.hours_title")}</h2>
+              </div>
+              <p className="site-callout-copy">{t("support.hours_desc")}</p>
             </div>
-            <h3 className="text-xl font-semibold mb-3">{t(ch.titleKey)}</h3>
-            <p className="text-text-secondary text-sm leading-relaxed mb-6">
-              {t(ch.descKey)}
-            </p>
-            {ch.type === "chat" && (
-              <button
-                onClick={() => {
-                  window.dispatchEvent(new CustomEvent("open-chat-widget"));
-                }}
-                className="inline-flex items-center gap-2 rounded-lg bg-accent-cyan/10 border border-accent-cyan/30 px-5 py-2.5 text-sm font-medium text-accent-cyan hover:bg-accent-cyan/20 transition-colors"
-              >
-                <MessageCircle className="h-4 w-4" />
-                {t(ch.actionKey)}
-              </button>
-            )}
-            {ch.type === "email" && (
-              <a
-                href="mailto:support@xcelsior.ca"
-                className="inline-flex items-center gap-2 rounded-lg bg-accent-violet/10 border border-accent-violet/30 px-5 py-2.5 text-sm font-medium text-accent-violet hover:bg-accent-violet/20 transition-colors"
-              >
-                <Mail className="h-4 w-4" />
-                {t(ch.actionKey)}
-              </a>
-            )}
-            {ch.type === "docs" && (
-              <a
-                href="https://docs.xcelsior.ca"
-                className="inline-flex items-center gap-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 px-5 py-2.5 text-sm font-medium text-emerald-400 hover:bg-emerald-500/20 transition-colors"
-              >
-                <BookOpen className="h-4 w-4" />
-                {t(ch.actionKey)}
-              </a>
-            )}
-          </m.div>
-        ))}
-      </m.div>
-
-      {/* Info Cards */}
-      <m.div
-        className="grid gap-6 md:grid-cols-2 mb-20"
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true }}
-      >
-        <m.div
-          variants={fadeUp}
-          custom={0}
-          className="glow-card rounded-xl p-8"
-          style={{ "--glow-color": "rgba(245,158,11,0.12)" } as React.CSSProperties}
-        >
-          <div className="flex items-center gap-3 mb-4">
-            <Clock className="h-5 w-5 text-accent-gold" />
-            <h3 className="text-lg font-semibold">{t("support.hours_title")}</h3>
+            <div className="site-callout site-callout-alert">
+              <div className="site-inline-heading">
+                <Shield className="site-inline-icon" />
+                <h2 className="site-callout-title">{t("support.security_title")}</h2>
+              </div>
+              <p className="site-callout-copy">{t("support.security_desc")}</p>
+            </div>
           </div>
-          <p className="text-text-secondary text-sm leading-relaxed">
-            {t("support.hours_desc")}
-          </p>
-        </m.div>
+        </section>
 
-        <m.div
-          variants={fadeUp}
-          custom={1}
-          className="glow-card rounded-xl p-8"
-          style={{ "--glow-color": "rgba(220,38,38,0.12)" } as React.CSSProperties}
-        >
-          <div className="flex items-center gap-3 mb-4">
-            <Shield className="h-5 w-5 text-accent-red" />
-            <h3 className="text-lg font-semibold">{t("support.security_title")}</h3>
-          </div>
-          <p className="text-text-secondary text-sm leading-relaxed">
-            {t("support.security_desc")}
-          </p>
-        </m.div>
-      </m.div>
-
-      {/* CTA */}
-      <m.div
-        className="text-center"
-        initial={{ opacity: 0, y: 20 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.5 }}
-      >
-        <p className="text-text-secondary mb-6">{t("support.cta")}</p>
-        <Link
-          href="/pricing"
-          className="inline-flex items-center gap-2 rounded-lg bg-accent-cyan px-6 py-3 text-sm font-semibold text-navy hover:bg-accent-cyan/90 transition-colors"
-        >
-          {t("support.cta_button")}
-        </Link>
-      </m.div>
-    </div>
+        <section className="site-rails site-cta">
+          <h2 className="site-cta-title">{t("support.cta")}</h2>
+          <Link href="/pricing" className="site-button site-button-primary" style={{ padding: "15px 28px" }}>
+            {t("support.cta_button")}
+          </Link>
+        </section>
+      </div>
+    </>
   );
 }
