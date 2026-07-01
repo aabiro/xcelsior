@@ -119,6 +119,21 @@ def capability_gate(route: str, endpoint: dict, body: dict | None = None) -> Non
             "Vision inputs are not supported on this worker",
         )
 
+    if body and norm in ("chat/completions", "completions", "embeddings"):
+        requested_model = str(body.get("model") or "").strip()
+        adapters = endpoint.get("lora_adapters") or []
+        if requested_model and adapters:
+            allowed = {str(endpoint.get("model_ref") or "")} | {
+                str(a.get("name") or "") for a in adapters
+            }
+            if requested_model not in allowed:
+                raise OpenAIProxyError(
+                    400,
+                    "model_not_found",
+                    f"Unknown model '{requested_model}'. This endpoint serves: "
+                    f"{', '.join(sorted(n for n in allowed if n))}.",
+                )
+
 
 def _body_requests_vision(body: dict) -> bool:
     messages = body.get("messages") or []

@@ -320,8 +320,8 @@ def charge_serverless_execution(
                 (cycle_id, job_id, customer_id, host_id, resource_type,
                  period_start, period_end, duration_seconds, rate_per_hour,
                  gpu_model, tier, tier_multiplier, amount_cad, status, created_at,
-                 token_cost_cad)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 token_cost_cad, model_ref)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 cycle_id,
@@ -340,6 +340,7 @@ def charge_serverless_execution(
                 status,
                 now,
                 round(float(token_cost_cad or 0.0), 6),
+                str(endpoint.get("model_ref") or ""),
             ),
         )
         conn.commit()

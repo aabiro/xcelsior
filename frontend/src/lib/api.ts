@@ -305,6 +305,12 @@ export function classifyLaunchError(err: unknown): LaunchErrorInfo {
     if (err.status === 422) {
       return { message: "Invalid configuration — check your instance settings." };
     }
+    if (err.status === 404 && /template image/i.test(detail)) {
+      return {
+        message: "That template image isn't ready yet — pick another image or wait for it to finish building.",
+        action: { label: "Manage Templates", href: "/dashboard/templates" },
+      };
+    }
     if (err.status === 429 && /concurrent instance limit/i.test(detail)) {
       return {
         message:
@@ -2028,6 +2034,10 @@ export async function fetchAdminUnitEconomics(days = 30) {
       revenue_cad?: number; token_revenue_cad?: number; gpu_seconds?: number;
       gpu_hours?: number; billed_cycles?: number;
     };
+    serverless_by_model_size: {
+      band: string; gpu_revenue_cad: number; token_revenue_cad: number;
+      gpu_seconds: number; billed_cycles: number;
+    }[];
     funnel: {
       signups?: number; deployed_model?: number; ran_inference?: number;
       paid?: number; activation_pct?: number; paid_pct?: number;

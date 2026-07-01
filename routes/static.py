@@ -27,10 +27,24 @@ _ALLOWED: dict[str, Path] = {
     "worker_agent.py": _REPO_ROOT / "worker_agent.py",
     "security.py": _REPO_ROOT / "security.py",
     "nvml_telemetry.py": _REPO_ROOT / "nvml_telemetry.py",
+    "worker_image_cache.py": _REPO_ROOT / "worker_image_cache.py",
+    "worker_nfs.py": _REPO_ROOT / "worker_nfs.py",
+    "worker_nvme_cache.py": _REPO_ROOT / "worker_nvme_cache.py",
+    "worker_luks_volumes.py": _REPO_ROOT / "worker_luks_volumes.py",
     "worker-requirements.txt": _SCRIPTS / "worker-requirements.txt",
 }
 
-_SIGNABLE = frozenset({"worker_agent.py", "security.py", "nvml_telemetry.py"})
+_SIGNABLE = frozenset(
+    {
+        "worker_agent.py",
+        "security.py",
+        "nvml_telemetry.py",
+        "worker_image_cache.py",
+        "worker_nfs.py",
+        "worker_nvme_cache.py",
+        "worker_luks_volumes.py",
+    }
+)
 
 
 def _read_and_hash(path: Path) -> tuple[bytes, str]:
@@ -73,7 +87,7 @@ def get_static_file(filename: str) -> Response:
     sig = _signature_b64(filename, data)
     if sig:
         headers["X-Xcelsior-Agent-Signature"] = sig
-    elif filename == "worker_agent.py":
+    elif filename in _SIGNABLE:
         raise HTTPException(status_code=503, detail="agent signature unavailable")
 
     media = "text/plain; charset=utf-8"

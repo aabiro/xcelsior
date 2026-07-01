@@ -54,6 +54,17 @@ def test_admin_revenue():
     assert r.json().get("ok") is True
 
 
+def test_admin_unit_economics():
+    r = client.get("/api/admin/unit-economics", headers=_admin_headers())
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("ok") is True
+    assert "serverless" in body
+    assert isinstance(body.get("serverless_by_model_size"), list)
+    for row in body["serverless_by_model_size"]:
+        assert set(row) >= {"band", "gpu_revenue_cad", "token_revenue_cad", "gpu_seconds", "billed_cycles"}
+
+
 def test_admin_infrastructure():
     r = client.get("/api/admin/infrastructure", headers=_admin_headers())
     assert r.status_code == 200
@@ -122,3 +133,35 @@ def test_admin_agent_rollout_validation():
         json={},
     )
     assert r.status_code == 400
+
+
+def test_admin_agent_rollout_rejects_bad_module_sha():
+    r = client.post(
+        "/api/admin/agent/rollout",
+        headers=_admin_headers(),
+        json={
+            "version": "2.2.0",
+            "sha256": "a" * 64,
+            "modules": {"worker_image_cache.py": "not-hex"},
+        },
+    )
+    assert r.status_code == 400
+
+
+def test_admin_agent_rollout_accepts_valid_modules():
+    r = client.post(
+        "/api/admin/agent/rollout",
+        headers=_admin_headers(),
+        json={
+            "version": "2.2.0",
+            "sha256": "a" * 64,
+            "host_ids": ["no-such-host"],
+            "modules": {"worker_image_cache.py": "b" * 64},
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ok"] is True
+    # No matching host_ids, so nothing enqueued, but the request itself
+    # must be accepted (modules validated, not rejected).
+    assert body["enqueued"] == []

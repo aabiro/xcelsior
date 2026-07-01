@@ -145,7 +145,13 @@ class PayPalConnectManager:
                 raise
 
     def tracking_id(self, provider_id: str) -> str:
-        return f"xcelsior-{provider_id}"
+        # PayPal rejects partner-referral calls that reuse a tracking_id, so a
+        # static "xcelsior-{provider_id}" value 502s on every retry after the
+        # first attempt (INVALID_RESOURCE_ID / DUPLICATE_REQUEST_ID). Suffix
+        # with a timestamp so each onboarding attempt gets a fresh id; the new
+        # value is persisted immediately in create_onboarding_link so status
+        # refreshes and the completion webhook keep matching correctly.
+        return f"xcelsior-{provider_id}-{int(time.time())}"
 
     def get_paypal_profile(self, provider_id: str) -> Optional[dict]:
         with self._conn() as conn:
