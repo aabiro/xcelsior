@@ -1,17 +1,23 @@
 "use client";
 
-import { Suspense, useState, useEffect, useRef } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { Input, Label } from "@/components/ui/input";
-import { Card } from "@/components/ui/card";
+import { Eye, EyeOff, Key, Loader2, Shield } from "lucide-react";
 import { ProviderLogo } from "@/components/ui/provider-logo";
-import { Eye, EyeOff, Loader2, Shield, Key } from "lucide-react";
-import { login as apiLogin, normalizeAuthRedirectPath, oauthInitiate, verifyMfaLogin, sendMfaSms, passkeyAuthenticateOptions, passkeyAuthenticateComplete, resendVerification, ApiError } from "@/lib/api";
+import { SiteAuthAlert, SiteAuthCard, SiteAuthDivider, SiteAuthHeader } from "@/components/marketing/SiteAuthShell";
+import {
+  ApiError,
+  login as apiLogin,
+  normalizeAuthRedirectPath,
+  oauthInitiate,
+  passkeyAuthenticateComplete,
+  passkeyAuthenticateOptions,
+  resendVerification,
+  sendMfaSms,
+  verifyMfaLogin,
+} from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { BRAND_ASSETS } from "@/lib/brand-assets";
 import { useLocale } from "@/lib/locale";
 import posthog from "posthog-js";
 
@@ -35,7 +41,6 @@ function LoginPageContent() {
   });
   const [loading, setLoading] = useState(false);
 
-  // MFA state
   const [mfaRequired, setMfaRequired] = useState(false);
   const [mfaChallengeId, setMfaChallengeId] = useState("");
   const [mfaMethods, setMfaMethods] = useState<string[]>([]);
@@ -47,7 +52,6 @@ function LoginPageContent() {
   const [passkeyAvailable, setPasskeyAvailable] = useState(false);
   const mfaAutoSubmitted = useRef(false);
 
-  // Check if platform authenticator (biometrics/hardware key) is actually available
   useEffect(() => {
     if (window.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable) {
       window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
@@ -56,31 +60,26 @@ function LoginPageContent() {
     }
   }, []);
 
-  // Email verification state
   const [emailNotVerified, setEmailNotVerified] = useState(false);
   const [unverifiedEmail, setUnverifiedEmail] = useState("");
   const [resending, setResending] = useState(false);
   const [resendSuccess, setResendSuccess] = useState(false);
 
-  // Track last-used OAuth provider (read from cookie set by API on OAuth login)
   const [lastOAuth, setLastOAuth] = useState<string | null>(null);
   useEffect(() => {
     const match = document.cookie.match(/(?:^|;\s*)xcelsior_last_oauth=([^;]*)/);
     setLastOAuth(match ? decodeURIComponent(match[1]) : null);
   }, []);
 
-  // If already authenticated, redirect to dashboard
   if (!authLoading && user) {
     router.replace(redirectTarget);
     return null;
   }
 
-  // While the session probe is in flight, show a spinner instead of flashing the
-  // login form — an already-signed-in visitor is redirected without ever seeing it.
   if (authLoading) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
+      <div className="site-auth-loading">
+        <Loader2 className="site-auth-spinner h-8 w-8 animate-spin" />
       </div>
     );
   }
@@ -99,12 +98,10 @@ function LoginPageContent() {
     setLoading(true);
     try {
       const res = await apiLogin(email, password);
-      // Check if MFA is required
       if (res.mfa_required) {
         setMfaRequired(true);
         setMfaChallengeId(res.challenge_id || "");
         setMfaMethods(res.methods || []);
-        // Default to first available method
         if (res.methods?.includes("passkey") && passkeyAvailable) setMfaMethod("passkey");
         else if (res.methods?.includes("totp")) setMfaMethod("totp");
         else if (res.methods?.includes("sms")) setMfaMethod("sms");
@@ -118,7 +115,9 @@ function LoginPageContent() {
       await completeBrowserLogin();
     } catch (err) {
       if (err instanceof ApiError && err.status === 403) {
-        const body = err.body as { email_verification_required?: boolean; email?: string; oauth_account?: boolean; error?: { message?: string } } | undefined;
+        const body = err.body as
+          | { email_verification_required?: boolean; email?: string; oauth_account?: boolean; error?: { message?: string } }
+          | undefined;
         if (body?.email_verification_required) {
           setEmailNotVerified(true);
           setUnverifiedEmail(body.email || email);
@@ -162,9 +161,12 @@ function LoginPageContent() {
   function bufferToBase64url(buffer: ArrayBuffer): string {
     const bytes = new Uint8Array(buffer);
     let binary = "";
-    bytes.forEach((b) => { binary += String.fromCharCode(b); });
+    bytes.forEach((b) => {
+      binary += String.fromCharCode(b);
+    });
     return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   }
+
   function base64urlToBuffer(b64: string): ArrayBuffer {
     const padded = b64.replace(/-/g, "+").replace(/_/g, "/");
     const binary = atob(padded);
@@ -191,7 +193,7 @@ function LoginPageContent() {
         } as PublicKeyCredentialRequestOptions,
       };
 
-      const assertion = await navigator.credentials.get(getOptions) as PublicKeyCredential;
+      const assertion = (await navigator.credentials.get(getOptions)) as PublicKeyCredential;
       if (!assertion) throw new Error("No credential returned");
 
       const assertionResponse = assertion.response as AuthenticatorAssertionResponse;
@@ -247,268 +249,257 @@ function LoginPageContent() {
     }
   }
 
-  // Email not verified screen
   if (emailNotVerified) {
     return (
-      <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-12">
-        <Card className="w-full max-w-md p-8 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-amber-500/10">
-            <Shield className="h-8 w-8 text-amber-400" />
+      <SiteAuthCard>
+        <div className="site-auth-section site-auth-stack">
+          <SiteAuthHeader title={t("auth.verify_required")} subtitle={<>{t("auth.verify_required_desc")} <span className="site-auth-emphasis">{unverifiedEmail}</span></>} />
+          <div className="site-auth-status-icon" data-tone="warn" style={{ margin: "0 auto" }}>
+            <Shield className="h-7 w-7" />
           </div>
-          <h1 className="text-2xl font-bold mb-2">{t("auth.verify_required")}</h1>
-          <p className="text-text-secondary mb-6">
-            {t("auth.verify_required_desc")} <strong className="text-text-primary">{unverifiedEmail}</strong>
-          </p>
-          <div className="space-y-3">
-            <Button
-              variant="outline"
-              className="w-full"
+          <div className="site-auth-actions">
+            <button
+              type="button"
+              className="site-button site-button-ghost site-auth-button"
               onClick={handleResendVerification}
               disabled={resending}
             >
               {resending ? t("auth.verify_resending") : t("auth.verify_resend")}
-            </Button>
-            {resendSuccess && (
-              <p className="text-sm text-green-400">{t("auth.verify_resent")}</p>
-            )}
-            <Button
-              variant="ghost"
-              className="w-full"
-              onClick={() => { setEmailNotVerified(false); setError(""); }}
+            </button>
+            {resendSuccess ? <SiteAuthAlert tone="success">{t("auth.verify_resent")}</SiteAuthAlert> : null}
+            <button
+              type="button"
+              className="site-button site-button-ghost site-auth-button"
+              onClick={() => {
+                setEmailNotVerified(false);
+                setError("");
+              }}
             >
               {t("auth.verify_back")}
-            </Button>
+            </button>
           </div>
-        </Card>
-      </div>
+        </div>
+      </SiteAuthCard>
     );
   }
 
   return (
-    <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-12">
-      <Card className="w-full max-w-md p-8">
-        {mfaRequired ? (
-          /* ── MFA Challenge ── */
-          <>
-            <div className="mb-8 text-center">
-              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-ice-blue/10">
-                <Shield className="h-6 w-6 text-ice-blue" />
-              </div>
-              <h1 className="text-2xl font-bold">{t("auth.mfa_title")}</h1>
-              <p className="mt-1 text-sm text-text-secondary">
-                {t("auth.mfa_subtitle")}
-              </p>
-            </div>
-
-            {/* Method selector tabs */}
-            <div className="flex gap-1 mb-6 rounded-lg bg-surface p-1">
-              {mfaMethods.includes("passkey") && passkeyAvailable && (
+    <SiteAuthCard>
+      {mfaRequired ? (
+        <>
+          <SiteAuthHeader title={t("auth.mfa_title")} subtitle={t("auth.mfa_subtitle")} />
+          <div className="site-auth-section site-auth-stack">
+            <div className="site-auth-tabs">
+              {mfaMethods.includes("passkey") && passkeyAvailable ? (
                 <button
-                  onClick={() => { setMfaMethod("passkey"); setMfaCode(""); setError(""); }}
-                  className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${mfaMethod === "passkey" ? "bg-card text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
+                  type="button"
+                  onClick={() => {
+                    setMfaMethod("passkey");
+                    setMfaCode("");
+                    setError("");
+                  }}
+                  className="site-auth-tab"
+                  data-active={mfaMethod === "passkey"}
                 >
                   {t("auth.mfa_passkey_label")}
                 </button>
-              )}
-              {mfaMethods.includes("totp") && (
+              ) : null}
+              {mfaMethods.includes("totp") ? (
                 <button
-                  onClick={() => { setMfaMethod("totp"); setMfaCode(""); setError(""); }}
-                  className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${mfaMethod === "totp" ? "bg-card text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
+                  type="button"
+                  onClick={() => {
+                    setMfaMethod("totp");
+                    setMfaCode("");
+                    setError("");
+                  }}
+                  className="site-auth-tab"
+                  data-active={mfaMethod === "totp"}
                 >
                   {t("auth.mfa_totp_label")}
                 </button>
-              )}
-              {mfaMethods.includes("sms") && (
+              ) : null}
+              {mfaMethods.includes("sms") ? (
                 <button
-                  onClick={() => { setMfaMethod("sms"); setMfaCode(""); setError(""); setSmsSent(false); }}
-                  className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${mfaMethod === "sms" ? "bg-card text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
+                  type="button"
+                  onClick={() => {
+                    setMfaMethod("sms");
+                    setMfaCode("");
+                    setError("");
+                    setSmsSent(false);
+                  }}
+                  className="site-auth-tab"
+                  data-active={mfaMethod === "sms"}
                 >
                   {t("auth.mfa_sms_label")}
                 </button>
-              )}
+              ) : null}
               <button
-                onClick={() => { setMfaMethod("backup"); setMfaCode(""); setError(""); }}
-                className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${mfaMethod === "backup" ? "bg-card text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
+                type="button"
+                onClick={() => {
+                  setMfaMethod("backup");
+                  setMfaCode("");
+                  setError("");
+                }}
+                className="site-auth-tab"
+                data-active={mfaMethod === "backup"}
               >
                 {t("auth.mfa_backup_label")}
               </button>
             </div>
 
             {mfaMethod === "passkey" ? (
-              <div className="space-y-4">
-                {error && (
-                  <div className="rounded-lg bg-accent-red/10 border border-accent-red/30 p-3 text-sm text-accent-red">
-                    {error}
-                  </div>
-                )}
-                <p className="text-sm text-center text-text-secondary">{t("auth.mfa_passkey_prompt")}</p>
-                <Button className="w-full" onClick={handlePasskeyAuth} disabled={passkeyAuthenticating}>
-                  {passkeyAuthenticating ? <><Loader2 className="h-4 w-4 animate-spin" /> {t("auth.mfa_passkey_authenticating")}</> : <><Key className="h-4 w-4" /> {t("auth.mfa_verify")}</>}
-                </Button>
+              <div className="site-auth-stack">
+                {error ? <SiteAuthAlert>{error}</SiteAuthAlert> : null}
+                <div className="site-auth-status-icon" data-tone="info" style={{ margin: "0 auto" }}>
+                  <Key className="h-7 w-7" />
+                </div>
+                <p className="site-auth-footer" style={{ marginTop: 0 }}>{t("auth.mfa_passkey_prompt")}</p>
+                <button
+                  type="button"
+                  className="site-button site-button-primary site-auth-button"
+                  onClick={handlePasskeyAuth}
+                  disabled={passkeyAuthenticating}
+                >
+                  {passkeyAuthenticating ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" /> {t("auth.mfa_passkey_authenticating")}
+                    </>
+                  ) : (
+                    <>
+                      <Key className="h-4 w-4" /> {t("auth.mfa_verify")}
+                    </>
+                  )}
+                </button>
               </div>
             ) : (
-            <form onSubmit={handleMfaVerify} className="space-y-4">
-              {error && (
-                <div className="rounded-lg bg-accent-red/10 border border-accent-red/30 p-3 text-sm text-accent-red">
-                  {error}
-                </div>
-              )}
+              <form onSubmit={handleMfaVerify} className="site-auth-form">
+                {error ? <SiteAuthAlert>{error}</SiteAuthAlert> : null}
 
-              {mfaMethod === "sms" && !smsSent && (
-                <Button type="button" variant="outline" className="w-full" onClick={handleSendSms}>
-                  {t("auth.mfa_send_sms")}
-                </Button>
-              )}
+                {mfaMethod === "sms" && !smsSent ? (
+                  <button type="button" className="site-button site-button-ghost site-auth-button" onClick={handleSendSms}>
+                    {t("auth.mfa_send_sms")}
+                  </button>
+                ) : null}
 
-              <div className="space-y-2">
-                <Label>{mfaMethod === "backup" ? t("auth.mfa_backup_label") : t("auth.mfa_code_placeholder")}</Label>
-                <Input
-                  value={mfaCode}
-                  onChange={(e) => {
-                    const val = mfaMethod === "backup" ? e.target.value.toUpperCase() : e.target.value.replace(/\D/g, "").slice(0, 6);
-                    setMfaCode(val);
-                    // Auto-verify on last digit for TOTP / SMS (6 digits)
-                    if (mfaMethod !== "backup" && val.length === 6 && !mfaAutoSubmitted.current) {
-                      mfaAutoSubmitted.current = true;
-                      setMfaVerifying(true);
-                      verifyMfaLogin(mfaChallengeId, mfaMethod, val)
-                        .then(() => completeBrowserLogin("mfa_" + mfaMethod))
-                        .catch((err) => setError(err instanceof Error ? err.message : "Verification failed"))
-                        .finally(() => { mfaAutoSubmitted.current = false; setMfaVerifying(false); });
-                    }
-                  }}
-                  placeholder={mfaMethod === "backup" ? "XXXX-XXXX" : "000000"}
-                  className="font-mono text-center text-lg tracking-widest"
-                  maxLength={mfaMethod === "backup" ? 9 : 6}
-                  autoFocus
-                />
-              </div>
+                <label className="site-field-wrap site-auth-field-wrap">
+                  <span className="site-auth-label">{mfaMethod === "backup" ? t("auth.mfa_backup_label") : t("auth.mfa_code_placeholder")}</span>
+                  <input
+                    value={mfaCode}
+                    onChange={(e) => {
+                      const val = mfaMethod === "backup" ? e.target.value.toUpperCase() : e.target.value.replace(/\D/g, "").slice(0, 6);
+                      setMfaCode(val);
+                      if (mfaMethod !== "backup" && val.length === 6 && !mfaAutoSubmitted.current) {
+                        mfaAutoSubmitted.current = true;
+                        setMfaVerifying(true);
+                        verifyMfaLogin(mfaChallengeId, mfaMethod, val)
+                          .then(() => completeBrowserLogin("mfa_" + mfaMethod))
+                          .catch((err) => setError(err instanceof Error ? err.message : "Verification failed"))
+                          .finally(() => {
+                            mfaAutoSubmitted.current = false;
+                            setMfaVerifying(false);
+                          });
+                      }
+                    }}
+                    placeholder={mfaMethod === "backup" ? "XXXX-XXXX" : "000000"}
+                    className={`site-field site-auth-field ${mfaMethod === "backup" ? "" : "site-auth-otp"}`}
+                    maxLength={mfaMethod === "backup" ? 9 : 6}
+                    autoFocus
+                  />
+                </label>
 
-              <Button type="submit" className="w-full" disabled={mfaVerifying || !mfaCode}>
-                {mfaVerifying ? <><Loader2 className="h-4 w-4 animate-spin" /> {t("auth.mfa_verifying")}</> : t("auth.mfa_verify")}
-              </Button>
-            </form>
+                <button type="submit" className="site-button site-button-primary site-auth-button" disabled={mfaVerifying || !mfaCode}>
+                  {mfaVerifying ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" /> {t("auth.mfa_verifying")}
+                    </>
+                  ) : (
+                    t("auth.mfa_verify")
+                  )}
+                </button>
+              </form>
             )}
 
             <button
-              onClick={() => { setMfaRequired(false); setMfaCode(""); setError(""); }}
-              className="mt-4 block w-full text-center text-sm text-text-muted hover:text-text-primary"
+              type="button"
+              onClick={() => {
+                setMfaRequired(false);
+                setMfaCode("");
+                setError("");
+              }}
+              className="site-auth-text-button site-auth-centered-copy"
             >
               ← {t("auth.login_title")}
             </button>
-          </>
-        ) : (
-        /* ── Normal Login ── */
-        <>
-        <div className="mb-8 text-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={BRAND_ASSETS.iconGradient} alt="Xcelsior" width={56} height={56} className="mx-auto mb-4 h-14 w-14 object-contain" />
-          <h1 className="text-2xl font-bold">{t("auth.login_title")}</h1>
-          <p className="mt-1 text-sm text-text-secondary">
-            {t("auth.login_subtitle")}
-          </p>
-        </div>
-
-        {/* OAuth Buttons */}
-        <div className="space-y-3 mb-6">
-          {OAUTH_PROVIDERS.map((provider) => {
-            const labels = { github: t("auth.github"), google: t("auth.google"), huggingface: t("auth.huggingface") };
-            return (
-              <Button
-                key={provider}
-                variant="outline"
-                className="relative h-auto w-full justify-start gap-3 rounded-xl border-border/70 bg-background/40 px-4 py-2.5 hover:bg-surface-hover/70"
-                onClick={() => handleOAuth(provider)}
-              >
-                <ProviderLogo
-                  provider={provider}
-                  framed
-                  size={22}
-                  className="rounded-lg border-border/60 bg-navy/70 shadow-none"
-                />
-                <span className="flex-1 text-left">{labels[provider]}</span>
-                {lastOAuth === provider && (
-                  <span className="absolute right-3 rounded-full bg-accent-cyan/10 border border-accent-cyan/30 px-2 py-0.5 text-[10px] font-medium text-accent-cyan">
-                    Last used
-                  </span>
-                )}
-              </Button>
-            );
-          })}
-        </div>
-
-        <div className="relative mb-6">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-border" />
           </div>
-          <div className="relative flex justify-center text-xs">
-            <span className="bg-surface px-2 text-text-muted">{t("auth.or")}</span>
-          </div>
-        </div>
-
-        {/* Email/Password */}
-        <form onSubmit={handleLogin} className="space-y-4">
-          {error && (
-            <div className="rounded-lg bg-accent-red/10 border border-accent-red/30 p-3 text-sm text-accent-red">
-              {error}
-            </div>
-          )}
-          <div className="space-y-2">
-            <Label htmlFor="email">{t("auth.email")}</Label>
-            <Input
-              id="email"
-              type="email"
-              autoComplete="email"
-              placeholder={t("auth.email_placeholder")}
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-          </div>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="password">{t("auth.password")}</Label>
-              <Link
-                href="/forgot-password"
-                className="text-xs text-ice-blue hover:underline"
-              >
-                {t("auth.forgot_link")}
-              </Link>
-            </div>
-            <div className="relative">
-              <Input
-                id="password"
-                type={showPw ? "text" : "password"}
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-              <button
-                type="button"
-                onClick={() => setShowPw(!showPw)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
-                tabIndex={-1}
-              >
-                {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-          </div>
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? t("auth.login_loading") : t("auth.login_button")}
-          </Button>
-        </form>
-
-        <p className="mt-6 text-center text-sm text-text-secondary">
-          {t("auth.login_signup")}{" "}
-          <Link href="/register" className="text-ice-blue hover:underline">
-            {t("auth.login_signup_link")}
-          </Link>
-        </p>
         </>
-        )}
-      </Card>
-    </div>
+      ) : (
+        <>
+          <SiteAuthHeader title={t("auth.login_title")} subtitle={t("auth.login_subtitle")} />
+          <div className="site-auth-section">
+            <div className="site-auth-provider-list">
+              {OAUTH_PROVIDERS.map((provider) => {
+                const labels = { github: t("auth.github"), google: t("auth.google"), huggingface: t("auth.huggingface") };
+                return (
+                  <button key={provider} type="button" className="site-auth-provider" onClick={() => handleOAuth(provider)}>
+                    <ProviderLogo provider={provider} framed size={22} className="site-auth-provider-logo" />
+                    <span className="site-auth-provider-label">{labels[provider]}</span>
+                    {lastOAuth === provider ? <span className="site-auth-provider-badge">Last used</span> : null}
+                  </button>
+                );
+              })}
+            </div>
+
+            <SiteAuthDivider label={t("auth.or")} />
+
+            <form onSubmit={handleLogin} className="site-auth-form">
+              {error ? <SiteAuthAlert>{error}</SiteAuthAlert> : null}
+              <label htmlFor="email" className="site-field-wrap site-auth-field-wrap">
+                <span className="site-auth-label">{t("auth.email")}</span>
+                <input
+                  id="email"
+                  type="email"
+                  autoComplete="email"
+                  placeholder={t("auth.email_placeholder")}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="site-field site-auth-field"
+                />
+              </label>
+              <label htmlFor="password" className="site-field-wrap site-auth-field-wrap">
+                <div className="site-auth-field-row">
+                  <span className="site-auth-label">{t("auth.password")}</span>
+                  <Link href="/forgot-password" className="site-auth-helper-link">
+                    {t("auth.forgot_link")}
+                  </Link>
+                </div>
+                <div className="site-auth-input-wrap">
+                  <input
+                    id="password"
+                    type={showPw ? "text" : "password"}
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    className="site-field site-auth-field"
+                  />
+                  <button type="button" onClick={() => setShowPw(!showPw)} className="site-auth-input-action" tabIndex={-1}>
+                    {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </label>
+              <button type="submit" className="site-button site-button-primary site-auth-button" disabled={loading}>
+                {loading ? t("auth.login_loading") : t("auth.login_button")}
+              </button>
+            </form>
+
+            <p className="site-auth-footer">
+              {t("auth.login_signup")} <Link href="/register" className="site-auth-link">{t("auth.login_signup_link")}</Link>
+            </p>
+          </div>
+        </>
+      )}
+    </SiteAuthCard>
   );
 }
 

@@ -1,15 +1,12 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import Image from "next/image";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle, Loader2, Users, XCircle } from "lucide-react";
+import { SiteAuthAlert, SiteAuthCard, SiteAuthHeader } from "@/components/marketing/SiteAuthShell";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
-import { BRAND_PNG_ASSETS } from "@/lib/brand-assets";
 
 function AcceptInviteContent() {
   const searchParams = useSearchParams();
@@ -27,22 +24,23 @@ function AcceptInviteContent() {
 
   useEffect(() => {
     if (!token) return;
-    // Peek at the invite
     apiFetch<{ ok: boolean; pending?: boolean; accepted?: boolean; team_name: string; email: string; role: string; token?: string }>(
-      `/api/teams/invite/${encodeURIComponent(token)}`
-    ).then((res) => {
-      setTeamName(res.team_name);
-      setInviteEmail(res.email);
-      setRole(res.role);
-      if (res.accepted) {
-        setStatus("accepted");
-      } else {
-        setStatus("pending");
-      }
-    }).catch((err) => {
-      setStatus("error");
-      setErrorMsg(err?.message || "This invitation is invalid or has expired.");
-    });
+      `/api/teams/invite/${encodeURIComponent(token)}`,
+    )
+      .then((res) => {
+        setTeamName(res.team_name);
+        setInviteEmail(res.email);
+        setRole(res.role);
+        if (res.accepted) {
+          setStatus("accepted");
+        } else {
+          setStatus("pending");
+        }
+      })
+      .catch((err) => {
+        setStatus("error");
+        setErrorMsg(err?.message || "This invitation is invalid or has expired.");
+      });
   }, [token]);
 
   async function handleAccept() {
@@ -59,100 +57,102 @@ function AcceptInviteContent() {
 
   if (authLoading || status === "loading") {
     return (
-      <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-accent-cyan" />
+      <div className="site-auth-loading">
+        <Loader2 className="site-auth-spinner h-8 w-8 animate-spin" />
       </div>
     );
   }
 
   if (status === "error") {
     return (
-      <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4">
-        <Card className="w-full max-w-md p-8 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-accent-red/10">
-            <XCircle className="h-8 w-8 text-accent-red" />
+      <SiteAuthCard>
+        <div className="site-auth-section site-auth-stack">
+          <SiteAuthHeader title="Invitation Not Found" subtitle={errorMsg} />
+          <div className="site-auth-status-icon" data-tone="error" style={{ margin: "0 auto" }}>
+            <XCircle className="h-7 w-7" />
           </div>
-          <h1 className="text-2xl font-bold mb-2">Invitation Not Found</h1>
-          <p className="text-text-secondary mb-6">{errorMsg}</p>
-          <Link href="/dashboard">
-            <Button className="w-full">Go to Dashboard</Button>
+          <Link href="/dashboard" className="site-button site-button-primary site-auth-button">
+            Go to Dashboard
           </Link>
-        </Card>
-      </div>
+        </div>
+      </SiteAuthCard>
     );
   }
 
   if (status === "accepted") {
     return (
-      <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4">
-        <Card className="w-full max-w-md p-8 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald/10">
-            <CheckCircle className="h-8 w-8 text-emerald" />
+      <SiteAuthCard>
+        <div className="site-auth-section site-auth-stack">
+          <SiteAuthHeader
+            title="You're In!"
+            subtitle={
+              <>
+                You&apos;ve joined <span className="site-auth-emphasis">{teamName}</span> as a {role}.
+              </>
+            }
+          />
+          <div className="site-auth-status-icon" data-tone="success" style={{ margin: "0 auto" }}>
+            <CheckCircle className="h-7 w-7" />
           </div>
-          <h1 className="text-2xl font-bold mb-2">You&apos;re In!</h1>
-          <p className="text-text-secondary mb-6">
-            You&apos;ve joined <strong className="text-text-primary">{teamName}</strong> as a {role}.
-          </p>
-          <Link href="/dashboard/settings#team">
-            <Button className="w-full">View Team</Button>
+          <Link href="/dashboard/settings#team" className="site-button site-button-primary site-auth-button">
+            View Team
           </Link>
-        </Card>
-      </div>
+        </div>
+      </SiteAuthCard>
     );
   }
 
-  // status === "pending"
   return (
-    <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4">
-      <Card className="w-full max-w-md p-8 text-center">
-        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-accent-cyan/10">
-          <Users className="h-8 w-8 text-accent-cyan" />
+    <SiteAuthCard>
+      <SiteAuthHeader
+        title="Team Invitation"
+        subtitle={
+          <>
+            You&apos;ve been invited to join <span className="site-auth-emphasis">{teamName}</span>
+          </>
+        }
+      />
+      <div className="site-auth-section site-auth-stack">
+        <div className="site-auth-status-icon" data-tone="info" style={{ margin: "0 auto" }}>
+          <Users className="h-7 w-7" />
         </div>
-        <div className="flex items-center justify-center gap-2 mb-4">
-          <Image src={BRAND_PNG_ASSETS.appGradientRounded512} alt="Xcelsior" width={32} height={32} className="h-8 w-8 rounded-lg" />
-          <span className="text-lg font-bold">Xcelsior</span>
+        <div className="site-auth-alert" data-tone="info">
+          Role: <span className="site-auth-emphasis" style={{ textTransform: "capitalize" }}>{role}</span>
         </div>
-        <h1 className="text-2xl font-bold mb-2">Team Invitation</h1>
-        <p className="text-text-secondary mb-1">
-          You&apos;ve been invited to join
-        </p>
-        <p className="text-lg font-semibold text-text-primary mb-4">{teamName}</p>
-        <p className="text-sm text-text-muted mb-6">
-          Role: <span className="capitalize font-medium text-text-secondary">{role}</span>
-        </p>
 
         {user ? (
           user.email.toLowerCase() === inviteEmail.toLowerCase() ? (
-            <Button className="w-full bg-accent-cyan text-white hover:bg-accent-cyan/90" onClick={handleAccept}>
+            <button type="button" className="site-button site-button-primary site-auth-button" onClick={handleAccept}>
               Accept Invitation
-            </Button>
+            </button>
           ) : (
-            <div className="space-y-3">
-              <p className="text-sm text-accent-gold">
-                This invitation is for <strong>{inviteEmail}</strong>.
-                You&apos;re signed in as <strong>{user.email}</strong>.
-              </p>
-              <Link href={`/login?redirect=/accept-invite?token=${encodeURIComponent(token)}`}>
-                <Button variant="outline" className="w-full">Sign in with the correct account</Button>
+            <div className="site-auth-stack">
+              <SiteAuthAlert tone="warn">
+                This invitation is for <strong>{inviteEmail}</strong>. You&apos;re signed in as <strong>{user.email}</strong>.
+              </SiteAuthAlert>
+              <Link href={`/login?redirect=/accept-invite?token=${encodeURIComponent(token)}`} className="site-button site-button-ghost site-auth-button">
+                Sign in with the correct account
               </Link>
             </div>
           )
         ) : (
-          <div className="space-y-3">
-            <Link href={`/register?email=${encodeURIComponent(inviteEmail)}&invite=${encodeURIComponent(token)}`}>
-              <Button className="w-full bg-accent-cyan text-white hover:bg-accent-cyan/90">
-                Create Account &amp; Join
-              </Button>
+          <div className="site-auth-actions">
+            <Link
+              href={`/register?email=${encodeURIComponent(inviteEmail)}&invite=${encodeURIComponent(token)}`}
+              className="site-button site-button-primary site-auth-button"
+            >
+              Create Account &amp; Join
             </Link>
-            <Link href={`/login?redirect=/accept-invite?token=${encodeURIComponent(token)}`}>
-              <Button variant="outline" className="w-full">
-                Sign In to Accept
-              </Button>
+            <Link
+              href={`/login?redirect=/accept-invite?token=${encodeURIComponent(token)}`}
+              className="site-button site-button-ghost site-auth-button"
+            >
+              Sign In to Accept
             </Link>
           </div>
         )}
-      </Card>
-    </div>
+      </div>
+    </SiteAuthCard>
   );
 }
 
