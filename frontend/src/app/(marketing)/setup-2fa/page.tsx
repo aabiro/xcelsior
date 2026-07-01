@@ -1,14 +1,21 @@
 "use client";
 
-import { Suspense, useEffect, useState, useCallback } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import Image from "next/image";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input, Label } from "@/components/ui/input";
-import { CheckCircle, Shield, Key, Smartphone, AlertTriangle, Loader2, Copy, Download } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import {
+  AlertTriangle,
+  CheckCircle,
+  Copy,
+  Download,
+  Key,
+  Loader2,
+  Shield,
+  Smartphone,
+} from "lucide-react";
 import QRCode from "qrcode";
 import { toast } from "sonner";
+import { SiteAuthAlert, SiteAuthCard, SiteAuthHeader } from "@/components/marketing/SiteAuthShell";
 import * as api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
@@ -23,24 +30,19 @@ function Setup2FAPageContent() {
 
   const [checkingMfa, setCheckingMfa] = useState(true);
   const [mfaEnabled, setMfaEnabled] = useState(false);
-  const [mfaMethods, setMfaMethods] = useState<api.MfaMethod[]>([]);
   const [backupCodes, setBackupCodes] = useState<string[] | null>(null);
-
   const [activeMethod, setActiveMethod] = useState<"passkey" | "totp" | "sms" | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // TOTP state
   const [totpSetup, setTotpSetup] = useState<{ secret: string; uri: string; methodId: number } | null>(null);
   const [totpQrDataUrl, setTotpQrDataUrl] = useState<string | null>(null);
   const [totpCode, setTotpCode] = useState("");
 
-  // SMS state
   const [smsPhone, setSmsPhone] = useState("");
   const [smsCode, setSmsCode] = useState("");
   const [smsCodeSent, setSmsCodeSent] = useState(false);
 
-  // Passkey state
   const [passkeyName, setPasskeyName] = useState("");
 
   const loadMfa = useCallback(async () => {
@@ -51,8 +53,6 @@ function Setup2FAPageContent() {
         router.replace("/dashboard/settings#security");
         return;
       }
-      setMfaEnabled(false);
-      setMfaMethods(res.methods || []);
     } catch {
       // Ignore errors, assume not enabled
     } finally {
@@ -68,16 +68,16 @@ function Setup2FAPageContent() {
     }
   }, [user, authLoading, router, loadMfa]);
 
-  if (authLoading || checkingMfa) {
-    return (
-      <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4">
-        <Loader2 className="h-8 w-8 animate-spin text-ice-blue" />
-      </div>
-    );
-  }
-
   const handleSkip = () => {
     router.replace(redirectTarget);
+  };
+
+  const resetState = () => {
+    setActiveMethod(null);
+    setError("");
+    setLoading(false);
+    setTotpCode("");
+    setSmsCode("");
   };
 
   const handleTotpSetup = async () => {
@@ -89,8 +89,11 @@ function Setup2FAPageContent() {
       const dataUrl = await QRCode.toDataURL(res.provisioning_uri, { width: 200, margin: 1 });
       setTotpQrDataUrl(dataUrl);
       setActiveMethod("totp");
-    } catch (err) { setError(err instanceof Error ? err.message : "Failed to set up TOTP"); }
-    finally { setLoading(false); }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to set up TOTP");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleTotpVerify = async (e: React.FormEvent) => {
@@ -102,21 +105,30 @@ function Setup2FAPageContent() {
       const res = await api.verifyTotp(totpCode, totpSetup?.methodId);
       if (res.backup_codes) setBackupCodes(res.backup_codes);
       setMfaEnabled(true);
-    } catch (err) { setError(err instanceof Error ? err.message : "Invalid code"); }
-    finally { setLoading(false); }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Invalid code");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSmsSetup = async (e: React.FormEvent) => {
     e.preventDefault();
     const phone = `+1${smsPhone.replace(/\D/g, "")}`;
-    if (phone.length < 8) { setError("Enter a valid phone number"); return; }
+    if (phone.length < 8) {
+      setError("Enter a valid phone number");
+      return;
+    }
     setLoading(true);
     setError("");
     try {
       await api.setupSms(phone);
       setSmsCodeSent(true);
-    } catch (err) { setError(err instanceof Error ? err.message : "Failed to send code"); }
-    finally { setLoading(false); }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send code");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSmsVerify = async (e: React.FormEvent) => {
@@ -128,16 +140,22 @@ function Setup2FAPageContent() {
       const res = await api.verifySms(smsCode);
       if (res.backup_codes) setBackupCodes(res.backup_codes);
       setMfaEnabled(true);
-    } catch (err) { setError(err instanceof Error ? err.message : "Invalid code"); }
-    finally { setLoading(false); }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Invalid code");
+    } finally {
+      setLoading(false);
+    }
   };
 
   function bufferToBase64url(buffer: ArrayBuffer): string {
     const bytes = new Uint8Array(buffer);
     let binary = "";
-    bytes.forEach((b) => { binary += String.fromCharCode(b); });
+    bytes.forEach((b) => {
+      binary += String.fromCharCode(b);
+    });
     return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   }
+
   function base64urlToBuffer(b64: string): ArrayBuffer {
     const padded = b64.replace(/-/g, "+").replace(/_/g, "/");
     const binary = atob(padded);
@@ -173,7 +191,7 @@ function Setup2FAPageContent() {
         } as PublicKeyCredentialCreationOptions,
       };
 
-      const credential = await navigator.credentials.create(createOptions) as PublicKeyCredential;
+      const credential = (await navigator.credentials.create(createOptions)) as PublicKeyCredential;
       if (!credential) throw new Error("No credential returned");
 
       const attestation = credential.response as AuthenticatorAttestationResponse;
@@ -194,7 +212,9 @@ function Setup2FAPageContent() {
       if (message.includes("already added")) {
         void loadMfa();
       }
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleDownloadBackupCodes = () => {
@@ -202,246 +222,247 @@ function Setup2FAPageContent() {
     const text = `Xcelsior Backup Codes\n\n${backupCodes.join("\n")}\n\nKeep these safe. Each code can only be used once.\nGenerated on: ${new Date().toLocaleDateString()}`;
     const blob = new Blob([text], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "xcelsior-backup-codes.txt";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "xcelsior-backup-codes.txt";
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
     URL.revokeObjectURL(url);
   };
 
-  // If successfully enabled and showing backup codes
-  if (mfaEnabled && backupCodes) {
+  if (authLoading || checkingMfa) {
     return (
-      <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-12">
-        <Card className="w-full max-w-lg p-8">
-          <div className="mb-6 text-center">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/10">
-              <CheckCircle className="h-8 w-8 text-emerald-500" />
-            </div>
-            <h1 className="text-2xl font-bold">2FA Enabled Successfully</h1>
-            <p className="mt-2 text-text-secondary">
-              Your account is now secure. Please save these backup codes in a safe place.
-            </p>
-          </div>
-
-          <div className="rounded-xl bg-accent-red/10 border border-accent-red/30 p-4 mb-6">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="h-5 w-5 text-accent-red shrink-0 mt-0.5" />
-              <div className="text-sm">
-                <p className="font-medium text-accent-red mb-1">Save these backup codes</p>
-                <p className="text-accent-red/80">
-                  If you lose your device, these codes are the only way to access your account.
-                  Each code can only be used once.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 mb-6">
-            {backupCodes.map((code, i) => (
-              <div key={i} className="rounded-lg bg-surface border border-border p-3 text-center font-mono text-sm tracking-widest select-all">
-                {code}
-              </div>
-            ))}
-          </div>
-
-          <div className="flex gap-3 mb-8">
-            <Button variant="outline" className="flex-1" onClick={() => { navigator.clipboard.writeText(backupCodes.join("\n")); toast.success("Copied to clipboard"); }}>
-              <Copy className="h-4 w-4 mr-2" /> Copy
-            </Button>
-            <Button variant="outline" className="flex-1" onClick={handleDownloadBackupCodes}>
-              <Download className="h-4 w-4 mr-2" /> Download
-            </Button>
-          </div>
-
-          <Button className="w-full" onClick={() => router.replace(redirectTarget)}>
-            I have saved these codes — Continue
-          </Button>
-        </Card>
+      <div className="site-auth-loading">
+        <Loader2 className="site-auth-spinner h-8 w-8 animate-spin" />
       </div>
     );
   }
 
-  return (
-    <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-12">
-      <Card className="w-full max-w-md p-8">
-        <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-ice-blue/10">
-            <Shield className="h-6 w-6 text-ice-blue" />
+  if (mfaEnabled && backupCodes) {
+    return (
+      <SiteAuthCard className="site-auth-card-wide">
+        <SiteAuthHeader
+          title="2FA Enabled Successfully"
+          subtitle="Your account is now secure. Please save these backup codes in a safe place."
+        />
+        <div className="site-auth-section site-auth-stack">
+          <div className="site-auth-status-icon" data-tone="success" style={{ margin: "0 auto" }}>
+            <CheckCircle className="h-7 w-7" />
           </div>
-          <h1 className="text-2xl font-bold">Secure Your Account</h1>
-          <p className="mt-1 text-sm text-text-secondary">
-            Protect your account with Two-Factor Authentication (2FA).
-          </p>
+          <SiteAuthAlert tone="warn">
+            <strong>Save these backup codes</strong>
+            <br />
+            If you lose your device, these codes are the only way to access your account. Each code can only be used once.
+          </SiteAuthAlert>
+          <div className="site-auth-code-grid">
+            {backupCodes.map((code) => (
+              <div key={code} className="site-auth-code">
+                {code}
+              </div>
+            ))}
+          </div>
+          <div className="site-auth-button-row">
+            <button
+              type="button"
+              className="site-button site-button-ghost site-auth-button"
+              onClick={() => {
+                navigator.clipboard.writeText(backupCodes.join("\n"));
+                toast.success("Copied to clipboard");
+              }}
+            >
+              <Copy className="h-4 w-4" />
+              Copy
+            </button>
+            <button type="button" className="site-button site-button-ghost site-auth-button" onClick={handleDownloadBackupCodes}>
+              <Download className="h-4 w-4" />
+              Download
+            </button>
+          </div>
+          <button type="button" className="site-button site-button-primary site-auth-button" onClick={() => router.replace(redirectTarget)}>
+            I have saved these codes — Continue
+          </button>
         </div>
+      </SiteAuthCard>
+    );
+  }
 
-        {error && (
-          <div className="rounded-lg bg-accent-red/10 border border-accent-red/30 p-3 text-sm text-accent-red mb-6">
-            {error}
-          </div>
-        )}
+  return (
+    <SiteAuthCard className="site-auth-card-wide">
+      <SiteAuthHeader title="Secure Your Account" subtitle="Protect your account with Two-Factor Authentication (2FA)." />
+      <div className="site-auth-section site-auth-stack">
+        {error ? <SiteAuthAlert>{error}</SiteAuthAlert> : null}
 
         {!activeMethod ? (
-          <div className="space-y-4">
-            <button
-              onClick={() => setActiveMethod("passkey")}
-              className="flex w-full items-start gap-4 rounded-xl border border-border bg-surface p-4 text-left transition-colors hover:border-ice-blue/50 hover:bg-surface-hover"
-            >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-ice-blue/10">
-                <Key className="h-5 w-5 text-ice-blue" />
-              </div>
-              <div>
-                <p className="font-semibold text-text-primary">Passkey</p>
-                <p className="text-sm text-text-secondary">Use Face ID, Touch ID, or a security key. (Recommended)</p>
-              </div>
-            </button>
+          <>
+            <div className="site-auth-option-grid">
+              <button type="button" onClick={() => setActiveMethod("passkey")} className="site-auth-option">
+                <span className="site-auth-option-icon" style={{ color: "var(--cyan)" }}>
+                  <Key className="h-5 w-5" />
+                </span>
+                <span>
+                  <strong className="site-auth-emphasis">Passkey</strong>
+                  <span className="site-auth-option-copy">Use Face ID, Touch ID, or a security key. (Recommended)</span>
+                </span>
+              </button>
 
-            <button
-              onClick={handleTotpSetup}
-              disabled={loading}
-              className="flex w-full items-start gap-4 rounded-xl border border-border bg-surface p-4 text-left transition-colors hover:border-ice-blue/50 hover:bg-surface-hover"
-            >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-ice-blue/10">
-                <Smartphone className="h-5 w-5 text-ice-blue" />
-              </div>
-              <div>
-                <p className="font-semibold text-text-primary">Authenticator App</p>
-                <p className="text-sm text-text-secondary">Use an app like Google Authenticator or Authy.</p>
-              </div>
-            </button>
+              <button type="button" onClick={handleTotpSetup} disabled={loading} className="site-auth-option">
+                <span className="site-auth-option-icon" style={{ color: "var(--cyan)" }}>
+                  <Smartphone className="h-5 w-5" />
+                </span>
+                <span>
+                  <strong className="site-auth-emphasis">Authenticator App</strong>
+                  <span className="site-auth-option-copy">Use an app like Google Authenticator or Authy.</span>
+                </span>
+              </button>
 
-            <button
-              onClick={() => setActiveMethod("sms")}
-              className="flex w-full items-start gap-4 rounded-xl border border-border bg-surface p-4 text-left transition-colors hover:border-ice-blue/50 hover:bg-surface-hover"
-            >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-ice-blue/10">
-                <Shield className="h-5 w-5 text-ice-blue" />
-              </div>
-              <div>
-                <p className="font-semibold text-text-primary">SMS Verification</p>
-                <p className="text-sm text-text-secondary">Receive a code via text message.</p>
-              </div>
-            </button>
-
-            <div className="pt-4 text-center">
-              <button
-                onClick={handleSkip}
-                className="text-sm text-text-muted hover:text-text-primary transition-colors"
-              >
-                Skip for now — I&apos;ll do this later
+              <button type="button" onClick={() => setActiveMethod("sms")} className="site-auth-option">
+                <span className="site-auth-option-icon" style={{ color: "var(--cyan)" }}>
+                  <Shield className="h-5 w-5" />
+                </span>
+                <span>
+                  <strong className="site-auth-emphasis">SMS Verification</strong>
+                  <span className="site-auth-option-copy">Receive a code via text message.</span>
+                </span>
               </button>
             </div>
-          </div>
-        ) : activeMethod === "passkey" ? (
-          <form onSubmit={handlePasskeyAdd} className="space-y-6">
-            <div>
-              <Label>Name your passkey</Label>
-              <Input
+            <button type="button" onClick={handleSkip} className="site-auth-text-button site-auth-centered-copy">
+              Skip for now — I&apos;ll do this later
+            </button>
+          </>
+        ) : null}
+
+        {activeMethod === "passkey" ? (
+          <form onSubmit={handlePasskeyAdd} className="site-auth-form">
+            <label className="site-field-wrap site-auth-field-wrap">
+              <span className="site-auth-label">Name your passkey</span>
+              <input
                 value={passkeyName}
                 onChange={(e) => setPasskeyName(e.target.value)}
                 placeholder="e.g. MacBook Touch ID"
-                className="mt-2"
+                className="site-field site-auth-field"
                 autoFocus
               />
-            </div>
-            <div className="flex gap-3">
-              <Button type="button" variant="outline" className="flex-1" onClick={() => setActiveMethod(null)}>
+            </label>
+            <div className="site-auth-button-row">
+              <button type="button" className="site-button site-button-ghost site-auth-button" onClick={resetState}>
                 Back
-              </Button>
-              <Button type="submit" className="flex-1" disabled={loading || !passkeyName}>
-                {loading ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Registering</> : "Register Passkey"}
-              </Button>
+              </button>
+              <button type="submit" className="site-button site-button-primary site-auth-button" disabled={loading || !passkeyName}>
+                {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Registering</> : "Register Passkey"}
+              </button>
             </div>
           </form>
-        ) : activeMethod === "totp" ? (
-          <form onSubmit={handleTotpVerify} className="space-y-6">
-            <div className="rounded-xl border border-border bg-surface p-6 text-center">
+        ) : null}
+
+        {activeMethod === "totp" ? (
+          <form onSubmit={handleTotpVerify} className="site-auth-form">
+            <div className="site-auth-qr-card">
               {totpQrDataUrl ? (
-                <Image src={totpQrDataUrl} alt="QR Code" width={160} height={160} className="mx-auto rounded-lg bg-white p-2" />
+                <Image src={totpQrDataUrl} alt="QR Code" width={160} height={160} className="site-auth-qr-image" />
               ) : (
-                <div className="mx-auto h-40 w-40 animate-pulse rounded-lg bg-border" />
+                <div className="site-auth-qr-placeholder" />
               )}
-              <p className="mt-4 text-sm font-medium">Scan this QR code</p>
-              <p className="text-xs text-text-muted">Or enter key manually: <span className="font-mono text-text-primary">{totpSetup?.secret}</span></p>
+              <p className="site-auth-emphasis" style={{ marginTop: 16 }}>Scan this QR code</p>
+              <p className="site-auth-note">
+                Or enter key manually: <span className="site-auth-code-inline">{totpSetup?.secret}</span>
+              </p>
             </div>
-            <div>
-              <Label>Enter 6-digit code</Label>
-              <Input
+            <label className="site-field-wrap site-auth-field-wrap">
+              <span className="site-auth-label">Enter 6-digit code</span>
+              <input
                 value={totpCode}
                 onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
                 placeholder="000000"
-                className="mt-2 text-center font-mono text-lg tracking-widest"
+                className="site-field site-auth-field site-auth-otp"
                 maxLength={6}
                 autoFocus
               />
-            </div>
-            <div className="flex gap-3">
-              <Button type="button" variant="outline" className="flex-1" onClick={() => setActiveMethod(null)}>
+            </label>
+            <div className="site-auth-button-row">
+              <button type="button" className="site-button site-button-ghost site-auth-button" onClick={resetState}>
                 Back
-              </Button>
-              <Button type="submit" className="flex-1" disabled={loading || totpCode.length !== 6}>
-                {loading ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Verifying</> : "Verify & Enable"}
-              </Button>
+              </button>
+              <button type="submit" className="site-button site-button-primary site-auth-button" disabled={loading || totpCode.length !== 6}>
+                {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Verifying</> : "Verify & Enable"}
+              </button>
             </div>
           </form>
-        ) : (
-          <form onSubmit={smsCodeSent ? handleSmsVerify : handleSmsSetup} className="space-y-6">
+        ) : null}
+
+        {activeMethod === "sms" ? (
+          <form onSubmit={smsCodeSent ? handleSmsVerify : handleSmsSetup} className="site-auth-form">
             {!smsCodeSent ? (
-              <div>
-                <Label>Phone Number</Label>
-                <div className="mt-2 flex items-center gap-2">
-                  <div className="flex h-10 w-12 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-sm font-medium text-text-secondary">
-                    +1
-                  </div>
-                  <Input
+              <label className="site-field-wrap site-auth-field-wrap">
+                <span className="site-auth-label">Phone Number</span>
+                <div className="site-auth-phone-row">
+                  <span className="site-auth-prefix">+1</span>
+                  <input
                     value={smsPhone}
                     onChange={(e) => setSmsPhone(e.target.value)}
                     placeholder="(555) 123-4567"
-                    className="flex-1"
+                    className="site-field site-auth-field"
                     type="tel"
                     autoFocus
                   />
                 </div>
-              </div>
+              </label>
             ) : (
-              <div>
-                <Label>Enter verification code</Label>
-                <p className="mb-4 text-xs text-text-muted">Sent to +1 {smsPhone}</p>
-                <Input
+              <label className="site-field-wrap site-auth-field-wrap">
+                <div className="site-auth-field-row">
+                  <span className="site-auth-label">Enter verification code</span>
+                  <span className="site-auth-note">Sent to +1 {smsPhone}</span>
+                </div>
+                <input
                   value={smsCode}
                   onChange={(e) => setSmsCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
                   placeholder="000000"
-                  className="mt-2 text-center font-mono text-lg tracking-widest"
+                  className="site-field site-auth-field site-auth-otp"
                   maxLength={6}
                   autoFocus
                 />
-              </div>
+              </label>
             )}
-            <div className="flex gap-3">
-              <Button
+            <div className="site-auth-button-row">
+              <button
                 type="button"
-                variant="outline"
-                className="flex-1"
-                onClick={() => smsCodeSent ? setSmsCodeSent(false) : setActiveMethod(null)}
+                className="site-button site-button-ghost site-auth-button"
+                onClick={() => {
+                  if (smsCodeSent) {
+                    setSmsCodeSent(false);
+                    setSmsCode("");
+                    setError("");
+                  } else {
+                    resetState();
+                  }
+                }}
               >
                 Back
-              </Button>
-              <Button type="submit" className="flex-1" disabled={loading || (!smsCodeSent && !smsPhone) || (smsCodeSent && smsCode.length !== 6)}>
-                {loading ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> {smsCodeSent ? "Verifying" : "Sending"}</> : smsCodeSent ? "Verify & Enable" : "Send Code"}
-              </Button>
+              </button>
+              <button
+                type="submit"
+                className="site-button site-button-primary site-auth-button"
+                disabled={loading || (!smsCodeSent && !smsPhone) || (smsCodeSent && smsCode.length !== 6)}
+              >
+                {loading ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" /> {smsCodeSent ? "Verifying" : "Sending"}</>
+                ) : smsCodeSent ? (
+                  "Verify & Enable"
+                ) : (
+                  "Send Code"
+                )}
+              </button>
             </div>
           </form>
-        )}
-      </Card>
-    </div>
+        ) : null}
+      </div>
+    </SiteAuthCard>
   );
 }
 
 export default function Setup2FAPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<div className="site-auth-loading"><Loader2 className="site-auth-spinner h-8 w-8 animate-spin" /></div>}>
       <Setup2FAPageContent />
     </Suspense>
   );

@@ -1,4 +1,5 @@
 import { AuthProviderShell } from "@/components/AuthProviderShell";
+import { SiteAuthRouteShell } from "@/components/marketing/SiteAuthShell";
 import { privatePageMetadata } from "@/lib/page-metadata";
 
 export const metadata = privatePageMetadata(
@@ -8,5 +9,9 @@ export const metadata = privatePageMetadata(
 );
 
 export default function RegisterLayout({ children }: { children: React.ReactNode }) {
-  return <AuthProviderShell>{children}</AuthProviderShell>;
+  return (
+    <AuthProviderShell>
+      <SiteAuthRouteShell>{children}</SiteAuthRouteShell>
+    </AuthProviderShell>
+  );
 }

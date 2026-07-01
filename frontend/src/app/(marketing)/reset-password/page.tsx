@@ -1,13 +1,11 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input, Label } from "@/components/ui/input";
+import { AlertTriangle, ArrowLeft, CheckCircle, Eye, EyeOff, Lock, Loader2 } from "lucide-react";
 import { PasswordRequirements } from "@/components/auth/password-requirements";
-import { ArrowLeft, Lock, CheckCircle, Eye, EyeOff, AlertTriangle } from "lucide-react";
+import { SiteAuthAlert, SiteAuthCard, SiteAuthHeader } from "@/components/marketing/SiteAuthShell";
 import { confirmPasswordReset } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
 import {
@@ -60,136 +58,110 @@ function ResetPasswordForm() {
 
   if (!token) {
     return (
-      <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-12">
-        <Card className="w-full max-w-md p-8 text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-accent-red/20">
-            <AlertTriangle className="h-6 w-6 text-accent-red" />
+      <SiteAuthCard>
+        <div className="site-auth-section site-auth-stack">
+          <SiteAuthHeader title={t("auth.reset_invalid_title")} subtitle={t("auth.reset_invalid_desc")} />
+          <div className="site-auth-status-icon" data-tone="error" style={{ margin: "0 auto" }}>
+            <AlertTriangle className="h-7 w-7" />
           </div>
-          <h1 className="text-2xl font-bold">{t("auth.reset_invalid_title")}</h1>
-          <p className="mt-2 text-sm text-text-secondary">{t("auth.reset_invalid_desc")}</p>
-          <Link href="/forgot-password">
-            <Button variant="outline" className="mt-6">
-              {t("auth.reset_request_new")}
-            </Button>
+          <Link href="/forgot-password" className="site-button site-button-ghost site-auth-button">
+            {t("auth.reset_request_new")}
           </Link>
-        </Card>
-      </div>
+        </div>
+      </SiteAuthCard>
     );
   }
 
   return (
-    <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-12">
-      <Card className="w-full max-w-md p-8">
-        {success ? (
-          <div className="text-center">
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-emerald/20">
-              <CheckCircle className="h-6 w-6 text-emerald" />
-            </div>
-            <h1 className="text-2xl font-bold">{t("auth.reset_success_title")}</h1>
-            <p className="mt-2 text-sm text-text-secondary">{t("auth.reset_success_desc")}</p>
-            <Link href="/login">
-              <Button className="mt-6 w-full">{t("auth.reset_signin")}</Button>
-            </Link>
+    <SiteAuthCard>
+      {success ? (
+        <div className="site-auth-section site-auth-stack">
+          <SiteAuthHeader title={t("auth.reset_success_title")} subtitle={t("auth.reset_success_desc")} />
+          <div className="site-auth-status-icon" data-tone="success" style={{ margin: "0 auto" }}>
+            <CheckCircle className="h-7 w-7" />
           </div>
-        ) : (
-          <>
-            <div className="mb-8 text-center">
-              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-accent-red">
-                <Lock className="h-5 w-5 text-white" />
+          <Link href="/login" className="site-button site-button-primary site-auth-button">
+            {t("auth.reset_signin")}
+          </Link>
+        </div>
+      ) : (
+        <>
+          <SiteAuthHeader title={t("auth.reset_title")} subtitle={t("auth.reset_subtitle")} />
+          <form onSubmit={handleSubmit} className="site-auth-form site-auth-section">
+            {error ? <SiteAuthAlert>{error}</SiteAuthAlert> : null}
+
+            <label htmlFor="password" className="site-field-wrap site-auth-field-wrap">
+              <span className="site-auth-label">{t("auth.reset_new_pw")}</span>
+              <div className="site-auth-input-wrap">
+                <input
+                  id="password"
+                  type={showPw ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={t("auth.pw_min")}
+                  required
+                  minLength={PASSWORD_MIN_LENGTH}
+                  maxLength={PASSWORD_MAX_LENGTH}
+                  autoComplete="new-password"
+                  className="site-field site-auth-field"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPw(!showPw)}
+                  className="site-auth-input-action"
+                  tabIndex={-1}
+                >
+                  {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
               </div>
-              <h1 className="text-2xl font-bold">{t("auth.reset_title")}</h1>
-              <p className="mt-1 text-sm text-text-secondary">{t("auth.reset_subtitle")}</p>
-            </div>
+            </label>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {error && (
-                <div className="rounded-lg bg-accent-red/10 border border-accent-red/30 p-3 text-sm text-accent-red">
-                  {error}
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <Label htmlFor="password">{t("auth.reset_new_pw")}</Label>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPw ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder={t("auth.pw_min")}
-                    required
-                    minLength={PASSWORD_MIN_LENGTH}
-                    maxLength={PASSWORD_MAX_LENGTH}
-                    autoComplete="new-password"
-                    className="pr-16"
-                  />
-                  {passwordValidation.isValid && (
-                    <CheckCircle className="pointer-events-none absolute right-10 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald" />
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setShowPw(!showPw)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
-                    tabIndex={-1}
-                  >
-                    {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
+            <label htmlFor="confirm" className="site-field-wrap site-auth-field-wrap">
+              <span className="site-auth-label">{t("auth.reset_confirm_pw")}</span>
+              <div className="site-auth-input-wrap">
+                <input
+                  id="confirm"
+                  type={showConfirm ? "text" : "password"}
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
+                  required
+                  maxLength={PASSWORD_MAX_LENGTH}
+                  autoComplete="new-password"
+                  className="site-field site-auth-field"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirm(!showConfirm)}
+                  className="site-auth-input-action"
+                  tabIndex={-1}
+                >
+                  {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
               </div>
+            </label>
 
-              <div className="space-y-2">
-                <Label htmlFor="confirm">{t("auth.reset_confirm_pw")}</Label>
-                <div className="relative">
-                  <Input
-                    id="confirm"
-                    type={showConfirm ? "text" : "password"}
-                    value={confirm}
-                    onChange={(e) => setConfirm(e.target.value)}
-                    required
-                    maxLength={PASSWORD_MAX_LENGTH}
-                    autoComplete="new-password"
-                    className="pr-16"
-                  />
-                  {matchingPasswords && (
-                    <CheckCircle className="pointer-events-none absolute right-10 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald" />
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirm(!showConfirm)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
-                    tabIndex={-1}
-                  >
-                    {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-              </div>
-              <PasswordRequirements items={passwordRequirements} />
+            <PasswordRequirements items={passwordRequirements} className="site-auth-requirements" />
 
-              <Button type="submit" className="w-full" disabled={loading || !valid}>
-                {loading ? t("auth.reset_loading") : t("auth.reset_button")}
-              </Button>
-            </form>
+            <button type="submit" className="site-button site-button-primary site-auth-button" disabled={loading || !valid}>
+              <Lock className="h-4 w-4" />
+              {loading ? t("auth.reset_loading") : t("auth.reset_button")}
+            </button>
+          </form>
 
-            <p className="mt-6 text-center text-sm text-text-secondary">
-              <Link href="/login" className="text-ice-blue hover:underline">
-                <ArrowLeft className="inline h-3 w-3 mr-1" />
-                {t("auth.forgot_back")}
-              </Link>
-            </p>
-          </>
-        )}
-      </Card>
-    </div>
+          <p className="site-auth-footer">
+            <Link href="/login" className="site-auth-link">
+              <ArrowLeft className="inline h-3 w-3" /> {t("auth.forgot_back")}
+            </Link>
+          </p>
+        </>
+      )}
+    </SiteAuthCard>
   );
 }
 
 export default function ResetPasswordPage() {
   return (
-    <Suspense fallback={
-      <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent-red border-t-transparent" />
-      </div>
-    }>
+    <Suspense fallback={<div className="site-auth-loading"><Loader2 className="site-auth-spinner h-8 w-8 animate-spin" /></div>}>
       <ResetPasswordForm />
     </Suspense>
   );

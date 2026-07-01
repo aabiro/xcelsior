@@ -2,25 +2,21 @@
 
 import { Suspense, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { Input, Label } from "@/components/ui/input";
-import { Card } from "@/components/ui/card";
-import { ProviderLogo } from "@/components/ui/provider-logo";
+import { CheckCircle, Eye, EyeOff, Mail } from "lucide-react";
 import { PasswordRequirements } from "@/components/auth/password-requirements";
-import { Eye, EyeOff, Mail, CheckCircle } from "lucide-react";
-import { register as apiRegister, normalizeAuthRedirectPath, oauthInitiate, resendVerification } from "@/lib/api";
+import { SiteAuthAlert, SiteAuthCard, SiteAuthDivider, SiteAuthHeader } from "@/components/marketing/SiteAuthShell";
+import { ProviderLogo } from "@/components/ui/provider-logo";
+import { normalizeAuthRedirectPath, oauthInitiate, register as apiRegister, resendVerification } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { BRAND_ASSETS } from "@/lib/brand-assets";
 import { useLocale } from "@/lib/locale";
-import posthog from "posthog-js";
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
   getPasswordValidation,
   passwordsMatch,
 } from "@/lib/password-validation";
+import posthog from "posthog-js";
 
 const OAUTH_PROVIDERS = ["github", "google", "huggingface"] as const;
 
@@ -56,7 +52,6 @@ function RegisterPageContent() {
 
   async function completeBrowserLogin() {
     await login().catch(() => {});
-    // If there's a pending invite, redirect to accept it
     if (inviteToken) {
       router.replace(`/accept-invite?token=${encodeURIComponent(inviteToken)}`);
     } else {
@@ -88,7 +83,6 @@ function RegisterPageContent() {
         setVerificationSent(true);
         return;
       }
-      // Fallback: if server returns a token directly (e.g. test mode)
       posthog.capture("user_registered", {
         method: "email",
         email_verification_required: false,
@@ -128,109 +122,72 @@ function RegisterPageContent() {
     }
   }
 
-  // Email verification sent screen
   if (verificationSent) {
     return (
-      <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-12">
-        <Card className="w-full max-w-md p-8 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-ice-blue/10">
-            <Mail className="h-8 w-8 text-ice-blue" />
+      <SiteAuthCard>
+        <div className="site-auth-section site-auth-stack">
+          <SiteAuthHeader
+            title={t("auth.verify_check_email")}
+            subtitle={
+              <>
+                {t("auth.verify_sent_to")} <span className="site-auth-emphasis">{email}</span>
+              </>
+            }
+          />
+          <div className="site-auth-status-icon" data-tone="info" style={{ margin: "0 auto" }}>
+            <Mail className="h-7 w-7" />
           </div>
-          <h1 className="text-2xl font-bold mb-2">{t("auth.verify_check_email")}</h1>
-          <p className="text-text-secondary mb-6">
-            {t("auth.verify_sent_to")} <strong className="text-text-primary">{email}</strong>
-          </p>
-          <p className="text-sm text-text-muted mb-6">
-            {t("auth.verify_instructions")}
-          </p>
-          <div className="space-y-3">
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={handleResend}
-              disabled={resending}
-            >
+          <p className="site-auth-footer" style={{ marginTop: 0 }}>{t("auth.verify_instructions")}</p>
+          <div className="site-auth-actions">
+            <button type="button" className="site-button site-button-ghost site-auth-button" onClick={handleResend} disabled={resending}>
               {resending ? t("auth.verify_resending") : t("auth.verify_resend")}
-            </Button>
-            {resendSuccess && (
-              <div className="flex items-center justify-center gap-2 text-sm text-green-400">
-                <CheckCircle className="h-4 w-4" />
-                {t("auth.verify_resent")}
-              </div>
-            )}
+            </button>
+            {resendSuccess ? <SiteAuthAlert tone="success">{t("auth.verify_resent")}</SiteAuthAlert> : null}
           </div>
-          <p className="mt-6 text-center text-sm text-text-secondary">
-            {t("auth.register_signin")}{" "}
-            <Link href="/login" className="text-ice-blue hover:underline">{t("auth.register_signin_link")}</Link>
+          <p className="site-auth-footer">
+            {t("auth.register_signin")} <Link href="/login" className="site-auth-link">{t("auth.register_signin_link")}</Link>
           </p>
-        </Card>
-      </div>
+        </div>
+      </SiteAuthCard>
     );
   }
 
   return (
-    <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-12">
-      <Card className="w-full max-w-md p-8">
-        <div className="mb-8 text-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={BRAND_ASSETS.iconGradient} alt="Xcelsior" width={56} height={56} className="mx-auto mb-4 h-14 w-14 object-contain" />
-          <h1 className="text-2xl font-bold">{t("auth.register_title")}</h1>
-          <p className="mt-1 text-sm text-text-secondary">
-            {t("auth.register_subtitle")}
-          </p>
-        </div>
-
-        {/* OAuth */}
-        <div className="space-y-3 mb-6">
+    <SiteAuthCard>
+      <SiteAuthHeader title={t("auth.register_title")} subtitle={t("auth.register_subtitle")} />
+      <div className="site-auth-section">
+        <div className="site-auth-provider-list">
           {OAUTH_PROVIDERS.map((provider) => {
             const labels = { github: t("auth.github"), google: t("auth.google"), huggingface: t("auth.huggingface") };
             return (
-              <Button
-                key={provider}
-                variant="outline"
-                className="h-auto w-full justify-start gap-3 rounded-xl border-border/70 bg-background/40 px-4 py-2.5 hover:bg-surface-hover/70"
-                onClick={() => handleOAuth(provider)}
-              >
-                <ProviderLogo
-                  provider={provider}
-                  framed
-                  size={22}
-                  className="rounded-lg border-border/60 bg-navy/70 shadow-none"
-                />
-                <span className="flex-1 text-left">{labels[provider]}</span>
-              </Button>
+              <button key={provider} type="button" className="site-auth-provider" onClick={() => handleOAuth(provider)}>
+                <ProviderLogo provider={provider} framed size={22} className="site-auth-provider-logo" />
+                <span className="site-auth-provider-label">{labels[provider]}</span>
+              </button>
             );
           })}
         </div>
 
-        <div className="relative mb-6">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-border" />
-          </div>
-          <div className="relative flex justify-center text-xs">
-            <span className="bg-surface px-2 text-text-muted">{t("auth.or")}</span>
-          </div>
-        </div>
+        <SiteAuthDivider label={t("auth.or")} />
 
-        <form onSubmit={handleRegister} className="space-y-4">
-          {error && (
-            <div className="rounded-lg bg-accent-red/10 border border-accent-red/30 p-3 text-sm text-accent-red">
-              {error}
-            </div>
-          )}
-          <div className="space-y-2">
-            <Label htmlFor="name">{t("auth.name")}</Label>
-            <Input
+        <form onSubmit={handleRegister} className="site-auth-form">
+          {error ? <SiteAuthAlert>{error}</SiteAuthAlert> : null}
+
+          <label htmlFor="name" className="site-field-wrap site-auth-field-wrap">
+            <span className="site-auth-label">{t("auth.name")}</span>
+            <input
               id="name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={t("auth.name_placeholder")}
               autoComplete="name"
+              className="site-field site-auth-field"
             />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="email">{t("auth.email")}</Label>
-            <Input
+          </label>
+
+          <label htmlFor="email" className="site-field-wrap site-auth-field-wrap">
+            <span className="site-auth-label">{t("auth.email")}</span>
+            <input
               id="email"
               type="email"
               value={email}
@@ -238,12 +195,14 @@ function RegisterPageContent() {
               required
               placeholder={t("auth.email_placeholder")}
               autoComplete="email"
+              className="site-field site-auth-field"
             />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="password">{t("auth.password")}</Label>
-            <div className="relative">
-              <Input
+          </label>
+
+          <label htmlFor="password" className="site-field-wrap site-auth-field-wrap">
+            <span className="site-auth-label">{t("auth.password")}</span>
+            <div className="site-auth-input-wrap">
+              <input
                 id="password"
                 type={showPw ? "text" : "password"}
                 value={password}
@@ -253,25 +212,18 @@ function RegisterPageContent() {
                 maxLength={PASSWORD_MAX_LENGTH}
                 placeholder={t("auth.pw_min")}
                 autoComplete="new-password"
-                className="pr-16"
+                className="site-field site-auth-field"
               />
-              {passwordValidation.isValid && (
-                <CheckCircle className="pointer-events-none absolute right-10 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald" />
-              )}
-              <button
-                type="button"
-                onClick={() => setShowPw(!showPw)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
-                tabIndex={-1}
-              >
+              <button type="button" onClick={() => setShowPw(!showPw)} className="site-auth-input-action" tabIndex={-1}>
                 {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="confirm-password">{t("auth.confirm_password")}</Label>
-            <div className="relative">
-              <Input
+          </label>
+
+          <label htmlFor="confirm-password" className="site-field-wrap site-auth-field-wrap">
+            <span className="site-auth-label">{t("auth.confirm_password")}</span>
+            <div className="site-auth-input-wrap">
+              <input
                 id="confirm-password"
                 type={showConfirmPw ? "text" : "password"}
                 value={confirmPassword}
@@ -279,53 +231,49 @@ function RegisterPageContent() {
                 required
                 maxLength={PASSWORD_MAX_LENGTH}
                 autoComplete="new-password"
-                className="pr-16"
+                className="site-field site-auth-field"
               />
-              {matchingPasswords && (
-                <CheckCircle className="pointer-events-none absolute right-10 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald" />
-              )}
-              <button
-                type="button"
-                onClick={() => setShowConfirmPw(!showConfirmPw)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
-                tabIndex={-1}
-              >
+              <button type="button" onClick={() => setShowConfirmPw(!showConfirmPw)} className="site-auth-input-action" tabIndex={-1}>
                 {showConfirmPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
-          </div>
-          <PasswordRequirements items={passwordRequirements} />
-          <label htmlFor="agree-terms" className="flex items-start gap-2.5 text-sm text-text-secondary cursor-pointer">
-            <input
-              id="agree-terms"
-              type="checkbox"
-              required
-              checked={agreedToTerms}
-              onChange={(e) => setAgreedToTerms(e.target.checked)}
-              className="mt-0.5 h-4 w-4 shrink-0 rounded border-border bg-background/40 text-ice-blue accent-ice-blue focus:ring-ice-blue/40"
-            />
+          </label>
+
+          <PasswordRequirements items={passwordRequirements} className="site-auth-requirements" />
+
+          <label htmlFor="agree-terms" className="site-auth-checkbox-row">
+            <span className="site-auth-checkbox">
+              <input
+                id="agree-terms"
+                type="checkbox"
+                required
+                checked={agreedToTerms}
+                onChange={(e) => setAgreedToTerms(e.target.checked)}
+              />
+              <span className="site-auth-checkbox-box" />
+            </span>
             <span>
               {t("auth.register_agree_prefix")}{" "}
-              <Link href="/terms" target="_blank" className="text-ice-blue hover:underline">
+              <Link href="/terms" target="_blank" className="site-auth-link">
                 {t("footer.terms")}
               </Link>{" "}
               {t("auth.register_agree_and")}{" "}
-              <Link href="/privacy" target="_blank" className="text-ice-blue hover:underline">
+              <Link href="/privacy" target="_blank" className="site-auth-link">
                 {t("footer.privacy")}
               </Link>
             </span>
           </label>
-          <Button type="submit" className="w-full" disabled={loading || !canSubmit}>
+
+          <button type="submit" className="site-button site-button-primary site-auth-button" disabled={loading || !canSubmit}>
             {loading ? t("auth.register_loading") : t("auth.register_button")}
-          </Button>
+          </button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-text-secondary">
-          {t("auth.register_signin")}{" "}
-          <Link href="/login" className="text-ice-blue hover:underline">{t("auth.register_signin_link")}</Link>
+        <p className="site-auth-footer">
+          {t("auth.register_signin")} <Link href="/login" className="site-auth-link">{t("auth.register_signin_link")}</Link>
         </p>
-      </Card>
-    </div>
+      </div>
+    </SiteAuthCard>
   );
 }
 
