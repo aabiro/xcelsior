@@ -148,7 +148,7 @@ function OverviewActionCard({
 function SectionMarker({ code, label }: { code: string; label: string }) {
   return (
     <div className="site-marker">
-      <span className="site-marker-code">{code}</span>
+      <span className="site-marker-code">[ {code} ]</span>
       <span className="site-marker-line" />
       <span>{label}</span>
     </div>
