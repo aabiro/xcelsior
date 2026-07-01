@@ -12,7 +12,7 @@ import {
   sanitizeNotificationUrl,
   syncPushSubscriptionWithServer,
 } from "@/lib/pwa/web-push";
-import { BRAND_PNG_ASSETS } from "@/lib/brand-assets";
+import { SITE_ASSETS } from "@/lib/brand-assets";
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -130,8 +130,8 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     (self.registration.showNotification(payload.title ?? "Xcelsior", {
       body: payload.body ?? "You have a new Xcelsior notification.",
-      icon: payload.icon ?? BRAND_PNG_ASSETS.appGradientRounded512,
-      badge: payload.badge ?? BRAND_PNG_ASSETS.iconGradient512,
+      icon: payload.icon ?? SITE_ASSETS.appGradientRounded512,
+      badge: payload.badge ?? SITE_ASSETS.iconGradient512,
       tag: payload.tag ?? "xcelsior-notification",
       data: notificationData,
       requireInteraction: false,

@@ -1,151 +1,88 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
-import { BRAND_ASSETS } from "@/lib/brand-assets";
+import { SITE_ASSETS } from "@/lib/brand-assets";
 import { useLocale } from "@/lib/locale";
+
+const footerColumns = [
+  {
+    head: "footer.product",
+    items: [
+      { href: "/features", key: "footer.features" },
+      { href: "/pricing", key: "footer.pricing" },
+      { href: "/download", key: "footer.download" },
+      { href: "https://docs.xcelsior.ca", key: "footer.docs", external: true },
+    ],
+  },
+  {
+    head: "footer.company",
+    items: [
+      { href: "/blog", key: "footer.blog" },
+      { href: "/about", key: "footer.about" },
+      { href: "/support", key: "footer.support" },
+      { href: "mailto:hello@xcelsior.ca", key: "footer.contact", external: true },
+    ],
+  },
+  {
+    head: "footer.legal",
+    items: [
+      { href: "/privacy", key: "footer.privacy" },
+      { href: "/terms", key: "footer.terms" },
+    ],
+  },
+];
 
 export function Footer() {
   const { t } = useLocale();
 
   return (
-    <footer className="border-t border-border bg-navy">
-      <div className="mx-auto max-w-7xl px-6 py-12">
-        <div className="grid grid-cols-1 gap-8 md:grid-cols-4">
-          {/* Brand */}
-          <div>
-            <div className="flex items-center gap-2 mb-4">
-              <Image
-                src={BRAND_ASSETS.lockupLight}
-                alt="Xcelsior"
-                width={206}
-                height={34}
-                className="hidden h-auto w-40 dark:block"
-              />
-              <Image
-                src={BRAND_ASSETS.lockupDark}
-                alt="Xcelsior"
-                width={206}
-                height={34}
-                className="block h-auto w-40 dark:hidden"
-              />
+    <footer className="site-footer">
+      <div className="site-container">
+        <div className="site-rails">
+          <div className="site-footer-grid">
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={SITE_ASSETS.iconGradient} style={{ width: 24, height: 24 }} alt="" aria-hidden />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={SITE_ASSETS.wordmarkLight} className="wm-light" style={{ height: 16 }} alt="Xcelsior" />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={SITE_ASSETS.wordmarkDark} className="wm-dark" style={{ height: 16 }} alt="Xcelsior" />
+              </div>
+              <p style={{ maxWidth: 280, margin: "0 0 16px", color: "var(--text-3)", fontSize: 14, lineHeight: 1.6 }}>
+                {t("footer.tagline")}
+              </p>
+              <div className="site-gradient-text site-mono" style={{ fontSize: 13, fontWeight: 600 }}>
+                {t("footer.motto")}
+              </div>
             </div>
-            <p className="text-sm text-text-secondary leading-relaxed">
-              {t("footer.tagline")}
-              <br />
-              <span className="sr-only">{t("footer.motto")}</span>
-              <Image
-                src={BRAND_ASSETS.textEverSbLight}
-                alt=""
-                width={127}
-                height={22}
-                className="mt-2 hidden h-4 w-auto dark:block"
-              />
-              <Image
-                src={BRAND_ASSETS.textEverSbDark}
-                alt=""
-                width={127}
-                height={22}
-                className="mt-2 block h-4 w-auto dark:hidden"
-              />
-            </p>
+
+            {footerColumns.map((column) => (
+              <div key={column.head}>
+                <div className="site-mono" style={{ marginBottom: 16, color: "var(--text-5)", fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+                  {t(column.head)}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
+                  {column.items.map((item) => (
+                    item.external ? (
+                      <a key={item.href} href={item.href} style={{ fontSize: 14 }}>
+                        {t(item.key)}
+                      </a>
+                    ) : (
+                      <Link key={item.href} href={item.href} style={{ fontSize: 14 }}>
+                        {t(item.key)}
+                      </Link>
+                    )
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
 
-          {/* Product */}
-          <div>
-            <h4 className="mb-3 text-sm font-semibold text-text-primary">{t("footer.product")}</h4>
-            <ul className="space-y-2">
-              <li>
-                <Link href="/features" className="text-sm text-text-secondary hover:text-text-primary">
-                  {t("footer.features")}
-                </Link>
-              </li>
-              <li>
-                <Link href="/pricing" className="text-sm text-text-secondary hover:text-text-primary">
-                  {t("footer.pricing")}
-                </Link>
-              </li>
-              <li>
-                <Link href="/download" className="text-sm text-text-secondary hover:text-text-primary">
-                  {t("footer.download")}
-                </Link>
-              </li>
-              <li>
-                <a href="https://docs.xcelsior.ca" className="text-sm text-text-secondary hover:text-text-primary">
-                  {t("footer.docs")}
-                </a>
-              </li>
-            </ul>
+          <div className="site-footer-bottom">
+            <span>{t("footer.copyright", { year: 2026 })}</span>
+            <span>{t("footer.hydro")}</span>
           </div>
-
-          {/* Company */}
-          <div>
-            <h4 className="mb-3 text-sm font-semibold text-text-primary">{t("footer.company")}</h4>
-            <ul className="space-y-2">
-              <li>
-                <Link href="/blog" className="text-sm text-text-secondary hover:text-text-primary">
-                  {t("footer.blog")}
-                </Link>
-              </li>
-              <li>
-                <Link href="/about" className="text-sm text-text-secondary hover:text-text-primary">
-                  {t("footer.about")}
-                </Link>
-              </li>
-              <li>
-                <Link href="/support" className="text-sm text-text-secondary hover:text-text-primary">
-                  {t("footer.support")}
-                </Link>
-              </li>
-              <li>
-                <a href="mailto:hello@xcelsior.ca" className="text-sm text-text-secondary hover:text-text-primary">
-                  {t("footer.contact")}
-                </a>
-              </li>
-            </ul>
-          </div>
-
-          {/* Legal */}
-          <div>
-            <h4 className="mb-3 text-sm font-semibold text-text-primary">{t("footer.legal")}</h4>
-            <ul className="space-y-2">
-              <li>
-                <Link href="/privacy" className="text-sm text-text-secondary hover:text-text-primary">
-                  {t("footer.privacy")}
-                </Link>
-              </li>
-              <li>
-                <Link href="/terms" className="text-sm text-text-secondary hover:text-text-primary">
-                  {t("footer.terms")}
-                </Link>
-              </li>
-            </ul>
-          </div>
-        </div>
-
-        <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-border pt-8 md:flex-row">
-          <p className="text-xs text-text-muted">
-            {t("footer.copyright", { year: 2026 })}
-          </p>
-          <a href="https://xcelsior.ca" className="inline-flex opacity-70 transition-opacity hover:opacity-100" aria-label="xcelsior.ca">
-            <Image
-              src={BRAND_ASSETS.textUrlMedLight}
-              alt=""
-              width={106}
-              height={19}
-              className="hidden h-3.5 w-auto dark:block"
-            />
-            <Image
-              src={BRAND_ASSETS.textUrlMedDark}
-              alt=""
-              width={106}
-              height={19}
-              className="block h-3.5 w-auto dark:hidden"
-            />
-          </a>
-          <p className="text-xs text-text-muted">
-            {t("footer.hydro")}
-          </p>
         </div>
       </div>
     </footer>
