@@ -15,7 +15,7 @@ import {
   History,
   ChevronLeft,
 } from "lucide-react";
-import { AnimatePresence, motion, useMotionValue, useTransform, PanInfo } from "framer-motion";
+import { AnimatePresence, m, useMotionValue, useTransform, type PanInfo } from "framer-motion";
 import { useChatStream, ChatMessage } from "@/hooks/useChatStream";
 import { useTypewriterText } from "@/hooks/useTypewriterText";
 import { useLocale } from "@/lib/locale";
@@ -416,7 +416,7 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
       {showFab && (
         <AnimatePresence>
           {!open && (
-            <motion.button
+            <m.button
               initial={{ scale: 0, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0, opacity: 0 }}
@@ -433,7 +433,7 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
                   <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-green-500" />
                 </span>
               )}
-            </motion.button>
+            </m.button>
           )}
         </AnimatePresence>
       )}
@@ -441,7 +441,7 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
       {/* Chat panel */}
       <AnimatePresence>
         {open && (
-          <motion.div
+          <m.div
             ref={panelRef}
             initial={{ opacity: 0, y: 20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -620,7 +620,7 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
                   </form>
                   {/* Suggestion chips — below input, visible only in empty chat */}
                   {messages.length === 0 && (
-                    <motion.div
+                    <m.div
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
@@ -635,12 +635,12 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
                           {s}
                         </button>
                       ))}
-                    </motion.div>
+                    </m.div>
                   )}
                 </div>
               </>
             )}
-          </motion.div>
+          </m.div>
         )}
       </AnimatePresence>
     </>
