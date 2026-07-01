@@ -1,169 +1,177 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
-import {
-  ArrowRight, BadgeCheck, BarChart3, Check, DollarSign, FileCheck, Globe,
-  Leaf, Lock, Scale, Server, Shield, Users, Zap,
-} from "lucide-react";
-import { m } from "@/components/marketing/motion";
-import { cn } from "@/lib/utils";
+import { SITE_ASSETS, siteIcon } from "@/lib/brand-assets";
 import { useLocale } from "@/lib/locale";
 
-const fadeUp = {
-  hidden: { opacity: 0, y: 24 },
-  visible: (i: number) => ({
-    opacity: 1,
-    y: 0,
-    transition: { delay: Math.min(i, 4) * 0.06, duration: 0.5, ease: "easeOut" as const },
-  }),
-};
+const products = [
+  { key: "gpus", href: "/gpu-availability", icon: "gpu" },
+  { key: "mcp", href: "/mcp", icon: "bot" },
+  { key: "serverless", href: "/register", icon: "cloud" },
+  { key: "instances", href: "/register", icon: "server" },
+  { key: "hosting", href: "/register", icon: "coins" },
+  { key: "xcelai", href: "/register", icon: "sparkle" },
+  { key: "volumes", href: "/register", icon: "grid" },
+] as const;
 
-type Accent = "cyan" | "violet" | "emerald";
+const foundations = [
+  { icon: "shield", title: "features.sovereignty_title", desc: "features.sovereignty_desc", cat: "features.cat_sovereignty" },
+  { icon: "route", title: "features.jurisdiction_title", desc: "features.jurisdiction_desc", cat: "features.cat_sovereignty" },
+  { icon: "lock", title: "features.cloud_act_title", desc: "features.cloud_act_desc", cat: "features.cat_sovereignty" },
+  { icon: "gpu", title: "features.marketplace_title", desc: "features.marketplace_desc", cat: "features.cat_compute" },
+  { icon: "bolt", title: "features.spot_title", desc: "features.spot_desc", cat: "features.cat_compute" },
+  { icon: "activity", title: "features.telemetry_title", desc: "features.telemetry_desc", cat: "features.cat_compute" },
+  { icon: "badge", title: "features.trust_title", desc: "features.trust_desc", cat: "features.cat_trust" },
+  { icon: "shield-check", title: "features.sla_title", desc: "features.sla_desc", cat: "features.cat_trust" },
+  { icon: "check-circle", title: "features.compliance_title", desc: "features.compliance_desc", cat: "features.cat_trust" },
+  { icon: "dollar", title: "features.billing_title", desc: "features.billing_desc", cat: "features.cat_billing" },
+  { icon: "users", title: "features.payouts_title", desc: "features.payouts_desc", cat: "features.cat_billing" },
+  { icon: "leaf", title: "features.green_title", desc: "features.green_desc", cat: "features.cat_billing" },
+] as const;
 
-const ACCENT: Record<Accent, { badge: string; text: string; glow: string }> = {
-  cyan: { badge: "bg-accent-cyan/10 text-accent-cyan ring-accent-cyan/25", text: "text-accent-cyan", glow: "bg-accent-cyan/20" },
-  violet: { badge: "bg-accent-violet/10 text-accent-violet ring-accent-violet/25", text: "text-accent-violet", glow: "bg-accent-violet/20" },
-  emerald: { badge: "bg-emerald/10 text-emerald ring-emerald/25", text: "text-emerald", glow: "bg-emerald/20" },
-};
+function ThemeIcon({ name }: { name: string }) {
+  return (
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={siteIcon(name, "dark")} className="site-theme-dark" alt="" aria-hidden />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={siteIcon(name, "light")} className="site-theme-light" alt="" aria-hidden />
+    </>
+  );
+}
 
-const PRODUCTS: { key: string; href: string; art: string; accent: Accent }[] = [
-  { key: "gpus", href: "/gpu-availability", art: "/gpu-fleet/hero-power.svg", accent: "cyan" },
-  { key: "mcp", href: "/mcp", art: "/mcp/hero-agent-gpu.svg", accent: "violet" },
-  { key: "serverless", href: "/register", art: "/features/serverless.svg", accent: "cyan" },
-  { key: "instances", href: "/register", art: "/features/instances.svg", accent: "violet" },
-  { key: "hosting", href: "/register", art: "/features/hosting.svg", accent: "emerald" },
-  { key: "xcelai", href: "/register", art: "/features/xcel-ai.svg", accent: "violet" },
-  { key: "volumes", href: "/register", art: "/features/volumes.svg", accent: "cyan" },
-];
-
-const categoryColors: Record<string, { bg: string; text: string; glow: string }> = {
-  "features.cat_sovereignty": { bg: "bg-accent-red/10", text: "text-accent-red", glow: "rgba(220,38,38,0.12)" },
-  "features.cat_compute": { bg: "bg-accent-cyan/10", text: "text-accent-cyan", glow: "rgba(0,212,255,0.12)" },
-  "features.cat_trust": { bg: "bg-accent-violet/10", text: "text-accent-violet", glow: "rgba(124,58,237,0.12)" },
-  "features.cat_billing": { bg: "bg-accent-gold/10", text: "text-accent-gold", glow: "rgba(245,158,11,0.12)" },
-};
-
-const featureKeys = [
-  { icon: Shield, title: "features.sovereignty_title", desc: "features.sovereignty_desc", cat: "features.cat_sovereignty" },
-  { icon: Globe, title: "features.jurisdiction_title", desc: "features.jurisdiction_desc", cat: "features.cat_sovereignty" },
-  { icon: Lock, title: "features.cloud_act_title", desc: "features.cloud_act_desc", cat: "features.cat_sovereignty" },
-  { icon: Server, title: "features.marketplace_title", desc: "features.marketplace_desc", cat: "features.cat_compute" },
-  { icon: Zap, title: "features.spot_title", desc: "features.spot_desc", cat: "features.cat_compute" },
-  { icon: BarChart3, title: "features.telemetry_title", desc: "features.telemetry_desc", cat: "features.cat_compute" },
-  { icon: BadgeCheck, title: "features.trust_title", desc: "features.trust_desc", cat: "features.cat_trust" },
-  { icon: Scale, title: "features.sla_title", desc: "features.sla_desc", cat: "features.cat_trust" },
-  { icon: FileCheck, title: "features.compliance_title", desc: "features.compliance_desc", cat: "features.cat_trust" },
-  { icon: DollarSign, title: "features.billing_title", desc: "features.billing_desc", cat: "features.cat_billing" },
-  { icon: Users, title: "features.payouts_title", desc: "features.payouts_desc", cat: "features.cat_billing" },
-  { icon: Leaf, title: "features.green_title", desc: "features.green_desc", cat: "features.cat_billing" },
-];
+function SectionMarker({ code, label }: { code: string; label: string }) {
+  return (
+    <div className="site-marker">
+      <span className="site-marker-code">{code}</span>
+      <span className="site-marker-line" />
+      <span>{label}</span>
+    </div>
+  );
+}
 
 export function FeaturesContent() {
   const { t } = useLocale();
 
   return (
-    <div className="relative overflow-hidden">
-      {/* Hero */}
-      <div className="mx-auto max-w-7xl px-6 pt-28 pb-10 text-center">
-        <m.div initial="hidden" whileInView="visible" viewport={{ once: true }}>
-          <m.p variants={fadeUp} custom={0} className="text-sm font-semibold uppercase tracking-widest text-accent-cyan">
-            {t("features.platform_eyebrow")}
-          </m.p>
-          <m.h1 variants={fadeUp} custom={1} className="mt-3 text-4xl font-bold md:text-5xl">
-            {t("features.title_1")}{" "}
-            <span className="bg-gradient-to-r from-accent-cyan via-accent-violet to-accent-red bg-clip-text text-transparent">
-              {t("features.title_accent")}
-            </span>
-          </m.h1>
-          <m.p variants={fadeUp} custom={2} className="mx-auto mt-4 max-w-2xl text-lg text-text-secondary">
-            {t("features.platform_subtitle")}
-          </m.p>
-        </m.div>
-      </div>
-
-      {/* Product spotlights */}
-      <div className="mx-auto max-w-6xl space-y-24 px-6 py-16 sm:space-y-28">
-        {PRODUCTS.map((p, i) => {
-          const a = ACCENT[p.accent];
-          const reverse = i % 2 === 1;
-          return (
-            <m.section
-              key={p.key}
-              variants={fadeUp}
-              custom={0}
-              initial="hidden"
-              whileInView="visible"
-              viewport={{ once: true, margin: "-80px" }}
-              className="grid items-center gap-10 lg:grid-cols-2 lg:gap-16"
-            >
-              <div className={cn("relative", reverse && "lg:order-2")}>
-                <div className={cn("pointer-events-none absolute -inset-6 rounded-[2rem] opacity-40 blur-3xl", a.glow)} aria-hidden />
-                <Image
-                  src={p.art}
-                  alt=""
-                  width={480}
-                  height={320}
-                  className="relative w-full rounded-2xl border border-border/60 shadow-2xl shadow-black/40"
-                />
+    <>
+      <section className="site-hero">
+        <div className="site-grid-bg" aria-hidden />
+        <div className="site-container">
+          <div className="site-rails site-hero-rails">
+            <div style={{ animation: "heroUp .7s ease both" }}>
+              <div className="site-pill">
+                <span className="site-live-dot" />
+                <span>{t("features.platform_eyebrow")}</span>
               </div>
-              <div>
-                <span className={cn("inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wider ring-1", a.badge)}>
-                  {t(`features.prod_${p.key}_badge`)}
-                </span>
-                <h2 className="mt-4 text-2xl font-bold tracking-tight sm:text-3xl">{t(`features.prod_${p.key}_title`)}</h2>
-                <p className="mt-3 leading-relaxed text-text-secondary">{t(`features.prod_${p.key}_desc`)}</p>
-                <ul className="mt-5 space-y-2.5">
-                  {(["b1", "b2"] as const).map((b) => (
-                    <li key={b} className="flex items-start gap-2.5 text-sm text-text-primary">
-                      <Check className={cn("mt-0.5 h-4 w-4 shrink-0", a.text)} />
-                      {t(`features.prod_${p.key}_${b}`)}
-                    </li>
-                  ))}
-                </ul>
-                <Link href={p.href} className={cn("mt-6 inline-flex items-center gap-1.5 text-sm font-semibold transition-transform hover:gap-2.5", a.text)}>
-                  {t(`features.prod_${p.key}_cta`)} <ArrowRight className="h-4 w-4" />
+              <h1 className="site-hero-title">
+                {t("features.title_1")} <span className="site-gradient-text">{t("features.title_accent")}</span>
+              </h1>
+              <p className="site-hero-copy">{t("features.platform_subtitle")}</p>
+              <div className="site-hero-actions">
+                <Link href="/gpu-availability" className="site-button site-button-primary">
+                  {t("features.prod_gpus_cta")}
+                </Link>
+                <Link href="/mcp" className="site-button site-button-ghost">
+                  {t("features.prod_mcp_cta")}
                 </Link>
               </div>
-            </m.section>
-          );
-        })}
-      </div>
+            </div>
 
-      {/* Platform foundations grid */}
-      <div className="mx-auto max-w-7xl px-6 py-20">
-        <h2 className="mb-10 text-center text-2xl font-bold tracking-tight sm:text-3xl">
-          {t("features.everything_title")}
-        </h2>
-        <m.div
-          className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3"
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true }}
-        >
-          {featureKeys.map((f, idx) => {
-            const colors = categoryColors[f.cat] ?? { bg: "bg-accent-cyan/10", text: "text-accent-cyan", glow: "rgba(0,212,255,0.08)" };
-            return (
-              <m.div
-                key={f.title}
-                variants={fadeUp}
-                custom={idx}
-                className="group glow-card rounded-xl p-6"
-                style={{ "--glow-color": colors.glow } as React.CSSProperties}
-              >
-                <div className="mb-4 flex items-center gap-3">
-                  <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${colors.bg} transition-transform group-hover:scale-110`}>
-                    <f.icon className={`h-5 w-5 ${colors.text}`} />
+            <div className="site-telemetry-wrap" aria-hidden>
+              <div className="site-telemetry-card">
+                <div className="site-telemetry-head">
+                  <div className="site-telemetry-model">
+                    <span className="site-telemetry-mark">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={SITE_ASSETS.iconGradient} style={{ width: 20, height: 20 }} alt="" aria-hidden />
+                    </span>
+                    <div>
+                      <div className="site-mono" style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>Platform</div>
+                      <div className="site-mono" style={{ color: "var(--text-4)", fontSize: 11 }}>Sovereign backend</div>
+                    </div>
                   </div>
-                  <span className={`text-xs font-medium uppercase tracking-wider ${colors.text}`}>{t(f.cat)}</span>
+                  <span className="site-live-badge">
+                    <span className="site-live-dot" />
+                    Live
+                  </span>
                 </div>
-                <h3 className="mb-2 text-lg font-semibold">{t(f.title)}</h3>
-                <p className="text-sm leading-relaxed text-text-secondary">{t(f.desc)}</p>
-              </m.div>
-            );
-          })}
-        </m.div>
+                {[
+                  ["Products", "7", "86%"],
+                  ["Compliance", "Built in", "100%"],
+                  ["Billing", "CAD", "72%"],
+                ].map(([label, value, width]) => (
+                  <div key={label} className="site-meter">
+                    <div className="site-meter-label">
+                      <span style={{ color: "var(--text-4)" }}>{label}</span>
+                      <span style={{ color: "var(--text-2)" }}>{value}</span>
+                    </div>
+                    <div className="site-meter-track">
+                      <div className="site-meter-bar" style={{ width }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div className="site-container">
+        <section className="site-rails site-section" style={{ paddingBottom: 0 }}>
+          <SectionMarker code="01" label={t("features.platform_title")} />
+          <h2 className="site-section-heading">{t("features.platform_title")}</h2>
+          <p className="site-section-copy">{t("features.platform_subtitle")}</p>
+
+          <div className="site-section-flush">
+            {products.map((product, index) => (
+              <article key={product.key} className="site-product-row">
+                <div className="site-product-index">{String(index + 1).padStart(2, "0")}</div>
+                <div className="site-product-main">
+                  <div className="site-icon-box">
+                    <ThemeIcon name={product.icon} />
+                  </div>
+                  <div className="site-product-badge site-gradient-text">{t(`features.prod_${product.key}_badge`)}</div>
+                  <h3 className="site-product-title">{t(`features.prod_${product.key}_title`)}</h3>
+                  <p className="site-card-copy">{t(`features.prod_${product.key}_desc`)}</p>
+                  <Link href={product.href} className="site-product-cta" style={{ color: "var(--cyan)" }}>
+                    {t(`features.prod_${product.key}_cta`)}
+                  </Link>
+                </div>
+                <div className="site-product-points">
+                  <p className="site-product-point">
+                    <span style={{ color: "var(--green)" }}>+</span>
+                    <span>{t(`features.prod_${product.key}_b1`)}</span>
+                  </p>
+                  <p className="site-product-point">
+                    <span style={{ color: "var(--green)" }}>+</span>
+                    <span>{t(`features.prod_${product.key}_b2`)}</span>
+                  </p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="site-rails site-section" style={{ paddingBottom: 0 }}>
+          <SectionMarker code="02" label={t("features.everything_title")} />
+          <h2 className="site-section-heading">{t("features.everything_title")}</h2>
+          <div className="site-foundation-grid site-section-flush">
+            {foundations.map((feature) => (
+              <article key={feature.title} className="site-foundation-card">
+                <div className="site-icon-box">
+                  <ThemeIcon name={feature.icon} />
+                </div>
+                <div className="site-foundation-cat" style={{ color: "var(--cyan)", marginBottom: 12 }}>
+                  {t(feature.cat)}
+                </div>
+                <h3 className="site-card-title">{t(feature.title)}</h3>
+                <p className="site-card-copy">{t(feature.desc)}</p>
+              </article>
+            ))}
+          </div>
+        </section>
       </div>
-    </div>
+    </>
   );
 }

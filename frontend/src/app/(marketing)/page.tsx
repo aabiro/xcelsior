@@ -1,119 +1,218 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import Link from "next/link";
-import {
-  Shield,
-  DollarSign,
-  Leaf,
-  ArrowRight,
-  MapPin,
-} from "lucide-react";
-import { m } from "@/components/marketing/motion";
-import { Button } from "@/components/ui/button";
-import { BRAND_ASSETS } from "@/lib/brand-assets";
+import { SITE_ASSETS, siteIcon } from "@/lib/brand-assets";
 import { useLocale } from "@/lib/locale";
 
-const HomeBelowFold = dynamic(
-  () => import("@/components/marketing/home-below-fold").then((mod) => mod.HomeBelowFold),
-  { loading: () => <div className="min-h-[50vh]" aria-hidden /> },
-);
+const kpis = [
+  ["01", "home.stat_price"],
+  ["02", "home.stat_pipeda"],
+  ["03", "home.stat_hydro"],
+] as const;
 
-const fadeUp = {
-  hidden: { opacity: 0, y: 24 },
-  visible: (i: number) => ({
-    opacity: 1,
-    y: 0,
-    transition: { delay: i * 0.1, duration: 0.5, ease: "easeOut" as const },
-  }),
-};
+const values = [
+  ["01", "home.val_sovereignty_title", "home.val_sovereignty_desc"],
+  ["02", "home.val_compliance_title", "home.val_compliance_desc"],
+  ["03", "home.val_pricing_title", "home.val_pricing_desc"],
+] as const;
+
+const features = [
+  ["gpu", "home.feat_marketplace_title", "home.feat_marketplace_desc"],
+  ["shield-check", "home.feat_trust_title", "home.feat_trust_desc"],
+  ["activity", "home.feat_telemetry_title", "home.feat_telemetry_desc"],
+  ["route", "home.feat_jurisdiction_title", "home.feat_jurisdiction_desc"],
+  ["dollar", "home.feat_spot_title", "home.feat_spot_desc"],
+  ["leaf", "home.feat_green_title", "home.feat_green_desc"],
+] as const;
+
+const comparisonRows = [
+  ["home.cmp_sovereignty", "home.cmp_sovereignty_x", "home.cmp_sovereignty_aws", "home.cmp_sovereignty_vast", "home.cmp_sovereignty_rp"],
+  ["home.cmp_pipeda", "home.cmp_pipeda_x", "home.cmp_pipeda_aws", "home.cmp_pipeda_vast", "home.cmp_pipeda_rp"],
+  ["home.cmp_price", "home.cmp_price_x", "home.cmp_price_aws", "home.cmp_price_vast", "home.cmp_price_rp"],
+  ["home.cmp_cad", "home.cmp_cad_x", "home.cmp_cad_aws", "home.cmp_cad_vast", "home.cmp_cad_rp"],
+  ["home.cmp_rebate", "home.cmp_rebate_x", "home.cmp_rebate_aws", "home.cmp_rebate_vast", "home.cmp_rebate_rp"],
+  ["home.cmp_verification", "home.cmp_verification_x", "home.cmp_verification_aws", "home.cmp_verification_vast", "home.cmp_verification_rp"],
+  ["home.cmp_green", "home.cmp_green_x", "home.cmp_green_aws", "home.cmp_green_vast", "home.cmp_green_rp"],
+] as const;
+
+function ThemeIcon({ name }: { name: string }) {
+  return (
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={siteIcon(name, "dark")} className="site-theme-dark" alt="" aria-hidden />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={siteIcon(name, "light")} className="site-theme-light" alt="" aria-hidden />
+    </>
+  );
+}
+
+function SectionMarker({ code, label }: { code: string; label: string }) {
+  return (
+    <div className="site-marker">
+      <span className="site-marker-code">{code}</span>
+      <span className="site-marker-line" />
+      <span>{label}</span>
+    </div>
+  );
+}
 
 export default function HomePage() {
   const { t } = useLocale();
+
   return (
     <>
-      {/* ── Hero ─────────────────────────────────────────────────────── */}
-      <section className="aurora-gradient relative overflow-hidden">
-        <div className="pointer-events-none absolute inset-0">
-          <div className="absolute left-[10%] top-[15%] h-64 w-64 rounded-full bg-accent-cyan/8 blur-[100px] animate-[aurora-drift_8s_ease-in-out_infinite]" />
-          <div className="absolute right-[15%] top-[25%] h-48 w-48 rounded-full bg-accent-violet/6 blur-[80px] animate-[aurora-drift_10s_ease-in-out_infinite_2s]" />
-          <div className="absolute left-[40%] bottom-[10%] h-56 w-56 rounded-full bg-accent-red/5 blur-[90px] animate-[aurora-drift_12s_ease-in-out_infinite_4s]" />
-        </div>
-
-        <div className="relative mx-auto max-w-7xl px-6 py-28 md:py-40">
-          <m.div
-            className="max-w-3xl"
-            initial="hidden"
-            animate="visible"
-          >
-            <m.div variants={fadeUp} custom={0} className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent-gold/30 bg-accent-gold/10 px-4 py-1.5 backdrop-blur-sm">
-              <MapPin className="h-3 w-3 text-accent-gold" />
-              <span className="text-xs font-medium text-accent-gold">
-                {t("home.badge")}
-              </span>
-            </m.div>
-
-            <m.div variants={fadeUp} custom={1} className="mb-4 flex" aria-label="GPU compute, accelerated">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={BRAND_ASSETS.textTagMedLight} alt="" className="hidden h-5 w-auto dark:block" aria-hidden="true" />
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={BRAND_ASSETS.textTagMedDark} alt="" className="block h-5 w-auto dark:hidden" aria-hidden="true" />
-            </m.div>
-
-            <m.h1 variants={fadeUp} custom={2} className="text-5xl font-bold leading-[1.08] tracking-tight md:text-6xl lg:text-7xl">
-              <span>{t("home.hero_line1")}</span>
-              <br />
-              <span>
-              {t("home.hero_line2")}{" "}
-              <span className="bg-gradient-to-r from-accent-cyan via-accent-violet to-accent-red bg-clip-text text-transparent">
-                {t("home.hero_accent")}
-              </span>
-              </span>
-            </m.h1>
-
-            <m.p variants={fadeUp} custom={3} className="mt-6 text-lg text-text-secondary leading-relaxed max-w-2xl">
-              {t("home.hero_desc")}
-            </m.p>
-
-            <m.div variants={fadeUp} custom={4} className="mt-10 flex flex-wrap gap-4">
-              <Link href="/register">
-                <Button size="lg" className="text-base px-8 shadow-lg shadow-accent-cyan/10">
+      <section className="site-hero">
+        <div className="site-grid-bg" aria-hidden />
+        <div className="site-container">
+          <div className="site-rails site-hero-rails">
+            <div style={{ animation: "heroUp .7s ease both" }}>
+              <div className="site-pill">
+                <span className="site-live-dot" />
+                <span>{t("home.badge")}</span>
+              </div>
+              <h1 className="site-hero-title">
+                {t("home.hero_line1")}
+                <br />
+                {t("home.hero_line2")} <span className="site-gradient-text">{t("home.hero_accent")}</span>
+              </h1>
+              <p className="site-hero-copy">{t("home.hero_desc")}</p>
+              <div className="site-hero-actions">
+                <Link href="/register" className="site-button site-button-primary">
                   {t("home.cta_start")}
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
-              </Link>
-              <Link href="/pricing">
-                <Button variant="outline" size="lg" className="text-base px-8 border-border-light">
+                </Link>
+                <Link href="/pricing" className="site-button site-button-ghost">
                   {t("home.cta_pricing")}
-                </Button>
-              </Link>
-            </m.div>
+                </Link>
+              </div>
+            </div>
 
-            <m.div variants={fadeUp} custom={5} className="mt-14 flex flex-wrap gap-4 sm:gap-8 text-sm text-text-secondary">
-              <div className="flex items-center gap-2">
-                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-gold/10">
-                  <DollarSign className="h-3.5 w-3.5 text-accent-gold" />
+            <div className="site-telemetry-wrap" aria-label="Live GPU market preview">
+              <div className="site-telemetry-card">
+                <div className="site-telemetry-head">
+                  <div className="site-telemetry-model">
+                    <span className="site-telemetry-mark">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={SITE_ASSETS.iconGradient} style={{ width: 20, height: 20 }} alt="" aria-hidden />
+                    </span>
+                    <div>
+                      <div className="site-mono" style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>RTX 4090</div>
+                      <div className="site-mono" style={{ color: "var(--text-4)", fontSize: 11 }}>24 GB VRAM</div>
+                    </div>
+                  </div>
+                  <span className="site-live-badge">
+                    <span className="site-live-dot" />
+                    Live
+                  </span>
                 </div>
-                {t("home.stat_price")}
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald/10">
-                  <Shield className="h-3.5 w-3.5 text-emerald" />
+
+                {[
+                  ["Utilization", "72%", "72%"],
+                  ["Memory", "18.4 GB", "76%"],
+                  ["Power", "310 W", "64%"],
+                ].map(([label, value, width]) => (
+                  <div key={label} className="site-meter">
+                    <div className="site-meter-label">
+                      <span style={{ color: "var(--text-4)" }}>{label}</span>
+                      <span style={{ color: "var(--text-2)" }}>{value}</span>
+                    </div>
+                    <div className="site-meter-track">
+                      <div className="site-meter-bar" style={{ width }} />
+                    </div>
+                  </div>
+                ))}
+
+                <div className="site-telemetry-price">
+                  <span className="site-mono" style={{ color: "var(--text-4)", fontSize: 11, textTransform: "uppercase" }}>Spot from</span>
+                  <strong style={{ color: "var(--text)", fontSize: 25 }}>$0.30/hr</strong>
                 </div>
-                {t("home.stat_pipeda")}
               </div>
-              <div className="flex items-center gap-2">
-                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald/10">
-                  <Leaf className="h-3.5 w-3.5 text-emerald" />
-                </div>
-                {t("home.stat_hydro")}
+            </div>
+          </div>
+
+          <div className="site-rails site-kpi-strip">
+            {kpis.map(([code, label]) => (
+              <div key={label} className="site-kpi">
+                <div className="site-kpi-label">{code}</div>
+                <div className="site-kpi-value">{t(label)}</div>
               </div>
-            </m.div>
-          </m.div>
+            ))}
+          </div>
         </div>
       </section>
 
-      <HomeBelowFold />
+      <div className="site-container">
+        <section className="site-rails site-section">
+          <SectionMarker code="01" label={t("home.why_title")} />
+          <h2 className="site-section-heading">{t("home.why_title")}</h2>
+          <p className="site-section-copy">{t("home.why_desc")}</p>
+          <div className="site-value-grid" style={{ marginTop: 54 }}>
+            {values.map(([number, title, desc]) => (
+              <article key={title} className="site-value-card">
+                <div className="site-number-badge">{number}</div>
+                <h3 className="site-card-title">{t(title)}</h3>
+                <p className="site-card-copy">{t(desc)}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="site-rails site-section" style={{ paddingBottom: 0 }}>
+          <SectionMarker code="02" label={t("home.built_title")} />
+          <h2 className="site-section-heading">{t("home.built_title")}</h2>
+          <div className="site-feature-grid site-section-flush">
+            {features.map(([icon, title, desc]) => (
+              <article key={title} className="site-feature-card">
+                <div className="site-icon-box">
+                  <ThemeIcon name={icon} />
+                </div>
+                <h3 className="site-card-title">{t(title)}</h3>
+                <p className="site-card-copy">{t(desc)}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="site-rails site-section">
+          <SectionMarker code="03" label={t("home.compare_title")} />
+          <h2 className="site-section-heading">{t("home.compare_title")}</h2>
+          <div className="site-table-wrap" style={{ marginTop: 36 }}>
+            <table className="site-table">
+              <thead>
+                <tr>
+                  <th>{t("home.compare_feature")}</th>
+                  <th>{t("home.compare_xcelsior")}</th>
+                  <th>{t("home.compare_aws")}</th>
+                  <th>{t("home.compare_vast")}</th>
+                  <th>{t("home.compare_runpod")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {comparisonRows.map(([feature, xcelsior, aws, vast, runpod]) => (
+                  <tr key={feature}>
+                    <td className="site-table-feature">{t(feature)}</td>
+                    <td className="site-table-x">{t(xcelsior)}</td>
+                    <td>{t(aws)}</td>
+                    <td>{t(vast)}</td>
+                    <td>{t(runpod)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="site-rails site-cta">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={SITE_ASSETS.iconGradient} className="site-cta-mark" alt="" aria-hidden />
+          <h2 className="site-cta-title">
+            {t("home.cta_title_1")} <span className="site-gradient-text">{t("home.cta_title_2")}</span>
+          </h2>
+          <p className="site-section-copy" style={{ marginBottom: 28 }}>{t("home.cta_desc")}</p>
+          <Link href="/register" className="site-button site-button-primary" style={{ padding: "15px 28px" }}>
+            {t("home.cta_start")}
+          </Link>
+        </section>
+      </div>
     </>
   );
 }

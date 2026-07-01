@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { BRAND_PNG_ASSETS } from "@/lib/brand-assets";
+import { SITE_ASSETS } from "@/lib/brand-assets";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
@@ -17,25 +17,25 @@ export default function manifest(): MetadataRoute.Manifest {
     categories: ["business", "productivity", "utilities"],
     icons: [
       {
-        src: BRAND_PNG_ASSETS.icon192,
+        src: SITE_ASSETS.icon192,
         sizes: "192x192",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: BRAND_PNG_ASSETS.icon512,
+        src: SITE_ASSETS.icon512,
         sizes: "512x512",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: BRAND_PNG_ASSETS.iconMaskable512,
+        src: SITE_ASSETS.iconMaskable512,
         sizes: "512x512",
         type: "image/png",
         purpose: "maskable",
       },
       {
-        src: BRAND_PNG_ASSETS.appGradientRounded512,
+        src: SITE_ASSETS.appGradientRounded512,
         sizes: "512x512",
         type: "image/png",
         purpose: "any",
@@ -46,25 +46,25 @@ export default function manifest(): MetadataRoute.Manifest {
         name: "Marketplace",
         short_name: "Market",
         url: "/dashboard/marketplace",
-        icons: [{ src: BRAND_PNG_ASSETS.icon192, sizes: "192x192", type: "image/png" }],
+        icons: [{ src: SITE_ASSETS.icon192, sizes: "192x192", type: "image/png" }],
       },
       {
         name: "Instances",
         short_name: "Instances",
         url: "/dashboard/instances",
-        icons: [{ src: BRAND_PNG_ASSETS.icon192, sizes: "192x192", type: "image/png" }],
+        icons: [{ src: SITE_ASSETS.icon192, sizes: "192x192", type: "image/png" }],
       },
       {
         name: "Notifications",
         short_name: "Alerts",
         url: "/dashboard/notifications",
-        icons: [{ src: BRAND_PNG_ASSETS.icon192, sizes: "192x192", type: "image/png" }],
+        icons: [{ src: SITE_ASSETS.icon192, sizes: "192x192", type: "image/png" }],
       },
       {
         name: "Billing",
         short_name: "Billing",
         url: "/dashboard/billing",
-        icons: [{ src: BRAND_PNG_ASSETS.icon192, sizes: "192x192", type: "image/png" }],
+        icons: [{ src: SITE_ASSETS.icon192, sizes: "192x192", type: "image/png" }],
       },
     ],
     screenshots: [

@@ -3,17 +3,16 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { MapPin, Menu, X } from "lucide-react";
-import { AnimatePresence, m } from "@/components/marketing/motion";
-import { ThemeToggle } from "@/components/ui/theme-toggle";
-import { LocaleToggle } from "@/components/ui/locale-toggle";
-import { useLocale } from "@/lib/locale";
+import { Menu, X } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import { BRAND_ASSETS } from "@/lib/brand-assets";
+import { SITE_ASSETS } from "@/lib/brand-assets";
+import { useLocale } from "@/lib/locale";
 import { hasSessionHint } from "@/lib/session-hint";
+import { useTheme } from "@/lib/theme";
 import { useMounted } from "@/hooks/useMounted";
 
 const navKeys = [
+  { href: "/", label: "Home" },
   { href: "/features", key: "nav.features" },
   { href: "/pricing", key: "nav.pricing" },
   { href: "/gpu-availability", key: "nav.gpus" },
@@ -22,15 +21,38 @@ const navKeys = [
   { href: "https://docs.xcelsior.ca", key: "nav.docs", external: true },
 ];
 
+function ThemePill() {
+  const { theme, toggleTheme } = useTheme();
+  const isLight = theme === "light";
+
+  return (
+    <button
+      type="button"
+      onClick={toggleTheme}
+      aria-label="Toggle light / dark"
+      title="Toggle light / dark"
+      className="site-theme-toggle"
+    >
+      <svg viewBox="0 0 24 24" className="site-theme-sun" aria-hidden>
+        <circle cx="12" cy="12" r="4.2" fill="none" stroke="var(--text-3)" strokeWidth="2" />
+        <g stroke="var(--text-3)" strokeWidth="2" strokeLinecap="round">
+          <path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.1 5.1l1.6 1.6M17.3 17.3l1.6 1.6M18.9 5.1l-1.6 1.6M6.7 17.3l-1.6 1.6" />
+        </g>
+      </svg>
+      <svg viewBox="0 0 24 24" className="site-theme-moon" aria-hidden>
+        <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" fill="none" stroke="var(--text-3)" strokeWidth="2" strokeLinejoin="round" />
+      </svg>
+      <span className="site-theme-knob" style={{ transform: isLight ? "translateX(30px)" : "translateX(0px)" }} />
+    </button>
+  );
+}
+
 export function Navbar() {
   const [open, setOpen] = useState(false);
-  const { t } = useLocale();
+  const { t, displayLocale, toggleLocale } = useLocale();
   const { user, loading, logout } = useAuth();
   const pathname = usePathname();
   const mounted = useMounted();
-  // Treat the user as signed in while the session probe is still in flight if a
-  // prior session hint exists — so signed-in visitors see "Dashboard", never a
-  // "Sign In" flash. The server probe corrects a stale hint on resolve.
   const signedIn = !!user || (loading && hasSessionHint());
 
   useEffect(() => {
@@ -48,179 +70,113 @@ export function Navbar() {
     return pathname === href || pathname.startsWith(href + "/");
   };
 
+  const navItems = navKeys.map((item) => {
+    const label = item.label ?? t(item.key ?? "");
+    const className = `site-nav-link ${isActive(item.href) ? "site-nav-link-active" : ""}`;
+    return item.external ? (
+      <a key={item.href} href={item.href} className={className}>
+        {label}
+      </a>
+    ) : (
+      <Link key={item.href} href={item.href} className={className} onClick={() => setOpen(false)}>
+        {label}
+      </Link>
+    );
+  });
+
+  const actionItems = !mounted ? (
+    <span style={{ width: 150, height: 44 }} aria-hidden />
+  ) : signedIn ? (
+    <>
+      <button type="button" onClick={() => void logout()} className="site-ghost-link">
+        {t("nav.sign_out")}
+      </button>
+      <Link href="/dashboard" className="site-button site-button-primary" style={{ padding: "10px 18px", fontSize: 12 }}>
+        {t("nav.dashboard")}
+      </Link>
+    </>
+  ) : (
+    <>
+      <Link href="/login" className="site-ghost-link">
+        {t("nav.sign_in")}
+      </Link>
+      <Link href="/register" className="site-button site-button-primary" style={{ padding: "10px 18px", fontSize: 12 }}>
+        {t("home.cta_start")}
+      </Link>
+    </>
+  );
+
   return (
-    <header className="sticky top-0 z-50 border-b border-border bg-navy/80 backdrop-blur-lg">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-2 px-4 sm:px-6">
-        <Link href="/" className="flex min-w-0 shrink items-center gap-1.5 sm:gap-2">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={BRAND_ASSETS.lockupLight} alt="Xcelsior" className="hidden h-auto w-[8.75rem] dark:block sm:w-[10rem]" width={206} height={34} fetchPriority="high" loading="eager" />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={BRAND_ASSETS.lockupDark} alt="Xcelsior" className="block h-auto w-[8.75rem] dark:hidden sm:w-[10rem]" width={206} height={34} fetchPriority="high" loading="eager" />
-          <span className="shrink-0 rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white dark:bg-accent-red/20 dark:text-red-100">
-            Beta
-          </span>
-        </Link>
+    <header className="site-nav">
+      <div className="site-container">
+        <div className="site-nav-inner">
+          <Link href="/" className="site-brand" onClick={() => setOpen(false)}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={SITE_ASSETS.iconGradient} className="site-brand-icon" alt="Xcelsior" fetchPriority="high" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={SITE_ASSETS.wordmarkLight} className="wm-light" style={{ height: 17 }} alt="Xcelsior" fetchPriority="high" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={SITE_ASSETS.wordmarkDark} className="wm-dark" style={{ height: 17 }} alt="Xcelsior" fetchPriority="high" />
+          </Link>
 
-        <nav className="hidden md:flex items-center gap-8">
-          {navKeys.map((l) => {
-            const active = isActive(l.href);
-            const linkClass = active
-              ? "text-sm text-text-primary font-semibold relative after:absolute after:inset-x-0 after:-bottom-1 after:h-[2px] after:bg-accent-red after:rounded-full"
-              : "text-sm text-text-secondary hover:text-text-primary transition-colors";
-            return l.external ? (
-              <a key={l.href} href={l.href} className={linkClass}>
-                {t(l.key)}
-              </a>
-            ) : (
-              <Link key={l.href} href={l.href} className={linkClass}>
-                {t(l.key)}
-              </Link>
-            );
-          })}
-        </nav>
+          <nav className="site-nav-links" aria-label="Main navigation">
+            {navItems}
+          </nav>
 
-        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-          <span className="hidden lg:flex items-center gap-1 text-xs text-text-muted">
-            <MapPin className="h-3 w-3" />
-            {t("nav.canadian_owned")}
-          </span>
-          <div className="hidden md:flex items-center gap-2">
-            <LocaleToggle />
-            <ThemeToggle />
+          <div className="site-nav-actions">
+            <button type="button" onClick={toggleLocale} className="site-ghost-link" aria-label="Toggle language">
+              {displayLocale.toUpperCase()}
+            </button>
+            <ThemePill />
+            {actionItems}
+            <button
+              type="button"
+              className="site-mobile-menu-button"
+              onClick={() => setOpen((value) => !value)}
+              aria-expanded={open}
+              aria-controls="mobile-nav-menu"
+              aria-label={open ? "Close menu" : "Open menu"}
+            >
+              {open ? <X size={20} /> : <Menu size={20} />}
+            </button>
           </div>
-          <div className="hidden sm:block h-5 w-px bg-border" />
-          {/* Pre-mount we can't know auth state (httpOnly cookie), so reserve space
-              instead of rendering the wrong buttons — avoids the Sign In flash. */}
-          {!mounted ? (
-            <div className="hidden sm:block h-11 w-[150px]" aria-hidden />
-          ) : signedIn ? (
-            <>
-              <button
-                type="button"
-                onClick={() => { void logout(); }}
-                className="hidden sm:inline-flex min-h-11 items-center whitespace-nowrap px-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
-              >
-                {t("nav.sign_out")}
-              </button>
-              <Link
-                href="/dashboard"
-                className="hidden sm:inline-flex min-h-11 items-center whitespace-nowrap rounded-lg bg-accent-red px-4 text-sm font-medium text-white hover:bg-accent-red-hover transition-colors"
-              >
-                {t("nav.dashboard")}
-              </Link>
-            </>
-          ) : (
-            <>
-              <Link
-                href="/login"
-                className="hidden sm:inline-flex min-h-11 items-center whitespace-nowrap px-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
-              >
-                {t("nav.sign_in")}
-              </Link>
-              <Link
-                href="/register"
-                className="hidden sm:inline-flex min-h-11 items-center whitespace-nowrap rounded-lg bg-accent-red px-4 text-sm font-medium text-white hover:bg-accent-red-hover transition-colors"
-              >
-                {t("nav.get_started")}
-              </Link>
-            </>
-          )}
-          {/* Mobile hamburger */}
-          <button
-            type="button"
-            className="md:hidden flex min-h-11 min-w-11 items-center justify-center rounded-lg text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
-            onClick={() => setOpen(!open)}
-            aria-expanded={open}
-            aria-controls="mobile-nav-menu"
-            aria-label={open ? "Close menu" : "Open menu"}
-          >
-            {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-          </button>
         </div>
       </div>
 
-      {/* Mobile menu */}
-      <AnimatePresence>
-        {open && (
-          <m.nav
-            id="mobile-nav-menu"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="md:hidden overflow-hidden border-t border-border bg-navy/95 backdrop-blur-lg"
-          >
-            <div className="mx-auto max-w-7xl px-6 py-4 flex flex-col gap-1">
-              {navKeys.map((l) => {
-                const active = isActive(l.href);
-                const mobileClass = active
-                  ? "flex min-h-11 items-center rounded-lg px-3 text-sm text-text-primary font-semibold bg-surface-hover border-l-2 border-accent-red"
-                  : "flex min-h-11 items-center rounded-lg px-3 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors";
-                return l.external ? (
-                  <a
-                    key={l.href}
-                    href={l.href}
-                    onClick={() => setOpen(false)}
-                    className={mobileClass}
-                  >
-                    {t(l.key)}
-                  </a>
-                ) : (
-                  <Link
-                    key={l.href}
-                    href={l.href}
-                    onClick={() => setOpen(false)}
-                    className={mobileClass}
-                  >
-                    {t(l.key)}
-                  </Link>
-                );
-              })}
-              <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
-                <div className="flex items-center gap-2 px-3 py-1">
-                  <LocaleToggle />
-                  <ThemeToggle />
-                </div>
-                {signedIn ? (
-                  <>
-                    <Link
-                      href="/dashboard"
-                      onClick={() => setOpen(false)}
-                      className="inline-flex min-h-11 items-center justify-center rounded-lg bg-accent-red px-4 text-sm font-medium text-white hover:bg-accent-red-hover transition-colors"
-                    >
-                      {t("nav.dashboard")}
-                    </Link>
-                    <button
-                      type="button"
-                      onClick={() => { setOpen(false); void logout(); }}
-                      className="flex min-h-11 items-center rounded-lg px-3 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
-                    >
-                      {t("nav.sign_out")}
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <Link
-                      href="/login"
-                      onClick={() => setOpen(false)}
-                      className="flex min-h-11 items-center rounded-lg px-3 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
-                    >
-                      {t("nav.sign_in")}
-                    </Link>
-                    <Link
-                      href="/register"
-                      onClick={() => setOpen(false)}
-                      className="inline-flex min-h-11 items-center justify-center rounded-lg bg-accent-red px-4 text-sm font-medium text-white hover:bg-accent-red-hover transition-colors"
-                    >
-                      {t("nav.get_started")}
-                    </Link>
-                  </>
-                )}
-              </div>
-            </div>
-          </m.nav>
-        )}
-      </AnimatePresence>
+      <nav id="mobile-nav-menu" className="site-mobile-panel" data-open={open ? "true" : "false"} aria-label="Mobile navigation">
+        <div className="site-mobile-panel-inner">
+          {navItems}
+          <button type="button" onClick={toggleLocale} className="site-ghost-link" aria-label="Toggle language">
+            {displayLocale.toUpperCase()}
+          </button>
+          {!mounted ? null : signedIn ? (
+            <>
+              <Link href="/dashboard" onClick={() => setOpen(false)} className="site-button site-button-primary">
+                {t("nav.dashboard")}
+              </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  void logout();
+                }}
+                className="site-ghost-link"
+              >
+                {t("nav.sign_out")}
+              </button>
+            </>
+          ) : (
+            <>
+              <Link href="/login" onClick={() => setOpen(false)} className="site-ghost-link">
+                {t("nav.sign_in")}
+              </Link>
+              <Link href="/register" onClick={() => setOpen(false)} className="site-button site-button-primary">
+                {t("home.cta_start")}
+              </Link>
+            </>
+          )}
+        </div>
+      </nav>
     </header>
   );
 }
