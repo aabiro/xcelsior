@@ -1635,7 +1635,9 @@
   position: relative;
   overflow: hidden;
   padding: 76px 52px;
+  border-right: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
+  border-left: 1px solid var(--line);
   background: linear-gradient(120deg, rgba(56, 219, 255, 0.12), rgba(155, 109, 255, 0.16) 55%, rgba(220, 38, 38, 0.06));
 }
 
@@ -1646,6 +1648,13 @@
   width: 340px;
   opacity: .24;
   animation: floaty 9s ease-in-out infinite;
+}
+
+.site-cta-eyebrow {
+  margin-bottom: 26px;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  color: var(--text-2);
 }
 
 .site-cta-title {
