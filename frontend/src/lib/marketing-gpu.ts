@@ -1,6 +1,6 @@
 import { getGpuModel } from "./gpu-models";
 
-/** Canonical marketing order — curated fleet, not every SKU in the catalog. */
+/** Canonical marketing order, curated fleet, not every SKU in the catalog. */
 export const MARKETING_GPU_PRIORITY = [
   "B200",
   "H200",

@@ -71,8 +71,8 @@ export function SaveAsTemplateDialog({
       });
       toast.success(
         res.status === "queued_registry_down"
-          ? "Snapshot queued — registry temporarily unreachable, will retry"
-          : "Snapshot started — image will appear in Templates when ready",
+          ? "Snapshot queued, registry temporarily unreachable, will retry"
+          : "Snapshot started, image will appear in Templates when ready",
       );
       onSaved?.(res.image_ref);
       onClose();
@@ -86,9 +86,9 @@ export function SaveAsTemplateDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !submitting && onClose()} />
-      <div className="relative z-10 w-full max-w-md rounded-xl border border-border bg-surface p-6 shadow-2xl mx-4">
+    <div className="dashboard-site-modal-overlay fixed inset-0 z-[300] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => !submitting && onClose()} />
+      <div className="dashboard-site-modal-panel relative z-10 w-full max-w-md rounded-xl border p-6 shadow-2xl mx-4">
         <div className="flex items-start gap-4">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent-cyan/10">
             <Camera className="h-5 w-5 text-accent-cyan" />

@@ -2,7 +2,7 @@ import type { DeployStudioForm } from "./types";
 
 export const PRESET_IMAGE = "xcelsior/serverless-vllm:12.4";
 
-/** Phase 15 — additional managed engines (vLLM default; TGI/SGLang opt-in). */
+/** Phase 15, additional managed engines (vLLM default; TGI/SGLang opt-in). */
 export const MANAGED_ENGINES = [
   { id: "vllm", label: "vLLM (default)", image: "xcelsior/serverless-vllm:12.4" },
   { id: "tgi", label: "Text Generation Inference", image: "ghcr.io/huggingface/text-generation-inference:latest" },

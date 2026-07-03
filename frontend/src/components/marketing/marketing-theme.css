@@ -156,15 +156,46 @@
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 11px;
+  gap: 10px;
   color: var(--text);
   text-decoration: none;
 }
 
 .site-brand-icon {
-  width: 28px;
-  height: 28px;
+  width: var(--brand-icon-h, 26px);
+  height: var(--brand-icon-h, 26px);
+  flex-shrink: 0;
+  object-fit: contain;
+  object-position: center;
   filter: drop-shadow(0 3px 10px rgba(56, 219, 255, 0.35));
+}
+
+.site-brand-wordmark {
+  height: var(--brand-wordmark-h, 22px);
+  width: auto;
+  flex-shrink: 0;
+  object-fit: contain;
+  object-position: left center;
+}
+
+.site-nav .site-brand {
+  --brand-icon-h: 24px;
+  --brand-wordmark-h: 17px;
+}
+
+.site-footer-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.site-footer-brand .site-brand-icon {
+  --brand-icon-h: 24px;
+}
+
+.site-footer-brand .site-brand-wordmark {
+  --brand-wordmark-h: 20px;
 }
 
 .site-nav-links,
@@ -394,7 +425,7 @@
   border-radius: 999px;
   background: var(--surface-1);
   color: var(--text-3);
-  font-family: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
+  font-family: var(--font-geist-mono), "Geist Mono", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", ui-monospace, monospace;
   font-size: 11.5px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -545,6 +576,60 @@
   margin-top: 20px;
   padding-top: 18px;
   border-top: 1px solid var(--edge);
+  gap: 16px;
+}
+
+.site-telemetry-price-copy {
+  min-width: 0;
+}
+
+.site-telemetry-price-kicker {
+  margin-bottom: 4px;
+  color: var(--text-4);
+  font-family: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.site-telemetry-price-value {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  background: linear-gradient(100deg, var(--cyan), var(--violet));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.site-telemetry-price-unit {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--text-4);
+  -webkit-text-fill-color: var(--text-4);
+}
+
+.site-telemetry-action {
+  flex-shrink: 0;
+  padding: 10px 15px;
+  border: 1px solid var(--edge);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-decoration: none;
+  text-transform: uppercase;
+  transition: background .2s, border-color .2s;
+}
+
+.site-telemetry-action:hover {
+  background: var(--surface-3);
 }
 
 .site-kpi-strip {
@@ -747,6 +832,11 @@
   text-transform: uppercase;
 }
 
+.site-table th.site-table-head-x {
+  color: var(--violet-2);
+  font-weight: 600;
+}
+
 .site-table th:first-child,
 .site-table td:first-child {
   padding-left: 20px;
@@ -784,6 +874,7 @@
 .site-table .site-table-x {
   background: rgba(155, 109, 255, 0.08);
   color: var(--text);
+  font-size: 13.5px;
   font-weight: 600;
 }
 
@@ -804,7 +895,8 @@
   font-family: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
   font-size: 34px;
   font-weight: 600;
-  opacity: .55;
+  color: var(--cyan);
+  opacity: .85;
 }
 
 .site-product-main,
@@ -1648,6 +1740,7 @@
   width: 340px;
   opacity: .24;
   animation: floaty 9s ease-in-out infinite;
+  will-change: transform;
 }
 
 .site-cta-eyebrow {
@@ -1700,6 +1793,31 @@
   color: var(--text);
 }
 
+.site-footer-motto {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-geist-mono), "Geist Mono", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", ui-monospace, monospace;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.site-footer-motto-emoji {
+  color: var(--text);
+}
+
+.site-cta-button {
+  border: 0;
+  background: var(--cta-bg);
+  color: var(--cta-fg);
+  box-shadow: var(--shadow-cta);
+  padding: 15px 30px;
+}
+
+.site-cta-button:hover {
+  transform: translateY(-2px);
+}
+
 
 .site-button:disabled {
   transform: none;
@@ -1748,10 +1866,10 @@
 .site-auth-rails {
   position: relative;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   min-height: calc(100vh - 66px);
-  padding: 56px 48px 72px;
+  padding: 72px 48px 72px;
 }
 
 .site-auth-card {
@@ -2642,7 +2760,7 @@
 
 .site-marketing-code pre {
   margin: 0;
-  color: rgba(56, 219, 255, 0.95) !important;
+  color: var(--text-2) !important;
 }
 
 .site-download-primary,

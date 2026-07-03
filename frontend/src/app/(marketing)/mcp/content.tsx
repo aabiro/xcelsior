@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { AuthAwareLink } from "@/components/marketing/auth-aware-link";
 import { ArrowRight, CheckCircle2, Zap } from "lucide-react";
 import { CodeBlock } from "@/components/ui/code-block";
 import { m } from "@/components/marketing/motion";
@@ -115,10 +116,10 @@ export function McpLandingContent() {
               <h1 className="site-hero-title">{t("mcp.landing.headline")}</h1>
               <p className="site-hero-copy">{t("mcp.landing.subheadline")}</p>
               <div className="site-hero-actions">
-                <Link href="/dashboard/settings#mcp" className="site-button site-button-primary">
+                <AuthAwareLink intent="mcp" className="site-button site-button-primary">
                   <span>{t("mcp.landing.cta_connect")}</span>
                   <ArrowRight className="site-button-icon" />
-                </Link>
+                </AuthAwareLink>
                 <Link href="#tools" className="site-button site-button-ghost">
                   {t("mcp.landing.cta_tools")}
                 </Link>
@@ -137,7 +138,7 @@ export function McpLandingContent() {
                 />
                 <div className="site-hero-stat-grid">
                   <div className="site-hero-stat-card">
-                    <div className="site-kpi-value">{gpuCount ?? "—"}</div>
+                    <div className="site-kpi-value">{gpuCount ?? "-"}</div>
                     <div className="site-kpi-label">{t("mcp.landing.stat_gpus")}</div>
                   </div>
                   <div className="site-hero-stat-card site-hero-stat-card-accent">
@@ -154,7 +155,6 @@ export function McpLandingContent() {
       <div className="site-container">
         <section className="site-rails site-section">
           <SectionMarker code="01" label={t("mcp.landing.problem_tagline")} />
-          <h2 className="site-section-heading">{t("mcp.landing.problem_tagline")}</h2>
           <div className="site-contrast-grid" style={{ marginTop: 52 }}>
             {(["pain_1", "pain_2", "pain_3"] as const).map((key, index) => (
               <m.article
@@ -178,7 +178,6 @@ export function McpLandingContent() {
 
         <section className="site-rails site-section">
           <SectionMarker code="02" label={t("mcp.landing.flow_title")} />
-          <h2 className="site-section-heading">{t("mcp.landing.flow_title")}</h2>
           <div className="site-flow-grid site-section-flush">
             {FLOW_STEPS.map((step, index) => (
               <m.article
@@ -200,7 +199,6 @@ export function McpLandingContent() {
 
         <section id="tools" className="site-rails site-section">
           <SectionMarker code="03" label={t("mcp.landing.bento_title")} />
-          <h2 className="site-section-heading">{t("mcp.landing.bento_title")}</h2>
           <div className="site-bento-grid" style={{ marginTop: 52 }}>
             {BENTO.map((card, index) => (
               <m.article
@@ -251,7 +249,6 @@ export function McpLandingContent() {
 
         <section className="site-rails site-section">
           <SectionMarker code="05" label={t("mcp.landing.setup_title")} />
-          <h2 className="site-section-heading">{t("mcp.landing.setup_title")}</h2>
           <p className="site-section-copy">{t("mcp.landing.setup_desc")}</p>
           <div className="site-setup-shell">
             <div className="site-tab-list" role="tablist" aria-label={t("mcp.landing.setup_title")}>
@@ -272,9 +269,9 @@ export function McpLandingContent() {
             </div>
             <CodeBlock filename={mcpConfigPath(agentTab)} code={configSnippet} className="site-marketing-code" />
             <div className="site-hero-actions" style={{ marginTop: 24 }}>
-              <Link href="/dashboard/settings#mcp" className="site-button site-button-primary">
+              <AuthAwareLink intent="mcp" className="site-button site-button-primary">
                 {t("mcp.landing.setup_cta")}
-              </Link>
+              </AuthAwareLink>
             </div>
           </div>
         </section>

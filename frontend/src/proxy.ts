@@ -28,7 +28,7 @@ export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const hasSession = request.cookies.has(AUTH_COOKIE);
 
-  // Protect dashboard routes — redirect to login if no session cookie
+  // Protect dashboard routes, redirect to login if no session cookie
   if (pathname.startsWith("/dashboard")) {
     if (!hasSession) {
       const loginUrl = new URL("/login", request.url);

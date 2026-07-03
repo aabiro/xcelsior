@@ -13,6 +13,7 @@ export const SITE_ASSETS = {
   appSquareDark: `${SITE_ASSET_BASE}/app-square-dark.svg`,
   appSquareLight: `${SITE_ASSET_BASE}/app-square-light.svg`,
   iconGradient: `${SITE_ASSET_BASE}/icon-gradient.svg`,
+  iconGradientTight: `${BRAND_SYSTEM_BASE}/icon-gradient-tight.svg`,
   iconNavy: `${SITE_ASSET_BASE}/icon-navy.svg`,
   iconWhite: `${SITE_ASSET_BASE}/icon-white.svg`,
   lockupDark: `${SITE_ASSET_BASE}/lockup-dark.svg`,

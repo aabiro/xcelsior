@@ -193,7 +193,7 @@ export default function SettingsPage() {
     return () => window.removeEventListener("hashchange", applyHash);
   }, []);
 
-  // Reflect the active tab back into the URL — but skip the first run so we don't
+  // Reflect the active tab back into the URL, but skip the first run so we don't
   // clobber an incoming hash, and use replaceState (no history spam, no scroll
   // jump, no hashchange loop).
   const hashSynced = useRef(false);
@@ -976,9 +976,11 @@ function ProfileTab({
                     </Button>
                   </div>
                 )}
-                <p className="text-xs text-text-muted">
-                  {editing && !emailSent ? t("dash.settings.email_change_note") : t("dash.settings.email_note")}
-                </p>
+                {editing && !emailSent && (
+                  <p className="text-xs text-text-muted">
+                    {t("dash.settings.email_change_note")}
+                  </p>
+                )}
               </div>
             </div>
           </SettingsSection>
@@ -1635,8 +1637,8 @@ function ApiKeysTab({
               <p className="text-xs font-medium text-text-muted uppercase tracking-wider">Your SSH Public Keys</p>
               <p className="text-xs text-text-muted">
                 Add your SSH public keys for secure access to GPU hosts. Paste the contents of your{" "}
-                <code className="bg-background px-1 rounded text-accent-cyan">~/.ssh/id_ed25519.pub</code> or{" "}
-                <code className="bg-background px-1 rounded text-accent-cyan">~/.ssh/id_rsa.pub</code> file.
+                <code className="rounded bg-background px-1 font-mono text-text-primary">~/.ssh/id_ed25519.pub</code> or{" "}
+                <code className="rounded bg-background px-1 font-mono text-text-primary">~/.ssh/id_rsa.pub</code> file.
               </p>
 
               <div className="rounded-lg border border-dashed border-border/80 bg-navy-light/20 p-4 space-y-3">

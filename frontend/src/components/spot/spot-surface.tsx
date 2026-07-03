@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { AlertTriangle, TrendingDown, Zap } from "lucide-react";
 import type { ReactNode } from "react";
 
-/** Shared spot accent surface — use across dashboard & marketing spot UI. */
+/** Shared spot accent surface, use across dashboard & marketing spot UI. */
 export function SpotSurface({
   children,
   className,
@@ -87,7 +87,7 @@ export function SpotRateDisplay({
     return <p className="text-xs text-text-muted animate-pulse">Loading spot rate…</p>;
   }
   if (rateCad == null) {
-    return <p className="text-xs text-text-muted">—</p>;
+    return <p className="text-xs text-text-muted">-</p>;
   }
 
   return (

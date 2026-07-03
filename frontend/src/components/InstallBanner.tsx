@@ -19,7 +19,7 @@ type BannerVariant = "post-launch" | "frequent" | "default" | "desktop";
  * Context-aware install banner.
  *
  * Mobile:
- *   - After first instance launch → "Nice — your instance is running" + tray alerts pitch
+ *   - After first instance launch → "Nice, your instance is running" + tray alerts pitch
  *   - After 5+ visits (daily checker) → "You're here a lot" + offline pitch
  *   - Fallback after 2 visits → generic "Get the app"
  *
@@ -77,7 +77,7 @@ export function InstallBanner() {
         return;
       }
 
-      // Mobile — need the browser install prompt to be available
+      // Mobile, need the browser install prompt to be available
       if (!canInstall) return;
 
       if (hasLaunched) {
@@ -96,7 +96,7 @@ export function InstallBanner() {
   }, [allowPromo, canInstall, isDesktopDevice, isInstalled]);
 
   // Auto-dismiss: animate off after a while instead of lingering forever.
-  // Session-only — the 14-day snooze is reserved for explicit dismissals.
+  // Session-only, the 14-day snooze is reserved for explicit dismissals.
   useEffect(() => {
     if (!show || leaving) return;
     const timer = window.setTimeout(() => setLeaving(true), AUTO_DISMISS_MS);

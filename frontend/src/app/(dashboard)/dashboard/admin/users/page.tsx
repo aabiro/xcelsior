@@ -288,9 +288,9 @@ export default function AdminUsersPage() {
                               ${u.wallet_balance_cad?.toFixed(2) ?? "0.00"}
                             </td>
                             <td className="py-3 px-4 text-center font-mono">{u.total_jobs ?? 0}</td>
-                            <td className="py-3 px-4 text-text-muted">{u.province || "—"}</td>
+                            <td className="py-3 px-4 text-text-muted">{u.province || "-"}</td>
                             <td className="py-3 px-4 text-text-muted whitespace-nowrap">
-                              {u.created_at ? new Date(u.created_at).toLocaleDateString() : "—"}
+                              {u.created_at ? new Date(u.created_at).toLocaleDateString() : "-"}
                             </td>
                             <td className="py-3 px-4 relative">
                               <button
@@ -331,11 +331,11 @@ export default function AdminUsersPage() {
                                   </div>
                                   <div>
                                     <p className="text-[10px] uppercase tracking-wide text-text-muted mb-1">Location</p>
-                                    <p>{u.province || "—"}{u.country ? `, ${u.country}` : ""}</p>
+                                    <p>{u.province || "-"}{u.country ? `, ${u.country}` : ""}</p>
                                   </div>
                                   <div>
                                     <p className="text-[10px] uppercase tracking-wide text-text-muted mb-1">Created</p>
-                                    <p>{u.created_at ? new Date(u.created_at).toLocaleString() : "—"}</p>
+                                    <p>{u.created_at ? new Date(u.created_at).toLocaleString() : "-"}</p>
                                   </div>
                                 </div>
                                 {/* Team memberships */}

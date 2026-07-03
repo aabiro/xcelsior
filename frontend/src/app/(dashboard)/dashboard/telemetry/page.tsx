@@ -126,7 +126,7 @@ export default function TelemetryPage() {
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-16 text-center">
                 <Server className="h-12 w-12 text-text-muted mb-3 opacity-30" />
-                <p className="text-sm text-text-muted">No live telemetry — start a worker to see GPU metrics</p>
+                <p className="text-sm text-text-muted">No live telemetry, start a worker to see GPU metrics</p>
               </CardContent>
             </Card>
           ) : (

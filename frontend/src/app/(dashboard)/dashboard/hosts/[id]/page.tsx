@@ -139,7 +139,7 @@ function HostDetailContent({ id }: { id: string }) {
           </div>
           <div>
             <p className="text-xs text-text-muted">{t("dash.hosts.label_location")}</p>
-            <p className="font-medium">{host.province || "—"}, {host.country || "CA"}</p>
+            <p className="font-medium">{host.province || "-"}, {host.country || "CA"}</p>
           </div>
         </Card>
 
@@ -159,7 +159,7 @@ function HostDetailContent({ id }: { id: string }) {
           </div>
           <div>
             <p className="text-xs text-text-muted">{t("dash.hosts.label_compute")}</p>
-            <p className="font-medium font-mono">{computeScore != null ? computeScore.toFixed(0) : "—"}</p>
+            <p className="font-medium font-mono">{computeScore != null ? computeScore.toFixed(0) : "-"}</p>
           </div>
         </Card>
       </div>
@@ -293,7 +293,7 @@ function HostDetailContent({ id }: { id: string }) {
               max={400}
               color="bg-accent-red"
             />
-            {/* P2.4: network + disk bandwidth — only render if the agent reports them. */}
+            {/* P2.4: network + disk bandwidth, only render if the agent reports them. */}
             {telemetry.net_rx_mbps !== undefined && (
               <TelemetryGauge
                 icon={<ArrowDownToLine className="h-4 w-4 text-ice-blue" />}

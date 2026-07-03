@@ -1,4 +1,4 @@
-// GPU display formatting — turns a canonical short title plus variant
+// GPU display formatting, turns a canonical short title plus variant
 // metadata into a user-facing string. Canonical short titles (from
 // `./gpu-models`) NEVER contain VRAM, form factor, or "High frequency"
 // markers; those live in dedicated columns and are composed into the

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -18,6 +18,7 @@ import {
   Monitor,
   Package,
   Server,
+  Settings,
   Shield,
   Sparkles,
   Store,
@@ -47,14 +48,15 @@ type NavGroupDef = {
   roles?: string[];
 };
 
-/** Pinned — always visible, never tucked in a group. */
+/** Pinned, always visible, never tucked in a group. */
 const PINNED_ITEMS: NavItemDef[] = [
   { href: "/dashboard", key: "dash.overview", icon: LayoutDashboard },
   { href: "/dashboard/ai", key: "dash.ai", icon: Sparkles, badge: "New" },
+  { href: "/dashboard/settings", key: "dash.settings", icon: Settings },
 ];
 
 /**
- * Grouped nav — order follows the user journey:
+ * Grouped nav, order follows the user journey:
  * Compute → Storage → Business → Insights → Trust → Admin
  */
 const NAV_GROUPS: NavGroupDef[] = [
@@ -100,7 +102,7 @@ const NAV_GROUPS: NavGroupDef[] = [
     id: "trust",
     labelKey: "dash.nav.trust",
     items: [
-      // Reputation page hidden for now — Phase 1 uses a flat platform fee, so
+      // Reputation page hidden for now, Phase 1 uses a flat platform fee, so
       // reputation tiers don't yet affect economics. Re-add when incentives return.
       { href: "/dashboard/compliance", key: "dash.compliance", icon: FileCheck },
       { href: "/dashboard/trust", key: "dash.trust", icon: Shield },
@@ -183,7 +185,7 @@ function NavLink({
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <span className="truncate">{label}</span>
           {item.badge && (
-            <span className="shrink-0 rounded-full bg-accent-violet/12 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent-violet/90">
+            <span className="dashboard-pill shrink-0 border-accent-violet/30 bg-accent-violet/12 text-accent-violet/90">
               {item.badge}
             </span>
           )}
@@ -209,8 +211,7 @@ export function DashboardNav({
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
-  const [hydrated, setHydrated] = useState(false);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(readGroupsOpen);
 
   const visibleGroups = useMemo(
     () =>
@@ -231,20 +232,19 @@ export function DashboardNav({
     return null;
   }, [pathname, visibleGroups]);
 
-  useEffect(() => {
-    const stored = readGroupsOpen();
-    const next: Record<string, boolean> = { ...stored };
+  const resolvedOpenGroups = useMemo(() => {
+    const next: Record<string, boolean> = { ...openGroups };
     for (const g of visibleGroups) {
       if (activeGroupId === g.id) next[g.id] = true;
-      if (next[g.id] === undefined) next[g.id] = g.id === "compute";
+      if (next[g.id] === undefined) next[g.id] = false;
     }
-    setOpenGroups(next);
-    setHydrated(true);
-  }, [activeGroupId, visibleGroups]);
+    return next;
+  }, [activeGroupId, openGroups, visibleGroups]);
 
   const toggleGroup = useCallback((id: string) => {
     setOpenGroups((prev) => {
-      const next = { ...prev, [id]: !prev[id] };
+      const current = prev[id] ?? false;
+      const next = { ...prev, [id]: !current };
       try {
         localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(next));
       } catch {
@@ -257,7 +257,7 @@ export function DashboardNav({
   const expanded = mobile || !collapsed;
 
   return (
-    <nav className="flex-1 overflow-y-auto overflow-x-hidden py-3 px-2 space-y-1">
+    <nav className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden px-2 py-3 space-y-1">
       {/* Pinned */}
       <div className="space-y-0.5 pb-2">
         {PINNED_ITEMS.map((item) => (
@@ -276,7 +276,7 @@ export function DashboardNav({
 
       {expanded ? (
         visibleGroups.map((group) => {
-          const isOpen = hydrated ? !!openGroups[group.id] : group.id === "compute";
+          const isOpen = !!resolvedOpenGroups[group.id];
           const groupActive = group.items.some((item) => isItemActive(pathname, item.href));
           return (
             <div key={group.id} className="pt-1">
@@ -322,7 +322,7 @@ export function DashboardNav({
           );
         })
       ) : (
-        // Collapsed: show every nav icon (flattened groups) — no "More" popout.
+        // Collapsed: show every nav icon (flattened groups), no "More" popout.
         <div className="space-y-0.5">
           {visibleGroups
             .flatMap((group) => group.items)

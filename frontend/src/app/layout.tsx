@@ -27,20 +27,20 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   applicationName: "Xcelsior",
   title: {
-    default: "Xcelsior — The Cheapest Compliant GPU Compute in Canada",
+    default: "Xcelsior, The Cheapest Compliant GPU Compute in Canada",
     template: "%s | Xcelsior",
   },
   description:
-    "Rent verified GPUs by the hour in Canadian dollars — sovereignty, PIPEDA, and clean hydro built in. From $0.30 CAD/hr, with dynamic spot pricing up to 70% off.",
+    "Rent verified GPUs by the hour in Canadian dollars, PIPEDA compliance and clean hydro built in. From $0.30 CAD/hr, with dynamic spot pricing up to 70% off.",
   keywords: [
     "GPU compute",
     "Canada",
-    "data sovereignty",
+    "data residency",
     "PIPEDA",
     "AI compute",
     "machine learning",
     "cloud GPU",
-    "sovereign cloud",
+    "Canadian cloud",
   ],
   metadataBase: new URL("https://xcelsior.ca"),
   alternates: {
@@ -63,7 +63,7 @@ export const metadata: Metadata = {
     ],
     title: "The Cheapest Compliant GPU Compute in Canada",
     description:
-      "Rent verified GPUs by the hour in Canadian dollars — sovereignty, PIPEDA, and clean hydro built in. From $0.30 CAD/hr, with dynamic spot pricing up to 70% off.",
+      "Rent verified GPUs by the hour in Canadian dollars, PIPEDA compliance and clean hydro built in. From $0.30 CAD/hr, with dynamic spot pricing up to 70% off.",
     url: "https://xcelsior.ca",
     siteName: "Xcelsior",
     locale: "en_CA",
@@ -104,8 +104,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('xcelsior-theme');if(t==='light'||t==='dark'){document.documentElement.classList.add(t);document.documentElement.dataset.theme=t;document.documentElement.style.colorScheme=t;}else{document.documentElement.classList.add('dark');document.documentElement.dataset.theme='dark';document.documentElement.style.colorScheme='dark';}}catch(e){document.documentElement.classList.add('dark');document.documentElement.dataset.theme='dark';}})();`,
+          }}
+        />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link rel="dns-prefetch" href="https://docs.xcelsior.ca" />
@@ -131,7 +136,7 @@ export default function RootLayout({
               url: "https://xcelsior.ca",
               logo: `${BRAND_ASSET_ORIGIN}${SITE_ASSETS.appGradientRounded512}`,
               description:
-                "Rent verified GPUs by the hour in Canadian dollars — sovereignty, PIPEDA, and clean hydro built in. From $0.30 CAD/hr, with dynamic spot pricing up to 70% off.",
+                "Rent verified GPUs by the hour in Canadian dollars, PIPEDA compliance and clean hydro built in. From $0.30 CAD/hr, with dynamic spot pricing up to 70% off.",
               foundingDate: "2024",
               address: {
                 "@type": "PostalAddress",
@@ -149,7 +154,7 @@ export default function RootLayout({
       </head>
       <body
         suppressHydrationWarning
-        className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased bg-navy text-text-primary`}
+        className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}
       >
         <Providers>
           {children}

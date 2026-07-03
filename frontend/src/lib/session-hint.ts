@@ -3,13 +3,13 @@
  *
  * The real session lives in an httpOnly cookie that JS can't read, so on a hard
  * page load the marketing navbar can't know the auth state until `/api/auth/me`
- * resolves — which causes a "Sign In" → "Dashboard" flash. This hint is written
+ * resolves, which causes a "Sign In" → "Dashboard" flash. This hint is written
  * whenever a session is confirmed and read synchronously so the navbar can show
  * the signed-in state immediately. It's only a hint: the server probe is still
  * the source of truth and corrects a stale hint on the next load.
  */
 const KEY = "xcelsior.session_hint";
-/** Default hint lifetime — refreshed on every confirmed session, so it only
+/** Default hint lifetime, refreshed on every confirmed session, so it only
  *  matters for users who never return; the probe corrects it regardless. */
 const DEFAULT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -18,7 +18,7 @@ export function setSessionHint(ttlMs: number = DEFAULT_TTL_MS): void {
   try {
     window.localStorage.setItem(KEY, String(Date.now() + ttlMs));
   } catch {
-    /* storage unavailable (private mode / quota) — hint is best-effort */
+    /* storage unavailable (private mode / quota), hint is best-effort */
   }
 }
 

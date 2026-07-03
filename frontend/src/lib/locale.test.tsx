@@ -37,9 +37,9 @@ describe("useLocale", () => {
 
   it("substitutes variables into translations", () => {
     const { result } = renderLocaleHook();
-    // Use a known key from the en dictionary — test the interpolation mechanism
+    // Use a known key from the en dictionary, test the interpolation mechanism
     const translated = result.current.t("test.greeting", { name: "Alice" });
-    // If key doesn't exist yet, it returns the key unchanged — that's fine
+    // If key doesn't exist yet, it returns the key unchanged, that's fine
     expect(typeof translated).toBe("string");
   });
 });

@@ -54,9 +54,9 @@ queued → assigned → running → completed
 
 The scheduler uses a 3-step filtering process:
 
-1. **VRAM Check** — Host must have enough free VRAM
-2. **Admission Gate** — Only `admitted = true` hosts considered
-3. **Isolation Tier** — Sovereign/regulated jobs prefer gVisor/Kata runtime
+1. **VRAM Check**, Host must have enough free VRAM
+2. **Admission Gate**, Only `admitted = true` hosts considered
+3. **Isolation Tier**, Sovereign/regulated jobs prefer gVisor/Kata runtime
 
 Trigger scheduling manually:
 
@@ -78,7 +78,7 @@ curl -X POST https://xcelsior.ca/instance \
   }'
 ```
 
-Spot instances are **preemptible**: when on-demand work needs GPU capacity on a full host, running spot jobs are reclaimed (lowest priority first). Preemption is **capacity-driven**, not auction-based — customers do not submit bids.
+Spot instances are **preemptible**: when on-demand work needs GPU capacity on a full host, running spot jobs are reclaimed (lowest priority first). Preemption is **capacity-driven**, not auction-based, customers do not submit bids.
 
 Check feature availability:
 

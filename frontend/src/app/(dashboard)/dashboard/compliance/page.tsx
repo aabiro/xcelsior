@@ -84,7 +84,7 @@ export default function CompliancePage() {
       .catch(() => { if (active) toast.error("Failed to load compliance data"); })
       .finally(() => { if (active) setLoading(false); });
 
-    // Province data — transform rates Record to array
+    // Province data, transform rates Record to array
     api.fetchTaxRates().then((d) => {
       const rates = d.rates || {};
       const provinceList: Province[] = Object.entries(rates).map(([code, info]: [string, any]) => ({
@@ -101,7 +101,7 @@ export default function CompliancePage() {
       .then((d) => setQuebecPia({ required: d.pia_required, reason: d.reason }))
       .catch((e) => console.error("Failed to check Quebec PIA", e));
 
-    // SLA data — transform Record to array
+    // SLA data, transform Record to array
     api.fetchSlaTargets().then((d) => {
       const tiers = d.tiers || {};
       const tierList: SlaTier[] = Object.entries(tiers).map(([name, t]) => ({
@@ -290,9 +290,9 @@ export default function CompliancePage() {
                             <span className="font-medium">{p.name}</span>
                             <span className="text-text-muted ml-1.5 text-xs">({p.code})</span>
                           </td>
-                          <td className="py-2.5 pr-4 text-right font-mono text-xs">{p.gst ? `${(p.gst * 100).toFixed(1)}%` : "—"}</td>
-                          <td className="py-2.5 pr-4 text-right font-mono text-xs">{p.pst ? `${(p.pst * 100).toFixed(1)}%` : "—"}</td>
-                          <td className="py-2.5 pr-4 text-right font-mono text-xs">{p.hst ? `${(p.hst * 100).toFixed(1)}%` : "—"}</td>
+                          <td className="py-2.5 pr-4 text-right font-mono text-xs">{p.gst ? `${(p.gst * 100).toFixed(1)}%` : "-"}</td>
+                          <td className="py-2.5 pr-4 text-right font-mono text-xs">{p.pst ? `${(p.pst * 100).toFixed(1)}%` : "-"}</td>
+                          <td className="py-2.5 pr-4 text-right font-mono text-xs">{p.hst ? `${(p.hst * 100).toFixed(1)}%` : "-"}</td>
                           <td className="py-2.5 text-right font-mono text-xs font-bold">{(p.total_rate * 100).toFixed(1)}%</td>
                         </tr>
                       ))}

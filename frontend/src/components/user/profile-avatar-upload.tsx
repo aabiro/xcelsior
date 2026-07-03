@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Camera, Loader2, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -39,16 +39,17 @@ export function ProfileAvatarUpload({
       setPreview(objectUrl);
       setUploading(true);
       try {
-        await uploadAvatar(file);
-        setPreview(null);
+        const result = await uploadAvatar(file);
+        setPreview(result.avatar_url);
+        URL.revokeObjectURL(objectUrl);
         await onUpdated();
         toast.success("Profile photo updated");
       } catch (err) {
         setPreview(null);
+        URL.revokeObjectURL(objectUrl);
         toast.error(err instanceof Error ? err.message : "Upload failed");
       } finally {
         setUploading(false);
-        URL.revokeObjectURL(objectUrl);
       }
     },
     [onUpdated],
@@ -67,6 +68,12 @@ export function ProfileAvatarUpload({
       setUploading(false);
     }
   };
+
+  useEffect(() => {
+    if (preview && user.avatar_url && preview === user.avatar_url) {
+      setPreview(null);
+    }
+  }, [preview, user.avatar_url]);
 
   const displaySrc = preview ?? user.avatar_url ?? null;
   const hasPhoto = !!(displaySrc || user.avatar_url);

@@ -1,6 +1,6 @@
 ---
 title: "Cheap H100 Rental in Canada: Pricing Guide for 2026"
-description: "H100 GPUs are the gold standard for AI training, but they're expensive. Here's how to find affordable H100 rental in Canada — with real pricing comparisons and tips to cut costs."
+description: "H100 GPUs are the gold standard for AI training, but they're expensive. Here's how to find affordable H100 rental in Canada, with real pricing comparisons and tips to cut costs."
 date: "2026-04-01"
 author: "Xcelsior Team"
 tags: ["H100", "pricing", "GPU rental", "Canada", "cost comparison"]
@@ -11,9 +11,9 @@ image: "/blog/cheap-h100-canada.jpg"
 
 NVIDIA's H100 is the most sought-after GPU for AI training. With 80GB of HBM3 memory and massive tensor core throughput, it's the chip that powers GPT-scale model training. The problem? It's expensive:
 
-- **Buying outright**: $30,000–$40,000 per card (if you can find one)
-- **AWS (p5.48xlarge, 8x H100)**: ~$98/hr USD — that's ~$135 CAD/hr
-- **Reserved pricing**: Requires 1–3 year commits at $50,000+ USD
+- **Buying outright**: $30,000-$40,000 per card (if you can find one)
+- **AWS (p5.48xlarge, 8x H100)**: ~$98/hr USD, that's ~$135 CAD/hr
+- **Reserved pricing**: Requires 1-3 year commits at $50,000+ USD
 
 For Canadian teams, the math gets worse once you factor in USD/CAD exchange rates, cross-border data transfer costs, and CLOUD Act compliance risk.
 
@@ -29,31 +29,31 @@ Here's what you'd pay for a single H100 80GB GPU hour across major providers:
 | CoreWeave | $4.76 | USD | US |
 | **Xcelsior** | **$4.50** | **CAD** | **Canada** |
 
-At current exchange rates, Xcelsior's CAD pricing works out to roughly $3.25 USD — **40% cheaper** than AWS Canada and under genuine Canadian jurisdiction.
+At current exchange rates, Xcelsior's CAD pricing works out to roughly $3.25 USD, **40% cheaper** than AWS Canada and under genuine Canadian jurisdiction.
 
 ## Why H100s Are Cheaper on Xcelsior
 
 Xcelsior is a marketplace, not a hyperscaler. That means:
 
-- **No data-centre overhead** — GPU capacity comes from verified providers who already own the hardware. No billion-dollar facility costs to amortize.
-- **Community pricing** — Providers set competitive rates to attract jobs. Market dynamics keep prices low.
-- **CAD-native** — No currency conversion markup. You pay in Canadian dollars, providers receive Canadian dollars.
-- **No minimums** — Rent by the hour. No reserved instance commitments.
+- **No data-centre overhead**, GPU capacity comes from verified providers who already own the hardware. No billion-dollar facility costs to amortize.
+- **Community pricing**, Providers set competitive rates to attract jobs. Market dynamics keep prices low.
+- **CAD-native**, No currency conversion markup. You pay in Canadian dollars, providers receive Canadian dollars.
+- **No minimums**, Rent by the hour. No reserved instance commitments.
 
 ## How to Cut H100 Costs Further
 
-### 1. Use the AI Compute Access Fund
+### 1. Use Spot Pricing
 
-Xcelsior's [AI Compute Access Fund](https://xcelsior.ca/pricing) provides rebates for Canadian startups, research institutions, and open-source projects. If you qualify, this can reduce your effective rate by 15–30%.
+Xcelsior's [spot pricing](https://xcelsior.ca/pricing) offers interruptible H100 rates well below on-demand for fault-tolerant workloads. If your job can checkpoint and resume, this can reduce your effective rate significantly.
 
 ### 2. Optimize Your Training
 
 Before throwing more H100 hours at the problem:
 
-- **Mixed precision training** — Use FP16/BF16 to nearly double throughput
-- **Gradient checkpointing** — Trade compute for VRAM, use fewer GPUs
-- **Efficient data loading** — Don't let your H100s sit idle waiting for data
-- **Checkpointing** — Xcelsior supports automatic checkpointing so interrupted jobs resume, not restart
+- **Mixed precision training**, Use FP16/BF16 to nearly double throughput
+- **Gradient checkpointing**, Trade compute for VRAM, use fewer GPUs
+- **Efficient data loading**, Don't let your H100s sit idle waiting for data
+- **Checkpointing**, Xcelsior supports automatic checkpointing so interrupted jobs resume, not restart
 
 ### 3. Consider Multi-GPU vs. Single-GPU
 
@@ -78,7 +78,7 @@ For fine-tuning, LoRA, inference on smaller models, or development work, A100s (
 
 1. **Sign up** at [xcelsior.ca/register](https://xcelsior.ca/register)
 2. **Browse H100 availability** on the [marketplace](https://xcelsior.ca/dashboard)
-3. **Launch an instance** — select H100, configure VRAM and isolation tier
+3. **Launch an instance**, select H100, configure VRAM and isolation tier
 4. **SSH in** and start training
 
 For multi-GPU and HPC workloads, Xcelsior supports [Slurm scheduling](https://docs.xcelsior.ca/guides/jobs) and distributed training across multiple hosts.

@@ -6,7 +6,7 @@ import { LAUNCH_MODAL_EVENT, type LaunchModalOptions } from "@/lib/launch-modal"
 
 /**
  * Single dashboard-level host for the Launch Instance modal. Listening for the
- * global event means any "Launch Instance" button opens the modal in place —
+ * global event means any "Launch Instance" button opens the modal in place -
  * no navigation to the instances list or the detail page.
  */
 export function GlobalLaunchModal() {

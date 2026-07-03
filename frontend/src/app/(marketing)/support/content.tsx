@@ -54,7 +54,6 @@ export function SupportContent() {
       <div className="site-container">
         <section className="site-rails site-section" style={{ paddingBottom: 0 }}>
           <SectionMarker code="01" label={t("support.title")} />
-          <h2 className="site-section-heading">{t("support.title")}</h2>
           <div className="site-support-grid site-section-flush">
             {channels.map((channel, index) => {
               const Icon = channel.icon;

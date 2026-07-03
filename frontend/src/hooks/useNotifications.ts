@@ -48,7 +48,7 @@ export function useNotifications(): UseNotificationsReturn {
       .finally(() => setLoading(false));
   }, []);
 
-  // Initial load — just the count (lightweight)
+  // Initial load, just the count (lightweight)
   useEffect(() => {
     if (!hasFetched.current) {
       hasFetched.current = true;
@@ -56,7 +56,7 @@ export function useNotifications(): UseNotificationsReturn {
     }
   }, [refreshCount]);
 
-  // Live updates — bump unread count when relevant events arrive
+  // Live updates, bump unread count when relevant events arrive
   useEventStream({
     eventTypes: [
       "job_submitted", "job_status", "job_completed", "job_failed",

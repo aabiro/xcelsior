@@ -184,13 +184,13 @@ function RowActions({
         >
           <Unlock className="h-3.5 w-3.5" />
         </IconButton>
-        <IconButton title="Locked — unlock to edit" onClick={() => {}} disabled>
+        <IconButton title="Locked, unlock to edit" onClick={() => {}} disabled>
           <Pencil className="h-3.5 w-3.5" />
         </IconButton>
-        <IconButton title="Locked — unlock to restart" onClick={() => {}} disabled>
+        <IconButton title="Locked, unlock to restart" onClick={() => {}} disabled>
           <Restart className="h-3.5 w-3.5" />
         </IconButton>
-        <IconButton title="Locked — unlock to stop/terminate" onClick={() => {}} disabled>
+        <IconButton title="Locked, unlock to stop/terminate" onClick={() => {}} disabled>
           <Square className="h-3.5 w-3.5" />
         </IconButton>
       </div>
@@ -349,7 +349,7 @@ export default function InstancesPage() {
     eventTypes: ["job_status", "job_submitted", "job_error", "job_preempted"],
     onEvent: (type, data) => {
       if (type === "job_preempted") {
-        toast.warning("Spot instance reclaimed — requeued for available capacity");
+        toast.warning("Spot instance reclaimed, requeued for available capacity");
         load();
         return;
       }
@@ -383,7 +383,7 @@ export default function InstancesPage() {
     if (!pendingAction) return;
     const { id, action } = pendingAction;
     setPendingAction(null);
-    // Optimistic UI — immediately reflect the intended terminal/transitional
+    // Optimistic UI, immediately reflect the intended terminal/transitional
     // state so the row visually responds to the click rather than waiting on
     // the server round-trip (the terminate endpoint is 202 accepted + async
     // SSH kill, so ground truth can lag several seconds). If the API call
@@ -395,7 +395,7 @@ export default function InstancesPage() {
       terminate: "terminated",
       cancel: "cancelled",
       requeue: "queued",
-      // reset/lock/unlock don't change status — omit so the row stays put
+      // reset/lock/unlock don't change status, omit so the row stays put
     };
     const prevInstances = instances;
     const target = optimisticStatus[action];
@@ -581,7 +581,7 @@ export default function InstancesPage() {
                   <td className="py-3 px-4 text-center text-text-muted">
                     {(inst.created_at || inst.submitted_at)
                       ? new Date((inst.created_at || inst.submitted_at) * 1000).toLocaleDateString()
-                      : "—"}
+                      : "-"}
                   </td>
                   <td className="py-3 px-4 text-right">
                     <div className="flex justify-end items-center gap-1">
@@ -682,7 +682,7 @@ export default function InstancesPage() {
         initialGpuModel={launchGpu}
         initialPricingMode={launchMode}
         onLaunched={(jobId, inst) => {
-          // Don't close — the modal shows its own success step. Just refresh
+          // Don't close, the modal shows its own success step. Just refresh
           // the list behind it so the new instance is present when they close.
           setInstances((prev) => {
             if (prev.some((i) => i.job_id === jobId)) return prev;

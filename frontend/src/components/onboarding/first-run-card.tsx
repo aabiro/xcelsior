@@ -10,7 +10,7 @@ import posthog from "posthog-js";
 const DISMISS_KEY = "xcelsior.first_run_dismissed";
 
 // Illustrates the core value prop: it's just OpenAI with a different base_url.
-// (The base_url is filled in once they deploy a model — see "Deploy a model".)
+// (The base_url is filled in once they deploy a model, see "Deploy a model".)
 const SNIPPET = `from openai import OpenAI
 
 client = OpenAI(
@@ -26,7 +26,7 @@ resp = client.chat.completions.create(
 print(resp.choices[0].message.content)`;
 
 /**
- * First-run activation card — shows on the dashboard until the user has run
+ * First-run activation card, shows on the dashboard until the user has run
  * something. Leads with developer experience ("just change your base_url") and
  * the free credit, then sends them to deploy a model.
  */
@@ -78,7 +78,7 @@ export function FirstRunCard({ customerId, show }: { customerId?: string; show: 
         <div className="min-w-0">
           <h2 className="text-lg font-semibold">Run your first inference</h2>
           <p className="mt-0.5 text-sm text-text-secondary">
-            OpenAI-compatible — just change your <code className="rounded bg-surface px-1 py-0.5 font-mono text-xs text-accent-cyan">base_url</code> and the rest of your code works exactly like OpenAI.
+            OpenAI-compatible, just change your <code className="rounded bg-surface px-1 py-0.5 font-mono text-xs text-text-primary">base_url</code> and the rest of your code works exactly like OpenAI.
           </p>
         </div>
       </div>
@@ -104,7 +104,6 @@ export function FirstRunCard({ customerId, show }: { customerId?: string; show: 
         </Link>
         <a
           href="https://docs.xcelsior.ca"
-          target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1.5 text-sm text-text-secondary transition-colors hover:text-text-primary"
         >

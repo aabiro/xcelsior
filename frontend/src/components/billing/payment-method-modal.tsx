@@ -18,11 +18,11 @@ interface PaymentMethodModalProps {
 function ModalShell({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="dashboard-site-modal-overlay fixed inset-0 z-[300] flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="brand-top-accent w-full max-w-md rounded-2xl border border-border bg-surface p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+        className="dashboard-site-modal-panel brand-top-accent w-full max-w-md rounded-2xl border p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-6 flex items-center justify-between">
@@ -96,7 +96,7 @@ function AddCardForm({ onClose, onSuccess, clientSecret }: PaymentMethodModalPro
       <div className="mb-4 flex items-start gap-2 rounded-lg border border-accent-cyan/15 bg-accent-cyan/5 p-3">
         <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-accent-cyan" />
         <p className="text-xs text-text-secondary">
-          Embedded checkout — your card is stored securely with Stripe for off-session wallet top-ups.
+          Embedded checkout, your card is stored securely with Stripe for off-session wallet top-ups.
         </p>
       </div>
       <div className="flex gap-3">

@@ -1,4 +1,4 @@
-/** API client — all requests use httpOnly cookie auth (credentials: include). */
+/** API client, all requests use httpOnly cookie auth (credentials: include). */
 
 let _refreshing: Promise<boolean> | null = null;
 const _BROWSER_OAUTH_STATE_KEY = "xcelsior.browser_oauth";
@@ -15,7 +15,7 @@ const _eventStreamAvailability = new Map<string, {
 async function _tryRefresh(): Promise<boolean> {
   // Refresh tokens are single-use and rotated server-side; a concurrent tab
   // (or the keepalive timer) holding the rotation lock yields HTTP 409.
-  // Treating that as failure logged users out with no warning — retry, and
+  // Treating that as failure logged users out with no warning, retry, and
   // if the lock never clears assume the other tab completed the rotation so
   // the caller can retry the original request with the refreshed cookie.
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -28,7 +28,7 @@ async function _tryRefresh(): Promise<boolean> {
       if (res.ok) return true;
       if (res.status !== 409) return false;
     } catch {
-      // network hiccup — retry below
+      // network hiccup, retry below
     }
     await new Promise((r) => setTimeout(r, 800 + attempt * 600));
   }
@@ -56,7 +56,7 @@ export async function apiFetch<T = unknown>(
   };
   const res = await fetch(path, { credentials: "include", headers, ...rest });
   if (res.status === 401) {
-    // Auth endpoints return 401 for invalid credentials — don't intercept
+    // Auth endpoints return 401 for invalid credentials, don't intercept
     if (path.startsWith("/api/auth/")) {
       const body = await res.json().catch(() => ({}));
       throw new ApiError(
@@ -91,7 +91,7 @@ export async function apiFetch<T = unknown>(
     const body = await res.json().catch(() => ({}));
     throw new ApiError(
       res.status,
-      // statusText is empty over HTTP/2 — never surface a blank error message
+      // statusText is empty over HTTP/2, never surface a blank error message
       body?.detail || body?.error?.message || body?.message || res.statusText || `Request failed (HTTP ${res.status})`,
       body,
     );
@@ -295,7 +295,7 @@ export function classifyLaunchError(err: unknown): LaunchErrorInfo {
         };
       }
       return {
-        message: "Insufficient balance — add funds to launch instances.",
+        message: "Insufficient balance, add funds to launch instances.",
         action: { label: "Add Funds", href: "/dashboard/billing?topup=true" },
       };
     }
@@ -303,11 +303,11 @@ export function classifyLaunchError(err: unknown): LaunchErrorInfo {
       return { message: "No GPU hosts available right now. Try again shortly." };
     }
     if (err.status === 422) {
-      return { message: "Invalid configuration — check your instance settings." };
+      return { message: "Invalid configuration, check your instance settings." };
     }
     if (err.status === 404 && /template image/i.test(detail)) {
       return {
-        message: "That template image isn't ready yet — pick another image or wait for it to finish building.",
+        message: "That template image isn't ready yet, pick another image or wait for it to finish building.",
         action: { label: "Manage Templates", href: "/dashboard/templates" },
       };
     }
@@ -320,7 +320,7 @@ export function classifyLaunchError(err: unknown): LaunchErrorInfo {
     }
     if (err.status === 403) {
       if (/team viewers cannot/i.test(detail)) {
-        return { message: "Viewer access is read-only — ask a team admin or member to make changes." };
+        return { message: "Viewer access is read-only, ask a team admin or member to make changes." };
       }
       if (/only team admins can manage team billing/i.test(detail)) {
         return {
@@ -530,7 +530,7 @@ export async function fetchInstances() {
   return res;
 }
 
-/** Unified instance launch payload — all launch flows use this. */
+/** Unified instance launch payload, all launch flows use this. */
 export interface LaunchInstanceParams {
   name: string;
   image?: string;
@@ -552,7 +552,7 @@ export interface LaunchInstanceParams {
   template_image_id?: string;
 }
 
-/** Single entry-point for launching instances — marketplace, new-instance page, spot, on-demand.
+/** Single entry-point for launching instances, marketplace, new-instance page, spot, on-demand.
  *  All go through POST /instance. No drift. */
 export async function launchInstance(params: LaunchInstanceParams) {
   // Strip undefined values so Pydantic doesn't choke on explicit nulls
@@ -892,40 +892,6 @@ export async function downloadInvoice(
   );
   if (!res.ok) throw new ApiError(res.status, res.statusText);
   return res.blob();
-}
-
-export async function exportCaf(customerId: string, periodStart: number, periodEnd: number, format: "json" | "csv" | "html" | "pdf" = "json") {
-  if (format === "html") {
-    const qs = new URLSearchParams({
-      period_start: String(periodStart),
-      period_end: String(periodEnd),
-      format: "html",
-    }).toString();
-    return `/api/billing/export/caf/${encodeURIComponent(customerId)}?${qs}`;
-  }
-  if (format === "csv" || format === "pdf") {
-    const qs = new URLSearchParams({
-      period_start: String(periodStart),
-      period_end: String(periodEnd),
-      format: "csv",
-    }).toString();
-    const res = await fetch(
-      `/api/billing/export/caf/${encodeURIComponent(customerId)}?${qs}`,
-      { credentials: "include" },
-    );
-    if (!res.ok) throw new ApiError(res.status, res.statusText);
-    return res.blob();
-  }
-  return apiFetch<{
-    ok: boolean;
-    summary: {
-      total_jobs: number; total_cost_cad: number;
-      canadian_eligible_reimbursement_cad: number;
-      non_canadian_eligible_reimbursement_cad: number;
-      total_eligible_reimbursement_cad: number;
-      effective_cost_after_fund_cad: number;
-    };
-  }>(`/api/billing/export/caf/${encodeURIComponent(customerId)}?period_start=${periodStart}&period_end=${periodEnd}`);
 }
 
 export async function estimatePrice(data: {
@@ -1557,7 +1523,7 @@ export interface MfaMethod {
 export interface MfaStatusResponse {
   ok: boolean;
   mfa_enabled: boolean;
-  /** False when Twilio is not configured server-side — hide/disable the SMS option. */
+  /** False when Twilio is not configured server-side, hide/disable the SMS option. */
   sms_available?: boolean;
   methods: MfaMethod[];
   backup_codes_remaining: number;
@@ -2341,7 +2307,7 @@ export interface Instance {
   gpu_model: string;
   gpu_type?: string;
   docker_image: string;
-  image?: string;  // raw backend field — normalizeInstance maps this to docker_image
+  image?: string;  // raw backend field, normalizeInstance maps this to docker_image
   duration_sec?: number;
   elapsed_sec?: number;
   wait_elapsed_sec?: number;
@@ -2469,7 +2435,7 @@ export interface TelemetryData {
   power_draw_w?: number;
   ecc_errors: number;
   timestamp: string;
-  // P2.4: network + disk bandwidth (optional — older agents won't ship these)
+  // P2.4: network + disk bandwidth (optional, older agents won't ship these)
   net_rx_mbps?: number;
   net_tx_mbps?: number;
   disk_read_mb_s?: number;
@@ -3307,7 +3273,7 @@ export async function updateProfile(updates: { name?: string; country?: string; 
   });
 }
 
-/** Begin a verified email change — emails a confirmation link to the new address. */
+/** Begin a verified email change, emails a confirmation link to the new address. */
 export async function requestEmailChange(newEmail: string) {
   return apiFetch<{ ok: boolean; pending_email: string; message: string }>("/api/auth/me/email-change", {
     method: "POST",

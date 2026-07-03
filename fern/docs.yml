@@ -7,7 +7,7 @@ logo:
   light: ./assets/logo-light.svg
   dark: ./assets/logo-dark.svg
   href: https://xcelsior.ca
-  height: 36
+  height: 28
 
 colors:
   accent-primary:
@@ -29,20 +29,25 @@ colors:
 favicon: ./assets/favicon.svg
 
 css: ./assets/custom.css
+js: ./assets/custom.js
 
 navbar-links:
   - type: primary
     text: Dashboard
     url: https://xcelsior.ca/dashboard
+    target: _self
   - type: secondary
     text: Pricing
     url: https://xcelsior.ca/pricing
+    target: _self
   - type: secondary
     text: Blog
     url: https://xcelsior.ca/blog
+    target: _self
   - type: secondary
     text: GitHub
     url: https://github.com/aabiro/xcelsior
+    target: _blank
 
 tabs:
   guides:
@@ -102,6 +107,17 @@ navigation:
           - page: API Overview
             path: ./pages/api-overview.mdx
       - api: API Reference
+        skip-slug: true
+        layout:
+          - auth:
+              - endpoint: POST /api/auth/login
+                slug: login
+          - instances:
+              - endpoint: GET /instance/{job_id}
+                slug: get
+          - serverless:
+              - endpoint: GET /v1/serverless/{endpoint_id}/openai/v1/models
+                slug: list-models
 
   - tab: sdk
     layout:

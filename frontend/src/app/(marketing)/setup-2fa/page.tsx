@@ -280,7 +280,7 @@ function Setup2FAPageContent() {
             </button>
           </div>
           <button type="button" className="site-button site-button-primary site-auth-button" onClick={() => router.replace(redirectTarget)}>
-            I have saved these codes — Continue
+            I have saved these codes, Continue
           </button>
         </div>
       </SiteAuthCard>
@@ -327,7 +327,7 @@ function Setup2FAPageContent() {
               </button>
             </div>
             <button type="button" onClick={handleSkip} className="site-auth-text-button site-auth-centered-copy">
-              Skip for now — I&apos;ll do this later
+              Skip for now, I&apos;ll do this later
             </button>
           </>
         ) : null}

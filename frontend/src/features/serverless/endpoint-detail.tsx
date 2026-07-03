@@ -76,7 +76,7 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
     } catch (err) {
       // Only treat a real 404 as "not found". Transient errors (auth refresh,
       // 5xx, network) should offer a retry instead of masquerading as a deleted
-      // endpoint — otherwise a flaky load looks like "endpoint not found".
+      // endpoint, otherwise a flaky load looks like "endpoint not found".
       const status = err instanceof api.ApiError ? err.status : 0;
       if (status === 404) {
         setNotFound(true);
@@ -112,7 +112,7 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
     },
   });
 
-  // Live polling — worker heartbeats, boot timers, and utilization metrics
+  // Live polling, worker heartbeats, boot timers, and utilization metrics
   // don't always emit SSE events, so refresh on a steady cadence while the
   // endpoint is spinning workers. Skips ticks when the tab is backgrounded and
   // refreshes immediately when it returns to the foreground.
@@ -156,7 +156,7 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
     );
   }
 
-  // Transient failure (auth refresh, 5xx, network) — offer a retry rather than
+  // Transient failure (auth refresh, 5xx, network), offer a retry rather than
   // claiming the endpoint doesn't exist.
   if (!endpoint && loadError && !notFound) {
     return (

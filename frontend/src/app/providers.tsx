@@ -1,13 +1,16 @@
 "use client";
 
+import { AuthProvider } from "@/lib/auth";
 import { ThemeProvider } from "@/lib/theme";
 import { LocaleProvider } from "@/lib/locale";
 
-/** Root providers — AuthProvider is mounted only on dashboard + auth routes (see AuthProviderShell). */
+/** Root providers, session state available on marketing + dashboard for navbar and CTAs. */
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <ThemeProvider>
-      <LocaleProvider>{children}</LocaleProvider>
+      <LocaleProvider>
+        <AuthProvider>{children}</AuthProvider>
+      </LocaleProvider>
     </ThemeProvider>
   );
 }

@@ -41,7 +41,7 @@ export function MetricsPanel({ metrics, jobs, loading }: MetricsPanelProps) {
   }
 
   const m = metrics;
-  const successPct = m ? `${(m.success_rate * 100).toFixed(1)}%` : "—";
+  const successPct = m ? `${(m.success_rate * 100).toFixed(1)}%` : "-";
 
   return (
     <div className="space-y-6">
@@ -60,7 +60,7 @@ export function MetricsPanel({ metrics, jobs, loading }: MetricsPanelProps) {
         />
         <StatCard
           label={t("dash.serverless.metric_queue")}
-          value={m?.avg_queue_ms ? `${Math.round(m.avg_queue_ms)}ms` : "—"}
+          value={m?.avg_queue_ms ? `${Math.round(m.avg_queue_ms)}ms` : "-"}
           icon={Clock}
           glow="cyan"
         />
@@ -81,7 +81,7 @@ export function MetricsPanel({ metrics, jobs, loading }: MetricsPanelProps) {
         />
         <StatCard
           label={t("dash.serverless.metric_tokens")}
-          value={m?.tokens_per_sec ? `${m.tokens_per_sec}/s` : "—"}
+          value={m?.tokens_per_sec ? `${m.tokens_per_sec}/s` : "-"}
           icon={Zap}
           glow="cyan"
         />
@@ -93,7 +93,7 @@ export function MetricsPanel({ metrics, jobs, loading }: MetricsPanelProps) {
         />
       </div>
 
-      {/* Live utilization strip — Novita-style at-a-glance fleet usage */}
+      {/* Live utilization strip, Novita-style at-a-glance fleet usage */}
       {m && (m.active_workers > 0 || (m.booting_workers ?? 0) > 0 || m.queue_depth > 0) && (
         <div className="glow-card rounded-xl border border-border bg-surface p-4">
           <div className="flex items-center justify-between mb-3">

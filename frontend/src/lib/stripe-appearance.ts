@@ -1,6 +1,6 @@
 import type { Appearance } from "@stripe/stripe-js";
 
-/** Shared embedded Stripe Elements appearance — matches Xcelsior dark dashboard theme. */
+/** Shared embedded Stripe Elements appearance, matches Xcelsior dark dashboard theme. */
 export const STRIPE_APPEARANCE: Appearance = {
   theme: "night",
   labels: "floating",
@@ -47,7 +47,7 @@ export const STRIPE_APPEARANCE: Appearance = {
   },
 };
 
-/** Card-only — excludes Pix, Klarna, wallets, and other APMs from Payment Element. */
+/** Card-only, excludes Pix, Klarna, wallets, and other APMs from Payment Element. */
 export const STRIPE_PAYMENT_ELEMENT_OPTIONS = {
   layout: "tabs" as const,
   paymentMethodOrder: ["card"],

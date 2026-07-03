@@ -36,11 +36,23 @@ const EXCLUDED_PRECACHE_PATHS = new Set([
   "/oauth/callback",
 ]);
 
+function shouldExcludePrecachePath(pathname: string): boolean {
+  if (EXCLUDED_PRECACHE_PATHS.has(pathname)) return true;
+  if (pathname.includes("/site-assets/reference/")) return true;
+  if (pathname.includes("/public/site-assets/reference/")) return true;
+  if (pathname.includes("/brand-system/")) return true;
+  if (pathname.includes("/public/brand-system/")) return true;
+  if (/\.dc(\.html)?$/i.test(pathname)) return true;
+  if (/\/site-system(\.dc)?$/i.test(pathname)) return true;
+  if (/\/logo-system(\.dc)?$/i.test(pathname)) return true;
+  return false;
+}
+
 function getFilteredPrecacheEntries(entries: (PrecacheEntry | string)[] | undefined) {
   return entries?.filter((entry) => {
     const url = typeof entry === "string" ? entry : entry.url;
     const pathname = new URL(url, self.location.origin).pathname;
-    return !EXCLUDED_PRECACHE_PATHS.has(pathname);
+    return !shouldExcludePrecachePath(pathname);
   });
 }
 
@@ -65,7 +77,7 @@ const serwist = new Serwist({
 });
 
 // Catch-all for any request that doesn't match a runtime caching rule
-// (e.g. cross-origin scripts like Stripe.js) — clean network fetch.
+// (e.g. cross-origin scripts like Stripe.js), clean network fetch.
 serwist.setDefaultHandler(new NetworkOnly());
 
 function parsePushPayload(data: PushMessageData | null): PushPayload {
@@ -154,7 +166,7 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 
-  // "Dismiss" action — just close the notification, no navigation
+  // "Dismiss" action, just close the notification, no navigation
   if (event.action === "dismiss") {
     return;
   }
@@ -190,6 +202,12 @@ self.addEventListener("pushsubscriptionchange", (event) => {
       console.warn("Failed to refresh web push subscription", error);
     }),
   );
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") {
+    void self.skipWaiting();
+  }
 });
 
 serwist.addEventListeners();

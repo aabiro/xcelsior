@@ -33,7 +33,7 @@ const MAX_RECONNECT_ATTEMPTS = 8;
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_CAP_MS = 30_000;
 // 4410 = host unreachable (SSH tcp/22 timeout). Retrying every few seconds is
-// pointless — the host isn't coming back in ~30s. Let the user click Reconnect.
+// pointless, the host isn't coming back in ~30s. Let the user click Reconnect.
 // 4500 = server internal error; retrying won't help either.
 const NON_RETRYABLE_WS_CLOSE_CODES = new Set([
   1000,
@@ -64,7 +64,7 @@ function _badgeVariant(state: ConnState): "active" | "warning" | "failed" | "def
  *
  * Architecture: the xterm Terminal is created exactly once (on mount) and
  * persists for the component's lifetime. Only the WebSocket reconnects on drop,
- * so scrollback and on-screen output survive reconnects — no flicker, no
+ * so scrollback and on-screen output survive reconnects, no flicker, no
  * "connection closed" loop wiping the screen. `onData`/resize handlers read the
  * live `wsRef`, so they keep working seamlessly across reconnects.
  *
@@ -200,7 +200,7 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
     } catch (err) {
       if (!mountedRef.current) return;
       const message = err instanceof Error ? err.message : "Failed to open terminal";
-      // Ticket failures are usually transient (session refresh) — fall through
+      // Ticket failures are usually transient (session refresh), fall through
       // to the reconnect schedule rather than dead-ending.
       scheduleReconnect(message);
       return;
@@ -248,7 +248,7 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
       if (!t) return;
 
       if (event.data instanceof ArrayBuffer) {
-        // Binary frame: raw PTY bytes — write directly (fastest path)
+        // Binary frame: raw PTY bytes, write directly (fastest path)
         t.write(new Uint8Array(event.data));
         return;
       }
@@ -294,7 +294,7 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
             break;
         }
       } catch {
-        // Malformed JSON — ignore silently
+        // Malformed JSON, ignore silently
       }
     };
 
@@ -327,7 +327,7 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
     };
 
     ws.onerror = () => {
-      // onclose fires immediately after onerror — let it handle reconnect.
+      // onclose fires immediately after onerror, let it handle reconnect.
       setConnState((s) => (s === "connected" ? s : "error"));
     };
   }, [instanceId, scheduleReconnect]);
@@ -459,13 +459,13 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
       return true;
     });
 
-    // ── Input — reads the live wsRef, so it survives reconnects ──────────────
+    // ── Input, reads the live wsRef, so it survives reconnects ──────────────
     term.onData((data: string) => {
       const w = wsRef.current;
       if (w && w.readyState === WebSocket.OPEN) {
         w.send(JSON.stringify({ type: "input", data }));
       }
-      // Keep auth idle timer alive — xterm captures key events before document
+      // Keep auth idle timer alive, xterm captures key events before document
       window.dispatchEvent(new Event("keydown"));
     });
 
@@ -595,7 +595,7 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
         className="relative flex-1 min-h-0 overflow-hidden bg-black p-1 [&_.xterm]:h-full [&_.xterm-viewport]:overflow-y-auto"
         onClick={() => termRef.current?.focus()}
       >
-        {/* Ctrl+F search panel — overlay inside terminal area */}
+        {/* Ctrl+F search panel, overlay inside terminal area */}
         {searchOpen && (
           <div className="absolute bottom-2 right-2 z-10 flex items-center gap-1 rounded border border-border bg-[#0f172a] px-2 py-1 shadow-lg">
             <input

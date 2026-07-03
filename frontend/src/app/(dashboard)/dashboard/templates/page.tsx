@@ -23,7 +23,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
-// Phase D — /dashboard/templates
+// Phase D, /dashboard/templates
 //
 // Single-page surface to organize + manage every saved pod template
 // (user_images rows). Three tabs: Mine / Community / All (admin).
@@ -43,7 +43,7 @@ const STATUS_BADGES: Record<UserImage["status"], { label: string; variant: "defa
 const PAGE_SIZE = 25;
 
 function formatBytes(n: number): string {
-  if (!n) return "—";
+  if (!n) return "-";
   if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(0)} MB`;
   return `${(n / 1024 ** 3).toFixed(2)} GB`;
 }
@@ -101,13 +101,13 @@ export default function TemplatesPage() {
     setPage(1);
   }, [scope, query, labelFilter, sortKey, sortDir]);
 
-  // Live updates — SSE invalidates the list on create/update/delete.
+  // Live updates, SSE invalidates the list on create/update/delete.
   useEventStream({
     eventTypes: ["user_image_created", "user_image_updated", "user_image_deleted", "user_image_ready"],
     onEvent: () => refresh(),
   });
 
-  // Union of every distinct label across the visible images — powers
+  // Union of every distinct label across the visible images, powers
   // the filter chip row. Sorted alphabetically for determinism.
   const allLabels = useMemo(() => {
     const s = new Set<string>();
@@ -488,7 +488,7 @@ export default function TemplatesPage() {
                           </td>
                           <td className="px-3 py-3 text-text-secondary max-w-xs">
                             <div className="line-clamp-2 text-xs">
-                              {img.description || <span className="text-text-muted/50">—</span>}
+                              {img.description || <span className="text-text-muted/50">-</span>}
                             </div>
                           </td>
                           <td className="px-3 py-3">

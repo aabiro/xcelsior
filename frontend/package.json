@@ -4,8 +4,9 @@
   "main": "index.js",
   "scripts": {
     "dev": "concurrently -p none \"serwist build serwist.config.mjs --watch\" \"next dev\"",
-    "build": "next build && serwist build serwist.config.mjs",
+    "build": "node scripts/split-i18n.mjs && next build && serwist build serwist.config.mjs",
     "i18n:split": "node scripts/split-i18n.mjs",
+    "i18n:check": "node scripts/check-i18n-keys.mjs",
     "analyze": "ANALYZE=true next build",
     "start": "next start",
     "lint": "eslint .",

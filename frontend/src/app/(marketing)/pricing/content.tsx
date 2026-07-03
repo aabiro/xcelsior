@@ -3,6 +3,7 @@
 import { useEffect, useMemo } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { AuthAwareLink } from "@/components/marketing/auth-aware-link";
 import posthog from "posthog-js";
 import { SITE_ASSETS, siteIcon } from "@/lib/brand-assets";
 import { useLocale } from "@/lib/locale";
@@ -43,11 +44,11 @@ const plans = [
   },
   {
     icon: "shield-check",
-    title: "pricing.tier_sovereign_title",
-    desc: "pricing.tier_sovereign_desc",
-    price: "pricing.tier_sovereign_from",
+    title: "pricing.tier_enterprise_title",
+    desc: "pricing.tier_enterprise_desc",
+    price: "pricing.tier_enterprise_from",
     unit: "",
-    features: ["pricing.tier_sovereign_i1", "pricing.tier_sovereign_i2", "pricing.tier_sovereign_i3", "pricing.tier_sovereign_i4"],
+    features: ["pricing.tier_enterprise_i1", "pricing.tier_enterprise_i2", "pricing.tier_enterprise_i3", "pricing.tier_enterprise_i4"],
     featured: false,
   },
 ] as const;
@@ -113,9 +114,9 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
               </h1>
               <p className="site-hero-copy">{t("pricing.subtitle")}</p>
               <div className="site-hero-actions">
-                <Link href="/register" className="site-button site-button-primary">
+                <AuthAwareLink intent="launch" className="site-button site-button-primary">
                   {t("pricing.cta_start")}
-                </Link>
+                </AuthAwareLink>
                 <Link href="#calculator" className="site-button site-button-ghost">
                   {t("pricing.savings_calculator")}
                 </Link>
@@ -191,7 +192,6 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
       <div className="site-container">
         <section className="site-rails site-section" style={{ paddingBottom: 0 }}>
           <SectionMarker code="01" label={t("pricing.title")} />
-          <h2 className="site-section-heading">{t("pricing.title")}</h2>
           <p className="site-section-copy">{t("pricing.subtitle")}</p>
           <div className="site-pricing-cards site-section-flush">
             {plans.map((plan) => (
@@ -218,9 +218,9 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
                     </p>
                   ))}
                 </div>
-                <Link href="/register" className={`site-button ${plan.featured ? "site-button-primary" : "site-button-ghost"}`} style={{ marginTop: "auto", padding: "13px 18px" }}>
+                <AuthAwareLink intent="launch" className={`site-button ${plan.featured ? "site-button-primary" : "site-button-ghost"}`} style={{ marginTop: "auto", padding: "13px 18px" }}>
                   {t("pricing.cta_start")}
-                </Link>
+                </AuthAwareLink>
               </article>
             ))}
           </div>
@@ -228,7 +228,6 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
 
         <section className="site-rails site-section">
           <SectionMarker code="02" label={t("pricing.fleet_title")} />
-          <h2 className="site-section-heading">{t("pricing.fleet_title")}</h2>
           <p className="site-section-copy">{t("pricing.fleet_desc")}</p>
           <div className="site-table-wrap" style={{ marginTop: 36 }}>
             <table className="site-table" aria-label={t("pricing.table_label")}>
@@ -263,41 +262,16 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
 
         <section id="calculator" className="site-rails site-section">
           <SectionMarker code="03" label={t("pricing.savings_calculator")} />
-          <h2 className="site-section-heading">{t("pricing.savings_calculator")}</h2>
           <SavingsCalculator gpus={gpus.map((gpu) => ({ model: gpu.model, onDemand: gpu.onDemand }))} />
-        </section>
-
-        <section className="site-rails site-section">
-          <div className="site-fund">
-            <div className="site-fund-main">
-              <div className="site-product-badge" style={{ color: "var(--gold)", marginBottom: 14 }}>
-                {t("pricing.fund_effective")}
-              </div>
-              <h2 className="site-section-heading" style={{ fontSize: 44 }}>{t("pricing.fund_title")}</h2>
-              <p className="site-section-copy">{t("pricing.fund_desc")}</p>
-            </div>
-            <div className="site-fund-side">
-              <div className="site-plan-price">
-                <strong>{t("pricing.fund_effective_price")}</strong>
-                <span style={{ color: "var(--text-4)" }}>{t("pricing.fund_effective_unit")}</span>
-              </div>
-              {[t("pricing.fund_i1"), t("pricing.fund_i2"), t("pricing.fund_i3")].map((item) => (
-                <p key={item} className="site-product-point">
-                  <span style={{ color: "var(--gold)" }}>+</span>
-                  <span>{item}</span>
-                </p>
-              ))}
-            </div>
-          </div>
         </section>
 
         <section className="site-rails site-cta">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={SITE_ASSETS.iconGradient} className="site-cta-mark" alt="" aria-hidden />
           <h2 className="site-cta-title">{t("pricing.cta_start")}</h2>
-          <Link href="/register" className="site-button site-button-primary" style={{ padding: "15px 28px" }}>
+          <AuthAwareLink intent="launch" className="site-button site-button-primary" style={{ padding: "15px 28px" }}>
             {t("pricing.cta_start")}
-          </Link>
+          </AuthAwareLink>
         </section>
       </div>
     </>

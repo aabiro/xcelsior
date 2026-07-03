@@ -19,9 +19,9 @@ const tooltipStyle = { backgroundColor: "#1e293b", border: "1px solid #334155", 
 
 /* Host status colors matching the actual DB values from scheduler.py check_hosts() */
 const STATUS_COLORS: Record<string, string> = {
-  active: "#10b981",   // green — host is alive and responding
-  dead: "#dc2626",     // red — host failed ping
-  unknown: "#94a3b8",  // grey — no status set yet
+  active: "#10b981",   // green, host is alive and responding
+  dead: "#dc2626",     // red, host failed ping
+  unknown: "#94a3b8",  // grey, no status set yet
 };
 
 /* Reputation tier colors matching the tier system in reputation.py */
@@ -114,17 +114,17 @@ export default function AdminInfrastructurePage() {
             <Card className="p-4 text-center border-dashed">
               <Server className="h-5 w-5 text-text-muted mx-auto mb-2" />
               <p className="text-xs text-text-muted">Hosts</p>
-              <p className="text-lg font-bold font-mono text-text-muted/50">—</p>
+              <p className="text-lg font-bold font-mono text-text-muted/50">-</p>
             </Card>
             <Card className="p-4 text-center border-dashed">
               <ShieldCheck className="h-5 w-5 text-text-muted mx-auto mb-2" />
               <p className="text-xs text-text-muted">Verified</p>
-              <p className="text-lg font-bold font-mono text-text-muted/50">—</p>
+              <p className="text-lg font-bold font-mono text-text-muted/50">-</p>
             </Card>
             <Card className="p-4 text-center border-dashed">
               <Award className="h-5 w-5 text-text-muted mx-auto mb-2" />
               <p className="text-xs text-text-muted">GPU Models</p>
-              <p className="text-lg font-bold font-mono text-text-muted/50">—</p>
+              <p className="text-lg font-bold font-mono text-text-muted/50">-</p>
             </Card>
           </div>
         </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { AuthAwareLink } from "@/components/marketing/auth-aware-link";
 import {
   Shield,
   Zap,
@@ -57,9 +58,8 @@ export function HomeBelowFold() {
             whileInView="visible"
             viewport={{ once: true }}
           >
-            <ValueCard i={0} icon={Shield} title={t("home.val_sovereignty_title")} description={t("home.val_sovereignty_desc")} glowColor="rgba(220,38,38,0.12)" accent="accent-red" />
-            <ValueCard i={1} icon={Scale} title={t("home.val_compliance_title")} description={t("home.val_compliance_desc")} glowColor="rgba(245,158,11,0.12)" accent="accent-gold" />
-            <ValueCard i={2} icon={Zap} title={t("home.val_pricing_title")} description={t("home.val_pricing_desc")} glowColor="rgba(16,185,129,0.12)" accent="emerald" />
+            <ValueCard i={0} icon={Scale} title={t("home.val_compliance_title")} description={t("home.val_compliance_desc")} glowColor="rgba(245,158,11,0.12)" accent="accent-gold" />
+            <ValueCard i={1} icon={Zap} title={t("home.val_pricing_title")} description={t("home.val_pricing_desc")} glowColor="rgba(16,185,129,0.12)" accent="emerald" />
           </m.div>
         </div>
       </section>
@@ -151,7 +151,6 @@ export function HomeBelowFold() {
                 </tr>
               </thead>
               <tbody className="text-text-secondary">
-                <CompRow feature={t("home.cmp_sovereignty")} xcelsior={t("home.cmp_sovereignty_x")} aws={t("home.cmp_sovereignty_aws")} vast={t("home.cmp_sovereignty_vast")} runpod={t("home.cmp_sovereignty_rp")} />
                 <CompRow feature={t("home.cmp_pipeda")} xcelsior={t("home.cmp_pipeda_x")} aws={t("home.cmp_pipeda_aws")} vast={t("home.cmp_pipeda_vast")} runpod={t("home.cmp_pipeda_rp")} />
                 <CompRow feature={t("home.cmp_price")} xcelsior={t("home.cmp_price_x")} aws={t("home.cmp_price_aws")} vast={t("home.cmp_price_vast")} runpod={t("home.cmp_price_rp")} />
                 <CompRow feature={t("home.cmp_cad")} xcelsior={t("home.cmp_cad_x")} aws={t("home.cmp_cad_aws")} vast={t("home.cmp_cad_vast")} runpod={t("home.cmp_cad_rp")} />
@@ -189,12 +188,12 @@ export function HomeBelowFold() {
             {t("home.cta_desc")}
           </m.p>
           <m.div variants={fadeUp} custom={2} className="mt-10">
-            <Link href="/register">
+            <AuthAwareLink intent="start">
               <Button variant="gold" size="lg" className="text-base px-10 shadow-lg shadow-accent-gold/15">
                 {t("home.cta_button")}
                 <ArrowRight className="h-4 w-4" />
               </Button>
-            </Link>
+            </AuthAwareLink>
           </m.div>
         </m.div>
       </section>

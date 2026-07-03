@@ -164,7 +164,7 @@ function SecretField({
             : "border-border/50 bg-surface/60 text-text-secondary",
         )}
       >
-        {value || "—"}
+        {value || "-"}
       </button>
     </div>
   );

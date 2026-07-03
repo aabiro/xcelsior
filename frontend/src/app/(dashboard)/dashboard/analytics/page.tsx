@@ -23,7 +23,7 @@ import { TeamContextBanner } from "@/components/team/team-context-banner";
 import {
   SpendTrendChart, JobsTrendChart, UtilizationChart,
   CumulativeSpendChart, CostPerHourChart, GpuHoursChart,
-  DurationHistogramChart, SovereigntyChart, TopGpuChart,
+  DurationHistogramChart, JurisdictionSplitChart, TopGpuChart,
   ProvinceDonutChart, GpuPerformanceRadar, HourlyHeatmap,
   ProviderRevenueTrendChart, WalletActivityChart,
   TopEntitiesTable, GpuPerformanceTable, PeakDaysCards,
@@ -126,14 +126,14 @@ function generateInsights(
       insights.push({
         type: "positive",
         title: "Utilization improving",
-        detail: `GPU utilization rose ${pct.toFixed(0)}% — your workloads are using hardware more effectively.`,
+        detail: `GPU utilization rose ${pct.toFixed(0)}%, your workloads are using hardware more effectively.`,
         metric: `${avgUtil.toFixed(1)}% (was ${prevUtil.toFixed(1)}%)`,
       });
     } else if (pct <= -15) {
       insights.push({
         type: "negative",
         title: "Utilization declining",
-        detail: `GPU utilization dropped ${Math.abs(pct).toFixed(0)}% — you may be over-provisioning resources.`,
+        detail: `GPU utilization dropped ${Math.abs(pct).toFixed(0)}%, you may be over-provisioning resources.`,
         metric: `${avgUtil.toFixed(1)}% (was ${prevUtil.toFixed(1)}%)`,
       });
     }
@@ -146,18 +146,18 @@ function generateInsights(
       insights.push({
         type: "info",
         title: "GPU hours ramping up",
-        detail: `You consumed ${pct.toFixed(0)}% more GPU hours this period — workloads are scaling up.`,
+        detail: `You consumed ${pct.toFixed(0)}% more GPU hours this period, workloads are scaling up.`,
         metric: `${totalGpuHrs.toFixed(1)}h (was ${prevGpuHrs.toFixed(1)}h)`,
       });
     }
   }
 
-  // Data sovereignty
+  // Jurisdiction split
   const caPct = enhanced?.sovereignty?.canadian_pct ?? 0;
   if (caPct > 0 && caPct >= 90) {
     insights.push({
       type: "positive",
-      title: "Strong Canadian sovereignty",
+      title: "Strong Canadian compute share",
       detail: `${caPct.toFixed(0)}% of your compute runs on Canadian infrastructure.`,
       metric: `${caPct.toFixed(0)}% Canadian`,
     });
@@ -165,7 +165,7 @@ function generateInsights(
     insights.push({
       type: "info",
       title: "Mostly international compute",
-      detail: `Only ${caPct.toFixed(0)}% of jobs run on Canadian GPUs. Consider Canadian hosts for data sovereignty.`,
+      detail: `Only ${caPct.toFixed(0)}% of jobs run on Canadian GPUs. Consider Canadian hosts for compliant workloads.`,
       metric: `${caPct.toFixed(0)}% Canadian`,
     });
   }
@@ -196,7 +196,7 @@ function generateInsights(
       insights.push({
         type: "info",
         title: "High cost per job",
-        detail: `Average job cost is $${costPerJob.toFixed(2)} — consider shorter runs or lower-tier GPUs for test jobs.`,
+        detail: `Average job cost is $${costPerJob.toFixed(2)}, consider shorter runs or lower-tier GPUs for test jobs.`,
         metric: `$${costPerJob.toFixed(2)}/job`,
       });
     }
@@ -214,7 +214,7 @@ function generateInsights(
       insights.push({
         type: "positive",
         title: `${best.gpu_model} is your best value`,
-        detail: `Highest efficiency score across your GPU models — ${best.avg_util.toFixed(0)}% utilization at $${best.avg_cost_per_hour.toFixed(2)}/hr.`,
+        detail: `Highest efficiency score across your GPU models, ${best.avg_util.toFixed(0)}% utilization at $${best.avg_cost_per_hour.toFixed(2)}/hr.`,
         metric: `${best.jobs} jobs, ${best.gpu_hours.toFixed(1)}h`,
       });
     }
@@ -233,21 +233,21 @@ function generateInsights(
         insights.push({
           type: "positive",
           title: "Cost per hour dropping",
-          detail: `Your cost per GPU hour decreased ${Math.abs(changePct).toFixed(0)}% over the period — good cost discipline.`,
+          detail: `Your cost per GPU hour decreased ${Math.abs(changePct).toFixed(0)}% over the period, good cost discipline.`,
           metric: `$${secondHalf.toFixed(3)}/hr (was $${firstHalf.toFixed(3)}/hr)`,
         });
       } else if (changePct >= 15) {
         insights.push({
           type: "negative",
           title: "Cost per hour rising",
-          detail: `GPU hour costs increased ${changePct.toFixed(0)}% — you may be using pricier models or shorter, less efficient jobs.`,
+          detail: `GPU hour costs increased ${changePct.toFixed(0)}%, you may be using pricier models or shorter, less efficient jobs.`,
           metric: `$${secondHalf.toFixed(3)}/hr (was $${firstHalf.toFixed(3)}/hr)`,
         });
       }
     }
   }
 
-  // Heatmap — busiest time slot
+  // Heatmap, busiest time slot
   const heatmap = enhanced?.hourly_heatmap ?? [];
   if (heatmap.length > 0) {
     const peak = heatmap.reduce((a, b) => a.count > b.count ? a : b);
@@ -256,7 +256,7 @@ function generateInsights(
       insights.push({
         type: "info",
         title: `Most active: ${dowNames[peak.dow]}s at ${peak.hour}:00`,
-        detail: `Your peak activity slot — ${peak.count} jobs typically run at this time.`,
+        detail: `Your peak activity slot, ${peak.count} jobs typically run at this time.`,
         metric: `${dowNames[peak.dow]} ${peak.hour}:00`,
       });
     }
@@ -366,7 +366,7 @@ export default function AnalyticsPage() {
     return () => window.removeEventListener("xcelsior-team-changed", onTeamChanged);
   }, [load]);
 
-  // Debounced SSE handler — avoid flooding on rapid events
+  // Debounced SSE handler, avoid flooding on rapid events
   const debouncedLoad = useCallback(() => {
     if (sseDebounceRef.current) clearTimeout(sseDebounceRef.current);
     sseDebounceRef.current = setTimeout(() => { load(); }, 3000);
@@ -422,7 +422,7 @@ export default function AnalyticsPage() {
   const jobsOverTime = useMemo(() => analytics.map((r: any) => ({ date: r.period, count: r.job_count })), [analytics]);
   const spendOverTime = useMemo(() => analytics.map((r: any) => ({ date: r.period, spend: r.total_cost_cad })), [analytics]);
   const utilOverTime = useMemo(() => analytics.map((r: any) => ({ date: r.period, util: Number(r.avg_gpu_utilization_pct ?? 0) })), [analytics]);
-  const sovereigntyOverTime = useMemo(() => analytics.map((r: any) => ({
+  const jurisdictionOverTime = useMemo(() => analytics.map((r: any) => ({
     date: r.period,
     canadian: Number(r.canadian_jobs ?? 0),
     international: Number(r.international_jobs ?? 0),
@@ -474,7 +474,7 @@ export default function AnalyticsPage() {
   const avgCostPerJob = totalJobs > 0 ? totalSpend / totalJobs : 0;
   const avgJobDuration = totalJobs > 0 ? totalGpuHours / totalJobs : 0;
   const canadianPct = enhanced?.sovereignty?.canadian_pct ?? 0;
-  const topGpu = topGpuSeries[0]?.name ?? "—";
+  const topGpu = topGpuSeries[0]?.name ?? "-";
 
   // CSV export of the analytics data
   const exportCsv = useCallback(() => {
@@ -706,7 +706,7 @@ export default function AnalyticsPage() {
                     <p className="text-sm text-text-secondary text-center max-w-md">
                       {isAdmin
                         ? "Provider analytics appear once hosts serve jobs through the platform."
-                        : "Your provider account is connected — analytics will populate here once your first GPU job runs on your host."
+                        : "Your provider account is connected, analytics will populate here once your first GPU job runs on your host."
                       }
                     </p>
                     {!isAdmin && (
@@ -878,7 +878,7 @@ export default function AnalyticsPage() {
               <FadeIn delay={0.2}>
                 <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                   <DurationHistogramChart data={enhanced?.duration_histogram ?? []} />
-                  <SovereigntyChart data={sovereigntyOverTime} />
+                  <JurisdictionSplitChart data={jurisdictionOverTime} />
                 </div>
               </FadeIn>
 

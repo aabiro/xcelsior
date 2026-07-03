@@ -6,11 +6,12 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   Settings, Users, ChevronLeft, ChevronRight, LogOut, Menu, X, Key, ChevronDown,
   BookOpen, Rocket, ExternalLink, HelpCircle, Clock, MessageCircle,
+  Globe, CreditCard, Download,
 } from "lucide-react";
 import { DashboardNav } from "@/components/nav/dashboard-nav";
 import { UserAvatar } from "@/components/user/user-avatar";
 import { useAuth } from "@/lib/auth";
-import { BRAND_ASSETS } from "@/lib/brand-assets";
+import { SITE_ASSETS } from "@/lib/brand-assets";
 import { getTeamContext, formatTeamRoleLabel } from "@/lib/team-context";
 import { useLocale } from "@/lib/locale";
 import { useTheme } from "@/lib/theme";
@@ -107,12 +108,17 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  const [redirectingToLogin, setRedirectingToLogin] = useState(false);
+
   // Redirect to login if not authenticated
   useEffect(() => {
-    if (!authLoading && !user) {
-      window.location.href = `/login?redirect=${encodeURIComponent(pathname)}`;
+    if (authLoading || user) {
+      setRedirectingToLogin(false);
+      return;
     }
-  }, [authLoading, user, pathname]);
+    setRedirectingToLogin(true);
+    router.replace(`/login?redirect=${encodeURIComponent(pathname ?? "/dashboard")}`);
+  }, [authLoading, user, pathname, router]);
 
   useEffect(() => {
     if (!user) return;
@@ -185,7 +191,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   }, [desktopMode, desktopState.isNativeDesktop, openControlCenter, router, toggleAiPanel]);
 
   // Full-screen gate only on first session probe (not every tab change).
-  if (authLoading && !user) {
+  if ((authLoading && !user) || redirectingToLogin || !user) {
     return (
       <div className="dashboard-shell" data-theme={theme}>
         <div className="dashboard-shell-loading">
@@ -193,9 +199,6 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         </div>
       </div>
     );
-  }
-  if (!user) {
-    return null;
   }
 
   const canAccessRole = (requiredRole: string) => (
@@ -206,38 +209,35 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     <>
       {/* Logo */}
       <div className="dashboard-site-sidebar-header flex items-center justify-between">
-        <Link href="/dashboard" className="flex items-center overflow-visible pr-2">
-          <div className="relative flex min-w-0 items-center" style={{ width: collapsed && !mobile ? 36 : undefined }}>
+        <Link href="/dashboard" className="flex h-full min-w-0 items-center overflow-visible pr-2">
+          <div className={cn("flex min-w-0 items-center gap-3", collapsed && !mobile && "justify-center")}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={BRAND_ASSETS.iconGradientTight}
+              src={SITE_ASSETS.iconGradientTight}
               alt="Xcelsior"
-              className={cn(
-                "absolute left-1/2 top-1/2 h-8 w-8 -translate-x-1/2 -translate-y-1/2 object-contain transition-all duration-300 ease-in-out",
-                collapsed && !mobile
-                  ? "opacity-100 scale-100"
-                  : "pointer-events-none opacity-0 scale-75"
-              )}
+              className="dashboard-site-sidebar-brand-icon"
             />
             <div
               className={cn(
-                "flex min-w-0 items-center gap-2 transition-all duration-300 ease-in-out",
-                collapsed && !mobile ? "pointer-events-none w-0 overflow-hidden opacity-0 scale-95" : "opacity-100 scale-100"
+                "flex min-w-0 items-center gap-2.5 overflow-hidden transition-all duration-200 ease-out",
+                collapsed && !mobile
+                  ? "max-w-0 opacity-0"
+                  : "max-w-[180px] opacity-100"
               )}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={BRAND_ASSETS.lockupLight}
+                src={SITE_ASSETS.wordmarkLight}
                 alt="Xcelsior"
-                className="hidden h-auto w-[140px] shrink-0 dark:block"
+                className="dashboard-site-sidebar-brand-wordmark hidden dark:block"
               />
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={BRAND_ASSETS.lockupDark}
+                src={SITE_ASSETS.wordmarkDark}
                 alt="Xcelsior"
-                className="block h-auto w-[140px] shrink-0 dark:hidden"
+                className="dashboard-site-sidebar-brand-wordmark block dark:hidden"
               />
-              <span className="dashboard-site-beta shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-semibold uppercase">
+              <span className="dashboard-pill dashboard-site-beta shrink-0">
                 Beta
               </span>
             </div>
@@ -264,11 +264,35 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       {/* Gear Popout + Collapse (desktop only) */}
       {!mobile && (
         <div className="dashboard-site-sidebar-footer p-2 space-y-0.5">
+          <a
+            href="https://docs.xcelsior.ca"
+            className={cn(
+              "dashboard-site-sidebutton flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-base",
+              collapsed && "justify-center px-2"
+            )}
+            title={collapsed ? t("gear.docs") : undefined}
+          >
+            <BookOpen className="h-5 w-5 shrink-0" />
+            {!collapsed && <span>{t("gear.docs")}</span>}
+          </a>
+          <Link
+            href="/features"
+            className={cn(
+              "dashboard-site-sidebutton flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-base",
+              collapsed && "justify-center px-2"
+            )}
+            title={collapsed ? t("gear.product_site") : undefined}
+          >
+            <Globe className="h-5 w-5 shrink-0" />
+            {!collapsed && <span>{t("gear.product_site")}</span>}
+            {!collapsed && <ExternalLink className="ml-auto h-3.5 w-3.5 text-text-muted" />}
+          </Link>
           <div className="relative" ref={gearRef}>
             <button
               onClick={() => setGearOpen(!gearOpen)}
               className={cn(
                 "dashboard-site-sidebutton flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-base",
+                collapsed && "justify-center px-2",
                 gearOpen && "dashboard-site-sidebutton-active"
               )}
               title={collapsed ? t("gear.title") : undefined}
@@ -285,29 +309,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 8, scale: 0.96 }}
                   transition={{ duration: 0.15 }}
-                  className="dashboard-site-popout absolute bottom-full left-0 z-50 mb-2 w-72 rounded-[22px]"
+                  className="dashboard-site-popout rounded-[22px]"
                 >
-                  {/* Quick links */}
                   <div className="p-2">
-                    <Link
-                      href="/dashboard/settings"
-                      className="dashboard-site-popout-link flex items-center gap-2.5 rounded-2xl px-3 py-2 text-sm"
-                      onClick={() => setGearOpen(false)}
-                    >
-                      <Settings className="h-4 w-4" />
-                      {t("gear.settings")}
-                    </Link>
-                    <a
-                      href="https://docs.xcelsior.ca"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="dashboard-site-popout-link flex items-center gap-2.5 rounded-2xl px-3 py-2 text-sm"
-                      onClick={() => setGearOpen(false)}
-                    >
-                      <BookOpen className="h-4 w-4" />
-                      {t("gear.docs")}
-                      <ExternalLink className="h-3 w-3 ml-auto text-text-muted" />
-                    </a>
                     <button
                       onClick={() => { setSupportPopoutOpen(!supportPopoutOpen); setOnboardingOpen(false); }}
                       className={cn(
@@ -331,6 +335,26 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                       <ChevronRight className="h-3.5 w-3.5 ml-auto" />
                     </button>
                   </div>
+                  <div className="dashboard-site-popout-section border-t px-2 py-1">
+                    <Link
+                      href="/pricing"
+                      onClick={() => { setGearOpen(false); setOnboardingOpen(false); setSupportPopoutOpen(false); }}
+                      className="dashboard-site-popout-link flex w-full items-center gap-2.5 rounded-2xl px-3 py-2 text-sm"
+                    >
+                      <CreditCard className="h-4 w-4" />
+                      {t("nav.pricing")}
+                      <ExternalLink className="h-3.5 w-3.5 ml-auto text-text-muted" />
+                    </Link>
+                    <Link
+                      href="/download"
+                      onClick={() => { setGearOpen(false); setOnboardingOpen(false); setSupportPopoutOpen(false); }}
+                      className="dashboard-site-popout-link flex w-full items-center gap-2.5 rounded-2xl px-3 py-2 text-sm"
+                    >
+                      <Download className="h-4 w-4" />
+                      {t("nav.download")}
+                      <ExternalLink className="h-3.5 w-3.5 ml-auto text-text-muted" />
+                    </Link>
+                  </div>
 
                   {/* Onboarding sub-popout */}
                   <AnimatePresence>
@@ -340,7 +364,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                         animate={{ opacity: 1, x: 0, scale: 1 }}
                         exit={{ opacity: 0, x: -8, scale: 0.96 }}
                         transition={{ duration: 0.15 }}
-                        className="dashboard-site-subpanel absolute bottom-0 left-full z-50 ml-2 w-72 overflow-hidden rounded-[22px]"
+                        className="dashboard-site-subpanel w-72 overflow-hidden rounded-[22px]"
                       >
                         <GearOnboarding t={t} onNavigate={() => { setGearOpen(false); setOnboardingOpen(false); }} user={user} pathname={pathname} />
                       </motion.div>
@@ -355,7 +379,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                         animate={{ opacity: 1, x: 0, scale: 1 }}
                         exit={{ opacity: 0, x: -8, scale: 0.96 }}
                         transition={{ duration: 0.15 }}
-                        className="dashboard-site-subpanel absolute bottom-0 left-full z-50 ml-2 h-[500px] w-[360px] overflow-hidden rounded-[22px]"
+                        className="dashboard-site-subpanel h-[500px] w-[360px] overflow-hidden rounded-[22px]"
                       >
                         <ChatWidget
                           showFab={false}
@@ -372,7 +396,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           </div>
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="dashboard-site-collapse flex w-full items-center justify-center rounded-2xl px-3 py-2"
+            className={cn(
+              "dashboard-site-sidebutton dashboard-site-sidebar-toggle flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-base",
+              collapsed && "justify-center px-2"
+            )}
             title={collapsed ? t("gear.expand") : t("gear.collapse")}
           >
             {collapsed ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
@@ -422,26 +449,37 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               </motion.div>
             )}
           </AnimatePresence>
-          <Link
-            href="/dashboard/settings"
-            className={cn(
-              "dashboard-site-mobile-link flex items-center gap-3 rounded-2xl px-3 py-2 text-base",
-              pathname.startsWith("/dashboard/settings") && "dashboard-site-sidebutton-active nav-active"
-            )}
-          >
-            <Settings className="h-5 w-5 shrink-0" />
-            <span>{t("gear.settings")}</span>
-          </Link>
           <a
             href="https://docs.xcelsior.ca"
-            target="_blank"
-            rel="noopener noreferrer"
             className="dashboard-site-mobile-link flex items-center gap-3 rounded-2xl px-3 py-2 text-base"
           >
             <BookOpen className="h-5 w-5 shrink-0" />
             <span>{t("gear.docs")}</span>
-            <ExternalLink className="h-3.5 w-3.5 ml-auto text-text-muted" />
           </a>
+          <Link
+            href="/features"
+            onClick={() => setMobileOpen(false)}
+            className="dashboard-site-mobile-link flex items-center gap-3 rounded-2xl px-3 py-2 text-base"
+          >
+            <Globe className="h-5 w-5 shrink-0" />
+            <span>{t("gear.product_site")}</span>
+          </Link>
+          <Link
+            href="/pricing"
+            onClick={() => setMobileOpen(false)}
+            className="dashboard-site-mobile-link flex items-center gap-3 rounded-2xl px-3 py-2 text-base"
+          >
+            <CreditCard className="h-5 w-5 shrink-0" />
+            <span>{t("nav.pricing")}</span>
+          </Link>
+          <Link
+            href="/download"
+            onClick={() => setMobileOpen(false)}
+            className="dashboard-site-mobile-link flex items-center gap-3 rounded-2xl px-3 py-2 text-base"
+          >
+            <Download className="h-5 w-5 shrink-0" />
+            <span>{t("nav.download")}</span>
+          </Link>
         </div>
       )}
     </>
@@ -449,13 +487,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="dashboard-shell" data-theme={theme}>
-      <div className={cn("dashboard-shell-frame flex h-screen overflow-hidden", desktopMode && "desktop-shell-root")}>
+      <div className={cn("dashboard-shell-frame flex overflow-hidden", desktopMode && "desktop-shell-root")}>
         {/* Desktop Sidebar */}
         <aside
+          data-collapsed={collapsed ? "true" : "false"}
           className={cn(
-            "dashboard-site-sidebar hidden md:flex flex-col transition-all duration-200",
+            "dashboard-site-sidebar hidden min-w-0 shrink-0 md:flex md:flex-col",
             desktopMode && "desktop-sidebar-surface",
-            collapsed ? "w-16" : "w-60"
           )}
         >
           {sidebarContent(false)}
@@ -487,12 +525,12 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         </AnimatePresence>
 
         {/* Main */}
-        <div className="flex flex-1 flex-col overflow-hidden">
-          {/* Session expiry warning — above topbar */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          {/* Session expiry warning, above topbar */}
           <SessionExpiryBanner />
 
           {/* Topbar */}
-          <header className={cn("dashboard-site-topbar glass relative", desktopMode && "desktop-topbar")}>
+          <header className={cn("dashboard-site-topbar glass relative shrink-0", desktopMode && "desktop-topbar")}>
             <div className="brand-line absolute bottom-0 left-0 right-0" />
             <div className="dashboard-site-topbar-inner">
               {/* Mobile menu button */}
@@ -503,13 +541,24 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               >
                 <Menu className="h-6 w-6" />
               </button>
+              <Link
+                href="/dashboard"
+                className={cn("dashboard-site-topbar-brand flex min-w-0 items-center gap-2.5", !collapsed && "md:hidden")}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={SITE_ASSETS.iconGradientTight} alt="Xcelsior" className="dashboard-site-topbar-brand-mark" />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={SITE_ASSETS.wordmarkLight} alt="Xcelsior" className="dashboard-site-topbar-brand-wordmark hidden dark:block" />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={SITE_ASSETS.wordmarkDark} alt="Xcelsior" className="dashboard-site-topbar-brand-wordmark block dark:hidden" />
+              </Link>
               <div className="dashboard-site-crumbs hidden min-w-0 md:block">
                 <Breadcrumb />
               </div>
               <DesktopStatusStrip className="dashboard-site-status hidden xl:flex" />
               <div className={cn("dashboard-site-actions flex items-center", desktopMode && "desktop-topbar-actions")}>
                 <LocaleToggle className="dashboard-site-pill-control" />
-                <ThemeToggle className="dashboard-site-pill-control" />
+                <ThemeToggle />
                 <div className="h-6 w-px bg-[var(--line)] hidden sm:block" />
                 <div className="dashboard-site-control">
                   <NotificationBell />
@@ -547,7 +596,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -4 }}
                         transition={{ duration: 0.15 }}
-                        className="dashboard-site-popout absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-[22px]"
+                        className="dashboard-site-header-dropdown dashboard-site-popout absolute right-0 top-full mt-2 w-56 overflow-hidden rounded-[22px]"
                       >
                         <div className="dashboard-site-popout-section flex items-center gap-3 border-b px-3 py-3">
                           <UserAvatar user={user} size="sm" />
@@ -599,49 +648,62 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             </div>
           </header>
 
-          {/* Content */}
-          <main className={cn("dashboard-site-main flex-1 overflow-y-auto", desktopMode && "desktop-main-surface")}>
-            <div className="dashboard-site-main-inner">{children}</div>
-          </main>
-        </div>
-
-        {/* Global Launch Instance modal — opened in place from any "Launch" button */}
-        <GlobalLaunchModal />
-
-        {/* AI Context Panel (right side) */}
-        <AnimatePresence>
-          {aiPanelOpen && (
-            <motion.aside
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 384, opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
-              transition={{ type: "spring", damping: 30, stiffness: 280, mass: 0.8 }}
-              className="dashboard-site-ai-panel ai-panel-border hidden overflow-hidden md:flex md:flex-col"
+          {/* Content + AI panel (below topbar, never overlays it) */}
+          <div className="dashboard-site-workspace flex min-h-0 flex-1 overflow-hidden">
+            <main
+              className={cn(
+                "dashboard-site-main min-h-0 flex-1",
+                pathname === "/dashboard/ai" ? "overflow-hidden" : "overflow-y-auto",
+                desktopMode && "desktop-main-surface",
+              )}
             >
-              <AiPanel onClose={closeAiPanel} />
-            </motion.aside>
-          )}
-        </AnimatePresence>
+              <div
+                className={cn(
+                  "dashboard-site-main-inner",
+                  pathname === "/dashboard/ai" && "flex h-full min-h-0 flex-col",
+                )}
+              >
+                {children}
+              </div>
+            </main>
+
+            <AnimatePresence>
+              {aiPanelOpen && (
+                <motion.aside
+                  initial={{ width: 0, opacity: 0 }}
+                  animate={{ width: 384, opacity: 1 }}
+                  exit={{ width: 0, opacity: 0 }}
+                  transition={{ type: "spring", damping: 30, stiffness: 280, mass: 0.8 }}
+                  className="dashboard-site-ai-panel ai-panel-border hidden shrink-0 overflow-hidden md:flex md:flex-col"
+                >
+                  <AiPanel onClose={closeAiPanel} />
+                </motion.aside>
+              )}
+            </AnimatePresence>
+
+            <div className="dashboard-site-ai-rail hidden w-16 shrink-0 flex-col items-center justify-end py-3 md:flex">
+              <button
+                onClick={toggleAiPanel}
+                className={cn(
+                  "dashboard-site-ai-toggle flex h-[64px] w-[64px] items-center justify-center rounded-[22px] p-0 transition-all duration-200",
+                  aiPanelOpen && "dashboard-site-ai-toggle-active text-white",
+                )}
+                title={aiPanelOpen ? t("ai.close_panel") : t("ai.open_panel")}
+              >
+                <AiSparkIcon className={cn("h-10 w-10 transition-transform duration-200", aiPanelOpen && "rotate-12")} />
+              </button>
+            </div>
+          </div>
+        </div>
 
         <MobileDeployAction
           serverlessEnabled={showServerless}
           canWrite={canWriteServerless}
         />
-
-        {/* AI Toggle Rail (persistent right edge) */}
-        <div className="dashboard-site-ai-rail hidden w-16 shrink-0 flex-col items-center justify-end py-3 md:flex">
-          <button
-            onClick={toggleAiPanel}
-            className={cn(
-              "dashboard-site-ai-toggle flex h-[60px] w-[60px] items-center justify-center rounded-[22px] p-[3px] transition-all duration-200",
-              aiPanelOpen && "dashboard-site-ai-toggle-active text-white"
-            )}
-            title={aiPanelOpen ? t("ai.close_panel") : t("ai.open_panel")}
-          >
-            <AiSparkIcon className={cn("h-[54px] w-[54px] transition-transform duration-200", aiPanelOpen && "rotate-12")} />
-          </button>
-        </div>
       </div>
+
+      {/* Outside the clipped frame so fixed overlays and portals stack correctly */}
+      <GlobalLaunchModal />
     </div>
   );
 }

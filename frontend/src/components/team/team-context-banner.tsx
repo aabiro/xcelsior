@@ -45,12 +45,12 @@ export function TeamContextBanner({
                 {t("dash.team.banner_title", { name: team.teamName || team.teamId || "Team" })}
               </p>
               {roleLabel && (
-                <Badge variant="info" className="text-[10px] uppercase tracking-wide">
+                <Badge variant="info">
                   {roleLabel}
                 </Badge>
               )}
               {team.teamPlan && (
-                <Badge variant="default" className="text-[10px] capitalize">
+                <Badge variant="default" className="normal-case">
                   {team.teamPlan}
                 </Badge>
               )}

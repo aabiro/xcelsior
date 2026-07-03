@@ -180,7 +180,7 @@ function renderInline(text: string): React.ReactNode {
       const isExternal = href.startsWith("http");
       parts.push(
         isExternal ? (
-          <a key={match.index} href={href} target="_blank" rel="noopener noreferrer" className="site-inline-link">
+          <a key={match.index} href={href} rel="noopener noreferrer" className="site-inline-link">
             {match[6]}
           </a>
         ) : (

@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import * as api from "@/lib/api";
 
 /**
- * Hook returning API functions. Auth is handled via httpOnly cookies —
+ * Hook returning API functions. Auth is handled via httpOnly cookies -
  * no token binding needed. The returned object is memoized so it can
  * safely appear in useCallback / useEffect dependency arrays.
  */

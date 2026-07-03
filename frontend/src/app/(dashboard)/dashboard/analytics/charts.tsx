@@ -386,12 +386,12 @@ export function CumulativeSpendChart({ data }: { data: { date: string; total: nu
 // ── 5. Cost Per GPU Hour Trend ────────────────────────────────────────
 
 export function CostPerHourChart({ data }: { data: { date: string; cost_per_hour: number }[] }) {
-  if (!data?.length) return <ChartCard title="Cost per GPU Hour" subtitle="Efficiency trend — lower is better"><ChartEmptyState /></ChartCard>;
+  if (!data?.length) return <ChartCard title="Cost per GPU Hour" subtitle="Efficiency trend, lower is better"><ChartEmptyState /></ChartCard>;
   const avg = data.reduce((s, d) => s + d.cost_per_hour, 0) / data.length;
   return (
     <ChartCard
       title="Cost per GPU Hour"
-      subtitle="Efficiency trend — lower is better"
+      subtitle="Efficiency trend, lower is better"
       badge={<TrendBadge values={data.map(d => d.cost_per_hour)} suffix="" />}
     >
       <div className="h-56">
@@ -474,16 +474,16 @@ export function DurationHistogramChart({ data }: { data: { bucket: string; count
   );
 }
 
-// ── 8. Sovereignty ────────────────────────────────────────────────────
+// ── 8. Jurisdiction Split ───────────────────────────────────────────────
 
-export function SovereigntyChart({ data }: { data: { date: string; canadian: number; international: number }[] }) {
+export function JurisdictionSplitChart({ data }: { data: { date: string; canadian: number; international: number }[] }) {
   if (!data?.length) return null;
   const totalCA = data.reduce((s, d) => s + d.canadian, 0);
   const totalInt = data.reduce((s, d) => s + d.international, 0);
   const caPct = totalCA + totalInt > 0 ? Math.round((totalCA / (totalCA + totalInt)) * 100) : 0;
   return (
     <ChartCard
-      title="Data Sovereignty"
+      title="Jurisdiction Split"
       subtitle="Canadian vs International compute"
       badge={<MetricRing value={caPct} color={CHART_COLORS.cyan} size={40} strokeWidth={4} label={`${caPct}%`} />}
     >
@@ -806,7 +806,7 @@ export function TopEntitiesTable({ data, entityLabel }: { data: { entity: string
                   return (
                     <tr key={i} className="border-b border-border/20 hover:bg-surface/50 transition-colors table-row-animate">
                       <td className="py-2.5 pr-4 text-xs text-text-muted">{i + 1}</td>
-                      <td className="py-2.5 pr-4 font-medium font-mono text-xs max-w-[200px] truncate">{row.entity || "—"}</td>
+                      <td className="py-2.5 pr-4 font-medium font-mono text-xs max-w-[200px] truncate">{row.entity || "-"}</td>
                       <td className="py-2.5 pr-4 w-32">
                         <div className="h-1.5 rounded-full bg-surface-hover overflow-hidden">
                           <div className="h-full rounded-full bg-accent-cyan/70 transition-all duration-700" style={{ width: `${pct}%` }} />

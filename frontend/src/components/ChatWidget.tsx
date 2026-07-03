@@ -244,7 +244,7 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
     });
   }, []);
 
-  // Unread indicator — track new assistant messages when chat is closed
+  // Unread indicator, track new assistant messages when chat is closed
   useEffect(() => {
     if (!open && messages.length > prevMsgCountRef.current) {
       const lastMsg = messages[messages.length - 1];
@@ -289,7 +289,7 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
         localStorage.removeItem("xcelsior-chat-conv-id");
       }
     } catch {
-      // Network error — no-op
+      // Network error, no-op
     } finally {
       setLoadingHistory(false);
       historyLoadedRef.current = true;
@@ -618,7 +618,7 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
                       {t("chat.disclaimer")}
                     </p>
                   </form>
-                  {/* Suggestion chips — below input, visible only in empty chat */}
+                  {/* Suggestion chips, below input, visible only in empty chat */}
                   {messages.length === 0 && (
                     <m.div
                       initial={{ opacity: 0, y: 10 }}

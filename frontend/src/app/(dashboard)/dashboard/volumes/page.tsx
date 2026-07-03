@@ -119,7 +119,7 @@ export default function VolumesPage() {
     return () => window.removeEventListener("xcelsior-team-changed", onTeamChanged);
   }, [load]);
 
-  // Live updates — re-fetch on volume/instance lifecycle changes
+  // Live updates, re-fetch on volume/instance lifecycle changes
   useEventStream({
     eventTypes: ["volume_created", "volume_deleted", "volume_attached", "volume_detached", "volume_renamed", "job_status"],
     onEvent: () => { load(); },
@@ -778,7 +778,7 @@ export default function VolumesPage() {
 
                       {/* Region */}
                       <td className="py-4 px-4 text-center">
-                        <span className="text-sm text-text-secondary">{vol.region || "—"}</span>
+                        <span className="text-sm text-text-secondary">{vol.region || "-"}</span>
                       </td>
 
                       {/* Cost */}
@@ -946,7 +946,7 @@ export default function VolumesPage() {
         onCancel={() => setConfirmSnapshotId(null)}
       />
 
-      {/* Launch Instance Modal — pre-selects the chosen volume */}
+      {/* Launch Instance Modal, pre-selects the chosen volume */}
       <LaunchInstanceModal
         open={launchVolumeId !== null}
         onClose={() => setLaunchVolumeId(null)}

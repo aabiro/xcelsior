@@ -65,7 +65,7 @@ export function AiPanel({ onClose }: { onClose: () => void }) {
         onClose={dismissOnboarding}
         onComplete={() => inputRef.current?.focus()}
       />
-      {/* Header — glass style */}
+      {/* Header, glass style */}
       <div className="flex items-center justify-between border-b border-border/30 px-3 py-3 bg-surface/30 backdrop-blur-sm">
         <div className="flex items-center gap-2">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-accent-cyan/20 to-accent-violet/10">

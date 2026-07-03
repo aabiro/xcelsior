@@ -24,7 +24,7 @@ describe("formatMarkdown", () => {
     it("converts markdown links to <a> tags", () => {
         const html = formatMarkdown("[click](https://example.com)");
         expect(html).toContain('<a href="https://example.com"');
-        expect(html).toContain('target="_blank"');
+        expect(html).not.toContain('target="_blank"');
         expect(html).toContain('rel="noopener noreferrer"');
         expect(html).toContain("click</a>");
     });

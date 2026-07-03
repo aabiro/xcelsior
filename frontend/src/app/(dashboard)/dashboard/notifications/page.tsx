@@ -61,6 +61,9 @@ function notificationHref(n: Notification): string | null {
   return null;
 }
 
+/** Metadata keys that are internal, never show in the details panel. */
+const HIDDEN_DETAIL_KEYS = new Set(["user_id"]);
+
 function routeForType(type: string): string {
   if (type.startsWith("job") || type === "preemption_scheduled" || type === "job_preempted") return "/dashboard/instances";
   if (type.startsWith("host")) return "/dashboard/hosts";
@@ -308,9 +311,11 @@ export default function NotificationsPage() {
                   <span>Time</span>
                   <span>{formatTimestamp(selected.created_at)}</span>
                 </div>
-                {selected.data && Object.keys(selected.data).length > 0 && (
+                {selected.data && Object.entries(selected.data).some(([k]) => !HIDDEN_DETAIL_KEYS.has(k)) && (
                   <>
-                    {Object.entries(selected.data).map(([k, v]) => (
+                    {Object.entries(selected.data)
+                      .filter(([k]) => !HIDDEN_DETAIL_KEYS.has(k))
+                      .map(([k, v]) => (
                       <div key={k} className="flex justify-between gap-4">
                         <span className="shrink-0">{k.replace(/_/g, " ")}</span>
                         <span className="truncate text-right font-mono text-[11px]">{String(v)}</span>

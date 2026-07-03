@@ -1,36 +1,26 @@
 import { cn } from "@/lib/utils";
 
 /**
- * Polished "AI spark" mark — a four-point star with a small accent star,
- * the convention used across modern AI surfaces. Replaces the generic lucide
- * Sparkles glyph on the assistant rail so it reads as an intentional brand
- * element rather than a default icon. Uses currentColor so it inherits the
- * button's text colour (and its active/hover states).
+ * Polished "AI spark" mark for the assistant rail. Tight viewBox trims
+ * transparent padding so the glyph centers in the bubble. Uses currentColor.
  */
 export function AiSparkIcon({ className }: { className?: string }) {
   return (
     <svg
-      viewBox="0 0 24 24"
+      viewBox="8 0 14 22"
       fill="none"
-      className={cn("shrink-0", className)}
+      className={cn("block shrink-0", className)}
       aria-hidden
     >
-      {/* The primary star centers at x=12, but the top-right accent star pushes the
-          combined artwork's bounding box right of centre. Nudge the whole mark left
-          so it reads as horizontally centred in its box (and the rail). */}
-      <g transform="translate(-1.08 0)">
-        {/* Primary four-point star */}
-        <path
-          d="M12 1.8c.38 3.07 1.05 4.96 2.18 6.1 1.13 1.13 3.02 1.8 6.02 2.1-3 .38-4.89 1.05-6.02 2.18-1.13 1.13-1.8 3.02-2.18 6.02-.38-3-1.05-4.89-2.18-6.02-1.13-1.13-3.02-1.8-6.02-2.18 3-.3 4.89-.97 6.02-2.1C10.95 6.76 11.62 4.87 12 1.8Z"
-          fill="currentColor"
-        />
-        {/* Small accent star, top-right */}
-        <path
-          d="M19 2.6c.16 1.18.45 1.9.95 2.4.5.5 1.22.79 2.4.95-1.18.16-1.9.45-2.4.95-.5.5-.79 1.22-.95 2.4-.16-1.18-.45-1.9-.95-2.4-.5-.5-1.22-.79-2.4-.95 1.18-.16 1.9-.45 2.4-.95.5-.5.79-1.22.95-2.4Z"
-          fill="currentColor"
-          opacity="0.65"
-        />
-      </g>
+      <path
+        d="M10.8 2.2c.36 2.88.98 4.63 2.02 5.67 1.05 1.05 2.8 1.67 5.63 2.03-2.83.36-4.58.98-5.63 2.03-1.04 1.04-1.66 2.8-2.02 5.63-.36-2.83-.98-4.58-2.03-5.63-1.04-1.05-2.79-1.67-5.62-2.03 2.83-.36 4.58-.98 5.62-2.03 1.05-1.04 1.67-2.79 2.03-5.67Z"
+        fill="currentColor"
+      />
+      <path
+        d="M18.55 4.2c.14 1 .39 1.62.81 2.03.42.42 1.03.67 2.04.81-1.01.14-1.62.39-2.04.81-.42.42-.67 1.03-.81 2.04-.14-1.01-.39-1.62-.81-2.04-.42-.42-1.03-.67-2.03-.81 1-.14 1.61-.39 2.03-.81.42-.41.67-1.03.81-2.03Z"
+        fill="currentColor"
+        opacity="0.65"
+      />
     </svg>
   );
 }

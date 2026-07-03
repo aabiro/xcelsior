@@ -7,9 +7,9 @@ const McpLandingContent = dynamic(
 );
 
 export const metadata: Metadata = {
-  title: "Xcelsior MCP — AI Agent GPU Control",
+  title: "Xcelsior MCP, AI Agent GPU Control",
   description:
-    "Let AI agents control real GPUs. Xcelsior MCP turns natural language into compute — instantly, securely, and globally.",
+    "Let AI agents control real GPUs. Xcelsior MCP turns natural language into compute, instantly, securely, and globally.",
   alternates: { canonical: "https://xcelsior.ca/mcp" },
   openGraph: {
     title: "Let AI agents control real GPUs | Xcelsior MCP",

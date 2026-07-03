@@ -151,7 +151,7 @@
         "tags": [
           "Artifacts"
         ],
-        "summary": "Artifact Expiry",
+        "summary": "Expiry",
         "description": "Get expiry/cleanup dates for artifacts of a given job.\n\nReturns each artifact with its created_at and estimated expiry date\nbased on the configured retention policy.",
         "operationId": "api_artifact_expiry_api_artifacts__job_id__expiry_get",
         "parameters": [
@@ -272,7 +272,7 @@
         "tags": [
           "Auth"
         ],
-        "summary": "Auth Register",
+        "summary": "Register",
         "description": "Register a new user with email and password.\n\nCreates an account and sends a verification email. The user must verify\ntheir email before they can log in.",
         "operationId": "api_auth_register_api_auth_register_post",
         "requestBody": {
@@ -313,7 +313,7 @@
         "tags": [
           "Auth"
         ],
-        "summary": "Auth Login",
+        "summary": "Login",
         "description": "Authenticate with email and password.\n\nReturns a Bearer token valid for 30 days.\nIf MFA is enabled, returns mfa_required=True with a challenge_id instead.",
         "operationId": "api_auth_login_api_auth_login_post",
         "requestBody": {
@@ -354,7 +354,7 @@
         "tags": [
           "Auth"
         ],
-        "summary": "Auth Me",
+        "summary": "Me",
         "description": "Get the currently authenticated user's profile.\n\nReturns ``user: null`` when no session is present (HTTP 200) so public\nmarketing pages can probe session state without console 401 noise.\nInvalid or machine credentials still return 401/403.",
         "operationId": "api_auth_me_api_auth_me_get",
         "responses": {
@@ -374,7 +374,7 @@
         "tags": [
           "Auth"
         ],
-        "summary": "Auth Logout",
+        "summary": "Logout",
         "description": "Logout — invalidate session and clear cookie.",
         "operationId": "api_auth_logout_api_auth_logout_post",
         "responses": {
@@ -1062,7 +1062,7 @@
         "tags": [
           "Billing"
         ],
-        "summary": "Billing Get Topup",
+        "summary": "Get Topup",
         "description": "Get current auto-top-up configuration.",
         "operationId": "api_billing_get_topup_api_v2_billing_auto_topup_get",
         "responses": {
@@ -1080,7 +1080,7 @@
         "tags": [
           "Billing"
         ],
-        "summary": "Billing Configure Topup",
+        "summary": "Configure Topup",
         "description": "Configure wallet auto-top-up via Stripe.",
         "operationId": "api_billing_configure_topup_api_v2_billing_auto_topup_post",
         "requestBody": {
@@ -1120,7 +1120,7 @@
         "tags": [
           "Inference"
         ],
-        "summary": "Inference Submit",
+        "summary": "Submit",
         "description": "Submit a serverless inference request.\n\nSchedules a short-lived GPU job that runs the specified model on the\nprovided inputs. Returns a job_id to poll for results.",
         "operationId": "api_inference_submit_api_inference_post",
         "requestBody": {
@@ -1160,7 +1160,7 @@
         "tags": [
           "Inference"
         ],
-        "summary": "Inference Result",
+        "summary": "Result",
         "description": "Get inference results for a submitted request.",
         "operationId": "api_inference_result_api_inference__job_id__get",
         "parameters": [
@@ -1201,7 +1201,7 @@
         "tags": [
           "Inference"
         ],
-        "summary": "Inference Models",
+        "summary": "Models",
         "description": "List available inference models and their resource requirements.",
         "operationId": "api_inference_models_api_inference_models_available_get",
         "responses": {
@@ -1221,7 +1221,7 @@
         "tags": [
           "Inference v2"
         ],
-        "summary": "V1 Inference Sync",
+        "summary": "Sync",
         "description": "Synchronous inference endpoint (OpenAI-compatible path).\n\nSubmits an inference request and polls for results up to 30 seconds.\nIf stream=true, returns SSE text/event-stream with token deltas.",
         "operationId": "api_v1_inference_sync_v1_inference_post",
         "requestBody": {
@@ -1261,7 +1261,7 @@
         "tags": [
           "Inference v2"
         ],
-        "summary": "V1 Inference Async",
+        "summary": "Async",
         "description": "Asynchronous inference — returns job_id immediately for polling.",
         "operationId": "api_v1_inference_async_v1_inference_async_post",
         "requestBody": {
@@ -1301,7 +1301,7 @@
         "tags": [
           "Inference v2"
         ],
-        "summary": "V1 Inference Poll",
+        "summary": "Poll",
         "description": "Poll for inference results by job_id.",
         "operationId": "api_v1_inference_poll_v1_inference__job_id__get",
         "parameters": [
@@ -1342,7 +1342,7 @@
         "tags": [
           "Serverless"
         ],
-        "summary": "Serverless Enabled",
+        "summary": "Enabled",
         "description": "Feature-flag probe for dashboard rollout (session optional).",
         "operationId": "api_serverless_enabled_api_v2_serverless_enabled_get",
         "responses": {
@@ -1362,7 +1362,7 @@
         "tags": [
           "Serverless"
         ],
-        "summary": "Serverless List Endpoints",
+        "summary": "List Endpoints",
         "operationId": "api_serverless_list_endpoints_api_v2_serverless_endpoints_get",
         "responses": {
           "200": {
@@ -1379,7 +1379,7 @@
         "tags": [
           "Serverless"
         ],
-        "summary": "Serverless Create Endpoint",
+        "summary": "Create Endpoint",
         "operationId": "api_serverless_create_endpoint_api_v2_serverless_endpoints_post",
         "requestBody": {
           "content": {
@@ -1418,7 +1418,7 @@
         "tags": [
           "Serverless"
         ],
-        "summary": "Serverless Get Endpoint",
+        "summary": "Get Endpoint",
         "operationId": "api_serverless_get_endpoint_api_v2_serverless_endpoints__endpoint_id__get",
         "parameters": [
           {
@@ -1456,7 +1456,7 @@
         "tags": [
           "Serverless"
         ],
-        "summary": "Serverless Patch Endpoint",
+        "summary": "Patch Endpoint",
         "operationId": "api_serverless_patch_endpoint_api_v2_serverless_endpoints__endpoint_id__patch",
         "parameters": [
           {
@@ -1504,7 +1504,7 @@
         "tags": [
           "Serverless"
         ],
-        "summary": "Serverless Delete Endpoint",
+        "summary": "Delete Endpoint",
         "operationId": "api_serverless_delete_endpoint_api_v2_serverless_endpoints__endpoint_id__delete",
         "parameters": [
           {
@@ -1544,7 +1544,7 @@
         "tags": [
           "Serverless"
         ],
-        "summary": "Serverless Endpoint Health",
+        "summary": "Endpoint Health",
         "operationId": "api_serverless_endpoint_health_api_v2_serverless_endpoints__endpoint_id__health_get",
         "parameters": [
           {
@@ -1584,7 +1584,7 @@
         "tags": [
           "Serverless"
         ],
-        "summary": "Serverless Endpoint Usage",
+        "summary": "Endpoint Usage",
         "description": "Alias for metrics — dashboard compatibility.",
         "operationId": "api_serverless_endpoint_usage_api_v2_serverless_endpoints__endpoint_id__usage_get",
         "parameters": [
@@ -1625,7 +1625,7 @@
         "tags": [
           "Serverless"
         ],
-        "summary": "Serverless Create Key",
+        "summary": "Create Key",
         "operationId": "api_serverless_create_key_api_v2_serverless_endpoints__endpoint_id__keys_post",
         "parameters": [
           {
@@ -1673,7 +1673,7 @@
         "tags": [
           "Serverless"
         ],
-        "summary": "Serverless List Keys",
+        "summary": "List Keys",
         "operationId": "api_serverless_list_keys_api_v2_serverless_endpoints__endpoint_id__keys_get",
         "parameters": [
           {
@@ -1713,7 +1713,7 @@
         "tags": [
           "Serverless"
         ],
-        "summary": "Serverless Revoke Key",
+        "summary": "Revoke Key",
         "operationId": "api_serverless_revoke_key_api_v2_serverless_endpoints__endpoint_id__keys__key_id__delete",
         "parameters": [
           {
@@ -1762,7 +1762,7 @@
         "tags": [
           "Serverless"
         ],
-        "summary": "Serverless Run",
+        "summary": "Run",
         "operationId": "api_serverless_run_v1_serverless__endpoint_id__run_post",
         "parameters": [
           {
@@ -1812,7 +1812,7 @@
         "tags": [
           "Serverless"
         ],
-        "summary": "Serverless Runsync",
+        "summary": "Runsync",
         "operationId": "api_serverless_runsync_v1_serverless__endpoint_id__runsync_post",
         "parameters": [
           {
@@ -1862,7 +1862,7 @@
         "tags": [
           "Serverless"
         ],
-        "summary": "Serverless Job Status",
+        "summary": "Job Status",
         "operationId": "api_serverless_job_status_v1_serverless__endpoint_id__status__job_id__get",
         "parameters": [
           {
@@ -1911,7 +1911,7 @@
         "tags": [
           "Serverless"
         ],
-        "summary": "Serverless Job Stream",
+        "summary": "Job Stream",
         "operationId": "api_serverless_job_stream_v1_serverless__endpoint_id__stream__job_id__get",
         "parameters": [
           {
@@ -1960,7 +1960,7 @@
         "tags": [
           "Serverless"
         ],
-        "summary": "Serverless Cancel Job",
+        "summary": "Cancel Job",
         "operationId": "api_serverless_cancel_job_v1_serverless__endpoint_id__cancel__job_id__post",
         "parameters": [
           {
@@ -2009,7 +2009,7 @@
         "tags": [
           "Serverless"
         ],
-        "summary": "Serverless Openai Chat",
+        "summary": "Openai Chat",
         "operationId": "api_serverless_openai_chat_v1_serverless__endpoint_id__openai_v1_chat_completions_post",
         "parameters": [
           {
@@ -2059,7 +2059,7 @@
         "tags": [
           "Serverless"
         ],
-        "summary": "Serverless Openai Models",
+        "summary": "Openai Models",
         "operationId": "api_serverless_openai_models_v1_serverless__endpoint_id__openai_v1_models_get",
         "parameters": [
           {
@@ -2099,7 +2099,7 @@
         "tags": [
           "Serverless (compat)"
         ],
-        "summary": "Inference Compat List Endpoints",
+        "summary": "List Endpoints",
         "operationId": "api_inference_compat_list_endpoints_api_v2_inference_endpoints_get",
         "responses": {
           "200": {
@@ -2116,7 +2116,7 @@
         "tags": [
           "Serverless (compat)"
         ],
-        "summary": "Inference Compat Create Endpoint",
+        "summary": "Create Endpoint",
         "operationId": "api_inference_compat_create_endpoint_api_v2_inference_endpoints_post",
         "requestBody": {
           "content": {
@@ -2155,7 +2155,7 @@
         "tags": [
           "Serverless (compat)"
         ],
-        "summary": "Inference Compat Get Endpoint",
+        "summary": "Get Endpoint",
         "operationId": "api_inference_compat_get_endpoint_api_v2_inference_endpoints__endpoint_id__get",
         "parameters": [
           {
@@ -2193,7 +2193,7 @@
         "tags": [
           "Serverless (compat)"
         ],
-        "summary": "Inference Compat Delete Endpoint",
+        "summary": "Delete Endpoint",
         "operationId": "api_inference_compat_delete_endpoint_api_v2_inference_endpoints__endpoint_id__delete",
         "parameters": [
           {
@@ -2233,7 +2233,7 @@
         "tags": [
           "Serverless (compat)"
         ],
-        "summary": "Inference Compat Endpoint Health",
+        "summary": "Endpoint Health",
         "operationId": "api_inference_compat_endpoint_health_api_v2_inference_endpoints__endpoint_id__health_get",
         "parameters": [
           {
@@ -2273,7 +2273,7 @@
         "tags": [
           "Serverless (compat)"
         ],
-        "summary": "Inference Compat Endpoint Usage",
+        "summary": "Endpoint Usage",
         "operationId": "api_inference_compat_endpoint_usage_api_v2_inference_endpoints__endpoint_id__usage_get",
         "parameters": [
           {
@@ -2483,7 +2483,7 @@
         "tags": [
           "Instances"
         ],
-        "summary": "Instance Logs",
+        "summary": "Logs",
         "description": "Get buffered log lines for a job (non-streaming).\n\nReturns the last `limit` log lines. Tries in-memory buffer first,\nfalls back to persistent job_logs table in PG.\nFor real-time streaming, use `/jobs/{job_id}/logs/stream` (SSE).",
         "operationId": "api_instance_logs_instances__job_id__logs_get",
         "parameters": [
@@ -2554,7 +2554,7 @@
         "tags": [
           "Marketplace"
         ],
-        "summary": "Marketplace Search",
+        "summary": "Search",
         "description": "Search marketplace listings with filters and sorting.",
         "operationId": "api_marketplace_search_marketplace_search_get",
         "parameters": [
@@ -2744,7 +2744,7 @@
         "tags": [
           "Marketplace"
         ],
-        "summary": "Marketplace Stats",
+        "summary": "Stats",
         "description": "Marketplace aggregate stats (platform admin only).",
         "operationId": "api_marketplace_stats_marketplace_stats_get",
         "responses": {
@@ -2764,7 +2764,7 @@
         "tags": [
           "Marketplace v2"
         ],
-        "summary": "Marketplace Search",
+        "summary": "Search",
         "description": "Search available GPU offers with filters.",
         "operationId": "api_marketplace_search_api_v2_marketplace_search_post",
         "requestBody": {
@@ -2804,7 +2804,7 @@
         "tags": [
           "Marketplace v2"
         ],
-        "summary": "Marketplace Spot Prices",
+        "summary": "Spot Prices",
         "description": "Get current spot prices for all GPU models.",
         "operationId": "api_marketplace_spot_prices_api_v2_marketplace_spot_prices_get",
         "responses": {
@@ -2824,7 +2824,7 @@
         "tags": [
           "Marketplace v2"
         ],
-        "summary": "Marketplace Spot History",
+        "summary": "Spot History",
         "description": "Get spot price history for a GPU model.",
         "operationId": "api_marketplace_spot_history_api_v2_marketplace_spot_prices__gpu_model__history_get",
         "parameters": [
@@ -2875,7 +2875,7 @@
         "tags": [
           "Marketplace v2"
         ],
-        "summary": "Marketplace Stats V2",
+        "summary": "Stats V2",
         "description": "Get marketplace aggregate statistics.",
         "operationId": "api_marketplace_stats_v2_api_v2_marketplace_stats_get",
         "responses": {
@@ -2895,7 +2895,7 @@
         "tags": [
           "Marketplace v2"
         ],
-        "summary": "Marketplace Create Reservation",
+        "summary": "Create Reservation",
         "description": "Create a reserved instance commitment.",
         "operationId": "api_marketplace_create_reservation_api_v2_marketplace_reservations_post",
         "requestBody": {
@@ -2935,7 +2935,7 @@
         "tags": [
           "Marketplace v2"
         ],
-        "summary": "Marketplace Cancel Reservation",
+        "summary": "Cancel Reservation",
         "description": "Cancel a reserved instance commitment early.\n\nComputes early termination fee: remaining_months * monthly_rate * 50%.",
         "operationId": "api_marketplace_cancel_reservation_api_v2_marketplace_reservations__reservation_id__delete",
         "parameters": [
@@ -2976,7 +2976,7 @@
         "tags": [
           "Volumes"
         ],
-        "summary": "Volume List",
+        "summary": "List",
         "description": "List volumes owned by the current user.",
         "operationId": "api_volume_list_api_v2_volumes_get",
         "responses": {
@@ -2994,7 +2994,7 @@
         "tags": [
           "Volumes"
         ],
-        "summary": "Volume Create",
+        "summary": "Create",
         "description": "Create a new persistent volume. Billed in real-time from credits.",
         "operationId": "api_volume_create_api_v2_volumes_post",
         "requestBody": {
@@ -3034,7 +3034,7 @@
         "tags": [
           "Volumes"
         ],
-        "summary": "Volume Get",
+        "summary": "Get",
         "description": "Get volume details.",
         "operationId": "api_volume_get_api_v2_volumes__volume_id__get",
         "parameters": [
@@ -3073,7 +3073,7 @@
         "tags": [
           "Volumes"
         ],
-        "summary": "Volume Delete",
+        "summary": "Delete",
         "description": "Delete a volume. Must not have active attachments.",
         "operationId": "api_volume_delete_api_v2_volumes__volume_id__delete",
         "parameters": [
@@ -3114,7 +3114,7 @@
         "tags": [
           "Volumes"
         ],
-        "summary": "Volume Attach",
+        "summary": "Attach",
         "description": "Attach a volume to a running instance.",
         "operationId": "api_volume_attach_api_v2_volumes__volume_id__attach_post",
         "parameters": [
@@ -3165,7 +3165,7 @@
         "tags": [
           "Volumes"
         ],
-        "summary": "Volume Detach",
+        "summary": "Detach",
         "description": "Detach a volume from its current instance.",
         "operationId": "api_volume_detach_api_v2_volumes__volume_id__detach_post",
         "parameters": [

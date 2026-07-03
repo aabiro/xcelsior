@@ -15,7 +15,7 @@ export default function WelcomeEmail({
       <Heading style={baseStyles.heading}>Welcome to Xcelsior</Heading>
       <Text style={baseStyles.text}>
         Hi {name}, thanks for signing up. You now have access to Canada&apos;s
-        sovereign GPU compute marketplace.
+        Canadian GPU compute marketplace.
       </Text>
 
       <Section style={baseStyles.card}>
@@ -27,7 +27,7 @@ export default function WelcomeEmail({
           <span style={baseStyles.gold}>✓</span> Data under Canadian law only
         </Text>
         <Text style={{ ...baseStyles.text, margin: 0 }}>
-          <span style={baseStyles.gold}>✓</span> Native CAD pricing — no
+          <span style={baseStyles.gold}>✓</span> Native CAD pricing, no
           conversion fees
         </Text>
       </Section>

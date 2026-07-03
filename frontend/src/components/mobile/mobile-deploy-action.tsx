@@ -319,7 +319,7 @@ export function MobileDeployAction({ canWrite, serverlessEnabled }: MobileDeploy
               aria-hidden
             />
 
-            {/* Hold progress — bottom edge fill, no ring */}
+            {/* Hold progress, bottom edge fill, no ring */}
             {!isArmed && (isHolding || progress > 0) && (
               <span
                 className={cn(

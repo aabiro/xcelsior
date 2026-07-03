@@ -35,7 +35,7 @@ function LoginPageContent() {
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState(() => {
     if (oauthErrorCode?.startsWith("oauth_")) {
-      return "Sign-in was interrupted. Please try again — it should work on the first attempt now.";
+      return "Sign-in was interrupted. Please try again, it should work on the first attempt now.";
     }
     return "";
   });

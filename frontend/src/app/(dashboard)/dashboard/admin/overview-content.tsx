@@ -118,17 +118,17 @@ export default function AdminOverviewPage() {
               <Card className="p-4 text-center border-dashed">
                 <Users className="h-5 w-5 text-text-muted mx-auto mb-2" />
                 <p className="text-xs text-text-muted">Users</p>
-                <p className="text-lg font-bold font-mono text-text-muted/50">—</p>
+                <p className="text-lg font-bold font-mono text-text-muted/50">-</p>
               </Card>
               <Card className="p-4 text-center border-dashed">
                 <Server className="h-5 w-5 text-text-muted mx-auto mb-2" />
                 <p className="text-xs text-text-muted">Hosts</p>
-                <p className="text-lg font-bold font-mono text-text-muted/50">—</p>
+                <p className="text-lg font-bold font-mono text-text-muted/50">-</p>
               </Card>
               <Card className="p-4 text-center border-dashed">
                 <DollarSign className="h-5 w-5 text-text-muted mx-auto mb-2" />
                 <p className="text-xs text-text-muted">Revenue</p>
-                <p className="text-lg font-bold font-mono text-text-muted/50">—</p>
+                <p className="text-lg font-bold font-mono text-text-muted/50">-</p>
               </Card>
             </div>
           </div>

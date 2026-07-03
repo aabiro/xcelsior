@@ -1,25 +1,23 @@
-# Xcelsior OpenAPI overrides for Fern SDK generation
-# Maps endpoints to clean SDK method names via x-fern-sdk-method-name
-# and groups via x-fern-sdk-group-name so the generated TypeScript SDK
-# has intuitive names like client.hosts.list() instead of client.hosts.apiListHosts().
-
 paths:
-  # ── Hosts ─────────────────────────────────────────────────────────
   /hosts:
     get:
       x-fern-sdk-group-name: hosts
       x-fern-sdk-method-name: list
+      x-fern-ignore: true
   /host:
     put:
       x-fern-sdk-group-name: hosts
       x-fern-sdk-method-name: register
+      x-fern-ignore: true
   /host/{host_id}:
     get:
       x-fern-sdk-group-name: hosts
       x-fern-sdk-method-name: get
+      x-fern-ignore: true
     delete:
       x-fern-sdk-group-name: hosts
       x-fern-sdk-method-name: remove
+      x-fern-ignore: true
   /hosts/check:
     post:
       x-fern-ignore: true
@@ -29,16 +27,17 @@ paths:
     get:
       x-fern-sdk-group-name: hosts
       x-fern-sdk-method-name: listCanadian
+      x-fern-ignore: true
   /compute-scores:
     get:
       x-fern-sdk-group-name: hosts
       x-fern-sdk-method-name: listComputeScores
+      x-fern-ignore: true
   /compute-score/{host_id}:
     get:
       x-fern-sdk-group-name: hosts
       x-fern-sdk-method-name: getComputeScore
-
-  # ── Instances (Jobs) ──────────────────────────────────────────────
+      x-fern-ignore: true
   /instance:
     post:
       x-fern-sdk-group-name: instances
@@ -50,10 +49,12 @@ paths:
     patch:
       x-fern-sdk-group-name: instances
       x-fern-sdk-method-name: update
+      x-fern-ignore: true
   /instance/{job_id}/requeue:
     post:
       x-fern-sdk-group-name: instances
       x-fern-sdk-method-name: requeue
+      x-fern-ignore: true
   /instances:
     get:
       x-fern-sdk-group-name: instances
@@ -70,6 +71,7 @@ paths:
     get:
       x-fern-sdk-group-name: instances
       x-fern-sdk-method-name: streamLogs
+      x-fern-ignore: true
   /tiers:
     get:
       x-fern-sdk-group-name: instances
@@ -84,8 +86,6 @@ paths:
       x-fern-ignore: true
       x-fern-sdk-group-name: instances
       x-fern-sdk-method-name: processQueue
-
-  # ── Billing ───────────────────────────────────────────────────────
   /billing:
     get:
       x-fern-ignore: true
@@ -137,6 +137,7 @@ paths:
     post:
       x-fern-sdk-group-name: billing
       x-fern-sdk-method-name: refund
+      x-fern-ignore: true
   /api/billing/payment-intent:
     post:
       x-fern-sdk-group-name: billing
@@ -157,38 +158,47 @@ paths:
     get:
       x-fern-sdk-group-name: billing
       x-fern-sdk-method-name: getAttestation
+      x-fern-ignore: true
   /api/billing/free-credits/{customer_id}:
     post:
       x-fern-sdk-group-name: billing
       x-fern-sdk-method-name: claimFreeCredits
+      x-fern-ignore: true
   /api/billing/free-credits/{customer_id}/status:
     get:
       x-fern-sdk-group-name: billing
       x-fern-sdk-method-name: getFreeCreditsStatus
+      x-fern-ignore: true
   /api/billing/export/caf/{customer_id}:
     get:
       x-fern-sdk-group-name: billing
       x-fern-sdk-method-name: exportCaf
+      x-fern-ignore: true
   /api/billing/crypto/enabled:
     get:
       x-fern-sdk-group-name: billing
       x-fern-sdk-method-name: cryptoEnabled
+      x-fern-ignore: true
   /api/billing/crypto/rate:
     get:
       x-fern-sdk-group-name: billing
       x-fern-sdk-method-name: cryptoRate
+      x-fern-ignore: true
   /api/billing/crypto/deposit:
     post:
       x-fern-sdk-group-name: billing
       x-fern-sdk-method-name: cryptoDeposit
+      x-fern-ignore: true
   /api/billing/crypto/deposit/{deposit_id}:
     get:
       x-fern-sdk-group-name: billing
       x-fern-sdk-method-name: cryptoDepositStatus
+      x-fern-ignore: true
   /api/billing/crypto/refresh/{deposit_id}:
     post:
       x-fern-sdk-group-name: billing
       x-fern-sdk-method-name: cryptoRefresh
+      x-fern-ignore: true
   /api/analytics/usage:
     get:
       x-fern-ignore: true
@@ -198,10 +208,12 @@ paths:
     get:
       x-fern-sdk-group-name: billing
       x-fern-sdk-method-name: getGstThreshold
+      x-fern-ignore: true
   /api/billing/gst-threshold/{provider_id}:
     get:
       x-fern-sdk-group-name: billing
       x-fern-sdk-method-name: getProviderGstThreshold
+      x-fern-ignore: true
   /api/v2/billing/auto-topup:
     get:
       x-fern-sdk-group-name: billing
@@ -216,17 +228,17 @@ paths:
   /api/pricing/reference:
     get:
       x-fern-sdk-group-name: billing
-      x-fern-sdk-method-name: getReferencePricing
+      x-fern-sdk-method-name: referencePricing
   /api/pricing/reserve:
     post:
       x-fern-sdk-group-name: billing
       x-fern-sdk-method-name: reserveCommitment
+      x-fern-ignore: true
   /api/pricing/reserved-plans:
     get:
       x-fern-sdk-group-name: billing
       x-fern-sdk-method-name: listReservedPlans
-
-  # ── Marketplace ───────────────────────────────────────────────────
+      x-fern-ignore: true
   /marketplace:
     get:
       x-fern-sdk-group-name: marketplace
@@ -235,10 +247,11 @@ paths:
     post:
       x-fern-sdk-group-name: marketplace
       x-fern-sdk-method-name: createListing
+      x-fern-ignore: true
   /marketplace/search:
     get:
       x-fern-sdk-group-name: marketplace
-      x-fern-sdk-method-name: search
+      x-fern-sdk-method-name: searchGet
   /marketplace/stats:
     get:
       x-fern-sdk-group-name: marketplace
@@ -252,8 +265,7 @@ paths:
     delete:
       x-fern-sdk-group-name: marketplace
       x-fern-sdk-method-name: unlist
-
-  # ── Marketplace v2 ────────────────────────────────────────────────
+      x-fern-ignore: true
   /api/v2/marketplace/search:
     post:
       x-fern-sdk-group-name: marketplaceV2
@@ -262,14 +274,17 @@ paths:
     post:
       x-fern-sdk-group-name: marketplaceV2
       x-fern-sdk-method-name: createOffer
+      x-fern-ignore: true
   /api/v2/marketplace/allocate:
     post:
       x-fern-sdk-group-name: marketplaceV2
       x-fern-sdk-method-name: allocate
+      x-fern-ignore: true
   /api/v2/marketplace/release/{allocation_id}:
     post:
       x-fern-sdk-group-name: marketplaceV2
       x-fern-sdk-method-name: release
+      x-fern-ignore: true
   /api/v2/marketplace/reservations:
     post:
       x-fern-sdk-group-name: marketplaceV2
@@ -290,34 +305,36 @@ paths:
     get:
       x-fern-sdk-group-name: marketplaceV2
       x-fern-sdk-method-name: getStats
-
-  # ── Reputation ────────────────────────────────────────────────────
   /api/reputation/{entity_id}:
     get:
       x-fern-sdk-group-name: reputation
       x-fern-sdk-method-name: get
+      x-fern-ignore: true
   /api/reputation/{entity_id}/breakdown:
     get:
       x-fern-sdk-group-name: reputation
       x-fern-sdk-method-name: getBreakdown
+      x-fern-ignore: true
   /api/reputation/{entity_id}/history:
     get:
       x-fern-sdk-group-name: reputation
       x-fern-sdk-method-name: getHistory
+      x-fern-ignore: true
   /api/reputation/leaderboard:
     get:
       x-fern-sdk-group-name: reputation
       x-fern-sdk-method-name: leaderboard
+      x-fern-ignore: true
   /api/reputation/me:
     get:
       x-fern-sdk-group-name: reputation
       x-fern-sdk-method-name: me
+      x-fern-ignore: true
   /api/reputation/verify:
     post:
       x-fern-sdk-group-name: reputation
       x-fern-sdk-method-name: verify
-
-  # ── Auth ──────────────────────────────────────────────────────────
+      x-fern-ignore: true
   /api/auth/register:
     post:
       x-fern-sdk-group-name: auth
@@ -350,6 +367,7 @@ paths:
     post:
       x-fern-sdk-group-name: auth
       x-fern-sdk-method-name: refresh
+      x-fern-ignore: true
   /api/auth/me:
     get:
       x-fern-sdk-group-name: auth
@@ -357,29 +375,36 @@ paths:
     delete:
       x-fern-sdk-group-name: auth
       x-fern-sdk-method-name: deleteAccount
+      x-fern-ignore: true
     patch:
       x-fern-sdk-group-name: auth
       x-fern-sdk-method-name: updateProfile
+      x-fern-ignore: true
   /api/auth/me/data-export:
     get:
       x-fern-sdk-group-name: auth
       x-fern-sdk-method-name: exportData
+      x-fern-ignore: true
   /api/auth/change-password:
     post:
       x-fern-sdk-group-name: auth
       x-fern-sdk-method-name: changePassword
+      x-fern-ignore: true
   /api/auth/password-reset:
     post:
       x-fern-sdk-group-name: auth
       x-fern-sdk-method-name: requestPasswordReset
+      x-fern-ignore: true
   /api/auth/password-reset/confirm:
     post:
       x-fern-sdk-group-name: auth
       x-fern-sdk-method-name: confirmPasswordReset
+      x-fern-ignore: true
   /api/auth/oauth/{provider}:
     post:
       x-fern-sdk-group-name: auth
       x-fern-sdk-method-name: oauthInitiate
+      x-fern-ignore: true
   /api/auth/oauth/{provider}/callback:
     get:
       x-fern-ignore: true
@@ -389,78 +414,89 @@ paths:
     get:
       x-fern-sdk-group-name: auth
       x-fern-sdk-method-name: listApiKeys
+      x-fern-ignore: true
   /api/keys/generate:
     post:
       x-fern-sdk-group-name: auth
       x-fern-sdk-method-name: generateApiKey
+      x-fern-ignore: true
   /api/keys/{key_preview}:
     delete:
       x-fern-sdk-group-name: auth
       x-fern-sdk-method-name: revokeApiKey
+      x-fern-ignore: true
   /api/users/me/preferences:
     get:
       x-fern-sdk-group-name: auth
       x-fern-sdk-method-name: getPreferences
+      x-fern-ignore: true
     put:
       x-fern-sdk-group-name: auth
       x-fern-sdk-method-name: setPreferences
-
-  # ── Teams ─────────────────────────────────────────────────────────
+      x-fern-ignore: true
   /api/teams:
     post:
       x-fern-sdk-group-name: teams
       x-fern-sdk-method-name: create
+      x-fern-ignore: true
   /api/teams/me:
     get:
       x-fern-sdk-group-name: teams
       x-fern-sdk-method-name: list
+      x-fern-ignore: true
   /api/teams/{team_id}:
     get:
       x-fern-sdk-group-name: teams
       x-fern-sdk-method-name: get
+      x-fern-ignore: true
     delete:
       x-fern-sdk-group-name: teams
       x-fern-sdk-method-name: delete
+      x-fern-ignore: true
   /api/teams/{team_id}/members:
     post:
       x-fern-sdk-group-name: teams
       x-fern-sdk-method-name: addMember
+      x-fern-ignore: true
   /api/teams/{team_id}/members/{email}:
     delete:
       x-fern-sdk-group-name: teams
       x-fern-sdk-method-name: removeMember
+      x-fern-ignore: true
     patch:
       x-fern-sdk-group-name: teams
       x-fern-sdk-method-name: updateMemberRole
-
-  # ── Compliance ────────────────────────────────────────────────────
+      x-fern-ignore: true
   /api/compliance/provinces:
     get:
       x-fern-sdk-group-name: compliance
       x-fern-sdk-method-name: getProvinces
+      x-fern-ignore: true
   /api/compliance/status:
     get:
       x-fern-sdk-group-name: compliance
       x-fern-sdk-method-name: getStatus
+      x-fern-ignore: true
   /api/compliance/tax-rates:
     get:
       x-fern-sdk-group-name: compliance
       x-fern-sdk-method-name: getTaxRates
+      x-fern-ignore: true
   /api/compliance/trust-tier-requirements:
     get:
       x-fern-sdk-group-name: compliance
       x-fern-sdk-method-name: getTrustTierRequirements
+      x-fern-ignore: true
   /api/compliance/quebec-pia-check:
     post:
       x-fern-ignore: true
       x-fern-sdk-group-name: compliance
       x-fern-sdk-method-name: quebecPiaCheck
-
-  # ── Artifacts ─────────────────────────────────────────────────────
   /api/artifacts:
     get:
       x-fern-sdk-group-name: artifacts
       x-fern-sdk-method-name: listAll
+      x-fern-ignore: true
   /api/artifacts/{job_id}:
     get:
       x-fern-sdk-group-name: artifacts
@@ -477,36 +513,41 @@ paths:
     post:
       x-fern-sdk-group-name: artifacts
       x-fern-sdk-method-name: requestDownload
-
-  # ── Privacy ───────────────────────────────────────────────────────
   /api/privacy/consent:
     post:
       x-fern-sdk-group-name: privacy
       x-fern-sdk-method-name: recordConsent
+      x-fern-ignore: true
   /api/privacy/consent/{entity_id}:
     get:
       x-fern-sdk-group-name: privacy
       x-fern-sdk-method-name: getConsents
+      x-fern-ignore: true
   /api/privacy/consent/{entity_id}/{consent_type}:
     delete:
       x-fern-sdk-group-name: privacy
       x-fern-sdk-method-name: revokeConsent
+      x-fern-ignore: true
   /api/privacy/config:
     post:
       x-fern-sdk-group-name: privacy
       x-fern-sdk-method-name: saveConfig
+      x-fern-ignore: true
   /api/privacy/config/{org_id}:
     get:
       x-fern-sdk-group-name: privacy
       x-fern-sdk-method-name: getConfig
+      x-fern-ignore: true
   /api/privacy/retention-policies:
     get:
       x-fern-sdk-group-name: privacy
       x-fern-sdk-method-name: getRetentionPolicies
+      x-fern-ignore: true
   /api/privacy/retention-summary:
     get:
       x-fern-sdk-group-name: privacy
       x-fern-sdk-method-name: getRetentionSummary
+      x-fern-ignore: true
   /api/privacy/purge-expired:
     post:
       x-fern-ignore: true
@@ -516,20 +557,22 @@ paths:
     post:
       x-fern-sdk-group-name: privacy
       x-fern-sdk-method-name: recordConsentV2
+      x-fern-ignore: true
   /api/v2/privacy/consent/{purpose}:
     delete:
       x-fern-sdk-group-name: privacy
       x-fern-sdk-method-name: withdrawConsentV2
+      x-fern-ignore: true
   /api/v2/privacy/consents:
     get:
       x-fern-sdk-group-name: privacy
       x-fern-sdk-method-name: listConsentsV2
+      x-fern-ignore: true
   /api/v2/privacy/erase:
     post:
       x-fern-sdk-group-name: privacy
       x-fern-sdk-method-name: rightToErasure
-
-  # ── Transparency ──────────────────────────────────────────────────
+      x-fern-ignore: true
   /api/transparency/report:
     get:
       x-fern-ignore: true
@@ -545,8 +588,6 @@ paths:
       x-fern-ignore: true
       x-fern-sdk-group-name: transparency
       x-fern-sdk-method-name: respondToLegalRequest
-
-  # ── Telemetry ─────────────────────────────────────────────────────
   /agent/telemetry:
     post:
       x-fern-ignore: true
@@ -562,43 +603,46 @@ paths:
       x-fern-ignore: true
       x-fern-sdk-group-name: telemetry
       x-fern-sdk-method-name: getAll
-
-  # ── SLA ───────────────────────────────────────────────────────────
   /api/sla/{host_id}:
     get:
       x-fern-sdk-group-name: sla
       x-fern-sdk-method-name: getStatus
+      x-fern-ignore: true
   /api/sla/targets:
     get:
       x-fern-sdk-group-name: sla
       x-fern-sdk-method-name: getTargets
+      x-fern-ignore: true
   /api/sla/downtimes:
     get:
       x-fern-sdk-group-name: sla
       x-fern-sdk-method-name: getDowntimes
+      x-fern-ignore: true
   /api/sla/hosts-summary:
     get:
       x-fern-sdk-group-name: sla
       x-fern-sdk-method-name: getHostsSummary
+      x-fern-ignore: true
   /api/sla/violations/{host_id}:
     get:
       x-fern-sdk-group-name: sla
       x-fern-sdk-method-name: getViolations
+      x-fern-ignore: true
   /api/sla/enforce:
     post:
       x-fern-ignore: true
       x-fern-sdk-group-name: sla
       x-fern-sdk-method-name: enforce
-
-  # ── Providers ─────────────────────────────────────────────────────
   /api/providers:
     get:
       x-fern-sdk-group-name: providers
       x-fern-sdk-method-name: list
+      x-fern-ignore: true
   /api/providers/register:
     post:
       x-fern-sdk-group-name: providers
       x-fern-sdk-method-name: register
+      x-fern-ignore: true
   /api/providers/webhook:
     post:
       x-fern-ignore: true
@@ -608,20 +652,22 @@ paths:
     get:
       x-fern-sdk-group-name: providers
       x-fern-sdk-method-name: get
+      x-fern-ignore: true
   /api/providers/{provider_id}/earnings:
     get:
       x-fern-sdk-group-name: providers
       x-fern-sdk-method-name: getEarnings
+      x-fern-ignore: true
   /api/providers/{provider_id}/incorporation:
     post:
       x-fern-sdk-group-name: providers
       x-fern-sdk-method-name: uploadIncorporation
+      x-fern-ignore: true
   /api/providers/{provider_id}/payout:
     post:
       x-fern-sdk-group-name: providers
       x-fern-sdk-method-name: payout
-
-  # ── Inference ─────────────────────────────────────────────────────
+      x-fern-ignore: true
   /api/inference:
     post:
       x-fern-sdk-group-name: inference
@@ -638,8 +684,7 @@ paths:
     post:
       x-fern-sdk-group-name: inference
       x-fern-sdk-method-name: postResult
-
-  # ── Serverless inference (managed endpoints + queue API) ─────────
+      x-fern-ignore: true
   /api/v2/serverless/enabled:
     get:
       x-fern-sdk-group-name: serverless
@@ -683,7 +728,7 @@ paths:
   /v1/serverless/{endpoint_id}/run:
     post:
       x-fern-sdk-group-name: serverless
-      x-fern-sdk-method-name: runJob
+      x-fern-sdk-method-name: run
   /v1/serverless/{endpoint_id}/runsync:
     post:
       x-fern-sdk-group-name: serverless
@@ -708,7 +753,6 @@ paths:
     get:
       x-fern-sdk-group-name: serverless
       x-fern-sdk-method-name: listModels
-  # Deprecated aliases (same handlers as /api/v2/serverless/*)
   /api/v2/inference/endpoints:
     get:
       x-fern-sdk-group-name: serverless
@@ -735,26 +779,26 @@ paths:
     get:
       x-fern-sdk-group-name: inference
       x-fern-sdk-method-name: poll
-
-  # ── Notifications ─────────────────────────────────────────────────
   /api/notifications:
     get:
       x-fern-sdk-group-name: notifications
       x-fern-sdk-method-name: list
+      x-fern-ignore: true
   /api/notifications/unread-count:
     get:
       x-fern-sdk-group-name: notifications
       x-fern-sdk-method-name: getUnreadCount
+      x-fern-ignore: true
   /api/notifications/{notification_id}/read:
     post:
       x-fern-sdk-group-name: notifications
       x-fern-sdk-method-name: markRead
+      x-fern-ignore: true
   /api/notifications/read-all:
     post:
       x-fern-sdk-group-name: notifications
       x-fern-sdk-method-name: markAllRead
-
-  # ── Admin ─────────────────────────────────────────────────────────
+      x-fern-ignore: true
   /api/admin/stats:
     get:
       x-fern-ignore: true
@@ -770,68 +814,74 @@ paths:
       x-fern-ignore: true
       x-fern-sdk-group-name: admin
       x-fern-sdk-method-name: getVerificationQueue
-
-  # ── Chat ──────────────────────────────────────────────────────────
   /api/chat:
     post:
       x-fern-sdk-group-name: chat
       x-fern-sdk-method-name: send
+      x-fern-ignore: true
   /api/chat/conversations:
     get:
       x-fern-sdk-group-name: chat
       x-fern-sdk-method-name: listConversations
+      x-fern-ignore: true
   /api/chat/history/{conversation_id}:
     get:
       x-fern-sdk-group-name: chat
       x-fern-sdk-method-name: getHistory
+      x-fern-ignore: true
   /api/chat/suggestions:
     get:
       x-fern-sdk-group-name: chat
       x-fern-sdk-method-name: getSuggestions
+      x-fern-ignore: true
   /api/chat/feedback:
     post:
       x-fern-sdk-group-name: chat
       x-fern-sdk-method-name: sendFeedback
-
-  # ── AI Assistant ──────────────────────────────────────────────────
+      x-fern-ignore: true
   /api/ai/chat:
     post:
       x-fern-sdk-group-name: aiAssistant
       x-fern-sdk-method-name: chat
+      x-fern-ignore: true
   /api/ai/confirm:
     post:
       x-fern-sdk-group-name: aiAssistant
       x-fern-sdk-method-name: confirm
+      x-fern-ignore: true
   /api/ai/conversations:
     get:
       x-fern-sdk-group-name: aiAssistant
       x-fern-sdk-method-name: listConversations
+      x-fern-ignore: true
   /api/ai/conversations/{conversation_id}:
     get:
       x-fern-sdk-group-name: aiAssistant
       x-fern-sdk-method-name: getConversation
+      x-fern-ignore: true
     delete:
       x-fern-sdk-group-name: aiAssistant
       x-fern-sdk-method-name: deleteConversation
+      x-fern-ignore: true
   /api/ai/suggestions:
     get:
       x-fern-sdk-group-name: aiAssistant
       x-fern-sdk-method-name: getSuggestions
-
-  # ── SSH Keys ──────────────────────────────────────────────────────
+      x-fern-ignore: true
   /api/ssh/keys:
     get:
       x-fern-sdk-group-name: sshKeys
       x-fern-sdk-method-name: list
+      x-fern-ignore: true
     post:
       x-fern-sdk-group-name: sshKeys
       x-fern-sdk-method-name: add
+      x-fern-ignore: true
   /api/ssh/keys/{key_id}:
     delete:
       x-fern-sdk-group-name: sshKeys
       x-fern-sdk-method-name: delete
-
-  # ── Agent ─────────────────────────────────────────────────────────
+      x-fern-ignore: true
   /agent/versions:
     post:
       x-fern-ignore: true
@@ -887,12 +937,11 @@ paths:
       x-fern-ignore: true
       x-fern-sdk-group-name: agent
       x-fern-sdk-method-name: releaseLease
-
-  # ── Spot Pricing ──────────────────────────────────────────────────
   /spot-prices:
     get:
       x-fern-sdk-group-name: spotPricing
       x-fern-sdk-method-name: get
+      x-fern-ignore: true
   /spot-prices/update:
     post:
       x-fern-ignore: true
@@ -903,38 +952,41 @@ paths:
       x-fern-ignore: true
       x-fern-sdk-group-name: spotPricing
       x-fern-sdk-method-name: runPreemptionCycle
-
-  # ── Events ────────────────────────────────────────────────────────
   /api/events:
     get:
       x-fern-sdk-group-name: events
       x-fern-sdk-method-name: list
+      x-fern-ignore: true
   /api/events/{entity_type}/{entity_id}:
     get:
       x-fern-sdk-group-name: events
       x-fern-sdk-method-name: getByEntity
+      x-fern-ignore: true
   /api/events/leases/{job_id}:
     get:
       x-fern-sdk-group-name: events
       x-fern-sdk-method-name: getLease
+      x-fern-ignore: true
   /api/audit/instance/{job_id}:
     get:
       x-fern-sdk-group-name: events
       x-fern-sdk-method-name: getAuditTrail
+      x-fern-ignore: true
   /api/audit/verify-chain:
     get:
       x-fern-sdk-group-name: events
       x-fern-sdk-method-name: verifyChain
-
-  # ── Verification ──────────────────────────────────────────────────
+      x-fern-ignore: true
   /api/verify/{host_id}:
     post:
       x-fern-sdk-group-name: verification
       x-fern-sdk-method-name: verifyHost
+      x-fern-ignore: true
   /api/verify/{host_id}/status:
     get:
       x-fern-sdk-group-name: verification
       x-fern-sdk-method-name: getStatus
+      x-fern-ignore: true
   /api/verify/{host_id}/approve:
     post:
       x-fern-ignore: true
@@ -949,8 +1001,7 @@ paths:
     get:
       x-fern-sdk-group-name: verification
       x-fern-sdk-method-name: listVerified
-
-  # ── Autoscale ─────────────────────────────────────────────────────
+      x-fern-ignore: true
   /autoscale/pool:
     get:
       x-fern-ignore: true
@@ -980,20 +1031,21 @@ paths:
       x-fern-ignore: true
       x-fern-sdk-group-name: autoscale
       x-fern-sdk-method-name: cycle
-
-  # ── Jurisdiction ──────────────────────────────────────────────────
   /api/jurisdiction/hosts:
     post:
       x-fern-sdk-group-name: jurisdiction
       x-fern-sdk-method-name: filterHosts
+      x-fern-ignore: true
   /api/jurisdiction/residency-trace/{job_id}:
     get:
       x-fern-sdk-group-name: jurisdiction
       x-fern-sdk-method-name: getResidencyTrace
+      x-fern-ignore: true
   /api/trust-tiers:
     get:
       x-fern-sdk-group-name: jurisdiction
       x-fern-sdk-method-name: getTrustTiers
+      x-fern-ignore: true
   /canada:
     get:
       x-fern-ignore: true
@@ -1013,8 +1065,6 @@ paths:
       x-fern-ignore: true
       x-fern-sdk-group-name: jurisdiction
       x-fern-sdk-method-name: processQueueSovereign
-
-  # ── Volumes ───────────────────────────────────────────────────────
   /api/v2/volumes:
     get:
       x-fern-sdk-group-name: volumes
@@ -1037,30 +1087,26 @@ paths:
     post:
       x-fern-sdk-group-name: volumes
       x-fern-sdk-method-name: detach
-
-  # ── Cloud Burst ───────────────────────────────────────────────────
   /api/v2/burst/status:
     get:
       x-fern-ignore: true
       x-fern-sdk-group-name: cloudBurst
       x-fern-sdk-method-name: getStatus
-
-  # ── Jobs (Scheduler) ─────────────────────────────────────────────
   /api/v2/scheduler/process-binpack:
     post:
       x-fern-ignore: true
       x-fern-sdk-group-name: jobs
       x-fern-sdk-method-name: processQueueBinpack
-
-  # ── Infrastructure ────────────────────────────────────────────────
   /healthz:
     get:
       x-fern-sdk-group-name: infrastructure
       x-fern-sdk-method-name: healthz
+      x-fern-ignore: true
   /readyz:
     get:
       x-fern-sdk-group-name: infrastructure
       x-fern-sdk-method-name: readyz
+      x-fern-ignore: true
   /metrics:
     get:
       x-fern-ignore: true
@@ -1095,6 +1141,7 @@ paths:
     get:
       x-fern-sdk-group-name: infrastructure
       x-fern-sdk-method-name: getSshPubkey
+      x-fern-ignore: true
   /ssh/pubkey:
     get:
       x-fern-ignore: true
@@ -1197,103 +1244,116 @@ paths:
       x-fern-ignore: true
       x-fern-sdk-group-name: slurm
       x-fern-sdk-method-name: cancel
-
-  # ── MFA ───────────────────────────────────────────────────────────
   /api/auth/mfa/all:
     delete:
       x-fern-sdk-group-name: mfa
       x-fern-sdk-method-name: disableAll
+      x-fern-ignore: true
   /api/auth/mfa/backup-codes/regenerate:
     post:
       x-fern-sdk-group-name: mfa
       x-fern-sdk-method-name: regenerateBackupCodes
+      x-fern-ignore: true
   /api/auth/mfa/methods:
     get:
       x-fern-sdk-group-name: mfa
       x-fern-sdk-method-name: listMethods
+      x-fern-ignore: true
   /api/auth/mfa/passkey/authenticate-complete:
     post:
       x-fern-sdk-group-name: mfa
       x-fern-sdk-method-name: passkeyAuthenticateComplete
+      x-fern-ignore: true
   /api/auth/mfa/passkey/authenticate-options:
     post:
       x-fern-sdk-group-name: mfa
       x-fern-sdk-method-name: passkeyAuthenticateOptions
+      x-fern-ignore: true
   /api/auth/mfa/passkey/delete:
     post:
       x-fern-sdk-group-name: mfa
       x-fern-sdk-method-name: passkeyDelete
+      x-fern-ignore: true
   /api/auth/mfa/passkey/register-complete:
     post:
       x-fern-sdk-group-name: mfa
       x-fern-sdk-method-name: passkeyRegisterComplete
+      x-fern-ignore: true
   /api/auth/mfa/passkey/register-options:
     post:
       x-fern-sdk-group-name: mfa
       x-fern-sdk-method-name: passkeyRegisterOptions
+      x-fern-ignore: true
   /api/auth/mfa/sms:
     delete:
       x-fern-sdk-group-name: mfa
       x-fern-sdk-method-name: smsDisable
+      x-fern-ignore: true
   /api/auth/mfa/sms/send:
     post:
       x-fern-sdk-group-name: mfa
       x-fern-sdk-method-name: smsSend
+      x-fern-ignore: true
   /api/auth/mfa/sms/setup:
     post:
       x-fern-sdk-group-name: mfa
       x-fern-sdk-method-name: smsSetup
+      x-fern-ignore: true
   /api/auth/mfa/sms/verify:
     post:
       x-fern-sdk-group-name: mfa
       x-fern-sdk-method-name: smsVerify
+      x-fern-ignore: true
   /api/auth/mfa/totp:
     delete:
       x-fern-sdk-group-name: mfa
       x-fern-sdk-method-name: totpDisable
+      x-fern-ignore: true
   /api/auth/mfa/totp/setup:
     post:
       x-fern-sdk-group-name: mfa
       x-fern-sdk-method-name: totpSetup
+      x-fern-ignore: true
   /api/auth/mfa/totp/verify:
     post:
       x-fern-sdk-group-name: mfa
       x-fern-sdk-method-name: totpVerify
+      x-fern-ignore: true
   /api/auth/mfa/verify:
     post:
       x-fern-sdk-group-name: mfa
       x-fern-sdk-method-name: verifyLogin
-
-  # ── Additional Auth endpoints ─────────────────────────────────────
+      x-fern-ignore: true
   /api/auth/resend-verification:
     post:
       x-fern-sdk-group-name: auth
       x-fern-sdk-method-name: resendVerification
+      x-fern-ignore: true
   /api/auth/sessions:
     get:
       x-fern-sdk-group-name: auth
       x-fern-sdk-method-name: listSessions
+      x-fern-ignore: true
   /api/auth/sessions/{token_prefix}:
     delete:
       x-fern-sdk-group-name: auth
       x-fern-sdk-method-name: revokeSession
+      x-fern-ignore: true
   /api/auth/verify-email:
     post:
       x-fern-sdk-group-name: auth
       x-fern-sdk-method-name: verifyEmail
-
-  # ── Additional Notifications ──────────────────────────────────────
+      x-fern-ignore: true
   /api/notifications/{notification_id}:
     delete:
       x-fern-sdk-group-name: notifications
       x-fern-sdk-method-name: delete
-
-  # ── GPU ───────────────────────────────────────────────────────────
+      x-fern-ignore: true
   /api/v2/gpu/available:
     get:
       x-fern-sdk-group-name: gpu
       x-fern-sdk-method-name: listAvailable
-
+      x-fern-ignore: true
   /api/v2/inference/endpoints/{endpoint_id}/health:
     get:
       x-fern-sdk-group-name: serverless
@@ -1302,11 +1362,6 @@ paths:
     get:
       x-fern-sdk-group-name: serverless
       x-fern-sdk-method-name: getEndpointUsageCompat
-
-
-  # ══════════════════════════════════════════════════════════════
-  # Internal / Admin endpoints — hidden from public SDK
-  # ══════════════════════════════════════════════════════════════
   /api/admin/activity:
     get:
       x-fern-ignore: true

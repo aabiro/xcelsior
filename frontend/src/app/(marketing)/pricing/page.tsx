@@ -101,7 +101,7 @@ export default async function PricingPage() {
     "@context": "https://schema.org",
     "@type": "Product",
     name: "Xcelsior GPU Compute",
-    description: "Sovereign GPU compute marketplace. On-demand, spot, and reserved pricing in CAD.",
+    description: "Canadian GPU compute marketplace. On-demand, spot, and reserved pricing in CAD.",
     brand: { "@type": "Brand", name: "Xcelsior" },
     offers: gpus.map((g) => ({
       "@type": "Offer",

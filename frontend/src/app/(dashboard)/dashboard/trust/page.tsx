@@ -30,6 +30,10 @@ const TIER_COLORS: Record<string, string> = {
   regulated: "bg-accent-red/10 border-accent-red/20 text-accent-red",
 };
 
+const TIER_LABELS: Record<string, string> = {
+  sovereignty: "Enterprise",
+};
+
 export default function TrustPage() {
   const { t } = useLocale();
   const [hosts, setHosts] = useState<VerifiedHost[]>([]);
@@ -127,7 +131,7 @@ export default function TrustPage() {
                     <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-current/15 bg-black/10">
                       <TierIcon className="h-5 w-5" />
                     </span>
-                    <h3 className="font-semibold capitalize">{name}</h3>
+                    <h3 className="font-semibold capitalize">{TIER_LABELS[name] || name}</h3>
                   </div>
                 );
               })()}
@@ -236,7 +240,7 @@ export default function TrustPage() {
                         <p className="text-xs text-text-muted">FP: {host.gpu_fingerprint.slice(0, 12)}...</p>
                       )}
                     </td>
-                    <td className="py-3 px-4 text-text-secondary">{host.gpu_model || "—"}</td>
+                    <td className="py-3 px-4 text-text-secondary">{host.gpu_model || "-"}</td>
                     <td className="py-3 px-4 text-center">
                       <StatusBadge status={host.status} />
                     </td>
@@ -244,7 +248,7 @@ export default function TrustPage() {
                       {host.overall_score.toFixed(1)}
                     </td>
                     <td className="py-3 px-4 text-center text-text-muted text-xs">
-                      {host.last_check ? new Date(host.last_check).toLocaleDateString() : "—"}
+                      {host.last_check ? new Date(host.last_check).toLocaleDateString() : "-"}
                     </td>
                     <td className="py-3 px-4 text-right">
                       <div className="flex justify-end gap-1">

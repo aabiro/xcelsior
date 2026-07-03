@@ -91,13 +91,13 @@ export function CountUp({
       transition={{ duration: 0.3 }}
     >
       <motion.span
-        // Uses Framer's animate-values trick — animate a CSS variable and read it
+        // Uses Framer's animate-values trick, animate a CSS variable and read it
         initial={{ "--count": 0 } as Record<string, number>}
         animate={{ "--count": value } as Record<string, number>}
         transition={{ duration, ease: "easeOut" }}
         style={{ counterSet: `count var(--count)` } as React.CSSProperties}
       >
-        {/* Fall back to final value immediately — no counter-set browser support needed */}
+        {/* Fall back to final value immediately, no counter-set browser support needed */}
       </motion.span>
       {prefix}{typeof value === "number" ? value.toLocaleString() : value}{suffix}
     </motion.span>

@@ -89,7 +89,7 @@ export default function SpotPricingPage() {
             </div>
             <h1 className="text-2xl font-bold tracking-tight">Spot Pricing</h1>
             <p className="text-sm text-text-secondary mt-1 max-w-xl">
-              Published interruptible GPU rates — no bidding. Save up to 60% vs on-demand with
+              Published interruptible GPU rates, no bidding. Save up to 60% vs on-demand with
               automatic requeue when capacity returns.
             </p>
           </div>
@@ -111,7 +111,7 @@ export default function SpotPricingPage() {
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard
           label="Avg Savings"
-          value={heroStats.avgSavings > 0 ? `${heroStats.avgSavings}%` : "—"}
+          value={heroStats.avgSavings > 0 ? `${heroStats.avgSavings}%` : "-"}
           icon={TrendingUp}
         />
         <StatCard label="GPU Models" value={heroStats.modelCount} icon={Cpu} />
@@ -120,7 +120,7 @@ export default function SpotPricingPage() {
           value={
             heroStats.lowest
               ? `$${((heroStats.lowest.rate_cad ?? heroStats.lowest.spot_cents / 100)).toFixed(2)}/hr`
-              : "—"
+              : "-"
           }
           icon={DollarSign}
         />
@@ -134,7 +134,7 @@ export default function SpotPricingPage() {
               Fixed spot rates
             </div>
             <p className="text-xs text-text-secondary leading-relaxed">
-              Published CAD/hr prices — no bidding wars. Your rate is locked at launch and billed from wallet credits like on-demand.
+              Published CAD/hr prices, no bidding wars. Your rate is locked at launch and billed from wallet credits like on-demand.
             </p>
           </CardContent>
         </Card>
@@ -145,7 +145,7 @@ export default function SpotPricingPage() {
               Auto-requeue
             </div>
             <p className="text-xs text-text-secondary leading-relaxed">
-              If capacity is reclaimed, interrupted jobs re-enter the queue automatically when GPUs free up — no manual restart.
+              If capacity is reclaimed, interrupted jobs re-enter the queue automatically when GPUs free up, no manual restart.
             </p>
           </CardContent>
         </Card>
@@ -177,7 +177,7 @@ export default function SpotPricingPage() {
       <SpotInterruptWarning title="Interruptible capacity">
         <p className="text-xs text-amber-100/80 leading-relaxed">
           Spot instances may be preempted when demand rises. Workloads should checkpoint regularly.
-          Billing stops when a job is interrupted — you only pay for GPU time actually used.
+          Billing stops when a job is interrupted, you only pay for GPU time actually used.
         </p>
       </SpotInterruptWarning>
 
@@ -252,7 +252,7 @@ export default function SpotPricingPage() {
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
               <BarChart3 className="h-5 w-5" />
-              {selectedModel === "unknown" ? "GPU" : selectedModel} — 48h Price History
+              {selectedModel === "unknown" ? "GPU" : selectedModel}, 48h Price History
               {selectedPoint?.on_demand_cad != null && (
                 <span className="ml-auto text-xs font-normal text-text-muted font-mono">
                   On-demand ${selectedPoint.on_demand_cad.toFixed(2)}/hr

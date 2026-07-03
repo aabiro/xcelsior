@@ -13,7 +13,7 @@ export const metadata: Metadata = {
   alternates: { canonical: "https://xcelsior.ca/gpu-availability" },
   openGraph: {
     title: "GPU Availability | Xcelsior",
-    description: "Live GPU availability and pricing across the Xcelsior sovereign compute network.",
+    description: "Live GPU availability and pricing across the Xcelsior Canadian compute network.",
     url: "https://xcelsior.ca/gpu-availability",
   },
 };

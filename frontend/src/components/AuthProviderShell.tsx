@@ -1,8 +1,6 @@
 "use client";
 
-import { AuthProvider } from "@/lib/auth";
-
-/** Wrap routes that need session state (dashboard + auth entry). Omit on pure marketing pages. */
+/** AuthProvider lives in root Providers, this shell is kept for route layout compatibility. */
 export function AuthProviderShell({ children }: { children: React.ReactNode }) {
-  return <AuthProvider>{children}</AuthProvider>;
+  return <>{children}</>;
 }

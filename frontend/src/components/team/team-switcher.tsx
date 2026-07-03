@@ -97,13 +97,13 @@ export function TeamSwitcher({ className, compact = false }: TeamSwitcherProps) 
         <>
           <button
             type="button"
-            className="fixed inset-0 z-40 cursor-default"
+            className="dashboard-site-dropdown-backdrop"
             aria-label="Close team switcher"
             onClick={() => setOpen(false)}
           />
           <div
             role="listbox"
-            className="absolute right-0 top-full z-50 mt-1 min-w-[12rem] overflow-hidden rounded-xl border border-border/60 bg-surface shadow-xl"
+            className="absolute right-0 top-full z-[200] mt-1 min-w-[12rem] overflow-hidden rounded-xl border border-border/60 shadow-xl"
           >
             <button
               type="button"

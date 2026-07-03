@@ -27,8 +27,8 @@ function parseEntries(source) {
 function renderSlice(locale, slice, entries) {
   const header =
     slice === "public"
-      ? `/* Auto-generated from ${locale}.ts — public/marketing/auth keys. Do not edit directly. */`
-      : `/* Auto-generated from ${locale}.ts — dashboard-only keys. Do not edit directly. */`;
+      ? `/* Auto-generated from ${locale}.ts - public/marketing/auth keys. Do not edit directly. */`
+      : `/* Auto-generated from ${locale}.ts - dashboard-only keys. Do not edit directly. */`;
   const body = entries
     .map(({ key, value }) => `  "${key}": ${value},`)
     .join("\n");

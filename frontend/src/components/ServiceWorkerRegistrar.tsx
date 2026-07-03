@@ -5,7 +5,7 @@ import { syncPushSubscriptionWithServer } from "@/lib/pwa/web-push";
 
 /**
  * Registers the Serwist-generated service worker.
- * Rendered once in the root layout — no UI output.
+ * Rendered once in the root layout, no UI output.
  */
 export function ServiceWorkerRegistrar() {
   useEffect(() => {

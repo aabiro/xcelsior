@@ -569,7 +569,7 @@ export default function BillingPage() {
             <h1 className="text-2xl font-bold tracking-tight">{t("dash.billing.title")}</h1>
             <p className="text-sm text-text-secondary mt-1 max-w-2xl">
               Prepaid CAD credits for GPU compute, serverless inference, and volume storage.
-              Top up via Stripe, Bitcoin, or Lightning — manage cards and invoices in one place.
+              Top up via Stripe, Bitcoin, or Lightning, manage cards and invoices in one place.
             </p>
           </div>
           <div className="flex gap-2 flex-wrap">
@@ -776,7 +776,7 @@ export default function BillingPage() {
                       Save with spot
                     </div>
                     <p className="text-xs text-text-secondary leading-relaxed">
-                      Interruptible spot instances bill at published rates — often 40–60% below on-demand.
+                      Interruptible spot instances bill at published rates, often 40-60% below on-demand.
                     </p>
                     <Link
                       href="/dashboard/spot-pricing"
@@ -990,7 +990,7 @@ export default function BillingPage() {
                     </div>
                     <p className="text-xs text-text-secondary">
                       {lnStatus.available
-                        ? "Instant deposits via Lightning — zero fees, instant settlement"
+                        ? "Instant deposits via Lightning, zero fees, instant settlement"
                         : lnStatus.enabled
                           ? (lnStatus.reason || "Lightning deposits are temporarily unavailable.")
                           : "Lightning Network deposits are coming soon. Stay tuned!"}
@@ -1121,7 +1121,7 @@ export default function BillingPage() {
                       <div className="flex items-center gap-1.5 text-xs text-text-muted">
                         <Clock className="h-3 w-3" />
                         {new Date(r.start_at * 1000).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" })}
-                        {" – "}
+                        {", "}
                         {new Date(r.end_at * 1000).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" })}
                       </div>
                       <div className="flex items-center justify-between text-xs pt-1 border-t border-border/40">
@@ -1318,7 +1318,7 @@ export default function BillingPage() {
                         <div>
                           <p className="text-sm font-medium">
                             {new Date(inv.period_start).toLocaleDateString("en-CA", { year: "numeric", month: "short" })}
-                            {" – "}
+                            {", "}
                             {new Date(inv.period_end).toLocaleDateString("en-CA", { year: "numeric", month: "short" })}
                           </p>
                           <p className="text-xs text-text-muted">
@@ -1344,7 +1344,7 @@ export default function BillingPage() {
             </CardContent>
           </Card>
 
-          {/* Refunds — credited automatically for host-side job failures */}
+          {/* Refunds, credited automatically for host-side job failures */}
           {(() => {
             const refunds = transactions.filter((tx) => tx.type === "refund");
             if (refunds.length === 0) return null;
@@ -1386,7 +1386,7 @@ export default function BillingPage() {
                                 </Badge>
                               </div>
                               <p className="text-xs text-text-muted">
-                                {tx.created_at ? new Date(tx.created_at).toLocaleString() : "—"}
+                                {tx.created_at ? new Date(tx.created_at).toLocaleString() : "-"}
                                 {tx.job_id && <span className="ml-2">· Job {tx.job_id.slice(0, 8)}</span>}
                               </p>
                             </div>
@@ -1434,7 +1434,7 @@ export default function BillingPage() {
                               {tx.description || tx.type || "Transaction"}
                             </p>
                             <p className="text-xs text-text-muted">
-                              {tx.created_at ? new Date(tx.created_at).toLocaleString() : "—"}
+                              {tx.created_at ? new Date(tx.created_at).toLocaleString() : "-"}
                               {tx.job_id && <span className="ml-2">· Job {tx.job_id.slice(0, 8)}</span>}
                             </p>
                           </div>
@@ -1450,7 +1450,7 @@ export default function BillingPage() {
             </CardContent>
           </Card>
 
-          {/* Usage Heatmap — hourly submission patterns */}
+          {/* Usage Heatmap, hourly submission patterns */}
           <Card>
             <CardHeader>
               <CardTitle>Usage Heatmap</CardTitle>
@@ -1504,7 +1504,7 @@ export default function BillingPage() {
                               <div
                                 key={hour}
                                 className={`flex-1 h-4 rounded-sm ${bg} transition-colors`}
-                                title={`${dayLabel} ${hour}:00 — ${count} transaction${count !== 1 ? "s" : ""}`}
+                                title={`${dayLabel} ${hour}:00, ${count} transaction${count !== 1 ? "s" : ""}`}
                               />
                             );
                           })}
