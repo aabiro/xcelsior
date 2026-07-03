@@ -283,7 +283,7 @@ function CreateClientDialog({
       open={open}
       onClose={onClose}
       title={t("dash.settings.oauth.create_btn")}
-      description={t("dash.settings.oauth.create_hint", { grantType: "client_credentials" })}
+      description={t("dash.settings.oauth.create_hint")}
       maxWidth="max-w-xl"
     >
       <div className="space-y-4 pt-4">
@@ -509,7 +509,7 @@ function ClientRow({
                   {isDisabled ? t("dash.settings.oauth.status_disabled") : t("dash.settings.oauth.status_active")}
                 </Badge>
                 {client.is_first_party && (
-                  <span className="rounded-full bg-accent-gold/10 px-2 py-0.5 text-[10px] font-medium text-accent-gold ring-1 ring-accent-gold/20">
+                  <span className="rounded-full bg-accent-gold/10 px-2.5 py-1 text-sm font-medium text-accent-gold ring-1 ring-accent-gold/20">
                     {t("dash.settings.oauth.first_party")}
                   </span>
                 )}
@@ -667,11 +667,11 @@ export function OAuthClientManager({ clients, onClientsChange, team }: OAuthClie
           clients.length > 0 ? (
             <div className="flex flex-wrap items-center gap-1.5">
               {disabledClients.length > 0 && (
-                <span className="rounded-full bg-accent-red/10 px-2 py-0.5 text-[10px] font-medium text-accent-red ring-1 ring-accent-red/20">
+                <span className="inline-flex items-center rounded-full bg-accent-red/10 px-2.5 py-1 text-sm font-medium text-accent-red ring-1 ring-accent-red/20">
                   {t("dash.settings.oauth.disabled_count", { count: disabledClients.length })}
                 </span>
               )}
-              <span className="rounded-full bg-accent-cyan/10 px-2 py-0.5 text-[10px] font-medium text-accent-cyan ring-1 ring-accent-cyan/20">
+              <span className="inline-flex items-center rounded-full bg-accent-cyan/10 px-2.5 py-1 text-sm font-medium text-accent-cyan ring-1 ring-accent-cyan/20">
                 {t("dash.settings.oauth.active_count", { count: activeClients.length })}
               </span>
             </div>
@@ -685,7 +685,7 @@ export function OAuthClientManager({ clients, onClientsChange, team }: OAuthClie
                 workspaceLabel={team.isTeamMember ? "team" : "personal"}
                 teamName={team.teamName}
               />
-              <p className="text-xs text-text-muted">{t("dash.settings.oauth.info", { grantType: "client_credentials" })}</p>
+              <p className="text-xs text-text-muted">{t("dash.settings.oauth.info")}</p>
             </div>
             <Button
               size="sm"

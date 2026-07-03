@@ -69,7 +69,7 @@ export function useAiChat(): UseAiChatReturn {
             }));
             setMessages(loaded);
           })
-          .catch(() => { /* non-fatal — will start fresh */ });
+          .catch(() => { /* non-fatal, will start fresh */ });
       }
     } catch {
       // SSR or storage unavailable

@@ -1,4 +1,4 @@
-// GPU model catalog — canonical short titles that must match:
+// GPU model catalog, canonical short titles that must match:
 //   - worker_agent.py _NVIDIA_SMI_NAME_MAP values
 //   - db.py _GPU_PRICING_BASE first column
 //
@@ -11,7 +11,7 @@
 export type FormFactor = "PCIe" | "SXM" | "OAM";
 
 export interface GpuModel {
-    /** Canonical short title — stable identifier AND display label. */
+    /** Canonical short title, stable identifier AND display label. */
     value: string;
     /** Same as `value`. Kept for legacy callers. */
     label: string;

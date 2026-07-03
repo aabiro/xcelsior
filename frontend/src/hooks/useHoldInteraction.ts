@@ -79,7 +79,7 @@ export function useHoldInteraction({
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch {
-      /* noop — capture optional */
+      /* noop, capture optional */
     }
 
     setIsHolding(true);

@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { AuthAwareLink } from "@/components/marketing/auth-aware-link";
 import { SITE_ASSETS, siteIcon } from "@/lib/brand-assets";
 import { useLocale } from "@/lib/locale";
 
 const values = [
-  { icon: "shield", title: "about.val_sovereignty_title", desc: "about.val_sovereignty_desc" },
   { icon: "leaf", title: "about.val_green_title", desc: "about.val_green_desc" },
   { icon: "users", title: "about.val_community_title", desc: "about.val_community_desc" },
   { icon: "bolt", title: "about.val_access_title", desc: "about.val_access_desc" },
@@ -55,8 +55,8 @@ export function AboutContent() {
                 <span>{t("about.badge")}</span>
               </div>
               <h1 className="site-hero-title">
-                {t("about.title").split(/(open to the world|ouvert au monde)/i).map((part, i) =>
-                  /open to the world|ouvert au monde/i.test(part) ? (
+                {t("about.title").split(/(built differently|conçu différemment)/i).map((part, i) =>
+                  /built differently|conçu différemment/i.test(part) ? (
                     <span key={i} className="site-gradient-text">{part}</span>
                   ) : (
                     <span key={i}>{part}</span>
@@ -79,7 +79,6 @@ export function AboutContent() {
 
         <section className="site-rails site-section" style={{ paddingBottom: 0 }}>
           <SectionMarker code="01" label={t("about.values_title")} />
-          <h2 className="site-section-heading">{t("about.values_title")}</h2>
           <div className="site-foundation-grid site-section-flush">
             {values.map((value) => (
               <article key={value.title} className="site-foundation-card">
@@ -95,7 +94,6 @@ export function AboutContent() {
 
         <section className="site-rails site-section">
           <SectionMarker code="02" label={t("about.journey_title")} />
-          <h2 className="site-section-heading" style={{ marginBottom: 48 }}>{t("about.journey_title")}</h2>
           <div className="site-timeline">
             {milestoneGroups.flatMap((group) =>
               group.events.map((eventKey, ei) => (
@@ -114,9 +112,9 @@ export function AboutContent() {
           <img src={SITE_ASSETS.iconGradient} className="site-cta-mark" alt="" aria-hidden />
           <h2 className="site-cta-title">{t("about.cta_title")}</h2>
           <p className="site-section-copy" style={{ marginBottom: 28 }}>{t("about.cta_desc")}</p>
-          <Link href="/register" className="site-button site-button-primary" style={{ padding: "15px 28px" }}>
+          <AuthAwareLink intent="start" className="site-button site-button-primary" style={{ padding: "15px 28px" }}>
             {t("about.cta_button")}
-          </Link>
+          </AuthAwareLink>
         </section>
       </div>
     </>

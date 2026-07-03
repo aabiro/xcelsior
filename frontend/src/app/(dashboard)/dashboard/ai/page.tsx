@@ -205,7 +205,7 @@ export default function AiAssistantPage() {
   const { streamingMsgId, executingToolIds } = getStreamingState(messages, isStreaming);
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] bg-background overflow-hidden relative">
+    <div className="dashboard-ai-page flex h-full min-h-0 bg-background overflow-hidden relative">
       <XcelAiOnboarding
         open={showOnboarding}
         onClose={dismissOnboarding}
@@ -290,7 +290,7 @@ export default function AiAssistantPage() {
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-3xl mx-auto px-4 py-4">
             {isEmpty ? (
-              <div className="flex items-center justify-center h-[calc(100vh-12rem)]">
+              <div className="flex items-center justify-center min-h-0 flex-1">
                 <EmptyState
                   title={t("ai.welcome_title")}
                   description={t("ai.welcome_description")}
@@ -349,6 +349,7 @@ export default function AiAssistantPage() {
           isStreaming={isStreaming}
           placeholder={t("ai.placeholder")}
           disclaimer={t("ai.disclaimer")}
+          compact
           inputRef={inputRef}
         />
       </div>

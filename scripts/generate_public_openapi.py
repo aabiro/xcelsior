@@ -131,15 +131,50 @@ _ACRONYMS = {
 }
 
 
+# Longest first: Fern sidebar titles sit under a group (Auth, Billing, …), so
+# strip redundant resource prefixes left over from FastAPI function names.
+_STRIP_PREFIXES = (
+    "V1 Inference ",
+    "Inference Compat ",
+    "Inference ",
+    "Serverless ",
+    "Billing ",
+    "Marketplace ",
+    "Volume ",
+    "Artifact ",
+    "Auth ",
+    "Submit Instance ",
+    "Get Instance ",
+    "List Instances ",
+    "Cancel Instance ",
+    "Instance ",
+    "Get Marketplace ",
+    "List Artifacts ",
+)
+
+
 def _clean_summary(summary: str) -> str:
-    """Strip the leading FastAPI ``Api `` function-name prefix and fix acronym
-    casing so the Fern API-reference sidebar shows clean titles
-    (e.g. ``Api List Artifacts`` -> ``List Artifacts``)."""
+    """Strip FastAPI ``Api `` noise and redundant group prefixes for Fern titles.
+
+    Examples:
+    - ``Api Auth Login`` -> ``Login``
+    - ``Api List Artifacts`` -> ``List``
+    - ``Serverless List Endpoints`` -> ``List Endpoints``
+    """
     text = (summary or "").strip()
     if text.lower().startswith("api "):
         text = text[4:].strip()
     words = [_ACRONYMS.get(word, word) for word in text.split()]
-    return " ".join(words).strip()
+    text = " ".join(words).strip()
+    while True:
+        stripped = text
+        for prefix in _STRIP_PREFIXES:
+            if text.startswith(prefix):
+                text = text[len(prefix) :].strip()
+                break
+        if text == stripped:
+            break
+    return text
 
 
 def _load_allowlist() -> set[tuple[str, str]]:

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { AuthAwareLink } from "@/components/marketing/auth-aware-link";
 import { AlertCircle, ArrowRight, ChevronRight, Clock, RefreshCw } from "lucide-react";
 import { SITE_ASSETS, siteIcon } from "@/lib/brand-assets";
 import { useLocale } from "@/lib/locale";
@@ -140,7 +141,7 @@ function tierColor(tier: ReturnType<typeof gpuTierBadge>) {
 }
 
 function formatPrice(value: number) {
-  return value > 0 ? `$${value.toFixed(2)}` : "—";
+  return value > 0 ? `$${value.toFixed(2)}` : "-";
 }
 
 function availabilityMeta(gpu: MarketingGpuRow, t: (key: string) => string) {
@@ -216,9 +217,9 @@ function GpuPriceDock({
             </span>
             <ChevronRight className="site-price-dock-chevron" />
           </button>
-          <Link href="/register" className="site-button site-button-primary site-price-dock-cta">
+          <AuthAwareLink intent="launch" className="site-button site-button-primary site-price-dock-cta">
             {t("gpus.deploy")} <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
+          </AuthAwareLink>
         </div>
       </div>
     </div>
@@ -345,7 +346,7 @@ export function GPUAvailabilityContent() {
     },
     {
       label: t("gpus.updated"),
-      value: lastUpdated ? lastUpdated.toLocaleTimeString() : "—",
+      value: lastUpdated ? lastUpdated.toLocaleTimeString() : "-",
       width: liveData ? "82%" : "48%",
     },
   ];
@@ -366,9 +367,9 @@ export function GPUAvailabilityContent() {
               </h1>
               <p className="site-hero-copy">{t("gpus.subtitle")}</p>
               <div className="site-hero-actions">
-                <Link href="/register" className="site-button site-button-primary">
+                <AuthAwareLink intent="launch" className="site-button site-button-primary">
                   {t("gpus.deploy")} <ArrowRight className="h-3.5 w-3.5" />
-                </Link>
+                </AuthAwareLink>
                 <Link href="/pricing" className="site-button site-button-ghost">
                   {t("gpus.cta_pricing")}
                 </Link>
@@ -427,7 +428,7 @@ export function GPUAvailabilityContent() {
             </div>
             <div className="site-kpi">
               <div className="site-kpi-label">{t("gpus.stat_models")}</div>
-              <div className="site-kpi-value">{gpus.length || "—"}</div>
+              <div className="site-kpi-value">{gpus.length || "-"}</div>
             </div>
             <div className="site-kpi">
               <div className="site-kpi-label">{t("gpus.stat_hydro")}</div>
@@ -458,7 +459,6 @@ export function GPUAvailabilityContent() {
 
         <section className="site-rails site-section" style={{ paddingBottom: 0 }}>
           <SectionMarker code="01" label={t("gpus.power_title")} />
-          <h2 className="site-section-heading">{t("gpus.power_title")}</h2>
           <p className="site-section-copy">{t("gpus.power_desc")}</p>
           <div className="site-feature-grid site-duo-grid site-section-flush">
             {WORKLOADS.map(({ key, icon, art, tone }) => (
@@ -480,7 +480,6 @@ export function GPUAvailabilityContent() {
 
         <section className="site-rails site-section" style={{ paddingBottom: 0 }}>
           <SectionMarker code="02" label={t("gpus.featured_title")} />
-          <h2 className="site-section-heading">{t("gpus.featured_title")}</h2>
           <p className="site-section-copy">{t("gpus.featured_desc")}</p>
           <div className="site-foundation-grid site-section-flush">
             {FLAGSHIP.map(({ key, tier, tone }, index) => (
@@ -497,17 +496,17 @@ export function GPUAvailabilityContent() {
         </section>
 
         <section className="site-rails site-section">
-          <SectionMarker code="03" label={t("gpus.sovereign_badge")} />
+          <SectionMarker code="03" label={t("gpus.compliance_badge")} />
           <div className="site-feature-grid site-duo-grid">
             <article className="site-feature-card site-story-card">
               <div className="site-icon-box">
                 <ThemeIcon name="shield-check" />
               </div>
-              <div className="site-product-badge" style={{ color: "var(--cyan)" }}>{t("gpus.sovereign_badge")}</div>
-              <h2 className="site-card-title site-story-title">{t("gpus.sovereign_title")}</h2>
-              <p className="site-card-copy site-story-copy">{t("gpus.sovereign_desc")}</p>
+              <div className="site-product-badge" style={{ color: "var(--cyan)" }}>{t("gpus.compliance_badge")}</div>
+              <h2 className="site-card-title site-story-title">{t("gpus.compliance_title")}</h2>
+              <p className="site-card-copy site-story-copy">{t("gpus.compliance_desc")}</p>
               <div className="site-story-points">
-                {[t("gpus.sovereign_i1"), t("gpus.sovereign_i2"), t("gpus.sovereign_i3")].map((item) => (
+                {[t("gpus.compliance_i1"), t("gpus.compliance_i2"), t("gpus.compliance_i3")].map((item) => (
                   <p key={item} className="site-product-point">
                     <span style={{ color: "var(--green)" }}>+</span>
                     <span>{item}</span>
@@ -518,15 +517,15 @@ export function GPUAvailabilityContent() {
             <div className="site-media-panel site-map-panel">
               <Image
                 src="/gpu-fleet/canada-sovereign.svg"
-                alt={t("gpus.sovereign_map_alt")}
+                alt={t("gpus.compliance_map_alt")}
                 fill
                 className="site-map-image"
               />
               <div className="site-map-footer">
-                <span>{t("gpus.sovereign_map_caption")}</span>
+                <span>{t("gpus.compliance_map_caption")}</span>
                 <span className="site-map-live">
                   <span className="site-live-dot" />
-                  {t("gpus.sovereign_map_live")}
+                  {t("gpus.compliance_map_live")}
                 </span>
               </div>
             </div>
@@ -537,7 +536,6 @@ export function GPUAvailabilityContent() {
           <SectionMarker code="04" label={t("gpus.fleet_title")} />
           <div className="site-section-head-row">
             <div>
-              <h2 className="site-section-heading site-section-heading-compact">{t("gpus.fleet_title")}</h2>
               <p className="site-section-copy">{t("gpus.fleet_desc")}</p>
               <p className="site-fleet-hint">{t("gpus.fleet_hint")}</p>
             </div>
@@ -685,9 +683,9 @@ export function GPUAvailabilityContent() {
           <h2 className="site-cta-title">{t("gpus.cta_title")}</h2>
           <p className="site-section-copy" style={{ marginBottom: 28 }}>{t("gpus.cta_desc")}</p>
           <div className="site-hero-actions">
-            <Link href="/register" className="site-button site-button-primary" style={{ padding: "15px 28px" }}>
+            <AuthAwareLink intent="launch" className="site-button site-button-primary" style={{ padding: "15px 28px" }}>
               {t("gpus.cta_start")} <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
+            </AuthAwareLink>
             <Link href="/pricing" className="site-button site-button-ghost" style={{ padding: "15px 28px" }}>
               {t("gpus.cta_pricing")}
             </Link>

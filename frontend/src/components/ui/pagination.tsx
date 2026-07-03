@@ -45,7 +45,7 @@ export function Pagination({ page, totalPages, onPageChange, className }: Pagina
             className={cn(
               "inline-flex h-8 w-8 items-center justify-center rounded-lg text-sm transition-colors",
               p === page
-                ? "bg-accent-red text-white font-medium"
+                ? "bg-gradient-to-br from-accent-cyan to-accent-violet text-white font-medium"
                 : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
             )}
           >

@@ -216,7 +216,7 @@ export function WorkspaceScopeBadge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1",
+        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-sm font-medium ring-1",
         isTeam
           ? "bg-accent-cyan/10 text-accent-cyan ring-accent-cyan/25"
           : "bg-accent-gold/10 text-accent-gold ring-accent-gold/25",

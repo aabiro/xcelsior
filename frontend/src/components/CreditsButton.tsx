@@ -68,16 +68,16 @@ export function CreditsButton() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [open]);
 
-  const formatted = balance !== null ? `$${balance.toFixed(2)}` : "—";
+  const formatted = balance !== null ? `$${balance.toFixed(2)}` : "-";
 
   return (
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 rounded-lg px-3 py-2 text-base transition-colors bg-emerald/5 hover:bg-emerald/10 border border-emerald/20 text-emerald"
+        className="dashboard-site-header-balance flex items-center gap-2 rounded-full px-3 py-2 text-base transition-all"
       >
         <Wallet className="h-6 w-6 shrink-0" />
-        <span className={cn("font-medium", isNegative && "text-accent-red")}>
+        <span className={cn("font-medium", isNegative && "dashboard-site-header-balance-negative")}>
           {loading ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin inline" />
           ) : (
@@ -96,7 +96,7 @@ export function CreditsButton() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.15 }}
-            className="absolute right-0 top-full mt-1 w-56 rounded-xl border border-border/60 bg-surface shadow-xl z-50 overflow-hidden"
+            className="dashboard-site-header-dropdown absolute right-0 top-full mt-1 w-56 rounded-xl border border-border/60 shadow-xl z-[200] overflow-hidden"
           >
             {/* Balance header */}
             <div className="px-3 py-3 border-b border-border bg-emerald/5">

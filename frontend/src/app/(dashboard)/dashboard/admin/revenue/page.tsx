@@ -153,17 +153,17 @@ export default function AdminRevenuePage() {
             <Card className="p-4 text-center border-dashed">
               <DollarSign className="h-5 w-5 text-text-muted mx-auto mb-2" />
               <p className="text-xs text-text-muted">Revenue</p>
-              <p className="text-lg font-bold font-mono text-text-muted/50">—</p>
+              <p className="text-lg font-bold font-mono text-text-muted/50">-</p>
             </Card>
             <Card className="p-4 text-center border-dashed">
               <BarChart3 className="h-5 w-5 text-text-muted mx-auto mb-2" />
               <p className="text-xs text-text-muted">Jobs</p>
-              <p className="text-lg font-bold font-mono text-text-muted/50">—</p>
+              <p className="text-lg font-bold font-mono text-text-muted/50">-</p>
             </Card>
             <Card className="p-4 text-center border-dashed">
               <TrendingUp className="h-5 w-5 text-text-muted mx-auto mb-2" />
               <p className="text-xs text-text-muted">GPU Hours</p>
-              <p className="text-lg font-bold font-mono text-text-muted/50">—</p>
+              <p className="text-lg font-bold font-mono text-text-muted/50">-</p>
             </Card>
           </div>
         </div>

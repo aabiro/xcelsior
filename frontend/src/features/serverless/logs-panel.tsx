@@ -16,7 +16,7 @@ const STATUS_VARIANT: Record<string, "active" | "warning" | "default"> = {
 };
 
 function fmtTime(ts?: number) {
-  if (!ts) return "—";
+  if (!ts) return "-";
   return new Date(ts * 1000).toLocaleString();
 }
 

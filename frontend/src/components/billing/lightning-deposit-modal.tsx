@@ -32,7 +32,7 @@ interface LightningDepositModalProps {
 }
 
 const PRESETS = [5, 10, 25, 50, 100, 250];
-const POLL_INTERVAL = 3_000; // 3s — Lightning is instant
+const POLL_INTERVAL = 3_000; // 3s, Lightning is instant
 
 // ── Animated step wrapper ───────────────────────────────────────────
 const stepVariants = {
@@ -145,7 +145,7 @@ export function LightningDepositModal({
   const numericAmount = parseFloat(amount);
   const isValid = !isNaN(numericAmount) && numericAmount >= 1 && numericAmount <= 1000;
 
-  // Generate QR code — violet/purple for Lightning
+  // Generate QR code, violet/purple for Lightning
   useEffect(() => {
     if (deposit?.bolt11) {
       QRCode.toDataURL(`lightning:${deposit.bolt11}`, {
@@ -251,7 +251,7 @@ export function LightningDepositModal({
         transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
         className="relative my-auto max-h-[calc(100vh-2rem)] w-full max-w-[460px] overflow-x-hidden overflow-y-auto rounded-3xl border border-border bg-gradient-to-b from-surface to-navy shadow-[0_32px_80px_rgba(0,0,0,0.6)]"
       >
-        {/* Decorative gradient top border — violet/purple for Lightning */}
+        {/* Decorative gradient top border, violet/purple for Lightning */}
         <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-violet-500/0 via-violet-500 to-violet-500/0" />
 
         {/* Header */}
@@ -433,7 +433,7 @@ export function LightningDepositModal({
                     ) : (
                       <>
                         <span>
-                          Continue — ${isValid ? numericAmount.toFixed(2) : "0.00"}
+                          Continue, ${isValid ? numericAmount.toFixed(2) : "0.00"}
                         </span>
                         <ArrowRight className="h-4 w-4" />
                       </>
@@ -515,7 +515,7 @@ export function LightningDepositModal({
                   </p>
                 </div>
 
-                {/* Amount display — sats prominent */}
+                {/* Amount display, sats prominent */}
                 <div className="mb-4 rounded-xl border border-violet-500/20 bg-violet-500/5 p-4 text-center">
                   <p className="text-xs text-text-muted mb-1">Send exactly</p>
                   <div className="flex items-center justify-center gap-2">

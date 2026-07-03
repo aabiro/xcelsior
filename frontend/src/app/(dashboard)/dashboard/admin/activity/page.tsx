@@ -45,7 +45,7 @@ export default function AdminActivityPage() {
   const [auditResult, setAuditResult] = useState<{ valid: boolean; details: string } | null>(null);
   const [verifyingAudit, setVerifyingAudit] = useState(false);
 
-  // Alerts — real ALERT_CONFIG from scheduler.py
+  // Alerts, real ALERT_CONFIG from scheduler.py
   const [alertConfig, setAlertConfig] = useState<Record<string, unknown> | null>(null);
 
   // Verification queue
@@ -269,7 +269,7 @@ export default function AdminActivityPage() {
         </>
       )}
 
-      {/* Audit, Alerts, Verification Queue — always visible */}
+      {/* Audit, Alerts, Verification Queue, always visible */}
       <FadeIn delay={0.25}>
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           {/* Audit Chain */}
@@ -292,7 +292,7 @@ export default function AdminActivityPage() {
             </CardContent>
           </Card></HoverCard>
 
-          {/* Alert Config — matches real ALERT_CONFIG from scheduler.py */}
+          {/* Alert Config, matches real ALERT_CONFIG from scheduler.py */}
           <HoverCard><Card className="glow-card brand-top-accent">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-sm"><Bell className="h-4 w-4" /> Alerts</CardTitle>

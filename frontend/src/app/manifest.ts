@@ -3,10 +3,10 @@ import { SITE_ASSETS } from "@/lib/brand-assets";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Xcelsior — Cheap, Compliant GPU Compute in Canada",
+    name: "Xcelsior, Cheap, Compliant GPU Compute in Canada",
     short_name: "Xcelsior",
     description:
-      "Rent verified GPUs by the hour in Canadian dollars — sovereignty, PIPEDA, and clean hydro built in. From $0.30 CAD/hr, with dynamic spot pricing up to 70% off.",
+      "Rent verified GPUs by the hour in Canadian dollars, PIPEDA compliance and clean hydro built in. From $0.30 CAD/hr, with dynamic spot pricing up to 70% off.",
     id: "/",
     start_url: "/",
     scope: "/",

@@ -57,13 +57,13 @@ interface AuthState {
   loading: boolean;
   /** True when the user has been idle long enough to show the warning. */
   sessionExpiring: boolean;
-  /** Call after login/register — fetches user profile via cookie. Returns true when authenticated. */
+  /** Call after login/register, fetches user profile via cookie. Returns true when authenticated. */
   login: () => Promise<boolean>;
   /** Silently re-fetch /api/auth/me and update user in context. */
   refreshUser: () => Promise<void>;
   /** POST /api/auth/logout, clear cookie + state. */
   logout: () => Promise<void>;
-  /** Reset idle timer & refresh token — called from the "Continue Session" banner. */
+  /** Reset idle timer & refresh token, called from the "Continue Session" banner. */
   continueSession: () => void;
 }
 
@@ -101,7 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (logoutTimer.current) clearTimeout(logoutTimer.current);
     warnTimer.current = setTimeout(() => setSessionExpiring(true), IDLE_WARN_MIN * 60_000);
     logoutTimer.current = setTimeout(() => {
-      // Inactivity exceeded — revoke session server-side and redirect
+      // Inactivity exceeded, revoke session server-side and redirect
       clearSessionHint();
       setUser(null);
       forceLogout("idle");
@@ -113,7 +113,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!user) return;
     const EVENTS = ["mousedown", "keydown", "touchstart", "scroll"] as const;
     // Throttle: only reset if >30 s since last reset.
-    // Once the expiry banner is showing, ignore activity — user must
+    // Once the expiry banner is showing, ignore activity, user must
     // explicitly click "Continue Session" to stay logged in.
     const handler = () => {
       if (sessionExpiring) return;
@@ -123,7 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     EVENTS.forEach((e) => window.addEventListener(e, handler, { passive: true }));
     return () => {
       EVENTS.forEach((e) => window.removeEventListener(e, handler));
-      // Only clear the warn timer here — never clear logoutTimer during
+      // Only clear the warn timer here, never clear logoutTimer during
       // cleanup because the sessionExpiring state change triggers a re-render
       // whose cleanup runs with the OLD closure (sessionExpiring=false),
       // which would cancel the pending 30-min logout before it fires.
@@ -160,7 +160,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await getMe();
       setUser(res.user);
     } catch {
-      // Silently ignore — stale user stays in context
+      // Silently ignore, stale user stays in context
     }
   }, []);
 
@@ -168,7 +168,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await apiLogout();
     } catch {
-      /* cookie already cleared or network error — fine */
+      /* cookie already cleared or network error, fine */
     }
     phReset();
     clearSessionHint();
@@ -183,7 +183,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshToken().catch(() => {});
   }, [resetIdleTimers]);
 
-  // Probe session on protected routes. Only block the UI on the first probe —
+  // Probe session on protected routes. Only block the UI on the first probe -
   // tab changes revalidate in the background without clearing the user.
   useEffect(() => {
     const isInitialProbe = !sessionFetched.current;
@@ -233,13 +233,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [pathname]);
 
-  // Periodic session keepalive — refresh token every 10 minutes
+  // Periodic session keepalive, refresh token every 10 minutes
   useEffect(() => {
     if (!user) return;
     const id = setInterval(() => {
       // Only refresh if user has been active recently
       if (Date.now() - lastActivity.current < IDLE_LOGOUT_MIN * 60_000) {
-        // Silently ignore refresh failures — a network hiccup should not
+        // Silently ignore refresh failures, a network hiccup should not
         // force logout when the user is actively using the app.
         refreshToken().catch(() => {});
       }

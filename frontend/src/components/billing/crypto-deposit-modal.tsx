@@ -241,7 +241,7 @@ export function CryptoDepositModal({
   const isValid =
     !isNaN(numericAmount) && numericAmount >= 1 && numericAmount <= 10000;
 
-  // Generate QR code — white on transparent with Bitcoin-orange accents
+  // Generate QR code, white on transparent with Bitcoin-orange accents
   useEffect(() => {
     if (deposit?.qr_data) {
       QRCode.toDataURL(deposit.qr_data, {
@@ -349,7 +349,7 @@ export function CryptoDepositModal({
       });
       setStatus("pending");
       startPolling(deposit.deposit_id);
-      toast.success("Rate refreshed — new quote locked for 30 min");
+      toast.success("Rate refreshed, new quote locked for 30 min");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to refresh rate";
       toast.error(getFriendlyCryptoErrorMessage(msg));
@@ -564,7 +564,7 @@ export function CryptoDepositModal({
                     ) : (
                       <>
                         <span>
-                          Continue — ${isValid ? numericAmount.toFixed(2) : "0.00"}
+                          Continue, ${isValid ? numericAmount.toFixed(2) : "0.00"}
                         </span>
                         <ArrowRight className="h-4 w-4" />
                       </>
@@ -680,7 +680,7 @@ export function CryptoDepositModal({
                   </p>
                 </div>
 
-                {/* Amount display — large and prominent */}
+                {/* Amount display, large and prominent */}
                 <div className="mb-4 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-center">
                   <p className="text-xs text-text-muted mb-1">Send exactly</p>
                   <div className="flex items-center justify-center gap-2">
@@ -753,7 +753,7 @@ export function CryptoDepositModal({
                       : status === "confirming"
                         ? `Block confirmation ${confirmations} of 3 received`
                         : status === "expired"
-                          ? "Quote expired — refresh to get a new rate"
+                          ? "Quote expired, refresh to get a new rate"
                           : "Processing payment…"}
                   </p>
                   {status === "pending" && confirmations === 0 && (

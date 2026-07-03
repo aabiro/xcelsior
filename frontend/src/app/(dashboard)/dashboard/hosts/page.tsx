@@ -82,7 +82,7 @@ export default function HostsPage() {
     return () => { active = false; };
   }, [api]);
 
-  // Live updates — re-fetch list on host changes
+  // Live updates, re-fetch list on host changes
   useEventStream({
     eventTypes: ["host_registered", "host_removed", "job_status"],
     onEvent: () => { load({ refresh: true }); },
@@ -145,10 +145,10 @@ export default function HostsPage() {
               </button>{" "}
               to accept and execute jobs.
             </p>
-            {/* Phase 4 supply incentive — mirrors PROVIDER_INTRO_FEE_DAYS (default 90). */}
+            {/* Phase 4 supply incentive, mirrors PROVIDER_INTRO_FEE_DAYS (default 90). */}
             <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-emerald/30 bg-emerald/10 px-3 py-1 text-xs font-medium text-emerald">
               <Gift className="h-3.5 w-3.5" />
-              New providers keep 100% — 0% platform fee for your first 90 days.
+              New providers keep 100%, 0% platform fee for your first 90 days.
             </div>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -230,7 +230,7 @@ export default function HostsPage() {
         <InstallWorkerSection key={installOpenKey} initialView={installInitialView} />
       </Dialog>
 
-      {/* Architecture — always visible */}
+      {/* Architecture, always visible */}
       <ArchitectureCard />
 
       {/* Filters Card */}
@@ -407,7 +407,7 @@ export default function HostsPage() {
                             className="inline-flex items-center gap-1 rounded-full border border-accent-gold/30 bg-accent-gold/10 px-1.5 py-0 text-[9px] font-medium uppercase tracking-wide text-accent-gold"
                             title={
                               (host.admission_details?.rejection_reasons || []).join("; ")
-                              || "Worker has not passed admission yet — this host won't appear in GPU pickers until it does."
+                              || "Worker has not passed admission yet, this host won't appear in GPU pickers until it does."
                             }
                           >
                             <ShieldAlert className="h-2.5 w-2.5" /> Pending admission
@@ -417,7 +417,7 @@ export default function HostsPage() {
                     </td>
                     <td className="py-4 px-4 text-center">
                       <span className="font-mono text-sm text-text-secondary">
-                        {host.vram_gb ? `${host.vram_gb} GB` : "—"}
+                        {host.vram_gb ? `${host.vram_gb} GB` : "-"}
                       </span>
                     </td>
                     <td className="py-4 px-4 text-center">
@@ -713,7 +713,7 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
                   value={spotMinCents}
                   onChange={(v) => setSpotMinCents(Math.max(0, v))}
                 />
-                <p className="text-[10px] text-text-muted">Suggested defaults apply per GPU class — no bidding required</p>
+                <p className="text-[10px] text-text-muted">Suggested defaults apply per GPU class, no bidding required</p>
               </div>
             )}
           </div>
@@ -778,11 +778,11 @@ Register at ${APP_URL}/dashboard/hosts → "Register Host" (the wizard can also 
 npx @xcelsior-gpu/wizard@latest
 \`\`\`
 
-(\`npx\` runs the wizard without a global install — no \`-g\`, no \`/usr/lib/node_modules\` permission issues.)
+(\`npx\` runs the wizard without a global install, no \`-g\`, no \`/usr/lib/node_modules\` permission issues.)
 
 **Provide GPUs** (host setup): hardware detection, host registration, pricing, and worker service install.
 
-**Integrate SDK** (app setup, wizard): same command from your project directory — detects your framework, installs the package, creates API credentials, writes your env file, and verifies the connection.
+**Integrate SDK** (app setup, wizard): same command from your project directory, detects your framework, installs the package, creates API credentials, writes your env file, and verifies the connection.
 
 ### SDK without the wizard (manual)
 
@@ -893,7 +893,7 @@ function SdkIntegrateInfoCard({
             </p>
             {!compact && (
               <p className="text-xs text-text-muted mt-0.5">
-                Same <code className="bg-surface-hover px-1 py-0.5 rounded text-[11px]">@xcelsior-gpu/sdk</code> package — wizard or manual install.
+                Same <code className="bg-surface-hover px-1 py-0.5 rounded text-[11px]">@xcelsior-gpu/sdk</code> package, wizard or manual install.
               </p>
             )}
           </div>
@@ -901,7 +901,7 @@ function SdkIntegrateInfoCard({
           <div className={compact ? "space-y-2" : "space-y-2.5"}>
             <div>
               <p className="text-[11px] font-medium uppercase tracking-wide text-accent-cyan mb-1">
-                Recommended — wizard
+                Recommended, wizard
               </p>
               {compact ? (
                 <p className="text-xs text-text-secondary leading-relaxed">
@@ -946,9 +946,7 @@ function SdkIntegrateInfoCard({
           </div>
 
           <a
-            href={`${APP_URL}/docs/sdk/typescript-sdk`}
-            target="_blank"
-            rel="noopener noreferrer"
+            href="https://docs.xcelsior.ca/sdk/typescript-sdk"
             className="inline-flex items-center gap-1 text-[11px] font-medium text-accent-violet hover:underline"
           >
             TypeScript SDK docs
@@ -976,14 +974,14 @@ function CodeSnippet({
   return (
     <div
       className={cn(
-        "relative flex items-start gap-2 overflow-hidden rounded-2xl border border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(242,247,255,0.96))] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.75),0_8px_24px_rgba(15,23,42,0.06)] dark:border-white/10 dark:bg-[linear-gradient(180deg,rgba(5,11,22,0.98),rgba(4,8,18,0.94))] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]",
+        "relative flex items-start gap-2 overflow-hidden rounded-2xl border border-border bg-surface px-4 py-3 shadow-sm",
         className,
       )}
     >
-      <pre className="min-w-0 flex-1 overflow-x-auto text-[13px] font-mono leading-relaxed text-slate-800 dark:text-[#d9e8ff]">{text}</pre>
+      <pre className="min-w-0 flex-1 overflow-x-auto text-[13px] font-mono leading-relaxed text-text-primary">{text}</pre>
       <button
         onClick={() => onCopy(label, text)}
-        className="shrink-0 flex items-center gap-1 rounded-lg border border-slate-200/90 bg-white/80 px-2 py-1 text-xs text-text-secondary transition-colors hover:border-accent-cyan/35 hover:text-accent-cyan dark:border-white/10 dark:bg-white/5"
+        className="shrink-0 flex items-center gap-1 rounded-lg border border-border bg-surface-hover px-2 py-1 text-xs text-text-secondary transition-colors hover:text-text-primary"
       >
         {copied === label ? (
           <>
@@ -1100,7 +1098,7 @@ function HostSetupGuideCard({
         </div>
       </Card>
 
-      {/* Image — fully transparent background, theme-aware */}
+      {/* Image, fully transparent background, theme-aware */}
       <div className="relative hidden min-h-[360px] overflow-hidden rounded-2xl xl:block">
         <img
           src="/xcelsior-hosts-setup-transparent.svg?v=5"
@@ -1129,7 +1127,7 @@ function HostSetupGuideCard({
       </div>
       </div>
 
-      {/* SDK integration — same content as Install Worker modal */}
+      {/* SDK integration, same content as Install Worker modal */}
       <Card className="border-border/60 bg-gradient-to-br from-surface via-surface to-accent-violet/[0.04]">
         <div className="p-6 md:p-7">
           <div className="flex items-center gap-2 mb-4">
@@ -1216,7 +1214,7 @@ function ProviderTipsCard({ hosts }: { hosts: Host[] }) {
       description: `${activeHosts.length} of ${hosts.length} host${hosts.length > 1 ? "s" : ""} active. Your GPU is accepting jobs from the marketplace. Here are tips to maximize your revenue.`,
       items: [
         "Keep your worker agent running 24/7 for highest uptime score",
-        "Competitive pricing improves job assignment priority — check Spot Pricing",
+        "Competitive pricing improves job assignment priority, check Spot Pricing",
         "Monitor GPU utilization in your host detail page for performance insights",
         "Complete identity verification to unlock higher trust tiers and premium jobs",
         "Set up Stripe payouts in Earnings to receive your revenue",
@@ -1290,7 +1288,7 @@ function ProviderTipsCard({ hosts }: { hosts: Host[] }) {
   );
 }
 
-/* ── Architecture Card — always visible (not dismissible) ────────── */
+/* ── Architecture Card, always visible (not dismissible) ────────── */
 
 function ArchitectureCard() {
   return (
@@ -1356,7 +1354,7 @@ function InstallWorkerSection({
         </div>
       </div>
 
-      {/* Pinned footer — brand-line separator + side borders */}
+      {/* Pinned footer, brand-line separator + side borders */}
       <div className="border-l border-r border-b border-border/20 rounded-b-xl overflow-hidden">
         <div className="brand-line" />
         <div className="bg-surface/95 backdrop-blur-sm px-6 py-4">
@@ -1427,7 +1425,7 @@ xcelsior earnings --period 30d`;
         </p>
         <CodeSnippet label="wizard-cmd" text={WIZARD_CMD} copied={copied} onCopy={onCopy} />
         <p className="text-[11px] text-text-muted mt-2">
-          At the first prompt, pick your path: <span className="font-medium text-text-secondary">Provide GPUs</span> on your GPU machine for host setup. For app integration, see below — wizard or manual <code className="bg-surface-hover px-1 py-0.5 rounded">{SDK_INSTALL_CMD}</code>.
+          At the first prompt, pick your path: <span className="font-medium text-text-secondary">Provide GPUs</span> on your GPU machine for host setup. For app integration, see below, wizard or manual <code className="bg-surface-hover px-1 py-0.5 rounded">{SDK_INSTALL_CMD}</code>.
         </p>
       </div>
 
@@ -1439,15 +1437,15 @@ xcelsior earnings --period 30d`;
         <ul className="text-xs text-text-secondary space-y-1.5">
           <li className="flex items-start gap-2">
             <span className="text-accent-cyan mt-0.5">&#x2022;</span>
-            <span><span className="font-medium text-text-primary">Provide GPUs</span> — detect hardware, register host, set pricing, install worker service</span>
+            <span><span className="font-medium text-text-primary">Provide GPUs</span>, detect hardware, register host, set pricing, install worker service</span>
           </li>
           <li className="flex items-start gap-2">
             <span className="text-accent-violet mt-0.5">&#x2022;</span>
-            <span><span className="font-medium text-text-primary">Integrate SDK</span> — detect project, install package, create credentials, verify API, starter snippet</span>
+            <span><span className="font-medium text-text-primary">Integrate SDK</span>, detect project, install package, create credentials, verify API, starter snippet</span>
           </li>
           <li className="flex items-start gap-2">
             <span className="text-accent-cyan mt-0.5">&#x2022;</span>
-            <span><span className="font-medium text-text-primary">Rent GPUs</span> or <span className="font-medium text-text-primary">Both</span> — marketplace onboarding for running jobs</span>
+            <span><span className="font-medium text-text-primary">Rent GPUs</span> or <span className="font-medium text-text-primary">Both</span>, marketplace onboarding for running jobs</span>
           </li>
         </ul>
       </div>

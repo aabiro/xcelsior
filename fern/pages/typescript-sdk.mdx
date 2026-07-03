@@ -176,7 +176,7 @@ const job = await client.inference.submit({
 // List available models
 const models = await client.inference.listModels();
 
-// Serverless — create endpoint, run job, OpenAI chat
+// Serverless, create endpoint, run job, OpenAI chat
 const { endpoint } = await client.serverless.createEndpoint({
   name: "my-llama",
   mode: "preset",

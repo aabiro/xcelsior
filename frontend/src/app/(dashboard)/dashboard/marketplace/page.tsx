@@ -106,7 +106,7 @@ export default function MarketplacePage() {
       });
   }, [listings, gpuFilter, regionFilter, search, sortBy]);
 
-  // Stats — derived from full listings, not filtered
+  // Stats, derived from full listings, not filtered
   const stats = useMemo(() => {
     const prices = listings
       .map((l) => l.price_per_hour_cad ?? l.price_per_hour ?? 0)
@@ -179,7 +179,7 @@ export default function MarketplacePage() {
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatChip
             label="From"
-            value={stats.lowestPrice > 0 ? `$${stats.lowestPrice.toFixed(2)}` : "—"}
+            value={stats.lowestPrice > 0 ? `$${stats.lowestPrice.toFixed(2)}` : "-"}
             sub="/hr on-demand"
             accent="ice-blue"
           />
@@ -213,7 +213,7 @@ export default function MarketplacePage() {
             <code className="rounded bg-surface px-1.5 py-0.5 font-mono text-xs">
               {templateId}
             </code>
-            {" "}— pick a GPU to continue.
+            {" "}- pick a GPU to continue.
           </span>
           <button
             onClick={clearTemplate}

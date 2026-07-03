@@ -16,7 +16,7 @@ interface LogViewerProps {
   live?: boolean;
   /** Bust fetch cache when status/attempt changes (e.g. after requeue). */
   refreshToken?: string;
-  /** Logs delivered from an external source (e.g. WebSocket) – skips SSE when provided. */
+  /** Logs delivered from an external source (e.g. WebSocket), skips SSE when provided. */
   wsLogs?: InstanceLog[];
   /** Connection status from external source. */
   wsConnected?: boolean;
@@ -52,7 +52,7 @@ export function LogViewer({ jobId, live = false, refreshToken, wsLogs, wsConnect
   const [autoScroll, setAutoScroll] = useState(true);
   const prevLogLen = useRef(0);
 
-  // Merge WS container logs with SSE/PG-tailed lifecycle logs — never skip SSE
+  // Merge WS container logs with SSE/PG-tailed lifecycle logs, never skip SSE
   // when live; scheduler-worker writes lifecycle lines from another process.
   const hasWsLogs = wsLogs !== undefined && (wsLogs?.length ?? 0) > 0;
   const displayLogs = hasWsLogs ? mergeLogs(logs, wsLogs!) : logs;
@@ -65,7 +65,7 @@ export function LogViewer({ jobId, live = false, refreshToken, wsLogs, wsConnect
       .catch((e) => console.error("Failed to load logs", e));
   }, [jobId, refreshToken]);
 
-  // SSE live stream — always on for live jobs (PG poll tails cross-process logs).
+  // SSE live stream, always on for live jobs (PG poll tails cross-process logs).
   useEffect(() => {
     if (!live) return;
 
@@ -97,9 +97,9 @@ export function LogViewer({ jobId, live = false, refreshToken, wsLogs, wsConnect
 
   // Auto-scroll when new logs arrive and the user is at (or scrolled back to)
   // the bottom. useLayoutEffect so the scroll happens synchronously before
-  // paint — eliminates the one-frame flicker of old-bottom→new-bottom.
+  // paint, eliminates the one-frame flicker of old-bottom→new-bottom.
   // Suspend auto-scroll while the user has an active text selection inside
-  // the log container — otherwise every incoming line re-paints and wipes
+  // the log container, otherwise every incoming line re-paints and wipes
   // out their highlight, making copy/paste impossible on a live stream.
   useLayoutEffect(() => {
     if (!containerRef.current) return;
@@ -124,7 +124,7 @@ export function LogViewer({ jobId, live = false, refreshToken, wsLogs, wsConnect
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     const atBottom = distanceFromBottom < AT_BOTTOM_THRESHOLD_PX;
     // Snap the last few pixels to the exact bottom when the user wheels
-    // back down — otherwise momentum inertia leaves scrollTop just short,
+    // back down, otherwise momentum inertia leaves scrollTop just short,
     // distanceFromBottom fluctuates above 0, and the next new log won't
     // stick. Only snap when we're transitioning *into* autoScroll=true so
     // we don't hijack an upward scroll.

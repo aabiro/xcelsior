@@ -118,7 +118,7 @@ export function TryItConsole({ endpoint, canWrite }: TryItConsoleProps) {
     try {
       const res = await api.runServerlessJob(endpointId, input);
       setActiveJobId(res.id);
-      setOutput(`Job ${res.id} — ${res.status}\n`);
+      setOutput(`Job ${res.id}, ${res.status}\n`);
       // Activation funnel: the user actually ran an inference (custom job).
       posthog.capture("serverless_inference_run", { mode: "job", model: modelId });
 
@@ -293,7 +293,7 @@ for chunk in response:
         <div className="relative">
           <pre
             ref={outputRef}
-            className="min-h-[160px] max-h-[320px] overflow-auto rounded-xl border border-border bg-[#0d1117] p-4 font-mono text-xs text-emerald-300/90"
+            className="min-h-[160px] max-h-[320px] overflow-auto rounded-xl border border-border bg-surface p-4 font-mono text-xs text-text-primary"
           >
             {output || (streaming ? t("dash.serverless.waiting") : t("dash.serverless.output_empty"))}
           </pre>
@@ -324,7 +324,7 @@ function SnippetBlock({ title, code }: { title: string; code: string }) {
           {copied ? <Check className="h-3.5 w-3.5 text-emerald" /> : <Copy className="h-3.5 w-3.5" />}
         </button>
       </div>
-      <pre className="p-3 text-xs font-mono overflow-x-auto bg-[#0d1117] text-text-secondary">{code}</pre>
+      <pre className="overflow-x-auto bg-surface p-3 font-mono text-xs text-text-primary">{code}</pre>
     </div>
   );
 }
