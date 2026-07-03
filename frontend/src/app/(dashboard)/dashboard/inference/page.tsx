@@ -181,7 +181,7 @@ export default function InferencePage() {
                     <div className="mt-3 grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-4 text-xs text-text-muted">
                       <span className="flex items-center gap-1"><Server className="h-3 w-3" /> {ep.gpu_type || "Auto"}</span>
                       <span className="flex items-center gap-1"><Globe className="h-3 w-3" /> {ep.region}</span>
-                      <span className="flex items-center gap-1"><Cpu className="h-3 w-3" /> {ep.min_workers}–{ep.max_workers} workers</span>
+                      <span className="flex items-center gap-1"><Cpu className="h-3 w-3" /> {ep.min_workers}-{ep.max_workers} workers</span>
                       <span className="flex items-center gap-1"><DollarSign className="h-3 w-3" /> ${(ep.total_cost_cad || 0).toFixed(2)}</span>
                     </div>
                   </div>

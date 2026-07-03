@@ -33,7 +33,7 @@ const STATE_DOT: Record<string, string> = {
 };
 
 function relTime(ts?: number): string {
-  if (!ts) return "—";
+  if (!ts) return "-";
   const diff = Date.now() / 1000 - ts;
   if (diff < 0) return "just now";
   if (diff < 60) return `${Math.floor(diff)}s ago`;
@@ -43,7 +43,7 @@ function relTime(ts?: number): string {
 }
 
 function durationSince(ts?: number): string {
-  if (!ts) return "—";
+  if (!ts) return "-";
   const s = Math.max(0, Math.floor(Date.now() / 1000 - ts));
   if (s < 60) return `${s}s`;
   if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
@@ -69,7 +69,7 @@ export function WorkersPanel({ workers, jobs = [], loading }: WorkersPanelProps)
   const { t } = useLocale();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  // Recent jobs grouped per worker — this is the per-worker "log".
+  // Recent jobs grouped per worker, this is the per-worker "log".
   const jobsByWorker = useMemo(() => {
     const map = new Map<string, ServerlessJob[]>();
     for (const j of jobs) {

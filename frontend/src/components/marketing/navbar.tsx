@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
+import { AuthAwareLink } from "@/components/marketing/auth-aware-link";
 import { useAuth } from "@/lib/auth";
 import { SITE_ASSETS } from "@/lib/brand-assets";
 import { useLocale } from "@/lib/locale";
@@ -18,7 +19,7 @@ const navKeys = [
   { href: "/gpu-availability", key: "nav.gpus" },
   { href: "/mcp", key: "nav.mcp" },
   { href: "/download", key: "nav.download" },
-  { href: "https://docs.xcelsior.ca", key: "nav.docs", external: true },
+  { href: "https://docs.xcelsior.ca", key: "nav.docs" },
 ];
 
 function ThemePill() {
@@ -53,7 +54,8 @@ export function Navbar() {
   const { user, loading, logout } = useAuth();
   const pathname = usePathname();
   const mounted = useMounted();
-  const signedIn = !!user || (loading && hasSessionHint());
+  const signedIn = Boolean(user);
+  const authPending = mounted && loading && !user && hasSessionHint();
 
   useEffect(() => {
     if (!open) return;
@@ -73,7 +75,7 @@ export function Navbar() {
   const navItems = navKeys.map((item) => {
     const label = item.label ?? t(item.key ?? "");
     const className = `site-nav-link ${isActive(item.href) ? "site-nav-link-active" : ""}`;
-    return item.external ? (
+    return item.href.startsWith("http") ? (
       <a key={item.href} href={item.href} className={className}>
         {label}
       </a>
@@ -84,7 +86,7 @@ export function Navbar() {
     );
   });
 
-  const actionItems = !mounted ? (
+  const actionItems = !mounted || authPending ? (
     <span style={{ width: 150, height: 44 }} aria-hidden />
   ) : signedIn ? (
     <>
@@ -100,9 +102,9 @@ export function Navbar() {
       <Link href="/login" className="site-ghost-link">
         {t("nav.sign_in")}
       </Link>
-      <Link href="/register" className="site-button site-button-primary" style={{ padding: "10px 18px", fontSize: 12 }}>
+      <AuthAwareLink intent="launch" className="site-button site-button-primary" style={{ padding: "10px 18px", fontSize: 12 }}>
         {t("home.cta_start")}
-      </Link>
+      </AuthAwareLink>
     </>
   );
 
@@ -112,11 +114,11 @@ export function Navbar() {
         <div className="site-nav-inner">
           <Link href="/" className="site-brand" onClick={() => setOpen(false)}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={SITE_ASSETS.iconGradient} className="site-brand-icon" alt="Xcelsior" fetchPriority="high" />
+            <img src={SITE_ASSETS.iconGradientTight} className="site-brand-icon" alt="Xcelsior" fetchPriority="high" />
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={SITE_ASSETS.wordmarkLight} className="wm-light" style={{ height: 17 }} alt="Xcelsior" fetchPriority="high" />
+            <img src={SITE_ASSETS.wordmarkLight} className="site-brand-wordmark wm-light" alt="Xcelsior" fetchPriority="high" />
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={SITE_ASSETS.wordmarkDark} className="wm-dark" style={{ height: 17 }} alt="Xcelsior" fetchPriority="high" />
+            <img src={SITE_ASSETS.wordmarkDark} className="site-brand-wordmark wm-dark" alt="Xcelsior" fetchPriority="high" />
           </Link>
 
           <nav className="site-nav-links" aria-label="Main navigation">
@@ -149,7 +151,7 @@ export function Navbar() {
           <button type="button" onClick={toggleLocale} className="site-ghost-link" aria-label="Toggle language">
             {displayLocale.toUpperCase()}
           </button>
-          {!mounted ? null : signedIn ? (
+          {!mounted || authPending ? null : signedIn ? (
             <>
               <Link href="/dashboard" onClick={() => setOpen(false)} className="site-button site-button-primary">
                 {t("nav.dashboard")}
@@ -170,9 +172,9 @@ export function Navbar() {
               <Link href="/login" onClick={() => setOpen(false)} className="site-ghost-link">
                 {t("nav.sign_in")}
               </Link>
-              <Link href="/register" onClick={() => setOpen(false)} className="site-button site-button-primary">
+              <AuthAwareLink intent="launch" onClick={() => setOpen(false)} className="site-button site-button-primary">
                 {t("home.cta_start")}
-              </Link>
+              </AuthAwareLink>
             </>
           )}
         </div>

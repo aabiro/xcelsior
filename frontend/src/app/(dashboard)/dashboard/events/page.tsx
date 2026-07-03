@@ -225,7 +225,7 @@ export default function EventsPage() {
                           <Badge variant={colors.badge} className="text-[10px] px-1.5 py-0">{sev}</Badge>
                         )}
                         <span className="text-xs text-text-muted">
-                          {event.timestamp ? new Date(event.timestamp).toLocaleString() : "—"}
+                          {event.timestamp ? new Date(event.timestamp).toLocaleString() : "-"}
                         </span>
                       </div>
                       <p className="text-sm text-text-secondary truncate">
@@ -233,7 +233,7 @@ export default function EventsPage() {
                           ? Object.entries(event.data)
                               .map(([k, v]) => `${k}: ${v}`)
                               .join(" · ")
-                          : event.type?.replace(/_/g, " ") || "—")}
+                          : event.type?.replace(/_/g, " ") || "-")}
                       </p>
                     </div>
                   </div>

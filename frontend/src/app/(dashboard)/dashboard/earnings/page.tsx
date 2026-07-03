@@ -109,7 +109,7 @@ export default function EarningsPage() {
     if (!stripeState || handledStripeReturn || loading) return;
 
     if (stripeState === "refresh") {
-      // Link expired — user never completed onboarding. Mark abandoned immediately.
+      // Link expired, user never completed onboarding. Mark abandoned immediately.
       toast.info("Stripe setup wasn't completed. Click \"Resume Setup\" to try again.", { duration: 8000 });
       const pid = providerId || customerId;
       if (pid) {
@@ -122,7 +122,7 @@ export default function EarningsPage() {
         setJustConnected(true);
         toast.success("Stripe account connected successfully! You're ready to receive payouts.", { duration: 10000 });
       } else {
-        // Webhook may not have fired yet — poll until status becomes active.
+        // Webhook may not have fired yet, poll until status becomes active.
         toast.info("Verifying your Stripe account status…", { duration: 4000 });
         setPollingStatus(true);
       }
@@ -161,7 +161,7 @@ export default function EarningsPage() {
       if (attempts >= MAX_ATTEMPTS) {
         setPollingStatus(false);
         clearInterval(interval);
-        // Poll timed out — either Stripe is slow or the user didn't finish.
+        // Poll timed out, either Stripe is slow or the user didn't finish.
         // Mark abandoned so they see a clear "Resume Setup" CTA.
         const pid = providerId || customerId;
         if (pid) {
@@ -195,7 +195,7 @@ export default function EarningsPage() {
   const handleStripeConnect = async () => {
     const pid = providerId || customerId;
     if (!pid || !user?.email) {
-      toast.error("Unable to start Stripe setup — please log in again.", { duration: 6000 });
+      toast.error("Unable to start Stripe setup, please log in again.", { duration: 6000 });
       return;
     }
     setStripeError(null);
@@ -316,7 +316,7 @@ export default function EarningsPage() {
               <CardHeader>
                 <CardTitle className="text-base">Revenue by pricing mode</CardTitle>
                 <CardDescription>
-                  Spot jobs may be interrupted — payout reflects actual runtime only.
+                  Spot jobs may be interrupted, payout reflects actual runtime only.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -463,7 +463,7 @@ export default function EarningsPage() {
                       {onboarding ? (
                         <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Setting up…</>
                       ) : (
-                        <><LinkIcon className="h-3.5 w-3.5" /> Become a Provider — Connect Stripe</>
+                        <><LinkIcon className="h-3.5 w-3.5" /> Become a Provider, Connect Stripe</>
                       )}
                     </Button>
                     {stripeError && (

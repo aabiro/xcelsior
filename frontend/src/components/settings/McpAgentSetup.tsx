@@ -389,7 +389,7 @@ export function McpAgentSetup({
               {testing ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
               {t("dash.settings.mcp.test_health")}
             </Button>
-            <Link href="/mcp" target="_blank" className="inline-flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary">
+            <Link href="/mcp" className="inline-flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary">
               {t("dash.settings.mcp.docs_link")} <ExternalLink className="h-3 w-3" />
             </Link>
           </div>

@@ -212,7 +212,7 @@ export default function InstanceDetailPage() {
   const [uptickKey, setUptickKey] = useState(0);
   const [preemptionNotice, setPreemptionNotice] = useState(false);
 
-  // Track status transitions (don't auto-open terminal — avoids scroll jumps)
+  // Track status transitions (don't auto-open terminal, avoids scroll jumps)
   useEffect(() => {
     prevStatusRef.current = instance?.status ?? null;
   }, [instance?.status]);
@@ -296,7 +296,7 @@ export default function InstanceDetailPage() {
     enabled: isLive,
   });
 
-  // Poll even when WS is connected — reaper/scheduler updates can lag NOTIFY.
+  // Poll even when WS is connected, reaper/scheduler updates can lag NOTIFY.
   useEffect(() => {
     if (!isLive) return;
     const interval = setInterval(() => load(true), 5000);
@@ -514,7 +514,7 @@ export default function InstanceDetailPage() {
               {wsState.connected ? "Live" : wsState.reconnecting ? "Reconnecting…" : "Disconnected"}
             </span>
           )}
-          {/* Transitional state — gradient sweep text */}
+          {/* Transitional state, gradient sweep text */}
           {isTransitional && (
             <span className="flex items-center gap-1.5 text-sm font-medium">
               <Loader2 className="h-4 w-4 brand-gradient-spinner" />
@@ -598,7 +598,7 @@ export default function InstanceDetailPage() {
             <AlertTriangle className="h-4 w-4 text-accent-red shrink-0 mt-0.5" />
             <span className="text-xs text-text-secondary">
               Provisioning has taken over 10 minutes ({formatUptime(waitSeconds)}).
-              Large image pulls or a busy host can cause delays — try Requeue, pick &quot;Any GPU&quot;,
+              Large image pulls or a busy host can cause delays, try Requeue, pick &quot;Any GPU&quot;,
               or check host logs. The job will auto-fail if stuck too long.
             </span>
           </div>
@@ -608,9 +608,9 @@ export default function InstanceDetailPage() {
             <Info className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
             <span className="text-xs text-text-secondary">
               {status === "starting" || status === "leased"
-                ? `Host ${instance.host_id || "worker"} is pulling your image and starting the container — large CUDA images can take several minutes.`
+                ? `Host ${instance.host_id || "worker"} is pulling your image and starting the container, large CUDA images can take several minutes.`
                 : status === "assigned"
-                ? `Host ${instance.host_id || "assigned"} is preparing your instance — worker should claim the lease within ~30s.`
+                ? `Host ${instance.host_id || "assigned"} is preparing your instance, worker should claim the lease within ~30s.`
                 : instance.queue_reason_detail
                   || (instance.gpu_model
                     ? t("dash.instances.queue_waiting_gpu", { gpu: instance.gpu_model })
@@ -681,7 +681,7 @@ export default function InstanceDetailPage() {
                   ? `${(instance.elapsed_sec / 60).toFixed(0)}m`
                   : instance.wait_elapsed_sec
                     ? `${Math.max(1, Math.round(instance.wait_elapsed_sec / 60))}m waiting`
-                    : "—"}
+                    : "-"}
             </p>
           </div>
         </Card>
@@ -693,7 +693,7 @@ export default function InstanceDetailPage() {
           <div>
             <p className="text-xs text-text-muted">{t("dash.instances.label_cost")}</p>
             <p className="font-medium font-mono">
-              {instance.cost_cad != null ? `$${instance.cost_cad.toFixed(2)} CAD` : "—"}
+              {instance.cost_cad != null ? `$${instance.cost_cad.toFixed(2)} CAD` : "-"}
             </p>
           </div>
         </Card>
@@ -734,13 +734,13 @@ export default function InstanceDetailPage() {
                   ? `$${instance.rate_per_hour_cad.toFixed(2)}/hr CAD${instance.rate_is_estimate ? " (est.)" : ""}`
                   : instance.cost_cad != null && instance.elapsed_sec
                     ? `~$${((instance.cost_cad / (instance.elapsed_sec / 3600)) || 0).toFixed(2)}/hr`
-                    : "—"}
+                    : "-"}
             </p>
           </div>
           <div>
             <p className="text-xs text-text-muted">{t("dash.instances.label_cost")}</p>
             <p className="font-mono font-medium mt-0.5">
-              {instance.cost_cad != null ? `$${instance.cost_cad.toFixed(2)} CAD` : "—"}
+              {instance.cost_cad != null ? `$${instance.cost_cad.toFixed(2)} CAD` : "-"}
             </p>
           </div>
           <div>
@@ -791,7 +791,7 @@ export default function InstanceDetailPage() {
         </Card>
       )}
 
-      {/* Logs — shown first, above terminal */}
+      {/* Logs, shown first, above terminal */}
       <Card>
         <div className="flex items-center gap-2 mb-3">
           <Terminal className="h-4 w-4 text-text-muted" />
@@ -820,7 +820,7 @@ export default function InstanceDetailPage() {
         />
       </Card>
 
-      {/* Terminal Card — controls in card header, terminal below */}
+      {/* Terminal Card, controls in card header, terminal below */}
       {(isRunning || status === "starting" || isStopped) && (
         <Card>
           <div className="flex items-center justify-between mb-3">
@@ -867,7 +867,7 @@ export default function InstanceDetailPage() {
               </div>
             )}
           </div>
-          {/* Connection Info — visible whenever SSH proxy is available */}
+          {/* Connection Info, visible whenever SSH proxy is available */}
           {isRunning && instance.interactive !== false && (() => {
             const sshPort = instance.ssh_port || publicSshPort(instance.job_id);
             if (!sshPort && !instance.ssh_status) return null;
@@ -915,13 +915,13 @@ export default function InstanceDetailPage() {
         </Card>
       )}
 
-      {/* Details — at bottom */}
+      {/* Details, at bottom */}
       <Card>
         <h2 className="text-sm font-semibold text-text-secondary mb-3">{t("dash.instances.details")}</h2>
         <dl className="grid gap-y-2 gap-x-6 text-sm sm:grid-cols-2">
           <div className="flex justify-between sm:block">
             <dt className="text-text-muted">{t("dash.instances.docker_image")}</dt>
-            <dd className="font-mono">{instance.docker_image || "—"}</dd>
+            <dd className="font-mono">{instance.docker_image || "-"}</dd>
           </div>
           <div className="flex justify-between sm:block">
             <dt className="text-text-muted">{t("dash.instances.pricing_tier")}</dt>
@@ -929,7 +929,7 @@ export default function InstanceDetailPage() {
           </div>
           <div className="flex justify-between sm:block">
             <dt className="text-text-muted">{t("dash.instances.submitted")}</dt>
-            <dd>{(instance.submitted_at || instance.created_at) ? new Date((instance.submitted_at || instance.created_at!) * 1000).toLocaleString() : "—"}</dd>
+            <dd>{(instance.submitted_at || instance.created_at) ? new Date((instance.submitted_at || instance.created_at!) * 1000).toLocaleString() : "-"}</dd>
           </div>
           <div className="flex justify-between sm:block">
             <dt className="text-text-muted">{t("dash.instances.job_id")}</dt>
@@ -987,7 +987,7 @@ export default function InstanceDetailPage() {
 
             {instance.host_ip ? (
               <div className="space-y-4">
-                {/* SSH setup notice — surfaced when the worker reports a problem
+                {/* SSH setup notice, surfaced when the worker reports a problem
                     so customers see "why can't I SSH in?" without digging through logs. */}
                 {instance.ssh_status && !instance.ssh_status.ok && (
                   <div

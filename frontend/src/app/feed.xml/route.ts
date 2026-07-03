@@ -42,7 +42,7 @@ export function GET() {
   <channel>
     <title>Xcelsior Blog</title>
     <link>${BASE_URL}/blog</link>
-    <description>News, guides, and updates from Xcelsior — the cheapest compliant GPU compute in Canada.</description>
+    <description>News, guides, and updates from Xcelsior, the cheapest compliant GPU compute in Canada.</description>
     <language>en-ca</language>
     <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
     <atom:link href="${BASE_URL}/feed.xml" rel="self" type="application/rss+xml" />

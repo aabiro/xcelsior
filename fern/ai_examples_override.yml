@@ -1,41 +1,27 @@
 paths:
-  /api/auth/me:
-    patch:
+  /api/v2/serverless/endpoints/endpoint_id/keys:
+    post:
       x-fern-examples:
-        - request:
-            name: Alex Johnson
-            role: Data Scientist
-            country: Canada
-            province: 'ON'
-  /api/auth/register:
+        - path-parameters:
+            endpoint_id: endpoint_id
+          request:
+            name: analytics-key-01
+            scopes: inference:write
+            rate_limit_rpm: 500
+  /api/billing/paypal/capture-order:
     post:
       x-fern-examples:
         - request:
-            email: jane.doe@example.com
-            password: Str0ngP@ssw0rd!
-  /api/auth/verify:
+            customer_id: cst_9f8e7d6c5b4a3
+            order_id: 5O190127TN364715T
+  /api/v2/volumes:
     post:
       x-fern-examples:
         - request:
-            user_code: XCLSR-9F7B2
-    get:
-      x-fern-examples:
-        - response:
-            body: <html><head><title>Device Code Verification</title></head><body><h1>Enter Your Device Code</h1><form action="/api/auth/verify" method="post"><label for="device_code">Device Code:</label><input type="text" id="device_code" name="device_code" maxlength="8" pattern="[A-Z0-9]{8}" required><button type="submit">Verify</button></form></body></html>
-  /api/auth/change-password:
-    post:
-      x-fern-examples:
-        - request:
-            current_password: OldPassw0rd!
-            new_password: N3wSecur3P@ssw0rd
-  /build:
-    post:
-      x-fern-examples:
-        - request:
-            model: resnet50-v1.5
-            base_image: python:3.11-slim
-            quantize: int8
-            push: true
+            name: ml-training-data-volume
+            size_gb: 500
+            region: ca-on
+            encrypted: true
   /api/billing/wallet/customer_id/deposit:
     post:
       x-fern-examples:
@@ -44,534 +30,37 @@ paths:
           request:
             amount_cad: 150.75
             description: Deposit for GPU usage credits
-  /api/pricing/reserve:
-    post:
-      x-fern-examples:
-        - request:
-            customer_id: c123e4567-e89b-12d3-a456-426614174000
-            gpu_model: NVIDIA A100
-            commitment_type: 12_months
-            quantity: 3
-            province: QC
-  /api/billing/refund:
-    post:
-      x-fern-examples:
-        - request:
-            job_id: job_9f8b7c6d5e4a3b2c1d0e
-            exit_code: 137
-            failure_reason: User OOM (exit 137)
-  /job/job_id:
-    patch:
-      x-fern-examples:
-        - path-parameters:
-            job_id: job_id
-          request:
-            status: running
-            host_id: host-9f8b7c6d
-  /legacy/path:
-    get:
-      x-fern-examples:
-        - path-parameters:
-            path: dashboard
-          response:
-            body: <html><head><title>Legacy Dashboard</title></head><body><h1>Welcome to the Legacy Dashboard</h1><p>This dashboard is preserved at /legacy while the new Next.js app serves the root path.</p></body></html>
-  /job:
-    post:
-      x-fern-examples:
-        - request:
-            name: Image Classification Training
-            vram_needed_gb: 12.5
-            priority: 5
-            tier: premium
-            num_gpus: 4
-            nfs_server: 10.0.0.15
-            nfs_path: /mnt/shared/datasets
-            nfs_mount_point: /data
-            image: xcelsior/ml-training:2.2.0
-  /api/slurm/submit:
-    post:
-      x-fern-examples:
-        - request:
-            name: xcelsior-training-job-2024-06
-            vram_needed_gb: 24
-            priority: 5
-            tier: premium
-            num_gpus: 4
-            image: xcelsior/ml-training:latest
-            profile: gpu-optimized
-            dry_run: true
-  /api/auth/password-reset:
-    post:
-      x-fern-examples:
-        - request:
-            email: user@example.com
-          response:
-            body:
-              resetToken: 3f8a9b7c-1d2e-4f5a-9c8b-7d6e5f4a3b2c
-  /api/users/me/preferences:
-    put:
-      x-fern-examples:
-        - request:
-            theme: dark
-            notifications:
-              email: true
-              sms: false
-              push: true
-            language: en-CA
-            timezone: America/Toronto
-            privacy:
-              profileVisibility: friends-only
-              dataSharing: false
-  /api/teams:
-    post:
-      x-fern-examples:
-        - request:
-            name: Quantum AI Research
-  /canada:
-    put:
-      x-fern-examples:
-        - request:
-            enabled: true
-  /alerts/config:
-    put:
-      x-fern-examples:
-        - request:
-            email_enabled: true
-            smtp_host: smtp.mailtrap.io
-            smtp_port: 587
-            smtp_user: alert_user
-            smtp_pass: s3cr3tP@ssw0rd
-            email_from: alerts@xcelsior.ca
-            email_to: admin@xcelsior.ca
-            telegram_enabled: true
-            telegram_bot_token: 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ
-            telegram_chat_id: '-987654321'
-  /api/teams/team_id/members:
-    post:
-      x-fern-examples:
-        - path-parameters:
-            team_id: team_id
-          request:
-            email: jane.doe@example.com
-            role: member
-  /legacy:
-    get:
-      x-fern-examples:
-        - response:
-            body: <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Xcelsior Legacy Dashboard</title></head><body><h1>Welcome to the Xcelsior Legacy Dashboard</h1><p>This dashboard is preserved at <code>/legacy</code> while the new Next.js app serves the root path.</p><nav><ul><li><a href="/legacy/metrics">Metrics</a></li><li><a href="/legacy/health">Health Checks</a></li><li><a href="/legacy/telemetry">GPU Telemetry</a></li></ul></nav></body></html>
-  /api/alerts/config:
-    put:
-      x-fern-examples:
-        - request:
-            email_enabled: true
-            smtp_host: smtp.mailtrap.io
-            smtp_port: 587
-            smtp_user: alertuser
-            smtp_pass: S3cur3P@ssw0rd!
-            email_from: alerts@xcelsior.ca
-            email_to: admin@xcelsior.ca
-            telegram_enabled: true
-            telegram_bot_token: 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ
-            telegram_chat_id: '-987654321'
-  /api/billing/payment-intent:
-    post:
-      x-fern-examples:
-        - request:
-            customer_id: cus_J8x9v2L4mN7bQp
-            amount_cad: 150.75
-            description: Compute credits deposit
-          response:
-            body:
-              client_secret: pi_3Kq1X2L4mN7bQp_secret_4J8x9v2L4mN7bQp
-  /api/queue/process-sovereign:
-    post:
-      x-fern-examples:
-        - request:
-            canada_only: true
-            province: 'ON'
-            trust_tier: gold
-  /api/jurisdiction/hosts:
-    post:
-      x-fern-examples:
-        - request:
-            canada_only: true
-            province: 'ON'
-            trust_tier: gold
-  /api/auth/password-reset/confirm:
-    post:
-      x-fern-examples:
-        - request:
-            token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiNDU2Nzg5MCIsImV4cCI6MTY5ODQ4MDAwMH0.4f7X9v8Jq3LzY2X9v1Q2W3e5R6T7Y8U9V0W1X2Y3Z4A
-            new_password: Str0ngP@ssw0rd2024!
-  /api/auth/token:
-    post:
-      x-fern-examples:
-        - request:
-            device_code: dvc_9f8b7c6a5e4d3f2a1b0c
-          response:
-            body:
-              access_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkphbmUgRG9lIiwiaWF0IjoxNjg2MjQ4MDAwfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c
-  /api/pricing/estimate:
-    post:
-      x-fern-examples:
-        - request:
-            gpu_model: NVIDIA A100 80GB
-            duration_hours: 12
-            spot: true
-            sovereignty: true
-            is_canadian: true
-          response:
-            body:
-              estimated_cost_cad: 145.75
-              rebate_cad: 43.73
-              total_cost_after_rebate_cad: 102.02
-              currency: CAD
-              gpu_model: NVIDIA A100 80GB
-              duration_hours: 12
-              spot: true
-              sovereignty: true
-              is_canadian: true
-              rebate_applied: true
-              timestamp: '2024-06-15T10:00:00Z'
-  /agent/lease/renew:
-    post:
-      x-fern-examples:
-        - request:
-            host_id: host-9f8b7c6d
-            job_id: job-4a3e2f1b
-  /agent/benchmark:
-    post:
-      x-fern-examples:
-        - request:
-            host_id: host-9f8b7c6d
-            gpu_model: NVIDIA RTX 3090
-            score: 9876.54
-            tflops: 35.6
-  /agent/mining-alert:
-    post:
-      x-fern-examples:
-        - request:
-            host_id: host-9f8b7c6d
-            gpu_index: 0
-            confidence: 0.87
-            reason: Detected mining process consuming excessive GPU resources
-  /marketplace/list:
-    post:
-      x-fern-examples:
-        - request:
-            host_id: host_9f8b7c6d5e4a3b2c1d0e
-            gpu_model: NVIDIA RTX 4090
-            vram_gb: 24
-            price_per_hour: 12.5
-            description: High-performance rig with latest RTX 4090, ideal for deep learning workloads.
-            owner: alice_wong
-  /autoscale/pool:
-    post:
-      x-fern-examples:
-        - request:
-            host_id: host-9f8b7c6d
-            ip: 192.168.10.45
-            gpu_model: NVIDIA A100 80GB
-            vram_gb: 80
-  /api/verify/host_id:
-    post:
-      x-fern-examples:
-        - path-parameters:
-            host_id: host-9f8b7c6d5e4a3b2c
-  /api/compliance/quebec-pia-check:
-    post:
-      x-fern-examples:
-        - request:
-            data_origin_province: QC
-            processing_province: 'ON'
-            data_contains_pi: true
-  /host:
-    put:
-      x-fern-examples:
-        - request:
-            host_id: host-9f8b7c6d
-            ip: 192.168.1.45
-            gpu_model: NVIDIA RTX 3090
-            total_vram_gb: 24
-            free_vram_gb: 18.5
-            cost_per_hour: 0.35
-            country: CA
-            province: 'ON'
-            versions:
-              agent_version: 2.2.0
-              driver_version: 510.73.08
-              cuda_version: '11.7'
-            corporation_name: Maple AI Solutions Inc.
-            business_number: 123456789RT0001
-            gst_hst_number: GST1234567
-            legal_name: Maple AI Solutions Incorporated
-  /api/auth/login:
-    post:
-      x-fern-examples:
-        - request:
-            email: jane.doe@example.com
-            password: S3cureP@ssw0rd!
-          response:
-            body:
-              access_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkphbmUgRG9lIiwiaWF0IjoxNjg2MjQ4MDAwLCJleHAiOjE2ODY4NTQ0MDB9.4f7X9v1Q2X9v7X9v1Q2X9v7X9v1Q2X9v7X9v1Q2X9v7X9v1Q2X9v7X9v1Q2X9v7X9v
-              token_type: Bearer
-              expires_in: 2592000
-  /api/reputation/verify:
-    post:
-      x-fern-examples:
-        - request:
-            entity_id: host_9f8b7c6d5e4a3b2c1d0e
-            verification_type: platinum
-  /agent/lease/release:
-    post:
-      x-fern-examples:
-        - request:
-            job_id: job-9f8b7c6d-1234-4e56-8a9b-0c1d2e3f4a5b
-            reason: completed
-  /api/privacy/consent:
-    post:
-      x-fern-examples:
-        - request:
-            entity_id: user_9f8b7c6d5e4a3b2c1d0e
-            consent_type: email_marketing
-  /api/providers/provider_id/incorporation:
-    post:
-      x-fern-examples:
-        - path-parameters:
-            provider_id: provider_id
-          request:
-            file_id: a3f47b9e-8c2d-4f1a-9b7e-2d5f6c8a1e4b
-  /instance:
-    post:
-      x-fern-examples:
-        - request:
-            name: AI Model Training Job
-            vram_needed_gb: 16
-            pricing_mode: spot
-            priority: 5
-            tier: standard
-  /api/transparency/legal-request:
-    post:
-      x-fern-examples:
-        - request:
-            request_type: warrant
-            jurisdiction: CA-ON
-            authority: Ontario Provincial Police
-            scope: Access to user account data for investigation of fraud
-            notes: Urgent request related to ongoing financial crime investigation
-  /api/sla/enforce:
-    post:
-      x-fern-examples:
-        - request:
-            host_id: host-9f8b7c6d5e4a3b2c1d0e
-            month: 2024-05
-            tier: premium
-            monthly_spend_cad: 1250.75
-  /agent/lease/claim:
-    post:
-      x-fern-examples:
-        - request:
-            host_id: host-9f8b7c6d-1234-4e56-8a9b-0c1d2e3f4a5b
-            job_id: job-4a3b2c1d-5678-4f90-8e7d-9c0b1a2d3e4f
-  /agent/telemetry:
-    post:
-      x-fern-examples:
-        - request:
-            host_id: host-9f8b7c6d
-            timestamp: 1687501234
-            metrics:
-              gpu_utilization_percent: 72.5
-              gpu_temperature_celsius: 65
-              memory_used_mb: 4096
-              memory_total_mb: 8192
-              power_draw_watts: 120.3
-              fan_speed_rpm: 3200
-  /api/privacy/config:
-    post:
-      x-fern-examples:
-        - request:
-            org_id: a1b2c3d4-e5f6-7890-ab12-cd34ef567890
-            privacy_level: strict
-            privacy_officer_name: Samantha Lee
-            privacy_officer_email: samantha.lee@xcelsior.ca
-            enable_identification: false
-            enable_location_tracking: false
-            enable_profiling: false
-            redact_pii_in_logs: true
-            redact_env_vars: true
-            redact_ip_addresses: true
-            log_retention_days: 90
-            telemetry_retention_days: 180
-  /api/inference:
-    post:
-      x-fern-examples:
-        - request:
-            model: distilbert-base-uncased-finetuned-sst-2-english
-            inputs:
-              - The movie was fantastic and I really enjoyed it!
-            gpu_model: NVIDIA A100
-            max_tokens: 256
-            temperature: 0.7
-            timeout_sec: 120
-  /agent/versions:
-    post:
-      x-fern-examples:
-        - request:
-            host_id: host-9f8b7c6d-1234-4e56-8a9b-0c1d2e3f4a5b
-            versions:
-              cuda: '12.1'
-              runc: 1.1.0-patched
-              nvidia-container-toolkit: 1.11.0-patched
-              kernel: 5.15.0-60-generic
-              docker: 20.10.12
-              nvidia-driver: 525.60.13
-  /api/providers/register:
-    post:
-      x-fern-examples:
-        - request:
-            provider_id: prov_9f8d7c6b2a1e4d3f
-            email: contact@canadagpu.ca
-            provider_type: corporation
-            corporation_name: Canada GPU Solutions Inc.
-            business_number: 123456789RT0001
-            gst_hst_number: GST1234567
-            province: 'ON'
-            legal_name: Canada GPU Solutions Incorporated
-          response:
-            body:
-              onboarding_url: https://connect.stripe.com/setup/s/abc123def456ghi789
-  /api/artifacts/download:
-    post:
-      x-fern-examples:
-        - request:
-            job_id: a3f47b9e-8c2d-4f1a-9b7e-2d5f3c6a1e4b
-            filename: model_checkpoint_v12.pt
-          response:
-            body:
-              url: https://storage.xcelsior.ca/downloads/a3f47b9e-8c2d-4f1a-9b7e-2d5f3c6a1e4b/model_checkpoint_v12.pt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20240601%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20240601T120000Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890
   /api/artifacts/upload:
     post:
       x-fern-examples:
         - request:
-            job_id: a3f47b9e-8c2d-4f1a-bd3e-9f7c2a1d5e6b
+            job_id: a3f47b9e-8c2d-4f1a-9b7e-2d5c9f1a7e3b
             filename: model_checkpoint_v12.pt
-            artifact_type: job_output
-            residency_policy: canada_only
-          response:
-            body:
-              upload_url: https://storage.xcelsior.ca/upload/a3f47b9e-8c2d-4f1a-bd3e-9f7c2a1d5e6b/model_checkpoint_v12.pt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20240601%2Fca%2Fs3%2Faws4_request&X-Amz-Date=20240601T120000Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890
-  /api/providers/webhook:
+  /api/v2/volumes/volume_id/attach:
     post:
-      x-fern-examples:
-        - request:
-            payload: '{"id":"evt_1N2b3c4d5e6f7g8h9i0j","object":"event","api_version":"2023-05-15","created":1685000000,"data":{"object":{"id":"pi_1N2b3c4d5e6f7g8h9i0j","object":"payment_intent","amount":2500,"currency":"cad","status":"succeeded","customer":"cus_J0hN5m1tH3r3"}},"livemode":true,"pending_webhooks":1,"type":"payment_intent.succeeded"}'
-            signature: t=1685000000,v1=abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890,v0=1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
-  /dashboard:
-    get:
-      x-fern-examples:
-        - response:
-            body: '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Xcelsior Dashboard</title><style>body { font-family: Arial, sans-serif; background-color: #f4f6f8; margin: 0; padding: 20px; } header { background-color: #003366; color: white; padding: 10px 20px; } h1 { margin: 0; } section { margin-top: 20px; } .gpu-status { background: white; border-radius: 8px; padding: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); } .gpu-status h2 { margin-top: 0; } .gpu-list { list-style: none; padding: 0; } .gpu-list li { padding: 8px 0; border-bottom: 1px solid #ddd; } .gpu-list li:last-child { border-bottom: none; } </style></head><body><header><h1>Xcelsior GPU Dashboard</h1></header><section class="gpu-status"><h2>GPU Telemetry</h2><ul class="gpu-list"><li>GPU 0: NVIDIA A100 - Utilization: 72% - Temperature: 68°C - Memory Usage: 12.3 GB / 40 GB</li><li>GPU 1: NVIDIA A100 - Utilization: 55% - Temperature: 65°C - Memory Usage: 9.8 GB / 40 GB</li><li>GPU 2: NVIDIA A100 - Utilization: 0% - Temperature: 40°C - Memory Usage: 0 GB / 40 GB (Idle)</li></ul></section><section><h2>System Status</h2><p>Region: ON (Ontario, Canada)</p><p>Active Jobs: 14</p><p>Marketplace Billing: Connected via Stripe</p></section><script>function refreshTelemetry() { /* Placeholder for real-time telemetry fetch and update */ console.log(''Refreshing GPU telemetry...''); } setInterval(refreshTelemetry, 30000);</script></body></html>'
-  /agent/verify:
-    post:
-      x-fern-examples:
-        - request:
-            host_id: host-9f8b7c6d-1234-4e56-8a9b-0c1d2e3f4a5b
-            report:
-              gpu:
-                id: GPU-0
-                model: NVIDIA A100 40GB
-                driver_version: 510.73.08
-                cuda_version: '11.4'
-                temperature_celsius: 65
-                power_draw_watts: 250
-                memory_total_mb: 40960
-                memory_used_mb: 10240
-                utilization_gpu_percent: 85
-                utilization_memory_percent: 40
-              network:
-                interface: eth0
-                ip_address: 192.168.1.100
-                mac_address: 00:1A:2B:3C:4D:5E
-                rx_bytes: 123456789
-                tx_bytes: 987654321
-                link_speed_mbps: 1000
-              system:
-                hostname: xcelsior-node-01
-                os: Ubuntu 22.04 LTS
-                kernel_version: 5.15.0-46-generic
-                uptime_seconds: 86400
-                cpu_model: Intel Xeon Gold 6338
-                cpu_cores: 32
-                memory_total_mb: 262144
-                memory_used_mb: 131072
-  /api/auth/resend-verification:
-    post:
-      x-fern-examples:
-        - request:
-            email: user@example.com
-  /api/teams/team_id/members/email:
-    patch:
       x-fern-examples:
         - path-parameters:
-            team_id: team_id
-            email: email
+            volume_id: volume_id
           request:
-            role: admin
-  /api/v2/privacy/consent:
+            instance_id: i-0a1b2c3d4e5f67890
+            mount_path: /workspace
+            mode: rw
+  /api/billing/paypal/create-order:
     post:
       x-fern-examples:
         - request:
-            purpose: Marketing communications
-  /api/chat:
+            customer_id: cst_9f8e7d6c5b4a3e2d1f0a
+            amount_cad: 150.75
+  /api/billing/payment-intent:
     post:
       x-fern-examples:
         - request:
-            message: Can you provide an overview of Xcelsior's GPU orchestration capabilities and its compliance with Canadian data sovereignty laws?
-  /api/auth/mfa/totp/verify:
-    post:
-      x-fern-examples:
-        - request:
-            code: '482915'
-            method_id: 12
-  /api/auth/mfa/sms/setup:
-    post:
-      x-fern-examples:
-        - request:
-            phone_number: +1-416-555-0198
-
-  /api/auth/mfa/verify:
-    post:
-      x-fern-examples:
-        - request:
-            challenge_id: a1b2c3d4-e5f6-7890-ab12-cd34ef567890
-            method: totp
-            code: '482915'
-  /api/auth/mfa/sms/verify:
-    post:
-      x-fern-examples:
-        - request:
-            code: '482915'
-  /instance/job_id:
-    patch:
-      x-fern-examples:
-        - path-parameters:
-            job_id: job_id
-          request:
-            status: running
-            host_id: host-9f8b7c6d
-            container_id: container-123abc456def
-            container_name: gpu-worker-01
-  /api/billing/crypto/deposit:
-    post:
-      x-fern-examples:
-        - request:
-            customer_id: cst_9f8b7a6d4e3c2b1a
-            amount_cad: 1500.75
+            customer_id: cus_7Gq9X2bL4f8ZpQ
+            amount_cad: 150.75
+            description: Deposit for compute credits
           response:
             body:
-              address: 3FZbgi29cpjq2GjdwV8eyHuJJnkLtktZc5
-              amount_btc: 0.0345
-              qr_data: bitcoin:3FZbgi29cpjq2GjdwV8eyHuJJnkLtktZc5?amount=0.0345
+              client_secret: pi_3Kq9X2bL4f8ZpQ_secret_4Jk8Y1mN7vTqRz
   /api/v2/billing/auto-topup:
     post:
       x-fern-examples:
@@ -580,144 +69,236 @@ paths:
             amount_cad: 50
             threshold_cad: 10
             stripe_payment_method_id: pm_1JH2Y2Lz0qyl6XeW8a7b9XcD
-  /api/auth/mfa/passkey/delete:
+  /v1/serverless/endpoint_id/run:
+    post:
+      x-fern-examples:
+        - path-parameters:
+            endpoint_id: endpoint_id
+          request:
+            input:
+              task: image-classification
+              image_url: https://example.com/images/cat.jpg
+              parameters:
+                confidence_threshold: 0.75
+                max_results: 5
+            webhook: https://webhook.site/unique-callback-url
+  /api/v2/marketplace/reservations:
     post:
       x-fern-examples:
         - request:
-            method_id: 42
-  /api/auth/mfa/passkey/authenticate-options:
+            gpu_model: NVIDIA A100
+            gpu_count: 4
+            period_months: 12
+  /v1/serverless/endpoint_id/runsync:
+    post:
+      x-fern-examples:
+        - path-parameters:
+            endpoint_id: endpoint_id
+          request:
+            input:
+              task: image-classification
+              parameters:
+                model: resnet50
+                top_k: 5
+                confidence_threshold: 0.75
+              data:
+                image_url: https://example.com/images/cat.jpg
+            webhook: https://hooks.example.com/job-complete
+  /api/v2/marketplace/search:
     post:
       x-fern-examples:
         - request:
-            challenge_id: 3f8a9b2e-7c4d-4f1a-9d2e-5b6c7a8d9e0f
-  /api/chat/feedback:
+            gpu_model: NVIDIA RTX 4090
+            min_vram_gb: 24
+            max_price_cents: 15000
+            region: 'ON'
+            canada_only: true
+            sort_by: price
+            limit: 25
+  /api/inference:
     post:
       x-fern-examples:
         - request:
-            message_id: a3f47b9e-2d4c-4f1a-9b7e-8c9d2f1a5b6c
-            vote: thumbs-up
+            model: distilbert-base-uncased-finetuned-sst-2-english
+            inputs:
+              - The movie was fantastic and I really enjoyed it!
+            gpu_model: any
+            max_tokens: 512
+            temperature: 0.7
+            timeout_sec: 300
+          response:
+            body:
+              job_id: a3f1c9e2-7b4d-4f8a-9d2e-1c2b3a4d5e6f
   /v1/inference/async:
     post:
       x-fern-examples:
         - request:
             model: gpt-4-xcelsior
             inputs:
-              - Summarize the latest advancements in renewable energy technologies.
+              - Explain the benefits of distributed GPU orchestration for AI workloads.
+            max_tokens: 1024
+            temperature: 0.7
+            stream: false
           response:
             body:
-              job_id: a3f1c9e2-7b4d-4f8a-9d2e-5c6b7f8a1234
+              job_id: a3f1c9d2-7b4e-4f8a-9d3e-2b5f6c7d8e9f
+  /api/pricing/estimate:
+    post:
+      x-fern-examples:
+        - request:
+            gpu_model: NVIDIA RTX 4090
+            duration_hours: 5.5
+            spot: true
+            sovereignty: true
+            is_canadian: true
+          response:
+            body:
+              estimated_cost_cad: 42.75
+              rebate_cad: 10.5
+              total_cost_after_rebate_cad: 32.25
+              currency: CAD
+              duration_hours: 5.5
+              gpu_model: NVIDIA RTX 4090
+              spot: true
+              sovereignty: true
+              is_canadian: true
+              rebate_applied: true
+              timestamp: '2024-06-15T12:00:00Z'
+  /api/v2/serverless/endpoints/endpoint_id:
+    patch:
+      x-fern-examples:
+        - path-parameters:
+            endpoint_id: endpoint_id
+          request:
+            name: ImageProcessingEndpoint
+            min_workers: 2
+            max_workers: 8
+            max_concurrency: 64
+            idle_timeout_sec: 300
+            scaling_policy_type: cpu_utilization
+            scaling_policy_value: 75
+            request_timeout_sec: 120
+            max_queue_size: 500
+            keep_warm: true
+  /api/auth/register:
+    post:
+      x-fern-examples:
+        - request:
+            email: jane.doe@example.com
+            password: Str0ngP@ssw0rd!
+  /api/artifacts/download:
+    post:
+      x-fern-examples:
+        - request:
+            job_id: job_9f8b7c6d5e4a3b2c1d0e
+            filename: model_checkpoint_v12.pt
+          response:
+            body:
+              url: https://storage.xcelsior.ca/downloads/job_9f8b7c6d5e4a3b2c1d0e/model_checkpoint_v12.pt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20240601%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20240601T120000Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890
   /api/v2/inference/endpoints:
     post:
       x-fern-examples:
         - request:
-            name: llama-3-8b-ca
+            name: image-classification-endpoint
             mode: preset
-            model_name: meta-llama/Llama-3-8B-Instruct
-            gpu_type: rtx4090
+            model_name: resnet50
+            model_ref: resnet50-v1.0
+            image_ref: xcelsior/resnet50:latest
+            docker_image: xcelsior/resnet50:latest
+            gpu_type: NVIDIA A100
+            gpu_tier: premium
+            gpu_count: 2
             region: ca-east
-            min_workers: 0
-            max_workers: 4
-            max_concurrency: 4
-            idle_timeout_sec: 300
+            min_workers: 1
+            max_workers: 8
+            max_concurrency: 64
+            idle_timeout_sec: 600
+            scaledown_window_sec: 300
             scaling_policy_type: queue_request_count
-            scaling_policy_value: 2
+            scaling_policy_value: 5
+            startup_command: /start.sh
+            http_port: 8080
+            health_check_path: /healthz
+            health_endpoint: /healthz
+            cuda_version: '12.4'
+            request_timeout_sec: 180
+            max_request_bytes: 20971520
+            env:
+              LOG_LEVEL: info
+              MODEL_CACHE_DIR: /models/cache
+  /api/auth/login:
+    post:
+      x-fern-examples:
+        - request:
+            email: jane.doe@example.com
+            password: S3cur3P@ssw0rd!
+          response:
+            body:
+              access_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkphbmUgRG9lIiwiaWF0IjoxNjg2MjQ4MDAwfQ.4f7X9v1Q2xYz8J9kL5mN3pTqWvR6bXyZ0aBcDeFgHiJ
+              token_type: Bearer
+              expires_in: 2592000
+  /v1/serverless/endpoint_id/openai/v1/chat/completions:
+    post:
+      x-fern-examples:
+        - path-parameters:
+            endpoint_id: endpoint_id
+          request:
+            model: gpt-4o-mini
+            messages:
+              - role: system
+                content: You are a helpful assistant specialized in cloud GPU orchestration.
+              - role: user
+                content: Explain how to deploy a machine learning model using Xcelsior.
+            max_tokens: 1024
+            temperature: 0.7
+            stream: false
+          response:
+            body:
+              id: chatcmpl-7aXcelsiorExample123456
+              object: chat.completion
+              created: 1712345678
+              model: gpt-4o-mini
+              choices:
+                - index: 0
+                  message:
+                    role: assistant
+                    content: To deploy a machine learning model using Xcelsior, first package your model container, then upload it to the platform. Next, configure your endpoint with the desired GPU resources and region, and finally, launch the deployment. Xcelsior handles orchestration and scaling automatically.
+                  finish_reason: stop
+              usage:
+                prompt_tokens: 45
+                completion_tokens: 65
+                total_tokens: 110
   /api/v2/serverless/endpoints:
     post:
       x-fern-examples:
         - request:
-            name: llama-3-8b-ca
+            name: image-classification-endpoint
             mode: preset
-            model_name: meta-llama/Llama-3-8B-Instruct
-            gpu_tier: rtx4090
+            model_name: resnet50
+            model_ref: resnet50-v1.0
+            image_ref: xcelsior/resnet50:latest
+            docker_image: xcelsior/resnet50:latest
+            gpu_type: nvidia-a100
+            gpu_tier: premium
+            gpu_count: 2
             region: ca-east
-            min_workers: 0
-            max_workers: 4
-            max_concurrency: 4
-            idle_timeout_sec: 300
+            min_workers: 1
+            max_workers: 8
+            max_concurrency: 64
+            idle_timeout_sec: 600
+            scaledown_window_sec: 300
             scaling_policy_type: queue_request_count
-            scaling_policy_value: 2
-          response:
-            body:
-              id: ep_a3f1c9e2-7b4d-4f8a-9d2e-5c6b7f8a1234
-              status: provisioning
-  /v1/serverless/{endpoint_id}/run:
-    post:
-      x-fern-examples:
-        - path-parameters:
-            endpoint_id: ep_a3f1c9e2-7b4d-4f8a-9d2e-5c6b7f8a1234
-          request:
-            input:
-              prompt: Summarize Canadian GPU scheduling in two sentences.
-          response:
-            body:
-              id: job_b7e8f9a0-1c2d-4e3f-8a9b-0c1d2e3f4a5b
-              status: IN_QUEUE
-  /v1/serverless/{endpoint_id}/openai/v1/chat/completions:
-    post:
-      x-fern-examples:
-        - path-parameters:
-            endpoint_id: ep_a3f1c9e2-7b4d-4f8a-9d2e-5c6b7f8a1234
-          request:
-            model: meta-llama/Llama-3-8B-Instruct
-            messages:
-              - role: user
-                content: What is serverless GPU inference?
-            max_tokens: 256
-            temperature: 0.7
-  /api/inference/job_id/result:
-    post:
-      x-fern-examples:
-        - path-parameters:
-            job_id: job_id
-          request:
-            model: xcelsior-gpu-v2
-            latency_ms: 123.45
-            outputs:
-              - label: cat
-                confidence: 0.9876
-                bounding_box:
-                  - 34
-                  - 45
-                  - 200
-                  - 220
-              - label: dog
-                confidence: 0.8765
-                bounding_box:
-                  - 210
-                  - 50
-                  - 400
-                  - 300
-  /api/auth/verify-email:
-    post:
-      x-fern-examples:
-        - request:
-            token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImphbmVkb2VAZXhhbXBsZS5jb20iLCJpYXQiOjE2ODk0MjQ4MDB9.XyZ7v9Q1a2b3cD4eF5gH6iJ7kLmN8OpQrStUvWxYz
-  /api/auth/mfa/sms/send:
-    post:
-      x-fern-examples:
-        - request:
-            challenge_id: a3f1c9e2-7b4d-4f8a-9d2e-5c6b7a8f9d01
-  /api/auth/mfa/passkey/register-complete:
-    post:
-      x-fern-examples:
-        - request:
-            state_id: a3f47b9e-8c2d-4f1a-9b6e-2d5f7c9a1e4b
-            credential:
-              id: AbCdEfGhIjKlMnOpQrStUvWxYz1234567890
-              rawId: QmFzZTY0RW5jb2RlZFN0cmluZw==
-              response:
-                attestationObject: o2NmbXQua2V5c3RhdGVtZW50b2JqZWN0
-                clientDataJSON: eyJjaGFsbGVuZ2UiOiJleGFtcGxlQ2hhbGxlbmdlIn0=
-              type: public-key
-              clientExtensionResults: {}
-  /api/v2/volumes:
-    post:
-      x-fern-examples:
-        - request:
-            name: ml-training-data
-            size_gb: 100
-            region: ca-on
-            encrypted: true
+            scaling_policy_value: 5
+            startup_command: python app.py
+            http_port: 8080
+            health_check_path: /healthz
+            health_endpoint: /healthz
+            cuda_version: '12.4'
+            request_timeout_sec: 180
+            max_request_bytes: 20971520
+            env:
+              LOG_LEVEL: info
+              MODEL_CACHE_DIR: /models/cache
   /instance:
     post:
       x-fern-examples:
@@ -736,119 +317,22 @@ paths:
             interactive: true
             command: python train.py --epochs 50
             ssh_port: 2222
-  /api/v2/marketplace/offers:
-    post:
-      x-fern-examples:
-        - request:
-            host_id: host-9f8b7c6d5e4a3b2c
-            gpu_model: NVIDIA RTX 4090
-            gpu_count_total: 4
-            vram_gb: 24
-            ask_cents_per_hour: 3500
-            region: ca-on
-            spot_enabled: true
-            spot_min_cents: 1500
-  /api/v2/marketplace/search:
-    post:
-      x-fern-examples:
-        - request:
-            gpu_model: NVIDIA RTX 4090
-            min_vram_gb: 24
-            max_price_cents: 15000
-            region: 'ON'
-            canada_only: true
-            sort_by: price
-            limit: 20
-  /api/v2/marketplace/reservations:
-    post:
-      x-fern-examples:
-        - request:
-            gpu_model: NVIDIA A100
-            gpu_count: 4
-            period_months: 12
-  /api/ai/chat:
-    post:
-      x-fern-examples:
-        - request:
-            message: Can you provide an overview of Xcelsior's GPU orchestration capabilities?
-            conversation_id: a3f47b2e-9c4d-4f1a-8b2e-3d5f7c9a1e2b
-            page_context: User is exploring AI assistant features for managing distributed GPU workloads in Canada.
-  /api/v2/volumes/volume_id/attach:
-    post:
-      x-fern-examples:
-        - path-parameters:
-            volume_id: volume_id
-          request:
-            instance_id: a1b2c3d4-e5f6-7890-ab12-cdef34567890
-            mount_path: /mnt/data
-            mode: rw
-  /api/v2/marketplace/allocate:
-    post:
-      x-fern-examples:
-        - request:
-            offer_id: offer_9f8b7c6d5e4a3b2c1d0e
-            job_id: job_1234567890abcdef
-  /v1/chat/completions:
-    post:
-      x-fern-examples:
-        - request:
-            model: gpt-4-xcelsior
-            messages:
-              - role: system
-                content: You are a helpful assistant specialized in Canadian data privacy laws.
-              - role: user
-                content: Can you explain the key points of PIPEDA?
-            max_tokens: 1024
-            temperature: 0.7
-            stream: false
-          response:
-            body:
-              id: chatcmpl-7aXcelsior1234567890abcdef
-              object: chat.completion
-              created: 1712345678
-              model: gpt-4-xcelsior
-              choices:
-                - index: 0
-                  message:
-                    role: assistant
-                    content: PIPEDA, the Personal Information Protection and Electronic Documents Act, is Canada's federal privacy law for private-sector organizations. It governs how businesses collect, use, and disclose personal information in the course of commercial activities. Key points include obtaining consent, limiting collection to necessary information, ensuring accuracy, providing access to individuals, and safeguarding data.
-                  finish_reason: stop
-              usage:
-                prompt_tokens: 45
-                completion_tokens: 120
-                total_tokens: 165
-  /api/ai/confirm:
-    post:
-      x-fern-examples:
-        - request:
-            confirmation_id: a3f47b9e-8c2d-4f1a-9b7e-2d5f3c6a1e4b
-            approved: true
-  /api/auth/mfa/passkey/register-options:
-    post:
-      x-fern-examples:
-        - request:
-            device_name: Work Laptop Security Key
-          response:
-            body:
-              challenge: f83d2e4a-9c3b-4d7a-8f1e-2a7b9c6d5e4f
-              rp:
-                name: Xcelsior
-                id: xcelsior.ca
-              user:
-                id: d4c3b2a1-5678-90ab-cdef-1234567890ab
-                name: jane.doe@xcelsior.ca
-                displayName: Jane Doe
-              pubKeyCredParams:
-                - type: public-key
-                  alg: -7
-                - type: public-key
-                  alg: -257
-              timeout: 60000
-              attestation: direct
-              authenticatorSelection:
-                authenticatorAttachment: platform
-                requireResidentKey: false
-                userVerification: preferred
+            pricing_mode: on_demand
+            volume_ids:
+              - vol-123abc
+              - vol-456def
+            encrypted_workspace: true
+            init_script: |-
+              #!/bin/bash
+              apt-get update && apt-get install -y htop
+            git_repo: https://github.com/xcelsior/ml-project.git
+            auto_launch:
+              - jupyter
+              - tensorboard
+            exposed_ports:
+              - 8888
+              - 6006
+            template_image_id: tmpl-789xyz
   /v1/inference:
     post:
       x-fern-examples:
@@ -861,12 +345,12 @@ paths:
             stream: false
           response:
             body:
-              id: 123e4567-e89b-12d3-a456-426614174000
+              id: f47ac10b-58cc-4372-a567-0e02b2c3d479
               object: text_completion
               created: 1712345678
               model: gpt-4-xcelsior
               choices:
-                - text: Distributed GPU orchestration enables efficient resource allocation, scalability, and fault tolerance for AI workloads. It allows multiple GPUs across different nodes to work together seamlessly, reducing training time and improving model performance while ensuring data sovereignty and compliance with regional regulations.
+                - text: Distributed GPU orchestration enables efficient allocation and scaling of GPU resources across multiple nodes, improving performance and reducing latency for AI workloads. It also enhances fault tolerance and resource utilization, allowing AI models to train and infer faster while maintaining data sovereignty and compliance.
                   index: 0
                   logprobs: null
                   finish_reason: stop
@@ -874,95 +358,3 @@ paths:
                 prompt_tokens: 15
                 completion_tokens: 60
                 total_tokens: 75
-  /api/auth/mfa/passkey/authenticate-complete:
-    post:
-      x-fern-examples:
-        - request:
-            state_id: 3f47a9d2-8b1e-4c6a-9f2e-1a2b3c4d5e6f
-            credential:
-              id: user-passkey-12345
-              rawId: SGVsbG8gV29ybGQ=
-              type: public-key
-              response:
-                clientDataJSON: eyJjaGFsbGVuZ2UiOiJleGFtcGxlIn0=
-                authenticatorData: YXV0aERhdGE=
-                signature: c2lnbmF0dXJl
-                userHandle: dXNlcklkMTIz
-  /api/billing/paypal/capture-order:
-    post:
-      x-fern-examples:
-        - request:
-            customer_id: cst_9f8e7d6c5b4a3e2f1d0c
-            order_id: 5O190127TN364715T
-  /api/v2/serverless/endpoints/endpoint_id/keys:
-    post:
-      x-fern-examples:
-        - path-parameters:
-            endpoint_id: endpoint_id
-          request:
-            name: ModelInferenceKey
-            scopes: inference:write
-            rate_limit_rpm: 120
-  /api/v2/serverless/endpoints/endpoint_id:
-    patch:
-      x-fern-examples:
-        - path-parameters:
-            endpoint_id: endpoint_id
-          request:
-            name: ImageProcessingEndpoint
-            min_workers: 2
-            max_workers: 8
-            max_concurrency: 64
-            idle_timeout_sec: 300
-            scaling_policy_type: cpu_utilization
-            scaling_policy_value: 75
-            request_timeout_sec: 120
-            max_queue_size: 500
-            keep_warm: true
-  /v1/serverless/endpoint_id/runsync:
-    post:
-      x-fern-examples:
-        - path-parameters:
-            endpoint_id: endpoint_id
-          request:
-            input:
-              task: image-classification
-              image_url: https://example.com/images/cat.jpg
-              parameters:
-                confidence_threshold: 0.75
-                max_results: 5
-            webhook: https://webhook.site/123e4567-e89b-12d3-a456-426614174000
-  /v1/serverless/endpoint_id/openai/v1/chat/completions:
-    post:
-      x-fern-examples:
-        - path-parameters:
-            endpoint_id: endpoint_id
-          request:
-            model: gpt-4o-mini
-            messages:
-              - role: system
-                content: You are a helpful assistant specialized in AI and cloud computing.
-              - role: user
-                content: Explain the benefits of using distributed GPU orchestration for machine learning workloads.
-            max_tokens: 1024
-            temperature: 0.7
-            stream: false
-  /api/billing/paypal/create-order:
-    post:
-      x-fern-examples:
-        - request:
-            customer_id: cst_9f8e7d6c5b4a3
-            amount_cad: 150.75
-  /v1/serverless/endpoint_id/run:
-    post:
-      x-fern-examples:
-        - path-parameters:
-            endpoint_id: endpoint_id
-          request:
-            input:
-              task: image-classification
-              image_url: https://example.com/images/cat.jpg
-              parameters:
-                model: resnet50
-                confidence_threshold: 0.75
-            webhook: https://webhook.site/123e4567-e89b-12d3-a456-426614174000

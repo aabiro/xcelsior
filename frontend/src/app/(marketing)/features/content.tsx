@@ -1,23 +1,24 @@
 "use client";
 
 import Link from "next/link";
+import { AuthAwareLink } from "@/components/marketing/auth-aware-link";
 import { SITE_ASSETS, siteIcon } from "@/lib/brand-assets";
 import { useLocale } from "@/lib/locale";
+import type { MarketingCtaIntent } from "@/lib/auth-aware-links";
 
 const products = [
   { key: "gpus", href: "/gpu-availability", icon: "gpu" },
   { key: "mcp", href: "/mcp", icon: "bot" },
-  { key: "serverless", href: "/register", icon: "cloud" },
-  { key: "instances", href: "/register", icon: "server" },
-  { key: "hosting", href: "/register", icon: "coins" },
-  { key: "xcelai", href: "/register", icon: "sparkle" },
-  { key: "volumes", href: "/register", icon: "grid" },
+  { key: "serverless", intent: "serverless" as const, icon: "cloud" },
+  { key: "instances", intent: "instances" as const, icon: "server" },
+  { key: "hosting", intent: "hosting" as const, icon: "coins" },
+  { key: "xcelai", intent: "xcelai" as const, icon: "sparkle" },
+  { key: "volumes", intent: "volumes" as const, icon: "grid" },
 ] as const;
 
 const foundations = [
-  { icon: "shield", title: "features.sovereignty_title", desc: "features.sovereignty_desc", cat: "features.cat_sovereignty" },
-  { icon: "route", title: "features.jurisdiction_title", desc: "features.jurisdiction_desc", cat: "features.cat_sovereignty" },
-  { icon: "lock", title: "features.cloud_act_title", desc: "features.cloud_act_desc", cat: "features.cat_sovereignty" },
+  { icon: "route", title: "features.jurisdiction_title", desc: "features.jurisdiction_desc", cat: "features.cat_jurisdiction" },
+  { icon: "lock", title: "features.cloud_act_title", desc: "features.cloud_act_desc", cat: "features.cat_jurisdiction" },
   { icon: "gpu", title: "features.marketplace_title", desc: "features.marketplace_desc", cat: "features.cat_compute" },
   { icon: "bolt", title: "features.spot_title", desc: "features.spot_desc", cat: "features.cat_compute" },
   { icon: "activity", title: "features.telemetry_title", desc: "features.telemetry_desc", cat: "features.cat_compute" },
@@ -69,12 +70,12 @@ export function FeaturesContent() {
               </h1>
               <p className="site-hero-copy">{t("features.platform_subtitle")}</p>
               <div className="site-hero-actions">
-                <Link href="/gpu-availability" className="site-button site-button-primary">
+                <AuthAwareLink intent="launch" className="site-button site-button-primary">
                   {t("features.prod_gpus_cta")}
-                </Link>
-                <Link href="/mcp" className="site-button site-button-ghost">
+                </AuthAwareLink>
+                <AuthAwareLink intent="mcp" className="site-button site-button-ghost">
                   {t("features.prod_mcp_cta")}
-                </Link>
+                </AuthAwareLink>
               </div>
             </div>
 
@@ -84,22 +85,22 @@ export function FeaturesContent() {
                   <div className="site-telemetry-model">
                     <span className="site-telemetry-mark">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={SITE_ASSETS.iconGradient} style={{ width: 20, height: 20 }} alt="" aria-hidden />
+                      <img src={SITE_ASSETS.iconGradientTight} style={{ width: 22, height: 22 }} alt="" aria-hidden />
                     </span>
                     <div>
-                      <div className="site-mono" style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>Platform</div>
-                      <div className="site-mono" style={{ color: "var(--text-4)", fontSize: 11 }}>Sovereign backend</div>
+                      <div className="site-mono" style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>{t("features.platform_preview_title")}</div>
+                      <div className="site-mono" style={{ color: "var(--text-4)", fontSize: 11 }}>{t("features.platform_preview_subtitle")}</div>
                     </div>
                   </div>
                   <span className="site-live-badge">
                     <span className="site-live-dot" />
-                    Live
+                    {t("features.platform_preview_live")}
                   </span>
                 </div>
                 {[
-                  ["Products", "7", "86%"],
-                  ["Compliance", "Built in", "100%"],
-                  ["Billing", "CAD", "72%"],
+                  [t("features.platform_preview_products"), t("features.platform_preview_products_count"), "86%"],
+                  [t("features.platform_preview_compliance"), t("features.platform_preview_compliance_value"), "100%"],
+                  [t("features.platform_preview_billing"), t("features.platform_preview_billing_value"), "72%"],
                 ].map(([label, value, width]) => (
                   <div key={label} className="site-meter">
                     <div className="site-meter-label">
@@ -120,7 +121,6 @@ export function FeaturesContent() {
       <div className="site-container">
         <section className="site-rails site-section" style={{ paddingBottom: 0 }}>
           <SectionMarker code="01" label={t("features.platform_title")} />
-          <h2 className="site-section-heading">{t("features.platform_title")}</h2>
           <p className="site-section-copy">{t("features.platform_subtitle")}</p>
 
           <div className="site-section-flush">
@@ -134,9 +134,15 @@ export function FeaturesContent() {
                   <div className="site-product-badge site-gradient-text">{t(`features.prod_${product.key}_badge`)}</div>
                   <h3 className="site-product-title">{t(`features.prod_${product.key}_title`)}</h3>
                   <p className="site-card-copy">{t(`features.prod_${product.key}_desc`)}</p>
-                  <Link href={product.href} className="site-product-cta" style={{ color: "var(--cyan)" }}>
-                    {t(`features.prod_${product.key}_cta`)}
-                  </Link>
+                  {"intent" in product ? (
+                    <AuthAwareLink intent={product.intent as MarketingCtaIntent} className="site-product-cta" style={{ color: "var(--cyan)" }}>
+                      {t(`features.prod_${product.key}_cta`)}
+                    </AuthAwareLink>
+                  ) : (
+                    <Link href={product.href} className="site-product-cta" style={{ color: "var(--cyan)" }}>
+                      {t(`features.prod_${product.key}_cta`)}
+                    </Link>
+                  )}
                 </div>
                 <div className="site-product-points">
                   <p className="site-product-point">
@@ -155,7 +161,6 @@ export function FeaturesContent() {
 
         <section className="site-rails site-section" style={{ paddingBottom: 0 }}>
           <SectionMarker code="02" label={t("features.everything_title")} />
-          <h2 className="site-section-heading">{t("features.everything_title")}</h2>
           <div className="site-foundation-grid site-section-flush">
             {foundations.map((feature) => (
               <article key={feature.title} className="site-foundation-card">

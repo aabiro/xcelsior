@@ -35,7 +35,7 @@ export function DateRangePicker({
           />
         </div>
       </div>
-      <span className="pb-2 text-text-muted text-sm">–</span>
+      <span className="pb-2 text-text-muted text-sm">-</span>
       <div className="space-y-1">
         <Label className="text-xs">To</Label>
         <div className="relative">

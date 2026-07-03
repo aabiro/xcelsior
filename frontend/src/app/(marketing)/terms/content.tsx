@@ -93,9 +93,9 @@ export function TermsContent() {
                     <td>{t("terms.s7_secure_cr")}</td>
                   </tr>
                   <tr>
-                    <td className="site-table-feature">{t("terms.s7_sovereign")}</td>
-                    <td>{t("terms.s7_sovereign_up")}</td>
-                    <td>{t("terms.s7_sovereign_cr")}</td>
+                    <td className="site-table-feature">{t("terms.s7_enterprise")}</td>
+                    <td>{t("terms.s7_enterprise_up")}</td>
+                    <td>{t("terms.s7_enterprise_cr")}</td>
                   </tr>
                 </tbody>
               </table>

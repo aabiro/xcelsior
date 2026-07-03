@@ -17,12 +17,12 @@ export default function InvoiceEmail({
   period = "February 2026",
   dashboardUrl = "https://xcelsior.ca/dashboard/billing",
   items = [
-    { description: "4x A100 80GB — Training job #1842", hours: "142h", total: "$1,073.52 CAD" },
-    { description: "2x RTX 4090 — Inference batch #921", hours: "38h", total: "$174.28 CAD" },
+    { description: "4x A100 80GB, Training job #1842", hours: "142h", total: "$1,073.52 CAD" },
+    { description: "2x RTX 4090, Inference batch #921", hours: "38h", total: "$174.28 CAD" },
   ],
 }: InvoiceEmailProps) {
   return (
-    <EmailLayout preview={`Xcelsior Invoice ${invoiceNumber} — ${amount}`}>
+    <EmailLayout preview={`Xcelsior Invoice ${invoiceNumber}, ${amount}`}>
       <Heading style={baseStyles.heading}>Invoice {invoiceNumber}</Heading>
       <Text style={baseStyles.text}>
         Hi {name}, here&apos;s your invoice for {period}.
@@ -35,7 +35,7 @@ export default function InvoiceEmail({
               {item.description}
             </Text>
             <Text style={{ ...baseStyles.text, margin: i < items.length - 1 ? "0 0 16px" : "0" }}>
-              {item.hours} — <span style={baseStyles.gold}>{item.total}</span>
+              {item.hours}, <span style={baseStyles.gold}>{item.total}</span>
             </Text>
           </div>
         ))}

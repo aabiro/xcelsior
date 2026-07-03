@@ -15,19 +15,16 @@ export function ThemeToggle({ className }: { className?: string }) {
     <button
       onClick={toggleTheme}
       className={cn(
-        "relative flex min-h-11 min-w-11 items-center justify-center rounded-lg text-text-muted hover:bg-surface-hover hover:text-text-primary transition-colors",
+        "dashboard-site-theme-toggle",
         className
       )}
       title={isDark ? "Switch to light mode" : "Switch to dark mode"}
       aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+      aria-pressed={!isDark}
     >
-      {/* Status convention: the icon shows the mode you're currently in
-          (dark → moon, light → sun). The tooltip/aria-label describes the action. */}
-      {isDark ? (
-        <Moon className="h-6 w-6" />
-      ) : (
-        <Sun className="h-6 w-6" />
-      )}
+      <Sun className="dashboard-site-theme-sun" />
+      <Moon className="dashboard-site-theme-moon" />
+      <span className="dashboard-site-theme-knob" aria-hidden />
     </button>
   );
 }

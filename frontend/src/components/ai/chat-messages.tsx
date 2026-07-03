@@ -112,7 +112,7 @@ export function ToolResultBubble({
         >
           <CheckCircle2 className="h-3 w-3 shrink-0" />
           <span className="truncate">
-            {msg.toolName?.replace(/_/g, " ")} —{" "}
+            {msg.toolName?.replace(/_/g, " ")} -{" "}
             {hasError ? "error" : "done"}
           </span>
           {hasData && (
@@ -189,7 +189,7 @@ export function ConfirmationCard({
           <strong className="text-text-primary">{toolLabel}</strong>
         </p>
         {!compact && msg.toolInput && Object.keys(msg.toolInput).length > 0 && (
-          <pre className="bg-navy/50 rounded-lg p-2.5 my-2 text-xs border border-border/30 overflow-x-auto">
+          <pre className="my-2 overflow-x-auto rounded-lg border border-border/30 bg-surface p-2.5 font-mono text-xs text-text-primary">
             {JSON.stringify(msg.toolInput, null, 2)}
           </pre>
         )}
@@ -286,7 +286,7 @@ export function MessageBubble({
             )}
           </div>
         ) : (
-          /* Typing indicator — three pulsing dots */
+          /* Typing indicator, three pulsing dots */
           <span className="inline-flex items-center gap-1 py-0.5">
             <span className={cn("rounded-full bg-accent-cyan/50 animate-ai-pulse", dotSize)} />
             <span className={cn("rounded-full bg-accent-cyan/50 animate-ai-pulse [animation-delay:200ms]", dotSize)} />
@@ -404,8 +404,8 @@ export function ChatInput({
 }) {
   return (
     <div className={cn(
-      "border-t border-border/40",
-      compact ? "px-3 py-2" : "px-4 py-3",
+      "shrink-0 border-t border-border/40",
+      compact ? "px-3 py-1.5" : "px-4 py-2",
     )}>
       <div className={cn(
         "relative flex items-end gap-2",
@@ -452,8 +452,8 @@ export function ChatInput({
         </button>
       </div>
       <p className={cn(
-        "text-center text-text-muted/60 mt-1.5",
-        compact ? "text-[8px]" : "text-[10px]",
+        "text-center text-text-muted/40 leading-tight",
+        compact ? "mt-0.5 text-[8px]" : "mt-0.5 text-[9px]",
       )}>
         {disclaimer}
       </p>

@@ -1,19 +1,19 @@
 "use client";
 
 import Link from "next/link";
+import { AuthAwareLink } from "@/components/marketing/auth-aware-link";
 import { SITE_ASSETS, siteIcon } from "@/lib/brand-assets";
 import { useLocale } from "@/lib/locale";
 
 const kpis = [
-  ["01", "home.stat_price"],
-  ["02", "home.stat_pipeda"],
-  ["03", "home.stat_hydro"],
+  ["home.stat_price_kicker", "home.stat_price"],
+  ["home.stat_pipeda_kicker", "home.stat_pipeda"],
+  ["home.stat_hydro_kicker", "home.stat_hydro"],
 ] as const;
 
 const values = [
-  ["01", "home.val_sovereignty_title", "home.val_sovereignty_desc"],
-  ["02", "home.val_compliance_title", "home.val_compliance_desc"],
-  ["03", "home.val_pricing_title", "home.val_pricing_desc"],
+  ["01", "home.val_compliance_title", "home.val_compliance_desc"],
+  ["02", "home.val_pricing_title", "home.val_pricing_desc"],
 ] as const;
 
 const features = [
@@ -26,11 +26,9 @@ const features = [
 ] as const;
 
 const comparisonRows = [
-  ["home.cmp_sovereignty", "home.cmp_sovereignty_x", "home.cmp_sovereignty_aws", "home.cmp_sovereignty_vast", "home.cmp_sovereignty_rp"],
   ["home.cmp_pipeda", "home.cmp_pipeda_x", "home.cmp_pipeda_aws", "home.cmp_pipeda_vast", "home.cmp_pipeda_rp"],
   ["home.cmp_price", "home.cmp_price_x", "home.cmp_price_aws", "home.cmp_price_vast", "home.cmp_price_rp"],
   ["home.cmp_cad", "home.cmp_cad_x", "home.cmp_cad_aws", "home.cmp_cad_vast", "home.cmp_cad_rp"],
-  ["home.cmp_rebate", "home.cmp_rebate_x", "home.cmp_rebate_aws", "home.cmp_rebate_vast", "home.cmp_rebate_rp"],
   ["home.cmp_verification", "home.cmp_verification_x", "home.cmp_verification_aws", "home.cmp_verification_vast", "home.cmp_verification_rp"],
   ["home.cmp_green", "home.cmp_green_x", "home.cmp_green_aws", "home.cmp_green_vast", "home.cmp_green_rp"],
 ] as const;
@@ -77,9 +75,9 @@ export default function HomePage() {
               </h1>
               <p className="site-hero-copy">{t("home.hero_desc")}</p>
               <div className="site-hero-actions">
-                <Link href="/register" className="site-button site-button-primary">
+                <AuthAwareLink intent="launch" className="site-button site-button-primary">
                   {t("home.cta_start")}
-                </Link>
+                </AuthAwareLink>
                 <Link href="/pricing" className="site-button site-button-ghost">
                   {t("home.cta_pricing")}
                 </Link>
@@ -122,17 +120,24 @@ export default function HomePage() {
                 ))}
 
                 <div className="site-telemetry-price">
-                  <span className="site-mono" style={{ color: "var(--text-4)", fontSize: 11, textTransform: "uppercase" }}>Spot from</span>
-                  <strong style={{ color: "var(--text)", fontSize: 25 }}>$0.30/hr</strong>
+                  <div className="site-telemetry-price-copy">
+                    <div className="site-telemetry-price-kicker">Spot · QC Hydro</div>
+                    <div className="site-telemetry-price-value">
+                      $0.30<span className="site-telemetry-price-unit"> CAD/hr</span>
+                    </div>
+                  </div>
+                  <AuthAwareLink intent="launch" className="site-telemetry-action">
+                    {t("gpus.deploy")} →
+                  </AuthAwareLink>
                 </div>
               </div>
             </div>
           </div>
 
           <div className="site-rails site-kpi-strip">
-            {kpis.map(([code, label]) => (
+            {kpis.map(([kicker, label]) => (
               <div key={label} className="site-kpi">
-                <div className="site-kpi-label">{code}</div>
+                <div className="site-kpi-label">{t(kicker)}</div>
                 <div className="site-kpi-value">{t(label)}</div>
               </div>
             ))}
@@ -143,9 +148,8 @@ export default function HomePage() {
       <div className="site-container">
         <section className="site-rails site-section">
           <SectionMarker code="01" label={t("home.why_title")} />
-          <h2 className="site-section-heading">{t("home.why_title")}</h2>
           <p className="site-section-copy">{t("home.why_desc")}</p>
-          <div className="site-value-grid" style={{ marginTop: 54 }}>
+          <div className="site-value-grid" style={{ marginTop: 54, gridTemplateColumns: "repeat(2, 1fr)" }}>
             {values.map(([number, title, desc]) => (
               <article key={title} className="site-value-card">
                 <div className="site-number-badge">{number}</div>
@@ -158,7 +162,6 @@ export default function HomePage() {
 
         <section className="site-rails site-section" style={{ paddingBottom: 0 }}>
           <SectionMarker code="02" label={t("home.built_title")} />
-          <h2 className="site-section-heading">{t("home.built_title")}</h2>
           <div className="site-feature-grid site-section-flush">
             {features.map(([icon, title, desc]) => (
               <article key={title} className="site-feature-card">
@@ -174,13 +177,12 @@ export default function HomePage() {
 
         <section className="site-rails site-section">
           <SectionMarker code="03" label={t("home.compare_title")} />
-          <h2 className="site-section-heading">{t("home.compare_title")}</h2>
           <div className="site-table-wrap" style={{ marginTop: 36 }}>
             <table className="site-table">
               <thead>
                 <tr>
                   <th>{t("home.compare_feature")}</th>
-                  <th>{t("home.compare_xcelsior")}</th>
+                  <th className="site-table-head-x">{t("home.compare_xcelsior")}</th>
                   <th>{t("home.compare_aws")}</th>
                   <th>{t("home.compare_vast")}</th>
                   <th>{t("home.compare_runpod")}</th>
@@ -209,9 +211,9 @@ export default function HomePage() {
             {t("home.cta_title_1")} <span className="site-gradient-text">{t("home.cta_title_2")}</span>
           </h2>
           <p className="site-section-copy" style={{ marginBottom: 28 }}>{t("home.cta_desc")}</p>
-          <Link href="/register" className="site-button site-button-primary" style={{ padding: "15px 28px" }}>
-            {t("home.cta_start")}
-          </Link>
+          <AuthAwareLink intent="start" className="site-button site-cta-button">
+            {t("home.cta_button")}
+          </AuthAwareLink>
         </section>
       </div>
     </>

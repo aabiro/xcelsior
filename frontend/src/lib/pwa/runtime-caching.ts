@@ -87,7 +87,7 @@ export const desktopRuntimeCaching: RuntimeCaching[] =
         method: "GET",
         handler: new NetworkOnly(),
       },
-      // Stripe.js — never intercept or cache; pass straight to network
+      // Stripe.js, never intercept or cache; pass straight to network
       {
         matcher: ({ url }) => url.hostname === "js.stripe.com",
         handler: new NetworkOnly({ plugins: [networkErrorFallback] }),

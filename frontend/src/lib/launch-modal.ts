@@ -4,7 +4,7 @@
  * Lightweight global launch-modal bus.
  *
  * Any component can call `openLaunchModal()` to pop the Launch Instance modal
- * in place — no route change, no detour through the instances list, and never a
+ * in place, no route change, no detour through the instances list, and never a
  * jump to the instance detail page. A single <GlobalLaunchModal> mounted in the
  * dashboard shell listens for the event and renders the modal.
  */

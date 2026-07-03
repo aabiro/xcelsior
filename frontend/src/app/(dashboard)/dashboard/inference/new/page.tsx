@@ -25,7 +25,7 @@ export default function DeployStudioPage() {
       const res = await api.fetchAvailableGPUs();
       setGpus(res.gpus || []);
     } catch {
-      // GPU catalog optional for Deploy Studio — falls back to gpu-models.ts
+      // GPU catalog optional for Deploy Studio, falls back to gpu-models.ts
     } finally {
       setLoading(false);
     }

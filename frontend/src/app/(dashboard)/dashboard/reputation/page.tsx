@@ -20,7 +20,7 @@ import {
 } from "@/lib/recharts";
 import { cn } from "@/lib/utils";
 
-// ── Tier config (self-contained — matches backend TIER_THRESHOLDS) ──────────
+// ── Tier config (self-contained, matches backend TIER_THRESHOLDS) ──────────
 
 const TIERS = [
   {
@@ -63,7 +63,7 @@ const TIERS = [
     pricingPremium: "5%",
     platformFee: "15%",
     perk: "Priority payout status",
-    unlock: "Reach 250 points — verify phone or gov ID.",
+    unlock: "Reach 250 points, verify phone or gov ID.",
   },
   {
     key: "gold",
@@ -77,7 +77,7 @@ const TIERS = [
     pricingPremium: "20%",
     platformFee: "12%",
     perk: "Verified badge + 20% pricing premium",
-    unlock: "Reach 450 points — hardware audit recommended.",
+    unlock: "Reach 450 points, hardware audit recommended.",
   },
   {
     key: "platinum",
@@ -91,7 +91,7 @@ const TIERS = [
     pricingPremium: "40%",
     platformFee: "10%",
     perk: "Featured listing placement",
-    unlock: "Reach 650 points — low failure rate required.",
+    unlock: "Reach 650 points, low failure rate required.",
   },
   {
     key: "diamond",
@@ -105,7 +105,7 @@ const TIERS = [
     pricingPremium: "50%",
     platformFee: "8%",
     perk: "Max visibility + reduced platform fee",
-    unlock: "Reach 850 points — sustained through ongoing activity.",
+    unlock: "Reach 850 points, sustained through ongoing activity.",
   },
 ] as const;
 
@@ -295,12 +295,12 @@ export default function ReputationPage() {
         const total = res.newly_granted.reduce((sum, g) => sum + g.points, 0);
         toast.success(
           res.newly_granted.length === 1
-            ? `${res.newly_granted[0].title} complete — +${total} reputation! 🎉`
-            : `${res.newly_granted.length} milestones complete — +${total} reputation! 🎉`,
+            ? `${res.newly_granted[0].title} complete, +${total} reputation! 🎉`
+            : `${res.newly_granted.length} milestones complete, +${total} reputation! 🎉`,
         );
         load({ refresh: false });
       } else {
-        toast.info("No milestones ready to claim yet — keep going below.");
+        toast.info("No milestones ready to claim yet, keep going below.");
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't claim rewards");

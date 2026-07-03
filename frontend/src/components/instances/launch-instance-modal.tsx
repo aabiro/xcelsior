@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import posthog from "posthog-js";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
@@ -83,7 +84,7 @@ const PRICING_MODES = [
 const TIERS = [
   { value: "standard", label: "Standard", desc: "Best effort, no SLA" },
   { value: "premium", label: "Premium", desc: "99.9% uptime guarantee" },
-  { value: "sovereign", label: "Sovereign", desc: "Canada-only, Canadian-jurisdiction operator" },
+  { value: "sovereign", label: "Enterprise", desc: "Canada-only, Canadian-jurisdiction operator" },
 ];
 
 const PRIORITIES = [
@@ -200,7 +201,7 @@ export function LaunchInstanceModal({
   const resolvedGpu = listing?.gpu_model || gpuModel;
   const templateVramGb = selectedTemplate ? Number(selectedTemplate.vram) : undefined;
   const isAutoGpuSelection = !listing && !resolvedGpu;
-  // Show ALL GPUs in the dropdown — don't hide GPUs that have less VRAM than the template recommends.
+  // Show ALL GPUs in the dropdown, don't hide GPUs that have less VRAM than the template recommends.
   // Users can still launch on a smaller GPU (they'll see a warning).
   const eligibleInventory = availableGpus;
   const liveInventory = eligibleInventory.filter((gpu) => gpu.count_available > 0);
@@ -246,7 +247,7 @@ export function LaunchInstanceModal({
   const gpuModelOptions = gpuInventoryOptions;
   const selectedGpuStillAvailable = !gpuModel || gpuModelOptions.some((option) => option.gpu_model === gpuModel);
 
-  // VRAM options per selected GPU model — derived from live inventory
+  // VRAM options per selected GPU model, derived from live inventory
   // when available, otherwise from the canonical catalog in
   // frontend/src/lib/gpu-models.ts.
   const vramOptionsForGpu: number[] = (() => {
@@ -262,7 +263,7 @@ export function LaunchInstanceModal({
   })();
   const resolvedVramGb = vramGb || (vramOptionsForGpu.length === 1 ? vramOptionsForGpu[0] : undefined);
 
-  // Pricing — use dynamic rate from backend when available, else fall back to reference
+  // Pricing, use dynamic rate from backend when available, else fall back to reference
   const selectedPricing = pricing.find((p) => p.gpu_model === resolvedGpu);
   const selectedInventory = gpuModelOptions.find((gpu) => gpu.gpu_model === resolvedGpu);
   const listingRate = listing ? (listing.price_per_hour_cad || listing.price_per_hour || 0) : 0;
@@ -375,7 +376,7 @@ export function LaunchInstanceModal({
     launchRegion.length > 0 &&
     selectedVolumes.some((v) => v.region && v.region.toLowerCase() !== launchRegion);
 
-  // Dynamic pricing — recompute when any pricing variable changes
+  // Dynamic pricing, recompute when any pricing variable changes
   useEffect(() => {
     if (!open || !resolvedGpu) {
       setDynamicRate(null);
@@ -512,7 +513,7 @@ export function LaunchInstanceModal({
       const jobId = res.instance?.job_id || "";
       setInstanceId(jobId);
       markInstanceLaunched();
-      toast.success("Instance launched — provisioning now.");
+      toast.success("Instance launched, provisioning now.");
       posthog.capture("gpu_instance_launched", {
         gpu_model: resolvedGpu || null,
         pricing_mode: effectivePricingMode,
@@ -543,10 +544,10 @@ export function LaunchInstanceModal({
 
   if (!open) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="mx-4 w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl" onClick={(e) => e.stopPropagation()}>
-        <Card className="border-border/50">
+  return createPortal(
+    <div className="dashboard-site-modal-overlay fixed inset-0 z-[300] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="dashboard-site-modal-panel mx-4 w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border border-border/50" onClick={(e) => e.stopPropagation()}>
+        <Card className="border-0 bg-transparent shadow-none">
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle>Launch Instance</CardTitle>
@@ -584,7 +585,7 @@ export function LaunchInstanceModal({
                       <p className="text-sm font-medium">{listing.gpu_model}</p>
                       <div className="flex gap-3 text-xs text-text-muted">
                         <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {listing.region || "Canada"}</span>
-                        <span className="flex items-center gap-1"><Zap className="h-3 w-3" /> {listing.vram_gb || "—"}GB VRAM</span>
+                        <span className="flex items-center gap-1"><Zap className="h-3 w-3" /> {listing.vram_gb || "-"}GB VRAM</span>
                       </div>
                     </div>
                     <div className="text-right">
@@ -712,7 +713,7 @@ export function LaunchInstanceModal({
                       </p>
                     </div>
                     <div className="grid gap-4 grid-rows-[auto_auto]">
-                      {/* VRAM selector — auto-fill or dropdown */}
+                      {/* VRAM selector, auto-fill or dropdown */}
                       <div className="space-y-1.5">
                         <Label className="text-xs">VRAM</Label>
                         {!resolvedGpu ? (
@@ -721,7 +722,7 @@ export function LaunchInstanceModal({
                           </Select>
                         ) : vramOptionsForGpu.length <= 1 ? (
                           <Select disabled value={String(resolvedVramGb ?? "")}>
-                            <option>{resolvedVramGb ? `${resolvedVramGb} GB` : "—"}</option>
+                            <option>{resolvedVramGb ? `${resolvedVramGb} GB` : "-"}</option>
                           </Select>
                         ) : (
                           <Select
@@ -889,7 +890,7 @@ export function LaunchInstanceModal({
                     <option value="">Auto-detect</option>
                     {Object.entries(provinces).map(([code, info]) => (
                       <option key={code} value={code}>
-                        {code} — {info.name} ({info.tax_description})
+                        {code}, {info.name} ({info.tax_description})
                       </option>
                     ))}
                   </Select>
@@ -1049,7 +1050,7 @@ export function LaunchInstanceModal({
                   </p>
                   <div className="flex items-center gap-1.5 mt-2 text-xs text-ice-blue">
                     <DollarSign className="h-3 w-3" />
-                    <span>Real-time metered — you only pay for what you use</span>
+                    <span>Real-time metered, you only pay for what you use</span>
                   </div>
                 </div>
 
@@ -1094,7 +1095,7 @@ export function LaunchInstanceModal({
                     )}
                     <div className="flex justify-between font-medium text-sm pt-1 border-t border-accent-gold/20">
                       <span>Rate</span>
-                      <span>{effectiveRate != null ? `${isEstimatedRate ? "~" : ""}$${effectiveRate.toFixed(2)}/hr CAD${isEstimatedRate ? " est." : ""}` : "—"}</span>
+                      <span>{effectiveRate != null ? `${isEstimatedRate ? "~" : ""}$${effectiveRate.toFixed(2)}/hr CAD${isEstimatedRate ? " est." : ""}` : "-"}</span>
                     </div>
                     {totalPerHour != null && (
                       <>
@@ -1165,6 +1166,7 @@ export function LaunchInstanceModal({
           </CardContent>
         </Card>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

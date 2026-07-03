@@ -53,7 +53,7 @@ function writeDraft(form: DeployStudioForm, step: number) {
   try {
     localStorage.setItem(DRAFT_KEY, JSON.stringify({ form, step, savedAt: Date.now() }));
   } catch {
-    // storage full or unavailable — draft saving is best-effort
+    // storage full or unavailable, draft saving is best-effort
   }
 }
 
@@ -196,7 +196,7 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
       const msg = e instanceof Error ? e.message : t("dash.serverless.deploy_failed");
       if (/wallet|funds|suspended|balance|credit/i.test(msg)) {
         // Draft stays saved, so a detour to billing loses nothing.
-        toast.error(`${msg} — ${t("dash.serverless.draft_saved")}`, {
+        toast.error(`${msg}, ${t("dash.serverless.draft_saved")}`, {
           action: {
             label: t("dash.billing.title"),
             onClick: () => router.push("/dashboard/billing"),
@@ -455,7 +455,7 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
                         return (
                           <option key={g} value={g}>
                             {g}
-                            {info ? ` — ${info.vram_gb}GB · $${info.price_per_hour_cad.toFixed(2)}/hr` : ""}
+                            {info ? `, ${info.vram_gb}GB · $${info.price_per_hour_cad.toFixed(2)}/hr` : ""}
                           </option>
                         );
                       })}
@@ -603,8 +603,8 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
                   {[
                     { icon: Sparkles, label: t("dash.serverless.review_method"), value: form.method === "preset" ? t("dash.serverless.method_preset") : t("dash.serverless.method_custom") },
                     { icon: Box, label: t("dash.serverless.review_source"), value: reviewSource },
-                    { icon: Cpu, label: t("dash.serverless.review_gpu"), value: `${form.gpuCount}× ${form.gpuTier || "—"} · ${form.region}` },
-                    { icon: Layers, label: t("dash.serverless.review_scaling"), value: `${form.minWorkers}–${form.maxWorkers} workers · ${form.maxConcurrency} concurrent` },
+                    { icon: Cpu, label: t("dash.serverless.review_gpu"), value: `${form.gpuCount}× ${form.gpuTier || "-"} · ${form.region}` },
+                    { icon: Layers, label: t("dash.serverless.review_scaling"), value: `${form.minWorkers}-${form.maxWorkers} workers · ${form.maxConcurrency} concurrent` },
                     { icon: Timer, label: t("dash.serverless.idle_timeout"), value: `${form.idleTimeoutSec}s` },
                     {
                       icon: Globe,

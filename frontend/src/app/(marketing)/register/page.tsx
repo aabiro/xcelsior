@@ -23,7 +23,7 @@ const OAUTH_PROVIDERS = ["github", "google", "huggingface"] as const;
 function RegisterPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { login } = useAuth();
+  const { user, loading: authLoading, login } = useAuth();
   const { t } = useLocale();
   const redirectTarget = normalizeAuthRedirectPath(searchParams.get("redirect"), "/dashboard");
   const inviteToken = searchParams.get("invite") ?? "";
@@ -105,7 +105,7 @@ function RegisterPageContent() {
       await resendVerification(email);
       setResendSuccess(true);
     } catch {
-      // silent — don't reveal if email exists
+      // silent, don't reveal if email exists
     } finally {
       setResending(false);
     }
@@ -120,6 +120,11 @@ function RegisterPageContent() {
       posthog.captureException(err instanceof Error ? err : new Error(String(err)));
       setError(err instanceof Error ? err.message : "OAuth failed");
     }
+  }
+
+  if (!authLoading && user) {
+    router.replace(redirectTarget);
+    return null;
   }
 
   if (verificationSent) {
@@ -254,11 +259,11 @@ function RegisterPageContent() {
             </span>
             <span>
               {t("auth.register_agree_prefix")}{" "}
-              <Link href="/terms" target="_blank" className="site-auth-link">
+              <Link href="/terms" className="site-auth-link">
                 {t("footer.terms")}
               </Link>{" "}
               {t("auth.register_agree_and")}{" "}
-              <Link href="/privacy" target="_blank" className="site-auth-link">
+              <Link href="/privacy" className="site-auth-link">
                 {t("footer.privacy")}
               </Link>
             </span>

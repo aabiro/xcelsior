@@ -35,7 +35,7 @@ export function AnalyticsTabEmpty({
                   {s.n}
                 </div>
                 <p className="text-xs text-text-secondary">
-                  <span className="font-medium text-text-primary">{s.title}</span> — {s.body}
+                  <span className="font-medium text-text-primary">{s.title}</span>, {s.body}
                 </p>
               </div>
             ))}
@@ -74,32 +74,32 @@ export function PlatformPulseOverview({
           <h3 className="text-sm font-semibold">Platform pulse</h3>
         </div>
         <p className="text-xs text-text-secondary max-w-2xl">
-          Live marketplace and wallet data you can see right away — personal job analytics appear after your first instance or hosted job.
+          Live marketplace and wallet data you can see right away, personal job analytics appear after your first instance or hosted job.
         </p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard
           label="GPUs listed"
-          value={marketplaceStats?.total_gpus ?? gpuModelsAvailable ?? "—"}
+          value={marketplaceStats?.total_gpus ?? gpuModelsAvailable ?? "-"}
           icon={Server}
           glow="cyan"
         />
         <StatCard
           label="Market offers"
-          value={marketplaceStats?.total_offers ?? "—"}
+          value={marketplaceStats?.total_offers ?? "-"}
           icon={TrendingUp}
           glow="emerald"
         />
         <StatCard
           label="Wallet balance"
-          value={walletBalance != null ? `$${walletBalance.toFixed(2)}` : "—"}
+          value={walletBalance != null ? `$${walletBalance.toFixed(2)}` : "-"}
           icon={Wallet}
           glow="gold"
         />
         <StatCard
           label="Top providers"
-          value={leaderboardCount > 0 ? leaderboardCount : "—"}
+          value={leaderboardCount > 0 ? leaderboardCount : "-"}
           icon={Shield}
           glow="violet"
         />
@@ -130,17 +130,17 @@ export function PlatformPulseOverview({
           <Card className="p-4 text-center border-dashed hover:border-accent-cyan/30 transition-colors">
             <TrendingUp className="h-5 w-5 text-accent-cyan mx-auto mb-2" />
             <p className="text-xs text-text-muted">Spend trends</p>
-            <p className="text-base font-bold font-mono text-text-muted/40 mt-1">—</p>
+            <p className="text-base font-bold font-mono text-text-muted/40 mt-1">-</p>
           </Card>
           <Card className="p-4 text-center border-dashed hover:border-emerald/30 transition-colors">
             <Cpu className="h-5 w-5 text-emerald mx-auto mb-2" />
             <p className="text-xs text-text-muted">GPU hours</p>
-            <p className="text-base font-bold font-mono text-text-muted/40 mt-1">—</p>
+            <p className="text-base font-bold font-mono text-text-muted/40 mt-1">-</p>
           </Card>
           <Card className="p-4 text-center border-dashed hover:border-accent-gold/30 transition-colors">
             <Clock className="h-5 w-5 text-accent-gold mx-auto mb-2" />
             <p className="text-xs text-text-muted">Job insights</p>
-            <p className="text-base font-bold font-mono text-text-muted/40 mt-1">—</p>
+            <p className="text-base font-bold font-mono text-text-muted/40 mt-1">-</p>
           </Card>
         </div>
         <div className="mt-6 flex flex-wrap justify-center gap-3">
@@ -161,7 +161,7 @@ export function ComputeTabEmpty() {
     <AnalyticsTabEmpty
       icon={Cpu}
       title="No compute activity yet"
-      description="GPU utilization, sovereignty splits, and performance breakdowns appear once you run workloads."
+      description="GPU utilization, jurisdiction splits, and performance breakdowns appear once you run workloads."
       steps={[
         {
           n: 1,
@@ -172,7 +172,7 @@ export function ComputeTabEmpty() {
               <Link href="/dashboard/instances" className="text-accent-cyan hover:underline">
                 Instances
               </Link>{" "}
-              — even a short test job unlocks utilization charts.
+             , even a short test job unlocks utilization charts.
             </>
           ),
         },
@@ -202,7 +202,7 @@ export function FinancialTabEmpty() {
               <Link href="/dashboard/billing" className="text-accent-cyan hover:underline">
                 Billing
               </Link>{" "}
-              to fund your account — balance shows here immediately.
+              to fund your account, balance shows here immediately.
             </>
           ),
         },

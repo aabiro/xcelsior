@@ -33,7 +33,7 @@ slug: architecture
 
 | Module | Purpose |
 |--------|---------|
-| `api.py` | FastAPI app — public developer API, dashboard, SSE streaming, session auth |
+| `api.py` | FastAPI app, public developer API, dashboard, SSE streaming, session auth |
 | `scheduler.py` | Job queue, host registry, allocation, spot pricing, preemption |
 | `worker_agent.py` | Pull-based GPU agent, telemetry, mining detection, Docker execution |
 | `security.py` | 4-layer defense: version gating, least-privilege, egress, gVisor |
@@ -73,7 +73,7 @@ slug: architecture
 |---------|------|-----------|
 | FastAPI API | 9500 | `xcelsior-api-1` |
 | Next.js Frontend | 3000 | `xcelsior-frontend-1` |
-| Scheduler Worker | — | `xcelsior-scheduler-worker-1` |
+| Scheduler Worker |, | `xcelsior-scheduler-worker-1` |
 | PostgreSQL | 5432 | System service |
 | Nginx | 80/443 | System service |
 

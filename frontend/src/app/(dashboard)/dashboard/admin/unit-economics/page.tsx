@@ -151,7 +151,7 @@ export default function AdminUnitEconomicsPage() {
             </CardContent>
           </Card>
           <p className="mt-1.5 text-xs text-text-muted">
-            GPU-seconds vs. token revenue per size band — the same comparison the blended meter uses,
+            GPU-seconds vs. token revenue per size band, the same comparison the blended meter uses,
             so you can see which model sizes are worth pricing by tokens before flipping
             <code className="mx-1">XCELSIOR_SERVERLESS_BLENDED_BILLING</code> on.
           </p>
@@ -172,7 +172,7 @@ export default function AdminUnitEconomicsPage() {
           <StatCard label="Jobs requested" value={String(lq.requested ?? 0)} icon={Users} glow="violet" />
         </div>
         <p className="mt-1.5 text-xs text-text-muted">
-          Share of submitted jobs that got a host assigned — target ≥ 70–80% during business hours.
+          Share of submitted jobs that got a host assigned, target ≥ 70-80% during business hours.
         </p>
       </div>
 

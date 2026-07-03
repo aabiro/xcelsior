@@ -22,7 +22,7 @@ export function formatMarkdown(text: string): string {
         .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
         .replace(
             /\[([^\]]+)\]\(([^)]+)\)/g,
-            '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-accent-cyan underline decoration-accent-cyan/30 hover:decoration-accent-cyan/80 transition-colors">$1</a>',
+            '<a href="$2" class="text-accent-cyan underline decoration-accent-cyan/30 hover:decoration-accent-cyan/80 transition-colors">$1</a>',
         )
         .replace(/\n/g, "<br />");
 

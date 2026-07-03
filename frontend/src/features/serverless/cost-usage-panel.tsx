@@ -31,7 +31,7 @@ export function CostUsagePanel({ endpoint, metrics }: CostUsagePanelProps) {
         />
         <StatCard
           label={t("dash.serverless.avg_exec")}
-          value={metrics?.avg_execution_ms ? `${Math.round(metrics.avg_execution_ms)}ms` : "—"}
+          value={metrics?.avg_execution_ms ? `${Math.round(metrics.avg_execution_ms)}ms` : "-"}
           icon={Clock}
           glow="cyan"
         />

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle } from "lucide-react";
 
@@ -36,10 +37,10 @@ export function ConfirmDialog({
 
   if (!open) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
-      <div className="relative z-10 w-full max-w-md rounded-xl border border-border bg-surface p-6 shadow-2xl mx-4">
+  return createPortal(
+    <div className="dashboard-site-modal-overlay fixed inset-0 z-[300] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onCancel} />
+      <div className="dashboard-site-modal-panel relative z-10 w-full max-w-md rounded-xl border p-6 shadow-2xl mx-4">
         <div className="flex items-start gap-4">
           {variant === "danger" && (
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent-red/10">
@@ -57,17 +58,14 @@ export function ConfirmDialog({
           </Button>
           <Button
             size="sm"
+            variant={variant === "danger" ? "destructive" : "default"}
             onClick={onConfirm}
-            className={
-              variant === "danger"
-                ? "bg-accent-red hover:bg-accent-red/90 text-white"
-                : undefined
-            }
           >
             {confirmLabel}
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

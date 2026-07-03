@@ -176,8 +176,8 @@ export function ApiUrlCard({
   return (
     <div className="glow-card brand-top-accent rounded-xl border border-border bg-surface p-4 space-y-3">
       <p className="text-sm font-semibold">{title}</p>
-      <div className="rounded-lg border border-border bg-[#0d1117]/60 px-3 py-2.5">
-        <CopyableText text={fullUrl} className="text-sm text-accent-cyan" />
+      <div className="rounded-lg border border-border bg-surface px-3 py-2.5">
+        <CopyableText text={fullUrl} className="font-mono text-sm text-text-primary" />
       </div>
       {(slug || invokePath) && (
         <div className="flex flex-wrap gap-3 text-xs text-text-muted">

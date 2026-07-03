@@ -120,7 +120,7 @@ function AmountStep({
       <div className="flex gap-3">
         <Button variant="outline" className="flex-1" onClick={onCancel}>Cancel</Button>
         <Button variant="success" className="flex-1" onClick={handleContinue}>
-          {continueLabel ?? `Continue — $${isValid ? numericAmount.toFixed(2) : "0.00"}`}
+          {continueLabel ?? `Continue, $${isValid ? numericAmount.toFixed(2) : "0.00"}`}
         </Button>
       </div>
     </>
@@ -137,9 +137,9 @@ function ModalShell({
   children: React.ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+    <div className="dashboard-site-modal-overlay fixed inset-0 z-[300] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="brand-top-accent w-full max-w-md rounded-2xl border border-border bg-surface p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+        className="dashboard-site-modal-panel brand-top-accent w-full max-w-md rounded-2xl border p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-6">
@@ -375,7 +375,7 @@ function DepositPaymentStep({
       <div className="mb-4 flex items-start gap-2 rounded-lg bg-accent-cyan/5 border border-accent-cyan/15 p-3">
         <ShieldCheck className="h-4 w-4 text-accent-cyan mt-0.5 shrink-0" />
         <p className="text-xs text-text-secondary">
-          Embedded checkout — card details never touch our servers. Powered by Stripe.
+          Embedded checkout, card details never touch our servers. Powered by Stripe.
         </p>
       </div>
 

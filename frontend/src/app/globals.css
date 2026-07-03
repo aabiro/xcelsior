@@ -164,7 +164,7 @@ html.light :hover::-webkit-scrollbar-thumb:hover {
 .banner-exit { animation: banner-out 0.3s ease-in both; }
 
 /* ── Instance Lifecycle Transitional Animations ────────────────────── */
-/* stopping: soft amber shimmer — signals graceful shutdown in progress */
+/* stopping: soft amber shimmer, signals graceful shutdown in progress */
 @keyframes status-stopping {
   0%, 100% { opacity: 0.7; }
   50% { opacity: 1; }
@@ -173,7 +173,7 @@ html.light :hover::-webkit-scrollbar-thumb:hover {
   animation: status-stopping 1.6s ease-in-out infinite;
 }
 
-/* restarting: flowing cyan pulse — signals the container is being restored */
+/* restarting: flowing cyan pulse, signals the container is being restored */
 @keyframes status-restarting {
   0% { opacity: 0.6; filter: hue-rotate(0deg); }
   50% { opacity: 1; filter: hue-rotate(20deg); }
@@ -393,7 +393,7 @@ html.light .glow-card:hover {
     0 0 20px rgba(14, 116, 144, 0.14),
     0 8px 25px rgba(0, 0, 0, 0.08);
 }
-/* Resting elevation in light mode — without it, surface-coloured cards sit
+/* Resting elevation in light mode, without it, surface-coloured cards sit
    flat against the white body and the whole page reads as low-contrast. */
 html.light .glow-card,
 html.light .card-hover,
@@ -518,7 +518,7 @@ html.light .nav-active::before {
 
 /* ── Analytics Dashboard ───────────────────────────────────────────── */
 
-/* Brand gradient text sweep — used on transitional state text (Starting…, etc.) */
+/* Brand gradient text sweep, used on transitional state text (Starting…, etc.) */
 @keyframes brand-sweep {
   0% { background-position: 200% center; }
   100% { background-position: -200% center; }
@@ -538,7 +538,7 @@ html.light .nav-active::before {
   -webkit-text-fill-color: transparent;
   animation: brand-sweep 3s linear infinite;
 }
-/* Brand gradient spinner — same sweep on the SVG icon */
+/* Brand gradient spinner, same sweep on the SVG icon */
 .brand-gradient-spinner {
   animation: spin 1s linear infinite;
   color: var(--color-accent-cyan);
@@ -690,7 +690,7 @@ html.light select {
 /* hide native select arrow in IE / Edge Legacy */
 select::-ms-expand { display: none; }
 
-/* ── Number input — hide native spin buttons, replace with clean look */
+/* ── Number input, hide native spin buttons, replace with clean look */
 input[type="number"] {
   -moz-appearance: textfield;
   appearance: textfield;
@@ -712,7 +712,7 @@ input[type="number"]:focus {
    doesn't push toast width around. Longer messages (e.g. "Template image
    not found or not yet ready") wrap to 2+ lines and, without reserved
    space + stacking order, render on top of the absolutely-positioned
-   button — visually covering it and making it unclickable. Since the
+   button, visually covering it and making it unclickable. Since the
    button can't be clicked, the cursor lingers over the toast and
    sonner's hover-to-pause behavior keeps the auto-dismiss timer from
    ever elapsing, so the toast appears stuck forever. Reserve bottom

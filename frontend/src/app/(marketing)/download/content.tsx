@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { AuthAwareLink } from "@/components/marketing/auth-aware-link";
 import {
   Bell,
   ChevronRight,
@@ -177,7 +178,6 @@ export function DownloadContent() {
 
         <section className="site-rails site-section" style={{ paddingBottom: 0 }}>
           <SectionMarker code="02" label={t("download.section_what_adds")} />
-          <h2 className="site-section-heading">{t("download.section_what_adds")}</h2>
           <p className="site-section-copy">{t("download.section_what_adds_desc")}</p>
           <div className="site-feature-grid site-section-flush">
             {DESKTOP_FEATURES.map((feature, index) => {
@@ -227,9 +227,9 @@ export function DownloadContent() {
         <section className="site-rails site-cta">
           <h2 className="site-cta-title">{t("download.footer_note")}</h2>
           <div className="site-hero-actions">
-            <Link href="/register" className="site-button site-button-primary">
+            <AuthAwareLink intent="start" className="site-button site-button-primary">
               {t("download.footer_create")}
-            </Link>
+            </AuthAwareLink>
             <Link href="/login" className="site-button site-button-ghost">
               {t("download.footer_signin")}
             </Link>

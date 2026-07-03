@@ -162,7 +162,7 @@ export function useInstanceWebSocket(
               break;
           }
         } catch {
-          // malformed message — ignore
+          // malformed message, ignore
         }
       };
 
@@ -183,7 +183,7 @@ export function useInstanceWebSocket(
       };
 
       ws.onerror = () => {
-        // onerror is always followed by onclose — just flag the error
+        // onerror is always followed by onclose, just flag the error
         if (!unmounted) {
           setState((s) => ({ ...s, error: "WebSocket error" }));
         }

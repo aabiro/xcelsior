@@ -6,7 +6,7 @@ slug: serverless-inference
 
 ## Overview
 
-Serverless inference deploys **managed vLLM presets** or **custom Docker handlers** behind autoscaling GPU workers. You get RunPod-style `/run` + `/status` job APIs, Novita-style deploy settings, and OpenAI SDK compatibility — billed in **GPU-seconds** from your wallet.
+Serverless inference deploys **managed vLLM presets** or **custom Docker handlers** behind autoscaling GPU workers. You get RunPod-style `/run` + `/status` job APIs, Novita-style deploy settings, and OpenAI SDK compatibility, billed in **GPU-seconds** from your wallet.
 
 Feature access is gated by `XCELSIOR_SERVERLESS_ENABLED` and an optional owner allowlist. Probe availability:
 
@@ -100,12 +100,12 @@ Workers scale between `min_workers` and `max_workers` from queue depth or queue-
 | `max_concurrency` | Jobs per worker before scale-up |
 | `idle_timeout_sec` | Drain idle workers after this many seconds |
 | `scaling_policy_type` | `queue_request_count` or `queue_delay` |
-| `max_queue_size` | Backpressure — returns 429 when full |
+| `max_queue_size` | Backpressure, returns 429 when full |
 
 ## Idempotency & webhooks
 
 - Send `Idempotency-Key` on `POST /run` to dedupe retries.
-- Optional `webhook` URL on `/run` — HMAC-signed terminal callbacks (SSRF-safe, size-capped).
+- Optional `webhook` URL on `/run`, HMAC-signed terminal callbacks (SSRF-safe, size-capped).
 
 ## Legacy paths
 

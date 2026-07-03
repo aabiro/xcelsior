@@ -35,7 +35,7 @@ interface Suggestion {
 // ── Suggestion chips per tab ───────────────────────────────────────────
 
 const OVERVIEW_SUGGESTIONS: Suggestion[] = [
-  { label: "Full dashboard summary", prompt: "Give me a comprehensive summary of my entire analytics dashboard — all KPIs, trends, and key takeaways. What story does my data tell?", icon: BarChart3, color: "cyan" },
+  { label: "Full dashboard summary", prompt: "Give me a comprehensive summary of my entire analytics dashboard, all KPIs, trends, and key takeaways. What story does my data tell?", icon: BarChart3, color: "cyan" },
   { label: "What trends stand out?", prompt: "Analyse all of my trends across spending, jobs, utilisation, and GPU hours. What are the most notable patterns? Are things improving, stable, or declining?", icon: TrendingUp, color: "emerald" },
   { label: "Spending efficiency audit", prompt: "Do a deep-dive efficiency analysis: compare my cost per job, cost per GPU hour, and spending trajectory. Am I getting good value? Where can I optimise?", icon: DollarSign, color: "gold" },
   { label: "Activity patterns & peaks", prompt: "Analyse my activity heatmap, peak days, and usage timing. When am I most active? Are there patterns I should know about? Any scheduling optimisations I could make?", icon: Cpu, color: "violet" },
@@ -45,13 +45,13 @@ const COMPUTE_SUGGESTIONS: Suggestion[] = [
   { label: "Best GPU for my workloads?", prompt: "Compare all my GPU models across utilisation, cost per hour, job duration, and total hours. Which gives me the best value? Which should I use more or less?", icon: Cpu, color: "cyan" },
   { label: "Utilisation deep-dive", prompt: "Walk me through my GPU utilisation trend day by day. Is it healthy? What's the trajectory? What specific actions could improve it?", icon: TrendingUp, color: "emerald" },
   { label: "Job duration analysis", prompt: "Analyse my duration histogram in detail. What's the distribution shape? Are most jobs short or long? Are there outliers? How does duration relate to cost?", icon: Clock, color: "violet" },
-  { label: "GPU hours breakdown", prompt: "Break down my daily GPU hours — total, average, peak, and trend. How does GPU hour consumption correlate with my spending?", icon: Zap, color: "gold" },
+  { label: "GPU hours breakdown", prompt: "Break down my daily GPU hours, total, average, peak, and trend. How does GPU hour consumption correlate with my spending?", icon: Zap, color: "gold" },
 ];
 
 const FINANCIAL_SUGGESTIONS: Suggestion[] = [
   { label: "Complete spending breakdown", prompt: "Give me a full spending breakdown: cumulative spend trajectory, daily averages, cost per hour trends, and spending by GPU model. Where is my money going?", icon: DollarSign, color: "gold" },
   { label: "Cost per hour analysis", prompt: "Deep-dive into my cost-per-GPU-hour trend. What's driving changes? How does it vary by GPU model? What's the optimal rate for my workloads?", icon: TrendingUp, color: "emerald" },
-  { label: "Wallet health check", prompt: "Analyse my wallet activity — deposits, charges, and net flow. Am I topping up enough? Any unusual transactions? What's my burn rate?", icon: Database, color: "cyan" },
+  { label: "Wallet health check", prompt: "Analyse my wallet activity, deposits, charges, and net flow. Am I topping up enough? Any unusual transactions? What's my burn rate?", icon: Database, color: "cyan" },
   { label: "Cost optimisation plan", prompt: "Based on all my financial data, create a specific action plan to reduce costs while maintaining performance. Give me 3-5 concrete recommendations with expected savings.", icon: ArrowUpRight, color: "violet" },
 ];
 
@@ -203,12 +203,12 @@ function serializeAnalytics(
       sections.push(`Top 5 slots: ${top5.map(d => `${dowNames[d.dow]} ${d.hour}:00 (${d.count} jobs)`).join(" | ")}`);
     }
 
-    // ── Data sovereignty
+    // ── Jurisdiction split
     if (enhanced.sovereignty) {
       const sov = enhanced.sovereignty;
-      sections.push(`\n=== DATA SOVEREIGNTY ===`);
-      sections.push(`Canadian: ${sov.canadian_jobs} jobs (${sov.canadian_pct.toFixed(1)}%) — $${sov.canadian_spend.toFixed(2)} spend`);
-      sections.push(`International: ${sov.total_jobs - sov.canadian_jobs} jobs (${(100 - sov.canadian_pct).toFixed(1)}%) — $${sov.international_spend.toFixed(2)} spend`);
+      sections.push(`\n=== JURISDICTION SPLIT ===`);
+      sections.push(`Canadian: ${sov.canadian_jobs} jobs (${sov.canadian_pct.toFixed(1)}%), $${sov.canadian_spend.toFixed(2)} spend`);
+      sections.push(`International: ${sov.total_jobs - sov.canadian_jobs} jobs (${(100 - sov.canadian_pct).toFixed(1)}%), $${sov.international_spend.toFixed(2)} spend`);
     }
 
     // ── GPU performance comparison
@@ -726,7 +726,7 @@ export function AnalyticsAiPanel({
                       >
                         {msg.role === "assistant" && msg.content ? (
                           <div
-                            className="prose prose-invert prose-sm max-w-none prose-p:my-1.5 prose-li:my-0.5 prose-headings:my-2 prose-strong:text-accent-cyan prose-code:text-accent-cyan/90 prose-code:bg-surface prose-code:px-1 prose-code:rounded"
+                            className="prose prose-invert prose-sm max-w-none prose-p:my-1.5 prose-li:my-0.5 prose-headings:my-2 prose-strong:text-text-primary prose-code:rounded prose-code:bg-surface prose-code:px-1 prose-code:text-text-primary"
                             dangerouslySetInnerHTML={{ __html: formatMarkdown(msg.content) }}
                           />
                         ) : msg.role === "assistant" && !msg.content && isStreaming ? (

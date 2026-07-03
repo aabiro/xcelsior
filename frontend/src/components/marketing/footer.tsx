@@ -11,7 +11,7 @@ const footerColumns = [
       { href: "/features", key: "footer.features" },
       { href: "/pricing", key: "footer.pricing" },
       { href: "/download", key: "footer.download" },
-      { href: "https://docs.xcelsior.ca", key: "footer.docs", external: true },
+      { href: "https://docs.xcelsior.ca", key: "footer.docs" },
     ],
   },
   {
@@ -41,19 +41,20 @@ export function Footer() {
         <div className="site-rails">
           <div className="site-footer-grid">
             <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+              <div className="site-footer-brand">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={SITE_ASSETS.iconGradient} style={{ width: 24, height: 24 }} alt="" aria-hidden />
+                <img src={SITE_ASSETS.iconGradientTight} className="site-brand-icon" alt="" aria-hidden />
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={SITE_ASSETS.wordmarkLight} className="wm-light" style={{ height: 16 }} alt="Xcelsior" />
+                <img src={SITE_ASSETS.wordmarkLight} className="site-brand-wordmark wm-light" alt="Xcelsior" />
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={SITE_ASSETS.wordmarkDark} className="wm-dark" style={{ height: 16 }} alt="Xcelsior" />
+                <img src={SITE_ASSETS.wordmarkDark} className="site-brand-wordmark wm-dark" alt="Xcelsior" />
               </div>
               <p style={{ maxWidth: 280, margin: "0 0 16px", color: "var(--text-3)", fontSize: 14, lineHeight: 1.6 }}>
                 {t("footer.tagline")}
               </p>
-              <div className="site-gradient-text site-mono" style={{ fontSize: 13, fontWeight: 600 }}>
-                {t("footer.motto")}
+              <div className="site-footer-motto site-mono">
+                <span className="site-footer-motto-emoji" aria-hidden>🍁</span>
+                <span className="site-gradient-text">{t("footer.motto")}</span>
               </div>
             </div>
 
