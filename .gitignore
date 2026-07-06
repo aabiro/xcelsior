@@ -87,6 +87,7 @@ docs/*
 !docs/INFERENCE_DESIGN.md
 !docs/site-audit-report-2026-06-08-post-recovery.md
 !docs/SPOT_INSTANCE_INTEGRATION_PLAN.md
+!docs/AI_ML_MASTER_INDEX_XCELSIOR.md
 
 # ── Editor / OS ──────────────────────────────────────────────────────
 .vscode/settings.json

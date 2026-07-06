@@ -471,7 +471,15 @@ def host_accepts_spot_job(host: dict, job: dict, jobs: list[dict] | None = None)
 
 
 def host_accepts_job(host: dict, job: dict, jobs: list[dict] | None = None) -> bool:
-    """Return True when host has GPU capacity for this job (spot pool rules included)."""
+    """Return True if host has capacity and checkpoint compatibility for the job."""
+    try:
+        from criu_hosts import host_supports_checkpoint, job_is_resumable
+
+        if job_is_resumable(job):
+            if not host_supports_checkpoint(host):
+                return False
+    except Exception:
+        pass
     if host.get("status", "active") != "active":
         return False
     if jobs is None:
@@ -1293,6 +1301,9 @@ def register_host(
                 "spot_enabled",
                 "spot_gpu_slots",
                 "spot_min_cents",
+                "checkpoint_class",
+                "capabilities",
+                "cuda_driver_version",
             ):
                 if field in existing and field not in entry:
                     entry[field] = existing[field]
