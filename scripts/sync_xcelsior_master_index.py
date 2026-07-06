@@ -17,6 +17,8 @@ if str(ROOT) not in sys.path:
 REGISTRY_MD = ROOT.parent / "pxl-registry" / "docs" / "AI_ML_MASTER_INDEX_BY_REPO.md"
 LOCAL_MIRROR = ROOT / "docs" / "AI_ML_MASTER_INDEX_XCELSIOR.md"
 PXL_MIRROR_IN_XCELSIOR = ROOT / "docs" / "pxl_registry_AI_ML_MASTER_INDEX_BY_REPO.md"
+PXL_SECTION_MIRROR = ROOT / "docs" / "PXL_REGISTRY_SECTION_10_MIRROR.md"
+SECTION_SYNCED = ROOT / "docs" / "MASTER_INDEX_SECTION_10_XCELSIOR.synced.md"
 DEFAULT_EVIDENCE = Path(
     __import__("os").environ.get(
         "XCELSIOR_GOAL_SCRATCH", "/tmp/grok-goal-6f86c7cfe9c2/implementer"
@@ -186,6 +188,15 @@ def main() -> int:
             )
             print(f"Updated {REGISTRY_MD}")
         print(f"Wrote {LOCAL_MIRROR}")
+        section_only = (
+            f"<!-- pxl-registry §10 mirror for goal patches ({policy}) -->\n"
+            f"<!-- source: {REGISTRY_MD} -->\n"
+            f"<!-- pxl-registry commit: run `git -C ../pxl-registry rev-parse HEAD` -->\n\n"
+            + section
+        )
+        PXL_SECTION_MIRROR.write_text(section_only, encoding="utf-8")
+        SECTION_SYNCED.write_text(section + "\n", encoding="utf-8")
+        print(f"Wrote {PXL_SECTION_MIRROR}")
 
     if args.report:
         args.report.write_text(
