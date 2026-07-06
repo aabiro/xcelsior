@@ -1,5 +1,5 @@
 <!-- synced from scripts/sync_xcelsior_master_index.py -->
-<!-- probes: 2=True, 3=True, 4=True, 7=True, 13=True, 14=True, 15=True, 16=True, 17=True, 18=True, 23=True, 27=True, 29=True, 30=True -->
+<!-- probes: 2=True, 3=True, 4=True, 7=True, 13=True, 14=True, 15=True, 16=True, 17=True, 18=True, 22=True, 23=True, 27=True, 29=True, 30=True, 31=True -->
 
 ## 10. `xcelsior`
 
@@ -28,7 +28,7 @@
 | 19 | - [ ] Add pre-warmed pools keyed to predicted demand and model-weight cache availability; publish cold-start p50/p95 as SLO metrics. | S2 xcelsior
 | 20 | - [ ] Add OpenAI-style async Batch API for non-urgent embeddings, evals, and bulk inference at a discount. | S2 xcelsior
 | 21 | - [ ] Add LLM gateway semantic cache in front of OpenAI-compatible proxy and meter near-duplicate cache savings. | S2 xcelsior
-| 22 | - [ ] Add request-level chaos/fault-injection test that kills workers mid-inference and verifies requeue, idempotency, and no double billing. | S2 xcelsior
+| 22 | - [x] Add request-level chaos/fault-injection test that kills workers mid-inference and verifies requeue, idempotency, and no double billing. | S2 xcelsior
 | 23 | - [x] Add idempotent metering ledger keyed by `(job_id, attempt)` so retries pay provider/customer exactly once. | S2 xcelsior
 | 24 | - [ ] Add hedged requests for long-tail latency: duplicate to a second worker after p95, take the winner, cancel loser, and bill once. | S2 xcelsior
 | 25 | - [ ] Add MCP/assistant safety eval suite for spend, provisioning, workload classification, tenant isolation, and data leakage. | S2 xcelsior
@@ -37,11 +37,11 @@
 | 28 | - [ ] Add `Toto 2.0` as a monitored fallback if Chronos-2 underfits ops telemetry forecasting. | S6 HM
 | 29 | - [x] Keep Dynamo optional until >4 LLM hosts; use LMCache alone at small scale. | S6 F5 risks
 | 30 | - [x] Launch with internal anchor workloads (pixelenhance-labs embed/caption, phantom-trades-mvp + ara-code chat patterns) to solve traffic cold start for token SKU. | S6 F5 risks
-| 31 | - [ ] Pin CUDA/driver requirements for CRIUgpu and test snapshot/restore on RTX 2060 before broader host-agent rollout. | S6 F4 risks
+| 31 | - [x] Pin CUDA/driver requirements for CRIUgpu and test snapshot/restore on RTX 2060 before broader host-agent rollout. | S6 F4 risks
 
 *Excluded from S1 checklist scope (Xcelsior business/product): token pricing, serverless metering, spot GPU pricing, free-credit UI, unit-economics dashboards, marketplace landing copy, embeddings serving, prefix cache, multi-LoRA, chaos/metering ledger — see S1 scope boundary.*
 
-*2026-07-06 xcelsior closure (synced 2026-07-06T07:07:56Z): Code-shipped rows 4, 2, 3, 7, 13, 14, 15, 16, 17, 18, 23, 27, 29, 30. EAGLE-3 via `serverless/speculative_gate.py` (default on compatible bases after ≥0.75 acceptance on ≥5 samples; 2-host mesh deferred). Ops-blocked: 1, 5, 6, 8, 9, 10, 11, 12, 19, 20, 21, 22, 24, 25, 26, 28, 31. SCIP/sovereignty rows deprioritized per product scope.*
+*2026-07-06 xcelsior closure (synced 2026-07-06T07:10:20Z): Code-shipped rows 4, 2, 3, 7, 13, 14, 15, 16, 17, 18, 23, 27, 29, 30, 22, 31. EAGLE-3 via `serverless/speculative_gate.py` (default on compatible bases after ≥0.75 acceptance on ≥5 samples; 2-host mesh deferred). Ops-blocked: 1, 5, 6, 8, 9, 10, 11, 12, 19, 20, 21, 24, 25, 26, 28. SCIP/sovereignty rows deprioritized per product scope.*
 
 **Repo impact note:** These changes move `xcelsior` from GPU-hour marketplace plumbing toward a margin-focused inference platform with token SKUs, embeddings, KV reuse, reliable retries, and measurable SLOs.
 

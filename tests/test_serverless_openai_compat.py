@@ -17,7 +17,9 @@ from api import app
 from db import UserStore
 from serverless.openai_proxy import (
     OpenAIProxyError,
+    accrue_proxy_token_usage,
     capability_gate,
+    extract_usage_from_stream_line,
     normalize_route,
     proxy_chat_completions,
 )
@@ -122,14 +124,14 @@ class TestOpenAIProxyHelpers:
 
 
 class TestOpenAIChatRoute:
-    def test_chat_completions_success(self, user_headers, monkeypatch):
+    def test_chat_completions_success(self, user_headers, fake_vllm_port):
         created = client.post(
             "/api/v2/serverless/endpoints",
             headers=user_headers,
             json={
                 "name": f"oai-{uuid.uuid4().hex[:6]}",
                 "mode": "preset",
-                "model_name": "meta-llama/Llama-3.1-8B-Instruct",
+                "model_name": "Qwen/Qwen3-8B",
                 "min_workers": 0,
                 "max_workers": 1,
             },
@@ -137,35 +139,16 @@ class TestOpenAIChatRoute:
         assert created.status_code == 200, created.text[:300]
         endpoint_id = created.json()["endpoint"]["endpoint_id"]
 
-        warm_worker = {
-            "worker_id": "swk-mock",
-            "host_ip": "10.0.0.9",
-            "job_payload": {"http_ports": {"8080": 18080}},
-        }
-
-        import routes.serverless as sl_routes
-
-        monkeypatch.setattr(sl_routes, "_warm_worker_row", lambda _eid: warm_worker)
-        monkeypatch.setattr(
-            sl_routes,
-            "proxy_chat_completions",
-            lambda *_a, **_k: {
-                "id": "chatcmpl-mock",
-                "object": "chat.completion",
-                "choices": [{"message": {"role": "assistant", "content": "hello"}}],
-            },
-        )
-
         r = client.post(
             f"/v1/serverless/{endpoint_id}/openai/v1/chat/completions",
             headers=user_headers,
             json={
-                "model": "meta-llama/Llama-3.1-8B-Instruct",
+                "model": "Qwen/Qwen3-8B",
                 "messages": [{"role": "user", "content": "hi"}],
             },
         )
         assert r.status_code == 200, r.text[:300]
-        assert r.json()["choices"][0]["message"]["content"] == "hello"
+        assert "Fleet ready." in r.json()["choices"][0]["message"]["content"]
 
         client.delete(
             f"/api/v2/serverless/endpoints/{endpoint_id}",
@@ -200,38 +183,65 @@ class TestOpenAIChatRoute:
             headers=user_headers,
         )
 
-    def test_stream_emits_done_chunk(self, user_headers, monkeypatch):
+    def test_stream_accrues_token_usage_from_final_chunk(self, user_headers, fake_vllm_port):
+        from tests.fixtures.fake_vllm_upstream import _VLLMHandler
+
+        created = client.post(
+            "/api/v2/serverless/endpoints",
+            headers=user_headers,
+            json={
+                "name": f"stream-bill-{uuid.uuid4().hex[:6]}",
+                "mode": "preset",
+                "model_name": "Qwen/Qwen3-8B",
+            },
+        )
+        assert created.status_code == 200
+        endpoint_id = created.json()["endpoint"]["endpoint_id"]
+
+        repo = ServerlessRepo()
+        with client.stream(
+            "POST",
+            f"/v1/serverless/{endpoint_id}/openai/v1/chat/completions",
+            headers={**user_headers, "idempotency-key": "stream-req-99"},
+            json={
+                "model": "Qwen/Qwen3-8B",
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": True,
+            },
+        ) as resp:
+            assert resp.status_code == 200
+            body = "".join(resp.iter_text())
+        assert "[DONE]" in body
+        assert "Signal" in body
+
+        rows = repo.list_token_ledger(endpoint_id)
+        assert len(rows) == 1
+        assert rows[0]["idempotency_key"] == "stream-req-99"
+        prof = _VLLMHandler.usage_profiles["chat"]
+        assert rows[0]["cached_tokens"] == prof["cached_tokens"]
+        assert rows[0]["input_tokens"] == prof["prompt_tokens"]
+
+        client.delete(f"/v1/serverless/endpoints/{endpoint_id}", headers=user_headers)
+
+    def test_stream_emits_done_chunk(self, user_headers, fake_vllm_port):
         created = client.post(
             "/api/v2/serverless/endpoints",
             headers=user_headers,
             json={
                 "name": f"stream-{uuid.uuid4().hex[:6]}",
                 "mode": "preset",
-                "model_name": "meta-llama/Llama-3.1-8B-Instruct",
+                "model_name": "Qwen/Qwen3-8B",
             },
         )
         assert created.status_code == 200
         endpoint_id = created.json()["endpoint"]["endpoint_id"]
-
-        warm_worker = {"worker_id": "swk-stream", "host_ip": "10.0.0.9", "job_payload": {}}
-
-        async def _fake_lines(*_a, **_k):
-            chunk = {
-                "choices": [{"delta": {"content": "Hi"}, "index": 0}],
-            }
-            yield f"data: {json.dumps(chunk)}"
-
-        import routes.serverless as sl_routes
-
-        monkeypatch.setattr(sl_routes, "_warm_worker_row", lambda _eid: warm_worker)
-        monkeypatch.setattr(sl_routes, "async_proxy_stream_lines", _fake_lines)
 
         with client.stream(
             "POST",
             f"/v1/serverless/{endpoint_id}/openai/v1/chat/completions",
             headers=user_headers,
             json={
-                "model": "meta-llama/Llama-3.1-8B-Instruct",
+                "model": "Qwen/Qwen3-8B",
                 "messages": [{"role": "user", "content": "hi"}],
                 "stream": True,
             },
@@ -240,26 +250,22 @@ class TestOpenAIChatRoute:
             assert "text/event-stream" in (resp.headers.get("content-type") or "")
             body = "".join(resp.iter_text())
 
-        assert "Hi" in body
+        assert "Signal" in body
         assert "[DONE]" in body
 
-        client.delete(
-            f"/api/v2/serverless/endpoints/{endpoint_id}",
-            headers=user_headers,
-        )
+        client.delete(f"/v1/serverless/endpoints/{endpoint_id}", headers=user_headers)
 
-    def test_stream_upstream_error_surfaces_chunk(self, user_headers, monkeypatch):
+    def test_stream_upstream_error_surfaces_chunk(self, user_headers, fake_vllm_port, monkeypatch):
         created = client.post(
             "/api/v2/serverless/endpoints",
             headers=user_headers,
             json={
                 "name": f"err-{uuid.uuid4().hex[:6]}",
                 "mode": "preset",
-                "model_name": "meta-llama/Llama-3.1-8B-Instruct",
+                "model_name": "Qwen/Qwen3-8B",
             },
         )
         endpoint_id = created.json()["endpoint"]["endpoint_id"]
-        warm_worker = {"worker_id": "swk-err", "host_ip": "10.0.0.9", "job_payload": {}}
 
         async def _raise(*_a, **_k):
             raise OpenAIProxyError(502, "upstream_http_error", "worker blew up")
@@ -267,7 +273,6 @@ class TestOpenAIChatRoute:
 
         import routes.serverless as sl_routes
 
-        monkeypatch.setattr(sl_routes, "_warm_worker_row", lambda _eid: warm_worker)
         monkeypatch.setattr(sl_routes, "async_proxy_stream_lines", _raise)
 
         with client.stream(
@@ -275,7 +280,7 @@ class TestOpenAIChatRoute:
             f"/v1/serverless/{endpoint_id}/openai/v1/chat/completions",
             headers=user_headers,
             json={
-                "model": "meta-llama/Llama-3.1-8B-Instruct",
+                "model": "Qwen/Qwen3-8B",
                 "messages": [{"role": "user", "content": "hi"}],
                 "stream": True,
             },
@@ -288,6 +293,16 @@ class TestOpenAIChatRoute:
             f"/api/v2/serverless/endpoints/{endpoint_id}",
             headers=user_headers,
         )
+
+
+class TestStreamUsageParsing:
+    def test_extract_usage_from_stream_line(self):
+        line = (
+            'data: {"usage": {"prompt_tokens": 10, "completion_tokens": 5, '
+            '"prompt_tokens_details": {"cached_tokens": 3}}}'
+        )
+        usage = extract_usage_from_stream_line(line)
+        assert usage == {"input_tokens": 10, "output_tokens": 5, "cached_tokens": 3}
 
 
 class TestOpenAIProxyUnit:

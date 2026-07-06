@@ -34,13 +34,15 @@ CODE_SHIPPED_ROWS: dict[int, str] = {
     27: "token ledger + observability traces",
     29: "LMCache-only small scale (no Dynamo hard-require)",
     30: "serverless.anchor_workloads real repo payloads",
+    22: "tests/test_serverless_chaos_billing.py worker-death idempotency",
+    31: "criu_hosts.cuda_driver_requirements + RTX 2060 driver 580 gate test",
 }
 
 # Honest ops / fleet / deprioritized sovereignty — never auto-checked.
 OPS_BLOCKED_ROWS: dict[int, str] = {
     1: "≥30% KV-cache hits in production month (ops KPI)",
 
-    5: "preempt→migrate→resume demo",
+    5: "preempt→migrate→resume demo (live criu snapshot on fleet)",
     6: "Mooncake / remote LMCache + KV-aware routing",
     8: "SCIP application (deprioritized)",
     9: "SCIP alignment one-pager (deprioritized)",
@@ -50,12 +52,10 @@ OPS_BLOCKED_ROWS: dict[int, str] = {
     19: "pre-warmed pools + cold-start SLO publish",
     20: "OpenAI-style async Batch API",
     21: "LLM gateway semantic cache",
-    22: "chaos/fault-injection mid-inference test",
     24: "hedged requests",
     25: "MCP assistant safety eval suite",
     26: "modularize worker_agent / ai_assistant",
     28: "Toto 2.0 forecasting fallback",
-    31: "CRIUgpu CUDA pin + RTX 2060 snapshot test",
 }
 
 SECTION_HEADER = "## 10. `xcelsior`"
@@ -113,6 +113,18 @@ def _probe_code() -> dict[int, bool]:
         and hasattr(anchor, "discover_anchor_repos")
         and len(anchor.discover_anchor_repos()) >= 3
     )
+
+    chaos_path = ROOT / "tests" / "test_serverless_chaos_billing.py"
+    chaos_src = chaos_path.read_text(encoding="utf-8") if chaos_path.is_file() else ""
+    results[22] = (
+        "handle_worker_lost" in chaos_src
+        and "duplicate_idempotency_key" in chaos_src
+        and "zero_duration" in chaos_src
+    )
+
+    results[31] = hasattr(criu, "cuda_driver_requirements") and (
+        ROOT / "tests" / "test_criu_hosts.py"
+    ).read_text(encoding="utf-8").find("rtx_2060_driver_580") >= 0
 
     results[13] = bool(
         results.get(3) and results.get(7) and results.get(15) and results.get(17)

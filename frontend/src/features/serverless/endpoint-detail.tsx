@@ -16,6 +16,7 @@ import type {
 } from "@/lib/api";
 import { toast } from "sonner";
 
+import { formatTokenRateFromPricing } from "./constants";
 import { CopyableText } from "./copyable-text";
 import { MetricsPanel } from "./metrics-panel";
 import { WorkersPanel } from "./workers-panel";
@@ -186,6 +187,14 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
   }
 
   const title = endpoint.name || endpoint.model_name || endpoint.model_id || endpoint.endpoint_id;
+  const tokenRate =
+    endpoint.pricing?.token_billing
+      ? formatTokenRateFromPricing(endpoint.model_ref || endpoint.model_name || "", endpoint.pricing)
+      : null;
+  const heroDescription = [
+    endpoint.model_ref || endpoint.model_name || endpoint.model_id,
+    tokenRate,
+  ].filter(Boolean).join(" · ");
 
   return (
     <FadeIn className="space-y-6">
@@ -195,7 +204,7 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
         icon={Activity}
         badge={endpoint.mode}
         title={title}
-        description={endpoint.model_ref || endpoint.model_name || endpoint.model_id}
+        description={heroDescription}
         accent="violet"
         compact
       >

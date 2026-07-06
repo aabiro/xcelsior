@@ -77,22 +77,6 @@ def _preset_image_for_engine(managed_engine: str) -> str:
     return MANAGED_ENGINE_IMAGES.get(managed_engine, DEFAULT_VLLM_IMAGE)
 
 
-def _eagle3_draft_model(model_ref: str) -> str | None:
-    """Pick a speculative draft model when EAGLE-3 is enabled for this base."""
-    m = (model_ref or "").lower()
-    if "qwen3" in m or "qwen2.5" in m or "qwen2" in m:
-        return os.environ.get(
-            "XCELSIOR_EAGLE3_DRAFT_QWEN",
-            "RedHatAI/Qwen3-8B-EAGLE3",
-        )
-    if "llama-3" in m or "llama3" in m:
-        return os.environ.get(
-            "XCELSIOR_EAGLE3_DRAFT_LLAMA",
-            "RedHatAI/Llama-3.1-8B-Instruct-EAGLE3",
-        )
-    return None
-
-
 def _preset_lmcache_env() -> dict[str, str]:
     """LMCache env for prefix reuse across requests (small-scale mesh)."""
     if os.environ.get("XCELSIOR_LMCACHE_ENABLED", "1").lower() not in ("1", "true", "yes"):
@@ -105,23 +89,28 @@ def _preset_lmcache_env() -> dict[str, str]:
 
 
 def _preset_startup_command(
-    managed_engine: str, model_ref: str, lora_adapters: list[dict[str, str]] | None = None
+    managed_engine: str,
+    model_ref: str,
+    lora_adapters: list[dict[str, str]] | None = None,
+    *,
+    launch_ref: str | None = None,
 ) -> str:
+    launch = (launch_ref or model_ref).strip()
     if managed_engine == "tgi":
-        return f"--model-id {model_ref}"
+        return f"--model-id {launch}"
     if managed_engine == "sglang":
-        return f"--model-path {model_ref} --port 8080"
+        return f"--model-path {launch} --port 8080"
     # vLLM: embedding/reranker presets need an explicit --task (and no chat
     # template); chat models keep the chat-tuned flags.
     from serverless.openai_proxy import model_task
 
     task = model_task(model_ref)
     if task == "embed":
-        return f"--model {model_ref} --task embed"
+        return f"--model {launch} --task embed"
     if task == "rerank":
-        return f"--model {model_ref} --task score"
+        return f"--model {launch} --task score"
     cmd = (
-        f"--model {model_ref} --max-model-len 4096 "
+        f"--model {launch} --max-model-len 4096 "
         f"--chat-template-content-format openai --enable-prefix-caching"
     )
     if lora_adapters:
@@ -130,10 +119,11 @@ def _preset_startup_command(
         # one of these registered names.
         modules = " ".join(f"{a['name']}={a['source']}" for a in lora_adapters)
         cmd += f" --enable-lora --max-loras {len(lora_adapters)} --lora-modules {modules}"
-    eagle_on = os.environ.get("XCELSIOR_VLLM_EAGLE3", "1").lower() in ("1", "true", "yes")
-    draft = _eagle3_draft_model(model_ref) if eagle_on else None
-    if draft:
-        cmd += f" --speculative-algorithm EAGLE3 --speculative-model {draft}"
+    from serverless.speculative_gate import speculative_startup_flags
+
+    spec_flags = speculative_startup_flags(model_ref)
+    if spec_flags:
+        cmd += " " + " ".join(spec_flags)
     return cmd
 
 
@@ -228,8 +218,19 @@ class ServerlessService:
         if spec.mode == "preset" and spec.vram_required_gb <= 0:
             spec.vram_required_gb = self.estimate_vram_gb(spec.model_ref)
         if spec.mode == "preset" and not spec.startup_command:
+            from serverless.registry_models import ensure_preset_model_local
+
+            resolved = ensure_preset_model_local(spec.model_ref)
+            if resolved.local_path:
+                spec.env.setdefault("XCELSIOR_MODEL_HF_REF", spec.model_ref)
+                spec.env["XCELSIOR_MODEL_LOCAL_PATH"] = resolved.local_path
+                if resolved.registry_id:
+                    spec.env["XCELSIOR_REGISTRY_MODEL_ID"] = resolved.registry_id
             spec.startup_command = _preset_startup_command(
-                spec.managed_engine, spec.model_ref, spec.lora_adapters
+                spec.managed_engine,
+                spec.model_ref,
+                spec.lora_adapters,
+                launch_ref=resolved.launch_ref,
             )
         if spec.mode == "preset" and spec.managed_engine == "vllm":
             spec.env.update(_preset_lmcache_env())
@@ -469,25 +470,36 @@ class ServerlessService:
         started = float(job.get("started_at") or now)
         execution_seconds = max(0, int(math.ceil(now - started)))
         cold_start_seconds = int(job.get("cold_start_seconds") or 0)
+        from serverless.openai_proxy import endpoint_accrues_tokens
+
+        if ep and not endpoint_accrues_tokens(ep):
+            input_tokens = 0
+            output_tokens = 0
+            cached_tokens = 0
+            ttft_ms = 0
+
         idem_key = f"job:{job_id}:attempt:{int(job.get('attempt') or 1)}"
-        token_meta = token_cost_metadata(
-            input_tokens,
-            output_tokens,
-            model_ref=str(ep.get("model_ref") or "") if ep else None,
-            cached_tokens=cached_tokens,
-        )
-        # Accrue this request's token cost so the blended meter can later charge the
-        # higher of GPU-seconds vs. token cost. Idempotent by job+attempt.
-        try:
-            if not self.repo.token_usage_already_recorded(str(w["endpoint_id"]), idem_key):
-                self.repo.accrue_endpoint_token_cost(
-                    str(w["endpoint_id"]), float(token_meta.get("total_token_cost_cad") or 0.0)
-                )
-                self.repo.record_token_usage_idempotency(
-                    str(w["endpoint_id"]), idem_key, token_meta
-                )
-        except Exception:
-            log.debug("token cost accrual skipped for endpoint %s", w.get("endpoint_id"))
+        token_meta: dict[str, Any] = {}
+        if ep and endpoint_accrues_tokens(ep):
+            token_meta = token_cost_metadata(
+                input_tokens,
+                output_tokens,
+                model_ref=str(ep.get("model_ref") or ""),
+                cached_tokens=cached_tokens,
+            )
+            # Accrue this request's token cost so the blended meter can later charge the
+            # higher of GPU-seconds vs. token cost. Idempotent by job+attempt.
+            try:
+                if not self.repo.token_usage_already_recorded(str(w["endpoint_id"]), idem_key):
+                    self.repo.accrue_endpoint_token_cost(
+                        str(w["endpoint_id"]),
+                        float(token_meta.get("total_token_cost_cad") or 0.0),
+                    )
+                    self.repo.record_token_usage_idempotency(
+                        str(w["endpoint_id"]), idem_key, token_meta
+                    )
+            except Exception:
+                log.debug("token cost accrual skipped for endpoint %s", w.get("endpoint_id"))
 
         completed = self.repo.complete_job(
             job_id,
@@ -961,6 +973,7 @@ class ServerlessService:
         now = time.time()
         since_ts = since or (now - 86400)
         jobs = self.repo.list_jobs(endpoint_id, since_finished_at=since_ts, limit=500)
+        ledger_rows = self.repo.list_token_ledger(endpoint_id, since=since_ts, limit=500)
         workers = self.repo.list_workers(endpoint_id)
         queue_depth = self.repo.queue_depth(endpoint_id)
         refresh_endpoint_gauges(self.repo, endpoint_id, workers=workers)
@@ -970,6 +983,7 @@ class ServerlessService:
             workers,
             queue_depth=queue_depth,
             window_sec=now - since_ts,
+            ledger_rows=ledger_rows,
         )
 
     # ── Helpers ───────────────────────────────────────────────────────

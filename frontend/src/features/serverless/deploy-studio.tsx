@@ -17,10 +17,12 @@ import { GPU_MODELS } from "@/lib/gpu-models";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
-  DEFAULT_FORM, DEPLOY_STUDIO_STEPS, formatTokenRateLine, IDLE_TIMEOUT_OPTIONS, MANAGED_ENGINES, PRESET_MODELS,
+  DEFAULT_FORM, DEPLOY_STUDIO_STEPS, formatTokenRateFromPricing, IDLE_TIMEOUT_OPTIONS, MANAGED_ENGINES, PRESET_MODELS,
+  type TokenPricingQuote,
 } from "./constants";
 import type { DeployStudioForm } from "./types";
 import { deployServerlessEndpoint } from "./deploy-actions";
+import { TokenPricingTable } from "./token-pricing-table";
 import { findGpuInRegion, regionOptionsForGpus } from "./region-options";
 import { ServerlessHero, ServerlessSelect, StepRail } from "./serverless-ui";
 
@@ -72,6 +74,22 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
   const [form, setForm] = useState<DeployStudioForm>(DEFAULT_FORM);
   const [deploying, setDeploying] = useState(false);
   const [draftReady, setDraftReady] = useState(false);
+  const [tokenQuotes, setTokenQuotes] = useState<Record<string, TokenPricingQuote>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/v2/serverless/preset-token-pricing", { credentials: "include" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && data?.quotes) setTokenQuotes(data.quotes);
+      } catch {
+        // Token rates render once /preset-token-pricing succeeds.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Restore an in-progress draft so a failed deploy (e.g. insufficient wallet
   // funds) or a detour to billing never loses the user's input.
@@ -317,6 +335,9 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
                       </div>
                     </div>
                     <label className="block text-sm font-medium">{t("dash.serverless.model_library")}</label>
+                    {Object.keys(tokenQuotes).length > 0 && (
+                      <TokenPricingTable quotes={tokenQuotes} selectedModel={form.modelRef} />
+                    )}
                     <div className="grid gap-2 sm:grid-cols-2">
                       {PRESET_MODELS.map((m) => (
                         <button
@@ -334,7 +355,7 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
                           <span className="block text-xs text-text-muted mt-0.5">{m.id}</span>
                           {m.task !== "rerank" && (
                             <span className="block text-xs font-mono text-accent-cyan/80 mt-1">
-                              {formatTokenRateLine(m.id)}
+                              {formatTokenRateFromPricing(m.id, tokenQuotes[m.id])}
                             </span>
                           )}
                         </button>
@@ -637,9 +658,9 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
                   {form.gpuTier && (
                     <p className="text-sm mt-2 font-mono">
                       ~${(costPerHour * form.gpuCount).toFixed(2)} CAD/hr {t("dash.serverless.per_worker")}
-                      {form.method === "preset" && formatTokenRateLine(form.modelRef) && (
+                      {form.method === "preset" && formatTokenRateFromPricing(form.modelRef, tokenQuotes[form.modelRef]) && (
                         <span className="text-text-muted">
-                          {" "}· {formatTokenRateLine(form.modelRef)}
+                          {" "}· {formatTokenRateFromPricing(form.modelRef, tokenQuotes[form.modelRef])}
                         </span>
                       )}
                       {form.minWorkers > 0 && (

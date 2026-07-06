@@ -33,6 +33,19 @@ BLENDED_BILLING_ENABLED = os.environ.get("XCELSIOR_SERVERLESS_BLENDED_BILLING", 
     "yes",
 )
 
+
+def blended_billing_enabled() -> bool:
+    """Runtime read so tests can flip blended billing via env without module reload."""
+    return os.environ.get("XCELSIOR_SERVERLESS_BLENDED_BILLING", "0").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+def min_billing_interval_sec() -> int:
+    return int(os.environ.get("XCELSIOR_SERVERLESS_MIN_BILLING_INTERVAL_SEC", str(MIN_BILLING_INTERVAL_SEC)))
+
 # Size-tiered token pricing (CAD per million tokens), by model parameter count.
 # (max_params_b_inclusive, input_price, output_price)
 _TOKEN_PRICE_BANDS: list[tuple[float, float, float]] = [
@@ -293,7 +306,7 @@ def charge_serverless_execution(
             "amount_cad": 0.0,
             "reason": "zero_duration",
         }
-    if not final and duration_sec < MIN_BILLING_INTERVAL_SEC:
+    if not final and duration_sec < min_billing_interval_sec():
         return {
             "charged": False,
             "gpu_seconds": int(duration_sec),
@@ -320,8 +333,9 @@ def charge_serverless_execution(
     gpu_amount_cad = estimate_cost_cad(gpu_seconds, rate, gpu_count)
     # Blended meter: charge the higher of GPU-seconds vs. token cost (flag-gated).
     blended_cad = blended_period_amount(gpu_amount_cad, token_cost_cad)
-    amount_cad = blended_cad if BLENDED_BILLING_ENABLED else gpu_amount_cad
-    if BLENDED_BILLING_ENABLED and token_cost_cad > 0:
+    blended_on = blended_billing_enabled()
+    amount_cad = blended_cad if blended_on else gpu_amount_cad
+    if blended_on and token_cost_cad > 0:
         log.info(
             "blended-meter job=%s gpu=%.6f token=%.6f charged=%.6f",
             job_id, gpu_amount_cad, token_cost_cad, amount_cad,
@@ -401,7 +415,7 @@ def charge_serverless_execution(
         "gpu_amount_cad": gpu_amount_cad,
         "token_cost_cad": round(float(token_cost_cad or 0.0), 6),
         "blended_amount_cad": blended_cad,
-        "blended_billing": BLENDED_BILLING_ENABLED,
+        "blended_billing": blended_on,
         "cycle_id": cycle_id,
         "period_start": period_start,
         "period_end": period_end,

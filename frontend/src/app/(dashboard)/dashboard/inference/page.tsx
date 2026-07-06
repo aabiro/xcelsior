@@ -19,6 +19,7 @@ import { useEventStream } from "@/hooks/useEventStream";
 import { getTeamContext } from "@/lib/team-context";
 import { TeamContextBanner } from "@/components/team/team-context-banner";
 import { CopyableText } from "@/features/serverless/copyable-text";
+import { formatTokenRateFromPricing } from "@/features/serverless/constants";
 import { EngineBadge, ServerlessEmptyState, ServerlessHero } from "@/features/serverless/serverless-ui";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -184,6 +185,16 @@ export default function InferencePage() {
                       <span className="flex items-center gap-1"><Cpu className="h-3 w-3" /> {ep.min_workers}-{ep.max_workers} workers</span>
                       <span className="flex items-center gap-1"><DollarSign className="h-3 w-3" /> ${(ep.total_cost_cad || 0).toFixed(2)}</span>
                     </div>
+                    {ep.pricing?.token_billing && (
+                      <p className="mt-2 text-xs font-mono text-accent-cyan/90">
+                        {formatTokenRateFromPricing(ep.model_ref || ep.model_name || "", ep.pricing)}
+                        {ep.pricing.rate_cents_per_second_per_worker != null && (
+                          <span className="text-text-muted">
+                            {" "}· {ep.pricing.rate_cents_per_second_per_worker}¢/s worker
+                          </span>
+                        )}
+                      </p>
+                    )}
                   </div>
                 </Link>
               </StaggerItem>

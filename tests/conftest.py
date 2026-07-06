@@ -85,6 +85,19 @@ def _pin_test_auth_env(monkeypatch):
         monkeypatch.setenv("XCELSIOR_DB_BACKEND", "postgres")
 
 
+@pytest.fixture
+def fake_vllm_port(monkeypatch):
+    """Official test upstream seam — sets XCELSIOR_TEST_FAKE_VLLM_PORT for proxy routes."""
+    from tests.fixtures.fake_vllm_upstream import start_fake_vllm
+
+    server, port, thread = start_fake_vllm()
+    monkeypatch.setenv("XCELSIOR_TEST_FAKE_VLLM_PORT", str(port))
+    yield port
+    monkeypatch.delenv("XCELSIOR_TEST_FAKE_VLLM_PORT", raising=False)
+    server.shutdown()
+    thread.join(timeout=2)
+
+
 @pytest.fixture(autouse=True)
 def _clear_module_test_client_cookies():
     """Prevent session cookies from one test bleeding into the next (shared TestClient)."""
