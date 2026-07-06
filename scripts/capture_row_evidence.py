@@ -26,13 +26,13 @@ SCRATCH = Path(
     os.environ.get("XCELSIOR_GOAL_SCRATCH", "/tmp/grok-goal-6f86c7cfe9c2/implementer")
 )
 MAC_HOST = os.environ.get("XCELSIOR_MAC_HOST", "aaryn@100.64.0.3")
-CLOSURE_POLICY = os.environ.get("XCELSIOR_CLOSURE_POLICY", "evidence_driven")
+CLOSURE_POLICY = os.environ.get("XCELSIOR_CLOSURE_POLICY", "engineering_partial")
 ENGINEERING_PARTIAL_ROWS = (1, 2, 5, 30)
 ENGINEERING_TIER_NOTES: dict[int, str] = {
-    1: "openai_proxy_served_traffic — proxy KPI met in harness; 1-month production soak ≥30% pending",
-    2: "structural_eagle_gate — EAGLE sim ≥0.75; live Qwen3-8B+EAGLE on 2 mesh hosts pending (RTX 2060 6GB)",
+    1: "openai_proxy_served_traffic — proxy→live vLLM KPI 83.33% in harness; 1-month production soak ≥30% pending",
+    2: "live_eagle_validated_gated_off — Qwen3-4B-AWQ+EAGLE accept ~0.48 on live HTTP; kept off (<0.75); Qwen3-8B 2-host mesh pending (RTX 2060 6GB)",
     5: "live_criu_process_demo — same-host process CRIU ok; cross-host docker serverless migrate pending",
-    30: "anchor_workloads_proxy_ledger — real-repo builders + ledger in harness; sustained anchor traffic pending",
+    30: "anchor_workloads_proxy_ledger — 2 local + 2 Mac-SSH builders with ledger rows; sustained production anchor traffic pending",
 }
 os.environ.setdefault(
     "XCELSIOR_LMCACHE_MESH_HOSTS",
@@ -103,8 +103,9 @@ def _probe_row_1() -> dict[str, Any]:
         and float(live.get("kv_cache_hit_rate") or 0) >= 0.30
     ):
         return _row(
-            "verified",
-            f"live vLLM served KV {live['kv_cache_hit_rate']} >= 0.30",
+            "blocked",
+            f"live vLLM served KV {live['kv_cache_hit_rate']} in harness; "
+            "production 30-day soak pending",
             evidence_tier="live_vllm_served_traffic",
             upstream_mode="live_vllm",
             instrumented=instrumented,
@@ -120,8 +121,9 @@ def _probe_row_1() -> dict[str, Any]:
         and served.get("upstream_mode") != "fake_vllm"
     ):
         return _row(
-            "verified",
-            f"proxy served KV {served['kv_cache_hit_rate']} >= 0.30",
+            "blocked",
+            f"harness proxy served KV {served['kv_cache_hit_rate']} >= 0.30; "
+            "production 30-day soak pending",
             evidence_tier="openai_proxy_served_traffic",
             upstream_mode=served.get("upstream_mode", "openai_proxy"),
             instrumented=instrumented,
@@ -201,14 +203,13 @@ def _probe_row_2() -> dict[str, Any]:
         and mesh_ready
         and live_qwen3
         and live_eagle
-        and live_proxy_mode
-        and live_proxy_samples >= 3
         and live_accept > 0
+        and live_accept < 0.75
     ):
         return _row(
-            "verified",
-            f"live mesh EAGLE validated on real HTTP (accept={live_accept:.4f}); "
-            "kept off per §10 gate (<0.75 on RTX 2060 6GB)",
+            "blocked",
+            f"live EAGLE accept={live_accept:.4f} < 0.75 on {live_model}; "
+            "speculative decoding gated off (RTX 2060 6GB)",
             mesh_host_count=host_count,
             mean_acceptance_rate=live_accept,
             evidence_tier="live_eagle_validated_gated_off",
@@ -218,6 +219,8 @@ def _probe_row_2() -> dict[str, Any]:
             gate_met=False,
             gate_threshold=0.75,
             hardware_note=env_limit.get("unblock_path"),
+            live_proxy_mode=live_proxy_mode,
+            live_proxy_samples=live_proxy_samples,
         )
 
     live_spec_accept = float(
@@ -317,8 +320,8 @@ def _probe_row_5() -> dict[str, Any]:
 
     if process_demo and demo_type == "criu_process_preempt_migrate_resume":
         return _row(
-            "verified",
-            "live CRIU preempt→resume (same-host + simulated migrate) output unchanged",
+            "blocked",
+            "process CRIU preempt→resume ok; docker serverless cross-host migrate pending",
             demo=live_demo,
             evidence_tier="live_criu_process_demo",
             checkpoint_class=cls,
@@ -378,14 +381,18 @@ def _probe_row_30() -> dict[str, Any]:
         ]
     )
 
+    mac_probe = anchor.get("mac_remote_inference_probe") or {}
+    mac_inference_ok = bool(mac_probe.get("ok"))
     if anchor_test_ok and len(billed) >= 2:
         return _row(
-            "verified",
-            f"{len(billed)} anchor workloads from real repos with token ledger rows",
+            "blocked",
+            f"{len(billed)} anchor workloads in harness (mac_inference_ok={mac_inference_ok}); "
+            "sustained production anchor traffic pending",
             evidence_tier="anchor_workloads_proxy_ledger",
             local_real_builders=local_real,
             billed_workloads=len(billed),
             repos=sorted({w.get("source_repo") for w in billed}),
+            mac_remote_inference_ok=mac_inference_ok,
             **evidence,
         )
 
@@ -398,12 +405,55 @@ def _probe_row_30() -> dict[str, Any]:
     )
 
 
+def _format_engineering_tier_note(rank: int, row: dict[str, Any]) -> str:
+    """Build closure footnote from probe fields (keeps md/evidence aligned)."""
+    if rank == 1:
+        rate = row.get("kv_cache_hit_rate")
+        if rate is not None:
+            pct = f"{float(rate) * 100:.2f}%"
+            return (
+                f"openai_proxy_served_traffic — proxy→live vLLM KPI {pct} in harness; "
+                "1-month production soak ≥30% pending"
+            )
+    if rank == 2:
+        accept = row.get("mean_acceptance_rate")
+        model = str(row.get("live_vllm_model") or row.get("model") or "Qwen3")
+        short = model.split("/")[-1] if "/" in model else model
+        if accept is not None:
+            return (
+                f"live_eagle_validated_gated_off — {short}+EAGLE accept ~{float(accept):.2f} "
+                "on live HTTP; kept off (<0.75); Qwen3-8B 2-host mesh pending (RTX 2060 6GB)"
+            )
+    if rank == 5:
+        demo = row.get("demo") or {}
+        if demo.get("ok"):
+            return (
+                "live_criu_process_demo — same-host process CRIU ok; "
+                "cross-host docker serverless migrate pending"
+            )
+    if rank == 30:
+        billed = row.get("billed_workloads")
+        local = row.get("local_real_builders")
+        if billed is not None:
+            return (
+                f"anchor_workloads_proxy_ledger — {local or 0} local + "
+                f"{max(0, int(billed) - int(local or 0))} Mac-SSH builders with ledger rows; "
+                "sustained production anchor traffic pending"
+            )
+    return ENGINEERING_TIER_NOTES.get(rank, "structural")
+
+
 def _infer_engineering_tier(rank: int, row: dict[str, Any]) -> str:
+    preset = str(row.get("evidence_tier") or "")
+    if preset and preset != "missing":
+        return preset
     if rank == 1:
         if row.get("kv_cache_hit_rate") is not None:
             return "openai_proxy_served_traffic"
         return "structural_kv_instrumentation"
     if rank == 2:
+        if row.get("eagle_kept_on") is False and row.get("mean_acceptance_rate"):
+            return "live_eagle_validated_gated_off"
         if row.get("mean_acceptance_rate") is not None:
             return "structural_eagle_gate"
         return "missing"
@@ -415,7 +465,7 @@ def _infer_engineering_tier(rank: int, row: dict[str, Any]) -> str:
         if row.get("billed_workloads"):
             return "anchor_workloads_proxy_ledger"
         return "anchor_workloads_harness"
-    return str(row.get("evidence_tier") or "structural")
+    return "structural"
 
 
 def _apply_engineering_partial_closure(
@@ -428,12 +478,12 @@ def _apply_engineering_partial_closure(
         row = dict(rows.get(key) or {})
         probe_status = row.get("status")
         tier = _infer_engineering_tier(rank, row)
-        tier_note = ENGINEERING_TIER_NOTES.get(rank, tier)
+        tier_note = _format_engineering_tier_note(rank, row) or ENGINEERING_TIER_NOTES.get(rank, tier)
 
         row["probe_status"] = probe_status
         row["status"] = "blocked"
         row["evidence_tier"] = tier
-        row["engineering_shipped"] = probe_status == "verified" or tier != "missing"
+        row["engineering_shipped"] = tier != "missing"
         if probe_status == "verified":
             row["reason"] = f"engineering_partial (probe passed): {tier_note}"
         else:
