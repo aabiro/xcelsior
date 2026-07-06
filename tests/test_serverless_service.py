@@ -71,8 +71,8 @@ class TestManagedEngines:
         rerank = _preset_startup_command("vllm", "BAAI/bge-reranker-v2-m3")
         assert "--task score" in rerank
 
-    def test_qwen3_startup_includes_eagle3_when_enabled(self, monkeypatch):
-        monkeypatch.setenv("XCELSIOR_VLLM_EAGLE3", "1")
+    def test_qwen3_startup_includes_eagle3_when_force_enabled(self, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_VLLM_EAGLE3_FORCE", "1")
         cmd = _preset_startup_command("vllm", "Qwen/Qwen3-8B")
         assert "--speculative-algorithm EAGLE3" in cmd
         assert "--speculative-model" in cmd

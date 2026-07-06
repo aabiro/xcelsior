@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 import uuid
 from typing import Any
@@ -42,12 +43,13 @@ from serverless.openai_proxy import (
     accrue_proxy_token_usage,
     async_proxy_stream_lines,
     extract_usage_from_response,
+    extract_usage_from_stream_line,
     proxy_chat_completions,
     proxy_request,
 )
 from serverless.env_secrets import encrypt_env_for_storage, payload_byte_size
 from serverless.repo import EndpointCreate, ServerlessRepo, WORKER_STATE_READY
-from serverless.metering import pricing_for_endpoint
+from serverless.metering import pricing_for_endpoint, token_pricing_quote
 from serverless.service import ServerlessService, WalletPreflightError, get_serverless_service
 from serverless.streams import (
     SSE_RESPONSE_HEADERS,
@@ -279,6 +281,23 @@ def _enqueue_serverless_job(
 
 
 def _warm_worker_row(endpoint_id: str) -> dict | None:
+    """Return a ready worker row for OpenAI proxy routing.
+
+    When ``XCELSIOR_TEST_FAKE_VLLM_PORT`` is set (test env only), skip DB lookup
+    and route to the in-process fake vLLM upstream on that port.
+    """
+    fake_port = os.environ.get("XCELSIOR_TEST_FAKE_VLLM_PORT", "").strip()
+    if fake_port and os.environ.get("XCELSIOR_ENV") == "test":
+        try:
+            port = int(fake_port)
+        except ValueError:
+            port = 0
+        if port > 0:
+            return {
+                "worker_id": "swk-fake-vllm",
+                "host_ip": "127.0.0.1",
+                "job_payload": {"http_ports": {"8080": port}},
+            }
     repo = _repo()
     ep = repo.get_endpoint(endpoint_id)
     if not ep:
@@ -403,6 +422,22 @@ def api_serverless_endpoint_metrics(endpoint_id: str, request: Request):
     since_ts = time.time() - max(1.0, since_hours) * 3600.0
     metrics = _svc().get_endpoint_metrics(endpoint_id, since=since_ts)
     return {"ok": True, "metrics": metrics}
+
+
+# F5.0 preset SKUs — mirrored from serverless.registry_models.DOC_PRESET_MODELS.
+from serverless.registry_models import DOC_PRESET_MODELS as _PRESET_TOKEN_MODEL_REFS
+
+
+@router.get("/api/v2/serverless/preset-token-pricing", tags=["Serverless"])
+def api_preset_token_pricing(request: Request):
+    """Per-million token rates for preset models (single source: metering.py)."""
+    _require_auth(request)
+    quotes: dict[str, dict] = {}
+    for ref in _PRESET_TOKEN_MODEL_REFS:
+        q = token_pricing_quote(ref)
+        q["token_billing"] = True
+        quotes[ref] = q
+    return {"ok": True, "quotes": quotes}
 
 
 @router.get("/api/v2/serverless/endpoints/{endpoint_id}/usage", tags=["Serverless"])
@@ -752,7 +787,12 @@ async def api_serverless_openai_chat(endpoint_id: str, body: ChatCompletionReque
             if body.stream:
                 timeout = float(ep.get("request_timeout_sec") or 120)
 
+                stream_idem = (request.headers.get("idempotency-key") or "").strip() or None
+
                 async def _stream():
+                    last_usage: dict[str, int] | None = None
+                    t0 = time.perf_counter()
+                    ttft_ms = 0
                     try:
                         async for line in async_proxy_stream_lines(
                             worker_row,
@@ -764,8 +804,27 @@ async def api_serverless_openai_chat(endpoint_id: str, body: ChatCompletionReque
                             if await request.is_disconnected():
                                 return
                             if line:
+                                if (
+                                    ttft_ms == 0
+                                    and line.strip().startswith("data:")
+                                    and "[DONE]" not in line
+                                ):
+                                    ttft_ms = int((time.perf_counter() - t0) * 1000)
+                                parsed = extract_usage_from_stream_line(line)
+                                if parsed:
+                                    last_usage = parsed
                                 yield (line + "\n").encode("utf-8")
                         yield b"data: [DONE]\n\n"
+                        if last_usage:
+                            latency_ms = int((time.perf_counter() - t0) * 1000)
+                            accrue_proxy_token_usage(
+                                _repo(),
+                                ep,
+                                last_usage,
+                                idempotency_key=stream_idem,
+                                ttft_ms=ttft_ms or latency_ms,
+                                latency_ms=latency_ms,
+                            )
                     except OpenAIProxyError as e:
                         err = format_error_chunk(e.code, e.message)
                         yield err.encode("utf-8")
@@ -779,13 +838,17 @@ async def api_serverless_openai_chat(endpoint_id: str, body: ChatCompletionReque
                     headers=SSE_RESPONSE_HEADERS,
                 )
 
+            t0 = time.perf_counter()
             result = proxy_chat_completions(worker_row, ep, payload)
+            latency_ms = int((time.perf_counter() - t0) * 1000)
             idem = (request.headers.get("idempotency-key") or "").strip() or None
             accrue_proxy_token_usage(
                 _repo(),
                 ep,
                 extract_usage_from_response(result),
                 idempotency_key=idem,
+                ttft_ms=latency_ms,
+                latency_ms=latency_ms,
             )
             return result
         except OpenAIProxyError as e:
@@ -829,6 +892,7 @@ def api_serverless_openai_embeddings(
     payload = body.model_dump()
     with otel_span("serverless.openai.embeddings", {"endpoint_id": endpoint_id}):
         try:
+            t0 = time.perf_counter()
             resp = proxy_request(
                 worker_row,
                 ep,
@@ -843,12 +907,15 @@ def api_serverless_openai_embeddings(
                     resp.text[:500] or f"Upstream returned {resp.status_code}",
                 )
             result = resp.json()
+            latency_ms = int((time.perf_counter() - t0) * 1000)
             idem = (request.headers.get("idempotency-key") or "").strip() or None
             accrue_proxy_token_usage(
                 _repo(),
                 ep,
                 extract_usage_from_response(result),
                 idempotency_key=idem,
+                ttft_ms=latency_ms,
+                latency_ms=latency_ms,
             )
             return result
         except OpenAIProxyError as e:
@@ -915,6 +982,8 @@ class JobCompleteBody(BaseModel):
     error: str | None = None
     input_tokens: int = 0
     output_tokens: int = 0
+    cached_tokens: int = 0
+    ttft_ms: int = 0
 
 
 class JobEventBody(BaseModel):
@@ -985,6 +1054,8 @@ def api_serverless_worker_complete_job(
         error=body.error,
         input_tokens=body.input_tokens,
         output_tokens=body.output_tokens,
+        cached_tokens=body.cached_tokens,
+        ttft_ms=body.ttft_ms,
     )
     if not job:
         raise HTTPException(404, "Job not found")

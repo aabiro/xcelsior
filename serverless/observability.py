@@ -163,13 +163,15 @@ def compute_endpoint_metrics(
     *,
     queue_depth: int,
     window_sec: float,
+    ledger_rows: list[dict] | None = None,
 ) -> dict[str, Any]:
     """Aggregate per-endpoint metrics for dashboard + /metrics API."""
     completed = [j for j in jobs if str(j.get("status")) == "COMPLETED"]
     failed = [j for j in jobs if str(j.get("status")) == "FAILED"]
     cancelled = [j for j in jobs if str(j.get("status")) == "CANCELLED"]
     terminal = completed + failed + cancelled
-    window_requests = len(terminal)
+    proxy_rows = ledger_rows or []
+    window_requests = len(terminal) + len(proxy_rows)
 
     queue_ms_vals = [v for j in terminal if (v := _job_queue_ms(j)) is not None]
     exec_ms_vals = [v for j in terminal if (v := _job_execution_ms(j)) is not None]
@@ -177,8 +179,13 @@ def compute_endpoint_metrics(
     total_out_tokens = sum(int(j.get("output_tokens") or 0) for j in completed)
     total_in_tokens = sum(int(j.get("input_tokens") or 0) for j in completed)
     total_cached_tokens = sum(int(j.get("cached_tokens") or 0) for j in completed)
-    total_exec_sec = sum(
-        max(1, int(j.get("gpu_seconds") or 0)) for j in completed
+    total_out_tokens += sum(int(r.get("output_tokens") or 0) for r in proxy_rows)
+    total_in_tokens += sum(int(r.get("input_tokens") or 0) for r in proxy_rows)
+    total_cached_tokens += sum(int(r.get("cached_tokens") or 0) for r in proxy_rows)
+
+    total_exec_sec = sum(max(1, int(j.get("gpu_seconds") or 0)) for j in completed)
+    total_exec_sec += sum(
+        max(0.001, int(r.get("latency_ms") or 0) / 1000.0) for r in proxy_rows
     )
     tokens_per_sec = (
         round(total_out_tokens / total_exec_sec, 2) if total_exec_sec > 0 else 0.0
@@ -188,16 +195,23 @@ def compute_endpoint_metrics(
         for j in completed
         if int(j.get("ttft_ms") or 0) > 0
     ]
+    ttft_vals.extend(
+        float(r.get("ttft_ms") or 0)
+        for r in proxy_rows
+        if int(r.get("ttft_ms") or 0) > 0
+    )
     kv_cache_hit_rate = (
         round(total_cached_tokens / total_in_tokens, 4)
         if total_in_tokens > 0
         else 0.0
     )
 
+    proxy_success = len(proxy_rows)
+    denom = len(terminal) + proxy_success
     success_rate = (
-        round(len(completed) / window_requests, 4) if window_requests else 0.0
+        round((len(completed) + proxy_success) / denom, 4) if denom else 0.0
     )
-    error_rate = round(len(failed) / window_requests, 4) if window_requests else 0.0
+    error_rate = round(len(failed) / denom, 4) if denom else 0.0
 
     fleet = worker_fleet_stats(workers)
     return {

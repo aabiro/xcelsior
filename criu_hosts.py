@@ -29,7 +29,26 @@ CHECKPOINT_CLASS_DOCKER_CRIU = "docker-criu"
 CHECKPOINT_CLASS_GPU_CRIU = "gpu-criu"
 
 MIN_NVIDIA_DRIVER_MAJOR = 570
+# Validated reference host: ASUS RTX 2060 + driver 580.x (CRIUgpu gate passes; criu binary host ops).
+REFERENCE_CHECKPOINT_GPU = "RTX 2060"
+REFERENCE_CHECKPOINT_DRIVER = "580"
 _CHECKPOINT_DIR = Path(os.environ.get("XCELSIOR_CHECKPOINT_DIR", "checkpoints"))
+
+
+def cuda_driver_requirements() -> dict[str, Any]:
+    """Pinned CUDA/driver requirements for CRIUgpu rollout (§10 row 31)."""
+    return {
+        "min_nvidia_driver_major": MIN_NVIDIA_DRIVER_MAJOR,
+        "reference_gpu": REFERENCE_CHECKPOINT_GPU,
+        "reference_driver_prefix": REFERENCE_CHECKPOINT_DRIVER,
+        "docker_experimental_required": True,
+        "criu_required": True,
+        "checkpoint_classes": [CHECKPOINT_CLASS_DOCKER_CRIU, CHECKPOINT_CLASS_GPU_CRIU],
+        "notes": (
+            f"NVIDIA driver >={MIN_NVIDIA_DRIVER_MAJOR} enables gpu-criu CUDA context restore; "
+            "Docker experimental=true required for checkpoint create."
+        ),
+    }
 
 
 def _run(cmd: list[str] | str, *, timeout: float = 15.0) -> tuple[int, str, str]:

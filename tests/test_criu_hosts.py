@@ -9,6 +9,11 @@ import pytest
 from criu_hosts import (
     CHECKPOINT_CLASS_GPU_CRIU,
     CHECKPOINT_CLASS_NONE,
+    MIN_NVIDIA_DRIVER_MAJOR,
+    REFERENCE_CHECKPOINT_DRIVER,
+    REFERENCE_CHECKPOINT_GPU,
+    _parse_nvidia_driver_version,
+    cuda_driver_requirements,
     docker_checkpoint_local,
     enrich_job_resumable,
     host_supports_checkpoint,
@@ -110,6 +115,23 @@ def test_docker_checkpoint_local_success(mock_run, tmp_path, monkeypatch):
     assert meta["success"] is True
     assert meta["checkpoint_class"] == CHECKPOINT_CLASS_GPU_CRIU
     assert meta["job_id"] == "job1"
+
+
+def test_cuda_driver_requirements_pinned_for_criugpu():
+    reqs = cuda_driver_requirements()
+    assert reqs["min_nvidia_driver_major"] == MIN_NVIDIA_DRIVER_MAJOR
+    assert reqs["reference_gpu"] == REFERENCE_CHECKPOINT_GPU
+    assert reqs["docker_experimental_required"] is True
+    assert "gpu-criu" in reqs["checkpoint_classes"]
+
+
+def test_rtx_2060_driver_580_qualifies_for_gpu_criu_gate():
+    """Row 31: ASUS RTX 2060 + driver 580 passes the CRIUgpu driver gate (criu install is host ops)."""
+    driver_ver = _parse_nvidia_driver_version(f"{REFERENCE_CHECKPOINT_DRIVER}.65.02")
+    assert driver_ver is not None
+    assert driver_ver >= MIN_NVIDIA_DRIVER_MAJOR
+    probe = probe_checkpoint_stack(force_class=CHECKPOINT_CLASS_GPU_CRIU)
+    assert probe["nvidia_driver_version"] >= MIN_NVIDIA_DRIVER_MAJOR
 
 
 def test_probe_empty_without_criu(monkeypatch):

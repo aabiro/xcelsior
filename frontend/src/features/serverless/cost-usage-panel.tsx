@@ -4,7 +4,7 @@ import { StatCard } from "@/components/ui/stat-card";
 import { DollarSign, Zap, Clock, BarChart3 } from "lucide-react";
 import type { ServerlessEndpoint, ServerlessEndpointMetrics } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
-import { formatTokenRateLine } from "./constants";
+import { formatTokenRateFromPricing } from "./constants";
 
 interface CostUsagePanelProps {
   endpoint: ServerlessEndpoint;
@@ -64,7 +64,10 @@ export function CostUsagePanel({ endpoint, metrics }: CostUsagePanelProps) {
               <div className="flex justify-between">
                 <span className="text-text-muted">Tokens</span>
                 <span className="font-mono text-accent-cyan">
-                  {formatTokenRateLine(endpoint.model_ref || endpoint.model_id || "")}
+                  {formatTokenRateFromPricing(
+                    endpoint.model_ref || endpoint.model_id || "",
+                    pricing,
+                  )}
                 </span>
               </div>
             )}
@@ -72,6 +75,12 @@ export function CostUsagePanel({ endpoint, metrics }: CostUsagePanelProps) {
               <div className="flex justify-between">
                 <span className="text-text-muted">KV cache hit</span>
                 <span className="font-mono">{(metrics.kv_cache_hit_rate * 100).toFixed(1)}%</span>
+              </div>
+            )}
+            {metrics?.tokens_per_sec != null && metrics.tokens_per_sec > 0 && (
+              <div className="flex justify-between">
+                <span className="text-text-muted">Throughput</span>
+                <span className="font-mono">{metrics.tokens_per_sec.toLocaleString()} tok/s</span>
               </div>
             )}
             {metrics?.ttft_p95_ms != null && metrics.ttft_p95_ms > 0 && (
