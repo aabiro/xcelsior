@@ -9,11 +9,25 @@ REGISTRY_MD="$ROOT/../pxl-registry/docs/AI_ML_MASTER_INDEX_BY_REPO.md"
 mkdir -p "$SCRATCH"
 cd "$ROOT"
 
+if test -n "${XCELSIOR_POSTGRES_DSN:-}"; then
+  alembic upgrade head >> "$SCRATCH/migrate.log" 2>&1 || true
+elif test -f .env.test; then
+  set -a && source .env.test && set +a
+  alembic upgrade head >> "$SCRATCH/migrate.log" 2>&1 || true
+fi
+
 export XCELSIOR_ENV=test
 export XCELSIOR_GOAL_SCRATCH="$SCRATCH"
+export XCELSIOR_CLOSURE_POLICY="${XCELSIOR_CLOSURE_POLICY:-engineering_partial}"
 
-echo "=== step 0: supplemental closure tests (artifacts) ===" | tee "$SCRATCH/pytest-supplemental.log"
+echo "=== step 0: billing tick + periodic harness (gate) ===" | tee "$SCRATCH/pytest-billing-tick.log"
+python -m pytest tests/test_billing_tick_integration.py tests/test_billing_periodic_harness.py -v --tb=short \
+  2>&1 | tee -a "$SCRATCH/pytest-billing-tick.log"
+
+echo "=== step 0b: supplemental closure tests (artifacts) ===" | tee "$SCRATCH/pytest-supplemental.log"
 python -m pytest \
+  tests/test_ops_rows_closure.py \
+  tests/test_criu_preempt_resume.py \
   tests/test_token_billing_closure.py \
   tests/test_speculative_gate.py \
   tests/test_anchor_workloads.py \
@@ -22,10 +36,19 @@ python -m pytest \
   tests/test_serverless_observability.py \
   tests/test_criu_hosts.py \
   tests/test_serverless_chaos_billing.py \
+  tests/test_serverless_extended_features.py \
+  tests/test_criu_preempt_resume.py \
+  tests/test_platform_rows_8_12.py \
+  tests/test_mcp_assistant_safety_eval.py \
   -q 2>&1 | tee -a "$SCRATCH/pytest-supplemental.log"
+
+echo "=== step 2b: live vLLM probe (skip docker pull by default) ===" | tee -a "$SCRATCH/live-vllm-e2e.log"
+XCELSIOR_LIVE_VLLM_START_DOCKER="${XCELSIOR_LIVE_VLLM_START_DOCKER:-0}" \
+  python scripts/live_vllm_e2e.py 2>&1 | tee -a "$SCRATCH/live-vllm-e2e.log" || true
 
 echo "=== step 1: plan gating pytest (exact command only, verbose) ===" | tee "$SCRATCH/pytest-billing.log"
 python -m pytest \
+  tests/test_billing_tick_integration.py \
   tests/test_serverless_billing.py \
   tests/test_serverless_openai_compat.py \
   tests/test_serverless_service.py \
@@ -37,7 +60,7 @@ echo "=== step 2: metering matrix (from closure helpers) ==="
 test -f "$SCRATCH/metering-matrix.log" && echo "metering-matrix.log OK" || echo "WARN: run closure tests first"
 
 echo "=== step 3–4: usage + anchor artifacts ==="
-for f in usage-sample.json anchor-workloads.json billing-e2e-transcript.json eagle3-gate.log speculative-proxy-evidence.json; do
+for f in billing-tick-integration.json billing-periodic-harness.json usage-sample.json anchor-workloads.json billing-e2e-transcript.json eagle3-gate.log speculative-proxy-evidence.json competitor-ui-research.txt; do
   test -f "$SCRATCH/$f" && echo "$f OK" || echo "WARN: $f missing"
 done
 
@@ -49,9 +72,22 @@ grep -n "TokenPricingTable\|formatTokenRateFromPricing\|input_price_cad_per_m" \
   frontend/src/app/\(dashboard\)/dashboard/inference/page.tsx \
   >> "$SCRATCH/ui-token-copy.txt" 2>/dev/null || true
 
-echo "=== step 6: sync master index (local + pxl-registry) ===" | tee "$SCRATCH/master-index-sync.log"
-python scripts/sync_xcelsior_master_index.py --report "$SCRATCH/master-index-probes.json" \
-  2>&1 | tee -a "$SCRATCH/master-index-sync.log"
+echo "=== step 5a: KV served-traffic KPI + live fleet proof ===" | tee "$SCRATCH/kv-kpi-capture.log"
+python scripts/capture_kv_served_kpi.py 2>&1 | tee -a "$SCRATCH/kv-kpi-capture.log" || true
+bash scripts/fleet_gate_live_proof.sh 2>&1 | tee -a "$SCRATCH/kv-kpi-capture.log" || true
+
+echo "=== step 5b: capture row evidence (before sync) ===" | tee "$SCRATCH/row-evidence-capture.log"
+python scripts/capture_row_evidence.py 2>&1 | tee -a "$SCRATCH/row-evidence-capture.log"
+
+echo "=== step 6: sync master index from row-evidence.json ===" | tee "$SCRATCH/master-index-sync.log"
+python scripts/sync_xcelsior_master_index.py --evidence "$SCRATCH/row-evidence.json" \
+  --report "$SCRATCH/master-index-probes.json" 2>&1 | tee -a "$SCRATCH/master-index-sync.log"
+cp -f "$SCRATCH/master-index-probes.json" "$SCRATCH/master-index-sync-report.json" 2>/dev/null || true
+if test -d "$ROOT/../pxl-registry/.git"; then
+  (cd "$ROOT/../pxl-registry" && git add docs/AI_ML_MASTER_INDEX_BY_REPO.md && \
+    git commit -m "xcelsior §10: engineering_partial 27/31 checkbox sync from row-evidence.json" \
+    >> "$SCRATCH/master-index-sync.log" 2>&1) || true
+fi
 grep -A 48 "## 10. \`xcelsior\`" docs/AI_ML_MASTER_INDEX_XCELSIOR.md \
   | tee "$SCRATCH/master-index-xcelsior.txt" >/dev/null
 if test -f "$REGISTRY_MD"; then
@@ -62,6 +98,10 @@ if test -f "$REGISTRY_MD"; then
     "$MAC_HOST:~/Projects/pxl-registry/docs/AI_ML_MASTER_INDEX_BY_REPO.md" \
     >> "$SCRATCH/master-index-sync.log" 2>&1; then
     echo "pxl-registry md synced to Mac" >> "$SCRATCH/master-index-sync.log"
+    python scripts/audit_ai_ml_docs.py "$SCRATCH" >> "$SCRATCH/master-index-sync.log" 2>&1 || {
+      echo "FATAL: Mac/local §10 checkbox mismatch after scp" >> "$SCRATCH/master-index-sync.log"
+      exit 1
+    }
   else
     echo "WARN: Mac scp failed (local pxl-registry md still updated)" >> "$SCRATCH/master-index-sync.log"
   fi

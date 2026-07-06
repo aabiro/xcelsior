@@ -91,7 +91,7 @@ def _build_section(checked: dict[int, bool], evidence: dict) -> str:
     if len(blocked) > 8:
         blocked_notes += f"; …+{len(blocked) - 8} more"
 
-    policy = evidence.get("closure_policy") or "evidence_driven"
+    policy = evidence.get("closure_policy") or "engineering_partial"
     eng_rows = evidence.get("engineering_shipped_rows") or []
     eng_note = ""
     if eng_rows:
@@ -160,7 +160,7 @@ def main() -> int:
     evidence = _load_evidence(args.evidence)
     checked = _checked_rows(evidence)
     section = _build_section(checked, evidence)
-    policy = evidence.get("closure_policy") or "evidence_driven"
+    policy = evidence.get("closure_policy") or "engineering_partial"
     LOCAL_MIRROR.parent.mkdir(parents=True, exist_ok=True)
 
     mirror_body = (
