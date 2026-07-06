@@ -1,4 +1,4 @@
-<!-- synced from scripts/sync_xcelsior_master_index.py (evidence_driven) -->
+<!-- synced from scripts/sync_xcelsior_master_index.py (engineering_partial) -->
 <!-- evidence: /tmp/grok-goal-6f86c7cfe9c2/implementer/row-evidence.json -->
 
 ## 10. `xcelsior`
@@ -7,11 +7,11 @@
 
 | Rank | Item | Source |
 |------|------|--------|
-| 1 | - [x] Token endpoint GA with published price/SLO; ≥30% of served tokens KV-cache hits within a month of launch. | S6 F5 acceptance
-| 2 | - [x] Stand up vLLM + LMCache on 2 mesh hosts (Qwen3-8B or similar Apache model); enable EAGLE-3 (`--speculative-algorithm EAGLE3`) and validate acceptance rate ≥0.75 on real traffic samples before keeping it on. | S6 F5.0
+| 1 | - [ ] Token endpoint GA with published price/SLO; ≥30% of served tokens KV-cache hits within a month of launch. | S6 F5 acceptance
+| 2 | - [ ] Stand up vLLM + LMCache on 2 mesh hosts (Qwen3-8B or similar Apache model); enable EAGLE-3 (`--speculative-algorithm EAGLE3`) and validate acceptance rate ≥0.75 on real traffic samples before keeping it on. | S6 F5.0
 | 3 | - [x] Meter via existing `metering.py`: per-token ledger with cached-vs-computed token split (cached tokens priced lower — the marketing headline writes itself). | S6 F5.0
 | 4 | - [x] xcelsior: add `checkpoint_class: gpu-criu` capability flag to host agent + scheduler so preempted jobs on capable hosts resume instead of restart; surface "resumable" as a job attribute in the API. | S6 F4.2
-| 5 | - [x] One demonstrated preempt→migrate→resume of a running job between two xcelsior hosts (or same host restart) with no output diff. | S6 F4 acceptance
+| 5 | - [ ] One demonstrated preempt→migrate→resume of a running job between two xcelsior hosts (or same host restart) with no output diff. | S6 F4 acceptance
 | 6 | - [x] Add Mooncake store (or LMCache remote tier) so prefix reuse survives host churn; KV-aware routing in the scheduler: route requests to the host holding their prefix (session affinity by prompt-prefix hash first; Dynamo router when >4 hosts). | S6 F5.1
 | 7 | - [x] Publish `/v1/usage` SLO metrics (TTFT p95, tokens/s) per endpoint — sell against them. | S6 F5.1
 | 8 | - [x] SCIP application or partner LOI submitted; attestation schema merged. | S6 F5 acceptance
@@ -36,12 +36,12 @@
 | 27 | - [x] Add LLM observability with OpenLLMetry/Langfuse-style token, latency, cost, and tool traces. | S2 cross-cutting
 | 28 | - [x] Add `Toto 2.0` as a monitored fallback if Chronos-2 underfits ops telemetry forecasting. | S6 HM
 | 29 | - [x] Keep Dynamo optional until >4 LLM hosts; use LMCache alone at small scale. | S6 F5 risks
-| 30 | - [x] Launch with internal anchor workloads (pixelenhance-labs embed/caption, phantom-trades-mvp + ara-code chat patterns) to solve traffic cold start for token SKU. | S6 F5 risks
+| 30 | - [ ] Launch with internal anchor workloads (pixelenhance-labs embed/caption, phantom-trades-mvp + ara-code chat patterns) to solve traffic cold start for token SKU. | S6 F5 risks
 | 31 | - [x] Pin CUDA/driver requirements for CRIUgpu and test snapshot/restore on RTX 2060 before broader host-agent rollout. | S6 F4 risks
 
 *Excluded from S1 checklist scope (Xcelsior business/product): token pricing, serverless metering, spot GPU pricing, free-credit UI, unit-economics dashboards, marketplace landing copy, embeddings serving, prefix cache, multi-LoRA, chaos/metering ledger — see S1 scope boundary.*
 
-*xcelsior closure (evidence_driven, synced 2026-07-06T14:19:16Z): [x] rows: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31. [ ] rows: (none). . Source: row-evidence.json. Billing gates unchanged.*
+*xcelsior closure (engineering_partial, synced 2026-07-06T14:50:53Z): [x] rows: 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 31. [ ] rows: 1, 2, 5, 30. row 1: engineering_partial: openai_proxy_served_traffic — proxy→live vLLM KPI 83.33% in harness; 1-month production soak ≥30% pending; row 2: engineering_partial: live_eagle_validated_gated_off — Qwen3-4B-AWQ+EAGLE accept ~0.52 on live HTTP; kept off (<0.75); Qwen3-8B 2-host mesh pending (RTX 2060 6GB); row 5: engineering_partial: live_criu_process_demo — same-host process CRIU ok; cross-host docker serverless migrate pending; row 30: engineering_partial: anchor_workloads_proxy_ledger — 2 local + 2 Mac-SSH builders with ledger rows; sustained production anchor traffic pending. Source: row-evidence.json. Billing gates unchanged. Engineering shipped (unchecked): row 1=openai_proxy_served_traffic; row 2=live_eagle_validated_gated_off; row 5=live_criu_process_demo; row 30=anchor_workloads_proxy_ledger.*
 
 **Repo impact note:** These changes move `xcelsior` from GPU-hour marketplace plumbing toward a margin-focused inference platform with token SKUs, embeddings, KV reuse, reliable retries, and measurable SLOs.
 
