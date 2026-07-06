@@ -296,6 +296,12 @@ def api_register_host(h: HostIn, request: Request):
         entry["agent_sha256"] = h.agent_sha256
     if h.cpu_count:
         entry["cpu_count"] = int(h.cpu_count)
+    if h.checkpoint_class:
+        entry["checkpoint_class"] = h.checkpoint_class.strip().lower()
+    if h.capabilities:
+        entry["capabilities"] = h.capabilities
+    if h.cuda_driver_version:
+        entry["cuda_driver_version"] = h.cuda_driver_version
     # Persist Canadian company info if provided
     if h.corporation_name:
         entry["corporation_name"] = h.corporation_name

@@ -223,7 +223,19 @@ def api_agent_preempt(host_id: str, request: Request):
     from agent_preempt import pop_host_preemptions
 
     preempt_list = pop_host_preemptions(host_id)
-    return {"ok": True, "preempt_jobs": preempt_list}
+    checkpoint_mode = ""
+    try:
+        hosts = {h["host_id"]: h for h in list_hosts(active_only=False)}
+        host = hosts.get(host_id) or {}
+        checkpoint_mode = str(host.get("checkpoint_class") or "")
+    except Exception:
+        pass
+    return {
+        "ok": True,
+        "preempt_jobs": preempt_list,
+        "checkpoint_mode": checkpoint_mode,
+        "checkpoint_resumable": bool(checkpoint_mode),
+    }
 
 
 @router.post("/agent/preempt/{host_id}/{job_id}", tags=["Agent"])
