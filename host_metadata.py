@@ -221,6 +221,9 @@ def merge_host_update(existing: dict[str, Any], incoming: dict[str, Any]) -> dic
         "recommended_runtime",
         "compute_score",
         "registered_at",
+        "checkpoint_class",
+        "capabilities",
+        "cuda_driver_version",
     ):
         if ex.get(field) and not merged.get(field):
             merged[field] = ex[field]

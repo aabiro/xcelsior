@@ -938,6 +938,14 @@ def heartbeat(gpu_info, host_ip, compute_score=None):
         data["region"] = HOST_REGION
 
     try:
+        from criu_hosts import merge_checkpoint_capabilities, probe_checkpoint_stack
+
+        probe = probe_checkpoint_stack()
+        merge_checkpoint_capabilities(data, probe)
+    except Exception as exc:
+        log.debug("checkpoint probe skipped on heartbeat: %s", exc)
+
+    try:
         resp = requests.put(
             _api_url("/host"),
             json=data,
@@ -1804,6 +1812,7 @@ def report_job_status(
     ssh_port=None,
     interactive=None,
     error_message=None,
+    resume_from=None,
 ):
     """Update job status on the scheduler.
 
@@ -1822,6 +1831,9 @@ def report_job_status(
         data["interactive"] = interactive
     if error_message:
         data["error_message"] = error_message[:500]
+    if resume_from:
+        data["resume_from"] = resume_from
+        data["resumable"] = bool(resume_from.get("success"))
     try:
         resp = requests.patch(
             _api_url(f"/instance/{job_id}"),
@@ -4418,8 +4430,16 @@ def _remove_container(container_name):
 
 
 def handle_preemptions(preempt_job_ids):
-    """Handle preemption requests — gracefully stop containers."""
+    """Handle preemption — checkpoint on CRIU-capable hosts, else graceful stop."""
     grace_sec = int(os.environ.get("XCELSIOR_PREEMPTION_GRACE_SEC", "30"))
+    checkpoint_class = ""
+    try:
+        from criu_hosts import docker_checkpoint_local, probe_checkpoint_stack
+
+        checkpoint_class = str(probe_checkpoint_stack().get("checkpoint_class") or "")
+    except Exception:
+        pass
+
     for job_id in preempt_job_ids:
         with _active_lock:
             container_name = _active_containers.get(job_id)
@@ -4429,37 +4449,61 @@ def handle_preemptions(preempt_job_ids):
             continue
 
         log.warning(
-            "PREEMPTING job %s (container %s, grace=%ss)",
+            "PREEMPTING job %s (container %s, grace=%ss, checkpoint=%s)",
             job_id,
             container_name,
             grace_sec,
+            checkpoint_class or "none",
         )
 
-        try:
-            subprocess.run(
-                ["docker", "kill", "--signal=SIGTERM", container_name],
-                capture_output=True,
-                timeout=10,
-            )
-        except Exception as e:
-            log.debug("SIGTERM during preemption for %s: %s", job_id, e)
+        ckpt_meta = None
+        if checkpoint_class:
+            try:
+                from criu_hosts import docker_checkpoint_local
 
-        try:
-            subprocess.run(
-                ["docker", "stop", "-t", str(grace_sec), container_name],
-                capture_output=True,
-                timeout=grace_sec + 15,
-            )
-        except Exception as e:
-            log.warning("docker stop failed during preemption: %s", e)
-            _kill_container(container_name)
+                ckpt_meta = docker_checkpoint_local(
+                    container_name,
+                    job_id,
+                    checkpoint_class=checkpoint_class,
+                )
+            except Exception as exc:
+                log.warning("checkpoint preemption failed job=%s: %s", job_id, exc)
 
-        report_job_status(job_id, "preempted")
+        if not ckpt_meta:
+            try:
+                subprocess.run(
+                    ["docker", "kill", "--signal=SIGTERM", container_name],
+                    capture_output=True,
+                    timeout=10,
+                )
+            except Exception as e:
+                log.debug("SIGTERM during preemption for %s: %s", job_id, e)
+
+            try:
+                subprocess.run(
+                    ["docker", "stop", "-t", str(grace_sec), container_name],
+                    capture_output=True,
+                    timeout=grace_sec + 15,
+                )
+            except Exception as e:
+                log.warning("docker stop failed during preemption: %s", e)
+                _kill_container(container_name)
+
+        report_job_status(
+            job_id,
+            "preempted",
+            resume_from=ckpt_meta,
+            host_id=HOST_ID,
+        )
 
         with _active_lock:
             _active_containers.pop(job_id, None)
 
-        log.info("Job %s preempted and cleaned up", job_id)
+        log.info(
+            "Job %s preempted (%s)",
+            job_id,
+            "checkpointed" if ckpt_meta else "stopped",
+        )
 
 
 # ── Telemetry Push Thread ─────────────────────────────────────────────

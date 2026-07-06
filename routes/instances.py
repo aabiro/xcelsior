@@ -427,6 +427,8 @@ class StatusUpdate(BaseModel):
     ssh_port: int | None = None
     interactive: bool | None = None
     error_message: str | None = None
+    resume_from: dict | None = None
+    resumable: bool | None = None
 
 
 def _wallet_preflight(
@@ -897,11 +899,17 @@ def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
             j.setdefault("host_vram_gb", default_vram_gb(actual_gpu))
         except Exception:
             pass
-        if not actual_gpu and host.get("gpu_model"):
-            j["host_gpu"] = host["gpu_model"]
-            j["gpu_type"] = host["gpu_model"]
-        if j.get("status") in ("running", "starting", "completed", "failed"):
+        if j.get("status") in ("running", "starting", "completed", "failed") and host:
             j.setdefault("host_ip", host.get("ip", ""))
+
+    try:
+        from criu_hosts import enrich_job_resumable
+
+        enrich_job_resumable(j)
+    except Exception:
+        j.setdefault("resumable", bool(j.get("resume_from")))
+    if hid and host and host.get("checkpoint_class"):
+        j.setdefault("host_checkpoint_class", host.get("checkpoint_class"))
 
     # Elapsed / duration
     started = float(j.get("started_at") or 0)
@@ -1098,13 +1106,16 @@ def api_update_instance(job_id: str, update: StatusUpdate, request: Request):
                 count = int(job.get("preemption_count", 0) or 0)
                 if job.get("status") == "preempted":
                     count += 1
-                _set_job_fields(
-                    job_id,
-                    preempted_at=time.time(),
-                    preemption_count=count,
-                    host_id=None,
-                    started_at=None,
-                )
+                requeue_fields: dict = {
+                    "preempted_at": time.time(),
+                    "preemption_count": count,
+                    "host_id": None,
+                    "started_at": None,
+                }
+                if update.resume_from:
+                    requeue_fields["resume_from"] = update.resume_from
+                    requeue_fields["resumable"] = bool(update.resume_from.get("success"))
+                _set_job_fields(job_id, **requeue_fields)
                 update_job_status(job_id, "queued")
                 broadcast_sse("job_status", {"job_id": job_id, "status": "queued"})
                 return {"ok": True, "job_id": job_id, "status": "queued"}
@@ -1138,6 +1149,11 @@ def api_update_instance(job_id: str, update: StatusUpdate, request: Request):
             extras["interactive"] = update.interactive
         if update.error_message:
             extras["error_message"] = update.error_message[:500]
+        if update.resume_from:
+            extras["resume_from"] = update.resume_from
+            extras["resumable"] = bool(update.resume_from.get("success"))
+        elif update.resumable is not None:
+            extras["resumable"] = update.resumable
         if extras:
             from scheduler import _set_job_fields
 
