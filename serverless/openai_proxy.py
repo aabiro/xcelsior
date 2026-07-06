@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -244,6 +245,34 @@ async def async_proxy_stream_lines(
                 yield line
 
 
+def endpoint_accrues_tokens(endpoint: dict | None) -> bool:
+    """True when parallel token metering applies (preset chat/embed/rerank only)."""
+    if not endpoint or str(endpoint.get("mode") or "") != "preset":
+        return False
+    task = model_task(str(endpoint.get("model_ref") or ""))
+    return task in ("chat", "embed", "rerank")
+
+
+def extract_usage_from_stream_line(line: str) -> dict[str, int] | None:
+    """Parse usage from one OpenAI SSE ``data:`` line (final chunk carries usage)."""
+    raw = (line or "").strip()
+    if not raw.startswith("data:"):
+        return None
+    payload = raw[5:].strip()
+    if not payload or payload == "[DONE]":
+        return None
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    usage = data.get("usage")
+    if isinstance(usage, dict) and usage:
+        return extract_usage_from_response({"usage": usage})
+    return None
+
+
 def extract_usage_from_response(payload: dict[str, Any]) -> dict[str, int]:
     """Parse OpenAI/vLLM usage block including prefix-cache token details."""
     usage = payload.get("usage") or {}
@@ -257,11 +286,24 @@ def extract_usage_from_response(payload: dict[str, Any]) -> dict[str, int]:
         or usage.get("cached_tokens")
         or 0
     )
-    return {
+    completion_details = usage.get("completion_tokens_details") or {}
+    if not isinstance(completion_details, dict):
+        completion_details = {}
+    out: dict[str, int] = {
         "input_tokens": int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
         "output_tokens": int(usage.get("completion_tokens") or usage.get("output_tokens") or 0),
         "cached_tokens": max(0, cached),
     }
+    for key in ("accepted_tokens", "rejected_tokens", "draft_tokens"):
+        val = completion_details.get(key)
+        if val is None:
+            val = usage.get(f"speculative_{key}")
+        if val is not None:
+            try:
+                out[key] = int(val)
+            except (TypeError, ValueError):
+                pass
+    return out
 
 
 def accrue_proxy_token_usage(
@@ -270,10 +312,14 @@ def accrue_proxy_token_usage(
     usage: dict[str, int],
     *,
     idempotency_key: str | None = None,
+    ttft_ms: int = 0,
+    latency_ms: int = 0,
 ) -> dict[str, Any]:
     """Record token cost from a synchronous OpenAI proxy response (parallel meter)."""
     from serverless.metering import token_cost_metadata
 
+    if not endpoint_accrues_tokens(endpoint):
+        return {"accrued": False, "reason": "not_token_product"}
     if not usage:
         return {"accrued": False, "reason": "no_usage"}
     endpoint_id = str(endpoint.get("endpoint_id") or "")
@@ -282,6 +328,22 @@ def accrue_proxy_token_usage(
     if idempotency_key and hasattr(repo, "token_usage_already_recorded"):
         if repo.token_usage_already_recorded(endpoint_id, idempotency_key):
             return {"accrued": False, "reason": "duplicate_idempotency_key"}
+    try:
+        from serverless.speculative_gate import record_speculative_from_usage
+
+        record_speculative_from_usage(
+            str(endpoint.get("model_ref") or ""),
+            usage if isinstance(usage, dict) else {"completion_tokens_details": {}},
+            tokens_per_sec=(
+                (int(usage.get("output_tokens") or 0) * 1000.0 / latency_ms)
+                if latency_ms and int(usage.get("output_tokens") or 0) > 0
+                else None
+            ),
+            source="proxy",
+        )
+    except Exception:
+        pass
+
     meta = token_cost_metadata(
         int(usage.get("input_tokens") or 0),
         int(usage.get("output_tokens") or 0),
@@ -297,7 +359,11 @@ def accrue_proxy_token_usage(
             endpoint_id,
             idempotency_key,
             meta,
+            ttft_ms=ttft_ms,
+            latency_ms=latency_ms,
         )
+    if hasattr(repo, "increment_endpoint_totals"):
+        repo.increment_endpoint_totals(endpoint_id, requests=1)
     return {"accrued": True, "metadata": meta}
 
 

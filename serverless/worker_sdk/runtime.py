@@ -93,6 +93,8 @@ def _execute_job_sync(
             output=output or {},
             input_tokens=int(usage.get("input_tokens") or 0),
             output_tokens=int(usage.get("output_tokens") or 0),
+            cached_tokens=int(usage.get("cached_tokens") or 0),
+            ttft_ms=int(usage.get("ttft_ms") or 0),
         )
         elapsed_ms = int((time.time() - started) * 1000)
         log.info(

@@ -150,7 +150,8 @@ class TestBlendedMeter:
         assert blended_period_amount(0.0, 0.0) == 0.0
         assert blended_period_amount(0.30, 0.30) == 0.30
 
-    def test_charge_consumes_accrual_and_bills_blended_when_enabled(self):
+    def test_charge_consumes_accrual_and_bills_blended_when_enabled(self, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_SERVERLESS_BLENDED_BILLING", "1")
         repo = MagicMock()
         repo.consume_endpoint_token_cost.return_value = 5.00  # token cost ≫ gpu cost
         billing = MagicMock()
@@ -162,8 +163,6 @@ class TestBlendedMeter:
         }
         with patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60), patch(
             "serverless.metering.last_billed_period_end", return_value=None
-        ), patch("serverless.metering.BLENDED_BILLING_ENABLED", True), patch(
-            "serverless.metering.MIN_BILLING_INTERVAL_SEC", 60
         ):
             # 120s @ 3.60/hr = 0.12 CAD GPU; token cost 5.00 → blended bills 5.00
             result = charge_serverless_execution(
@@ -175,7 +174,8 @@ class TestBlendedMeter:
         assert result["amount_cad"] == 5.00
         assert billing.charge.call_args[0][1] == 5.00  # charged the blended (token) amount
 
-    def test_charge_defaults_to_gpu_when_flag_off(self):
+    def test_charge_defaults_to_gpu_when_flag_off(self, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_SERVERLESS_BLENDED_BILLING", "0")
         repo = MagicMock()
         repo.consume_endpoint_token_cost.return_value = 5.00
         billing = MagicMock()
@@ -187,8 +187,6 @@ class TestBlendedMeter:
         }
         with patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60), patch(
             "serverless.metering.last_billed_period_end", return_value=None
-        ), patch("serverless.metering.BLENDED_BILLING_ENABLED", False), patch(
-            "serverless.metering.MIN_BILLING_INTERVAL_SEC", 60
         ):
             result = charge_serverless_execution(
                 billing, repo, worker, endpoint, period_end=1000.0 + 120, final=True
@@ -287,7 +285,7 @@ class TestOpenAIProxyAccrual:
     def test_proxy_accrual_idempotent(self):
         repo = MagicMock()
         repo.token_usage_already_recorded.return_value = False
-        ep = {"endpoint_id": "ep-x", "model_ref": "Qwen/Qwen3-8B"}
+        ep = {"endpoint_id": "ep-x", "mode": "preset", "model_ref": "Qwen/Qwen3-8B"}
         usage = {"input_tokens": 500, "output_tokens": 100, "cached_tokens": 200}
         r1 = accrue_proxy_token_usage(repo, ep, usage, idempotency_key="req-1")
         assert r1["accrued"] is True

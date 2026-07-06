@@ -207,6 +207,10 @@ class HostIn(BaseModel):
     spot_enabled: bool | None = None
     spot_gpu_slots: int | None = Field(default=None, ge=0, le=64)
     spot_min_cents: int | None = Field(default=None, ge=0, le=1_000_000)
+    # CRIU checkpoint capability (S6 F4.2): docker-criu | gpu-criu | empty
+    checkpoint_class: str | None = Field(default=None, max_length=32)
+    capabilities: dict | None = None
+    cuda_driver_version: str | None = Field(default=None, max_length=32)
 
 
 # ── Model: JobIn ──

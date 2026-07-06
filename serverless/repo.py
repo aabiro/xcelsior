@@ -338,6 +338,7 @@ class ServerlessRepo:
         state: str | None = None,
         host_id: str | None = None,
         current_concurrency: int | None = None,
+        allocated_at: float | None = None,
         released_at: float | None = None,
         last_heartbeat_at: float | None = None,
         error_message: str | None = None,
@@ -349,6 +350,8 @@ class ServerlessRepo:
             fields["host_id"] = host_id
         if current_concurrency is not None:
             fields["current_concurrency"] = current_concurrency
+        if allocated_at is not None:
+            fields["allocated_at"] = allocated_at
         if released_at is not None:
             fields["released_at"] = released_at
         if last_heartbeat_at is not None:
@@ -1084,11 +1087,45 @@ class ServerlessRepo:
             ).fetchone()
         return row is not None
 
+    def list_token_ledger(
+        self,
+        endpoint_id: str,
+        *,
+        limit: int = 50,
+        since: float | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return recent token ledger rows for an endpoint (billing evidence)."""
+        if not endpoint_id:
+            return []
+        clauses = ["endpoint_id = %s"]
+        params: list[Any] = [endpoint_id]
+        if since is not None:
+            clauses.append("created_at >= %s")
+            params.append(float(since))
+        params.append(max(1, int(limit)))
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT ledger_id, endpoint_id, idempotency_key,
+                       input_tokens, output_tokens, cached_tokens,
+                       ttft_ms, latency_ms, cost_cad, created_at
+                  FROM serverless_token_ledger
+                 WHERE {' AND '.join(clauses)}
+                 ORDER BY created_at DESC
+                 LIMIT %s
+                """,
+                tuple(params),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def record_token_usage_idempotency(
         self,
         endpoint_id: str,
         idempotency_key: str,
         meta: dict[str, Any],
+        *,
+        ttft_ms: int = 0,
+        latency_ms: int = 0,
     ) -> None:
         if not endpoint_id or not idempotency_key:
             return
@@ -1101,8 +1138,9 @@ class ServerlessRepo:
                 """
                 INSERT INTO serverless_token_ledger
                     (ledger_id, endpoint_id, idempotency_key,
-                     input_tokens, output_tokens, cached_tokens, cost_cad, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                     input_tokens, output_tokens, cached_tokens,
+                     ttft_ms, latency_ms, cost_cad, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (endpoint_id, idempotency_key) DO NOTHING
                 """,
                 (
@@ -1112,6 +1150,8 @@ class ServerlessRepo:
                     int(meta.get("input_tokens") or 0),
                     int(meta.get("output_tokens") or 0),
                     int(meta.get("cached_tokens") or 0),
+                    max(0, int(ttft_ms or meta.get("ttft_ms") or 0)),
+                    max(0, int(latency_ms or meta.get("latency_ms") or 0)),
                     float(meta.get("total_token_cost_cad") or 0.0),
                     now,
                 ),

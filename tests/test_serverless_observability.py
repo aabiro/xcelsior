@@ -88,6 +88,39 @@ class TestCorrelationAndMetrics:
         assert m["idle_workers"] == 1
         assert m["busy_workers"] == 1
 
+    def test_compute_endpoint_metrics_includes_token_ledger(self):
+        ep = {"endpoint_id": "sep-ledger", "total_requests": 5}
+        ledger = [
+            {
+                "input_tokens": 1000,
+                "output_tokens": 200,
+                "cached_tokens": 400,
+                "ttft_ms": 120,
+                "latency_ms": 800,
+            },
+            {
+                "input_tokens": 500,
+                "output_tokens": 100,
+                "cached_tokens": 100,
+                "ttft_ms": 90,
+                "latency_ms": 600,
+            },
+        ]
+        m = compute_endpoint_metrics(
+            ep,
+            [],
+            [],
+            queue_depth=0,
+            window_sec=3600,
+            ledger_rows=ledger,
+        )
+        assert m["window_requests"] == 2
+        assert m["total_input_tokens"] == 1500
+        assert m["total_cached_tokens"] == 500
+        assert m["kv_cache_hit_rate"] == round(500 / 1500, 4)
+        assert m["ttft_p95_ms"] > 0
+        assert m["tokens_per_sec"] > 0
+
     def test_worker_fleet_stats(self):
         stats = worker_fleet_stats(
             [

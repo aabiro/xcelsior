@@ -21,6 +21,7 @@ python -m pytest \
   tests/test_b2_model_sync.py \
   tests/test_serverless_observability.py \
   tests/test_criu_hosts.py \
+  tests/test_serverless_chaos_billing.py \
   -q 2>&1 | tee -a "$SCRATCH/pytest-supplemental.log"
 
 echo "=== step 1: plan gating pytest (exact command only, verbose) ===" | tee "$SCRATCH/pytest-billing.log"

@@ -78,6 +78,8 @@ class WorkerClient:
         error: str | None = None,
         input_tokens: int = 0,
         output_tokens: int = 0,
+        cached_tokens: int = 0,
+        ttft_ms: int = 0,
     ) -> dict[str, Any]:
         return self._post(
             f"/api/v2/serverless/workers/{self.worker_id}/jobs/{job_id}/complete",
@@ -86,6 +88,8 @@ class WorkerClient:
                 "error": error,
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
+                "cached_tokens": cached_tokens,
+                "ttft_ms": ttft_ms,
             },
         )
 
