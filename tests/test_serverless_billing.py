@@ -12,6 +12,7 @@ os.environ.setdefault("XCELSIOR_API_TOKEN", "")
 
 from serverless.metering import (
     blended_period_amount,
+    cached_input_price,
     charge_serverless_execution,
     estimate_cost_cad,
     estimate_worker_cost_for_duration_sec,
@@ -20,8 +21,10 @@ from serverless.metering import (
     pricing_for_endpoint,
     token_cost_metadata,
     token_prices_for_model,
+    token_pricing_quote,
     worker_rate_cad_per_second,
 )
+from serverless.openai_proxy import accrue_proxy_token_usage, extract_usage_from_response
 from serverless.repo import EndpointCreate, ServerlessRepo
 from serverless.service import ServerlessService, WalletPreflightError
 
@@ -230,6 +233,91 @@ class TestJobCompleteNoWalletDebit:
         assert completed is not None
         assert float(completed.get("cost_cad") or 0) == 0.0
         assert completed.get("input_tokens") == 100
+
+
+class TestCachedTokenPricing:
+    def test_cached_cheaper_than_computed(self):
+        meta = token_cost_metadata(1_000_000, 0, model_ref="Mistral-7B", cached_tokens=800_000)
+        full = token_cost_metadata(1_000_000, 0, model_ref="Mistral-7B", cached_tokens=0)
+        assert meta["total_token_cost_cad"] < full["total_token_cost_cad"]
+        assert meta["cached_tokens"] == 800_000
+        assert meta["computed_input_tokens"] == 200_000
+
+    def test_cached_price_is_half_input_band(self):
+        in_price, _ = token_prices_for_model("gemma-2-9b-it")
+        assert cached_input_price(in_price) == pytest.approx(in_price * 0.5, rel=1e-6)
+
+    def test_pricing_quote_includes_token_rates_for_preset(self):
+        quote = pricing_for_endpoint(
+            {
+                "mode": "preset",
+                "model_ref": "Qwen/Qwen3-8B",
+                "gpu_tier": "RTX 4090",
+                "region": "ca-east",
+                "gpu_count": 1,
+            }
+        )
+        assert quote.get("token_billing") is True
+        assert quote["input_price_cad_per_m"] == 0.15
+        assert quote["output_price_cad_per_m"] == 0.45
+        assert quote["cached_input_price_cad_per_m"] == pytest.approx(0.075, rel=1e-6)
+        assert "rate_cents_per_second_per_worker" in quote
+
+    def test_custom_endpoint_has_no_token_billing(self):
+        quote = pricing_for_endpoint(
+            {"mode": "custom", "image_ref": "img", "gpu_tier": "RTX 4090", "region": "ca-east"}
+        )
+        assert "token_billing" not in quote
+
+
+class TestOpenAIProxyAccrual:
+    def test_extract_usage_with_cached_tokens(self):
+        usage = extract_usage_from_response(
+            {
+                "usage": {
+                    "prompt_tokens": 1000,
+                    "completion_tokens": 200,
+                    "prompt_tokens_details": {"cached_tokens": 600},
+                }
+            }
+        )
+        assert usage["input_tokens"] == 1000
+        assert usage["cached_tokens"] == 600
+
+    def test_proxy_accrual_idempotent(self):
+        repo = MagicMock()
+        repo.token_usage_already_recorded.return_value = False
+        ep = {"endpoint_id": "ep-x", "model_ref": "Qwen/Qwen3-8B"}
+        usage = {"input_tokens": 500, "output_tokens": 100, "cached_tokens": 200}
+        r1 = accrue_proxy_token_usage(repo, ep, usage, idempotency_key="req-1")
+        assert r1["accrued"] is True
+        repo.accrue_endpoint_token_cost.assert_called_once()
+        repo.token_usage_already_recorded.return_value = True
+        r2 = accrue_proxy_token_usage(repo, ep, usage, idempotency_key="req-1")
+        assert r2["accrued"] is False
+        assert r2["reason"] == "duplicate_idempotency_key"
+
+
+class TestDualWriteMatrix:
+    def test_7b_vs_70b_token_costs(self):
+        small = token_cost_metadata(1_000_000, 1_000_000, model_ref="Qwen/Qwen3-8B")
+        large = token_cost_metadata(1_000_000, 1_000_000, model_ref="Llama-3.3-70B")
+        assert small["total_token_cost_cad"] < large["total_token_cost_cad"]
+
+    def test_blended_matrix_cases(self):
+        # GPU wins when utilization is high relative to token throughput
+        assert blended_period_amount(0.40, 0.12) == 0.40
+        # Token wins when throughput is high on a cheap GPU slice
+        assert blended_period_amount(0.05, 0.25) == 0.25
+        # Cached tokens lower the token side
+        cached = token_cost_metadata(1_000_000, 1_000_000, model_ref="Mistral-7B", cached_tokens=900_000)
+        uncached = token_cost_metadata(1_000_000, 1_000_000, model_ref="Mistral-7B")
+        assert cached["total_token_cost_cad"] < uncached["total_token_cost_cad"]
+
+    def test_token_pricing_quote_matches_metadata(self):
+        q = token_pricing_quote("Qwen/Qwen3-8B")
+        meta = token_cost_metadata(0, 0, model_ref="Qwen/Qwen3-8B")
+        assert q["input_price_cad_per_m"] == meta["input_price_cad_per_m"]
 
 
 class TestTeamBillingOwner:

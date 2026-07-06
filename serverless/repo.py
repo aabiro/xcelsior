@@ -509,6 +509,8 @@ class ServerlessRepo:
         cold_start_seconds: int = 0,
         input_tokens: int = 0,
         output_tokens: int = 0,
+        cached_tokens: int = 0,
+        ttft_ms: int = 0,
         cost_cad: float = 0.0,
     ) -> dict | None:
         now = time.time()
@@ -525,6 +527,8 @@ class ServerlessRepo:
                     cold_start_seconds = %s,
                     input_tokens = %s,
                     output_tokens = %s,
+                    cached_tokens = %s,
+                    ttft_ms = %s,
                     cost_cad = %s,
                     updated_at = %s
                 WHERE job_id = %s
@@ -538,6 +542,8 @@ class ServerlessRepo:
                     cold_start_seconds,
                     input_tokens,
                     output_tokens,
+                    cached_tokens,
+                    ttft_ms,
                     cost_cad,
                     now,
                     job_id,
@@ -1062,6 +1068,53 @@ class ServerlessRepo:
                  WHERE endpoint_id = %s
                 """,
                 (float(cost_cad), time.time(), endpoint_id),
+            )
+
+    def token_usage_already_recorded(self, endpoint_id: str, idempotency_key: str) -> bool:
+        if not endpoint_id or not idempotency_key:
+            return False
+        with self._conn() as conn:
+            row = conn.execute(
+                """
+                SELECT 1 FROM serverless_token_ledger
+                WHERE endpoint_id = %s AND idempotency_key = %s
+                LIMIT 1
+                """,
+                (endpoint_id, idempotency_key),
+            ).fetchone()
+        return row is not None
+
+    def record_token_usage_idempotency(
+        self,
+        endpoint_id: str,
+        idempotency_key: str,
+        meta: dict[str, Any],
+    ) -> None:
+        if not endpoint_id or not idempotency_key:
+            return
+        import uuid
+
+        now = time.time()
+        ledger_id = f"stl-{uuid.uuid4().hex[:12]}"
+        with self._conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO serverless_token_ledger
+                    (ledger_id, endpoint_id, idempotency_key,
+                     input_tokens, output_tokens, cached_tokens, cost_cad, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (endpoint_id, idempotency_key) DO NOTHING
+                """,
+                (
+                    ledger_id,
+                    endpoint_id,
+                    idempotency_key,
+                    int(meta.get("input_tokens") or 0),
+                    int(meta.get("output_tokens") or 0),
+                    int(meta.get("cached_tokens") or 0),
+                    float(meta.get("total_token_cost_cad") or 0.0),
+                    now,
+                ),
             )
 
     def consume_endpoint_token_cost(self, endpoint_id: str) -> float:
