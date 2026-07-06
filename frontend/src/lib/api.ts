@@ -2616,6 +2616,11 @@ export interface ServerlessPricing {
   rate_cents_per_second_per_worker: number;
   gpu_count: number;
   formula: string;
+  token_billing?: boolean;
+  input_price_cad_per_m?: number;
+  output_price_cad_per_m?: number;
+  cached_input_price_cad_per_m?: number;
+  token_formula?: string;
 }
 
 export interface ServerlessEndpoint {
@@ -2675,6 +2680,10 @@ export interface ServerlessEndpointMetrics {
   avg_gpu_seconds: number;
   total_gpu_seconds: number;
   tokens_per_sec: number;
+  ttft_p95_ms?: number;
+  kv_cache_hit_rate?: number;
+  total_input_tokens?: number;
+  total_cached_tokens?: number;
   total_output_tokens: number;
   total_cost_cad: number;
   active_workers: number;

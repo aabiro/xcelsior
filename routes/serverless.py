@@ -39,7 +39,9 @@ from serverless.limits import (
 from serverless.webhooks import validate_webhook_url
 from serverless.openai_proxy import (
     OpenAIProxyError,
+    accrue_proxy_token_usage,
     async_proxy_stream_lines,
+    extract_usage_from_response,
     proxy_chat_completions,
     proxy_request,
 )
@@ -409,11 +411,14 @@ def api_serverless_endpoint_usage(endpoint_id: str, request: Request):
     user = _require_auth(request)
     _get_endpoint_for_user(endpoint_id, user)
     metrics = _svc().get_endpoint_metrics(endpoint_id)
+    ep = _repo().get_endpoint(endpoint_id) or {}
+    pricing = pricing_for_endpoint(ep) if ep else {}
     usage = {
         "endpoint_id": endpoint_id,
         "total_requests": metrics.get("total_requests", 0),
         "total_gpu_seconds": metrics.get("total_gpu_seconds", 0),
         "total_cost_cad": metrics.get("total_cost_cad", 0),
+        "pricing": pricing,
         "last_24h": {
             "jobs_completed": metrics.get("jobs_completed", 0),
             "jobs_failed": metrics.get("jobs_failed", 0),
@@ -423,6 +428,10 @@ def api_serverless_endpoint_usage(endpoint_id: str, request: Request):
             "avg_queue_ms": metrics.get("avg_queue_ms", 0),
             "avg_execution_ms": metrics.get("avg_execution_ms", 0),
             "tokens_per_sec": metrics.get("tokens_per_sec", 0),
+            "ttft_p95_ms": metrics.get("ttft_p95_ms", 0),
+            "kv_cache_hit_rate": metrics.get("kv_cache_hit_rate", 0),
+            "total_input_tokens": metrics.get("total_input_tokens", 0),
+            "total_cached_tokens": metrics.get("total_cached_tokens", 0),
         },
     }
     return {"ok": True, "usage": usage}
@@ -771,6 +780,76 @@ async def api_serverless_openai_chat(endpoint_id: str, body: ChatCompletionReque
                 )
 
             result = proxy_chat_completions(worker_row, ep, payload)
+            idem = (request.headers.get("idempotency-key") or "").strip() or None
+            accrue_proxy_token_usage(
+                _repo(),
+                ep,
+                extract_usage_from_response(result),
+                idempotency_key=idem,
+            )
+            return result
+        except OpenAIProxyError as e:
+            raise HTTPException(e.status_code, detail={"error": {"code": e.code, "message": e.message}})
+
+
+class EmbeddingRequest(BaseModel):
+    model: str = ""
+    input: str | list[str] = ""
+    encoding_format: str = "float"
+
+
+@router.post("/v1/serverless/{endpoint_id}/openai/v1/embeddings", tags=["Serverless"])
+def api_serverless_openai_embeddings(
+    endpoint_id: str, body: EmbeddingRequest, request: Request
+):
+    _user, key_row, _ep = _resolve_serverless_endpoint_auth(request, endpoint_id, write=True)
+    try:
+        _run_rate_limit(key_row)
+    except RateLimitExceeded as e:
+        raise HTTPException(
+            429,
+            detail={"error": {"code": "rate_limited", "message": "Rate limit exceeded"}},
+            headers=rate_limit_headers(e.info),
+        )
+    ep = _repo().get_endpoint(endpoint_id)
+    if not ep:
+        raise HTTPException(404, "Endpoint not found")
+    if str(ep.get("mode")) != "preset":
+        raise HTTPException(400, "OpenAI proxy requires a preset (managed) endpoint")
+    try:
+        ServerlessService.wallet_preflight(str(ep["owner_id"]))
+    except WalletPreflightError as e:
+        raise HTTPException(e.status_code, e.message)
+    worker_row = _warm_worker_row(endpoint_id)
+    if not worker_row:
+        _svc().reconcile_endpoint(endpoint_id)
+        worker_row = _warm_worker_row(endpoint_id)
+    if not worker_row:
+        raise HTTPException(503, f"No warm workers available for endpoint {endpoint_id}")
+    payload = body.model_dump()
+    with otel_span("serverless.openai.embeddings", {"endpoint_id": endpoint_id}):
+        try:
+            resp = proxy_request(
+                worker_row,
+                ep,
+                "embeddings",
+                json_body=payload,
+                timeout_sec=float(ep.get("request_timeout_sec") or 120),
+            )
+            if resp.status_code >= 400:
+                raise OpenAIProxyError(
+                    resp.status_code,
+                    "upstream_http_error",
+                    resp.text[:500] or f"Upstream returned {resp.status_code}",
+                )
+            result = resp.json()
+            idem = (request.headers.get("idempotency-key") or "").strip() or None
+            accrue_proxy_token_usage(
+                _repo(),
+                ep,
+                extract_usage_from_response(result),
+                idempotency_key=idem,
+            )
             return result
         except OpenAIProxyError as e:
             raise HTTPException(e.status_code, detail={"error": {"code": e.code, "message": e.message}})

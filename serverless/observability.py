@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -122,6 +123,14 @@ def _avg(values: list[float]) -> float:
     return round(sum(values) / len(values), 2) if values else 0.0
 
 
+def _p95(values: list[float]) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    idx = max(0, min(len(ordered) - 1, int(math.ceil(0.95 * len(ordered))) - 1))
+    return round(ordered[idx], 2)
+
+
 def worker_fleet_stats(workers: list[dict]) -> dict[str, int]:
     active_states = {"booting", "ready", "idle", "draining"}
     active = sum(1 for w in workers if str(w.get("state") or "") in active_states)
@@ -166,11 +175,23 @@ def compute_endpoint_metrics(
     exec_ms_vals = [v for j in terminal if (v := _job_execution_ms(j)) is not None]
 
     total_out_tokens = sum(int(j.get("output_tokens") or 0) for j in completed)
+    total_in_tokens = sum(int(j.get("input_tokens") or 0) for j in completed)
+    total_cached_tokens = sum(int(j.get("cached_tokens") or 0) for j in completed)
     total_exec_sec = sum(
         max(1, int(j.get("gpu_seconds") or 0)) for j in completed
     )
     tokens_per_sec = (
         round(total_out_tokens / total_exec_sec, 2) if total_exec_sec > 0 else 0.0
+    )
+    ttft_vals = [
+        float(j.get("ttft_ms") or 0)
+        for j in completed
+        if int(j.get("ttft_ms") or 0) > 0
+    ]
+    kv_cache_hit_rate = (
+        round(total_cached_tokens / total_in_tokens, 4)
+        if total_in_tokens > 0
+        else 0.0
     )
 
     success_rate = (
@@ -197,6 +218,10 @@ def compute_endpoint_metrics(
         ),
         "total_gpu_seconds": int(ep.get("total_gpu_seconds") or 0),
         "tokens_per_sec": tokens_per_sec,
+        "ttft_p95_ms": _p95(ttft_vals),
+        "kv_cache_hit_rate": kv_cache_hit_rate,
+        "total_input_tokens": total_in_tokens,
+        "total_cached_tokens": total_cached_tokens,
         "total_output_tokens": total_out_tokens,
         "total_cost_cad": float(ep.get("total_cost_cad") or 0),
         **fleet,

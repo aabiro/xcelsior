@@ -63,12 +63,19 @@ class TestManagedEngines:
         # Chat models get the chat-tuned flags; embed/rerank get --task.
         chat = _preset_startup_command("vllm", "meta-llama/Llama-3.3-70B-Instruct")
         assert "--chat-template-content-format openai" in chat
+        assert "--enable-prefix-caching" in chat
         assert "--task" not in chat
         embed = _preset_startup_command("vllm", "BAAI/bge-m3")
         assert "--task embed" in embed
         assert "--chat-template" not in embed
         rerank = _preset_startup_command("vllm", "BAAI/bge-reranker-v2-m3")
         assert "--task score" in rerank
+
+    def test_qwen3_startup_includes_eagle3_when_enabled(self, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_VLLM_EAGLE3", "1")
+        cmd = _preset_startup_command("vllm", "Qwen/Qwen3-8B")
+        assert "--speculative-algorithm EAGLE3" in cmd
+        assert "--speculative-model" in cmd
 
 
 class TestModelTask:

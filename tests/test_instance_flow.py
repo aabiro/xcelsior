@@ -120,12 +120,17 @@ def _submit_job(name="test-job", vram=8, tier="on-demand", host_id=None):
     return resp, resp.json()["instance"]
 
 
+def _worker_auth_headers() -> dict:
+    token = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
+    return {"Authorization": f"Bearer {token}"}
+
+
 def _set_status(job_id, status, host_id=None):
-    """Patch a job status via the API."""
+    """Patch a job status via the API (worker auth required)."""
     body = {"status": status}
     if host_id:
         body["host_id"] = host_id
-    return client.patch(f"/instance/{job_id}", json=body)
+    return client.patch(f"/instance/{job_id}", json=body, headers=_worker_auth_headers())
 
 
 def _get_instance(job_id):

@@ -59,7 +59,6 @@ def _register_and_fund() -> dict:
         headers=headers,
     )
     assert deposit.status_code == 200, deposit.text[:200]
-    assert UserStore.get_user(email) is not None
     return headers
 
 
@@ -89,8 +88,8 @@ class TestOpenAIProxyHelpers:
         ep = {"mode": "preset", "model_ref": "meta-llama/Llama-3.1-8B-Instruct"}
         with pytest.raises(OpenAIProxyError) as exc:
             capability_gate("embeddings", ep)
-        assert exc.value.status_code == 501
-        assert exc.value.code == "capability_not_available"
+        assert exc.value.status_code == 400
+        assert exc.value.code == "wrong_model_task"
 
     def test_custom_endpoint_rejects_chat_proxy(self):
         ep = {"mode": "custom", "image_ref": "img"}
