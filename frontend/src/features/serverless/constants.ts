@@ -12,8 +12,37 @@ export const MANAGED_ENGINES = [
 /** Preset model task: chat (default), embed (/v1/embeddings), or rerank (/v1/rerank). */
 export type PresetTask = "chat" | "embed" | "rerank";
 
+/** Size-tiered token rates (CAD per 1M tokens) — mirrors serverless/metering.py bands. */
+export function tokenRatesForModel(modelRef: string): {
+  inputPerM: number;
+  outputPerM: number;
+  cachedInputPerM: number;
+} {
+  const s = modelRef.toLowerCase();
+  const paramsMatch = s.match(/(\d+(?:\.\d+)?)\s*b\b/);
+  let paramsB = paramsMatch ? parseFloat(paramsMatch[1]) : null;
+  if (/deepseek|mixtral|8x7b|8x22b/.test(s)) paramsB = 999;
+  let inRate = 0.5;
+  let outRate = 1.5;
+  if (paramsB != null) {
+    if (paramsB <= 9) { inRate = 0.15; outRate = 0.45; }
+    else if (paramsB <= 34) { inRate = 0.35; outRate = 1.05; }
+    else if (paramsB <= 80) { inRate = 0.70; outRate = 2.10; }
+    else { inRate = 1.10; outRate = 3.30; }
+  }
+  return { inputPerM: inRate, outputPerM: outRate, cachedInputPerM: inRate * 0.5 };
+}
+
+export function formatTokenRateLine(modelRef: string): string | null {
+  const task = PRESET_MODELS.find((m) => m.id === modelRef)?.task ?? "chat";
+  if (task === "rerank") return null;
+  const { inputPerM, outputPerM } = tokenRatesForModel(modelRef);
+  return `$${inputPerM.toFixed(2)} / 1M in · $${outputPerM.toFixed(2)} / 1M out`;
+}
+
 export const PRESET_MODELS = [
   // ── Chat / completions ──
+  { id: "Qwen/Qwen3-8B", label: "Qwen3 8B (default)", vram: 16, task: "chat" as PresetTask },
   { id: "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B", label: "DeepSeek R1 Distill 32B", vram: 80, task: "chat" },
   { id: "deepseek-ai/DeepSeek-R1-Distill-Llama-8B", label: "DeepSeek R1 Distill 8B", vram: 24, task: "chat" },
   { id: "meta-llama/Llama-3.3-70B-Instruct", label: "Llama 3.3 70B Instruct", vram: 80, task: "chat" },

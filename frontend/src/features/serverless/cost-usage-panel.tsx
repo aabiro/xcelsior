@@ -4,6 +4,7 @@ import { StatCard } from "@/components/ui/stat-card";
 import { DollarSign, Zap, Clock, BarChart3 } from "lucide-react";
 import type { ServerlessEndpoint, ServerlessEndpointMetrics } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
+import { formatTokenRateLine } from "./constants";
 
 interface CostUsagePanelProps {
   endpoint: ServerlessEndpoint;
@@ -59,6 +60,26 @@ export function CostUsagePanel({ endpoint, metrics }: CostUsagePanelProps) {
               <span className="text-text-muted">{t("dash.serverless.gpu_count")}</span>
               <span className="font-mono">{pricing.gpu_count}× GPU</span>
             </div>
+            {pricing.token_billing && (
+              <div className="flex justify-between">
+                <span className="text-text-muted">Tokens</span>
+                <span className="font-mono text-accent-cyan">
+                  {formatTokenRateLine(endpoint.model_ref || endpoint.model_id || "")}
+                </span>
+              </div>
+            )}
+            {metrics?.kv_cache_hit_rate != null && metrics.kv_cache_hit_rate > 0 && (
+              <div className="flex justify-between">
+                <span className="text-text-muted">KV cache hit</span>
+                <span className="font-mono">{(metrics.kv_cache_hit_rate * 100).toFixed(1)}%</span>
+              </div>
+            )}
+            {metrics?.ttft_p95_ms != null && metrics.ttft_p95_ms > 0 && (
+              <div className="flex justify-between">
+                <span className="text-text-muted">TTFT p95</span>
+                <span className="font-mono">{Math.round(metrics.ttft_p95_ms)}ms</span>
+              </div>
+            )}
             <p className="text-xs text-text-muted pt-2 border-t border-border">{pricing.formula}</p>
           </div>
         </div>

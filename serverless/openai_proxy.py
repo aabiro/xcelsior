@@ -244,6 +244,63 @@ async def async_proxy_stream_lines(
                 yield line
 
 
+def extract_usage_from_response(payload: dict[str, Any]) -> dict[str, int]:
+    """Parse OpenAI/vLLM usage block including prefix-cache token details."""
+    usage = payload.get("usage") or {}
+    if not isinstance(usage, dict):
+        return {}
+    prompt_details = usage.get("prompt_tokens_details") or {}
+    if not isinstance(prompt_details, dict):
+        prompt_details = {}
+    cached = int(
+        prompt_details.get("cached_tokens")
+        or usage.get("cached_tokens")
+        or 0
+    )
+    return {
+        "input_tokens": int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
+        "output_tokens": int(usage.get("completion_tokens") or usage.get("output_tokens") or 0),
+        "cached_tokens": max(0, cached),
+    }
+
+
+def accrue_proxy_token_usage(
+    repo: Any,
+    endpoint: dict,
+    usage: dict[str, int],
+    *,
+    idempotency_key: str | None = None,
+) -> dict[str, Any]:
+    """Record token cost from a synchronous OpenAI proxy response (parallel meter)."""
+    from serverless.metering import token_cost_metadata
+
+    if not usage:
+        return {"accrued": False, "reason": "no_usage"}
+    endpoint_id = str(endpoint.get("endpoint_id") or "")
+    if not endpoint_id:
+        return {"accrued": False, "reason": "no_endpoint"}
+    if idempotency_key and hasattr(repo, "token_usage_already_recorded"):
+        if repo.token_usage_already_recorded(endpoint_id, idempotency_key):
+            return {"accrued": False, "reason": "duplicate_idempotency_key"}
+    meta = token_cost_metadata(
+        int(usage.get("input_tokens") or 0),
+        int(usage.get("output_tokens") or 0),
+        model_ref=str(endpoint.get("model_ref") or ""),
+        cached_tokens=int(usage.get("cached_tokens") or 0),
+    )
+    cost = float(meta.get("total_token_cost_cad") or 0.0)
+    if cost <= 0:
+        return {"accrued": False, "reason": "zero_cost", "metadata": meta}
+    repo.accrue_endpoint_token_cost(endpoint_id, cost)
+    if idempotency_key and hasattr(repo, "record_token_usage_idempotency"):
+        repo.record_token_usage_idempotency(
+            endpoint_id,
+            idempotency_key,
+            meta,
+        )
+    return {"accrued": True, "metadata": meta}
+
+
 def proxy_chat_completions(
     worker_row: dict,
     endpoint: dict,

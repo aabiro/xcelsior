@@ -17,7 +17,7 @@ import { GPU_MODELS } from "@/lib/gpu-models";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
-  DEFAULT_FORM, DEPLOY_STUDIO_STEPS, IDLE_TIMEOUT_OPTIONS, MANAGED_ENGINES, PRESET_MODELS,
+  DEFAULT_FORM, DEPLOY_STUDIO_STEPS, formatTokenRateLine, IDLE_TIMEOUT_OPTIONS, MANAGED_ENGINES, PRESET_MODELS,
 } from "./constants";
 import type { DeployStudioForm } from "./types";
 import { deployServerlessEndpoint } from "./deploy-actions";
@@ -332,6 +332,11 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
                         >
                           <span className="font-medium">{m.label}</span>
                           <span className="block text-xs text-text-muted mt-0.5">{m.id}</span>
+                          {m.task !== "rerank" && (
+                            <span className="block text-xs font-mono text-accent-cyan/80 mt-1">
+                              {formatTokenRateLine(m.id)}
+                            </span>
+                          )}
                         </button>
                       ))}
                     </div>
@@ -632,6 +637,11 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
                   {form.gpuTier && (
                     <p className="text-sm mt-2 font-mono">
                       ~${(costPerHour * form.gpuCount).toFixed(2)} CAD/hr {t("dash.serverless.per_worker")}
+                      {form.method === "preset" && formatTokenRateLine(form.modelRef) && (
+                        <span className="text-text-muted">
+                          {" "}· {formatTokenRateLine(form.modelRef)}
+                        </span>
+                      )}
                       {form.minWorkers > 0 && (
                         <span className="text-text-muted">
                           {" "}· ~${(costPerHour * form.gpuCount * form.minWorkers * 24).toFixed(2)}/day min

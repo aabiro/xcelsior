@@ -19,6 +19,8 @@ log = logging.getLogger("xcelsior.serverless.metering")
 # Fallback flat token prices (used only when model size can't be inferred).
 INPUT_TOKEN_PRICE_CAD_PER_M = float(os.environ.get("XCELSIOR_INPUT_TOKEN_PRICE", "0.50"))
 OUTPUT_TOKEN_PRICE_CAD_PER_M = float(os.environ.get("XCELSIOR_OUTPUT_TOKEN_PRICE", "1.50"))
+# Prefix-cache hits bill at this fraction of the input rate (Novita-style cached discount).
+CACHED_TOKEN_DISCOUNT = float(os.environ.get("XCELSIOR_CACHED_TOKEN_DISCOUNT", "0.50"))
 MIN_BILLING_INTERVAL_SEC = int(os.environ.get("XCELSIOR_SERVERLESS_MIN_BILLING_INTERVAL_SEC", "60"))
 
 # Blended serverless meter: when enabled, a worker's billing slice is charged the
@@ -100,14 +102,14 @@ def worker_rate_cad_per_second(rate_per_hour_cad: float, gpu_count: int = 1) -> 
 
 
 def pricing_for_endpoint(ep: dict) -> dict[str, Any]:
-    """Quote for UI/API — Novita-aligned ¢/s/worker alongside $/hr."""
+    """Quote for UI/API — Novita-aligned ¢/s/worker plus per-million token rates."""
     rate_hr = get_gpu_rate_per_hour(
         str(ep.get("gpu_tier") or ""),
         str(ep.get("region") or "ca-east"),
     )
     gpu_count = int(ep.get("gpu_count") or 1)
     rate_sec = worker_rate_cad_per_second(rate_hr, gpu_count)
-    return {
+    quote: dict[str, Any] = {
         "billing_model": "worker_running_seconds",
         "rate_per_hour_cad": rate_hr,
         "rate_per_second_cad_per_worker": rate_sec,
@@ -115,6 +117,19 @@ def pricing_for_endpoint(ep: dict) -> dict[str, Any]:
         "gpu_count": gpu_count,
         "formula": "cost = running_seconds × rate_cents_per_second_per_worker",
     }
+    # Token SKU: parallel per-token meter on preset chat/embed/rerank only.
+    if str(ep.get("mode") or "") == "preset" and ep.get("model_ref"):
+        from serverless.openai_proxy import model_task
+
+        task = model_task(str(ep.get("model_ref") or ""))
+        if task in ("chat", "embed", "rerank"):
+            quote["token_billing"] = True
+            quote.update(token_pricing_quote(str(ep.get("model_ref") or "")))
+            quote["token_formula"] = (
+                "token_cost = (computed_in × in_rate + cached_in × cached_in_rate + out × out_rate) / 1M; "
+                "blended charge = max(gpu_seconds_cost, token_cost) when enabled"
+            )
+    return quote
 
 
 def estimate_cost_cad(gpu_seconds: int, rate_per_hour_cad: float, gpu_count: int = 1) -> float:
@@ -132,23 +147,50 @@ def estimate_worker_cost_for_duration_sec(
     return estimate_cost_cad(max(0, int(math.ceil(duration_sec))), rate_per_hour_cad, gpu_count)
 
 
+def cached_input_price(in_price: float) -> float:
+    """Discounted per-million input rate for prefix-cache hits."""
+    return round(in_price * CACHED_TOKEN_DISCOUNT, 6)
+
+
 def token_cost_metadata(
-    input_tokens: int, output_tokens: int, model_ref: str | None = None
+    input_tokens: int,
+    output_tokens: int,
+    model_ref: str | None = None,
+    *,
+    cached_tokens: int = 0,
 ) -> dict:
-    """Size-tiered token costs for a request. Observability until blended billing
-    is enabled, at which point this feeds the blended meter. ``model_ref`` selects
-    the size band; omitted → flat fallback prices."""
+    """Size-tiered token costs for a request with cached-vs-computed input split.
+
+    ``cached_tokens`` are billed at ``cached_input_price``; the remainder of
+    ``input_tokens`` is billed at the full input rate. Feeds the blended meter
+    in parallel with GPU-second ticks."""
     in_price, out_price = token_prices_for_model(model_ref)
-    in_cost = (input_tokens / 1_000_000.0) * in_price
+    cached = max(0, min(int(cached_tokens or 0), int(input_tokens or 0)))
+    computed_in = max(0, int(input_tokens or 0) - cached)
+    cached_price = cached_input_price(in_price)
+    in_cost = (computed_in / 1_000_000.0) * in_price + (cached / 1_000_000.0) * cached_price
     out_cost = (output_tokens / 1_000_000.0) * out_price
     return {
-        "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
+        "input_tokens": int(input_tokens or 0),
+        "output_tokens": int(output_tokens or 0),
+        "cached_tokens": cached,
+        "computed_input_tokens": computed_in,
         "input_price_cad_per_m": in_price,
         "output_price_cad_per_m": out_price,
+        "cached_input_price_cad_per_m": cached_price,
         "input_cost_cad": round(in_cost, 6),
         "output_cost_cad": round(out_cost, 6),
         "total_token_cost_cad": round(in_cost + out_cost, 6),
+    }
+
+
+def token_pricing_quote(model_ref: str | None) -> dict[str, float]:
+    """Per-million token rates for API/UI quotes (preset LLM endpoints)."""
+    in_price, out_price = token_prices_for_model(model_ref)
+    return {
+        "input_price_cad_per_m": in_price,
+        "output_price_cad_per_m": out_price,
+        "cached_input_price_cad_per_m": cached_input_price(in_price),
     }
 
 
