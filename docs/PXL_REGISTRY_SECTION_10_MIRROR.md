@@ -1,5 +1,6 @@
-<!-- synced from scripts/sync_xcelsior_master_index.py (engineering_partial) -->
-<!-- evidence: /tmp/grok-goal-6f86c7cfe9c2/implementer/row-evidence.json -->
+<!-- pxl-registry §10 mirror for goal patches (engineering_partial) -->
+<!-- source: /mnt/storage/projects/pxl-registry/docs/AI_ML_MASTER_INDEX_BY_REPO.md -->
+<!-- pxl-registry commit: run `git -C ../pxl-registry rev-parse HEAD` -->
 
 ## 10. `xcelsior`
 

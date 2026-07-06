@@ -88,6 +88,8 @@ docs/*
 !docs/site-audit-report-2026-06-08-post-recovery.md
 !docs/SPOT_INSTANCE_INTEGRATION_PLAN.md
 !docs/AI_ML_MASTER_INDEX_XCELSIOR.md
+!docs/PXL_REGISTRY_SECTION_10_MIRROR.md
+!docs/MASTER_INDEX_SECTION_10_XCELSIOR.synced.md
 
 # ── Editor / OS ──────────────────────────────────────────────────────
 .vscode/settings.json

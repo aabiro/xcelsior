@@ -1,6 +1,3 @@
-<!-- synced from scripts/sync_xcelsior_master_index.py (engineering_partial) -->
-<!-- evidence: /tmp/grok-goal-6f86c7cfe9c2/implementer/row-evidence.json -->
-
 ## 10. `xcelsior`
 
 *GPU marketplace / infra. Path: `/mnt/storage/projects/xcelsior` (ASUS).*
@@ -46,3 +43,4 @@
 **Repo impact note:** These changes move `xcelsior` from GPU-hour marketplace plumbing toward a margin-focused inference platform with token SKUs, embeddings, KV reuse, reliable retries, and measurable SLOs.
 
 ---
+
