@@ -26,7 +26,12 @@ from serverless.anchor_workloads import (
     pixelenhance_chat_payload,
     pixelenhance_embed_payload,
 )
-from serverless.metering import bill_active_serverless_workers, token_cost_metadata
+from serverless.metering import (
+    bill_active_serverless_workers,
+    estimate_cost_cad,
+    get_gpu_rate_per_hour,
+    token_cost_metadata,
+)
 from serverless.repo import ServerlessRepo
 from serverless.service import ServerlessService, _preset_startup_command
 from serverless.speculative_gate import (
@@ -223,6 +228,48 @@ class TestTokenBillingClosure:
         assert float(u.get("recorded_token_cost_cad") or 0) > 0
         assert float(u.get("billed_cost_cad") or 0) > 0
         assert int(u["total_gpu_seconds"]) > 0
+
+        billing = get_billing_engine()
+        rate = get_gpu_rate_per_hour("RTX 4090", "ca-east")
+        gpu_slice = estimate_cost_cad(130, rate, 1)
+        token_win_cost = max(gpu_slice * 10, 2.50)
+        tick_job2 = f"sched-usage-token-win-{uuid.uuid4().hex[:8]}"
+        w3 = repo.create_worker(ep_id, scheduler_job_id=tick_job2)
+        repo.update_worker(str(w3["worker_id"]), state="ready", allocated_at=time.time() - 130)
+        repo.accrue_endpoint_token_cost(ep_id, token_win_cost)
+        wallet_before = float(billing.get_wallet(cust)["balance_cad"])
+        cycle = billing.auto_billing_cycle()
+        debited = wallet_before - float(billing.get_wallet(cust)["balance_cad"])
+        assert int(cycle.get("inference_billed") or 0) >= 1
+        assert debited >= token_win_cost
+        r3 = client.get(f"/api/v2/serverless/endpoints/{ep_id}/usage", headers=headers)
+        u_after = r3.json()["usage"]
+        assert float(u_after.get("billed_cost_cad") or 0) >= debited
+        assert float(u_after.get("total_cost_cad") or 0) >= token_win_cost
+        sample["blended_billing"] = {
+            "gpu_wins_case": {
+                "total_cost_cad": float(u["total_cost_cad"]),
+                "recorded_token_cost_cad": float(u.get("recorded_token_cost_cad") or 0),
+                "billed_cost_cad": float(u.get("billed_cost_cad") or 0),
+                "winner": "gpu",
+            },
+            "token_wins_case": {
+                "token_cost_cad": token_win_cost,
+                "gpu_amount_cad": gpu_slice,
+                "debited_cad": debited,
+                "inference_billed": int(cycle.get("inference_billed") or 0),
+                "winner": "token",
+                "usage_after_billing": {
+                    "billed_cost_cad": float(u_after.get("billed_cost_cad") or 0),
+                    "total_cost_cad": float(u_after.get("total_cost_cad") or 0),
+                    "recorded_token_cost_cad": float(u_after.get("recorded_token_cost_cad") or 0),
+                    "total_gpu_seconds": int(u_after.get("total_gpu_seconds") or 0),
+                    "token_gt_gpu": float(u_after.get("billed_cost_cad") or 0)
+                    > float(u.get("billed_cost_cad") or 0),
+                },
+            },
+        }
+        sample["usage_after_token_win"] = r3.json()
 
         write_json_artifact("usage-sample.json", sample)
         client.delete(f"/api/v2/serverless/endpoints/{ep_id}", headers=headers)
