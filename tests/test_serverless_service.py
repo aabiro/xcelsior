@@ -74,8 +74,7 @@ class TestManagedEngines:
     def test_qwen3_startup_includes_eagle3_when_force_enabled(self, monkeypatch):
         monkeypatch.setenv("XCELSIOR_VLLM_EAGLE3_FORCE", "1")
         cmd = _preset_startup_command("vllm", "Qwen/Qwen3-8B")
-        assert "--speculative-algorithm EAGLE3" in cmd
-        assert "--speculative-model" in cmd
+        assert "--speculative-config" in cmd and "eagle3" in cmd
 
 
 class TestModelTask:
