@@ -326,7 +326,7 @@ export function McpAgentSetup({
                     <CodeBlock
                       filename="get-token.sh"
                       code={tokenCurl(freshCredentials.clientId, freshCredentials.clientSecret)}
-                      onCopy={() => toast.success(t("dash.settings.mcp.copied"))}
+                      onCopy={undefined}
                     />
                   </div>
                 </details>
@@ -367,7 +367,7 @@ export function McpAgentSetup({
           <CodeBlock
             filename={configPath(agent)}
             code={configJson(agent, token || undefined)}
-            onCopy={() => toast.success(t("dash.settings.mcp.copied"))}
+            onCopy={undefined}
           />
           <div>
             <Label className="text-xs">{t("dash.settings.mcp.token_input_label")}</Label>

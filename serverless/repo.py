@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 import uuid
@@ -468,6 +469,19 @@ class ServerlessRepo:
                 LIMIT 1
                 """,
                 (endpoint_id, idempotency_key),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def peek_next_job(self, endpoint_id: str) -> dict | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM serverless_jobs
+                 WHERE endpoint_id = %s AND status = %s
+                 ORDER BY queued_at ASC
+                 LIMIT 1
+                """,
+                (endpoint_id, JOB_STATUS_QUEUED),
             ).fetchone()
         return dict(row) if row else None
 
@@ -1157,6 +1171,23 @@ class ServerlessRepo:
                 ),
             )
 
+    def peek_endpoint_token_cost(self, endpoint_id: str) -> float:
+        """Read accrued unbilled token cost without zeroing (observability / GPU-only slices)."""
+        if not endpoint_id:
+            return 0.0
+        with self._conn() as conn:
+            row = conn.execute(
+                """
+                SELECT unbilled_token_cost_cad AS v
+                FROM serverless_endpoints
+                WHERE endpoint_id = %s
+                """,
+                (endpoint_id,),
+            ).fetchone()
+        if not row:
+            return 0.0
+        return float(row["v"] or 0.0)
+
     def consume_endpoint_token_cost(self, endpoint_id: str) -> float:
         """Atomically read and zero the endpoint's accrued unbilled token cost,
         returning the amount consumed (for the blended meter's billing slice)."""
@@ -1182,6 +1213,282 @@ class ServerlessRepo:
         if not row:
             return 0.0
         return float(row["v"] or 0.0)
+
+    # ── Semantic cache (row 21) ───────────────────────────────────────
+
+    def semantic_cache_lookup(
+        self,
+        endpoint_id: str,
+        prompt_norm: str,
+        *,
+        threshold: float = 0.92,
+        limit: int = 32,
+    ) -> dict | None:
+        from serverless.semantic_cache import prompt_fingerprint, similarity
+
+        fp = prompt_fingerprint(prompt_norm)
+        with self._conn() as conn:
+            row = conn.execute(
+                """
+                SELECT cache_id, response_json, usage_json, prompt_norm
+                  FROM serverless_semantic_cache
+                 WHERE endpoint_id = %s AND prompt_fingerprint = %s
+                 LIMIT 1
+                """,
+                (endpoint_id, fp),
+            ).fetchone()
+            if row:
+                return {
+                    "cache_id": row["cache_id"],
+                    "response": row["response_json"],
+                    "usage": row["usage_json"],
+                    "similarity": 1.0,
+                }
+            rows = conn.execute(
+                """
+                SELECT cache_id, response_json, usage_json, prompt_norm
+                  FROM serverless_semantic_cache
+                 WHERE endpoint_id = %s
+                 ORDER BY created_at DESC
+                 LIMIT %s
+                """,
+                (endpoint_id, max(1, limit)),
+            ).fetchall()
+        best: dict | None = None
+        best_sim = 0.0
+        for r in rows:
+            sim = similarity(prompt_norm, str(r["prompt_norm"] or ""))
+            if sim >= threshold and sim > best_sim:
+                best_sim = sim
+                best = {
+                    "cache_id": r["cache_id"],
+                    "response": r["response_json"],
+                    "usage": r["usage_json"],
+                    "similarity": sim,
+                }
+        return best
+
+    def semantic_cache_store(
+        self,
+        endpoint_id: str,
+        prompt_norm: str,
+        *,
+        response: dict,
+        usage: dict,
+        max_entries: int = 500,
+    ) -> None:
+        import uuid
+
+        from serverless.semantic_cache import prompt_fingerprint
+
+        now = time.time()
+        cache_id = f"ssc-{uuid.uuid4().hex[:12]}"
+        fp = prompt_fingerprint(prompt_norm)
+        with self._conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO serverless_semantic_cache
+                    (cache_id, endpoint_id, prompt_norm, prompt_fingerprint,
+                     response_json, usage_json, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (endpoint_id, prompt_fingerprint) DO UPDATE
+                    SET response_json = EXCLUDED.response_json,
+                        usage_json = EXCLUDED.usage_json,
+                        created_at = EXCLUDED.created_at
+                """,
+                (
+                    cache_id,
+                    endpoint_id,
+                    prompt_norm[:8000],
+                    fp,
+                    json.dumps(response),
+                    json.dumps(usage),
+                    now,
+                ),
+            )
+            conn.execute(
+                """
+                DELETE FROM serverless_semantic_cache
+                 WHERE cache_id IN (
+                    SELECT cache_id FROM serverless_semantic_cache
+                     WHERE endpoint_id = %s
+                     ORDER BY created_at DESC
+                     OFFSET %s
+                 )
+                """,
+                (endpoint_id, max(1, max_entries)),
+            )
+
+    def record_semantic_cache_savings(
+        self,
+        endpoint_id: str,
+        saved_cost_cad: float,
+        *,
+        similarity: float = 1.0,
+    ) -> None:
+        import uuid
+
+        with self._conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO serverless_cache_savings
+                    (savings_id, endpoint_id, saved_cost_cad, similarity, created_at)
+                VALUES (%s, %s, %s, %s, %s)
+                """,
+                (
+                    f"scs-{uuid.uuid4().hex[:12]}",
+                    endpoint_id,
+                    float(saved_cost_cad),
+                    float(similarity),
+                    time.time(),
+                ),
+            )
+
+    # ── Prefix affinity (row 6) ─────────────────────────────────────
+
+    def record_prefix_affinity(
+        self, endpoint_id: str, prefix_hash: str, worker_id: str
+    ) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO serverless_prefix_affinity
+                    (endpoint_id, prefix_hash, worker_id, last_seen_at)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (endpoint_id, prefix_hash) DO UPDATE
+                    SET worker_id = EXCLUDED.worker_id,
+                        last_seen_at = EXCLUDED.last_seen_at
+                """,
+                (endpoint_id, prefix_hash, worker_id, time.time()),
+            )
+
+    def get_prefix_affinities(self, endpoint_id: str) -> dict[str, str]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT prefix_hash, worker_id
+                  FROM serverless_prefix_affinity
+                 WHERE endpoint_id = %s
+                """,
+                (endpoint_id,),
+            ).fetchall()
+        return {str(r["prefix_hash"]): str(r["worker_id"]) for r in rows}
+
+    # ── Batch API (row 20) ────────────────────────────────────────────
+
+    def create_batch_job(
+        self,
+        *,
+        batch_id: str,
+        endpoint_id: str,
+        owner_id: str,
+        requests: list,
+        discount_rate: float,
+        completion_window: str,
+        created_at: float,
+    ) -> dict:
+        with self._conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO serverless_batches
+                    (batch_id, endpoint_id, owner_id, status, requests_json,
+                     input_count, discount_rate, completion_window, created_at)
+                VALUES (%s, %s, %s, 'validating', %s, %s, %s, %s, %s)
+                """,
+                (
+                    batch_id,
+                    endpoint_id,
+                    owner_id,
+                    json.dumps(requests),
+                    len(requests),
+                    float(discount_rate),
+                    completion_window,
+                    created_at,
+                ),
+            )
+        return {
+            "batch_id": batch_id,
+            "endpoint_id": endpoint_id,
+            "owner_id": owner_id,
+            "status": "validating",
+            "requests_json": requests,
+            "request_counts": {"total": len(requests), "completed": 0, "failed": 0},
+            "discount_rate": discount_rate,
+            "completion_window": completion_window,
+            "created_at": created_at,
+        }
+
+    def get_batch_job(self, batch_id: str, *, owner_id: str | None = None) -> dict | None:
+        with self._conn() as conn:
+            if owner_id:
+                row = conn.execute(
+                    "SELECT * FROM serverless_batches WHERE batch_id = %s AND owner_id = %s",
+                    (batch_id, owner_id),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT * FROM serverless_batches WHERE batch_id = %s",
+                    (batch_id,),
+                ).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d["request_counts"] = {
+            "total": int(d.get("input_count") or 0),
+            "completed": int(d.get("completed_count") or 0),
+            "failed": int(d.get("failed_count") or 0),
+        }
+        return d
+
+    def enqueue_batch_line_items(self, batch: dict, endpoint: dict) -> int:
+        endpoint_id = str(batch["endpoint_id"])
+        owner_id = str(batch.get("owner_id") or endpoint.get("owner_id") or "")
+        requests = batch.get("requests_json") or []
+        if isinstance(requests, str):
+            requests = json.loads(requests)
+        count = 0
+        for i, req in enumerate(requests):
+            key = f"{batch['batch_id']}-line-{i}"
+            self.enqueue_job(
+                endpoint_id,
+                owner_id,
+                {"batch_id": batch["batch_id"], "line": i, "body": req},
+                idempotency_key=key,
+            )
+            count += 1
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE serverless_batches SET status = 'in_progress' WHERE batch_id = %s",
+                (str(batch["batch_id"]),),
+            )
+        return count
+
+    def mark_job_hedged(self, job_id: str, *, hedge_worker_id: str) -> None:
+        job = self.get_job(job_id)
+        if not job:
+            return
+        payload = dict(job.get("payload") or {})
+        payload["hedge_worker_id"] = hedge_worker_id
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE serverless_jobs SET payload = %s, updated_at = %s WHERE job_id = %s",
+                (json.dumps(payload), time.time(), job_id),
+            )
+
+    def complete_hedge(self, job_id: str, *, winner_worker_id: str) -> None:
+        job = self.get_job(job_id)
+        if not job:
+            return
+        payload = dict(job.get("payload") or {})
+        payload["hedge_winner"] = winner_worker_id
+        hedge_id = str(payload.get("hedge_worker_id") or "")
+        if hedge_id and hedge_id != winner_worker_id:
+            self.decrement_worker_concurrency(hedge_id)
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE serverless_jobs SET payload = %s, updated_at = %s WHERE job_id = %s",
+                (json.dumps(payload), time.time(), job_id),
+            )
 
     def get_worker_job_row(self, worker_id: str) -> dict | None:
         """Join serverless_workers → jobs → host IP for proxy routing."""

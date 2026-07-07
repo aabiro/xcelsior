@@ -12,7 +12,9 @@ from serverless.repo import (
     WORKER_STATE_IDLE,
     WORKER_STATE_READY,
 )
-from serverless.scaling_predictive import forecast_queue_depth, predictive_scaling_enabled
+from serverless.forecast_fallback import forecast_queue_depth_with_fallback
+from serverless.prewarm_pool import apply_prewarm_to_desired
+from serverless.scaling_predictive import predictive_scaling_enabled
 
 ACTIVE_WORKER_STATES = frozenset(
     {WORKER_STATE_BOOTING, WORKER_STATE_READY, WORKER_STATE_IDLE, WORKER_STATE_DRAINING}
@@ -75,16 +77,26 @@ def compute_desired_workers(inp: AutoscalerInput) -> int:
     current = count_active_workers(inp.workers)
     desired = max(inp.min_workers, current)
 
+    forecast_depth = inp.queue_depth
+    if predictive_scaling_enabled() and inp.queue_depth_samples:
+        fc = forecast_queue_depth_with_fallback(inp.queue_depth_samples, horizon_sec=60.0)
+        forecast_depth = max(forecast_depth, int(fc.get("forecast_depth") or 0))
+
     if should_scale_up(inp):
-        effective_depth = inp.queue_depth
-        if predictive_scaling_enabled() and inp.queue_depth_samples:
-            forecast = forecast_queue_depth(inp.queue_depth_samples, horizon_sec=60.0)
-            effective_depth = max(effective_depth, forecast)
+        effective_depth = max(inp.queue_depth, forecast_depth)
         free = free_concurrency_slots(inp.workers, inp.max_concurrency)
         deficit = max(0, effective_depth - free)
         extra_workers = max(1, math.ceil(deficit / max(1, inp.max_concurrency)))
         desired = current + extra_workers
 
+    desired = apply_prewarm_to_desired(
+        desired,
+        min_workers=inp.min_workers,
+        forecast_depth=forecast_depth,
+        max_concurrency=inp.max_concurrency,
+        endpoint={"min_workers": inp.min_workers},
+        active_workers=current,
+    )
     return max(inp.min_workers, min(inp.max_workers, desired))
 
 

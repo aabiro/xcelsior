@@ -211,6 +211,7 @@ class HostIn(BaseModel):
     checkpoint_class: str | None = Field(default=None, max_length=32)
     capabilities: dict | None = None
     cuda_driver_version: str | None = Field(default=None, max_length=32)
+    attestation: dict | None = None  # tee_evidence_jwt, nras_verify_status, attestation_tier
 
 
 # ── Model: JobIn ──
@@ -306,6 +307,10 @@ def api_register_host(h: HostIn, request: Request):
         entry["capabilities"] = h.capabilities
     if h.cuda_driver_version:
         entry["cuda_driver_version"] = h.cuda_driver_version
+    if h.attestation:
+        from host_attestation import merge_attestation_into_admission, normalize_attestation
+
+        entry["attestation"] = normalize_attestation(h.attestation)
     # Persist Canadian company info if provided
     if h.corporation_name:
         entry["corporation_name"] = h.corporation_name
@@ -318,7 +323,9 @@ def api_register_host(h: HostIn, request: Request):
 
     # Inline admission check if versions provided
     if h.versions:
-        admitted, details = admit_node(h.host_id, h.versions, h.gpu_model)
+        admitted, details = admit_node(
+            h.host_id, h.versions, h.gpu_model, attestation=h.attestation
+        )
         entry["admitted"] = admitted
         entry["admission_details"] = details
         entry["recommended_runtime"] = details.get("recommended_runtime", "runc")

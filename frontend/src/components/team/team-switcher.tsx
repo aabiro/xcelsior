@@ -78,7 +78,7 @@ export function TeamSwitcher({ className, compact = false }: TeamSwitcherProps) 
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "flex items-center gap-2 rounded-lg border border-border/60 bg-surface/60 px-2.5 py-1.5 text-sm transition-colors hover:bg-surface-hover",
+          "flex items-center gap-2 rounded-xl border border-border/60 px-2.5 py-1.5 text-sm transition-colors hover:bg-surface-hover",
           compact && "max-w-[11rem]",
         )}
         aria-expanded={open}
@@ -103,7 +103,7 @@ export function TeamSwitcher({ className, compact = false }: TeamSwitcherProps) 
           />
           <div
             role="listbox"
-            className="absolute right-0 top-full z-[200] mt-1 min-w-[12rem] overflow-hidden rounded-xl border border-border/60 shadow-xl"
+            className="absolute right-0 top-full z-[200] mt-1 min-w-[12rem] overflow-hidden rounded-xl shadow-xl"
           >
             <button
               type="button"

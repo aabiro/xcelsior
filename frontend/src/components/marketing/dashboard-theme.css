@@ -647,7 +647,9 @@
 
 .dashboard-site-team-control > button {
   min-height: 44px;
-  border-radius: 999px;
+  border-radius: 12px;
+  border-color: var(--edge);
+  background: var(--popover-solid);
 }
 
 .dashboard-site-team-control > button:hover,
@@ -669,7 +671,8 @@
   inset: 0;
   z-index: 190;
   cursor: default;
-  background: transparent;
+  background: rgba(5, 7, 14, 0.35);
+  backdrop-filter: blur(2px);
 }
 
 .dashboard-site-control > div > button,
@@ -774,7 +777,6 @@
   position: relative;
   z-index: 1;
   display: block;
-  transform: translateY(5px);
 }
 
 .dashboard-site-ai-toggle::before {
@@ -842,7 +844,7 @@
   z-index: 300;
 }
 
-.dashboard-shell .dashboard-site-modal-panel {
+.dashboard-site-modal-panel {
   background: var(--popover-solid);
   border-color: var(--edge);
 }
@@ -892,6 +894,32 @@
   margin-bottom: 24px;
   padding-bottom: 24px;
   border-bottom: 1px solid var(--line);
+}
+
+.dashboard-overview-hero-head .site-marker {
+  margin-bottom: 0;
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.02;
+  color: var(--text);
+}
+
+.dashboard-overview-hero-head .site-marker > span:last-child {
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--text);
+}
+
+.dashboard-overview-hero-head .site-marker-code {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+}
+
+.dashboard-overview-hero-head .site-marker-line {
+  align-self: center;
 }
 
 .dashboard-overview-eyebrow {

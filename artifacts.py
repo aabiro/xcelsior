@@ -66,6 +66,7 @@ class StorageConfig:
     """Configuration for a storage backend."""
 
     backend: str = StorageBackend.LOCAL
+    local_dir: str = ""
     endpoint_url: str = ""
     bucket: str = "xcelsior-artifacts"
     region: str = ""
@@ -80,6 +81,7 @@ class StorageConfig:
         """Load configuration from environment variables."""
         return cls(
             backend=os.environ.get(f"{prefix}_BACKEND", "local"),
+            local_dir=os.environ.get(f"{prefix}_LOCAL_DIR", ""),
             endpoint_url=os.environ.get(f"{prefix}_ENDPOINT_URL", ""),
             bucket=os.environ.get(f"{prefix}_BUCKET", "xcelsior-artifacts"),
             region=os.environ.get(f"{prefix}_REGION", ""),
@@ -347,7 +349,7 @@ class StorageClient:
     # ── Local filesystem fallback ────────────────────────────────────
 
     def _local_dir(self):
-        d = os.path.join(os.path.dirname(__file__), "artifacts")
+        d = self.config.local_dir or os.path.join(os.path.dirname(__file__), "artifacts")
         os.makedirs(d, exist_ok=True)
         return d
 

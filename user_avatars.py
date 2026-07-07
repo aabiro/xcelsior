@@ -44,11 +44,30 @@ def avatar_storage_key(user_id: str, ext: str) -> str:
     return f"{_AVATAR_PREFIX}/{uid}/avatar.{ext}"
 
 
-def avatar_public_url(prefs: dict | None, user_id: str) -> str | None:
+def avatar_asset_exists(prefs: dict | None, user_id: str) -> bool:
+    """True when a profile photo is present in storage or on legacy disk."""
     prefs = prefs if isinstance(prefs, dict) else {}
     key = (prefs.get("avatar_key") or "").strip()
-    if not key and not _legacy_avatar_file_for_user(user_id):
+    if key:
+        local_path = local_avatar_path_for_key(key)
+        if local_path:
+            return True
+        try:
+            from artifacts import StorageBackend, get_artifact_manager
+
+            mgr = get_artifact_manager()
+            if mgr.primary.config.backend != StorageBackend.LOCAL:
+                return mgr.primary.head_object(key) is not None
+        except Exception:
+            return False
+        return False
+    return _legacy_avatar_file_for_user(user_id) is not None
+
+
+def avatar_public_url(prefs: dict | None, user_id: str) -> str | None:
+    if not avatar_asset_exists(prefs, user_id):
         return None
+    prefs = prefs if isinstance(prefs, dict) else {}
     version = int(prefs.get("avatar_updated_at") or 0)
     if version <= 0:
         version = int(time.time())

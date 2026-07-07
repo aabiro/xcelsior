@@ -56,6 +56,11 @@ _QUEUE_DEPTH_HISTORY: dict[str, list[tuple[float, int]]] = {}
 _QUEUE_HISTORY_MAX = 20
 
 
+def record_queue_depth_sample(endpoint_id: str, depth: int) -> list[tuple[float, int]]:
+    """Public accessor for queue-depth history (capacity planner / APIs)."""
+    return _record_queue_depth_sample(endpoint_id, depth)
+
+
 def _record_queue_depth_sample(endpoint_id: str, depth: int) -> list[tuple[float, int]]:
     hist = _QUEUE_DEPTH_HISTORY.setdefault(endpoint_id, [])
     hist.append((time.time(), depth))
@@ -81,11 +86,18 @@ def _preset_lmcache_env() -> dict[str, str]:
     """LMCache env for prefix reuse across requests (small-scale mesh)."""
     if os.environ.get("XCELSIOR_LMCACHE_ENABLED", "1").lower() not in ("1", "true", "yes"):
         return {}
-    return {
+    from serverless.prefix_routing import lmcache_remote_env
+
+    env = {
         "LMCACHE_USE_EXPERIMENTAL": os.environ.get("XCELSIOR_LMCACHE_EXPERIMENTAL", "True"),
         "LMCACHE_LOCAL_CPU": os.environ.get("XCELSIOR_LMCACHE_LOCAL_CPU", "True"),
         "LMCACHE_MAX_LOCAL_CPU_SIZE": os.environ.get("XCELSIOR_LMCACHE_MAX_LOCAL_CPU_SIZE", "8"),
     }
+    env.update(lmcache_remote_env())
+    from serverless.mesh_pool import lmcache_mesh_env
+
+    env.update(lmcache_mesh_env())
+    return env
 
 
 def _preset_startup_command(
@@ -515,7 +527,11 @@ class ServerlessService:
         )
         self.dispatcher.release_job(job_id, worker_id)
         if ep:
-            self.repo.increment_endpoint_totals(str(ep["endpoint_id"]), requests=1)
+            self.repo.increment_endpoint_totals(
+                str(ep["endpoint_id"]),
+                requests=1,
+                gpu_seconds=execution_seconds,
+            )
             if token_meta.get("total_token_cost_cad"):
                 log.debug(
                     "Job %s token metadata (not billed): %s",
@@ -751,8 +767,10 @@ class ServerlessService:
                 log.warning("kill_job failed for %s: %s", scheduler_job_id, e)
 
         self.repo.update_worker(worker_id, state=WORKER_STATE_TERMINATED, released_at=now)
-        if charge and ep:
-            charge_serverless_worker(self.repo, {**w, "released_at": now}, ep, released_at=now)
+        if charge:
+            charge_serverless_worker(
+                self.repo, {**w, "released_at": now}, released_at=now
+            )
 
     # ── Reconcile (autoscaler + dispatch) ─────────────────────────────
 

@@ -32,6 +32,7 @@ import { useDesktopRuntime } from "@/lib/desktop/runtime";
 import { MobileDeployAction } from "@/components/mobile/mobile-deploy-action";
 import { GearOnboarding } from "@/components/onboarding/gear-onboarding";
 import * as api from "@/lib/api";
+import { toast } from "sonner";
 
 const AI_PANEL_KEY = "xcelsior-ai-panel-open";
 const SIDEBAR_COLLAPSED_KEY = "xcelsior-sidebar-collapsed";
@@ -138,6 +139,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       setProfileOpen(false);
       setGearOpen(false);
       setOnboardingOpen(false);
+      setSupportPopoutOpen(false);
+      toast.dismiss();
     });
     return () => cancelAnimationFrame(id);
   }, [pathname]);
@@ -151,6 +154,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       if (gearRef.current && !gearRef.current.contains(e.target as Node)) {
         setGearOpen(false);
         setOnboardingOpen(false);
+        setSupportPopoutOpen(false);
       }
     }
     if (profileOpen || gearOpen) document.addEventListener("mousedown", handleClick);
@@ -289,7 +293,15 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           </Link>
           <div className="relative" ref={gearRef}>
             <button
-              onClick={() => setGearOpen(!gearOpen)}
+              onClick={() => {
+                if (gearOpen) {
+                  setGearOpen(false);
+                  setOnboardingOpen(false);
+                  setSupportPopoutOpen(false);
+                } else {
+                  setGearOpen(true);
+                }
+              }}
               className={cn(
                 "dashboard-site-sidebutton flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-base",
                 collapsed && "justify-center px-2",
@@ -382,6 +394,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                         className="dashboard-site-subpanel h-[500px] w-[360px] overflow-hidden rounded-[22px]"
                       >
                         <ChatWidget
+                          key={supportPopoutOpen ? "support-open" : "support-closed"}
                           showFab={false}
                           externalOpen={true}
                           onClose={() => { setSupportPopoutOpen(false); }}
@@ -651,6 +664,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           {/* Content + AI panel (below topbar, never overlays it) */}
           <div className="dashboard-site-workspace flex min-h-0 flex-1 overflow-hidden">
             <main
+              aria-label={t("dash.main_label")}
               className={cn(
                 "dashboard-site-main min-h-0 flex-1",
                 pathname === "/dashboard/ai" ? "overflow-hidden" : "overflow-y-auto",
@@ -690,7 +704,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 )}
                 title={aiPanelOpen ? t("ai.close_panel") : t("ai.open_panel")}
               >
-                <AiSparkIcon className={cn("h-10 w-10 transition-transform duration-200", aiPanelOpen && "rotate-12")} />
+                <AiSparkIcon className={cn("h-11 w-11 transition-transform duration-200", aiPanelOpen && "rotate-12")} />
               </button>
             </div>
           </div>

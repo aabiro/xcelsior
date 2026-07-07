@@ -49,8 +49,15 @@ from serverless.openai_proxy import (
 )
 from serverless.env_secrets import encrypt_env_for_storage, payload_byte_size
 from serverless.repo import EndpointCreate, ServerlessRepo, WORKER_STATE_READY
+from serverless.batch_api import create_batch, enqueue_batch_requests, get_batch
 from serverless.metering import pricing_for_endpoint, token_pricing_quote
+from serverless.semantic_cache import (
+    accrue_cache_hit_usage,
+    store_cache_entry,
+    try_cache_hit,
+)
 from serverless.service import ServerlessService, WalletPreflightError, get_serverless_service
+from serverless.slo import enrich_usage_with_slo
 from serverless.streams import (
     SSE_RESPONSE_HEADERS,
     async_live_job_stream,
@@ -298,6 +305,18 @@ def _warm_worker_row(endpoint_id: str) -> dict | None:
                 "host_ip": "127.0.0.1",
                 "job_payload": {"http_ports": {"8080": port}},
             }
+    live_port = os.environ.get("XCELSIOR_LIVE_VLLM_PORT", "").strip()
+    if live_port and os.environ.get("XCELSIOR_ENV") == "test":
+        try:
+            port = int(live_port)
+        except ValueError:
+            port = 0
+        if port > 0:
+            return {
+                "worker_id": "swk-live-vllm",
+                "host_ip": "127.0.0.1",
+                "job_payload": {"http_ports": {"8080": port}},
+            }
     repo = _repo()
     ep = repo.get_endpoint(endpoint_id)
     if not ep:
@@ -428,6 +447,41 @@ def api_serverless_endpoint_metrics(endpoint_id: str, request: Request):
 from serverless.registry_models import DOC_PRESET_MODELS as _PRESET_TOKEN_MODEL_REFS
 
 
+class BatchCreateRequest(BaseModel):
+    requests: list[dict[str, Any]] = Field(min_length=1, max_length=500)
+    completion_window: str = Field(default="24h", max_length=16)
+
+
+@router.post("/api/v2/serverless/endpoints/{endpoint_id}/batches", tags=["Serverless"])
+def api_serverless_create_batch(
+    endpoint_id: str, body: BatchCreateRequest, request: Request
+):
+    """OpenAI-style async batch — discounted token/GPU billing for bulk inference."""
+    user, _key, ep = _resolve_serverless_endpoint_auth(request, endpoint_id, write=True)
+    if str(ep.get("mode")) != "preset":
+        raise HTTPException(400, "Batch API requires a preset endpoint")
+    batch = create_batch(
+        _repo(),
+        endpoint_id=endpoint_id,
+        owner_id=str(ep.get("owner_id") or user.get("user_id") or ""),
+        requests=body.requests,
+        completion_window=body.completion_window,
+    )
+    enqueued = enqueue_batch_requests(_repo(), batch, ep)
+    batch["enqueued"] = enqueued
+    return {"ok": True, "batch": batch}
+
+
+@router.get("/api/v2/serverless/batches/{batch_id}", tags=["Serverless"])
+def api_serverless_get_batch(batch_id: str, request: Request):
+    user = _require_auth(request)
+    owner = str(user.get("user_id") or user.get("id") or "")
+    batch = get_batch(_repo(), batch_id, owner_id=owner)
+    if not batch:
+        raise HTTPException(404, "Batch not found")
+    return {"ok": True, "batch": batch}
+
+
 @router.get("/api/v2/serverless/preset-token-pricing", tags=["Serverless"])
 def api_preset_token_pricing(request: Request):
     """Per-million token rates for preset models (single source: metering.py)."""
@@ -448,13 +502,8 @@ def api_serverless_endpoint_usage(endpoint_id: str, request: Request):
     metrics = _svc().get_endpoint_metrics(endpoint_id)
     ep = _repo().get_endpoint(endpoint_id) or {}
     pricing = pricing_for_endpoint(ep) if ep else {}
-    usage = {
-        "endpoint_id": endpoint_id,
-        "total_requests": metrics.get("total_requests", 0),
-        "total_gpu_seconds": metrics.get("total_gpu_seconds", 0),
-        "total_cost_cad": metrics.get("total_cost_cad", 0),
-        "pricing": pricing,
-        "last_24h": {
+    last_24h = enrich_usage_with_slo(
+        {
             "jobs_completed": metrics.get("jobs_completed", 0),
             "jobs_failed": metrics.get("jobs_failed", 0),
             "avg_gpu_seconds": metrics.get("avg_gpu_seconds", 0),
@@ -467,7 +516,20 @@ def api_serverless_endpoint_usage(endpoint_id: str, request: Request):
             "kv_cache_hit_rate": metrics.get("kv_cache_hit_rate", 0),
             "total_input_tokens": metrics.get("total_input_tokens", 0),
             "total_cached_tokens": metrics.get("total_cached_tokens", 0),
-        },
+            "cold_start_p50_sec": metrics.get("cold_start_p50_sec", 0),
+            "cold_start_p95_sec": metrics.get("cold_start_p95_sec", 0),
+        }
+    )
+    usage = {
+        "endpoint_id": endpoint_id,
+        "total_requests": metrics.get("total_requests", 0),
+        "total_gpu_seconds": metrics.get("total_gpu_seconds", 0),
+        "total_cost_cad": metrics.get("total_cost_cad", 0),
+        "billed_cost_cad": metrics.get("billed_cost_cad", 0),
+        "unbilled_token_cost_cad": metrics.get("unbilled_token_cost_cad", 0),
+        "recorded_token_cost_cad": metrics.get("recorded_token_cost_cad", 0),
+        "pricing": pricing,
+        "last_24h": last_24h,
     }
     return {"ok": True, "usage": usage}
 
@@ -782,6 +844,21 @@ async def api_serverless_openai_chat(endpoint_id: str, body: ChatCompletionReque
         raise HTTPException(503, f"No warm workers available for endpoint {endpoint_id}")
 
     payload = body.model_dump()
+    idem = (request.headers.get("idempotency-key") or "").strip() or None
+    cache_hit = try_cache_hit(_repo(), endpoint_id, payload) if not body.stream else None
+    if cache_hit:
+        accrue_cache_hit_usage(
+            _repo(),
+            ep,
+            cache_hit.get("usage") or {},
+            idempotency_key=idem,
+            saved_cost_cad=float(cache_hit.get("saved_cost_cad") or 0.01),
+            similarity=float(cache_hit.get("similarity") or 1.0),
+        )
+        resp = dict(cache_hit.get("response") or {})
+        resp["x_semantic_cache_hit"] = True
+        return resp
+
     with otel_span("serverless.openai.chat", {"endpoint_id": endpoint_id, "model": body.model}):
         try:
             if body.stream:
@@ -841,15 +918,16 @@ async def api_serverless_openai_chat(endpoint_id: str, body: ChatCompletionReque
             t0 = time.perf_counter()
             result = proxy_chat_completions(worker_row, ep, payload)
             latency_ms = int((time.perf_counter() - t0) * 1000)
-            idem = (request.headers.get("idempotency-key") or "").strip() or None
+            usage = extract_usage_from_response(result)
             accrue_proxy_token_usage(
                 _repo(),
                 ep,
-                extract_usage_from_response(result),
+                usage,
                 idempotency_key=idem,
                 ttft_ms=latency_ms,
                 latency_ms=latency_ms,
             )
+            store_cache_entry(_repo(), endpoint_id, payload, result, usage)
             return result
         except OpenAIProxyError as e:
             raise HTTPException(e.status_code, detail={"error": {"code": e.code, "message": e.message}})

@@ -223,7 +223,12 @@ def speculative_startup_flags(model_ref: str) -> list[str]:
     from serverless.registry_models import resolve_preset_model
 
     draft_launch = resolve_preset_model(draft).launch_ref
-    return ["--speculative-algorithm", "EAGLE3", "--speculative-model", draft_launch]
+    spec_cfg = {
+        "method": "eagle3",
+        "model": draft_launch,
+        "num_speculative_tokens": int(os.environ.get("XCELSIOR_LIVE_VLLM_SPEC_TOKENS", "2")),
+    }
+    return ["--speculative-config", json.dumps(spec_cfg)]
 
 
 def reset_validation_store() -> None:
