@@ -73,7 +73,7 @@ def write_metering_matrix() -> Path:
             f"gpu_cad={gpu:.6f} blended={blended:.6f}"
         )
 
-    os.environ["XCELSIOR_SERVERLESS_BLENDED_BILLING"] = "1"
+    os.environ.pop("XCELSIOR_SERVERLESS_BLENDED_BILLING", None)
     os.environ["XCELSIOR_SERVERLESS_MIN_BILLING_INTERVAL_SEC"] = "1"
     billing = MagicMock()
     billing.charge.return_value = {"charged": True, "balance_cad": 90.0}
@@ -87,6 +87,8 @@ def write_metering_matrix() -> Path:
         "region": "ca-east",
         "gpu_count": 1,
         "name": "t",
+        "mode": "preset",
+        "model_ref": "Qwen/Qwen3-8B",
     }
     with patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60), patch(
         "serverless.metering.last_billed_period_end", return_value=None

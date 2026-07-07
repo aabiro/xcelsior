@@ -39,7 +39,20 @@ def _get_fernet():
             # Deterministic fallback for dev — NOT for production use
             key = base64.urlsafe_b64encode(b"xcelsior-dev-key-32bytes!padding!"[:32]).decode()
             log.warning("XCELSIOR_SECRETS_KEY not set — using insecure dev key")
-        _fernet = Fernet(key.encode() if isinstance(key, str) else key)
+        try:
+            _fernet = Fernet(key.encode() if isinstance(key, str) else key)
+        except (ValueError, TypeError) as exc:
+            env = os.environ.get("XCELSIOR_ENV", "dev").lower()
+            if env in ("production", "prod"):
+                raise RuntimeError(
+                    "XCELSIOR_SECRETS_KEY is invalid — must be 32 url-safe base64-encoded bytes."
+                ) from exc
+            log.warning(
+                "XCELSIOR_SECRETS_KEY is invalid — falling back to insecure dev key (%s)",
+                exc,
+            )
+            key = base64.urlsafe_b64encode(b"xcelsior-dev-key-32bytes!padding!"[:32]).decode()
+            _fernet = Fernet(key.encode())
     return _fernet
 
 
@@ -1016,7 +1029,7 @@ def recommend_runtime(gpu_model):
 # ── Admission Controller ─────────────────────────────────────────────
 
 
-def admit_node(host_id, versions, gpu_model=None):
+def admit_node(host_id, versions, gpu_model=None, *, attestation=None):
     """Full admission control check for a node.
 
     Combines version gating, runtime recommendation, and security posture.
@@ -1037,6 +1050,17 @@ def admit_node(host_id, versions, gpu_model=None):
         "runtime_reason": runtime_reason,
         "checked_at": time.time(),
     }
+
+    if attestation:
+        from host_attestation import merge_attestation_into_admission, validate_attestation
+
+        merge_attestation_into_admission(details, attestation)
+        att_ok, att_reasons = validate_attestation(details.get("attestation") or {})
+        if not att_ok:
+            admitted = False
+            reasons.extend(att_reasons)
+            details["rejection_reasons"] = reasons
+            details["admitted"] = False
 
     if admitted:
         log.info(
@@ -1165,7 +1189,10 @@ def decrypt_secret(ciphertext):
     """
     if isinstance(ciphertext, str):
         ciphertext = ciphertext.encode("ascii")
-    return _get_fernet().decrypt(ciphertext).decode("utf-8")
+    try:
+        return _get_fernet().decrypt(ciphertext).decode("utf-8")
+    except InvalidToken as exc:
+        raise ValueError("Stored secret could not be decrypted — encryption key may have changed") from exc
 
 
 def build_secrets_mount_args(user_secrets, container_name):

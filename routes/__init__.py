@@ -21,6 +21,7 @@ from routes.terminal import router as terminal_router
 from routes.marketplace import router as marketplace_router
 from routes.mfa import router as mfa_router
 from routes.notifications import router as notifications_router
+from routes.platform import router as platform_router
 from routes.privacy import router as privacy_router
 from routes.providers import router as providers_router
 from routes.reputation import router as reputation_router
@@ -56,6 +57,7 @@ ALL_ROUTERS = [
     marketplace_router,
     mfa_router,
     notifications_router,
+    platform_router,
     privacy_router,
     providers_router,
     reputation_router,

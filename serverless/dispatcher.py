@@ -34,7 +34,26 @@ class ServerlessDispatcher:
         if self.repo.queue_depth(endpoint_id) == 0:
             return None
 
-        worker = self.repo.find_ready_worker_with_capacity(endpoint_id, max_conc)
+        from serverless.prefix_routing import prefix_routing_enabled, select_worker_with_prefix
+
+        worker = None
+        next_job = self.repo.peek_next_job(endpoint_id) if hasattr(self.repo, "peek_next_job") else None
+        workers = self.repo.list_workers(endpoint_id)
+        ready = [
+            w
+            for w in workers
+            if str(w.get("state") or "") in ("ready", "idle")
+            and int(w.get("current_concurrency") or 0) < max_conc
+        ]
+        if prefix_routing_enabled() and next_job and ready:
+            worker = select_worker_with_prefix(
+                self.repo,
+                endpoint_id,
+                ready,
+                dict(next_job.get("payload") or {}),
+            )
+        if not worker:
+            worker = self.repo.find_ready_worker_with_capacity(endpoint_id, max_conc)
         if not worker:
             return None
 

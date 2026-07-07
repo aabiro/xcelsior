@@ -121,6 +121,26 @@ class TestCorrelationAndMetrics:
         assert m["ttft_p95_ms"] > 0
         assert m["tokens_per_sec"] > 0
 
+    def test_compute_endpoint_metrics_includes_ledger_cost(self):
+        ep = {
+            "endpoint_id": "sep-cost",
+            "total_requests": 2,
+            "total_cost_cad": 0.0,
+            "unbilled_token_cost_cad": 0.05,
+        }
+        ledger = [{"input_tokens": 100, "output_tokens": 20, "cached_tokens": 10, "cost_cad": 0.02}]
+        m = compute_endpoint_metrics(
+            ep,
+            [{"status": "COMPLETED", "gpu_seconds": 3}],
+            [],
+            queue_depth=0,
+            window_sec=3600,
+            ledger_rows=ledger,
+        )
+        assert m["total_cost_cad"] == 0.05
+        assert m["recorded_token_cost_cad"] == 0.02
+        assert m["total_gpu_seconds"] == 3
+
     def test_worker_fleet_stats(self):
         stats = worker_fleet_stats(
             [

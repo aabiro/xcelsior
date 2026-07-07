@@ -2,6 +2,7 @@
 
 const en_dashboard: Record<string, string> = {
   "dash.overview": "Overview",
+  "dash.main_label": "Dashboard",
   "dash.nav.compute": "Compute",
   "dash.nav.storage": "Storage",
   "dash.nav.business": "Billing & market",
@@ -736,6 +737,7 @@ const en_dashboard: Record<string, string> = {
   "gear.title": "Help",
   "gear.settings": "Settings",
   "gear.docs": "APIs & SDKs",
+  "gear.product_site": "Product Site",
   "gear.onboarding": "Getting Started",
   "gear.onboarding_desc": "Complete these steps to get the most out of Xcelsior. No pressure, go at your own pace!",
   "gear.step_profile": "Set up your profile",
@@ -967,6 +969,9 @@ const en_dashboard: Record<string, string> = {
   "dash.volumes.monthly_cost_team": "Team Monthly Cost",
   "dash.volumes.error_provision_failed": "Volume provisioning failed",
   "dash.volumes.error_hint": "Provisioning failed, try Retry or delete and recreate.",
+  "dash.volumes.retry_wait_provisioning": "Volume is still provisioning — wait for it to finish or fail before retrying.",
+  "dash.volumes.provisioning_stale": "Provisioning is taking longer than expected. It will time out automatically, or you can delete and recreate.",
+  "dash.volumes.encryption_error": "Volume encryption is misconfigured. Delete and recreate the volume, or contact support.",
   "dash.volumes.retry_success": "Volume reprovisioned successfully",
   "dash.volumes.retry_failed": "Retry failed, volume is still in error",
   "dash.volumes.snapshots": "Snapshots",

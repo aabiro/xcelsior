@@ -29,6 +29,7 @@ export const TOOL_SCOPES: Record<string, McpScope[]> = {
   watch_instance: ["instances:read", "api"],
   list_serverless_endpoints: ["inference:read", "api"],
   create_serverless_endpoint: ["inference:write", "api"],
+  should_i_run_pel_job: ["billing:read", "inference:read", "api"],
   run_serverless_job: ["inference:write", "api"],
   get_serverless_job_status: ["inference:read", "api"],
   get_wallet_balance: ["billing:read", "api"],

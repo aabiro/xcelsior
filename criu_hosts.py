@@ -101,8 +101,13 @@ def probe_checkpoint_stack(*, force_class: str | None = None) -> dict[str, Any]:
     criu_available = criu_rc == 0
     criu_version = criu_out.splitlines()[0] if criu_out else ""
 
-    docker_rc, docker_out, _ = _run(["docker", "info", "--format", "{{.Experimental}}"])
+    docker_rc, docker_out, docker_err = _run(["docker", "info", "--format", "{{.Experimental}}"])
     docker_experimental = docker_rc == 0 and docker_out.lower() == "true"
+    if not docker_experimental:
+        # Docker 29+ removed {{.Experimental}} template field; parse human output.
+        text_rc, text_out, _ = _run(["docker", "info"])
+        if text_rc == 0 and "experimental: true" in text_out.lower():
+            docker_experimental = True
 
     nvidia_rc, nvidia_out, _ = _run(
         [

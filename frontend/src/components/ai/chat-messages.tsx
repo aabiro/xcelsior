@@ -408,7 +408,7 @@ export function ChatInput({
       compact ? "px-3 py-1.5" : "px-4 py-2",
     )}>
       <div className={cn(
-        "relative flex items-end gap-2",
+        "relative flex items-stretch gap-2",
         !compact && "max-w-3xl mx-auto",
       )}>
         <div className={cn(
@@ -437,17 +437,17 @@ export function ChatInput({
           onClick={onSubmit}
           disabled={isStreaming || !value.trim()}
           className={cn(
-            "shrink-0 self-stretch flex items-center justify-center rounded-lg bg-accent-cyan/20 text-accent-cyan border border-accent-cyan/30",
-            compact ? "w-8" : "w-10",
+            "shrink-0 flex items-center justify-center rounded-xl bg-accent-cyan/20 text-accent-cyan border border-accent-cyan/30 aspect-square",
+            compact ? "h-[2.5rem] w-[2.5rem] min-h-[2.5rem]" : "h-10 w-10 min-h-10",
             "hover:bg-accent-cyan/30 hover:shadow-[0_0_16px_rgba(0,212,255,0.2)]",
             "disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none",
             "transition-all duration-200",
           )}
         >
           {isStreaming ? (
-            <Loader2 className={cn("animate-spin", compact ? "h-3.5 w-3.5" : "h-4 w-4")} />
+            <Loader2 className={cn("animate-spin", compact ? "h-4 w-4" : "h-4 w-4")} />
           ) : (
-            <Send className={cn(compact ? "h-3.5 w-3.5" : "h-4 w-4")} />
+            <Send className={cn(compact ? "h-4 w-4" : "h-4 w-4")} />
           )}
         </button>
       </div>

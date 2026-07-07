@@ -123,12 +123,16 @@ def _avg(values: list[float]) -> float:
     return round(sum(values) / len(values), 2) if values else 0.0
 
 
-def _p95(values: list[float]) -> float:
+def _percentile(values: list[float], pct: float) -> float:
     if not values:
         return 0.0
     ordered = sorted(values)
-    idx = max(0, min(len(ordered) - 1, int(math.ceil(0.95 * len(ordered))) - 1))
+    idx = max(0, min(len(ordered) - 1, int(math.ceil(pct * len(ordered))) - 1))
     return round(ordered[idx], 2)
+
+
+def _p95(values: list[float]) -> float:
+    return _percentile(values, 0.95)
 
 
 def worker_fleet_stats(workers: list[dict]) -> dict[str, int]:
@@ -213,7 +217,25 @@ def compute_endpoint_metrics(
     )
     error_rate = round(len(failed) / denom, 4) if denom else 0.0
 
+    cold_vals = [
+        float(j.get("cold_start_seconds") or 0)
+        for j in completed
+        if int(j.get("cold_start_seconds") or 0) > 0
+    ]
+
     fleet = worker_fleet_stats(workers)
+    job_gpu_seconds = sum(int(j.get("gpu_seconds") or 0) for j in completed)
+    endpoint_gpu_seconds = int(ep.get("total_gpu_seconds") or 0)
+    ledger_cost_cad = round(
+        sum(float(r.get("cost_cad") or 0) for r in proxy_rows),
+        6,
+    )
+    billed_cost_cad = float(ep.get("total_cost_cad") or 0)
+    unbilled_cost_cad = float(ep.get("unbilled_token_cost_cad") or 0)
+    effective_cost_cad = round(billed_cost_cad + unbilled_cost_cad, 6)
+    if effective_cost_cad <= 0 and ledger_cost_cad > 0:
+        effective_cost_cad = ledger_cost_cad
+
     return {
         "endpoint_id": ep.get("endpoint_id"),
         "window_sec": round(window_sec, 2),
@@ -230,14 +252,19 @@ def compute_endpoint_metrics(
         "avg_gpu_seconds": _avg(
             [float(j.get("gpu_seconds") or 0) for j in completed]
         ),
-        "total_gpu_seconds": int(ep.get("total_gpu_seconds") or 0),
+        "total_gpu_seconds": max(endpoint_gpu_seconds, job_gpu_seconds),
         "tokens_per_sec": tokens_per_sec,
         "ttft_p95_ms": _p95(ttft_vals),
         "kv_cache_hit_rate": kv_cache_hit_rate,
+        "cold_start_p50_sec": _percentile(cold_vals, 0.50),
+        "cold_start_p95_sec": _percentile(cold_vals, 0.95),
         "total_input_tokens": total_in_tokens,
         "total_cached_tokens": total_cached_tokens,
         "total_output_tokens": total_out_tokens,
-        "total_cost_cad": float(ep.get("total_cost_cad") or 0),
+        "total_cost_cad": effective_cost_cad,
+        "billed_cost_cad": round(billed_cost_cad, 6),
+        "unbilled_token_cost_cad": round(unbilled_cost_cad, 6),
+        "recorded_token_cost_cad": ledger_cost_cad,
         **fleet,
     }
 

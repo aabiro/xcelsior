@@ -120,7 +120,7 @@ export function MetricsPanel({ metrics, jobs, loading }: MetricsPanelProps) {
         <div className="glow-card brand-top-accent rounded-xl border border-border bg-surface p-4">
           <p className="text-sm font-medium mb-4">{t("dash.serverless.job_activity")}</p>
           <div className="h-48">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
               <AreaChart data={chartData} margin={{ top: 5, right: 5, bottom: 0, left: -10 }}>
                 <defs>
                   <linearGradient id="slCompleted" x1="0" y1="0" x2="0" y2="1">

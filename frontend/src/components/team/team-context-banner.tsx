@@ -4,7 +4,7 @@ import { Users, Wallet, Eye, Server } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useLocale } from "@/lib/locale";
 import type { TeamContext, InstanceConcurrency } from "@/lib/team-context";
-import { formatTeamRoleLabel } from "@/lib/team-context";
+import { formatPlanLabel, formatTeamRoleLabel } from "@/lib/team-context";
 import { cn } from "@/lib/utils";
 
 interface TeamContextBannerProps {
@@ -50,8 +50,8 @@ export function TeamContextBanner({
                 </Badge>
               )}
               {team.teamPlan && (
-                <Badge variant="default" className="normal-case">
-                  {team.teamPlan}
+                <Badge variant="default">
+                  {formatPlanLabel(team.teamPlan)}
                 </Badge>
               )}
             </div>

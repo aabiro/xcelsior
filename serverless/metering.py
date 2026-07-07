@@ -43,6 +43,24 @@ def blended_billing_enabled() -> bool:
     )
 
 
+def blended_billing_for_endpoint(endpoint: dict) -> bool:
+    """Whether a worker slice charges max(gpu_seconds_cost, token_cost).
+
+    Preset chat/embed/rerank endpoints use blended billing by default (token SKU
+    production path). Custom serverless and non-token presets bill GPU-seconds only.
+    ``XCELSIOR_SERVERLESS_BLENDED_BILLING=1`` forces blended for all serverless;
+    ``=0`` disables globally; unset → auto for token products only.
+    """
+    mode = os.environ.get("XCELSIOR_SERVERLESS_BLENDED_BILLING", "auto").lower()
+    if mode in ("0", "false", "no", "gpu_only"):
+        return False
+    if mode in ("1", "true", "yes", "all"):
+        return True
+    from serverless.openai_proxy import endpoint_accrues_tokens
+
+    return endpoint_accrues_tokens(endpoint)
+
+
 def min_billing_interval_sec() -> int:
     return int(os.environ.get("XCELSIOR_SERVERLESS_MIN_BILLING_INTERVAL_SEC", str(MIN_BILLING_INTERVAL_SEC)))
 
@@ -133,6 +151,7 @@ def pricing_for_endpoint(ep: dict) -> dict[str, Any]:
     # Token SKU: parallel per-token meter on preset chat/embed/rerank only.
     if str(ep.get("mode") or "") == "preset" and ep.get("model_ref"):
         from serverless.openai_proxy import model_task
+        from serverless.slo import enrich_pricing_with_ga
 
         task = model_task(str(ep.get("model_ref") or ""))
         if task in ("chat", "embed", "rerank"):
@@ -140,8 +159,10 @@ def pricing_for_endpoint(ep: dict) -> dict[str, Any]:
             quote.update(token_pricing_quote(str(ep.get("model_ref") or "")))
             quote["token_formula"] = (
                 "token_cost = (computed_in × in_rate + cached_in × cached_in_rate + out × out_rate) / 1M; "
-                "blended charge = max(gpu_seconds_cost, token_cost) when enabled"
+                "charge = max(gpu_seconds_cost, token_cost) on preset LLM endpoints"
             )
+            quote["blended_billing_default"] = True
+            quote = enrich_pricing_with_ga(ep, quote)
     return quote
 
 
@@ -314,13 +335,18 @@ def charge_serverless_execution(
             "reason": "below_minimum_interval",
         }
 
-    # Resolve the period's token cost for the blended meter: explicit value (tests)
-    # or consume the endpoint's accrued unbilled token cost. Consumed here (after the
-    # billing gates) so it aligns with the slice that's actually billed.
+    blended_on = blended_billing_for_endpoint(endpoint)
+    endpoint_id = str(endpoint.get("endpoint_id") or "")
+
+    # Peek accrual for blended math; consume only after a successful charge (billing-critical).
     if token_cost_cad is None:
         try:
-            raw = repo.consume_endpoint_token_cost(str(endpoint.get("endpoint_id") or ""))
-            token_cost_cad = float(raw) if isinstance(raw, (int, float)) else 0.0
+            if blended_on and hasattr(repo, "peek_endpoint_token_cost"):
+                token_cost_cad = float(repo.peek_endpoint_token_cost(endpoint_id) or 0.0)
+            elif hasattr(repo, "peek_endpoint_token_cost"):
+                token_cost_cad = float(repo.peek_endpoint_token_cost(endpoint_id) or 0.0)
+            else:
+                token_cost_cad = 0.0
         except Exception:
             token_cost_cad = 0.0
 
@@ -331,9 +357,7 @@ def charge_serverless_execution(
     gpu_count = int(endpoint.get("gpu_count") or 1)
     gpu_seconds = max(0, int(math.ceil(duration_sec)))
     gpu_amount_cad = estimate_cost_cad(gpu_seconds, rate, gpu_count)
-    # Blended meter: charge the higher of GPU-seconds vs. token cost (flag-gated).
     blended_cad = blended_period_amount(gpu_amount_cad, token_cost_cad)
-    blended_on = blended_billing_enabled()
     amount_cad = blended_cad if blended_on else gpu_amount_cad
     if blended_on and token_cost_cad > 0:
         log.info(
@@ -402,6 +426,18 @@ def charge_serverless_execution(
         conn.commit()
 
     if charge_result.get("charged"):
+        if blended_on and token_cost_cad and token_cost_cad > 0 and hasattr(
+            repo, "consume_endpoint_token_cost"
+        ):
+            try:
+                repo.consume_endpoint_token_cost(endpoint_id)
+            except Exception as exc:
+                log.error(
+                    "token accrual consume failed job=%s endpoint=%s: %s",
+                    job_id,
+                    endpoint_id,
+                    exc,
+                )
         repo.increment_endpoint_totals(
             str(endpoint["endpoint_id"]),
             gpu_seconds=gpu_seconds,
@@ -494,6 +530,7 @@ def bill_active_serverless_workers(billing_engine, *, now: float | None = None) 
     """Periodic tick: bill incremental slices for all running serverless workers."""
     from db import _get_pg_pool
     from psycopg.rows import dict_row
+    from serverless.billing_context import ENDPOINT_BILLING_SELECT_SQL, endpoint_from_worker_row
     from serverless.repo import ServerlessRepo
 
     now = now or time.time()
@@ -503,8 +540,8 @@ def bill_active_serverless_workers(billing_engine, *, now: float | None = None) 
     with pool.connection() as conn:
         conn.row_factory = dict_row
         rows = conn.execute(
-            """
-            SELECT w.*, e.endpoint_id, e.owner_id, e.name, e.gpu_tier, e.region, e.gpu_count
+            f"""
+            SELECT w.*, {ENDPOINT_BILLING_SELECT_SQL}
             FROM serverless_workers w
             JOIN serverless_endpoints e ON e.endpoint_id = w.endpoint_id
             WHERE w.state IN ('booting', 'ready', 'idle', 'draining')
@@ -515,14 +552,7 @@ def bill_active_serverless_workers(billing_engine, *, now: float | None = None) 
 
     for row in rows:
         worker = dict(row)
-        endpoint = {
-            "endpoint_id": worker["endpoint_id"],
-            "owner_id": worker["owner_id"],
-            "name": worker.get("name"),
-            "gpu_tier": worker.get("gpu_tier"),
-            "region": worker.get("region"),
-            "gpu_count": worker.get("gpu_count"),
-        }
+        endpoint = endpoint_from_worker_row(worker)
         try:
             result = charge_serverless_execution(
                 billing_engine,
@@ -546,21 +576,26 @@ def bill_active_serverless_workers(billing_engine, *, now: float | None = None) 
 def charge_serverless_worker(
     repo: ServerlessRepo,
     worker: dict,
-    endpoint: dict,
+    endpoint: dict | None = None,
     *,
     released_at: float | None = None,
 ) -> dict:
     """Final slice on worker deprovision — only unbilled seconds since last cycle."""
     from billing import get_billing_engine
+    from serverless.billing_context import endpoint_billing_context, endpoint_from_worker_row
+
+    ctx = endpoint_billing_context(repo, worker) if endpoint is None else endpoint_from_worker_row(
+        {**endpoint, **worker}
+    )
 
     return charge_serverless_execution(
         get_billing_engine(),
         repo,
         worker,
-        endpoint,
+        ctx,
         period_end=released_at,
         final=True,
         description=(
-            f"Serverless worker final: {endpoint.get('name') or endpoint.get('endpoint_id')}"
+            f"Serverless worker final: {ctx.get('name') or ctx.get('endpoint_id')}"
         ),
     )

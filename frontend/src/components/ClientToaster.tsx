@@ -12,7 +12,9 @@ export function ClientToaster() {
       position="bottom-right"
       theme="dark"
       closeButton
-      visibleToasts={4}
+      expand={false}
+      gap={10}
+      visibleToasts={3}
       toastOptions={{
         duration: 4000,
         style: {

@@ -205,8 +205,8 @@ export default function DashboardOverview() {
       <FadeIn className="dashboard-overview-hero">
         <div className="dashboard-overview-hero-head">
           <div>
-            <div className="dashboard-overview-eyebrow">Dashboard / Overview</div>
-            <h1 className="dashboard-overview-title">Overview</h1>
+            <div className="dashboard-overview-eyebrow">Dashboard</div>
+            <SectionMarker code="01" label={t("dash.overview")} />
             <p className="dashboard-overview-intro">
               Track live capacity, running workloads, and verified supply across your Xcelsior workspace.
             </p>

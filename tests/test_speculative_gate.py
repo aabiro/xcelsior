@@ -29,12 +29,12 @@ class TestEagle3StartupGate:
     def test_default_startup_omits_eagle3(self, monkeypatch):
         monkeypatch.delenv("XCELSIOR_VLLM_EAGLE3", raising=False)
         cmd = _preset_startup_command("vllm", "Qwen/Qwen3-8B")
-        assert "EAGLE3" not in cmd
+        assert "eagle3" not in cmd
 
     def test_eagle3_requires_validation_even_when_env_on(self, monkeypatch):
         monkeypatch.setenv("XCELSIOR_VLLM_EAGLE3", "1")
         cmd = _preset_startup_command("vllm", "Qwen/Qwen3-8B")
-        assert "EAGLE3" not in cmd
+        assert "eagle3" not in cmd
 
     def test_eagle3_ships_by_default_after_validation(self, monkeypatch):
         """Compatible bases enable EAGLE-3 after validation without explicit env=1."""
@@ -48,8 +48,8 @@ class TestEagle3StartupGate:
                 baseline_tokens_per_sec=5000.0,
             )
         cmd = _preset_startup_command("vllm", model)
-        assert "EAGLE3" in cmd
-        assert "--speculative-model" in cmd
+        assert "--speculative-config" in cmd and "eagle3" in cmd
+        assert "--speculative-config" in cmd
 
     def test_eagle3_opt_out_env_disables_after_validation(self, monkeypatch):
         monkeypatch.setenv("XCELSIOR_VLLM_EAGLE3", "0")
@@ -75,9 +75,9 @@ class TestEagle3StartupGate:
                 baseline_tokens_per_sec=5000.0,
             )
         flags = speculative_startup_flags(model)
-        assert "--speculative-algorithm" in flags
+        assert "--speculative-config" in flags
         cmd = _preset_startup_command("vllm", model)
-        assert "EAGLE3" in cmd
+        assert "--speculative-config" in cmd and "eagle3" in cmd
 
     def test_low_acceptance_blocks_eagle3(self, monkeypatch):
         monkeypatch.setenv("XCELSIOR_VLLM_EAGLE3", "1")

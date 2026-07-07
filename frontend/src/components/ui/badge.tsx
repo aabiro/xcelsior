@@ -64,6 +64,13 @@ export function StatusBadge({ status }: { status: string }) {
       restarting: "restarting",
       terminated: "terminated",
       preempted: "preempted",
+      // Volume states
+      available: "active",
+      attached: "active",
+      error: "failed",
+      provisioning: "warning",
+      creating: "warning",
+      deleting: "warning",
       // Legacy pause states
       user_paused: "stopped",
       paused_low_balance: "warning",
@@ -75,6 +82,12 @@ export function StatusBadge({ status }: { status: string }) {
       user_paused: "Stopped",
       paused_low_balance: "Low Balance",
       preempted: "Preempted",
+      available: "Available",
+      attached: "Attached",
+      error: "Error",
+      provisioning: "Provisioning",
+      creating: "Creating",
+      deleting: "Deleting",
     }[status] ?? status.charAt(0).toUpperCase() + status.slice(1);
 
   return <Badge variant={variant}>{label}</Badge>;

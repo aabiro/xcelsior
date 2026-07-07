@@ -70,6 +70,8 @@ def api_volume_create(body: VolumeCreate, request: Request):
         return {"ok": True, "volume": vol}
     except ValueError as e:
         raise HTTPException(400, str(e))
+    except RuntimeError as e:
+        raise HTTPException(503, "Volume encryption is misconfigured — contact support.") from e
 
 
 @router.get("/api/v2/volumes", tags=["Volumes"])
@@ -280,8 +282,13 @@ def api_volume_retry_provision(volume_id: str, request: Request):
     except PermissionError:
         raise HTTPException(403, "Not authorised to retry this volume")
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        msg = str(e)
+        if "decrypt" in msg.lower() or "encryption key" in msg.lower():
+            raise HTTPException(409, "Volume encryption key is invalid — delete and recreate the volume.") from e
+        raise HTTPException(400, msg)
     except RuntimeError as e:
+        if "encryption" in str(e).lower() or "secrets_key" in str(e).lower():
+            raise HTTPException(503, "Volume encryption is misconfigured — contact support.") from e
         raise HTTPException(502, str(e))
 
 

@@ -18,103 +18,59 @@ from typing import Any, AsyncGenerator, Callable, Optional, cast
 import anthropic
 import httpx
 
+from ai_assistant_config import (
+    AI_ENABLE_LIVE_CALLS,
+    AI_FALLBACK_PROVIDERS,
+    AI_MAX_TOKENS,
+    AI_MODEL,
+    AI_PROVIDER,
+    AI_RATE_LIMIT,
+    AI_TEMPERATURE,
+    ANTHROPIC_API_KEY,
+    CONFIRMATION_TTL_SEC,
+    CONVERSATION_TITLE_MAX_LEN,
+    DEFAULT_BASE_RATE_CAD,
+    DEFAULT_CONVERSATION_LIMIT,
+    DEFAULT_DOC_SEARCH_LIMIT,
+    DEFAULT_GPU_VRAM_GB,
+    DEFAULT_JOB_LIST_LIMIT,
+    DEFAULT_MESSAGE_LIMIT,
+    ERROR_BODY_PREVIEW_LEN,
+    FEATURE_AI_ASSISTANT,
+    KEY_PREVIEW_PREFIX_LEN,
+    KEY_PREVIEW_SUFFIX_LEN,
+    MAX_DOCKER_IMAGE_LEN,
+    MAX_GPU_COUNT,
+    MAX_GPU_RECOMMENDATIONS,
+    MAX_HISTORY_ROWS,
+    MAX_JOB_HOURS,
+    MAX_MARKETPLACE_RESULTS,
+    MAX_TOOL_ROUNDS,
+    MAX_WIZARD_KV_VALUE_LEN,
+    MOCK_PREVIEW_MAX_LEN,
+    RAG_CHUNK_OVERLAP,
+    RAG_CHUNK_SIZE,
+    RATE_LIMIT_WINDOW_SEC,
+    RECENT_USAGE_LIMIT,
+    SUMMARY_MAX_TOKENS,
+    SUPPORTED_AI_PROVIDERS,
+    TEXT_PROVIDERS,
+    TEXT_PROVIDER_TIMEOUT,
+    TOOL_CAPABLE_PROVIDERS,
+    TOOL_PROVIDER_TIMEOUT,
+    WRITE_TOOLS,
+    _API_DOMAIN,
+    _BASE_DOMAIN,
+    _BASE_URL,
+    _SSH_HOST,
+    sign_confirmation_id,
+    verify_confirmation_token,
+)
+
 log = logging.getLogger("xcelsior.ai_assistant")
 
-# ── Configuration ─────────────────────────────────────────────────────
-
-_BASE_URL = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
-_SSH_HOST = os.environ.get("XCELSIOR_SSH_HOST", "connect.xcelsior.ca")
-_BASE_DOMAIN = _BASE_URL.replace("https://", "").replace("http://", "").rstrip("/")
-_API_DOMAIN = f"api.{_BASE_DOMAIN}"
-
-FEATURE_AI_ASSISTANT = os.environ.get("FEATURE_AI_ASSISTANT", "false").lower() in (
-    "true",
-    "1",
-    "yes",
-)
-AI_PROVIDER = os.environ.get("AI_ASSISTANT_PROVIDER", "xai").strip().lower() or "xai"
-AI_FALLBACK_PROVIDERS = os.environ.get("AI_ASSISTANT_FALLBACK_PROVIDERS", "anthropic,openai")
-AI_ENABLE_LIVE_CALLS = os.environ.get("AI_ASSISTANT_ENABLE_LIVE_CALLS", "false").lower() in (
-    "true",
-    "1",
-    "yes",
-)
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-AI_MODEL = os.environ.get("AI_ASSISTANT_MODEL", "claude-haiku-4-20250414")
-AI_MAX_TOKENS = int(os.environ.get("AI_ASSISTANT_MAX_TOKENS") or "4096")
-AI_RATE_LIMIT = int(os.environ.get("AI_ASSISTANT_RATE_LIMIT", "20"))  # per minute per user
-CONFIRMATION_TTL_SEC = 300  # 5 minutes to approve/reject
-RAG_CHUNK_SIZE = 400  # words per doc chunk
-RAG_CHUNK_OVERLAP = 50  # word overlap between chunks
-MAX_TOOL_ROUNDS = 5  # max tool calls per AI request
-AI_TEMPERATURE = 0.2  # LLM sampling temperature
-TEXT_PROVIDER_TIMEOUT = 60.0  # seconds — text-only streaming timeout
-TOOL_PROVIDER_TIMEOUT = 120.0  # seconds — tool-capable streaming timeout
-ERROR_BODY_PREVIEW_LEN = 200  # chars of HTTP error body to include in logs
-RATE_LIMIT_WINDOW_SEC = 60  # sliding window for per-user rate limiting
-MAX_HISTORY_ROWS = 30  # max history rows fed to LLM context
-DEFAULT_CONVERSATION_LIMIT = 30  # list_conversations() default limit
-DEFAULT_MESSAGE_LIMIT = 50  # get_conversation_messages() default limit
-DEFAULT_DOC_SEARCH_LIMIT = 5  # search_docs() default limit
-DEFAULT_JOB_LIST_LIMIT = 10  # list_jobs default limit
-MAX_MARKETPLACE_RESULTS = 10  # marketplace offer cap
-MAX_GPU_RECOMMENDATIONS = 5  # GPU recommendation cap
-MAX_GPU_COUNT = 64  # max GPUs per job
-MAX_JOB_HOURS = 8760  # 1 year
-MAX_DOCKER_IMAGE_LEN = 256  # docker image name max length
-MAX_WIZARD_KV_VALUE_LEN = 500  # wizard context value length cap
-MOCK_PREVIEW_MAX_LEN = 140  # mock response message preview truncation
-CONVERSATION_TITLE_MAX_LEN = 80  # auto-title from first message
-SUMMARY_MAX_TOKENS = 512  # action summary max output tokens
-RECENT_USAGE_LIMIT = 5  # billing usage meters to show
-DEFAULT_GPU_VRAM_GB = 24  # fallback VRAM for unknown GPUs
-DEFAULT_BASE_RATE_CAD = 0.45  # fallback hourly rate
-KEY_PREVIEW_PREFIX_LEN = 9  # masked key: first N chars
-KEY_PREVIEW_SUFFIX_LEN = 4  # masked key: last N chars
-
-# Secret for HMAC-signing confirmation IDs — prevents brute-force/replay
-_CONFIRMATION_SECRET = os.environ.get("AI_CONFIRMATION_SECRET", "").encode() or os.urandom(32)
-
-
-def _sign_confirmation_id(cid: str) -> str:
-    """Return HMAC-signed confirmation token: 'uuid:signature'."""
-    sig = hmac.new(_CONFIRMATION_SECRET, cid.encode(), hashlib.sha256).hexdigest()[:16]
-    return f"{cid}:{sig}"
-
-
-def _verify_confirmation_token(token: str) -> str | None:
-    """Verify a signed confirmation token. Returns the UUID if valid, None if tampered."""
-    parts = token.split(":", 1)
-    if len(parts) != 2:
-        return None
-    cid, sig = parts
-    expected = hmac.new(_CONFIRMATION_SECRET, cid.encode(), hashlib.sha256).hexdigest()[:16]
-    if not hmac.compare_digest(sig, expected):
-        return None
-    return cid
-
-
-TEXT_PROVIDERS = {
-    "xai": {
-        "base_url": "https://api.x.ai/v1",
-        "default_model": "grok-4",
-        "api_key": os.environ.get("AI_ASSISTANT_XAI_API_KEY", ""),
-        "model": os.environ.get("AI_ASSISTANT_XAI_MODEL", ""),
-    },
-    "openai": {
-        "base_url": "https://api.openai.com/v1",
-        "default_model": "gpt-4o-mini",
-        "api_key": os.environ.get("AI_ASSISTANT_OPENAI_API_KEY", ""),
-        "model": os.environ.get("AI_ASSISTANT_OPENAI_MODEL", ""),
-    },
-}
-SUPPORTED_AI_PROVIDERS = {"anthropic", *TEXT_PROVIDERS.keys()}
-
-# Providers with tool/function-calling support (OpenAI-compatible or native)
-TOOL_CAPABLE_PROVIDERS = {"anthropic", "openai"}
-
-# Write actions that always require user confirmation
-WRITE_TOOLS = {"launch_job", "stop_job", "create_api_key", "revoke_api_key", "add_ssh_key"}
+_sign_confirmation_id = sign_confirmation_id
+_verify_confirmation_token = verify_confirmation_token
 
 
 # ── Rate Limiter (per-user, not per-IP) ───────────────────────────────

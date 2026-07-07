@@ -195,7 +195,7 @@ function HistoryDrawer({
 export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPanel, aiPanelOpen, embedded }: { showFab?: boolean; externalOpen?: boolean; onClose?: () => void; onOpenAiPanel?: () => void; aiPanelOpen?: boolean; embedded?: boolean }) {
   const { t } = useLocale();
   const { user } = useAuth();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(externalOpen ?? false);
   const [input, setInput] = useState("");
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -215,6 +215,15 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
   // Sync with external open control
   useEffect(() => {
     if (externalOpen !== undefined) setOpen(externalOpen);
+  }, [externalOpen]);
+
+  useEffect(() => {
+    if (externalOpen === false) {
+      historyLoadedRef.current = false;
+    }
+    return () => {
+      historyLoadedRef.current = false;
+    };
   }, [externalOpen]);
 
   // Listen for global "open-chat-widget" event (e.g. from marketing support page)
