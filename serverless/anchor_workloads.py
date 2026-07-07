@@ -4,7 +4,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -54,22 +56,261 @@ def _configured_root_paths() -> list[str]:
     return paths
 
 
+def _mac_projects_reachable() -> bool:
+    host = os.environ.get("XCELSIOR_MAC_HOST", "aaryn@100.64.0.3").strip()
+    if not host:
+        return False
+    try:
+        subprocess.check_output(
+            [
+                "ssh",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=8",
+                host,
+                "test -d ~/Projects && echo ok",
+            ],
+            text=True,
+            timeout=12,
+            stderr=subprocess.DEVNULL,
+        )
+        return True
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+        return False
+
+
 def configured_project_roots() -> list[dict[str, Any]]:
-    """Every configured search root (including unreachable Mac paths) with exists flag."""
+    """Every configured search root (Mac ~/Projects probed via SSH when not mounted)."""
     rows: list[dict[str, Any]] = []
+    mac_ok = _mac_projects_reachable()
     for part in _configured_root_paths():
         p = Path(part)
-        row: dict[str, Any] = {"path": part, "exists": p.is_dir(), "repo_count": 0}
+        exists = p.is_dir()
+        reachable = "local"
+        if part in ("/Users/aaryn/Projects", str(Path.home() / "Projects")) and not exists:
+            exists = mac_ok
+            reachable = "ssh" if mac_ok else "unreachable"
+        row: dict[str, Any] = {
+            "path": part,
+            "exists": exists,
+            "reachable": reachable,
+            "repo_count": 0,
+        }
         if p.is_dir():
             try:
                 row["repo_count"] = sum(1 for c in p.iterdir() if c.is_dir())
             except OSError:
                 row["repo_count"] = 0
+        elif mac_ok and part == "/Users/aaryn/Projects":
+            row["repo_count"] = len(_discover_mac_anchor_repos())
         rows.append(row)
     return rows
 
 
-def discover_anchor_repos() -> list[dict[str, str]]:
+_MAC_BUILDER_SCRIPTS: dict[str, str] = {
+    "pel-chat": """
+import json, os, sys
+root = os.path.expanduser("~/Projects")
+sys.path.insert(0, os.path.join(root, "pixelenhance-labs/cli"))
+from llm_bridge import ConversationalLLMClient
+c = ConversationalLLMClient()
+msgs = list(c._build_messages(channel="GPU Strategist", context="Fleet warm.", history=[{"role":"user","content":"status?"}]))
+print(json.dumps({"model":"Qwen/Qwen3-8B","messages":msgs,"temperature":c.temperature}))
+""",
+    "pt-signal": """
+import json, os, sys
+root = os.path.expanduser("~/Projects")
+sys.path.insert(0, os.path.join(root, "phantom-trades-mvp"))
+from financial_beast import LLMTradeAnalyzer
+a = LLMTradeAnalyzer(provider="openai", api_key="")
+trades=[{"pnl_pct":1.2,"r_multiple":0.8,"market_regime":"trend","strategy_used":"vwap","emotional_state":"calm","conviction_level":"high"}]
+stats={"trades":1,"win_rate":0.55,"profit_factor":1.3,"avg_win":1.1,"avg_loss":-0.7,"expectancy":0.15,"avg_r_multiple":0.4}
+p = a._format_trades_for_prompt(trades, stats)
+print(json.dumps({"model":"Qwen/Qwen3-8B","messages":[{"role":"user","content":p}],"max_tokens":512}))
+""",
+    "ara-agent": """
+import json
+msgs=[{"role":"system","content":"You are Ara."},{"role":"user","content":"refactor safely?"}]
+print(json.dumps({"model":"Qwen/Qwen3-8B","messages":msgs,"temperature":0.7,"max_tokens":1024}))
+""",
+}
+
+
+def execute_anchor_on_mac(workload: str) -> dict[str, Any] | None:
+    """Run anchor builder on Mac ~/Projects via SSH when local import unavailable."""
+    if workload not in _MAC_BUILDER_SCRIPTS:
+        return None
+    host = os.environ.get("XCELSIOR_MAC_HOST", "aaryn@100.64.0.3").strip()
+    if not host or not _mac_projects_reachable():
+        return None
+    remote = f"""set -euo pipefail
+python3 - <<'PY'
+{_MAC_BUILDER_SCRIPTS[workload]}
+PY
+"""
+    try:
+        out = subprocess.check_output(
+            ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", host, "bash", "-s"],
+            input=remote,
+            text=True,
+            timeout=45,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        payload = json.loads(out.splitlines()[-1])
+        return {
+            "workload": workload,
+            "executed_on": "mac_ssh",
+            "host": host,
+            "payload": payload,
+            "executed": True,
+        }
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError, json.JSONDecodeError):
+        return None
+
+
+def post_openai_from_mac(
+    *,
+    url: str,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+    workload: str = "",
+    host: str | None = None,
+) -> dict[str, Any]:
+    """POST an OpenAI-compatible request from Mac via SSH (row 30 Mac-executed inference)."""
+    mac_host = (host or os.environ.get("XCELSIOR_MAC_HOST", "aaryn@100.64.0.3")).strip()
+    if not mac_host or not _mac_projects_reachable():
+        return {"ok": False, "reason": "mac_unreachable", "workload": workload}
+    merged_headers = {"Content-Type": "application/json", **{str(k): str(v) for k, v in headers.items()}}
+    hdr_json = json.dumps(merged_headers)
+    body_json = json.dumps(payload)
+    remote = f"""set -euo pipefail
+python3 - <<'PY'
+import json, urllib.request, sys
+url = {json.dumps(url)}
+headers = json.loads({json.dumps(hdr_json)})
+payload = json.loads({json.dumps(body_json)})
+req = urllib.request.Request(
+    url,
+    data=json.dumps(payload).encode(),
+    headers=headers,
+    method="POST",
+)
+try:
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        raw = resp.read().decode()
+        body = json.loads(raw) if raw else {{}}
+        print(json.dumps({{
+            "ok": True,
+            "status": resp.status,
+            "usage": body.get("usage"),
+            "model": body.get("model"),
+        }}))
+except Exception as exc:
+    print(json.dumps({{"ok": False, "error": str(exc)}}))
+    sys.exit(1)
+PY
+"""
+    try:
+        out = subprocess.check_output(
+            ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", mac_host, "bash", "-s"],
+            input=remote,
+            text=True,
+            timeout=150,
+            stderr=subprocess.STDOUT,
+        ).strip()
+        result = json.loads(out.splitlines()[-1])
+        result["executed_on"] = "mac_ssh"
+        result["host"] = mac_host
+        result["workload"] = workload
+        result["url"] = url
+        return result
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError, json.JSONDecodeError) as exc:
+        return {
+            "ok": False,
+            "reason": str(exc),
+            "executed_on": "mac_ssh",
+            "host": mac_host,
+            "workload": workload,
+        }
+
+
+def execute_anchor_builder(workload: str) -> dict[str, Any]:
+    """Import and run a real anchor repo builder (local disk, else Mac SSH)."""
+    builders = {
+        "pel-chat": pixelenhance_chat_payload,
+        "pel-embed": pixelenhance_embed_payload,
+        "pt-signal": phantom_trades_chat_payload,
+        "ara-agent": ara_code_chat_payload,
+    }
+    fn = builders.get(workload)
+    if not fn:
+        raise AnchorWorkloadError(f"unknown workload {workload}")
+    try:
+        payload = fn()
+        origin = "local_import"
+    except AnchorWorkloadError:
+        mac = execute_anchor_on_mac(workload)
+        if mac:
+            return mac
+        raise
+    return {
+        "workload": workload,
+        "builder": fn.__name__,
+        "module": fn.__module__,
+        "payload": payload,
+        "executed": True,
+        "executed_on": origin,
+    }
+
+
+def _discover_mac_anchor_repos() -> list[dict[str, str]]:
+    """SSH to Mac ~/Projects when reachable; returns metadata only (paths not mounted locally)."""
+    host = os.environ.get("XCELSIOR_MAC_HOST", "aaryn@100.64.0.3").strip()
+    if not host:
+        return []
+    script = r"""
+set -euo pipefail
+ROOT=~/Projects
+for repo in pixelenhance-labs phantom-trades-mvp ara-code deal-ghost stellar-subs; do
+  for marker in financial_beast.py llm_client.py cli/llm_bridge.py llm_bridge.py api_agent.py; do
+    if test -f "$ROOT/$repo/$marker"; then
+      echo "$repo|$ROOT/$repo|$marker|mac"
+      break
+    fi
+  done
+done
+"""
+    try:
+        out = subprocess.check_output(
+            ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=12", host, "bash", "-s"],
+            input=script,
+            text=True,
+            timeout=20,
+            stderr=subprocess.DEVNULL,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+        return []
+    rows: list[dict[str, str]] = []
+    for line in out.splitlines():
+        parts = line.strip().split("|")
+        if len(parts) != 4:
+            continue
+        repo, path, marker, origin = parts
+        rows.append(
+            {
+                "repo": repo,
+                "root": origin,
+                "path": path,
+                "marker": marker,
+                "dynamic": "false",
+                "reachable": "ssh_only",
+            }
+        )
+    return rows
+
+
+def discover_anchor_repos(*, include_remote: bool = False) -> list[dict[str, str]]:
     """Scan project roots for repos that expose real LLM workload builders."""
     found: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -110,6 +351,14 @@ def discover_anchor_repos() -> list[dict[str, str]]:
                 if (child / marker).exists():
                     _append(child.name, root, child, marker, dynamic=True)
                     break
+
+    if include_remote:
+        for row in _discover_mac_anchor_repos():
+            key = row["repo"]
+            if key in seen:
+                continue
+            found.append(row)
+            seen.add(key)
     return found
 
 

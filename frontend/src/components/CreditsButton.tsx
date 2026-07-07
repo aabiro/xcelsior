@@ -24,7 +24,7 @@ export function CreditsButton() {
   const isNegative = balance !== null && balance < 0;
 
   const loadBalance = useCallback(async () => {
-    if (!customerId || !user || pollStoppedRef.current) return;
+    if (!customerId || !user || pollStoppedRef.current || !team.canManageBilling) return;
     try {
       const res = await fetchWallet(customerId);
       setBalance(res.wallet.balance_cad);
@@ -38,7 +38,7 @@ export function CreditsButton() {
     } finally {
       setLoading(false);
     }
-  }, [customerId, user]);
+  }, [customerId, user, team.canManageBilling]);
 
   useEffect(() => {
     if (!user || !customerId) {

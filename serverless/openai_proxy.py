@@ -354,6 +354,15 @@ def accrue_proxy_token_usage(
     if cost <= 0:
         return {"accrued": False, "reason": "zero_cost", "metadata": meta}
     repo.accrue_endpoint_token_cost(endpoint_id, cost)
+    try:
+        from serverless.kv_kpi import record_token_cache_sample
+
+        record_token_cache_sample(
+            input_tokens=int(usage.get("input_tokens") or 0),
+            cached_tokens=int(usage.get("cached_tokens") or 0),
+        )
+    except Exception:
+        pass
     if idempotency_key and hasattr(repo, "record_token_usage_idempotency"):
         repo.record_token_usage_idempotency(
             endpoint_id,

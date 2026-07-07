@@ -28,6 +28,7 @@ class TestStorageConfig:
     def test_defaults(self):
         cfg = StorageConfig()
         assert cfg.backend == StorageBackend.LOCAL
+        assert cfg.local_dir == ""
         assert cfg.bucket == "xcelsior-artifacts"
         assert cfg.presign_expiry_sec == 3600
         assert cfg.max_upload_size_mb == 10240
@@ -35,12 +36,14 @@ class TestStorageConfig:
 
     def test_from_env(self, monkeypatch):
         monkeypatch.setenv("XCELSIOR_STORAGE_BACKEND", "b2")
+        monkeypatch.setenv("XCELSIOR_STORAGE_LOCAL_DIR", "/data/artifacts")
         monkeypatch.setenv("XCELSIOR_STORAGE_BUCKET", "my-bucket")
         monkeypatch.setenv("XCELSIOR_STORAGE_REGION", "ca-central-1")
         monkeypatch.setenv("XCELSIOR_STORAGE_PRESIGN_EXPIRY", "7200")
         monkeypatch.setenv("XCELSIOR_STORAGE_RESIDENCY", "canada_only")
         cfg = StorageConfig.from_env("XCELSIOR_STORAGE")
         assert cfg.backend == "b2"
+        assert cfg.local_dir == "/data/artifacts"
         assert cfg.bucket == "my-bucket"
         assert cfg.region == "ca-central-1"
         assert cfg.presign_expiry_sec == 7200
@@ -52,6 +55,13 @@ class TestStorageConfig:
         cfg = StorageConfig.from_env("MYPREFIX")
         assert cfg.backend == "r2"
         assert cfg.bucket == "cache-bucket"
+
+    def test_local_dir_override(self, tmp_path):
+        cfg = StorageConfig(backend=StorageBackend.LOCAL, local_dir=str(tmp_path / "stored"))
+        client = StorageClient(cfg)
+        result = client.generate_upload_url("user_profile/u/avatar.png")
+        assert result["url"].startswith(f"file://{cfg.local_dir}")
+        assert os.path.isdir(cfg.local_dir)
 
 
 # ── Enums ────────────────────────────────────────────────────────────

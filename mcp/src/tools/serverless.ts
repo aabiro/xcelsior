@@ -78,6 +78,32 @@ export function registerServerlessTools(
   );
 
   server.registerTool(
+    "should_i_run_pel_job",
+    {
+      description:
+        "PEL/admin guardrail before serverless spend: wallet + token/GPU estimate (row 12).",
+      inputSchema: z.object({
+        endpoint_id: z.string().optional(),
+        model_ref: z.string().optional(),
+        estimated_input_tokens: z.number().int().min(0).default(1000),
+        estimated_output_tokens: z.number().int().min(0).default(500),
+        duration_hours: z.number().min(0).max(168).default(0.1),
+        gpu_tier: z.string().default("RTX 4090"),
+      }),
+    },
+    async (args) => {
+      const denied = scopeDenied("should_i_run_pel_job", user);
+      if (denied) return denied;
+      try {
+        const data = await client.post("/api/v2/serverless/should-i-run-this", args);
+        return jsonText(data);
+      } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
+
+  server.registerTool(
     "run_serverless_job",
     {
       description: "Enqueue an async inference job on a serverless endpoint.",

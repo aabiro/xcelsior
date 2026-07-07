@@ -47,6 +47,16 @@ export function formatTeamRoleLabel(role?: string): string {
   return role.charAt(0).toUpperCase() + role.slice(1);
 }
 
+/** Title-case plan slugs for display (e.g. free → Free, pro_team → Pro Team). */
+export function formatPlanLabel(plan?: string): string {
+  if (!plan) return "";
+  return plan
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
 /** Persist active team on server and refresh auth context for billing/instance scope. */
 export async function applyActiveTeamSwitch(
   teamId: string | null,

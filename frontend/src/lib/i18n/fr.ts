@@ -608,6 +608,7 @@ const fr: Record<string, string> = {
 
   /* ── Tableau de bord, Barre latérale ────────────────────────────────── */
   "dash.overview": "Aperçu",
+  "dash.main_label": "Tableau de bord",
   "dash.nav.compute": "Calcul",
   "dash.nav.storage": "Stockage",
   "dash.nav.business": "Facturation et marché",
@@ -1383,6 +1384,7 @@ const fr: Record<string, string> = {
   "gear.title": "Aide",
   "gear.settings": "Paramètres",
   "gear.docs": "Documentation",
+  "gear.product_site": "Site produit",
   "gear.onboarding": "Premiers pas",
   "gear.onboarding_desc": "Complétez ces étapes pour profiter pleinement d'Xcelsior. À votre rythme !",
   "gear.step_profile": "Configurer votre profil",
@@ -1641,6 +1643,9 @@ const fr: Record<string, string> = {
   "dash.volumes.monthly_cost_team": "Coût mensuel d'équipe",
   "dash.volumes.error_provision_failed": "Échec du provisionnement du volume",
   "dash.volumes.error_hint": "Provisionnement échoué, réessayez ou supprimez et recréez.",
+  "dash.volumes.retry_wait_provisioning": "Le volume est encore en provisionnement — attendez la fin ou l'échec avant de réessayer.",
+  "dash.volumes.provisioning_stale": "Le provisionnement prend plus de temps que prévu. Il expirera automatiquement, ou supprimez et recréez le volume.",
+  "dash.volumes.encryption_error": "Le chiffrement du volume est mal configuré. Supprimez et recréez le volume, ou contactez le support.",
   "dash.volumes.retry_success": "Volume reprovisionné avec succès",
   "dash.volumes.retry_failed": "Nouvelle tentative échouée, le volume est toujours en erreur",
   "dash.volumes.snapshots": "Instantanés",

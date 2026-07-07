@@ -78,6 +78,7 @@ def _pin_test_auth_env(monkeypatch):
     import routes._deps as deps
 
     monkeypatch.setenv("XCELSIOR_ENV", "test")
+    monkeypatch.setenv("XCELSIOR_BG_TASKS", "false")
     monkeypatch.setattr(deps, "XCELSIOR_ENV", "test")
     monkeypatch.setattr(deps, "AUTH_REQUIRED", False)
     # test_bitcoin.py sets sqlite at import; CI must stay on migrated Postgres.
@@ -96,6 +97,40 @@ def fake_vllm_port(monkeypatch):
     monkeypatch.delenv("XCELSIOR_TEST_FAKE_VLLM_PORT", raising=False)
     server.shutdown()
     thread.join(timeout=2)
+
+
+@pytest.fixture
+def mac_reachable_api(fake_vllm_port):
+    """Expose FastAPI on Tailscale/LAN so Mac SSH can POST real inference requests."""
+    import socket
+    import threading
+    import time
+    import urllib.error
+    import urllib.request
+
+    import uvicorn
+
+    from api import app
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("0.0.0.0", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    api_host = os.environ.get("XCELSIOR_MAC_INFERENCE_API_HOST", "100.64.0.6")
+    os.environ["XCELSIOR_BG_TASKS"] = "false"
+    config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="error")
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    for _ in range(80):
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/openapi.json", timeout=0.5)
+            break
+        except (urllib.error.URLError, TimeoutError):
+            time.sleep(0.1)
+    yield f"http://{api_host}:{port}"
+    server.should_exit = True
+    thread.join(timeout=8)
 
 
 @pytest.fixture(autouse=True)

@@ -4,10 +4,10 @@ instances:
 title: Xcelsior Docs
 
 logo:
-  light: ./assets/logo-light.svg
-  dark: ./assets/logo-dark.svg
+  light: ./assets/lockup-light.png
+  dark: ./assets/lockup-dark.png
   href: https://xcelsior.ca
-  height: 28
+  height: 32
 
 colors:
   accent-primary:

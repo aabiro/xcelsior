@@ -19,7 +19,8 @@ import { useEventStream } from "@/hooks/useEventStream";
 import { getTeamContext } from "@/lib/team-context";
 import { TeamContextBanner } from "@/components/team/team-context-banner";
 import { CopyableText } from "@/features/serverless/copyable-text";
-import { formatTokenRateFromPricing } from "@/features/serverless/constants";
+import { formatTokenRateFromPricing, type TokenPricingQuote } from "@/features/serverless/constants";
+import { TokenPricingTable } from "@/features/serverless/token-pricing-table";
 import { EngineBadge, ServerlessEmptyState, ServerlessHero } from "@/features/serverless/serverless-ui";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -37,6 +38,7 @@ export default function InferencePage() {
   const [endpoints, setEndpoints] = useState<ServerlessEndpoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [tokenQuotes, setTokenQuotes] = useState<Record<string, TokenPricingQuote>>({});
 
   const load = useCallback(async (showSpinner = false) => {
     if (showSpinner) setLoading(true);
@@ -51,6 +53,19 @@ export default function InferencePage() {
   }, [t]);
 
   useEffect(() => { void load(false); }, [load]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/v2/serverless/preset-token-pricing", { credentials: "include" });
+        if (!res.ok) return;
+        const data = (await res.json()) as { quotes?: Record<string, TokenPricingQuote> };
+        if (data.quotes) setTokenQuotes(data.quotes);
+      } catch {
+        /* token table is optional; deploy studio still loads rates */
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     const onTeamChanged = () => { void load(false); };
@@ -100,7 +115,7 @@ export default function InferencePage() {
       <FadeIn>
         <ServerlessHero
           icon={Zap}
-          badge="GPU-seconds"
+          badge="¢/s + per-token"
           title={t("dash.serverless.title")}
           description={t("dash.serverless.subtitle")}
           accent="cyan"
@@ -127,6 +142,15 @@ export default function InferencePage() {
         <StatCard label={t("dash.serverless.stat_requests")} value={totalRequests.toLocaleString()} icon={BarChart3} glow="violet" />
         <StatCard label={t("dash.serverless.stat_cost")} value={`$${totalCost.toFixed(2)} CAD`} icon={DollarSign} glow="cyan" />
       </div>
+
+      {Object.keys(tokenQuotes).length > 0 && (
+        <FadeIn>
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-text-muted uppercase tracking-wide">Preset LLM token rates (CAD / 1M)</p>
+            <TokenPricingTable quotes={tokenQuotes} />
+          </div>
+        </FadeIn>
+      )}
 
       <div className="space-y-3">
         {loading ? (

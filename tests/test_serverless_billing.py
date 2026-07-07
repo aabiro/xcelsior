@@ -153,7 +153,7 @@ class TestBlendedMeter:
     def test_charge_consumes_accrual_and_bills_blended_when_enabled(self, monkeypatch):
         monkeypatch.setenv("XCELSIOR_SERVERLESS_BLENDED_BILLING", "1")
         repo = MagicMock()
-        repo.consume_endpoint_token_cost.return_value = 5.00  # token cost ≫ gpu cost
+        repo.peek_endpoint_token_cost.return_value = 5.00  # token cost ≫ gpu cost
         billing = MagicMock()
         billing.charge.return_value = {"charged": True, "balance_cad": 100.0}
         worker = {"worker_id": "w1", "scheduler_job_id": "j1", "allocated_at": 1000.0, "host_id": "h1"}
@@ -168,22 +168,24 @@ class TestBlendedMeter:
             result = charge_serverless_execution(
                 billing, repo, worker, endpoint, period_end=1000.0 + 120, final=True
             )
+        repo.peek_endpoint_token_cost.assert_called_with("ep1")
         repo.consume_endpoint_token_cost.assert_called_once_with("ep1")
         assert result["token_cost_cad"] == 5.00
         assert result["blended_amount_cad"] == 5.00
         assert result["amount_cad"] == 5.00
         assert billing.charge.call_args[0][1] == 5.00  # charged the blended (token) amount
 
-    def test_charge_defaults_to_gpu_when_flag_off(self, monkeypatch):
-        monkeypatch.setenv("XCELSIOR_SERVERLESS_BLENDED_BILLING", "0")
+    def test_failed_charge_preserves_token_accrual(self, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_SERVERLESS_BLENDED_BILLING", "1")
         repo = MagicMock()
-        repo.consume_endpoint_token_cost.return_value = 5.00
+        repo.peek_endpoint_token_cost.return_value = 5.00
         billing = MagicMock()
-        billing.charge.return_value = {"charged": True, "balance_cad": 100.0}
-        worker = {"worker_id": "w2", "scheduler_job_id": "j2", "allocated_at": 1000.0, "host_id": "h1"}
+        billing.charge.return_value = {"charged": False, "reason": "insufficient_balance"}
+        worker = {"worker_id": "w0", "scheduler_job_id": "j0", "allocated_at": 1000.0, "host_id": "h1"}
         endpoint = {
-            "endpoint_id": "ep2", "owner_id": "c1", "gpu_tier": "RTX 4090",
+            "endpoint_id": "ep0", "owner_id": "c1", "gpu_tier": "RTX 4090",
             "region": "ca-east", "gpu_count": 1, "name": "t",
+            "mode": "preset", "model_ref": "Qwen/Qwen3-8B",
         }
         with patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60), patch(
             "serverless.metering.last_billed_period_end", return_value=None
@@ -191,10 +193,94 @@ class TestBlendedMeter:
             result = charge_serverless_execution(
                 billing, repo, worker, endpoint, period_end=1000.0 + 120, final=True
             )
-        # Flag off → GPU-seconds billed; token cost recorded (dual-write) but not charged.
+        assert result["charged"] is False
+        repo.consume_endpoint_token_cost.assert_not_called()
+
+    def test_preset_endpoint_blends_by_default(self, monkeypatch):
+        monkeypatch.delenv("XCELSIOR_SERVERLESS_BLENDED_BILLING", raising=False)
+        repo = MagicMock()
+        repo.peek_endpoint_token_cost.return_value = 5.00
+        billing = MagicMock()
+        billing.charge.return_value = {"charged": True, "balance_cad": 100.0}
+        worker = {"worker_id": "w2", "scheduler_job_id": "j2", "allocated_at": 1000.0, "host_id": "h1"}
+        endpoint = {
+            "endpoint_id": "ep2", "owner_id": "c1", "gpu_tier": "RTX 4090",
+            "region": "ca-east", "gpu_count": 1, "name": "t",
+            "mode": "preset", "model_ref": "Qwen/Qwen3-8B",
+        }
+        with patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60), patch(
+            "serverless.metering.last_billed_period_end", return_value=None
+        ):
+            result = charge_serverless_execution(
+                billing, repo, worker, endpoint, period_end=1000.0 + 120, final=True
+            )
+        assert result["blended_billing"] is True
+        assert result["amount_cad"] == 5.00
+        assert billing.charge.call_args[0][1] == 5.00
+
+    def test_custom_endpoint_gpu_only_even_with_token_accrual(self, monkeypatch):
+        monkeypatch.delenv("XCELSIOR_SERVERLESS_BLENDED_BILLING", raising=False)
+        repo = MagicMock()
+        repo.peek_endpoint_token_cost.return_value = 5.00
+        billing = MagicMock()
+        billing.charge.return_value = {"charged": True, "balance_cad": 100.0}
+        worker = {"worker_id": "w3", "scheduler_job_id": "j3", "allocated_at": 1000.0, "host_id": "h1"}
+        endpoint = {
+            "endpoint_id": "ep3", "owner_id": "c1", "gpu_tier": "RTX 4090",
+            "region": "ca-east", "gpu_count": 1, "name": "t",
+            "mode": "custom", "image_ref": "xcelsior/serverless-base:cuda12.4",
+        }
+        with patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60), patch(
+            "serverless.metering.last_billed_period_end", return_value=None
+        ):
+            result = charge_serverless_execution(
+                billing, repo, worker, endpoint, period_end=1000.0 + 120, final=True
+            )
+        assert result["blended_billing"] is False
         assert result["amount_cad"] == pytest.approx(0.12, rel=1e-3)
-        assert result["token_cost_cad"] == 5.00
         assert billing.charge.call_args[0][1] == pytest.approx(0.12, rel=1e-3)
+
+    def test_custom_endpoint_does_not_consume_token_accrual(self, monkeypatch):
+        monkeypatch.delenv("XCELSIOR_SERVERLESS_BLENDED_BILLING", raising=False)
+        repo = MagicMock()
+        repo.peek_endpoint_token_cost.return_value = 5.00
+        billing = MagicMock()
+        billing.charge.return_value = {"charged": True, "balance_cad": 100.0}
+        worker = {"worker_id": "w5", "scheduler_job_id": "j5", "allocated_at": 1000.0, "host_id": "h1"}
+        endpoint = {
+            "endpoint_id": "ep5", "owner_id": "c1", "gpu_tier": "RTX 4090",
+            "region": "ca-east", "gpu_count": 1, "name": "t",
+            "mode": "custom", "image_ref": "xcelsior/serverless-base",
+        }
+        with patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60), patch(
+            "serverless.metering.last_billed_period_end", return_value=None
+        ):
+            charge_serverless_execution(
+                billing, repo, worker, endpoint, period_end=1000.0 + 120, final=True
+            )
+        repo.consume_endpoint_token_cost.assert_not_called()
+        repo.peek_endpoint_token_cost.assert_called_once_with("ep5")
+
+    def test_global_flag_off_disables_preset_blended(self, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_SERVERLESS_BLENDED_BILLING", "0")
+        repo = MagicMock()
+        repo.peek_endpoint_token_cost.return_value = 5.00
+        billing = MagicMock()
+        billing.charge.return_value = {"charged": True, "balance_cad": 100.0}
+        worker = {"worker_id": "w4", "scheduler_job_id": "j4", "allocated_at": 1000.0, "host_id": "h1"}
+        endpoint = {
+            "endpoint_id": "ep4", "owner_id": "c1", "gpu_tier": "RTX 4090",
+            "region": "ca-east", "gpu_count": 1, "name": "t",
+            "mode": "preset", "model_ref": "Qwen/Qwen3-8B",
+        }
+        with patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60), patch(
+            "serverless.metering.last_billed_period_end", return_value=None
+        ):
+            result = charge_serverless_execution(
+                billing, repo, worker, endpoint, period_end=1000.0 + 120, final=True
+            )
+        assert result["blended_billing"] is False
+        assert result["amount_cad"] == pytest.approx(0.12, rel=1e-3)
 
 
 class TestWalletPreflight:

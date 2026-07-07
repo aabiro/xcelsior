@@ -5,7 +5,7 @@ import NextLink from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/badge";
 import { Input, Select } from "@/components/ui/input";
 import { Dialog } from "@/components/ui/dialog";
 import { Pagination, usePagination } from "@/components/ui/pagination";
@@ -124,6 +124,16 @@ export default function VolumesPage() {
     eventTypes: ["volume_created", "volume_deleted", "volume_attached", "volume_detached", "volume_renamed", "job_status"],
     onEvent: () => { load(); },
   });
+
+  const hasTransientVolumes = volumes.some(
+    (v) => v.status === "provisioning" || v.status === "creating" || v.status === "deleting",
+  );
+
+  useEffect(() => {
+    if (!hasTransientVolumes) return;
+    const interval = setInterval(() => { load(); }, 15_000);
+    return () => clearInterval(interval);
+  }, [hasTransientVolumes, load]);
 
   const handleCreate = async () => {
     if (!newName.trim()) return toast.error("Volume name required");
@@ -254,8 +264,17 @@ export default function VolumesPage() {
         load();
         return;
       }
+      if (/fernet|encryption key|encryption is misconfigured/i.test(msg)) {
+        toast.error(t("dash.volumes.encryption_error"), { id: toastId, duration: 6000 });
+        return;
+      }
       toast.error(msg, { id: toastId, duration: 4500 });
     }
+  };
+
+  const provisioningAgeMinutes = (createdAt?: number) => {
+    if (!createdAt) return 0;
+    return Math.max(0, Math.floor((Date.now() / 1000 - createdAt) / 60));
   };
 
   const handleRename = async (volumeId: string) => {
@@ -282,13 +301,6 @@ export default function VolumesPage() {
   ])];
   if (regions.length === 0) regions.push("ca-east");
   const totalMonthlyCost = volumes.reduce((sum, v) => sum + (v.monthly_cost_cad ?? v.size_gb * PRICE_PER_GB), 0);
-
-  const statusColor = (s: string): "default" | "active" | "warning" | "failed" => {
-    if (s === "available") return "default";
-    if (s === "attached") return "active";
-    if (s === "error") return "failed";
-    return "warning";
-  };
 
   // Filter & sort
   const filtered = volumes
@@ -766,11 +778,17 @@ export default function VolumesPage() {
 
                       {/* Status */}
                       <td className="py-4 px-4 text-center">
-                        <div className="inline-flex flex-col items-center gap-0.5">
-                          <Badge variant={statusColor(vol.status)}>{vol.status}</Badge>
+                        <div className="inline-flex flex-col items-center gap-2">
+                          <StatusBadge status={vol.status} />
                           {vol.status === "error" && (
-                            <span className="text-[10px] text-text-muted max-w-[140px] leading-tight" title={t("dash.volumes.error_hint")}>
+                            <span className="text-[10px] text-text-muted max-w-[160px] leading-snug text-center" title={t("dash.volumes.error_hint")}>
                               {t("dash.volumes.error_hint")}
+                            </span>
+                          )}
+                          {(vol.status === "provisioning" || vol.status === "creating") &&
+                            provisioningAgeMinutes(vol.created_at) >= 10 && (
+                            <span className="text-[10px] text-accent-gold max-w-[160px] leading-snug text-center">
+                              {t("dash.volumes.provisioning_stale")}
                             </span>
                           )}
                         </div>
