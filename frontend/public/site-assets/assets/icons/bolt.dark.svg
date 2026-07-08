@@ -1,3 +1,29 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#38dbff" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z" fill="rgba(56,219,255,0.12)" stroke="#38dbff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <defs>
+    <linearGradient id="bolt-dark-fill" x1="28" y1="18" x2="100" y2="112" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38dbff"/>
+      <stop offset=".58" stop-color="#9b6dff"/>
+      <stop offset="1" stop-color="#34d399"/>
+    </linearGradient>
+    <linearGradient id="bolt-dark-rail" x1="18" y1="96" x2="110" y2="96" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38dbff" stop-opacity=".05"/>
+      <stop offset=".5" stop-color="#38dbff"/>
+      <stop offset="1" stop-color="#9b6dff" stop-opacity=".08"/>
+    </linearGradient>
+    <filter id="bolt-dark-glow" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#38dbff" flood-opacity=".72"/>
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#9b6dff" flood-opacity=".38"/>
+    </filter>
+  </defs>
+  <path d="M18 96h26l10-10h20l9 10h27" stroke="url(#bolt-dark-rail)" stroke-width="3" stroke-linecap="round"/>
+  <path d="M27 106h74" stroke="#38dbff" stroke-opacity=".24" stroke-width="2" stroke-linecap="round"/>
+  <g stroke="#38dbff" stroke-opacity=".34" stroke-width="2" stroke-linecap="round">
+    <path d="M42 99v12M64 99v17M86 99v12"/>
+    <circle cx="42" cy="115" r="2.5" fill="#38dbff" fill-opacity=".5"/>
+    <circle cx="64" cy="120" r="2.5" fill="#9b6dff" fill-opacity=".55"/>
+    <circle cx="86" cy="115" r="2.5" fill="#34d399" fill-opacity=".5"/>
+  </g>
+  <path d="M71 8 27 70h31l-8 50 51-69H70l1-43Z" fill="url(#bolt-dark-fill)" filter="url(#bolt-dark-glow)"/>
+  <path d="M71 8 27 70h31l-8 50 51-69H70l1-43Z" stroke="#ecfeff" stroke-opacity=".68" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M66 25 43 60h28l-5 31 22-31H62l4-35Z" fill="#ecfeff" fill-opacity=".14"/>
 </svg>
