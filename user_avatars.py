@@ -45,23 +45,32 @@ def avatar_storage_key(user_id: str, ext: str) -> str:
 
 
 def avatar_asset_exists(prefs: dict | None, user_id: str) -> bool:
-    """True when a profile photo is present in storage or on legacy disk."""
+    """True when a profile photo is present in Postgres, storage, or legacy disk."""
+    uid = str(user_id or "").strip()
+    # Primary store: Postgres (durable across redeploys).
+    try:
+        from db import AvatarStore
+
+        if AvatarStore.exists(uid):
+            return True
+    except Exception:
+        pass
+
+    # Legacy fallbacks for avatars uploaded before the Postgres migration.
     prefs = prefs if isinstance(prefs, dict) else {}
     key = (prefs.get("avatar_key") or "").strip()
     if key:
-        local_path = local_avatar_path_for_key(key)
-        if local_path:
+        if local_avatar_path_for_key(key):
             return True
         try:
             from artifacts import StorageBackend, get_artifact_manager
 
             mgr = get_artifact_manager()
-            if mgr.primary.config.backend != StorageBackend.LOCAL:
-                return mgr.primary.head_object(key) is not None
+            if mgr.primary.config.backend != StorageBackend.LOCAL and mgr.primary.head_object(key):
+                return True
         except Exception:
-            return False
-        return False
-    return _legacy_avatar_file_for_user(user_id) is not None
+            pass
+    return _legacy_avatar_file_for_user(uid) is not None
 
 
 def avatar_public_url(prefs: dict | None, user_id: str) -> str | None:
@@ -84,16 +93,21 @@ def save_avatar(user_id: str, data: bytes, content_type: str | None = None) -> s
         raise ValueError("Unsupported image format — use JPEG, PNG, or WebP")
 
     uid = str(user_id or "").strip()
-    delete_avatar_objects(uid)
+    mime = _EXT_TO_MIME.get(ext, "application/octet-stream")
+
+    # Durable storage: image bytes live in Postgres so they survive redeploys.
+    from db import AvatarStore
+
+    AvatarStore.put(uid, mime, data, time.time())
+
+    # Best-effort cleanup of any stale object-storage / legacy-disk copies.
+    try:
+        delete_avatar_objects(uid)
+    except Exception:
+        pass
     delete_legacy_avatar_files(uid)
 
-    key = avatar_storage_key(uid, ext)
-    mime = _EXT_TO_MIME.get(ext, "application/octet-stream")
-    from artifacts import get_artifact_manager
-
-    mgr = get_artifact_manager()
-    mgr.primary.put_object(key, data, content_type=mime)
-    return key
+    return avatar_storage_key(uid, ext)
 
 
 def delete_avatar_objects(user_id: str, known_key: str | None = None) -> None:
