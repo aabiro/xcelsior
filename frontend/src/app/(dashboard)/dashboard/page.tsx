@@ -85,7 +85,7 @@ function OverviewActionCard({
             <button
               type="button"
               onClick={onClick}
-              className={cn("site-button gap-2 px-5 py-3 text-sm", accent === "launch" ? "site-button-primary" : "site-button-ghost")}
+              className="site-button site-button-primary dashboard-overview-action-button gap-2 px-5 py-3 text-sm"
             >
               <Plus className="h-4 w-4" />
               {buttonLabel}
@@ -93,7 +93,7 @@ function OverviewActionCard({
           ) : (
             <Link
               href={href ?? "#"}
-              className={cn("site-button gap-2 px-5 py-3 text-sm", accent === "launch" ? "site-button-primary" : "site-button-ghost")}
+              className="site-button site-button-primary dashboard-overview-action-button gap-2 px-5 py-3 text-sm"
             >
               <Plus className="h-4 w-4" />
               {buttonLabel}
@@ -202,11 +202,14 @@ export default function DashboardOverview() {
 
   return (
     <div className="dashboard-overview">
+      <div className="dashboard-overview-page-heading site-rails">
+        <SectionMarker code="01" label={t("dash.overview.title")} />
+      </div>
+
       <FadeIn className="dashboard-overview-hero">
         <div className="dashboard-overview-hero-head">
           <div>
-            <div className="dashboard-overview-eyebrow">Dashboard</div>
-            <SectionMarker code="01" label={t("dash.overview")} />
+            <h1 className="dashboard-overview-title">{t("dash.overview")}</h1>
             <p className="dashboard-overview-intro">
               Track live capacity, running workloads, and verified supply across your Xcelsior workspace.
             </p>
