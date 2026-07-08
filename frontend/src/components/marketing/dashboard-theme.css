@@ -662,17 +662,18 @@
   border: 1px solid var(--edge);
   background: linear-gradient(180deg, var(--popover-solid-2), var(--popover-solid));
   box-shadow: var(--shadow-panel);
-  backdrop-filter: blur(24px);
   z-index: 200;
 }
 
+/* Plain click-catcher: no backdrop-filter. A full-screen blur here stacked with
+   the listbox's own filter triggered a Chromium nested-backdrop repaint bug that
+   flashed the whole viewport to flat navy on hover. */
 .dashboard-site-dropdown-backdrop {
   position: fixed;
   inset: 0;
   z-index: 190;
   cursor: default;
-  background: rgba(5, 7, 14, 0.35);
-  backdrop-filter: blur(2px);
+  background: transparent;
 }
 
 .dashboard-site-control > div > button,
@@ -830,6 +831,16 @@
   gap: 28px;
 }
 
+.dashboard-overview-page-heading {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.dashboard-overview-page-heading .site-marker {
+  align-items: center;
+  margin-bottom: 0;
+}
+
 .dashboard-overview-hero-cta {
   min-height: 44px;
   padding: 12px 22px;
@@ -896,32 +907,6 @@
   border-bottom: 1px solid var(--line);
 }
 
-.dashboard-overview-hero-head .site-marker {
-  margin-bottom: 0;
-  font-size: 34px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  line-height: 1.02;
-  color: var(--text);
-}
-
-.dashboard-overview-hero-head .site-marker > span:last-child {
-  font-size: 34px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  color: var(--text);
-}
-
-.dashboard-overview-hero-head .site-marker-code {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.16em;
-}
-
-.dashboard-overview-hero-head .site-marker-line {
-  align-self: center;
-}
-
 .dashboard-overview-eyebrow {
   margin-bottom: 10px;
   color: var(--text-4);
@@ -946,6 +931,8 @@
   font-weight: 800;
   letter-spacing: -0.03em;
   line-height: 1.02;
+  color: var(--text);
+  font-family: var(--font-geist-sans), var(--font-geist), "Geist", ui-sans-serif, system-ui, sans-serif;
 }
 
 .dashboard-overview-intro {
@@ -1167,6 +1154,23 @@
 
 .dashboard-overview-action-cta {
   margin-top: 22px;
+}
+
+.dashboard-overview-action-button {
+  min-height: 42px;
+}
+
+.dashboard-overview-action[data-accent="provider"] .dashboard-overview-action-button {
+  background: linear-gradient(100deg, var(--green), var(--cyan));
+  color: #fff;
+  font-weight: 600;
+  /* Dark halo + soft drop so the label stays legible on the bright green→cyan fill */
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.42), 0 0 1px rgba(0, 0, 0, 0.32);
+  box-shadow: 0 12px 34px rgba(56, 219, 255, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.42);
+}
+
+.dashboard-overview-action[data-accent="provider"] .dashboard-overview-action-button:hover {
+  box-shadow: 0 18px 46px rgba(56, 219, 255, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
 .dashboard-overview-visual-shell {
