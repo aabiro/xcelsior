@@ -1349,6 +1349,20 @@ def _ensure_oauth_auth_tables(conn) -> None:
     cur.execute("CREATE INDEX IF NOT EXISTS idx_team_invites_email ON team_invites (email)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_team_invites_team ON team_invites (team_id)")
 
+    # Profile avatars — image bytes live in Postgres so they survive redeploys.
+    # (The old path wrote to the artifact-manager local dir, which is ephemeral,
+    # so avatars reverted to the default after every restart.) Images are <= 2 MB.
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_avatars (
+            user_id TEXT PRIMARY KEY,
+            content_type TEXT NOT NULL,
+            data BYTEA NOT NULL,
+            updated_at DOUBLE PRECISION NOT NULL DEFAULT 0
+        )
+        """
+    )
+
 
 def _ensure_auth_schema(conn) -> None:
     global _auth_schema_ensured
@@ -1382,6 +1396,70 @@ def auth_connection():
             raise
         finally:
             conn.row_factory = _prev_rf
+
+
+class AvatarStore:
+    """Durable profile-avatar storage in Postgres.
+
+    Avatars are small (<= 2 MB) and must survive redeploys, so the image
+    bytes live in the ``user_avatars`` table rather than the ephemeral
+    artifact-manager local directory that previously lost them.
+    """
+
+    @staticmethod
+    def get(user_id: str) -> dict | None:
+        uid = str(user_id or "").strip()
+        if not uid:
+            return None
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT content_type, data, updated_at FROM user_avatars WHERE user_id = %s",
+                (uid,),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "content_type": row["content_type"],
+            "data": bytes(row["data"]),
+            "updated_at": float(row["updated_at"] or 0),
+        }
+
+    @staticmethod
+    def put(user_id: str, content_type: str, data: bytes, updated_at: float) -> None:
+        uid = str(user_id or "").strip()
+        if not uid:
+            return
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_avatars (user_id, content_type, data, updated_at)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    content_type = EXCLUDED.content_type,
+                    data = EXCLUDED.data,
+                    updated_at = EXCLUDED.updated_at
+                """,
+                (uid, content_type, data, updated_at),
+            )
+
+    @staticmethod
+    def delete(user_id: str) -> None:
+        uid = str(user_id or "").strip()
+        if not uid:
+            return
+        with auth_connection() as conn:
+            conn.execute("DELETE FROM user_avatars WHERE user_id = %s", (uid,))
+
+    @staticmethod
+    def exists(user_id: str) -> bool:
+        uid = str(user_id or "").strip()
+        if not uid:
+            return False
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM user_avatars WHERE user_id = %s", (uid,)
+            ).fetchone()
+        return row is not None
 
 
 class UserStore:
