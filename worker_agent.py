@@ -33,6 +33,14 @@ from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 
+# When launched as `python worker_agent.py`, this module is loaded as
+# `__main__`. Some extracted helper modules lazily `import worker_agent`
+# to access shared state; without this alias Python would import the file a
+# second time under the `worker_agent` name, re-running top-level metric
+# registration and crashing with duplicate Prometheus timeseries.
+if __name__ == "__main__":
+    sys.modules.setdefault("worker_agent", sys.modules[__name__])
+
 try:
     import requests
 except ImportError:
@@ -249,15 +257,36 @@ log = logging.getLogger("xcelsior-worker")
 
 # ── Metrics ──────────────────────────────────────────────────────────
 from prometheus_client import Counter as _PromCounter
+from prometheus_client import REGISTRY as _PROM_REGISTRY
 
-_motd_reinjection_total = _PromCounter(
+
+def _register_counter_once(name: str, doc: str, labels: list[str]):
+    """Register a prometheus Counter, reusing an existing collector if present.
+
+    Worker processes can import this module through multiple paths
+    (`__main__` + `worker_agent`) during warm reload / lazy helper imports.
+    Prometheus raises `ValueError: Duplicated timeseries ...` on duplicate
+    registration; in that case reuse the already-registered collector.
+    """
+    try:
+        return _PromCounter(name, doc, labels)
+    except ValueError:
+        # prometheus_client does not expose a public "get collector by name"
+        # API; `_names_to_collectors` is the canonical internal map used for
+        # duplicate detection.
+        existing = getattr(_PROM_REGISTRY, "_names_to_collectors", {}).get(name)
+        if existing is None:
+            raise
+        return existing
+
+_motd_reinjection_total = _register_counter_once(
     "xcelsior_worker_motd_reinjection_total",
     "Shell/MOTD re-injection attempts by outcome",
     ["result"],
 )
 
 # P3/C7 — unknown/rejected commands at the drain-side allowlist gate.
-_agent_commands_rejected_total = _PromCounter(
+_agent_commands_rejected_total = _register_counter_once(
     "xcelsior_worker_agent_commands_rejected_total",
     "Agent commands rejected by worker-side allowlist (defence-in-depth)",
     ["command"],
@@ -1072,7 +1101,10 @@ def _sibling_module_dir(name: str) -> Path:
         import importlib
 
         mod = importlib.import_module(mod_name)
-        return Path(mod.__file__).resolve().parent
+        mod_file = getattr(mod, "__file__", None)
+        if mod_file:
+            return Path(mod_file).resolve().parent
+        return Path(__file__).resolve().parent
     except Exception:
         return Path(__file__).resolve().parent
 
@@ -3090,6 +3122,7 @@ def run_job(job):
 
     except subprocess.TimeoutExpired:
         log.error("Job %s timed out while %s", job_id, current_stage)
+        timeout_msg = f"timed out while {current_stage}"
         _push_log_lines(
             job_id,
             [
@@ -3101,22 +3134,23 @@ def run_job(job):
             ],
         )
         _kill_container(container_name)
-        report_job_status(job_id, "failed")
+        report_job_status(job_id, "failed", error_message=timeout_msg)
         release_lease(job_id, "failed")
     except Exception as e:
-        log.error("Job %s failed: %s", job_id, e, exc_info=True)
+        stage_msg = f"{current_stage}: {e}"
+        log.error("Job %s failed during %s: %s", job_id, current_stage, e, exc_info=True)
         _push_log_lines(
             job_id,
             [
                 {
-                    "message": f"Instance failed: {e}",
+                    "message": f"Instance failed during {current_stage}: {e}",
                     "level": "error",
                     "timestamp": time.time(),
                 }
             ],
         )
         _kill_container(container_name)
-        report_job_status(job_id, "failed", error_message=str(e))
+        report_job_status(job_id, "failed", error_message=stage_msg)
         release_lease(job_id, "failed")
     finally:
         # Stop log forwarding (final flush)
