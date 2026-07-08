@@ -9,7 +9,7 @@ import time
 import uuid
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 
 from routes._deps import (
@@ -1509,6 +1509,18 @@ async def api_auth_upload_avatar(request: Request, file: UploadFile = File(...))
 def api_auth_get_avatar(request: Request):
     """Serve the authenticated user's profile photo."""
     user = _require_user_grant(request)
+
+    # Primary store: Postgres (durable across redeploys).
+    from db import AvatarStore
+
+    rec = AvatarStore.get(user["user_id"])
+    if rec:
+        return Response(
+            content=rec["data"],
+            media_type=rec["content_type"],
+            headers={"Cache-Control": "private, max-age=3600"},
+        )
+
     from artifacts import StorageBackend, get_artifact_manager
     from user_avatars import legacy_avatar_file_for_user, local_avatar_path_for_key
 
@@ -1563,6 +1575,9 @@ def api_auth_delete_avatar(request: Request):
     full_user = UserStore.get_user(user["email"]) if _USE_PERSISTENT_AUTH else _users_db.get(user["email"])
     prefs = _parse_user_preferences(full_user or {})
     avatar_key = (prefs.get("avatar_key") or "").strip() or None
+    from db import AvatarStore
+
+    AvatarStore.delete(user["user_id"])
     delete_avatar_objects(user["user_id"], avatar_key)
     delete_legacy_avatar_files(user["user_id"])
     prefs.pop("avatar_key", None)
