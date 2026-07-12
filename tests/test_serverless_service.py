@@ -375,6 +375,91 @@ class TestServiceValidation:
                 ServerlessService.wallet_preflight("cust-1")
             assert exc.value.status_code == 402
 
+    def test_execution_mode_and_queue_timeout_persist(self, repo: ServerlessRepo, owner_id: str):
+        ep = repo.create_endpoint(
+            EndpointCreate(
+                owner_id=owner_id,
+                name="mode-fields",
+                mode="custom",
+                image_ref="vllm/vllm-openai:latest",
+                execution_mode="async",
+                queue_timeout_sec=77,
+            )
+        )
+        try:
+            stored = repo.get_endpoint(str(ep["endpoint_id"]), owner_id=owner_id)
+            assert stored is not None
+            assert stored["execution_mode"] == "async"
+            assert stored["queue_timeout_sec"] == 77
+        finally:
+            repo.soft_delete_endpoint(str(ep["endpoint_id"]), owner_id)
+
+    def test_patch_worker_affecting_fields_triggers_reconcile(
+        self, monkeypatch, repo: ServerlessRepo, owner_id: str
+    ):
+        ep = repo.create_endpoint(
+            EndpointCreate(
+                owner_id=owner_id,
+                name="patch-reconcile",
+                mode="custom",
+                image_ref="vllm/vllm-openai:latest",
+                min_workers=0,
+            )
+        )
+        svc = ServerlessService(repo)
+        calls: list[str] = []
+
+        def fake_reconcile(endpoint_id: str) -> dict:
+            calls.append(endpoint_id)
+            return {"endpoint_id": endpoint_id}
+
+        monkeypatch.setattr(svc, "reconcile_endpoint", fake_reconcile)
+        try:
+            updated = svc.patch_endpoint(
+                str(ep["endpoint_id"]),
+                owner_id,
+                {"min_workers": 1, "queue_timeout_sec": 180},
+            )
+            assert updated is not None
+            assert updated["min_workers"] == 1
+            assert updated["queue_timeout_sec"] == 180
+            assert calls == [str(ep["endpoint_id"])]
+        finally:
+            repo.soft_delete_endpoint(str(ep["endpoint_id"]), owner_id)
+
+    def test_warm_endpoint_provisions_temp_worker_without_mutating_min_workers(
+        self, monkeypatch, repo: ServerlessRepo, owner_id: str
+    ):
+        ep = repo.create_endpoint(
+            EndpointCreate(
+                owner_id=owner_id,
+                name="warm-temp",
+                mode="custom",
+                image_ref="vllm/vllm-openai:latest",
+                min_workers=0,
+                max_workers=1,
+            )
+        )
+        svc = ServerlessService(repo)
+
+        def fake_provision(endpoint_id: str) -> dict:
+            return repo.create_worker(
+                endpoint_id,
+                scheduler_job_id=f"job-{uuid.uuid4().hex[:8]}",
+            )
+
+        monkeypatch.setattr(svc, "provision_worker", fake_provision)
+        try:
+            warm = svc.warm_endpoint(str(ep["endpoint_id"]))
+            stored = repo.get_endpoint(str(ep["endpoint_id"]), owner_id=owner_id)
+            assert stored is not None
+            assert stored["min_workers"] == 0
+            assert warm["state"] in {"starting", "booting"}
+            assert warm["booting_count"] == 1
+            assert len(repo.list_workers(str(ep["endpoint_id"]))) == 1
+        finally:
+            repo.soft_delete_endpoint(str(ep["endpoint_id"]), owner_id)
+
 
 def _pg_tables() -> set[str]:
     from db import _get_pg_pool

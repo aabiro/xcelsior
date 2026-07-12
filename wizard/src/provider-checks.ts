@@ -606,27 +606,43 @@ export async function setupNetworking(): Promise<NetworkSetupResult> {
     const { execSync } = await import("child_process");
 
     // Check if Headscale/Tailscale mesh is available
+    const meshResult = detectTailscaleMesh(execSync);
+    if (meshResult) return meshResult;
+
+    // Tailscale not found or not connected — offer to install it.
+    // The official install script supports Debian/Ubuntu, Fedora/RHEL, Arch,
+    // and most Linux distros. We attempt install silently; if it fails the
+    // provider falls back to public IP.
+    let tailscaleInstalled = false;
     try {
-        const tsStatus = execSync("tailscale status --json 2>/dev/null", {
-            encoding: "utf-8",
-            timeout: 10_000,
-        });
-        const status = JSON.parse(tsStatus);
-        const selfIps = status?.Self?.TailscaleIPs;
-        if (selfIps && selfIps.length > 0) {
-            // Filter for IPv4
-            const ip4 = selfIps.find((ip: string) => !ip.includes(":")) || selfIps[0];
-            // Check if this is a headscale coordination server
-            const isHeadscale = (status?.Self?.DNSName || "").includes("headscale") ||
-                (status?.CurrentTailnet?.Name || "").includes("headscale");
-            return {
-                method: isHeadscale ? "headscale" : "tailscale",
-                ip: ip4,
-                detail: `Mesh network active — IP ${ip4}`,
-            };
-        }
+        execSync("command -v tailscale", { timeout: 5_000 });
+        tailscaleInstalled = true;
     } catch {
-        // Mesh networking not available or not connected
+        // Not installed — try to install
+        try {
+            execSync("curl -fsSL https://tailscale.com/install.sh | sh", {
+                timeout: 120_000,
+                stdio: "ignore",
+            });
+            tailscaleInstalled = true;
+        } catch {
+            // Installation failed — fall through to public IP
+        }
+    }
+
+    // If we just installed (or it was installed but not connected), start it
+    if (tailscaleInstalled) {
+        try {
+            execSync("sudo systemctl enable tailscaled 2>/dev/null; sudo systemctl start tailscaled 2>/dev/null", {
+                timeout: 15_000,
+            });
+        } catch {
+            // Best effort — may already be running
+        }
+
+        // Re-check mesh after install/start
+        const retryResult = detectTailscaleMesh(execSync);
+        if (retryResult) return retryResult;
     }
 
     // Check for public IP (if no mesh available, use public IP with warning)
@@ -653,12 +669,164 @@ export async function setupNetworking(): Promise<NetworkSetupResult> {
     };
 }
 
+function detectTailscaleMesh(
+    execSync: typeof import("child_process").execSync,
+): NetworkSetupResult | null {
+    try {
+        const tsStatus = execSync("tailscale status --json 2>/dev/null", {
+            encoding: "utf-8",
+            timeout: 10_000,
+        });
+        const status = JSON.parse(tsStatus);
+        const selfIps = status?.Self?.TailscaleIPs;
+        if (selfIps && selfIps.length > 0) {
+            // Filter for IPv4
+            const ip4 = selfIps.find((ip: string) => !ip.includes(":")) || selfIps[0];
+            // Check if this is a headscale coordination server
+            const isHeadscale = (status?.Self?.DNSName || "").includes("headscale") ||
+                (status?.CurrentTailnet?.Name || "").includes("headscale");
+            return {
+                method: isHeadscale ? "headscale" : "tailscale",
+                ip: ip4,
+                detail: `Mesh network active — IP ${ip4}`,
+            };
+        }
+    } catch {
+        // Mesh networking not available or not connected
+    }
+    return null;
+}
+
 
 // ── 8. Worker agent install — set up systemd service ────────────────
 
 export interface WorkerInstallResult {
     installed: boolean;
     detail: string;
+}
+
+export function sanitizeHostSshUser(value: string | null | undefined): string {
+    const trimmed = String(value ?? "").trim();
+    return /^[A-Za-z0-9_.-]{1,64}$/.test(trimmed) ? trimmed : "";
+}
+
+function isValidSshPublicKey(value: string): boolean {
+    const trimmed = value.trim();
+    return /^(ssh-|ecdsa-|sk-)[A-Za-z0-9@.-]+\s+[A-Za-z0-9+/=]+(?:\s+.*)?$/.test(trimmed);
+}
+
+export function mergeAuthorizedKeys(existing: string, publicKey: string): { content: string; changed: boolean } {
+    const key = publicKey.trim();
+    const lines = existing.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    if (lines.includes(key)) {
+        return {
+            content: existing.endsWith("\n") || existing.length === 0 ? existing : `${existing}\n`,
+            changed: false,
+        };
+    }
+    const prefix = existing.trimEnd();
+    return {
+        content: prefix ? `${prefix}\n${key}\n` : `${key}\n`,
+        changed: true,
+    };
+}
+
+export function buildWorkerEnvContent(params: {
+    hostId: string;
+    apiUrl: string;
+    hostIp: string;
+    hostSshUser: string;
+    apiToken?: string;
+    oauthClientId?: string;
+    oauthClientSecret?: string;
+}): string {
+    const envLines = [
+        `XCELSIOR_HOST_ID=${params.hostId}`,
+        `XCELSIOR_SCHEDULER_URL=${params.apiUrl}`,
+        `XCELSIOR_HOST_IP=${params.hostIp}`,
+        `XCELSIOR_HOST_SSH_USER=${params.hostSshUser}`,
+        // Interactive instances use hardened runc; skip gVisor auto-install on first boot.
+        "XCELSIOR_PREFER_GVISOR=false",
+    ];
+    if (params.oauthClientId && params.oauthClientSecret) {
+        envLines.push(`XCELSIOR_OAUTH_CLIENT_ID=${params.oauthClientId}`);
+        envLines.push(`XCELSIOR_OAUTH_CLIENT_SECRET=${params.oauthClientSecret}`);
+    }
+    if (params.apiToken) {
+        envLines.push(`XCELSIOR_API_TOKEN=${params.apiToken}`);
+    }
+    return envLines.join("\n") + "\n";
+}
+
+async function fetchPlatformHostPublicKey(apiUrl: string, apiToken: string): Promise<string> {
+    const pubkeyResp = await fetch(`${apiUrl}/api/ssh/pubkey`);
+    if (pubkeyResp.ok) {
+        const body = await pubkeyResp.json() as { public_key?: string };
+        const publicKey = String(body.public_key ?? "").trim();
+        if (publicKey) return publicKey;
+    }
+
+    const headers: Record<string, string> = {};
+    if (apiToken) {
+        headers.Authorization = `Bearer ${apiToken}`;
+        headers.Cookie = `xcelsior_session=${apiToken}`;
+    }
+    const keygenResp = await fetch(`${apiUrl}/ssh/keygen`, {
+        method: "POST",
+        headers,
+    });
+    if (!keygenResp.ok) return "";
+    const body = await keygenResp.json() as { public_key?: string };
+    return String(body.public_key ?? "").trim();
+}
+
+async function installPlatformHostPublicKey(
+    apiUrl: string,
+    apiToken: string,
+    sshHome: string,
+): Promise<{ installed: boolean; detail: string }> {
+    const { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } = await import("fs");
+    const { join } = await import("path");
+
+    const publicKey = await fetchPlatformHostPublicKey(apiUrl, apiToken);
+    if (!isValidSshPublicKey(publicKey)) {
+        return {
+            installed: false,
+            detail: "Platform host-control SSH key is not configured on the API",
+        };
+    }
+
+    try {
+        const sshDir = join(sshHome, ".ssh");
+        const authorizedKeysPath = join(sshDir, "authorized_keys");
+        if (!existsSync(sshDir)) {
+            mkdirSync(sshDir, { recursive: true, mode: 0o700 });
+        }
+        chmodSync(sshDir, 0o700);
+        const existing = existsSync(authorizedKeysPath)
+            ? readFileSync(authorizedKeysPath, "utf-8")
+            : "";
+        const merged = mergeAuthorizedKeys(existing, publicKey);
+        if (merged.changed || !existsSync(authorizedKeysPath)) {
+            writeFileSync(authorizedKeysPath, merged.content, { mode: 0o600 });
+        }
+        chmodSync(authorizedKeysPath, 0o600);
+        return {
+            installed: true,
+            detail: merged.changed
+                ? "Platform host-control SSH key authorized"
+                : "Platform host-control SSH key already authorized",
+        };
+    } catch (err) {
+        return {
+            installed: false,
+            detail: err instanceof Error ? err.message : "Could not update authorized_keys",
+        };
+    }
+}
+
+function shellQuote(value: string): string {
+    return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 export async function installWorkerAgent(
@@ -672,7 +840,37 @@ export async function installWorkerAgent(
     const { execSync } = await import("child_process");
     const { writeFileSync, existsSync, mkdirSync } = await import("fs");
     const { join } = await import("path");
-    const { homedir } = await import("os");
+    const { homedir, userInfo } = await import("os");
+
+    const currentUser = sanitizeHostSshUser(userInfo().username || process.env.USER);
+    const sudoUser = sanitizeHostSshUser(process.env.SUDO_USER);
+    const hostSshUser = sudoUser && sudoUser !== "root" ? sudoUser : currentUser;
+    if (!hostSshUser) {
+        return {
+            installed: false,
+            detail: "Could not determine the local SSH user for Docker host access",
+        };
+    }
+    let sshHome = homedir();
+    if (sudoUser && sudoUser !== currentUser) {
+        try {
+            const resolvedHome = execSync(`getent passwd ${shellQuote(sudoUser)} | cut -d: -f6`, {
+                encoding: "utf-8",
+                timeout: 5_000,
+            }).trim();
+            if (resolvedHome) sshHome = resolvedHome;
+        } catch {
+            // Fall back to os.homedir(); key install will fail if it is wrong.
+        }
+    }
+
+    const hostKeyResult = await installPlatformHostPublicKey(apiUrl, apiToken, sshHome);
+    if (!hostKeyResult.installed) {
+        return {
+            installed: false,
+            detail: `Host-control SSH setup failed — ${hostKeyResult.detail}`,
+        };
+    }
 
     // 1. Ensure config dir exists
     const configDir = join(homedir(), ".xcelsior");
@@ -682,21 +880,15 @@ export async function installWorkerAgent(
 
     // 2. Write worker agent env file
     // Prefer OAuth client credentials when available; fall back to API token.
-    const envLines = [
-        `XCELSIOR_HOST_ID=${hostId}`,
-        `XCELSIOR_SCHEDULER_URL=${apiUrl}`,
-        `XCELSIOR_HOST_IP=${hostIp}`,
-        // Interactive instances use hardened runc; skip gVisor auto-install on first boot.
-        `XCELSIOR_PREFER_GVISOR=false`,
-    ];
-    if (oauthClientId && oauthClientSecret) {
-        envLines.push(`XCELSIOR_OAUTH_CLIENT_ID=${oauthClientId}`);
-        envLines.push(`XCELSIOR_OAUTH_CLIENT_SECRET=${oauthClientSecret}`);
-    }
-    if (apiToken) {
-        envLines.push(`XCELSIOR_API_TOKEN=${apiToken}`);
-    }
-    const envContent = envLines.join("\n") + "\n";
+    const envContent = buildWorkerEnvContent({
+        hostId,
+        apiUrl,
+        hostIp,
+        hostSshUser,
+        apiToken,
+        oauthClientId,
+        oauthClientSecret,
+    });
 
     const envFile = join(configDir, "worker.env");
     writeFileSync(envFile, envContent, { mode: 0o600 });
@@ -750,12 +942,12 @@ WantedBy=multi-user.target
 
         return {
             installed: true,
-            detail: "Worker agent installed and running as systemd service",
+            detail: `Worker agent installed and running as systemd service; host SSH authorized for ${hostSshUser}`,
         };
     } catch (e) {
         return {
             installed: false,
-            detail: `Service install failed — run manually: python3 ${agentPath}`,
+            detail: `Service install failed after host SSH setup — run manually: python3 ${agentPath}`,
         };
     }
 }

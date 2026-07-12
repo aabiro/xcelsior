@@ -221,6 +221,7 @@ def merge_host_update(existing: dict[str, Any], incoming: dict[str, Any]) -> dic
         "recommended_runtime",
         "compute_score",
         "registered_at",
+        "ssh_user",
         "checkpoint_class",
         "capabilities",
         "cuda_driver_version",

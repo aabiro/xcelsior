@@ -182,7 +182,7 @@ def worker_base_url(worker_row: dict, http_port: int) -> str | None:
 def build_upstream_url(worker_row: dict, endpoint: dict, route: str) -> str:
     base = worker_base_url(worker_row, int(endpoint.get("http_port") or 8080))
     if not base:
-        raise OpenAIProxyError(503, "worker_unreachable", "No warm worker available for proxy")
+        raise OpenAIProxyError(503, "worker_unreachable", "Worker is not reachable yet")
     norm = normalize_route(route)
     return f"{base}/v1/{norm}"
 
