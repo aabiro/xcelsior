@@ -38,6 +38,8 @@ export function buildCreateServerlessPayload(form: DeployStudioForm) {
     max_workers: form.maxWorkers,
     max_concurrency: form.maxConcurrency,
     idle_timeout_sec: form.idleTimeoutSec,
+    execution_mode: form.executionMode,
+    queue_timeout_sec: form.queueTimeoutSec,
     scaling_policy_type: form.scalingPolicyType,
     scaling_policy_value: form.scalingPolicyValue,
     startup_command: form.method === "custom" ? form.startupCommand : undefined,

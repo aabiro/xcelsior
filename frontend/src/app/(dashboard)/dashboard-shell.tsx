@@ -558,12 +558,6 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 href="/dashboard"
                 className={cn("dashboard-site-topbar-brand flex min-w-0 items-center gap-2.5", !collapsed && "md:hidden")}
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={SITE_ASSETS.iconGradientTight} alt="Xcelsior" className="dashboard-site-topbar-brand-mark" />
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={SITE_ASSETS.wordmarkLight} alt="Xcelsior" className="dashboard-site-topbar-brand-wordmark hidden dark:block" />
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={SITE_ASSETS.wordmarkDark} alt="Xcelsior" className="dashboard-site-topbar-brand-wordmark block dark:hidden" />
               </Link>
               <div className="dashboard-site-crumbs hidden min-w-0 md:block">
                 <Breadcrumb />

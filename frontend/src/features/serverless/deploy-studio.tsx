@@ -25,6 +25,7 @@ import { deployServerlessEndpoint } from "./deploy-actions";
 import { TokenPricingTable } from "./token-pricing-table";
 import { findGpuInRegion, regionOptionsForGpus } from "./region-options";
 import { ServerlessHero, ServerlessSelect, StepRail } from "./serverless-ui";
+import { formatModelDisplayName } from "./format";
 
 interface DeployStudioProps {
   gpus: GpuAvailability[];
@@ -229,7 +230,7 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
   };
 
   const reviewSource = form.method === "preset"
-    ? `${MANAGED_ENGINES.find((e) => e.id === form.managedEngine)?.label ?? form.managedEngine} · ${form.modelRef}`
+    ? `${MANAGED_ENGINES.find((e) => e.id === form.managedEngine)?.label ?? form.managedEngine} · ${formatModelDisplayName(form.modelRef)}`
     : form.customSource === "github"
       ? form.githubRepo || form.imageRef
       : form.imageRef;
@@ -352,7 +353,7 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
                           )}
                         >
                           <span className="font-medium">{m.label}</span>
-                          <span className="block text-xs text-text-muted mt-0.5">{m.id}</span>
+                          <span className="block text-xs text-text-muted mt-0.5">{formatModelDisplayName(m.id)}</span>
                           {m.task !== "rerank" && (
                             <span className="block text-xs font-mono text-accent-cyan/80 mt-1">
                               {formatTokenRateFromPricing(m.id, tokenQuotes[m.id])}
@@ -521,7 +522,7 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
             {step === 3 && (
               <>
                 <h2 className="text-lg font-semibold">{t("dash.serverless.scaling_title")}</h2>
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+	                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                   <div>
                     <label className="block text-sm font-medium mb-1">{t("dash.serverless.min_workers")}</label>
                     <NumberInput min={0} max={32} value={form.minWorkers} onChange={(v) => update("minWorkers", v)} />
@@ -535,18 +536,40 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
                     <label className="block text-sm font-medium mb-1">{t("dash.serverless.max_concurrency")}</label>
                     <NumberInput min={1} max={256} value={form.maxConcurrency} onChange={(v) => update("maxConcurrency", v)} />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">{t("dash.serverless.idle_timeout")}</label>
-                    <ServerlessSelect
+	                  <div>
+	                    <label className="block text-sm font-medium mb-1">{t("dash.serverless.idle_timeout")}</label>
+	                    <ServerlessSelect
                       value={form.idleTimeoutSec}
                       onChange={(e) => update("idleTimeoutSec", Number(e.target.value))}
                     >
                       {IDLE_TIMEOUT_OPTIONS.map((o) => (
                         <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
                       ))}
-                    </ServerlessSelect>
-                  </div>
-                </div>
+	                    </ServerlessSelect>
+	                  </div>
+	                  <div>
+	                    <label className="block text-sm font-medium mb-1">Execution mode</label>
+	                    <div className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-surface-hover/40 p-1">
+	                      {(["sync", "async"] as const).map((mode) => (
+	                        <button
+	                          key={mode}
+	                          type="button"
+	                          onClick={() => update("executionMode", mode)}
+	                          className={cn(
+	                            "rounded-md px-2 py-1.5 text-xs font-medium transition-colors",
+	                            form.executionMode === mode ? "bg-accent-violet/15 text-accent-violet" : "text-text-muted hover:text-text-primary",
+	                          )}
+	                        >
+	                          {mode === "sync" ? "Sync" : "Async"}
+	                        </button>
+	                      ))}
+	                    </div>
+	                  </div>
+	                  <div>
+	                    <label className="block text-sm font-medium mb-1">Queue timeout(s)</label>
+	                    <NumberInput min={1} max={3600} value={form.queueTimeoutSec} onChange={(v) => update("queueTimeoutSec", v)} />
+	                  </div>
+	                </div>
                 <div>
                   <label className="block text-sm font-medium mb-2">{t("dash.serverless.scaling_policy")}</label>
                   <div className="flex flex-wrap gap-2 mb-3">
@@ -630,8 +653,9 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
                     { icon: Sparkles, label: t("dash.serverless.review_method"), value: form.method === "preset" ? t("dash.serverless.method_preset") : t("dash.serverless.method_custom") },
                     { icon: Box, label: t("dash.serverless.review_source"), value: reviewSource },
                     { icon: Cpu, label: t("dash.serverless.review_gpu"), value: `${form.gpuCount}× ${form.gpuTier || "-"} · ${form.region}` },
-                    { icon: Layers, label: t("dash.serverless.review_scaling"), value: `${form.minWorkers}-${form.maxWorkers} workers · ${form.maxConcurrency} concurrent` },
-                    { icon: Timer, label: t("dash.serverless.idle_timeout"), value: `${form.idleTimeoutSec}s` },
+	                    { icon: Layers, label: t("dash.serverless.review_scaling"), value: `${form.minWorkers}-${form.maxWorkers} workers · ${form.maxConcurrency} concurrent` },
+	                    { icon: Timer, label: t("dash.serverless.idle_timeout"), value: `${form.idleTimeoutSec}s` },
+	                    { icon: Gauge, label: "Execution", value: `${form.executionMode === "sync" ? "Sync" : "Async"} · ${form.queueTimeoutSec}s queue` },
                     {
                       icon: Globe,
                       label: t("dash.serverless.scaling_policy"),

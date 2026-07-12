@@ -46,9 +46,18 @@ from serverless.openai_proxy import (
     extract_usage_from_stream_line,
     proxy_chat_completions,
     proxy_request,
+    worker_base_url,
 )
 from serverless.env_secrets import encrypt_env_for_storage, payload_byte_size
-from serverless.repo import EndpointCreate, ServerlessRepo, WORKER_STATE_READY
+from serverless.repo import (
+    EndpointCreate,
+    ServerlessRepo,
+    WORKER_STATE_BOOTING,
+    WORKER_STATE_DRAINING,
+    WORKER_STATE_ERROR,
+    WORKER_STATE_IDLE,
+    WORKER_STATE_READY,
+)
 from serverless.batch_api import create_batch, enqueue_batch_requests, get_batch
 from serverless.metering import pricing_for_endpoint, token_pricing_quote
 from serverless.semantic_cache import (
@@ -111,6 +120,8 @@ def _serialize_endpoint(ep: dict) -> dict:
         "idle_timeout_sec": ep.get("idle_timeout_sec"),
         "scaling_policy_type": ep.get("scaling_policy_type"),
         "scaling_policy_value": ep.get("scaling_policy_value"),
+        "execution_mode": ep.get("execution_mode") or "sync",
+        "queue_timeout_sec": ep.get("queue_timeout_sec") or 120,
         "total_requests": int(ep.get("total_requests") or 0),
         "total_gpu_seconds": int(ep.get("total_gpu_seconds") or 0),
         "total_cost_cad": float(ep.get("total_cost_cad") or 0),
@@ -146,6 +157,8 @@ class ServerlessEndpointCreate(BaseModel):
     scaledown_window_sec: int | None = None
     scaling_policy_type: str = "queue_request_count"
     scaling_policy_value: int = Field(1, ge=1)
+    execution_mode: str = "sync"
+    queue_timeout_sec: int = Field(120, ge=1, le=3600)
     startup_command: str = ""
     http_port: int = Field(8080, ge=1, le=65535)
     health_check_path: str = "/health"
@@ -165,6 +178,8 @@ class ServerlessEndpointPatch(BaseModel):
     idle_timeout_sec: int | None = Field(None, ge=60, le=86400)
     scaling_policy_type: str | None = None
     scaling_policy_value: int | None = Field(None, ge=1)
+    execution_mode: str | None = None
+    queue_timeout_sec: int | None = Field(None, ge=1, le=3600)
     request_timeout_sec: int | None = Field(None, ge=10, le=3600)
     max_queue_size: int | None = Field(None, ge=1, le=10_000)
     keep_warm: bool | None = None
@@ -202,6 +217,9 @@ def _body_to_endpoint_create(body: ServerlessEndpointCreate, owner_id: str) -> E
     if body.scaledown_window_sec is not None:
         idle = body.scaledown_window_sec
     managed = (body.managed_engine or "vllm").strip().lower() or "vllm"
+    execution_mode = (body.execution_mode or "sync").strip().lower()
+    if execution_mode not in {"sync", "async"}:
+        execution_mode = "sync"
     return EndpointCreate(
         owner_id=owner_id,
         name=body.name.strip(),
@@ -221,6 +239,8 @@ def _body_to_endpoint_create(body: ServerlessEndpointCreate, owner_id: str) -> E
         idle_timeout_sec=idle,
         scaling_policy_type=body.scaling_policy_type,
         scaling_policy_value=body.scaling_policy_value,
+        execution_mode=execution_mode,
+        queue_timeout_sec=body.queue_timeout_sec,
         startup_command=body.startup_command,
         http_port=body.http_port,
         health_check_path=health,
@@ -327,7 +347,70 @@ def _warm_worker_row(endpoint_id: str) -> dict | None:
     if not worker:
         return None
     row = repo.get_worker_job_row(str(worker["worker_id"]))
-    return row if row else worker
+    candidate = row if row else worker
+    if worker_base_url(candidate, int(ep.get("http_port") or 8080)):
+        return candidate
+    return None
+
+
+def _warm_summary(endpoint_id: str, *, ensure: bool = False) -> dict:
+    if _warm_worker_row(endpoint_id):
+        workers = _repo().list_workers(endpoint_id) if _repo().get_endpoint(endpoint_id) else []
+        return {
+            "endpoint_id": endpoint_id,
+            "state": "ready",
+            "ready_count": max(1, sum(1 for w in workers if str(w.get("state") or "") in (WORKER_STATE_READY, WORKER_STATE_IDLE))),
+            "booting_count": sum(1 for w in workers if str(w.get("state") or "") == WORKER_STATE_BOOTING),
+            "active_count": sum(
+                1
+                for w in workers
+                if str(w.get("state") or "") in (WORKER_STATE_BOOTING, WORKER_STATE_READY, WORKER_STATE_IDLE, WORKER_STATE_DRAINING)
+            ),
+            "workers": workers,
+        }
+    if ensure:
+        return _svc().warm_endpoint(endpoint_id)
+    workers = _repo().list_workers(endpoint_id) if _repo().get_endpoint(endpoint_id) else []
+    ready_count = sum(1 for w in workers if str(w.get("state") or "") in (WORKER_STATE_READY, WORKER_STATE_IDLE))
+    booting_count = sum(1 for w in workers if str(w.get("state") or "") == WORKER_STATE_BOOTING)
+    active_count = sum(
+        1
+        for w in workers
+        if str(w.get("state") or "") in (WORKER_STATE_BOOTING, WORKER_STATE_READY, WORKER_STATE_IDLE, WORKER_STATE_DRAINING)
+    )
+    error_count = sum(1 for w in workers if str(w.get("state") or "") == WORKER_STATE_ERROR)
+    state = "ready" if ready_count else "booting" if booting_count else "failed" if error_count else "scaled_down"
+    return {
+        "endpoint_id": endpoint_id,
+        "state": state,
+        "ready_count": ready_count,
+        "booting_count": booting_count,
+        "active_count": active_count,
+        "workers": workers,
+    }
+
+
+def _wait_for_warm_worker(endpoint_id: str, ep: dict, *, ensure: bool = True) -> tuple[dict | None, dict]:
+    timeout = min(
+        float(ep.get("queue_timeout_sec") or ep.get("request_timeout_sec") or 120),
+        float(ep.get("request_timeout_sec") or 120),
+        45.0,
+    )
+    deadline = time.time() + max(1.0, timeout)
+    summary = _warm_summary(endpoint_id, ensure=ensure)
+    worker_row = _warm_worker_row(endpoint_id)
+    while not worker_row and time.time() < deadline:
+        try:
+            _svc().reconcile_endpoint(endpoint_id)
+        except Exception:
+            pass
+        worker_row = _warm_worker_row(endpoint_id)
+        if worker_row:
+            summary = _warm_summary(endpoint_id, ensure=False)
+            break
+        summary = _warm_summary(endpoint_id, ensure=False)
+        time.sleep(0.5)
+    return worker_row, summary
 
 
 # ── Management API ───────────────────────────────────────────────────
@@ -413,6 +496,18 @@ def api_serverless_patch_endpoint(
     if not updated:
         raise HTTPException(404, "Endpoint not found")
     return {"ok": True, "endpoint": _serialize_endpoint(updated)}
+
+
+@router.post("/api/v2/serverless/endpoints/{endpoint_id}/warm", tags=["Serverless"])
+def api_serverless_warm_endpoint(endpoint_id: str, request: Request):
+    user = _require_auth(request)
+    ep = _get_endpoint_for_user(endpoint_id, user)
+    _require_serverless_endpoint_write(user, ep)
+    try:
+        warm = _svc().warm_endpoint(endpoint_id)
+    except WalletPreflightError as e:
+        raise HTTPException(e.status_code, e.message)
+    return {"ok": True, "warm": warm}
 
 
 @router.delete("/api/v2/serverless/endpoints/{endpoint_id}", tags=["Serverless"])
@@ -542,6 +637,94 @@ def api_serverless_list_workers(endpoint_id: str, request: Request):
     return {"ok": True, "workers": workers}
 
 
+def _get_worker_for_endpoint(endpoint_id: str, worker_id: str, user: dict) -> dict:
+    _get_endpoint_for_user(endpoint_id, user)
+    worker = _repo().get_worker(worker_id)
+    if not worker or str(worker.get("endpoint_id") or "") != endpoint_id:
+        raise HTTPException(404, "Worker not found")
+    return worker
+
+
+@router.get("/api/v2/serverless/endpoints/{endpoint_id}/workers/{worker_id}/logs", tags=["Serverless"])
+def api_serverless_worker_logs(endpoint_id: str, worker_id: str, request: Request, limit: int = 100):
+    user = _require_auth(request)
+    worker = _get_worker_for_endpoint(endpoint_id, worker_id, user)
+    scheduler_job_id = str(worker.get("scheduler_job_id") or "")
+    if not scheduler_job_id:
+        return {"ok": True, "worker_id": worker_id, "job_id": None, "logs": []}
+    from routes.instances import _load_pg_logs
+
+    return {
+        "ok": True,
+        "worker_id": worker_id,
+        "job_id": scheduler_job_id,
+        "logs": _load_pg_logs(scheduler_job_id, limit=max(1, min(int(limit or 100), 500))),
+    }
+
+
+@router.get("/api/v2/serverless/endpoints/{endpoint_id}/workers/{worker_id}/logs/stream", tags=["Serverless"])
+async def api_serverless_worker_logs_stream(endpoint_id: str, worker_id: str, request: Request):
+    user = _require_auth(request)
+    worker = _get_worker_for_endpoint(endpoint_id, worker_id, user)
+    scheduler_job_id = str(worker.get("scheduler_job_id") or "")
+    if not scheduler_job_id:
+        raise HTTPException(404, "Worker has no scheduler job")
+    from routes.instances import _job_log_generator
+
+    return StreamingResponse(
+        _job_log_generator(request, scheduler_job_id),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _pct(value: Any) -> float:
+    try:
+        return max(0.0, min(100.0, float(value or 0)))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+@router.get("/api/v2/serverless/endpoints/{endpoint_id}/workers/{worker_id}/telemetry", tags=["Serverless"])
+def api_serverless_worker_telemetry(endpoint_id: str, worker_id: str, request: Request):
+    user = _require_auth(request)
+    worker = _get_worker_for_endpoint(endpoint_id, worker_id, user)
+    host_id = str(worker.get("host_id") or "")
+    if not host_id:
+        row = _repo().get_worker_job_row(worker_id)
+        host_id = str((row or {}).get("host_id") or (row or {}).get("scheduler_host_id") or "")
+    if not host_id:
+        return {"ok": True, "worker_id": worker_id, "host_id": None, "telemetry": None, "stale": True}
+    from routes.agent import _host_telemetry
+
+    data = _host_telemetry.get(host_id)
+    if not data:
+        return {"ok": True, "worker_id": worker_id, "host_id": host_id, "telemetry": None, "stale": True}
+    metrics = dict(data.get("metrics") or {})
+    received_at = float(data.get("received_at") or data.get("timestamp") or 0)
+    stale = (time.time() - received_at) > 30 if received_at else True
+    mem_total = float(metrics.get("memory_total_gb") or 0)
+    mem_used = float(metrics.get("memory_used_gb") or 0)
+    gpu_memory_pct = _pct(metrics.get("memory_util"))
+    if not gpu_memory_pct and mem_total > 0:
+        gpu_memory_pct = _pct((mem_used / mem_total) * 100)
+    telemetry = {
+        "gpu_util_pct": _pct(metrics.get("utilization")),
+        "gpu_memory_pct": gpu_memory_pct,
+        "gpu_memory_used_gb": mem_used,
+        "gpu_memory_total_gb": mem_total,
+        "cpu_util_pct": _pct(metrics.get("cpu_util_pct") or metrics.get("cpu_percent")),
+        "system_memory_pct": _pct(metrics.get("system_memory_pct") or metrics.get("ram_util_pct")),
+        "stale": stale,
+        "received_at": received_at,
+    }
+    return {"ok": True, "worker_id": worker_id, "host_id": host_id, "telemetry": telemetry, "stale": stale}
+
+
 @router.get("/api/v2/serverless/endpoints/{endpoint_id}/jobs", tags=["Serverless"])
 def api_serverless_list_jobs(endpoint_id: str, request: Request):
     user = _require_auth(request)
@@ -659,6 +842,7 @@ def api_serverless_run(endpoint_id: str, body: RunJobRequest, request: Request):
         {"endpoint_id": endpoint_id, "job_id": job["job_id"]},
     ):
         _svc().log_job_enqueued(job, correlation_id=correlation_id)
+        warm = _svc().warm_endpoint(endpoint_id)
         _svc().reconcile_endpoint(endpoint_id)
     broadcast_sse(
         "serverless_job.queued",
@@ -669,7 +853,7 @@ def api_serverless_run(endpoint_id: str, body: RunJobRequest, request: Request):
         },
     )
     return JSONResponse(
-        content={"id": job["job_id"], "status": "IN_QUEUE"},
+        content={"id": job["job_id"], "status": "IN_QUEUE", "warm": warm},
         headers=rl_headers,
     )
 
@@ -714,11 +898,22 @@ def api_serverless_runsync(endpoint_id: str, body: RunJobRequest, request: Reque
             },
             headers=rl_headers,
         )
+    warm = _svc().warm_endpoint(endpoint_id)
     _svc().reconcile_endpoint(endpoint_id)
     _svc().dispatcher.dispatch_for_endpoint(ep)
 
     deadline = time.time() + timeout
+    last_reconcile = 0.0
     while time.time() < deadline:
+        now = time.time()
+        if now - last_reconcile >= 1.0:
+            last_reconcile = now
+            try:
+                warm = _warm_summary(endpoint_id, ensure=True)
+                _svc().reconcile_endpoint(endpoint_id)
+                _svc().dispatcher.dispatch_for_endpoint(ep)
+            except Exception:
+                pass
         current = _repo().get_job(str(job["job_id"]), endpoint_id=endpoint_id)
         if not current:
             break
@@ -741,7 +936,12 @@ def api_serverless_runsync(endpoint_id: str, body: RunJobRequest, request: Reque
 
     raise HTTPException(
         202,
-        detail={"status": "IN_QUEUE", "job_id": job["job_id"], "poll": f"/v1/serverless/{endpoint_id}/status/{job['job_id']}"},
+        detail={
+            "status": "IN_QUEUE",
+            "job_id": job["job_id"],
+            "poll": f"/v1/serverless/{endpoint_id}/status/{job['job_id']}",
+            "warm": warm,
+        },
     )
 
 
@@ -837,11 +1037,20 @@ async def api_serverless_openai_chat(endpoint_id: str, body: ChatCompletionReque
         raise HTTPException(400, "OpenAI proxy requires a preset (managed model) endpoint")
 
     worker_row = _warm_worker_row(endpoint_id)
+    warm = {"state": "ready"} if worker_row else {}
     if not worker_row:
-        _svc().reconcile_endpoint(endpoint_id)
-        worker_row = _warm_worker_row(endpoint_id)
+        worker_row, warm = _wait_for_warm_worker(endpoint_id, ep, ensure=True)
     if not worker_row:
-        raise HTTPException(503, f"No warm workers available for endpoint {endpoint_id}")
+        raise HTTPException(
+            503,
+            detail={
+                "error": {
+                    "code": "worker_warming_timeout",
+                    "message": f"Worker is still warming for endpoint {endpoint_id}",
+                    "warm": warm,
+                }
+            },
+        )
 
     payload = body.model_dump()
     idem = (request.headers.get("idempotency-key") or "").strip() or None
@@ -962,11 +1171,20 @@ def api_serverless_openai_embeddings(
     except WalletPreflightError as e:
         raise HTTPException(e.status_code, e.message)
     worker_row = _warm_worker_row(endpoint_id)
+    warm = {"state": "ready"} if worker_row else {}
     if not worker_row:
-        _svc().reconcile_endpoint(endpoint_id)
-        worker_row = _warm_worker_row(endpoint_id)
+        worker_row, warm = _wait_for_warm_worker(endpoint_id, ep, ensure=True)
     if not worker_row:
-        raise HTTPException(503, f"No warm workers available for endpoint {endpoint_id}")
+        raise HTTPException(
+            503,
+            detail={
+                "error": {
+                    "code": "worker_warming_timeout",
+                    "message": f"Worker is still warming for endpoint {endpoint_id}",
+                    "warm": warm,
+                }
+            },
+        )
     payload = body.model_dump()
     with otel_span("serverless.openai.embeddings", {"endpoint_id": endpoint_id}):
         try:

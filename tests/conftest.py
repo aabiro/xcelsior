@@ -52,6 +52,9 @@ _TEST_ENV_DEFAULTS = {
 for _key, _val in _TEST_ENV_DEFAULTS.items():
     os.environ.setdefault(_key, _val)
 
+# Tests must not depend on a local Redis service for OAuth/device auth cache.
+os.environ["XCELSIOR_AUTH_CACHE_BACKEND"] = "memory"
+
 # Empty string from CI env blocks setdefault — treat as unset for optional secrets.
 if not (os.environ.get("XCELSIOR_STRIPE_SECRET_KEY") or "").strip():
     os.environ["XCELSIOR_STRIPE_SECRET_KEY"] = _TEST_ENV_DEFAULTS["XCELSIOR_STRIPE_SECRET_KEY"]

@@ -19,9 +19,10 @@ import { useEventStream } from "@/hooks/useEventStream";
 import { getTeamContext } from "@/lib/team-context";
 import { TeamContextBanner } from "@/components/team/team-context-banner";
 import { CopyableText } from "@/features/serverless/copyable-text";
-import { formatTokenRateFromPricing, type TokenPricingQuote } from "@/features/serverless/constants";
+import { PRESET_MODELS, formatTokenRateFromPricing, type TokenPricingQuote } from "@/features/serverless/constants";
 import { TokenPricingTable } from "@/features/serverless/token-pricing-table";
 import { EngineBadge, ServerlessEmptyState, ServerlessHero } from "@/features/serverless/serverless-ui";
+import { formatModelDisplayName, formatServerlessChip, formatWorkerSecondPrice } from "@/features/serverless/format";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
@@ -39,6 +40,7 @@ export default function InferencePage() {
   const [loading, setLoading] = useState(true);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [tokenQuotes, setTokenQuotes] = useState<Record<string, TokenPricingQuote>>({});
+  const [activeTab, setActiveTab] = useState<"endpoints" | "catalog">("endpoints");
 
   const load = useCallback(async (showSpinner = false) => {
     if (showSpinner) setLoading(true);
@@ -143,15 +145,60 @@ export default function InferencePage() {
         <StatCard label={t("dash.serverless.stat_cost")} value={`$${totalCost.toFixed(2)} CAD`} icon={DollarSign} glow="cyan" />
       </div>
 
-      {Object.keys(tokenQuotes).length > 0 && (
-        <FadeIn>
-          <div className="space-y-2">
-            <p className="text-xs font-medium text-text-muted uppercase tracking-wide">Preset LLM token rates (CAD / 1M)</p>
-            <TokenPricingTable quotes={tokenQuotes} />
+      <div className="inline-flex rounded-lg border border-border bg-surface-hover/40 p-1">
+        <button
+          type="button"
+          onClick={() => setActiveTab("endpoints")}
+          className={`rounded-md px-3 py-1.5 text-sm ${activeTab === "endpoints" ? "bg-accent-violet/15 text-accent-violet" : "text-text-muted"}`}
+        >
+          My Endpoints
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("catalog")}
+          className={`rounded-md px-3 py-1.5 text-sm ${activeTab === "catalog" ? "bg-accent-violet/15 text-accent-violet" : "text-text-muted"}`}
+        >
+          Model Catalog
+        </button>
+      </div>
+
+      {activeTab === "catalog" && (
+        <div className="space-y-4">
+          {Object.keys(tokenQuotes).length > 0 && (
+            <FadeIn>
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-text-muted uppercase tracking-wide">Preset LLM token rates (CAD / 1M)</p>
+                <TokenPricingTable quotes={tokenQuotes} />
+              </div>
+            </FadeIn>
+          )}
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {PRESET_MODELS.map((model) => (
+              <div key={model.id} className="rounded-xl border border-border bg-surface p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold truncate">{formatModelDisplayName(model.id)}</p>
+                    <p className="mt-1 text-xs text-text-muted">{formatServerlessChip(model.task)} · {model.vram} GB VRAM</p>
+                  </div>
+                  <Badge variant="default">{formatServerlessChip(model.task)}</Badge>
+                </div>
+                {model.task !== "rerank" && formatTokenRateFromPricing(model.id, tokenQuotes[model.id]) && (
+                  <p className="mt-3 text-xs font-mono text-accent-cyan">{formatTokenRateFromPricing(model.id, tokenQuotes[model.id])}</p>
+                )}
+                {canWrite && (
+                  <Link href="/dashboard/inference/new" className="mt-4 inline-flex">
+                    <Button size="sm" variant="outline">
+                      <Rocket className="h-3.5 w-3.5" /> Create endpoint
+                    </Button>
+                  </Link>
+                )}
+              </div>
+            ))}
           </div>
-        </FadeIn>
+        </div>
       )}
 
+      {activeTab === "endpoints" && (
       <div className="space-y-3">
         {loading ? (
           <div className="flex justify-center py-16">
@@ -180,11 +227,11 @@ export default function InferencePage() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 space-y-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-semibold truncate">
-                            {ep.name || ep.model_name || ep.model_id}
-                          </span>
-                          <Badge variant={ep.status === "active" ? "active" : "warning"}>{ep.status}</Badge>
-                          {ep.mode && <Badge variant="default" className="text-[10px]">{ep.mode}</Badge>}
+	                          <span className="font-semibold truncate">
+	                            {ep.name || formatModelDisplayName(ep.model_ref || ep.model_name || ep.model_id)}
+	                          </span>
+	                          <Badge variant={ep.status === "active" ? "active" : "warning"}>{formatServerlessChip(ep.status)}</Badge>
+	                          {ep.mode && <Badge variant="default" className="text-[10px]">{formatServerlessChip(ep.mode)}</Badge>}
                           {ep.mode === "preset" && <EngineBadge engine={ep.managed_engine} />}
                         </div>
                         <CopyableText text={ep.endpoint_id} />
@@ -203,22 +250,21 @@ export default function InferencePage() {
                         <ChevronRight className="h-5 w-5 text-text-muted group-hover:text-accent-violet transition-colors" />
                       </div>
                     </div>
-                    <div className="mt-3 grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-4 text-xs text-text-muted">
-                      <span className="flex items-center gap-1"><Server className="h-3 w-3" /> {ep.gpu_type || "Auto"}</span>
-                      <span className="flex items-center gap-1"><Globe className="h-3 w-3" /> {ep.region}</span>
-                      <span className="flex items-center gap-1"><Cpu className="h-3 w-3" /> {ep.min_workers}-{ep.max_workers} workers</span>
-                      <span className="flex items-center gap-1"><DollarSign className="h-3 w-3" /> ${(ep.total_cost_cad || 0).toFixed(2)}</span>
-                    </div>
-                    {ep.pricing?.token_billing && (
-                      <p className="mt-2 text-xs font-mono text-accent-cyan/90">
-                        {formatTokenRateFromPricing(ep.model_ref || ep.model_name || "", ep.pricing)}
-                        {ep.pricing.rate_cents_per_second_per_worker != null && (
-                          <span className="text-text-muted">
-                            {" "}· {ep.pricing.rate_cents_per_second_per_worker}¢/s worker
-                          </span>
-                        )}
-                      </p>
-                    )}
+	                    <div className="mt-3 grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-4 text-xs text-text-muted">
+	                      <span className="flex items-center gap-1"><Server className="h-3 w-3" /> {ep.gpu_count || 1} * {ep.gpu_type || "Auto"}</span>
+	                      <span className="flex items-center gap-1"><Globe className="h-3 w-3" /> {ep.region}</span>
+	                      <span className="flex items-center gap-1"><Cpu className="h-3 w-3" /> Min {ep.min_workers} - Max {ep.max_workers}</span>
+	                      <span className="flex items-center gap-1"><DollarSign className="h-3 w-3" /> {formatWorkerSecondPrice(ep.pricing)}</span>
+	                      <span className="truncate">Created {ep.created_at ? new Date(ep.created_at * 1000).toLocaleString() : "-"}</span>
+	                      <span className="truncate">Type {formatServerlessChip(ep.execution_mode || "sync")}</span>
+	                      <span className="truncate">Image {ep.image_ref || ep.docker_image || "-"}</span>
+	                      <span className="truncate">URL {ep.openai_base_url || ep.invoke_path || "-"}</span>
+	                    </div>
+	                    {ep.pricing?.token_billing && formatTokenRateFromPricing(ep.model_ref || ep.model_name || "", ep.pricing) && (
+	                      <p className="mt-2 text-xs font-mono text-accent-cyan/90">
+	                        {formatTokenRateFromPricing(ep.model_ref || ep.model_name || "", ep.pricing)}
+	                      </p>
+	                    )}
                   </div>
                 </Link>
               </StaggerItem>
@@ -226,6 +272,7 @@ export default function InferencePage() {
           </StaggerList>
         )}
       </div>
+      )}
 
       <ConfirmDialog
         open={pendingDeleteId !== null}

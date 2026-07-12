@@ -2,10 +2,10 @@
 
 import { Badge } from "@/components/ui/badge";
 import { ScrollText, Loader2 } from "lucide-react";
-import type { ServerlessJob } from "@/lib/api";
+import type { ServerlessEndpoint, ServerlessJob } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
 import { CopyableText } from "./copyable-text";
-import { ServerlessEmptyState } from "./serverless-ui";
+import { ServerlessJobRunner } from "./serverless-job-runner";
 
 const STATUS_VARIANT: Record<string, "active" | "warning" | "default"> = {
   COMPLETED: "active",
@@ -21,11 +21,13 @@ function fmtTime(ts?: number) {
 }
 
 interface LogsPanelProps {
+  endpoint: ServerlessEndpoint;
   jobs: ServerlessJob[];
   loading?: boolean;
+  canWrite: boolean;
 }
 
-export function LogsPanel({ jobs, loading }: LogsPanelProps) {
+export function LogsPanel({ endpoint, jobs, loading, canWrite }: LogsPanelProps) {
   const { t } = useLocale();
 
   if (loading) {
@@ -36,14 +38,18 @@ export function LogsPanel({ jobs, loading }: LogsPanelProps) {
     );
   }
 
-  if (jobs.length === 0) {
-    return (
-      <ServerlessEmptyState icon={ScrollText} title={t("dash.serverless.jobs_empty")} />
-    );
-  }
-
   return (
-    <div className="space-y-2">
+    <div className="space-y-4">
+      <ServerlessJobRunner endpoint={endpoint} canWrite={canWrite} />
+      <div className="flex items-center gap-2 text-sm font-medium">
+        <ScrollText className="h-4 w-4 text-accent-violet" />
+        Job history
+      </div>
+      {jobs.length === 0 && (
+        <div className="rounded-lg border border-dashed border-border bg-surface/60 p-4 text-sm text-text-muted">
+          {t("dash.serverless.jobs_empty")}
+        </div>
+      )}
       {jobs.map((job) => (
         <div
           key={job.job_id}

@@ -79,6 +79,7 @@ def _clean():
         deps_mod._WS_TICKETS.clear()
     with term_mod._terminal_session_lock:
         term_mod._terminal_session_counts.clear()
+    term_mod._paramiko_identity_key_path = ""
     _clear_state_namespace(deps_mod._WS_CONNECT_STATE_NAMESPACE)
     _clear_state_namespace(deps_mod._WS_TICKET_STATE_NAMESPACE)
     _clear_state_namespace(term_mod._TERMINAL_SESSION_STATE_NAMESPACE)
@@ -95,6 +96,7 @@ def _clean():
         deps_mod._WS_TICKETS.clear()
     with term_mod._terminal_session_lock:
         term_mod._terminal_session_counts.clear()
+    term_mod._paramiko_identity_key_path = ""
     _clear_state_namespace(deps_mod._WS_CONNECT_STATE_NAMESPACE)
     _clear_state_namespace(deps_mod._WS_TICKET_STATE_NAMESPACE)
     _clear_state_namespace(term_mod._TERMINAL_SESSION_STATE_NAMESPACE)
@@ -143,12 +145,12 @@ def _container_probe_shim(monkeypatch):
     original_exists = term_mod._container_exists
     original_probe = term_mod._container_probe
 
-    def _shim_probe(container_ref, host_ip=None):
+    def _shim_probe(container_ref, host_ip=None, ssh_user=term_mod.SSH_USER):
         # Only delegate when a test has replaced _container_exists.
         if term_mod._container_exists is original_exists:
-            return original_probe(container_ref, host_ip)
+            return original_probe(container_ref, host_ip, ssh_user)
         try:
-            found = term_mod._container_exists(container_ref, host_ip)
+            found = term_mod._container_exists(container_ref, host_ip, ssh_user)
         except Exception as exc:
             return {"found": False, "reason": "error", "error": str(exc)}
         if found:
@@ -666,14 +668,14 @@ class TestContainerExists:
         mock_client.containers.get.return_value = MagicMock()
         with patch.object(term_mod, "_docker_client", return_value=mock_client) as mock_factory:
             term_mod._container_exists("xcl-j1", host_ip="10.0.0.5")
-            mock_factory.assert_called_once_with("10.0.0.5")
+            mock_factory.assert_called_once_with("10.0.0.5", ssh_user=term_mod.SSH_USER)
 
     def test_local_passes_none_host(self):
         mock_client = MagicMock()
         mock_client.containers.get.return_value = MagicMock()
         with patch.object(term_mod, "_docker_client", return_value=mock_client) as mock_factory:
             term_mod._container_exists("xcl-j1", host_ip=None)
-            mock_factory.assert_called_once_with(None)
+            mock_factory.assert_called_once_with(None, ssh_user=term_mod.SSH_USER)
 
 
 class TestTmuxAvailable:
@@ -715,6 +717,11 @@ class TestDockerClientPool:
             term_mod._docker_client_cache.clear()
         monkeypatch.setattr(term_mod, "_ensure_remote_host_key_pinned", lambda *_: None)
         monkeypatch.setattr(term_mod, "_ensure_ssh_identity", lambda *_: None)
+        monkeypatch.setattr(
+            term_mod,
+            "_set_paramiko_identity_key_path",
+            lambda path=None: path or "/tmp/xcelsior-test-key",
+        )
         monkeypatch.setattr(term_mod, "_patch_paramiko_host_keys", lambda: True)
         # Transport probe sees a live transport by default.
         monkeypatch.setattr(
@@ -840,7 +847,14 @@ class TestDockerClientFactory:
             term_mod._docker_client(host_ip="127.0.0.1")
             mock_from_env.assert_called_once()
 
-    def test_remote_uses_ssh_transport(self):
+    def test_remote_uses_ssh_transport(self, monkeypatch, tmp_path):
+        key_path = tmp_path / "host_key"
+        key_path.write_text("placeholder")
+        monkeypatch.setattr(term_mod, "SSH_KEY_PATH", str(key_path))
+        monkeypatch.setenv("XCELSIOR_SSH_KEY_PATH", str(key_path))
+        monkeypatch.setattr(term_mod, "_ensure_remote_host_key_pinned", lambda *_: None)
+        monkeypatch.setattr(term_mod, "_ensure_ssh_identity", lambda *_: None)
+        monkeypatch.setattr(term_mod, "_patch_paramiko_host_keys", lambda: True)
         with patch("docker.DockerClient") as mock_cls:
             mock_cls.return_value = MagicMock()
             term_mod._docker_client(host_ip="10.0.0.5", ssh_user="xcelsior")
@@ -848,6 +862,70 @@ class TestDockerClientFactory:
             _, kwargs = mock_cls.call_args
             assert kwargs["base_url"] == "ssh://xcelsior@10.0.0.5"
             assert kwargs["timeout"] == term_mod._REMOTE_DOCKER_TIMEOUT_SEC
+
+    def test_remote_requires_configured_identity(self, monkeypatch, tmp_path):
+        missing_key = tmp_path / "missing_key"
+        monkeypatch.setattr(term_mod, "SSH_KEY_PATH", str(missing_key))
+        monkeypatch.setenv("XCELSIOR_SSH_KEY_PATH", str(missing_key))
+        monkeypatch.setattr(term_mod, "_ensure_remote_host_key_pinned", lambda *_: None)
+
+        with patch("docker.DockerClient") as mock_cls, pytest.raises(term_mod.DockerException) as exc:
+            term_mod._docker_client(host_ip="10.0.0.5", ssh_user="xcelsior")
+
+        mock_cls.assert_not_called()
+        assert "Platform SSH key unavailable" in str(exc.value)
+        assert str(missing_key) in str(exc.value)
+
+    def test_remote_docker_auth_error_includes_key_diagnostics(self, monkeypatch, tmp_path):
+        key_path = tmp_path / "host_key"
+        key_path.write_text("placeholder")
+        monkeypatch.setattr(term_mod, "SSH_KEY_PATH", str(key_path))
+        monkeypatch.setenv("XCELSIOR_SSH_KEY_PATH", str(key_path))
+        monkeypatch.setattr(term_mod, "_paramiko_identity_key_path", str(key_path))
+
+        err = term_mod._remote_docker_error_detail(
+            RuntimeError("Authentication failed"),
+            "10.0.0.5",
+        )
+
+        assert "Authentication failed" in err
+        assert "docker_ssh_user=" in err
+        assert "host=10.0.0.5" in err
+        assert f"key_path={key_path}" in err
+        assert "key_exists=True" in err
+        assert "key_readable=True" in err
+
+    def test_paramiko_connect_forces_configured_identity(self, monkeypatch, tmp_path):
+        key_path = tmp_path / "host_key"
+        key_path.write_text("placeholder")
+        monkeypatch.setattr(term_mod, "SSH_KEY_PATH", str(key_path))
+        monkeypatch.setenv("XCELSIOR_SSH_KEY_PATH", str(key_path))
+        monkeypatch.setattr(term_mod, "_paramiko_identity_key_path", "")
+        kwargs = {
+            "hostname": "10.0.0.5",
+            "username": "aaryn",
+            "key_filename": "/stale/key",
+        }
+
+        term_mod._apply_paramiko_identity_kwargs(kwargs)
+
+        assert kwargs["key_filename"] == str(key_path)
+        assert kwargs["look_for_keys"] is False
+        assert kwargs["allow_agent"] is False
+
+
+class TestHostSshUserResolution:
+    def test_prefers_reported_host_ssh_user(self, monkeypatch):
+        monkeypatch.setattr(term_mod, "SSH_USER", "fallback")
+        assert term_mod._resolve_host_ssh_user({"ssh_user": "provider-user"}) == "provider-user"
+
+    def test_falls_back_to_configured_default(self, monkeypatch):
+        monkeypatch.setattr(term_mod, "SSH_USER", "xcelsior")
+        assert term_mod._resolve_host_ssh_user({}) == "xcelsior"
+
+    def test_rejects_unsafe_reported_user(self, monkeypatch):
+        monkeypatch.setattr(term_mod, "SSH_USER", "xcelsior")
+        assert term_mod._resolve_host_ssh_user({"ssh_user": "bad/user"}) == "xcelsior"
 
 
 # ===============================================================================
@@ -1155,7 +1233,7 @@ class TestContainerPolling:
             container_name="xcelsior-j-stale",
         )
 
-        def _probe(ref, host_ip=None):
+        def _probe(ref, host_ip=None, ssh_user=term_mod.SSH_USER):
             if ref == "xcl-j-stale":
                 return {"found": True, "reason": "ok", "error": None}
             return {"found": False, "reason": "not_found", "error": None}

@@ -8,8 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Input, Select, Label } from "@/components/ui/input";
 import { Dialog } from "@/components/ui/dialog";
 import {
-  Layers, RefreshCw, Trash2, Loader2, Search, Star,
-  Globe, Lock, Rocket, Pencil, X, Check, Copy, Tag,
+  Layers, RefreshCw, Trash2, Loader2, Search,
+  Globe, Lock, X, Check, Tag,
   ArrowUpDown,
 } from "lucide-react";
 import { FadeIn } from "@/components/ui/motion";
@@ -441,9 +441,9 @@ export default function TemplatesPage() {
                       <th className="text-left px-3 py-3 font-medium cursor-pointer" onClick={() => toggleSort("name")}>
                         Name <ArrowUpDown className="inline h-3 w-3 ml-1" />
                       </th>
-                      <th className="text-left px-3 py-3 font-medium">Description</th>
-                      <th className="text-left px-3 py-3 font-medium">Labels</th>
-                      <th className="text-left px-3 py-3 font-medium">Visibility</th>
+                      <th className="hidden 2xl:table-cell text-left px-3 py-3 font-medium">Description</th>
+                      <th className="hidden xl:table-cell text-left px-3 py-3 font-medium">Labels</th>
+                      <th className="hidden 2xl:table-cell text-left px-3 py-3 font-medium">Visibility</th>
                       <th className="text-left px-3 py-3 font-medium cursor-pointer" onClick={() => toggleSort("status")}>
                         Status
                       </th>
@@ -486,12 +486,12 @@ export default function TemplatesPage() {
                               {img.image_ref}
                             </div>
                           </td>
-                          <td className="px-3 py-3 text-text-secondary max-w-xs">
+                          <td className="hidden 2xl:table-cell px-3 py-3 text-text-secondary max-w-xs">
                             <div className="line-clamp-2 text-xs">
                               {img.description || <span className="text-text-muted/50">-</span>}
                             </div>
                           </td>
-                          <td className="px-3 py-3">
+                          <td className="hidden xl:table-cell px-3 py-3">
                             <div className="flex flex-wrap gap-1">
                               {(img.labels || []).slice(0, 3).map(l => (
                                 <span
@@ -508,7 +508,7 @@ export default function TemplatesPage() {
                               )}
                             </div>
                           </td>
-                          <td className="px-3 py-3">
+                          <td className="hidden 2xl:table-cell px-3 py-3">
                             {img.is_public ? (
                               <span className="inline-flex items-center gap-1 text-xs text-green-500">
                                 <Globe className="h-3 w-3" /> Public
@@ -532,47 +532,25 @@ export default function TemplatesPage() {
                             "px-3 py-3 sticky right-0 z-10 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.3)] transition-colors",
                             rowSelected ? "bg-[color:var(--surface)]" : "bg-surface group-hover:bg-surface-hover",
                           )}>
-                            <div className="flex items-center justify-end gap-1">
-                              {isMine && (
-                                <button
-                                  onClick={() => toggleStar(img)}
-                                  title={img.starred ? "Unstar" : "Star"}
-                                  className="p-1.5 rounded hover:bg-surface-hover text-text-muted hover:text-yellow-400 transition-colors"
-                                >
-                                  <Star
-                                    className={cn(
-                                      "h-4 w-4",
-                                      img.starred && "fill-yellow-400 text-yellow-400",
-                                    )}
-                                  />
-                                </button>
-                              )}
-                              <NextLink
-                                href={`/dashboard/marketplace?template=${encodeURIComponent(img.image_id)}`}
-                                className="p-1.5 rounded hover:bg-surface-hover text-text-muted hover:text-ice-blue transition-colors"
-                                title="Launch from template"
-                              >
-                                <Rocket className="h-4 w-4" />
-                              </NextLink>
-                              {isMine && (
-                                <>
-                                  <button
-                                    onClick={() => setEditing(img)}
-                                    className="p-1.5 rounded hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors"
-                                    title="Edit"
-                                  >
-                                    <Pencil className="h-4 w-4" />
-                                  </button>
-                                  <button
-                                    onClick={() => requestDeleteOne(img)}
-                                    className="p-1.5 rounded hover:bg-surface-hover text-text-muted hover:text-red-400 transition-colors"
-                                    title="Delete"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </button>
-                                </>
-                              )}
-                            </div>
+	                            <select
+	                              aria-label={`Actions for ${img.name}`}
+	                              className="w-28 rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+	                              defaultValue=""
+	                              onChange={(e) => {
+	                                const action = e.target.value;
+	                                e.target.value = "";
+	                                if (action === "launch") window.location.href = `/dashboard/marketplace?template=${encodeURIComponent(img.image_id)}`;
+	                                if (action === "star") toggleStar(img);
+	                                if (action === "edit") setEditing(img);
+	                                if (action === "delete") requestDeleteOne(img);
+	                              }}
+	                            >
+	                              <option value="" disabled>Actions</option>
+	                              <option value="launch">Launch</option>
+	                              {isMine && <option value="star">{img.starred ? "Unstar" : "Star"}</option>}
+	                              {isMine && <option value="edit">Edit</option>}
+	                              {isMine && <option value="delete">Delete</option>}
+	                            </select>
                           </td>
                         </tr>
                       );

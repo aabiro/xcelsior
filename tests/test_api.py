@@ -141,11 +141,16 @@ def _bearer(token: str) -> dict:
 @pytest.fixture(autouse=True)
 def clean_data(monkeypatch):
     import api as api_mod
+    import oauth_service as oauth_mod
     import routes._deps as _deps_mod
     import routes.auth as _auth_mod
     import routes.billing as _billing_mod
     import routes.admin as _admin_mod
 
+    monkeypatch.setenv("XCELSIOR_AUTH_CACHE_BACKEND", "memory")
+    monkeypatch.setattr(oauth_mod, "AUTH_CACHE_BACKEND", "memory")
+    monkeypatch.setattr(api_mod, "AUTH_REQUIRED", False)
+    monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", False)
     monkeypatch.setattr(api_mod, "_USE_PERSISTENT_AUTH", True)
     monkeypatch.setattr(_deps_mod, "_USE_PERSISTENT_AUTH", True)
     monkeypatch.setattr(_auth_mod, "_USE_PERSISTENT_AUTH", True)
@@ -248,6 +253,13 @@ class TestHostRegistrationFlow:
         host = r.json()["host"]
         assert host["country"] == "US"
         assert host["province"] == ""
+
+    def test_put_host_persists_ssh_user(self):
+        """Worker-reported SSH user is stored for terminal Docker-over-SSH."""
+        r = _register_host("h1", ssh_user="provider")
+        assert r.status_code == 200
+        host = r.json()["host"]
+        assert host["ssh_user"] == "provider"
 
     def test_agent_versions_admits_host(self):
         """POST /agent/versions with good versions → host becomes active."""
@@ -617,7 +629,12 @@ class TestJobStatusApiValidation:
         """PATCH /job/{id} with invalid status should return 400, not 200."""
         resp = _submit_job("test", 8)
         job_id = resp.json()["instance"]["job_id"]
-        r = client.patch(f"/instance/{job_id}", json={"status": "totally_bogus_status"})
+        token = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
+        r = client.patch(
+            f"/instance/{job_id}",
+            json={"status": "totally_bogus_status"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
         assert r.status_code == 400
         assert "Invalid status" in r.json()["error"]["message"]
 
@@ -652,6 +669,7 @@ class TestAuth:
         import api as api_mod
         import routes._deps as _deps_mod
 
+        monkeypatch.setenv("XCELSIOR_API_TOKEN", "test-token-not-for-production")
         monkeypatch.setattr(api_mod, "AUTH_REQUIRED", True)
         monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
         monkeypatch.setenv("XCELSIOR_API_TOKEN", "http-query-token-test")
@@ -1311,7 +1329,8 @@ class TestSLAEndpoints:
 
     def test_sla_downtimes(self):
         """GET /api/sla/downtimes returns list."""
-        r = client.get("/api/sla/downtimes")
+        token, _ = _register_user(f"sla-admin-{os.urandom(4).hex()}@xcelsior.ca", is_admin=True)
+        r = client.get("/api/sla/downtimes", headers=_bearer(token))
         assert r.status_code == 200
 
 
@@ -1370,7 +1389,12 @@ class TestFailover:
         resp = _submit_job("requeue-test", 8)
         job_id = resp.json()["instance"]["job_id"]
         # Must transition to running before requeue is allowed
-        client.patch(f"/instance/{job_id}", json={"status": "running", "host_id": "h1"})
+        token = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
+        client.patch(
+            f"/instance/{job_id}",
+            json={"status": "running", "host_id": "h1"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
         r = client.post(f"/instance/{job_id}/requeue")
         assert r.status_code == 200
 
@@ -1637,11 +1661,19 @@ class TestOAuthServer:
         me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {machine_token}"})
         assert me.status_code == 403
 
-    def test_client_credentials_revoked_after_secret_rotation(self):
-        reg = client.post(
+    def test_client_credentials_revoked_after_secret_rotation(self, monkeypatch):
+        import api as api_mod
+        import routes._deps as _deps_mod
+
+        monkeypatch.setenv("XCELSIOR_API_TOKEN", "test-token-not-for-production")
+        monkeypatch.setattr(api_mod, "AUTH_REQUIRED", True)
+        monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
+        reg_resp = client.post(
             "/api/auth/register",
-            json={"email": "machine-rotate@xcelsior.ca", "password": "testpass123"},
-        ).json()
+            json={"email": f"machine-rotate-{os.urandom(4).hex()}@xcelsior.ca", "password": "testpass123"},
+        )
+        assert reg_resp.status_code == 200, reg_resp.text
+        reg = reg_resp.json()
         token = reg["access_token"]
 
         created = client.post(
@@ -1711,11 +1743,19 @@ class TestOAuthServer:
         )
         assert new_secret_issue.status_code == 200
 
-    def test_disabled_client_cannot_use_existing_machine_token(self):
-        reg = client.post(
+    def test_disabled_client_cannot_use_existing_machine_token(self, monkeypatch):
+        import api as api_mod
+        import routes._deps as _deps_mod
+
+        monkeypatch.setenv("XCELSIOR_API_TOKEN", "test-token-not-for-production")
+        monkeypatch.setattr(api_mod, "AUTH_REQUIRED", True)
+        monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
+        reg_resp = client.post(
             "/api/auth/register",
-            json={"email": "machine-disabled@xcelsior.ca", "password": "testpass123"},
-        ).json()
+            json={"email": f"machine-disabled-{os.urandom(4).hex()}@xcelsior.ca", "password": "testpass123"},
+        )
+        assert reg_resp.status_code == 200, reg_resp.text
+        reg = reg_resp.json()
         token = reg["access_token"]
 
         created = client.post(
