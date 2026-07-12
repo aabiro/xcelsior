@@ -1,6 +1,7 @@
 export type DeployMethod = "preset" | "custom";
 
 export type ScalingPolicyType = "queue_request_count" | "queue_delay";
+export type ExecutionMode = "sync" | "async";
 
 export interface EnvRow {
   key: string;
@@ -31,6 +32,8 @@ export interface DeployStudioForm {
   maxWorkers: number;
   maxConcurrency: number;
   idleTimeoutSec: number;
+  executionMode: ExecutionMode;
+  queueTimeoutSec: number;
   scalingPolicyType: ScalingPolicyType;
   scalingPolicyValue: number;
   envRows: EnvRow[];

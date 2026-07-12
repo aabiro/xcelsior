@@ -56,6 +56,8 @@ class EndpointCreate:
     idle_timeout_sec: int = 300
     scaling_policy_type: str = "queue_request_count"
     scaling_policy_value: int = 1
+    execution_mode: str = "sync"
+    queue_timeout_sec: int = 120
     request_timeout_sec: int = 120
     max_request_bytes: int = 10_485_760
     max_queue_size: int = 100
@@ -113,6 +115,7 @@ class ServerlessRepo:
                     gpu_tier, gpu_count, vram_required_gb,
                     min_workers, max_workers, max_concurrency, idle_timeout_sec,
                     scaling_policy_type, scaling_policy_value,
+                    execution_mode, queue_timeout_sec,
                     request_timeout_sec, max_request_bytes, max_queue_size, keep_warm,
                     cache_volume_id, region, env, status, created_at, updated_at,
                     lora_adapters
@@ -122,6 +125,7 @@ class ServerlessRepo:
                     %s, %s, %s, %s,
                     %s, %s, %s,
                     %s, %s, %s, %s,
+                    %s, %s,
                     %s, %s,
                     %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s,
@@ -151,6 +155,8 @@ class ServerlessRepo:
                     spec.idle_timeout_sec,
                     spec.scaling_policy_type,
                     spec.scaling_policy_value,
+                    spec.execution_mode,
+                    spec.queue_timeout_sec,
                     spec.request_timeout_sec,
                     spec.max_request_bytes,
                     spec.max_queue_size,
@@ -209,6 +215,8 @@ class ServerlessRepo:
             "idle_timeout_sec",
             "scaling_policy_type",
             "scaling_policy_value",
+            "execution_mode",
+            "queue_timeout_sec",
             "request_timeout_sec",
             "max_request_bytes",
             "max_queue_size",
@@ -1498,6 +1506,7 @@ class ServerlessRepo:
                 SELECT w.*,
                        j.status AS job_status,
                        j.payload AS job_payload,
+                       j.host_id AS scheduler_host_id,
                        h.payload->>'ip' AS host_ip
                 FROM serverless_workers w
                 LEFT JOIN jobs j ON j.job_id = w.scheduler_job_id

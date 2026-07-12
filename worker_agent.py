@@ -121,6 +121,7 @@ COST_PER_HOUR = float(os.environ.get("XCELSIOR_COST_PER_HOUR", "0.50"))
 HOST_COUNTRY = os.environ.get("XCELSIOR_COUNTRY", "").strip().upper()
 HOST_PROVINCE = os.environ.get("XCELSIOR_PROVINCE", "").strip().upper()
 HOST_REGION = os.environ.get("XCELSIOR_REGION", "").strip()
+HOST_SSH_USER = os.environ.get("XCELSIOR_HOST_SSH_USER", "").strip()
 HEARTBEAT_INTERVAL = int(os.environ.get("XCELSIOR_HEARTBEAT_INTERVAL", "10"))
 POLL_INTERVAL = int(os.environ.get("XCELSIOR_POLL_INTERVAL", "5"))
 MINING_CHECK_INTERVAL = int(os.environ.get("XCELSIOR_MINING_CHECK_INTERVAL", "60"))
@@ -140,6 +141,23 @@ TAILSCALE_SOCKET = os.environ.get("XCELSIOR_TAILSCALE_SOCKET", "").strip()
 PREFER_GVISOR = os.environ.get("XCELSIOR_PREFER_GVISOR", "true").lower() in ("1", "true", "yes")
 
 VERSION = "2.1.0"
+_HOST_SSH_USER_RE = re.compile(r"\A[A-Za-z0-9_.-]{1,64}\Z")
+
+
+def _reported_host_ssh_user() -> str:
+    """Unix account the API should use for Docker-over-SSH host control.
+
+    The provider wizard writes XCELSIOR_HOST_SSH_USER after it authorizes the
+    platform public key in that account's authorized_keys. Do not infer root
+    from a systemd process; that would break older installs that still rely on
+    the deployment default XCELSIOR_SSH_USER.
+    """
+    if not HOST_SSH_USER:
+        return ""
+    if _HOST_SSH_USER_RE.fullmatch(HOST_SSH_USER):
+        return HOST_SSH_USER
+    log.warning("Ignoring invalid XCELSIOR_HOST_SSH_USER=%r", HOST_SSH_USER)
+    return ""
 
 
 def _self_sha256() -> str:
@@ -528,7 +546,17 @@ def get_gpu_info():
 
 
 def get_host_ip():
-    """Best-effort detection of the primary host IP."""
+    """Best-effort detection of the primary host IP.
+
+    Priority:
+      1. Explicit XCELSIOR_HOST_IP env override.
+      2. Tailscale mesh IP — but *only* when tailscaled is actually running and
+         the IP is bound to a local interface.  A stale IP from a previous
+         session (tailscaled stopped, interface gone) is silently skipped so
+         the API never tries to SSH into an unreachable 100.64.x.x address.
+      3. hostname -I (first non-loopback IPv4).
+      4. ip-route src fallback.
+    """
     # Allow explicit override via env var (useful when Tailscale and Headscale
     # assign different IPs and the scheduler sees a different one)
     override = os.environ.get("XCELSIOR_HOST_IP")
@@ -545,7 +573,19 @@ def get_host_ip():
             timeout=5,
         )
         if r.returncode == 0 and r.stdout.strip():
-            return r.stdout.strip().split("\n")[0]
+            ts_ip = r.stdout.strip().split("\n")[0]
+            # Verify the IP is actually bound to a local interface. When
+            # tailscaled has stopped the IP lingers in its state file but
+            # isn't routable — reporting it would make the web terminal fail
+            # with "tcp/22 timeout".
+            if _ip_is_local(ts_ip):
+                return ts_ip
+            else:
+                log.info(
+                    "Tailscale reports IP %s but it is not bound to any "
+                    "local interface — skipping (tailscaled may be stopped)",
+                    ts_ip,
+                )
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
@@ -570,6 +610,28 @@ def get_host_ip():
         log.debug("ip route fallback failed: %s", e)
 
     return "unknown"
+
+
+def _ip_is_local(ip: str) -> bool:
+    """Return True when *ip* is bound to a local network interface.
+
+    Uses ``ip -o addr show`` which is available on every Linux distro that
+    ships iproute2.  Falls back to True (optimistic) if the check fails —
+    better to report a possibly-stale IP than silently hide it.
+    """
+    try:
+        r = subprocess.run(
+            ["ip", "-o", "addr", "show"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if r.returncode == 0:
+            return ip in r.stdout
+    except Exception:
+        pass
+    # Optimistic fallback — can't tell, assume reachable.
+    return True
 
 
 # ── Compute Score Benchmark ──────────────────────────────────────────
@@ -965,6 +1027,9 @@ def heartbeat(gpu_info, host_ip, compute_score=None):
         data["province"] = HOST_PROVINCE
     if HOST_REGION:
         data["region"] = HOST_REGION
+    host_ssh_user = _reported_host_ssh_user()
+    if host_ssh_user:
+        data["ssh_user"] = host_ssh_user
 
     try:
         from criu_hosts import merge_checkpoint_capabilities, probe_checkpoint_stack
@@ -1793,7 +1858,7 @@ def drain_agent_commands() -> int:
                             "snapshot_container callback cmd=%s got HTTP %s: %s",
                             cmd_id,
                             resp.status_code,
-                            (resp.text or "")[:200],
+                            (getattr(resp, "text", "") or "")[:200],
                         )
                 except requests.RequestException as e:
                     log.warning("snapshot_container callback failed cmd=%s: %s", cmd_id, e)
@@ -1879,7 +1944,7 @@ def report_job_status(
                 status,
                 job_id,
                 resp.status_code,
-                (resp.text or "")[:200],
+                (getattr(resp, "text", "") or "")[:200],
             )
             return False
         return True
@@ -1927,7 +1992,7 @@ def _report_http_ports(job_id, port_map):
             "http_ports report for job %s returned %d: %s",
             job_id,
             resp.status_code,
-            (resp.text or "")[:200],
+            (getattr(resp, "text", "") or "")[:200],
         )
     except requests.RequestException as e:
         log.error("http_ports report failed for job %s: %s", job_id, e)
@@ -4600,6 +4665,20 @@ def _sample_io_delta(state: dict) -> dict:
     return out
 
 
+def _sample_host_utilization() -> dict:
+    """Return host CPU/RAM percentages for lightweight dashboard telemetry."""
+    if psutil is None:
+        return {"cpu_util_pct": 0.0, "system_memory_pct": 0.0}
+    try:
+        mem = psutil.virtual_memory()
+        return {
+            "cpu_util_pct": round(float(psutil.cpu_percent(interval=None)), 1),
+            "system_memory_pct": round(float(getattr(mem, "percent", 0.0) or 0.0), 1),
+        }
+    except Exception:
+        return {"cpu_util_pct": 0.0, "system_memory_pct": 0.0}
+
+
 def telemetry_loop():
     """Background thread: push GPU metrics to scheduler every TELEMETRY_INTERVAL seconds.
 
@@ -4645,6 +4724,7 @@ def telemetry_loop():
 
                 # P2.4 — host bandwidth + disk IO deltas (aggregate across NICs/disks)
                 metrics.update(_sample_io_delta(_io_state))
+                metrics.update(_sample_host_utilization())
 
                 # Active container count
                 with _active_lock:
@@ -4721,6 +4801,20 @@ def telemetry_loop():
                     except Exception:
                         pass  # Non-critical; don't let volume scan break telemetry
 
+                report_telemetry(metrics)
+            else:
+                metrics = {
+                    "utilization": 0,
+                    "memory_util": 0,
+                    "gpu_count": 0,
+                    "memory_total_gb": 0,
+                    "memory_used_gb": 0,
+                    "memory_free_gb": 0,
+                }
+                metrics.update(_sample_io_delta(_io_state))
+                metrics.update(_sample_host_utilization())
+                with _active_lock:
+                    metrics["active_jobs"] = len(_active_containers)
                 report_telemetry(metrics)
         except Exception as e:
             log.debug("Telemetry loop error: %s", e)

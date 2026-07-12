@@ -228,6 +228,20 @@ if (existsSync(SPRITES_DIR)) {
     }
 }
 
+// Interstitial choreography frames: inject neutral start/stop frames
+// so all animations begin and end perfectly in sync with idle.
+const neutralGrid = rawByGroup["idle"][0]?.grid;
+if (neutralGrid) {
+    const noNeutral = new Set(["intro", "outro", "idle"]);
+    for (const g of ALL_GROUPS) {
+        if (noNeutral.has(g)) continue;
+        if (rawByGroup[g].length > 0) {
+            rawByGroup[g].unshift({ file: `wizard-${g}-00.png`, grid: neutralGrid });
+            rawByGroup[g].push({ file: `wizard-${g}-99.png`, grid: neutralGrid });
+        }
+    }
+}
+
 // Global bounding box across ALL frames for consistent sprite dimensions
 let gTop = Infinity, gBottom = 0, gLeft = Infinity, gRight = 0;
 for (const g of ALL_GROUPS) {

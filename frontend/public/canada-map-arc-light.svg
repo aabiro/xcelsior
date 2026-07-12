@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="-40 135 3240 635" width="3240" height="650" role="img" aria-label="Canada compute network map">
   <defs>
     <linearGradient id="provinceFill" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0891b2" stop-opacity="0.18"/>
-      <stop offset="55%" stop-color="#6d28d9" stop-opacity="0.12"/>
-      <stop offset="100%" stop-color="#ea580c" stop-opacity="0.10"/>
+      <stop offset="0%" stop-color="#0891b2" stop-opacity="0.42"/>
+      <stop offset="55%" stop-color="#6d28d9" stop-opacity="0.34"/>
+      <stop offset="100%" stop-color="#ea580c" stop-opacity="0.30"/>
     </linearGradient>
     <linearGradient id="arcGrad" x1="0%" y1="0%" x2="100%" y2="0%">
       <stop offset="0%" stop-color="#0f766e"/>

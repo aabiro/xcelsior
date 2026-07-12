@@ -1,15 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Server, Loader2, Cpu, Activity, Clock, ChevronDown, ChevronRight,
-  CircleDot, AlertTriangle,
+  CircleDot, AlertTriangle, ScrollText,
 } from "lucide-react";
 import type { ServerlessWorker, ServerlessJob } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
 import { cn } from "@/lib/utils";
 import { ServerlessEmptyState } from "./serverless-ui";
+import { WorkerTelemetryStrip } from "./resource-telemetry";
+import { WorkerLogsModal } from "./worker-logs-modal";
 
 const STATE_COLORS: Record<string, "active" | "info" | "warning" | "default" | "failed"> = {
   ready: "active",
@@ -60,14 +63,16 @@ function displayState(w: ServerlessWorker): string {
 }
 
 interface WorkersPanelProps {
+  endpointId: string;
   workers: ServerlessWorker[];
   jobs?: ServerlessJob[];
   loading?: boolean;
 }
 
-export function WorkersPanel({ workers, jobs = [], loading }: WorkersPanelProps) {
+export function WorkersPanel({ endpointId, workers, jobs = [], loading }: WorkersPanelProps) {
   const { t } = useLocale();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [logsWorkerId, setLogsWorkerId] = useState<string | null>(null);
 
   // Recent jobs grouped per worker, this is the per-worker "log".
   const jobsByWorker = useMemo(() => {
@@ -184,13 +189,17 @@ export function WorkersPanel({ workers, jobs = [], loading }: WorkersPanelProps)
                 s === "busy" || s === "ready" ? "border-emerald/25" : s === "error" ? "border-red-500/30" : "border-border",
               )}
             >
-              <button
-                type="button"
-                onClick={() => toggle(w.worker_id)}
-                className="flex w-full items-center gap-3 p-4 text-left"
-              >
+	              <div
+	                role="button"
+	                tabIndex={0}
+	                onClick={() => toggle(w.worker_id)}
+	                onKeyDown={(e) => {
+	                  if (e.key === "Enter" || e.key === " ") toggle(w.worker_id);
+	                }}
+	                className="flex w-full items-center gap-3 p-4 text-left"
+	              >
                 <span className={cn("h-2.5 w-2.5 rounded-full shrink-0", STATE_DOT[s] ?? "bg-text-muted", (s === "busy" || s === "booting") && "animate-pulse")} />
-                <div className="min-w-0 flex-1">
+	                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-mono text-xs text-text-secondary truncate">{w.worker_id}</span>
                     <Badge variant={STATE_COLORS[s] ?? "default"}>{t(`dash.serverless.wstate_${s}`) || s}</Badge>
@@ -227,16 +236,31 @@ export function WorkersPanel({ workers, jobs = [], loading }: WorkersPanelProps)
                       </span>
                     ) : null}
                   </div>
-                  {w.error_message ? (
-                    <p className="mt-1.5 inline-flex items-start gap-1 text-[11px] text-red-400">
-                      <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" /> {w.error_message}
-                    </p>
-                  ) : null}
-                </div>
-                {workerJobs.length > 0 && (
-                  isOpen ? <ChevronDown className="h-4 w-4 text-text-muted shrink-0" /> : <ChevronRight className="h-4 w-4 text-text-muted shrink-0" />
-                )}
-              </button>
+	                  {w.error_message ? (
+	                    <p className="mt-1.5 inline-flex items-start gap-1 text-[11px] text-red-400">
+	                      <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" /> {w.error_message}
+	                    </p>
+	                  ) : null}
+	                  <div className="mt-3 max-w-2xl">
+	                    <WorkerTelemetryStrip endpointId={endpointId} workerId={w.worker_id} />
+	                  </div>
+	                </div>
+	                <Button
+	                  type="button"
+	                  variant="ghost"
+	                  size="sm"
+	                  onClick={(e) => {
+	                    e.stopPropagation();
+	                    setLogsWorkerId(w.worker_id);
+	                  }}
+	                  title="Logs"
+	                >
+	                  <ScrollText className="h-4 w-4" />
+	                </Button>
+	                {workerJobs.length > 0 && (
+	                  isOpen ? <ChevronDown className="h-4 w-4 text-text-muted shrink-0" /> : <ChevronRight className="h-4 w-4 text-text-muted shrink-0" />
+	                )}
+	              </div>
 
               {/* Per-worker recent jobs ("logs") */}
               {isOpen && workerJobs.length > 0 && (
@@ -266,6 +290,13 @@ export function WorkersPanel({ workers, jobs = [], loading }: WorkersPanelProps)
           );
         })}
       </div>
-    </div>
-  );
-}
+	      <WorkerLogsModal
+	        endpointId={endpointId}
+	        workers={workers}
+	        selectedWorkerId={logsWorkerId}
+	        open={logsWorkerId != null}
+	        onClose={() => setLogsWorkerId(null)}
+	      />
+	    </div>
+	  );
+	}

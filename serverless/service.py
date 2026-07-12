@@ -296,7 +296,24 @@ class ServerlessService:
         *,
         emit_sse: bool = True,
     ) -> dict | None:
+        before = self.repo.get_endpoint(endpoint_id, owner_id=owner_id)
         ep = self.repo.patch_endpoint(endpoint_id, owner_id, fields)
+        worker_affecting = {
+            "min_workers",
+            "max_workers",
+            "max_concurrency",
+            "idle_timeout_sec",
+            "scaling_policy_type",
+            "scaling_policy_value",
+            "queue_timeout_sec",
+            "execution_mode",
+        }
+        if ep and before and worker_affecting.intersection(fields):
+            try:
+                self.reconcile_endpoint(endpoint_id)
+                ep = self.repo.get_endpoint(endpoint_id, owner_id=owner_id) or ep
+            except Exception as exc:
+                log.warning("serverless patch reconcile failed endpoint=%s: %s", endpoint_id, exc)
         if ep and emit_sse:
             self._broadcast("serverless_endpoint.updated", {"endpoint_id": endpoint_id})
         return ep
@@ -396,6 +413,76 @@ class ServerlessService:
             {"endpoint_id": endpoint_id, "worker_id": worker["worker_id"]},
         )
         return worker
+
+    def warm_endpoint(self, endpoint_id: str) -> dict:
+        """Ensure at least one worker is starting or ready without changing min_workers."""
+        ep = self.repo.get_endpoint(endpoint_id)
+        if not ep:
+            return {"endpoint_id": endpoint_id, "state": "not_found", "workers": []}
+
+        max_workers = max(1, int(ep.get("max_workers") or 1))
+        max_conc = max(1, int(ep.get("max_concurrency") or 1))
+        workers = self.repo.list_workers(endpoint_id)
+        ready = [
+            w
+            for w in workers
+            if str(w.get("state") or "") in (WORKER_STATE_READY, WORKER_STATE_IDLE)
+            and int(w.get("current_concurrency") or 0) < max_conc
+        ]
+        booting = [w for w in workers if str(w.get("state") or "") == WORKER_STATE_BOOTING]
+        active = [
+            w
+            for w in workers
+            if str(w.get("state") or "")
+            in (WORKER_STATE_BOOTING, WORKER_STATE_READY, WORKER_STATE_IDLE, WORKER_STATE_DRAINING)
+        ]
+        provisioned: dict | None = None
+
+        if not ready and not booting and len(active) < max_workers:
+            provisioned = self.provision_worker(endpoint_id)
+            if provisioned:
+                try:
+                    from scheduler import process_queue
+
+                    process_queue()
+                except Exception as exc:
+                    log.debug("process_queue after serverless warm failed endpoint=%s: %s", endpoint_id, exc)
+
+        workers = self.repo.list_workers(endpoint_id)
+        ready_count = sum(
+            1
+            for w in workers
+            if str(w.get("state") or "") in (WORKER_STATE_READY, WORKER_STATE_IDLE)
+            and int(w.get("current_concurrency") or 0) < max_conc
+        )
+        booting_count = sum(1 for w in workers if str(w.get("state") or "") == WORKER_STATE_BOOTING)
+        error_count = sum(1 for w in workers if str(w.get("state") or "") == WORKER_STATE_ERROR)
+        active_count = sum(
+            1
+            for w in workers
+            if str(w.get("state") or "")
+            in (WORKER_STATE_BOOTING, WORKER_STATE_READY, WORKER_STATE_IDLE, WORKER_STATE_DRAINING)
+        )
+        if ready_count:
+            state = "ready"
+        elif provisioned:
+            state = "starting"
+        elif booting_count:
+            state = "booting"
+        elif error_count and active_count == 0:
+            state = "failed"
+        else:
+            state = "scaled_down"
+        return {
+            "endpoint_id": endpoint_id,
+            "state": state,
+            "ready_count": ready_count,
+            "booting_count": booting_count,
+            "active_count": active_count,
+            "max_workers": max_workers,
+            "worker": provisioned,
+            "workers": workers,
+        }
 
     def worker_heartbeat(self, worker_id: str) -> dict | None:
         w = self.repo.get_worker(worker_id)
@@ -839,12 +926,15 @@ class ServerlessService:
         cooldown_active = scale_down_cooldown_active(
             workers, now=now, cooldown_sec=SCALE_DOWN_COOLDOWN_SEC
         )
+        scale_down_desired = desired
+        if queue_depth == 0 and not cooldown_active:
+            scale_down_desired = int(ep.get("min_workers") or 0)
         drained = 0
         reaped = 0
         if not cooldown_active:
             for wid in workers_to_mark_draining(
                 workers,
-                desired=desired,
+                desired=scale_down_desired,
                 idle_timeout_sec=idle_timeout,
                 now=now,
             ):
@@ -853,7 +943,7 @@ class ServerlessService:
             workers = self.repo.list_workers(endpoint_id)
             for wid in workers_to_reap(
                 workers,
-                desired=desired,
+                desired=scale_down_desired,
                 drain_grace_sec=DRAIN_GRACE_SEC,
                 now=now,
             ):
@@ -892,6 +982,7 @@ class ServerlessService:
             "scaled_up": scaled_up,
             "drained": drained,
             "reaped": reaped,
+            "scale_down_desired_workers": scale_down_desired,
             "scale_down_cooldown": cooldown_active,
             "dispatched_job": dispatched.get("job_id") if dispatched else None,
         }

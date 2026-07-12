@@ -9,6 +9,8 @@ const apiMocks = vi.hoisted(() => ({
   listServerlessWorkers: vi.fn(),
   listServerlessJobs: vi.fn(),
   listServerlessKeys: vi.fn(),
+  listServerlessEndpoints: vi.fn(),
+  fetchAvailableGPUs: vi.fn(),
   createServerlessKey: vi.fn(),
   revokeServerlessKey: vi.fn(),
   deleteServerlessEndpoint: vi.fn(),
@@ -70,18 +72,20 @@ describe("EndpointDetail", () => {
     apiMocks.listServerlessWorkers.mockResolvedValue({ workers: [] });
     apiMocks.listServerlessJobs.mockResolvedValue({ jobs: [] });
     apiMocks.listServerlessKeys.mockResolvedValue({ keys: [] });
+    apiMocks.listServerlessEndpoints.mockResolvedValue({ endpoints: [] });
+    apiMocks.fetchAvailableGPUs.mockResolvedValue({ gpus: [] });
   });
 
   it("renders overview metrics for readers", async () => {
     render(<EndpointDetail endpointId={mockEndpoint.endpoint_id} canWrite={false} />);
-    expect(await screen.findByText("test-llama", {}, { timeout: 10_000 })).toBeInTheDocument();
+    expect((await screen.findAllByText("test-llama", {}, { timeout: 10_000 })).length).toBeGreaterThan(0);
     expect(screen.getByText("dash.serverless.metric_requests")).toBeInTheDocument();
     expect(screen.queryByText("dash.serverless.key_create")).not.toBeInTheDocument();
   }, 15_000);
 
   it("shows keys panel and hides create control for viewers", async () => {
     render(<EndpointDetail endpointId={mockEndpoint.endpoint_id} canWrite={false} />);
-    await waitFor(() => expect(screen.getByText("test-llama")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText("test-llama").length).toBeGreaterThan(0));
 
     fireEvent.click(screen.getByText("dash.serverless.tab_keys"));
     await waitFor(() => {
@@ -92,7 +96,7 @@ describe("EndpointDetail", () => {
 
   it("allows writers to open try-it tab", async () => {
     render(<EndpointDetail endpointId={mockEndpoint.endpoint_id} canWrite />);
-    await waitFor(() => expect(screen.getByText("test-llama")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText("test-llama").length).toBeGreaterThan(0));
 
     fireEvent.click(screen.getByText("dash.serverless.tab_tryit"));
     await waitFor(() => {

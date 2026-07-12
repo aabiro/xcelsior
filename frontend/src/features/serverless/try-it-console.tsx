@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Play, Square, Loader2, Terminal, MessageSquare, Code2, Copy, Check,
 } from "lucide-react";
-import type { ServerlessEndpoint } from "@/lib/api";
+import type { ServerlessEndpoint, ServerlessWarmStatus } from "@/lib/api";
 import * as api from "@/lib/api";
 import { useLocale } from "@/lib/locale";
 import { toast } from "sonner";
@@ -15,6 +15,9 @@ import posthog from "posthog-js";
 
 import { CopyableText } from "./copyable-text";
 import { ServerlessPanel, ServerlessSegmentedTabs } from "./serverless-ui";
+import { ServerlessJobRunner } from "./serverless-job-runner";
+import { WorkerTelemetryStrip } from "./resource-telemetry";
+import { formatServerlessChip } from "./format";
 
 type ConsoleMode = "chat" | "job" | "snippets";
 
@@ -38,11 +41,9 @@ export function TryItConsole({ endpoint, canWrite }: TryItConsoleProps) {
   const { t } = useLocale();
   const [mode, setMode] = useState<ConsoleMode>("chat");
   const [prompt, setPrompt] = useState("Hello! Summarize what you can do in one sentence.");
-  const [jobPayload, setJobPayload] = useState('{"message": "hello"}');
   const [output, setOutput] = useState("");
   const [streaming, setStreaming] = useState(false);
-  const [activeJobId, setActiveJobId] = useState<string | null>(null);
-  const esRef = useRef<EventSource | null>(null);
+  const [warm, setWarm] = useState<ServerlessWarmStatus | null>(null);
   const outputRef = useRef<HTMLPreElement>(null);
 
   const endpointId = endpoint.endpoint_id;
@@ -53,25 +54,13 @@ export function TryItConsole({ endpoint, canWrite }: TryItConsoleProps) {
     : endpoint.openai_base_url || "";
 
   useEffect(() => {
-    return () => {
-      esRef.current?.close();
-    };
-  }, []);
-
-  useEffect(() => {
     if (outputRef.current) {
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
   }, [output]);
 
   const stopStream = () => {
-    esRef.current?.close();
-    esRef.current = null;
     setStreaming(false);
-    if (activeJobId && canWrite) {
-      api.cancelServerlessJob(endpointId, activeJobId).catch(() => {});
-    }
-    setActiveJobId(null);
   };
 
   const runChat = async (stream: boolean) => {
@@ -80,6 +69,8 @@ export function TryItConsole({ endpoint, canWrite }: TryItConsoleProps) {
     setOutput("");
     setStreaming(true);
     try {
+      const warmRes = await api.warmServerlessEndpoint(endpointId);
+      setWarm(warmRes.warm);
       const text = await api.serverlessOpenAIChat(
         endpointId,
         {
@@ -101,49 +92,6 @@ export function TryItConsole({ endpoint, canWrite }: TryItConsoleProps) {
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : t("dash.serverless.run_failed"));
     } finally {
-      setStreaming(false);
-    }
-  };
-
-  const runJob = async () => {
-    if (!canWrite) return toast.error(t("dash.serverless.viewer_blocked"));
-    let input: Record<string, unknown>;
-    try {
-      input = JSON.parse(jobPayload);
-    } catch {
-      return toast.error(t("dash.serverless.invalid_json"));
-    }
-    setOutput("");
-    setStreaming(true);
-    try {
-      const res = await api.runServerlessJob(endpointId, input);
-      setActiveJobId(res.id);
-      setOutput(`Job ${res.id}, ${res.status}\n`);
-      // Activation funnel: the user actually ran an inference (custom job).
-      posthog.capture("serverless_inference_run", { mode: "job", model: modelId });
-
-      const es = api.createServerlessJobStream(endpointId, res.id);
-      esRef.current = es;
-      es.onmessage = (e) => {
-        try {
-          const data = JSON.parse(e.data);
-          const chunk = data?.payload?.text ?? data?.payload?.output ?? data?.text ?? "";
-          if (chunk) setOutput((prev) => prev + (typeof chunk === "string" ? chunk : JSON.stringify(chunk)));
-          if (data?.event_type === "done" || data?.event_type === "error") {
-            stopStream();
-          }
-        } catch {
-          if (e.data && e.data !== "[DONE]") setOutput((prev) => prev + e.data + "\n");
-        }
-      };
-      es.onerror = () => {
-        api.getServerlessJobStatus(endpointId, res.id).then((st) => {
-          if (st.output) setOutput((prev) => prev + JSON.stringify(st.output, null, 2));
-          if (st.error) setOutput((prev) => prev + JSON.stringify(st.error, null, 2));
-        }).finally(stopStream);
-      };
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : t("dash.serverless.run_failed"));
       setStreaming(false);
     }
   };
@@ -182,7 +130,7 @@ export function TryItConsole({ endpoint, canWrite }: TryItConsoleProps) {
     : `curl -X POST '${typeof window !== "undefined" ? window.location.origin : ""}/v1/serverless/${endpointId}/run' \\
   -H 'Content-Type: application/json' \\
   -H 'Authorization: Bearer YOUR_API_KEY' \\
-  -d '{"input": ${jobPayload}}'`;
+  -d '{"input": {"message": "hello"}}'`;
 
   const openaiSnippet =
     task === "embed"
@@ -253,29 +201,24 @@ for chunk in response:
                 <Square className="h-4 w-4" /> {t("dash.serverless.stop")}
               </Button>
             )}
-          </div>
-        </div>
-      )}
+	          </div>
+	          {warm && (
+	            <div className="rounded-lg border border-border/60 bg-surface-hover/30 p-3">
+	              <div className="mb-2 flex flex-wrap gap-3 text-xs text-text-muted">
+	                <span>{formatServerlessChip(warm.state)}</span>
+	                <span>Ready {warm.ready_count}</span>
+	                <span>Booting {warm.booting_count}</span>
+	              </div>
+	              {warm.workers[0] && (
+	                <WorkerTelemetryStrip endpointId={endpointId} workerId={warm.workers[0].worker_id} />
+	              )}
+	            </div>
+	          )}
+	        </div>
+	      )}
 
       {mode === "job" && (
-        <div className="space-y-3">
-          <textarea
-            className="w-full min-h-[100px] rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs"
-            value={jobPayload}
-            onChange={(e) => setJobPayload(e.target.value)}
-          />
-          <div className="flex gap-2">
-            <Button onClick={runJob} disabled={streaming || !canWrite}>
-              {streaming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              {t("dash.serverless.run_job")}
-            </Button>
-            {streaming && (
-              <Button variant="ghost" onClick={stopStream}>
-                <Square className="h-4 w-4" /> {t("dash.serverless.stop")}
-              </Button>
-            )}
-          </div>
-        </div>
+        <ServerlessJobRunner endpoint={endpoint} canWrite={canWrite} />
       )}
 
       {mode === "snippets" && (
@@ -289,7 +232,7 @@ for chunk in response:
         </div>
       )}
 
-      {(mode === "chat" || mode === "job") && (
+      {mode === "chat" && (
         <div className="relative">
           <pre
             ref={outputRef}

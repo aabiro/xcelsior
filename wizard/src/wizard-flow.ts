@@ -79,6 +79,14 @@ export const WORKLOAD_IMAGE_MAP: Record<string, string> = {
     other: "nvidia/cuda:12.4.1-devel-ubuntu22.04",
 };
 
+function isRenterMode(a: Record<string, string | string[]>): boolean {
+    return a.mode === "rent" || a.mode === "both";
+}
+
+function shouldLaunchInstance(a: Record<string, string | string[]>): boolean {
+    return isRenterMode(a) && a["want-launch"] !== "no";
+}
+
 // ── The Flow ─────────────────────────────────────────────────────────
 // Every run walks this exact sequence. Steps with conditions may be skipped.
 
@@ -87,7 +95,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "mode",
         type: "select",
-        prompt: "Welcome! I'm Hexara, your setup wizard. What would you like to do?",
+        prompt: "Greetings! I'm Hexara, your trusty setup wizard. What sort of magic would you like to cast today?",
         options: [
             { label: "🖥️  Rent GPUs — launch jobs on the marketplace", value: "rent" },
             { label: "🔌 Provide GPUs — earn by sharing your hardware", value: "provide" },
@@ -317,6 +325,15 @@ export const WIZARD_STEPS: WizardStep[] = [
         condition: (a) => a.mode === "provide" || a.mode === "both",
     },
 
+    // ── Step 7.5: Renter — Want to launch? ─────────────────────────────
+    {
+        id: "want-launch",
+        type: "confirm",
+        prompt: "Would you like to launch your first instance right now?",
+        confirmLabel: "Yes, launch an instance",
+        condition: isRenterMode,
+    },
+
     // ── Step 8: Renter — Workload type ─────────────────────────────────
     {
         id: "workload",
@@ -328,7 +345,7 @@ export const WIZARD_STEPS: WizardStep[] = [
             { label: "🔬 Research — Jupyter notebooks, experiments", value: "research" },
             { label: "🎮 Other — rendering, simulation, etc.", value: "other" },
         ],
-        condition: (a) => a.mode === "rent" || a.mode === "both",
+        condition: shouldLaunchInstance,
     },
 
     // ── Step 8b: Renter — SSH key setup ────────────────────────────────
@@ -337,7 +354,7 @@ export const WIZARD_STEPS: WizardStep[] = [
         type: "auto-check",
         prompt: "Setting up SSH keys for instance access...",
         checkId: "ssh-key-setup",
-        condition: (a) => a.mode === "rent" || a.mode === "both",
+        condition: shouldLaunchInstance,
     },
 
     // ── Step 9: Renter — GPU preference ────────────────────────────────
@@ -350,7 +367,7 @@ export const WIZARD_STEPS: WizardStep[] = [
             { label: "💵 Cheapest — minimize cost", value: "cheapest" },
             { label: "🎯 Specific — I know what I need", value: "specific" },
         ],
-        condition: (a) => a.mode === "rent" || a.mode === "both",
+        condition: shouldLaunchInstance,
     },
 
     // ── Step 10: Renter — Browse GPUs ──────────────────────────────────
@@ -358,7 +375,7 @@ export const WIZARD_STEPS: WizardStep[] = [
         id: "browse-gpus",
         type: "auto-fetch",
         prompt: "Searching the marketplace for available GPUs...",
-        condition: (a) => a.mode === "rent" || a.mode === "both",
+        condition: shouldLaunchInstance,
     },
 
     // ── Step 11: Renter — Pick GPU ─────────────────────────────────────
@@ -367,7 +384,7 @@ export const WIZARD_STEPS: WizardStep[] = [
         type: "select",
         prompt: "Choose a GPU to launch your instance on:",
         options: [], // dynamically populated in useWizardFlow
-        condition: (a) => a.mode === "rent" || a.mode === "both",
+        condition: shouldLaunchInstance,
     },
 
     // ── Step 12: Renter — Pick Docker image ────────────────────────────
@@ -376,7 +393,7 @@ export const WIZARD_STEPS: WizardStep[] = [
         type: "select",
         prompt: "Choose your environment:",
         options: [], // dynamically populated with pre-selected default
-        condition: (a) => a.mode === "rent" || a.mode === "both",
+        condition: shouldLaunchInstance,
     },
 
     // ── Step 13: Renter — Confirm launch ───────────────────────────────
@@ -385,7 +402,7 @@ export const WIZARD_STEPS: WizardStep[] = [
         type: "confirm",
         prompt: "Ready to launch your instance?",
         confirmLabel: "Launch this instance",
-        condition: (a) => a.mode === "rent" || a.mode === "both",
+        condition: shouldLaunchInstance,
     },
 
     // ── Step 14: Renter — Wallet check ─────────────────────────────────
@@ -394,7 +411,7 @@ export const WIZARD_STEPS: WizardStep[] = [
         type: "auto-check",
         prompt: "Checking your wallet...",
         checkId: "wallet",
-        condition: (a) => a.mode === "rent" || a.mode === "both",
+        condition: shouldLaunchInstance,
     },
 
     // ── Step 15: Renter — Payment gate ─────────────────────────────────
@@ -403,7 +420,7 @@ export const WIZARD_STEPS: WizardStep[] = [
         type: "payment-gate",
         prompt: "Your balance is too low for this GPU. Let's add funds.",
         condition: (a) => {
-            if (a.mode !== "rent" && a.mode !== "both") return false;
+            if (!shouldLaunchInstance(a)) return false;
             // Only show if wallet balance is insufficient (set by wallet-check)
             return a["_wallet_insufficient"] === "true";
         },
@@ -415,7 +432,7 @@ export const WIZARD_STEPS: WizardStep[] = [
         type: "auto-check",
         prompt: "Launching your instance — this may take a few minutes to spin up...",
         checkId: "launch",
-        condition: (a) => a.mode === "rent" || a.mode === "both",
+        condition: shouldLaunchInstance,
     },
 
     // ── Step 17: Both mode — Confirm & save (provider-only confirms at provider-summary) ──
@@ -431,7 +448,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "done",
         type: "done",
-        prompt: "You're all set! Hexara will be here whenever you need — just run `xcelsior setup` to summon the wizard again.",
+        prompt: "Huzzah! All tasks are complete. You are ready to shape the GPU cosmos. I, your wizard, shall take my leave!",
     },
 ];
 
