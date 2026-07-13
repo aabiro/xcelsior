@@ -1293,9 +1293,9 @@ class TestConcurrentBilling:
         _, inst = _submit_job("conc-bill", vram=8)
         job_id = inst["job_id"]
         client.post("/queue/process")
-        client.patch(f"/instance/{job_id}", json={"status": "running"})
+        _set_status(job_id, "running")
         time.sleep(0.1)
-        client.patch(f"/instance/{job_id}", json={"status": "completed"})
+        _set_status(job_id, "completed")
 
         results = []
 
