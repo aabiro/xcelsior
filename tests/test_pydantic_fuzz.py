@@ -283,6 +283,8 @@ _VALID_HOST = dict(
         ("free_vram_gb", -0.001),
         ("cost_per_hour", -5.0),
         ("province", "x" * 11),
+        ("ssh_user", "bad/user"),
+        ("ssh_user", "x" * 65),
         ("corporation_name", "x" * 257),
         ("legal_name", "x" * 257),
     ],

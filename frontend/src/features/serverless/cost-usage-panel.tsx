@@ -5,6 +5,7 @@ import { DollarSign, Zap, Clock, BarChart3 } from "lucide-react";
 import type { ServerlessEndpoint, ServerlessEndpointMetrics } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
 import { formatTokenRateFromPricing } from "./constants";
+import { formatWorkerSecondPrice } from "./format";
 
 interface CostUsagePanelProps {
   endpoint: ServerlessEndpoint;
@@ -47,18 +48,14 @@ export function CostUsagePanel({ endpoint, metrics }: CostUsagePanelProps) {
       {pricing && (
         <div className="glow-card brand-top-accent rounded-xl border border-border bg-surface p-5">
           <p className="text-sm font-semibold mb-3">{t("dash.serverless.pricing_title")}</p>
-          <div className="grid gap-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-text-muted">{t("dash.serverless.rate_hour")}</span>
-              <span className="font-mono">${pricing.rate_per_hour_cad.toFixed(2)} CAD/hr</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-text-muted">{t("dash.serverless.rate_second")}</span>
-              <span className="font-mono">{pricing.rate_cents_per_second_per_worker}¢/s/worker</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-text-muted">{t("dash.serverless.gpu_count")}</span>
-              <span className="font-mono">{pricing.gpu_count}× GPU</span>
+	          <div className="grid gap-2 text-sm">
+	            <div className="flex justify-between">
+	              <span className="text-text-muted">Worker rate</span>
+	              <span className="font-mono">{formatWorkerSecondPrice(pricing).replace("Price: ", "")}</span>
+	            </div>
+	            <div className="flex justify-between">
+	              <span className="text-text-muted">{t("dash.serverless.gpu_count")}</span>
+	              <span className="font-mono">{pricing.gpu_count}× GPU</span>
             </div>
             {pricing.token_billing && (
               <div className="flex justify-between">
@@ -89,8 +86,10 @@ export function CostUsagePanel({ endpoint, metrics }: CostUsagePanelProps) {
                 <span className="font-mono">{Math.round(metrics.ttft_p95_ms)}ms</span>
               </div>
             )}
-            <p className="text-xs text-text-muted pt-2 border-t border-border">{pricing.formula}</p>
-          </div>
+	            <p className="text-xs text-text-muted pt-2 border-t border-border">
+	              Charged for running workers. With min workers set to 0, idle scaled-down endpoints do not keep a worker running.
+	            </p>
+	          </div>
         </div>
       )}
     </div>

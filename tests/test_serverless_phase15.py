@@ -14,7 +14,11 @@ from serverless.github_deploy import (
     resolve_github_image,
 )
 from serverless.rate_limit_store import redis_rate_limits_enabled
-from serverless.vanity import endpoint_vanity_slug, vanity_invoke_path
+from serverless.vanity import (
+    clean_endpoint_display_name,
+    endpoint_vanity_slug,
+    vanity_invoke_path,
+)
 
 
 class TestVanitySlugs:
@@ -24,8 +28,11 @@ class TestVanitySlugs:
     def test_slug_fallback_to_id(self):
         assert endpoint_vanity_slug("", "abcdef123456") == "abcdef123456"
 
-    def test_invoke_path_uses_endpoint_id(self):
-        assert vanity_invoke_path("ep-99", "my-slug") == "/v1/serverless/ep-99"
+    def test_invoke_path_uses_endpoint_id_and_slug(self):
+        assert vanity_invoke_path("ep-99", "my-slug") == "/v1/serverless/ep-99/my-slug"
+
+    def test_display_name_removes_provider_prefix(self):
+        assert clean_endpoint_display_name("meta-llama/Llama-3.1-8B") == "Llama-3.1-8B"
 
 
 class TestGitHubDeploy:

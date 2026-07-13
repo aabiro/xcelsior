@@ -1,11 +1,10 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import { ScrollText, Loader2 } from "lucide-react";
-import type { ServerlessJob } from "@/lib/api";
+import { ScrollText, Loader2, Terminal } from "lucide-react";
+import type { ServerlessEndpoint, ServerlessJob } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
 import { CopyableText } from "./copyable-text";
-import { ServerlessEmptyState } from "./serverless-ui";
 
 const STATUS_VARIANT: Record<string, "active" | "warning" | "default"> = {
   COMPLETED: "active",
@@ -21,12 +20,16 @@ function fmtTime(ts?: number) {
 }
 
 interface LogsPanelProps {
+  endpoint: ServerlessEndpoint;
   jobs: ServerlessJob[];
   loading?: boolean;
+  canWrite: boolean;
+  onOpenTryIt?: () => void;
 }
 
-export function LogsPanel({ jobs, loading }: LogsPanelProps) {
+export function LogsPanel({ jobs, loading, canWrite, onOpenTryIt }: LogsPanelProps) {
   const { t } = useLocale();
+  void canWrite;
 
   if (loading) {
     return (
@@ -36,14 +39,27 @@ export function LogsPanel({ jobs, loading }: LogsPanelProps) {
     );
   }
 
-  if (jobs.length === 0) {
-    return (
-      <ServerlessEmptyState icon={ScrollText} title={t("dash.serverless.jobs_empty")} />
-    );
-  }
-
   return (
-    <div className="space-y-2">
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 text-sm font-medium">
+        <ScrollText className="h-4 w-4 text-accent-violet" />
+        Job history
+      </div>
+      {jobs.length === 0 && (
+        <div className="rounded-lg border border-dashed border-border bg-surface/60 p-4 text-sm text-text-muted">
+          <p>{t("dash.serverless.jobs_empty")}</p>
+          {onOpenTryIt && (
+            <button
+              type="button"
+              onClick={onOpenTryIt}
+              className="mt-2 inline-flex items-center gap-1 text-accent-cyan hover:text-accent-violet"
+            >
+              <Terminal className="h-3.5 w-3.5" />
+              Run a test in Try It
+            </button>
+          )}
+        </div>
+      )}
       {jobs.map((job) => (
         <div
           key={job.job_id}

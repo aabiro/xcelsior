@@ -26,12 +26,25 @@
   --color-border-light: #2a3548;
   --color-surface: #0d1320;
   --color-surface-hover: #141c2e;
+  --color-surface-overlay: #111827;
   --color-glow-cyan: rgba(0, 212, 255, 0.15);
   --color-glow-violet: rgba(124, 58, 237, 0.12);
   --color-glow-red: rgba(220, 38, 38, 0.12);
 
   --font-sans: "Geist", system-ui, -apple-system, sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, monospace;
+  --font-mono: "JetBrains Mono", "Geist Mono", ui-monospace, monospace;
+}
+
+/* Self-hosted JetBrains Mono — code snippets + web terminal. xterm renders to a
+   canvas and reads the literal family name, so we declare @font-face explicitly
+   (not via next/font, whose generated family name is hashed and wouldn't match
+   the terminal's 'JetBrains Mono' fontFamily). */
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/jetbrains-mono-500.woff2") format("woff2");
 }
 
 /* ── Base ──────────────────────────────────────────────────────────── */
@@ -63,9 +76,26 @@ html.light {
   --color-border-light: #94a3b8;
   --color-surface: #f1f5f9;
   --color-surface-hover: #e2e8f0;
+  --color-surface-overlay: #ffffff;
   --color-glow-cyan: rgba(14, 116, 144, 0.18);
   --color-glow-violet: rgba(91, 33, 182, 0.14);
   --color-glow-red: rgba(194, 65, 12, 0.11);
+}
+
+/* Portaled surfaces (modals, tooltips) render under <body>, outside
+   .dashboard-shell where --popover-solid/--edge live — so they lost their
+   background and read as transparent. Resolve these at the document root too
+   (theme is a class on <html>); inside .dashboard-shell the more-specific
+   rules still win, so the dashboard is unchanged. */
+:root {
+  --popover-solid: #0c1019;
+  --popover-solid-2: #111827;
+  --edge: rgba(255, 255, 255, 0.12);
+}
+html.light {
+  --popover-solid: #ffffff;
+  --popover-solid-2: #f4f6fb;
+  --edge: rgba(16, 26, 48, 0.15);
 }
 
 html.light body {

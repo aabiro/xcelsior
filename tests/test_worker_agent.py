@@ -39,6 +39,7 @@ def _patch_base(
     monkeypatch.setattr(worker_agent, "OAUTH_TOKEN_TIMEOUT_SEC", 10)
     monkeypatch.setattr(worker_agent, "OAUTH_TOKEN_REFRESH_SKEW_SEC", 60)
     monkeypatch.setattr(worker_agent, "COST_PER_HOUR", cost)
+    monkeypatch.setattr(worker_agent, "HOST_SSH_USER", "")
     monkeypatch.setattr(worker_agent, "_oauth_access_token", "")
     monkeypatch.setattr(worker_agent, "_oauth_access_token_expires_at", 0.0)
 
@@ -302,6 +303,24 @@ class TestHeartbeat:
             "10.0.0.5",
         )
         assert captured["headers"]["Authorization"] == "Bearer my-secret"
+
+    def test_heartbeat_reports_configured_host_ssh_user(self, monkeypatch):
+        _patch_base(monkeypatch, token=None)
+        monkeypatch.setattr(worker_agent, "HOST_SSH_USER", "provider")
+        captured = {}
+
+        def fake_put(url, json, headers, timeout):
+            captured["json"] = json
+            return _FakeResp(200)
+
+        monkeypatch.setattr(worker_agent.requests, "put", fake_put)
+        ok = worker_agent.heartbeat(
+            {"gpu_model": "RTX 2060", "total_vram_gb": 6.0, "free_vram_gb": 4.5},
+            "10.0.0.5",
+        )
+
+        assert ok is True
+        assert captured["json"]["ssh_user"] == "provider"
 
     def test_heartbeat_returns_false_on_error(self, monkeypatch):
         _patch_base(monkeypatch, token=None)

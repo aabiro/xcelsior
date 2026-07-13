@@ -163,3 +163,50 @@ class TestStaleWorkerReaper:
         refreshed = repo.get_job(job["job_id"], endpoint_id=ep_id)
         assert refreshed is not None
         assert refreshed["status"] == JOB_STATUS_QUEUED
+
+
+class TestBootFailureHardening:
+    def test_recent_boot_failures_counts_consecutive_failures(self):
+        from serverless.reaper import _recent_boot_failures
+
+        now = time.time()
+
+        class FakeRepo:
+            @staticmethod
+            def list_workers(_endpoint_id):
+                return [
+                    {
+                        "worker_id": "w3",
+                        "state": "terminated",
+                        "created_at": now - 10,
+                        "last_heartbeat_at": 0,
+                    },
+                    {
+                        "worker_id": "w2",
+                        "state": "error",
+                        "created_at": now - 20,
+                        "last_heartbeat_at": 0,
+                    },
+                    {
+                        "worker_id": "w1",
+                        "state": "ready",
+                        "created_at": now - 30,
+                        "last_heartbeat_at": now - 25,
+                    },
+                ]
+
+        class FakeService:
+            repo = FakeRepo()
+
+        assert _recent_boot_failures(FakeService(), "sep-1") == 2
+
+    def test_orphan_scheduler_job_without_host_is_cancelled(self):
+        from serverless.reaper import _kill_scheduler_job
+
+        job = {"job_id": "sched-orphan", "status": "queued", "host_id": ""}
+        with patch("scheduler.list_hosts", return_value=[]), patch(
+            "scheduler.kill_job"
+        ) as kill_job, patch("scheduler.update_job_status") as update_status:
+            assert _kill_scheduler_job(job) is True
+        kill_job.assert_not_called()
+        update_status.assert_called_once_with("sched-orphan", "cancelled")
