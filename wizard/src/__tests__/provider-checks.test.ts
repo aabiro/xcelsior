@@ -4,7 +4,10 @@ import { describe, it, expect } from "vitest";
 import {
     runVerificationChecks,
     buildVerificationReport,
+    buildWorkerEnvContent,
+    mergeAuthorizedKeys,
     MINIMUM_VERSIONS,
+    sanitizeHostSshUser,
     VERIFICATION_THRESHOLDS,
     type GpuInfo,
     type BenchmarkResult,
@@ -250,5 +253,44 @@ describe("constants", () => {
         expect(VERIFICATION_THRESHOLDS.min_pcie_bandwidth_gbps).toBeGreaterThan(0);
         expect(VERIFICATION_THRESHOLDS.max_gpu_temp_celsius).toBeGreaterThan(0);
         expect(VERIFICATION_THRESHOLDS.min_network_throughput_mbps).toBeGreaterThan(0);
+    });
+});
+
+describe("worker host SSH setup helpers", () => {
+    it("accepts normal local Unix account names", () => {
+        expect(sanitizeHostSshUser("aaryn")).toBe("aaryn");
+        expect(sanitizeHostSshUser("gpu-node_01")).toBe("gpu-node_01");
+        expect(sanitizeHostSshUser("provider.user")).toBe("provider.user");
+    });
+
+    it("rejects unsafe SSH user values", () => {
+        expect(sanitizeHostSshUser("bad user")).toBe("");
+        expect(sanitizeHostSshUser("aaryn@example.com")).toBe("");
+        expect(sanitizeHostSshUser("../../root")).toBe("");
+        expect(sanitizeHostSshUser("")).toBe("");
+    });
+
+    it("adds the platform key to authorized_keys once", () => {
+        const key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITest xcelsior";
+        const first = mergeAuthorizedKeys("", key);
+        expect(first.changed).toBe(true);
+        expect(first.content).toBe(`${key}\n`);
+
+        const second = mergeAuthorizedKeys(first.content, key);
+        expect(second.changed).toBe(false);
+        expect(second.content).toBe(first.content);
+    });
+
+    it("writes the host SSH user into worker.env", () => {
+        const env = buildWorkerEnvContent({
+            hostId: "host-1",
+            apiUrl: "https://xcelsior.ca",
+            hostIp: "100.64.0.6",
+            hostSshUser: "provider",
+            apiToken: "token",
+        });
+        expect(env).toContain("XCELSIOR_HOST_ID=host-1\n");
+        expect(env).toContain("XCELSIOR_HOST_SSH_USER=provider\n");
+        expect(env).toContain("XCELSIOR_API_TOKEN=token\n");
     });
 });

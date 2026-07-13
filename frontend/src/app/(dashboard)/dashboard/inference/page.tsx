@@ -1,29 +1,27 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
-import { StatCard } from "@/components/ui/stat-card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Cpu, RefreshCw, Plus, Trash2, Loader2, Zap, BarChart3, DollarSign,
-  Server, Globe, ChevronRight, Rocket,
-} from "lucide-react";
-import { FadeIn, StaggerList, StaggerItem } from "@/components/ui/motion";
+import { Dialog } from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Cpu, Loader2, RefreshCw, Rocket, Sparkles, Zap } from "lucide-react";
+import { FadeIn } from "@/components/ui/motion";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 import * as api from "@/lib/api";
-import type { ServerlessEndpoint } from "@/lib/api";
+import type { GpuAvailability, ServerlessEndpoint } from "@/lib/api";
 import { useEventStream } from "@/hooks/useEventStream";
 import { getTeamContext } from "@/lib/team-context";
-import { TeamContextBanner } from "@/components/team/team-context-banner";
-import { CopyableText } from "@/features/serverless/copyable-text";
-import { formatTokenRateFromPricing, type TokenPricingQuote } from "@/features/serverless/constants";
+import { PRESET_MODELS, formatTokenRateFromPricing, type TokenPricingQuote } from "@/features/serverless/constants";
 import { TokenPricingTable } from "@/features/serverless/token-pricing-table";
-import { EngineBadge, ServerlessEmptyState, ServerlessHero } from "@/features/serverless/serverless-ui";
+import { ServerlessEmptyState, ServerlessHero } from "@/features/serverless/serverless-ui";
+import { formatModelDisplayName, formatServerlessChip } from "@/features/serverless/format";
+import { ServerlessEndpointManagement } from "@/features/serverless/endpoint-management";
+import { DeployStudio } from "@/features/serverless/deploy-studio";
 import { toast } from "sonner";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 function serverlessActionError(err: unknown, viewerMessage: string): string {
   const msg = err instanceof Error ? err.message : "Request failed";
@@ -33,18 +31,29 @@ function serverlessActionError(err: unknown, viewerMessage: string): string {
 export default function InferencePage() {
   const { user } = useAuth();
   const { t } = useLocale();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const team = getTeamContext(user);
   const canWrite = team.canWriteInstances;
   const [endpoints, setEndpoints] = useState<ServerlessEndpoint[]>([]);
+  const [gpus, setGpus] = useState<GpuAvailability[]>([]);
   const [loading, setLoading] = useState(true);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [tokenQuotes, setTokenQuotes] = useState<Record<string, TokenPricingQuote>>({});
+  const [activeTab, setActiveTab] = useState<"endpoints" | "catalog">("endpoints");
+  const [createOpen, setCreateOpen] = useState(false);
+
+  const selectedEndpointId = searchParams.get("endpoint") || endpoints[0]?.endpoint_id || "";
 
   const load = useCallback(async (showSpinner = false) => {
     if (showSpinner) setLoading(true);
     try {
-      const res = await api.listServerlessEndpoints();
-      setEndpoints(res.endpoints || []);
+      const [endpointRes, gpuRes] = await Promise.all([
+        api.listServerlessEndpoints(),
+        api.fetchAvailableGPUs().catch(() => ({ gpus: [] })),
+      ]);
+      setEndpoints(endpointRes.endpoints || []);
+      setGpus(gpuRes.gpus || []);
     } catch {
       toast.error(t("dash.serverless.load_failed"));
     } finally {
@@ -62,7 +71,7 @@ export default function InferencePage() {
         const data = (await res.json()) as { quotes?: Record<string, TokenPricingQuote> };
         if (data.quotes) setTokenQuotes(data.quotes);
       } catch {
-        /* token table is optional; deploy studio still loads rates */
+        /* token table is optional */
       }
     })();
   }, []);
@@ -80,15 +89,14 @@ export default function InferencePage() {
       "serverless_endpoint.updated",
       "serverless_job.completed",
       "serverless_worker.scaled",
+      "serverless_worker.ready",
     ],
     onEvent: () => { void load(false); },
   });
 
-  const requestDelete = (e: React.MouseEvent, endpointId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!canWrite) return toast.error(t("dash.serverless.viewer_blocked"));
-    setPendingDeleteId(endpointId);
+  const selectEndpoint = (endpointId: string) => {
+    setActiveTab("endpoints");
+    router.replace(`/dashboard/inference?endpoint=${encodeURIComponent(endpointId)}`, { scroll: false });
   };
 
   const confirmDelete = async () => {
@@ -98,24 +106,21 @@ export default function InferencePage() {
     try {
       await api.deleteServerlessEndpoint(endpointId);
       toast.success(t("dash.serverless.deleted"));
-      void load(false);
+      await load(false);
+      const next = endpoints.find((endpoint) => endpoint.endpoint_id !== endpointId);
+      if (next) selectEndpoint(next.endpoint_id);
+      else router.replace("/dashboard/inference", { scroll: false });
     } catch (err) {
       toast.error(serverlessActionError(err, t("dash.serverless.viewer_blocked")));
     }
   };
 
-  const activeCount = endpoints.filter((e) => e.status === "active").length;
-  const totalRequests = endpoints.reduce((sum, e) => sum + (e.total_requests || 0), 0);
-  const totalCost = endpoints.reduce((sum, e) => sum + (e.total_cost_cad || 0), 0);
-
   return (
     <div className="space-y-6">
-      <TeamContextBanner team={team} variant="general" />
-
       <FadeIn>
         <ServerlessHero
           icon={Zap}
-          badge="¢/s + per-token"
+          badge="¢/worker/sec"
           title={t("dash.serverless.title")}
           description={t("dash.serverless.subtitle")}
           accent="cyan"
@@ -124,108 +129,108 @@ export default function InferencePage() {
             <RefreshCw className="h-3.5 w-3.5" />
           </Button>
           {canWrite ? (
-            <Link href="/dashboard/inference/new">
-              <Button size="sm">
-                <Rocket className="h-3.5 w-3.5" /> {t("dash.serverless.open_studio")}
-              </Button>
-            </Link>
+            <Button size="sm" variant="outline" title="AI-guided endpoint creation is coming next.">
+              <Sparkles className="h-3.5 w-3.5" /> AI Guided Endpoint
+            </Button>
           ) : (
             <Button size="sm" disabled title={t("dash.serverless.viewer_blocked")}>
-              <Plus className="h-3.5 w-3.5" /> {t("dash.serverless.view_only")}
+              <Rocket className="h-3.5 w-3.5" /> {t("dash.serverless.view_only")}
             </Button>
           )}
         </ServerlessHero>
       </FadeIn>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard label={t("dash.serverless.stat_active")} value={activeCount} icon={Zap} glow="emerald" />
-        <StatCard label={t("dash.serverless.stat_requests")} value={totalRequests.toLocaleString()} icon={BarChart3} glow="violet" />
-        <StatCard label={t("dash.serverless.stat_cost")} value={`$${totalCost.toFixed(2)} CAD`} icon={DollarSign} glow="cyan" />
+      <div className="inline-flex rounded-lg border border-border bg-surface-hover/40 p-1">
+        <button
+          type="button"
+          onClick={() => setActiveTab("endpoints")}
+          className={`rounded-md px-3 py-1.5 text-sm ${activeTab === "endpoints" ? "bg-accent-violet/15 text-accent-violet" : "text-text-muted"}`}
+        >
+          My Endpoints
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("catalog")}
+          className={`rounded-md px-3 py-1.5 text-sm ${activeTab === "catalog" ? "bg-accent-violet/15 text-accent-violet" : "text-text-muted"}`}
+        >
+          Model Catalogue
+        </button>
       </div>
 
-      {Object.keys(tokenQuotes).length > 0 && (
-        <FadeIn>
-          <div className="space-y-2">
-            <p className="text-xs font-medium text-text-muted uppercase tracking-wide">Preset LLM token rates (CAD / 1M)</p>
-            <TokenPricingTable quotes={tokenQuotes} />
+      {activeTab === "catalog" && (
+        <div className="space-y-4">
+          {Object.keys(tokenQuotes).length > 0 && (
+            <FadeIn>
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-text-muted uppercase tracking-wide">Preset LLM token rates (CAD / 1M)</p>
+                <TokenPricingTable quotes={tokenQuotes} />
+              </div>
+            </FadeIn>
+          )}
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {PRESET_MODELS.map((model) => (
+              <div key={model.id} className="rounded-xl border border-border bg-surface p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold truncate">{formatModelDisplayName(model.id)}</p>
+                    <p className="mt-1 text-xs text-text-muted">{formatServerlessChip(model.task)} · {model.vram} GB VRAM</p>
+                  </div>
+                  <Badge variant="default">{formatServerlessChip(model.task)}</Badge>
+                </div>
+                {model.task !== "rerank" && formatTokenRateFromPricing(model.id, tokenQuotes[model.id]) && (
+                  <p className="mt-3 text-xs font-mono text-accent-cyan">{formatTokenRateFromPricing(model.id, tokenQuotes[model.id])}</p>
+                )}
+                {canWrite && (
+                  <Button size="sm" variant="outline" className="mt-4" onClick={() => setCreateOpen(true)}>
+                    <Rocket className="h-3.5 w-3.5" /> Create endpoint
+                  </Button>
+                )}
+              </div>
+            ))}
           </div>
-        </FadeIn>
+        </div>
       )}
 
-      <div className="space-y-3">
-        {loading ? (
+      {activeTab === "endpoints" && (
+        loading && endpoints.length === 0 ? (
           <div className="flex justify-center py-16">
             <Loader2 className="h-7 w-7 animate-spin text-text-muted" />
           </div>
         ) : endpoints.length === 0 ? (
-          <ServerlessEmptyState
-            icon={Cpu}
-            title={t("dash.serverless.empty")}
-            accent="cyan"
-          >
+          <ServerlessEmptyState icon={Cpu} title={t("dash.serverless.empty")} accent="cyan">
             {canWrite && (
-              <Link href="/dashboard/inference/new" className="inline-block mt-2">
-                <Button>
-                  <Rocket className="h-4 w-4" /> {t("dash.serverless.open_studio")}
-                </Button>
-              </Link>
+              <Button className="mt-2 bg-gradient-to-r from-accent-cyan to-accent-violet text-white" onClick={() => setCreateOpen(true)}>
+                <Rocket className="h-4 w-4" /> Create endpoint
+              </Button>
             )}
           </ServerlessEmptyState>
         ) : (
-          <StaggerList className="space-y-3">
-            {endpoints.map((ep) => (
-              <StaggerItem key={ep.endpoint_id}>
-                <Link href={`/dashboard/inference/${ep.endpoint_id}`} className="block group">
-                  <div className="glow-card brand-top-accent rounded-xl border border-border bg-surface p-4 transition-all group-hover:border-accent-violet/30 group-hover:shadow-[0_0_24px_rgba(139,92,246,0.08)]">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-semibold truncate">
-                            {ep.name || ep.model_name || ep.model_id}
-                          </span>
-                          <Badge variant={ep.status === "active" ? "active" : "warning"}>{ep.status}</Badge>
-                          {ep.mode && <Badge variant="default" className="text-[10px]">{ep.mode}</Badge>}
-                          {ep.mode === "preset" && <EngineBadge engine={ep.managed_engine} />}
-                        </div>
-                        <CopyableText text={ep.endpoint_id} />
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        {canWrite && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-red-500 opacity-70 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
-                            onClick={(e) => requestDelete(e, ep.endpoint_id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
-                        <ChevronRight className="h-5 w-5 text-text-muted group-hover:text-accent-violet transition-colors" />
-                      </div>
-                    </div>
-                    <div className="mt-3 grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-4 text-xs text-text-muted">
-                      <span className="flex items-center gap-1"><Server className="h-3 w-3" /> {ep.gpu_type || "Auto"}</span>
-                      <span className="flex items-center gap-1"><Globe className="h-3 w-3" /> {ep.region}</span>
-                      <span className="flex items-center gap-1"><Cpu className="h-3 w-3" /> {ep.min_workers}-{ep.max_workers} workers</span>
-                      <span className="flex items-center gap-1"><DollarSign className="h-3 w-3" /> ${(ep.total_cost_cad || 0).toFixed(2)}</span>
-                    </div>
-                    {ep.pricing?.token_billing && (
-                      <p className="mt-2 text-xs font-mono text-accent-cyan/90">
-                        {formatTokenRateFromPricing(ep.model_ref || ep.model_name || "", ep.pricing)}
-                        {ep.pricing.rate_cents_per_second_per_worker != null && (
-                          <span className="text-text-muted">
-                            {" "}· {ep.pricing.rate_cents_per_second_per_worker}¢/s worker
-                          </span>
-                        )}
-                      </p>
-                    )}
-                  </div>
-                </Link>
-              </StaggerItem>
-            ))}
-          </StaggerList>
-        )}
-      </div>
+          <ServerlessEndpointManagement
+            endpoints={endpoints}
+            selectedEndpointId={selectedEndpointId}
+            canWrite={canWrite}
+            loading={loading}
+            onSelectEndpoint={selectEndpoint}
+            onRefresh={() => void load(false)}
+            onCreateEndpoint={() => setCreateOpen(true)}
+            onDeleteEndpoint={(endpointId) => {
+              if (!canWrite) return toast.error(t("dash.serverless.viewer_blocked"));
+              setPendingDeleteId(endpointId);
+            }}
+          />
+        )
+      )}
+
+      <Dialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        title="Create endpoint"
+        maxWidth="max-w-6xl"
+        className="h-[88vh]"
+        bodyClassName="min-h-0 flex-1 overflow-hidden px-0 pb-0"
+      >
+        <DeployStudio gpus={gpus} canWrite={canWrite} />
+      </Dialog>
 
       <ConfirmDialog
         open={pendingDeleteId !== null}

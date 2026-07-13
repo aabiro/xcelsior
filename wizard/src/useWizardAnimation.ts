@@ -7,7 +7,8 @@
 // error, dance, wave, cast) so Hexara feels responsive during long PACE/CAST acts.
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { writeSync, appendFileSync } from "fs";
+import { PassThrough } from "node:stream";
+import { writeSync, appendFileSync } from "node:fs";
 import {
     INTRO_FRAMES,
     IDLE_FRAMES,
@@ -217,24 +218,55 @@ function dbg(msg: string): void {
     try { appendFileSync(LOG_FILE, `${Date.now()} ${msg}\n`); } catch (_) { }
 }
 
-export function setupWizardRegion(): void {
-    if (!spriteCapable()) {
-        dbg("setup: sprite disabled (incapable terminal) — skipping scroll region");
-        return;
-    }
-    const inkStart = WIZARD_ROW + SPRITE_ROWS + PAD_ROWS;
-    dbg(`setup: inkStart=${inkStart} WIZARD_ROW=${WIZARD_ROW} SPRITE_ROWS=${SPRITE_ROWS}`);
+let lastSixelFrame = "";
+let customStdout: (NodeJS.WriteStream & { _isCustom?: boolean }) | null = null;
 
-    writeSync(1, "\x1b[2J\x1b[H");
-    writeSync(1, "\x1b[?80h");
-    writeSync(1, `\x1b[${inkStart};999r`);
-    writeSync(1, `\x1b[${inkStart};1H`);
+export function getCustomStdout(): NodeJS.WriteStream {
+    if (!customStdout) {
+        if (!spriteCapable()) {
+            return process.stdout;
+        }
+
+        const pt = new PassThrough() as any;
+        pt.isTTY = process.stdout.isTTY;
+        pt.columns = process.stdout.columns;
+        pt.rows = process.stdout.rows;
+        pt._isCustom = true;
+
+        pt.on("data", (chunk: Buffer) => {
+            let out = chunk.toString("latin1");
+            if (lastSixelFrame) {
+                // Draw Hexara on the right side of the screen
+                const col = spriteCol();
+                const cup = `\x1b[${WIZARD_ROW};${col}H`;
+                out += `\x1b7${cup}${lastSixelFrame}\x1b8`;
+            }
+            process.stdout.write(out, "latin1");
+        });
+
+        process.stdout.on("resize", () => {
+            pt.columns = process.stdout.columns;
+            pt.rows = process.stdout.rows;
+            pt.emit("resize");
+        });
+
+        customStdout = pt;
+
+        // DECSDM - Sixel Display Mode (prevents scrolling)
+        process.stdout.write("\x1b[?80h");
+    }
+    return customStdout!;
+}
+
+export function setupWizardRegion(): void {
+    // No-op. We use the stream interceptor now instead of scroll regions,
+    // which prevents layout breaking on small terminals and fighting with Ink.
 }
 
 export function resetWizardRegion(): void {
     if (!spriteCapable()) return;
-    writeSync(1, "\x1b[?80l");
-    writeSync(1, "\x1b[r");
+    lastSixelFrame = "";
+    process.stdout.write("\x1b[?80l"); // Disable DECSDM
 }
 
 export interface WizardAnimationResult {
@@ -288,8 +320,10 @@ export function useWizardAnimation(exiting: boolean, mood: WizardMood = "idle"):
             const seq = getSeq(next, moodRef.current);
             const frame = seq[next.actIdx]?.[next.frameIdx];
             if (frame && paintRef.current) {
+                lastSixelFrame = frame as string;
+                // Force a render flush if nothing else is moving
                 const cup = `\x1b[${WIZARD_ROW};${spriteCol()}H`;
-                writeSync(1, "\x1b7" + cup + frame + "\x1b8");
+                process.stdout.write(`\x1b7${cup}${frame}\x1b8`, "latin1");
             }
         };
 
@@ -307,5 +341,6 @@ export function useWizardAnimation(exiting: boolean, mood: WizardMood = "idle"):
 
 function spriteCol(): number {
     const cols = process.stdout.columns || 80;
-    return Math.max(1, Math.floor((cols - SPRITE_COLS) / 2) + 1);
+    // Position Hexara on the right side of the screen
+    return Math.max(1, cols - SPRITE_COLS - 2);
 }

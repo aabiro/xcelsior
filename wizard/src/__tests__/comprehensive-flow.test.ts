@@ -680,8 +680,8 @@ describe("getNextStep edge cases", () => {
 // ══════════════════════════════════════════════════════════════════════
 
 describe("step structure integrity", () => {
-    it("all 35 steps present", () => {
-        expect(WIZARD_STEPS).toHaveLength(35);
+    it("all 36 steps present", () => {
+        expect(WIZARD_STEPS).toHaveLength(36);
     });
 
     it("no duplicate step IDs", () => {
