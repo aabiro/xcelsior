@@ -222,6 +222,9 @@ class ServerlessService:
     # ── Endpoint lifecycle ────────────────────────────────────────────
 
     def create_endpoint(self, spec: EndpointCreate, *, emit_sse: bool = True) -> dict:
+        from serverless.vanity import clean_endpoint_display_name
+
+        spec.name = clean_endpoint_display_name(spec.name)
         self.validate_endpoint_spec(spec)
         self.wallet_preflight(spec.owner_id)
 
@@ -332,11 +335,18 @@ class ServerlessService:
 
     # ── Workers ───────────────────────────────────────────────────────
 
-    def provision_worker(self, endpoint_id: str) -> dict | None:
+    def provision_worker(
+        self,
+        endpoint_id: str,
+        *,
+        billable: bool = True,
+        warm_expires_at: float = 0,
+    ) -> dict | None:
         ep = self.repo.get_endpoint(endpoint_id)
         if not ep:
             return None
-        self.wallet_preflight(str(ep["owner_id"]))
+        if billable:
+            self.wallet_preflight(str(ep["owner_id"]))
 
         image = str(ep.get("image_ref") or DEFAULT_VLLM_IMAGE)
         command = str(ep.get("startup_command") or "")
@@ -376,7 +386,14 @@ class ServerlessService:
             )
             scheduler_job_id = str(job.get("job_id") or "")
         except Exception as e:
-            log.error("provision_worker submit_job failed: %s", e)
+            log.error(
+                "provision_worker submit_job failed endpoint=%s gpu_tier=%s region=%s image=%s: %s",
+                endpoint_id,
+                gpu_model or "",
+                ep.get("region") or "",
+                image,
+                e,
+            )
             self.repo.patch_endpoint(
                 endpoint_id,
                 str(ep["owner_id"]),
@@ -389,6 +406,8 @@ class ServerlessService:
             scheduler_job_id=scheduler_job_id,
             gpu_count=gpu_count,
             allocated_at=time.time(),
+            billing_exempt=not billable,
+            warm_expires_at=warm_expires_at if not billable else 0,
         )
         try:
             _set_job_fields(
@@ -414,7 +433,7 @@ class ServerlessService:
         )
         return worker
 
-    def warm_endpoint(self, endpoint_id: str) -> dict:
+    def warm_endpoint(self, endpoint_id: str, *, billable: bool = True) -> dict:
         """Ensure at least one worker is starting or ready without changing min_workers."""
         ep = self.repo.get_endpoint(endpoint_id)
         if not ep:
@@ -438,8 +457,24 @@ class ServerlessService:
         ]
         provisioned: dict | None = None
 
+        if not billable:
+            lease_end = time.time() + int(ep.get("idle_timeout_sec") or 60)
+            for worker in active:
+                if bool(worker.get("billing_exempt")):
+                    self.repo.update_worker(
+                        str(worker["worker_id"]),
+                        warm_expires_at=lease_end,
+                    )
+
         if not ready and not booting and len(active) < max_workers:
-            provisioned = self.provision_worker(endpoint_id)
+            warm_expires_at = 0.0
+            if not billable:
+                warm_expires_at = time.time() + int(ep.get("idle_timeout_sec") or 60)
+            provisioned = self.provision_worker(
+                endpoint_id,
+                billable=billable,
+                warm_expires_at=warm_expires_at,
+            )
             if provisioned:
                 try:
                     from scheduler import process_queue
@@ -579,7 +614,7 @@ class ServerlessService:
 
         idem_key = f"job:{job_id}:attempt:{int(job.get('attempt') or 1)}"
         token_meta: dict[str, Any] = {}
-        if ep and endpoint_accrues_tokens(ep):
+        if ep and endpoint_accrues_tokens(ep) and not bool(job.get("billing_exempt")):
             token_meta = token_cost_metadata(
                 input_tokens,
                 output_tokens,
@@ -779,6 +814,11 @@ class ServerlessService:
             return None
         ep = self.repo.get_endpoint(str(w["endpoint_id"]))
         if ep:
+            if bool(w.get("billing_exempt")):
+                w = self.repo.update_worker(
+                    worker_id,
+                    warm_expires_at=now + int(ep.get("idle_timeout_sec") or 60),
+                ) or w
             if ep.get("status") in (ENDPOINT_STATUS_PROVISIONING, ENDPOINT_STATUS_SCALED_DOWN):
                 self.repo.patch_endpoint(
                     str(ep["endpoint_id"]),
@@ -818,12 +858,18 @@ class ServerlessService:
             return None
         self.dispatcher.handle_worker_lost(worker_id)
         state = WORKER_STATE_ERROR if exit_code != 0 else WORKER_STATE_TERMINATED
+        released = time.time()
         self.repo.update_worker(
             worker_id,
             state=state,
-            released_at=time.time(),
+            released_at=released,
             error_message=(error_message or f"exit code {exit_code}")[:500] or None,
         )
+        if not bool(w.get("billing_exempt")):
+            try:
+                charge_serverless_worker(self.repo, {**w, "released_at": released}, released_at=released)
+            except Exception as exc:
+                log.error("final serverless worker charge failed worker=%s: %s", worker_id, exc)
         self._broadcast(
             "serverless_worker.exited",
             {"worker_id": worker_id, "exit_code": exit_code},
@@ -836,6 +882,7 @@ class ServerlessService:
             return
         ep = self.repo.get_endpoint(str(w["endpoint_id"]))
         now = time.time()
+        released_at = float(w.get("released_at") or 0) or now
         self.dispatcher.terminate_worker(worker_id)
 
         scheduler_job_id = str(w.get("scheduler_job_id") or "")
@@ -853,10 +900,10 @@ class ServerlessService:
             except Exception as e:
                 log.warning("kill_job failed for %s: %s", scheduler_job_id, e)
 
-        self.repo.update_worker(worker_id, state=WORKER_STATE_TERMINATED, released_at=now)
-        if charge:
+        self.repo.update_worker(worker_id, state=WORKER_STATE_TERMINATED, released_at=released_at)
+        if charge and not bool(w.get("billing_exempt")):
             charge_serverless_worker(
-                self.repo, {**w, "released_at": now}, released_at=now
+                self.repo, {**w, "released_at": released_at}, released_at=released_at
             )
 
     # ── Reconcile (autoscaler + dispatch) ─────────────────────────────
@@ -898,6 +945,21 @@ class ServerlessService:
             return {"endpoint_id": endpoint_id, "error": "not_found"}
 
         workers = self.repo.list_workers(endpoint_id)
+        now = time.time()
+        expired_test_workers = 0
+        for worker in workers:
+            state = str(worker.get("state") or "")
+            if (
+                bool(worker.get("billing_exempt"))
+                and float(worker.get("warm_expires_at") or 0) > 0
+                and float(worker.get("warm_expires_at") or 0) <= now
+                and int(worker.get("current_concurrency") or 0) == 0
+                and state in (WORKER_STATE_READY, WORKER_STATE_IDLE, WORKER_STATE_DRAINING)
+            ):
+                self.deprovision_worker(str(worker["worker_id"]), charge=False)
+                expired_test_workers += 1
+        if expired_test_workers:
+            workers = self.repo.list_workers(endpoint_id)
         queue_depth = self.repo.queue_depth(endpoint_id)
         samples = _record_queue_depth_sample(endpoint_id, queue_depth)
         inp = AutoscalerInput(
@@ -914,21 +976,31 @@ class ServerlessService:
         desired = compute_desired_workers(inp)
         active = self.repo.count_active_workers(endpoint_id)
         scaled_up = 0
-        while active + scaled_up < desired:
-            self.provision_worker(endpoint_id)
-            scaled_up += 1
-            active = self.repo.count_active_workers(endpoint_id)
-            if scaled_up >= max(1, desired - active + 2):
+        while active < desired:
+            provisioned = self.provision_worker(endpoint_id)
+            if not provisioned:
                 break
+            scaled_up += 1
+            next_active = self.repo.count_active_workers(endpoint_id)
+            if next_active <= active:
+                break
+            active = next_active
 
-        now = time.time()
         idle_timeout = int(ep.get("idle_timeout_sec") or 300)
         cooldown_active = scale_down_cooldown_active(
             workers, now=now, cooldown_sec=SCALE_DOWN_COOLDOWN_SEC
         )
+        warm_lease_workers = sum(
+            1
+            for w in workers
+            if bool(w.get("billing_exempt"))
+            and float(w.get("warm_expires_at") or 0) > now
+            and str(w.get("state") or "")
+            in (WORKER_STATE_BOOTING, WORKER_STATE_READY, WORKER_STATE_IDLE, WORKER_STATE_DRAINING)
+        )
         scale_down_desired = desired
         if queue_depth == 0 and not cooldown_active:
-            scale_down_desired = int(ep.get("min_workers") or 0)
+            scale_down_desired = max(int(ep.get("min_workers") or 0), warm_lease_workers)
         drained = 0
         reaped = 0
         if not cooldown_active:
@@ -982,6 +1054,7 @@ class ServerlessService:
             "scaled_up": scaled_up,
             "drained": drained,
             "reaped": reaped,
+            "expired_test_workers": expired_test_workers,
             "scale_down_desired_workers": scale_down_desired,
             "scale_down_cooldown": cooldown_active,
             "dispatched_job": dispatched.get("job_id") if dispatched else None,

@@ -65,6 +65,8 @@ def upgrade() -> None:
         sa.Column("name", sa.Text(), nullable=False, server_default=""),
         sa.Column("created_at", sa.Float(), nullable=False),
         sa.Column("expires_at", sa.Float(), nullable=False),
+        sa.Column("session_type", sa.Text(), nullable=False, server_default="browser"),
+        sa.Column("client_id", sa.Text(), nullable=True),
     )
     op.create_index("idx_sessions_email", "sessions", ["email"])
     op.create_index("idx_sessions_expires", "sessions", ["expires_at"])

@@ -67,14 +67,14 @@ export const DEFAULT_FORM: DeployStudioForm = {
   gpuTier: "",
   gpuCount: 1,
   region: "ca-east",
-  minWorkers: 0,
+  minWorkers: 1,
   maxWorkers: 3,
   maxConcurrency: 1,
   idleTimeoutSec: 60,
   executionMode: "sync",
   queueTimeoutSec: 120,
-  scalingPolicyType: "queue_request_count",
-  scalingPolicyValue: 1,
+  scalingPolicyType: "queue_delay",
+  scalingPolicyValue: 4,
   envRows: [{ key: "", value: "" }],
 };
 
