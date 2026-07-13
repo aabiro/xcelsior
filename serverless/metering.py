@@ -545,6 +545,7 @@ def bill_active_serverless_workers(billing_engine, *, now: float | None = None) 
             FROM serverless_workers w
             JOIN serverless_endpoints e ON e.endpoint_id = w.endpoint_id
             WHERE w.state IN ('booting', 'ready', 'idle', 'draining')
+              AND COALESCE(w.billing_exempt, FALSE) = FALSE
               AND w.allocated_at IS NOT NULL
               AND e.deleted_at = 0
             """,

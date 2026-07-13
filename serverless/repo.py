@@ -50,10 +50,10 @@ class EndpointCreate:
     gpu_tier: str = ""
     gpu_count: int = 1
     vram_required_gb: float = 0.0
-    min_workers: int = 0
-    max_workers: int = 4
-    max_concurrency: int = 4
-    idle_timeout_sec: int = 300
+    min_workers: int = 1
+    max_workers: int = 3
+    max_concurrency: int = 1
+    idle_timeout_sec: int = 60
     scaling_policy_type: str = "queue_request_count"
     scaling_policy_value: int = 1
     execution_mode: str = "sync"
@@ -270,6 +270,8 @@ class ServerlessRepo:
         scheduler_job_id: str | None = None,
         gpu_count: int = 1,
         allocated_at: float | None = None,
+        billing_exempt: bool = False,
+        warm_expires_at: float = 0,
     ) -> dict:
         now = time.time()
         worker_id = f"swk-{uuid.uuid4().hex[:12]}"
@@ -279,8 +281,9 @@ class ServerlessRepo:
                 """
                 INSERT INTO serverless_workers (
                     worker_id, endpoint_id, scheduler_job_id, state, gpu_count,
-                    allocated_at, created_at, updated_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    allocated_at, created_at, updated_at,
+                    billing_exempt, warm_expires_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     worker_id,
@@ -291,6 +294,8 @@ class ServerlessRepo:
                     alloc,
                     now,
                     now,
+                    bool(billing_exempt),
+                    float(warm_expires_at or 0),
                 ),
             )
         row = self.get_worker(worker_id)
@@ -351,6 +356,8 @@ class ServerlessRepo:
         released_at: float | None = None,
         last_heartbeat_at: float | None = None,
         error_message: str | None = None,
+        billing_exempt: bool | None = None,
+        warm_expires_at: float | None = None,
     ) -> dict | None:
         fields: dict[str, Any] = {"updated_at": time.time()}
         if state is not None:
@@ -367,6 +374,10 @@ class ServerlessRepo:
             fields["last_heartbeat_at"] = last_heartbeat_at
         if error_message is not None:
             fields["error_message"] = error_message
+        if billing_exempt is not None:
+            fields["billing_exempt"] = bool(billing_exempt)
+        if warm_expires_at is not None:
+            fields["warm_expires_at"] = float(warm_expires_at or 0)
         set_clause = ", ".join(f"{k} = %s" for k in fields)
         values = list(fields.values()) + [worker_id]
         with self._conn() as conn:
@@ -403,6 +414,7 @@ class ServerlessRepo:
         *,
         idempotency_key: str | None = None,
         webhook_url: str | None = None,
+        billing_exempt: bool = False,
     ) -> dict:
         if idempotency_key:
             existing = self.find_job_by_idempotency(endpoint_id, idempotency_key)
@@ -416,8 +428,9 @@ class ServerlessRepo:
                     """
                     INSERT INTO serverless_jobs (
                         job_id, endpoint_id, owner_id, status, payload,
-                        idempotency_key, webhook_url, queued_at, created_at, updated_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        idempotency_key, webhook_url, billing_exempt,
+                        queued_at, created_at, updated_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         job_id,
@@ -427,6 +440,7 @@ class ServerlessRepo:
                         self._jsonb(payload),
                         idempotency_key,
                         webhook_url,
+                        bool(billing_exempt),
                         now,
                         now,
                         now,

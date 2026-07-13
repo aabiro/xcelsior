@@ -109,6 +109,7 @@ def test_serverless_get_endpoint(user_headers, endpoint_id):
     )
     assert r.status_code == 200
     assert r.json()["endpoint"]["endpoint_id"] == endpoint_id
+    assert r.json()["endpoint"]["invoke_path"].endswith("/test-llama")
 
 
 def test_serverless_endpoint_health(user_headers, endpoint_id):
@@ -174,7 +175,7 @@ def test_serverless_warm_endpoint_returns_status(user_headers, endpoint_id, monk
     import routes.serverless as serverless_routes
 
     class FakeService:
-        def warm_endpoint(self, endpoint_id_arg: str) -> dict:
+        def warm_endpoint(self, endpoint_id_arg: str, *args, **kwargs) -> dict:
             return {
                 "endpoint_id": endpoint_id_arg,
                 "state": "starting",
@@ -266,6 +267,47 @@ def test_serverless_openai_models(user_headers, endpoint_id):
     )
     assert r.status_code == 200
     assert r.json().get("object") == "list"
+
+    vanity = client.get(
+        f"/v1/serverless/{endpoint_id}/test-llama/openai/v1/models",
+        headers=user_headers,
+    )
+    assert vanity.status_code == 200
+    assert vanity.json().get("object") == "list"
+
+
+def test_dashboard_test_job_is_rate_limited_and_billing_exempt(
+    user_headers, endpoint_id, monkeypatch
+):
+    import routes.serverless as serverless_routes
+
+    class FakeDispatcher:
+        def dispatch_for_endpoint(self, _ep):
+            return None
+
+    class FakeService:
+        dispatcher = FakeDispatcher()
+
+        def log_job_enqueued(self, *args, **kwargs):
+            return None
+
+        def warm_endpoint(self, endpoint_id_arg: str, *, billable: bool = True) -> dict:
+            assert billable is False
+            return {"endpoint_id": endpoint_id_arg, "state": "starting", "workers": []}
+
+    monkeypatch.setattr(serverless_routes, "_svc", lambda: FakeService())
+    r = client.post(
+        f"/api/v2/serverless/endpoints/{endpoint_id}/test/run",
+        headers=user_headers,
+        json={"input": {"prompt": "dashboard test"}},
+    )
+    assert r.status_code == 200, r.text[:300]
+    assert r.headers["x-ratelimit-limit"] == "10"
+    body = r.json()
+    assert body["billing_exempt"] is True
+    job = ServerlessRepo().get_job(body["id"], endpoint_id=endpoint_id)
+    assert job is not None
+    assert job["billing_exempt"] is True
 
 
 def test_serverless_endpoint_with_lora_adapters(user_headers):

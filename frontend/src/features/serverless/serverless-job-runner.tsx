@@ -80,7 +80,7 @@ export function ServerlessJobRunner({
     setRunning(true);
     try {
       await warmWorker();
-      const res = await api.runServerlessJob(endpoint.endpoint_id, input);
+      const res = await api.runServerlessTestJob(endpoint.endpoint_id, input);
       if (res.warm) setWarm(res.warm);
       setActiveJobId(res.id);
       setOutput(`Job ${res.id} ${res.status}\n`);
@@ -121,7 +121,7 @@ export function ServerlessJobRunner({
     setRunning(true);
     try {
       await warmWorker();
-      const res = await api.runServerlessJobSync(endpoint.endpoint_id, input);
+      const res = await api.runServerlessTestJobSync(endpoint.endpoint_id, input);
       setOutput(JSON.stringify(res.output ?? res, null, 2));
       posthog.capture("serverless_inference_run", { mode: "job_sync", model: endpoint.model_ref || endpoint.model_name });
     } catch (error) {

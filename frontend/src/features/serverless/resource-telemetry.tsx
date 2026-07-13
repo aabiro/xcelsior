@@ -34,24 +34,25 @@ export function ResourceTelemetryBars({ telemetry, compact = false }: {
   telemetry?: ServerlessWorkerTelemetry | null;
   compact?: boolean;
 }) {
-  if (!telemetry) {
-    return (
-      <div className="flex items-center gap-2 text-[11px] text-text-muted">
-        <Activity className="h-3 w-3" />
-        Waiting for telemetry
-      </div>
-    );
-  }
-  const memDetail = telemetry.gpu_memory_total_gb > 0
+  const empty = !telemetry;
+  const memDetail = telemetry && telemetry.gpu_memory_total_gb > 0
     ? `${telemetry.gpu_memory_used_gb.toFixed(1)}/${telemetry.gpu_memory_total_gb.toFixed(0)} GB`
-    : `${Math.round(telemetry.gpu_memory_pct)}%`;
+    : telemetry
+      ? `${Math.round(telemetry.gpu_memory_pct)}%`
+      : "Waiting";
   return (
     <div className={cn("grid gap-2", compact ? "grid-cols-2" : "sm:grid-cols-4")}>
-      <TelemetryBar label="GPU" value={telemetry.gpu_util_pct} tone="bg-emerald" />
-      <TelemetryBar label="GPU memory" value={telemetry.gpu_memory_pct} detail={memDetail} tone="bg-accent-cyan" />
-      <TelemetryBar label="CPU" value={telemetry.cpu_util_pct} tone="bg-accent-violet" />
-      <TelemetryBar label="RAM" value={telemetry.system_memory_pct} tone="bg-amber-400" />
-      {telemetry.stale && (
+      <TelemetryBar label="GPU" value={telemetry?.gpu_util_pct ?? 0} detail={empty ? "Waiting" : undefined} tone="bg-emerald" />
+      <TelemetryBar label="GPU memory" value={telemetry?.gpu_memory_pct ?? 0} detail={memDetail} tone="bg-accent-cyan" />
+      <TelemetryBar label="CPU" value={telemetry?.cpu_util_pct ?? 0} detail={empty ? "Waiting" : undefined} tone="bg-accent-violet" />
+      <TelemetryBar label="RAM" value={telemetry?.system_memory_pct ?? 0} detail={empty ? "Waiting" : undefined} tone="bg-amber-400" />
+      {empty && (
+        <div className="col-span-full flex items-center gap-1.5 text-[11px] text-text-muted">
+          <Activity className="h-3 w-3" />
+          Waiting for telemetry
+        </div>
+      )}
+      {telemetry?.stale && (
         <div className="col-span-full text-[11px] text-amber-400">Telemetry stale</div>
       )}
     </div>

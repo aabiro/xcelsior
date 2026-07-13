@@ -2994,7 +2994,15 @@ export async function getServerlessWorkerLogs(endpointId: string, workerId: stri
 }
 
 export async function getServerlessWorkerTelemetry(endpointId: string, workerId: string) {
-  return apiFetch<{ ok: boolean; worker_id: string; host_id: string | null; telemetry: ServerlessWorkerTelemetry | null; stale: boolean }>(
+  return apiFetch<{
+    ok: boolean;
+    worker_id: string;
+    host_id: string | null;
+    telemetry: ServerlessWorkerTelemetry | null;
+    stale: boolean;
+    state?: "waiting" | "ready" | "stale" | "unavailable" | string;
+    reason?: string;
+  }>(
     `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/workers/${encodeURIComponent(workerId)}/telemetry`,
   );
 }
@@ -3058,6 +3066,26 @@ export async function runServerlessJobSync(
   );
 }
 
+export async function runServerlessTestJob(
+  endpointId: string,
+  input: Record<string, unknown>,
+) {
+  return apiFetch<{ id: string; status: string; warm?: ServerlessWarmStatus; billing_exempt?: boolean }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/test/run`,
+    { method: "POST", body: JSON.stringify({ input }) },
+  );
+}
+
+export async function runServerlessTestJobSync(
+  endpointId: string,
+  input: Record<string, unknown>,
+) {
+  return apiFetch<ServerlessJobStatus & { billing_exempt?: boolean }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/test/runsync`,
+    { method: "POST", body: JSON.stringify({ input }) },
+  );
+}
+
 export async function getServerlessJobStatus(endpointId: string, jobId: string) {
   return apiFetch<ServerlessJobStatus>(
     `/v1/serverless/${encodeURIComponent(endpointId)}/status/${encodeURIComponent(jobId)}`,
@@ -3095,7 +3123,7 @@ export async function serverlessOpenAIChat(
   onChunk?: (text: string) => void,
 ): Promise<string> {
   const res = await fetch(
-    `/v1/serverless/${encodeURIComponent(endpointId)}/openai/v1/chat/completions`,
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/test/openai/v1/chat/completions`,
     {
       method: "POST",
       credentials: "include",

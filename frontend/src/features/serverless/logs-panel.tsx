@@ -1,11 +1,10 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import { ScrollText, Loader2 } from "lucide-react";
+import { ScrollText, Loader2, Terminal } from "lucide-react";
 import type { ServerlessEndpoint, ServerlessJob } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
 import { CopyableText } from "./copyable-text";
-import { ServerlessJobRunner } from "./serverless-job-runner";
 
 const STATUS_VARIANT: Record<string, "active" | "warning" | "default"> = {
   COMPLETED: "active",
@@ -25,10 +24,12 @@ interface LogsPanelProps {
   jobs: ServerlessJob[];
   loading?: boolean;
   canWrite: boolean;
+  onOpenTryIt?: () => void;
 }
 
-export function LogsPanel({ endpoint, jobs, loading, canWrite }: LogsPanelProps) {
+export function LogsPanel({ jobs, loading, canWrite, onOpenTryIt }: LogsPanelProps) {
   const { t } = useLocale();
+  void canWrite;
 
   if (loading) {
     return (
@@ -40,14 +41,23 @@ export function LogsPanel({ endpoint, jobs, loading, canWrite }: LogsPanelProps)
 
   return (
     <div className="space-y-4">
-      <ServerlessJobRunner endpoint={endpoint} canWrite={canWrite} />
       <div className="flex items-center gap-2 text-sm font-medium">
         <ScrollText className="h-4 w-4 text-accent-violet" />
         Job history
       </div>
       {jobs.length === 0 && (
         <div className="rounded-lg border border-dashed border-border bg-surface/60 p-4 text-sm text-text-muted">
-          {t("dash.serverless.jobs_empty")}
+          <p>{t("dash.serverless.jobs_empty")}</p>
+          {onOpenTryIt && (
+            <button
+              type="button"
+              onClick={onOpenTryIt}
+              className="mt-2 inline-flex items-center gap-1 text-accent-cyan hover:text-accent-violet"
+            >
+              <Terminal className="h-3.5 w-3.5" />
+              Run a test in Try It
+            </button>
+          )}
         </div>
       )}
       {jobs.map((job) => (

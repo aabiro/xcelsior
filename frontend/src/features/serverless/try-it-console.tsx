@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
-  Play, Square, Loader2, Terminal, MessageSquare, Code2, Copy, Check,
+  Play, Square, Loader2, Terminal, MessageSquare, Code2, Copy, Check, Power,
 } from "lucide-react";
 import type { ServerlessEndpoint, ServerlessWarmStatus } from "@/lib/api";
 import * as api from "@/lib/api";
@@ -52,6 +52,9 @@ export function TryItConsole({ endpoint, canWrite }: TryItConsoleProps) {
   const baseUrl = typeof window !== "undefined"
     ? `${window.location.origin}${endpoint.openai_base_url || `/v1/serverless/${endpointId}/openai/v1`}`
     : endpoint.openai_base_url || "";
+  const invokeUrl = typeof window !== "undefined"
+    ? `${window.location.origin}${endpoint.invoke_path || `/v1/serverless/${endpointId}/${endpoint.name || endpointId}`}`
+    : endpoint.invoke_path || "";
 
   useEffect(() => {
     if (outputRef.current) {
@@ -61,6 +64,24 @@ export function TryItConsole({ endpoint, canWrite }: TryItConsoleProps) {
 
   const stopStream = () => {
     setStreaming(false);
+  };
+
+  const startWorker = async () => {
+    if (!canWrite) return toast.error(t("dash.serverless.viewer_blocked"));
+    setWarm({
+      endpoint_id: endpointId,
+      state: "starting",
+      ready_count: 0,
+      booting_count: 0,
+      active_count: 0,
+      workers: [],
+    });
+    try {
+      const warmRes = await api.warmServerlessEndpoint(endpointId);
+      setWarm(warmRes.warm);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : t("dash.serverless.run_failed"));
+    }
   };
 
   const runChat = async (stream: boolean) => {
@@ -127,7 +148,7 @@ export function TryItConsole({ endpoint, canWrite }: TryItConsoleProps) {
 
   const curlSnippet = isPreset
     ? presetCurl
-    : `curl -X POST '${typeof window !== "undefined" ? window.location.origin : ""}/v1/serverless/${endpointId}/run' \\
+    : `curl -X POST '${invokeUrl}/run' \\
   -H 'Content-Type: application/json' \\
   -H 'Authorization: Bearer YOUR_API_KEY' \\
   -d '{"input": {"message": "hello"}}'`;
@@ -180,6 +201,22 @@ for chunk in response:
   return (
     <ServerlessPanel className="p-4 sm:p-5 space-y-4">
       <ServerlessSegmentedTabs tabs={modeTabs} value={mode} onChange={setMode} label={t} />
+
+      {(endpoint.min_workers ?? 0) === 0 && (
+        <div className="rounded-xl border border-amber-400/25 bg-amber-400/10 p-3 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="font-medium text-amber-300">No worker is running by default</p>
+              <p className="mt-0.5 text-xs text-text-muted">
+                Start a temporary worker to test this endpoint. It will scale back down after the idle timeout.
+              </p>
+            </div>
+            <Button type="button" size="sm" variant="outline" onClick={startWorker} disabled={!canWrite || streaming}>
+              <Power className="h-3.5 w-3.5" /> Start worker
+            </Button>
+          </div>
+        </div>
+      )}
 
       {mode === "chat" && isPreset && (
         <div className="space-y-3">

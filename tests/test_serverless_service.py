@@ -33,6 +33,7 @@ from serverless.repo import (
     WORKER_STATE_DRAINING,
     WORKER_STATE_IDLE,
     WORKER_STATE_READY,
+    WORKER_STATE_TERMINATED,
 )
 from serverless.service import (
     ALLOWED_MANAGED_ENGINES,
@@ -442,7 +443,7 @@ class TestServiceValidation:
         )
         svc = ServerlessService(repo)
 
-        def fake_provision(endpoint_id: str) -> dict:
+        def fake_provision(endpoint_id: str, *args, **kwargs) -> dict:
             return repo.create_worker(
                 endpoint_id,
                 scheduler_job_id=f"job-{uuid.uuid4().hex[:8]}",
@@ -459,6 +460,142 @@ class TestServiceValidation:
             assert len(repo.list_workers(str(ep["endpoint_id"]))) == 1
         finally:
             repo.soft_delete_endpoint(str(ep["endpoint_id"]), owner_id)
+
+    def test_free_warm_lease_is_renewed_when_worker_becomes_ready(
+        self, monkeypatch, repo: ServerlessRepo, owner_id: str
+    ):
+        ep = repo.create_endpoint(
+            EndpointCreate(
+                owner_id=owner_id,
+                name="free-warm-ready",
+                mode="custom",
+                image_ref="vllm/vllm-openai:latest",
+                min_workers=0,
+                idle_timeout_sec=60,
+            )
+        )
+        worker = repo.create_worker(
+            str(ep["endpoint_id"]),
+            scheduler_job_id=f"job-{uuid.uuid4().hex[:8]}",
+            billing_exempt=True,
+            warm_expires_at=time.time() - 1,
+        )
+        svc = ServerlessService(repo)
+        monkeypatch.setattr(svc, "_broadcast", lambda *args, **kwargs: None)
+        monkeypatch.setattr("serverless.service.record_cold_start_line_item", lambda *args, **kwargs: {})
+        ready = svc.mark_worker_ready(str(worker["worker_id"]), host_id="host-test")
+        assert ready is not None
+        assert ready["billing_exempt"] is True
+        assert float(ready["warm_expires_at"]) > time.time()
+        repo.update_worker(str(worker["worker_id"]), state=WORKER_STATE_TERMINATED)
+        repo.soft_delete_endpoint(str(ep["endpoint_id"]), owner_id)
+
+    def test_reconcile_reaps_expired_free_worker(
+        self, monkeypatch, repo: ServerlessRepo, owner_id: str
+    ):
+        ep = repo.create_endpoint(
+            EndpointCreate(
+                owner_id=owner_id,
+                name="expired-free-warm",
+                mode="custom",
+                image_ref="vllm/vllm-openai:latest",
+                min_workers=0,
+                max_workers=1,
+            )
+        )
+        worker = repo.create_worker(
+            str(ep["endpoint_id"]),
+            scheduler_job_id=f"job-{uuid.uuid4().hex[:8]}",
+            billing_exempt=True,
+            warm_expires_at=time.time() - 1,
+        )
+        repo.update_worker(str(worker["worker_id"]), state=WORKER_STATE_READY)
+        svc = ServerlessService(repo)
+
+        def fake_deprovision(worker_id: str, *, charge: bool = True) -> None:
+            assert charge is False
+            repo.update_worker(worker_id, state=WORKER_STATE_TERMINATED, released_at=time.time())
+
+        monkeypatch.setattr(svc, "deprovision_worker", fake_deprovision)
+        monkeypatch.setattr(svc.dispatcher, "dispatch_for_endpoint", lambda _ep: None)
+        result = svc.reconcile_endpoint(str(ep["endpoint_id"]))
+        assert result["expired_test_workers"] == 1
+        assert repo.get_worker(str(worker["worker_id"]))["state"] == WORKER_STATE_TERMINATED
+        repo.soft_delete_endpoint(str(ep["endpoint_id"]), owner_id)
+
+    def test_reconcile_provisions_exact_desired_worker_count(
+        self, monkeypatch, repo: ServerlessRepo, owner_id: str
+    ):
+        ep = repo.create_endpoint(
+            EndpointCreate(
+                owner_id=owner_id,
+                name="scale-to-three",
+                mode="custom",
+                image_ref="vllm/vllm-openai:latest",
+                min_workers=3,
+                max_workers=3,
+            )
+        )
+        svc = ServerlessService(repo)
+
+        def fake_provision(endpoint_id: str, *args, **kwargs) -> dict:
+            return repo.create_worker(
+                endpoint_id,
+                scheduler_job_id=f"job-{uuid.uuid4().hex[:8]}",
+            )
+
+        monkeypatch.setattr(svc, "provision_worker", fake_provision)
+        monkeypatch.setattr(svc.dispatcher, "dispatch_for_endpoint", lambda _ep: None)
+        result = svc.reconcile_endpoint(str(ep["endpoint_id"]))
+        assert result["scaled_up"] == 3
+        assert repo.count_active_workers(str(ep["endpoint_id"])) == 3
+        for worker in repo.list_workers(str(ep["endpoint_id"])):
+            repo.update_worker(str(worker["worker_id"]), state=WORKER_STATE_TERMINATED)
+        repo.soft_delete_endpoint(str(ep["endpoint_id"]), owner_id)
+
+    def test_billing_exempt_job_does_not_accrue_token_cost(
+        self, monkeypatch, repo: ServerlessRepo, owner_id: str
+    ):
+        ep = repo.create_endpoint(
+            EndpointCreate(
+                owner_id=owner_id,
+                name="free-test-job",
+                mode="preset",
+                model_ref="meta-llama/Llama-3.1-8B-Instruct",
+                min_workers=0,
+            )
+        )
+        worker = repo.create_worker(str(ep["endpoint_id"]), billing_exempt=True)
+        repo.update_worker(str(worker["worker_id"]), state=WORKER_STATE_READY)
+        job = repo.enqueue_job(
+            str(ep["endpoint_id"]),
+            owner_id,
+            {"prompt": "hello"},
+            billing_exempt=True,
+        )
+        claimed = repo.claim_next_job(str(ep["endpoint_id"]), str(worker["worker_id"]))
+        assert claimed is not None
+        svc = ServerlessService(repo)
+        monkeypatch.setattr(svc, "_broadcast", lambda *args, **kwargs: None)
+        monkeypatch.setattr(svc, "on_job_terminal", lambda _job: None)
+        accrue = monkeypatch.setattr(
+            repo,
+            "accrue_endpoint_token_cost",
+            lambda *args, **kwargs: pytest.fail("free test job accrued billable token cost"),
+        )
+        assert accrue is None
+        done = svc.worker_complete_job(
+            str(worker["worker_id"]),
+            str(job["job_id"]),
+            output={"text": "ok"},
+            input_tokens=100,
+            output_tokens=20,
+        )
+        assert done is not None
+        assert done["status"] == "COMPLETED"
+        assert done["billing_exempt"] is True
+        repo.update_worker(str(worker["worker_id"]), state=WORKER_STATE_TERMINATED)
+        repo.soft_delete_endpoint(str(ep["endpoint_id"]), owner_id)
 
 
 def _pg_tables() -> set[str]:
