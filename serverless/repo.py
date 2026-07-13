@@ -378,11 +378,17 @@ class ServerlessRepo:
             fields["billing_exempt"] = bool(billing_exempt)
         if warm_expires_at is not None:
             fields["warm_expires_at"] = float(warm_expires_at or 0)
-        set_clause = ", ".join(f"{k} = %s" for k in fields)
+        from psycopg import sql
+
+        set_clause = sql.SQL(", ").join(
+            sql.SQL("{} = %s").format(sql.Identifier(key)) for key in fields
+        )
         values = list(fields.values()) + [worker_id]
         with self._conn() as conn:
             conn.execute(
-                f"UPDATE serverless_workers SET {set_clause} WHERE worker_id = %s",
+                sql.SQL("UPDATE serverless_workers SET {} WHERE worker_id = %s").format(
+                    set_clause
+                ),
                 values,
             )
         return self.get_worker(worker_id)

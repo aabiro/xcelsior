@@ -37,6 +37,11 @@ scheduler.LOG_FILE = os.path.join(_tmpdir, "xcelsior.log")
 client = TestClient(app)
 
 
+def _worker_auth_headers() -> dict[str, str]:
+    token = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
+    return {"Authorization": f"Bearer {token}"}
+
+
 def _reset_state():
     with scheduler._atomic_mutation() as conn:
         conn.execute("DELETE FROM hosts")
@@ -90,9 +95,17 @@ def test_job_lifecycle_and_billing_via_api():
     # auto queue processing assigns during submit
     assert inst["status"] in ("assigned", "running")
 
-    client.patch(f"/instance/{job_id}", json={"status": "running", "host_id": "h-int-1"})
+    client.patch(
+        f"/instance/{job_id}",
+        json={"status": "running", "host_id": "h-int-1"},
+        headers=_worker_auth_headers(),
+    )
     time.sleep(1.1)
-    client.patch(f"/instance/{job_id}", json={"status": "completed", "host_id": "h-int-1"})
+    client.patch(
+        f"/instance/{job_id}",
+        json={"status": "completed", "host_id": "h-int-1"},
+        headers=_worker_auth_headers(),
+    )
 
     billed = client.post(f"/billing/bill/{job_id}")
     assert billed.status_code == 200
@@ -162,9 +175,17 @@ class TestFullJobLifecycle:
         assert job["status"] in ("assigned", "running")
 
         # Run and complete
-        client.patch(f"/instance/{job_id}", json={"status": "running", "host_id": "lc-h1"})
+        client.patch(
+            f"/instance/{job_id}",
+            json={"status": "running", "host_id": "lc-h1"},
+            headers=_worker_auth_headers(),
+        )
         time.sleep(1.1)
-        client.patch(f"/instance/{job_id}", json={"status": "completed", "host_id": "lc-h1"})
+        client.patch(
+            f"/instance/{job_id}",
+            json={"status": "completed", "host_id": "lc-h1"},
+            headers=_worker_auth_headers(),
+        )
 
         # Bill
         bill = client.post(f"/billing/bill/{job_id}")

@@ -833,6 +833,7 @@ class TestListJobs:
             "name": "train-llama",
             "status": "running",
             "gpu_model": "RTX 4090",
+            "owner": "u-123",
             "submitted_by": "u-123",
             "submitted_at": time.time(),
             "total_cost_cad": 1.50,
@@ -842,6 +843,7 @@ class TestListJobs:
             "name": "inference",
             "status": "completed",
             "gpu_model": "A100",
+            "owner": "u-123",
             "submitted_by": "u-123",
             "submitted_at": time.time(),
             "total_cost_cad": 5.00,
@@ -851,6 +853,7 @@ class TestListJobs:
             "name": "other-user",
             "status": "running",
             "gpu_model": "RTX 4090",
+            "owner": "u-other",
             "submitted_by": "u-other",
             "submitted_at": time.time(),
             "total_cost_cad": 2.00,
@@ -904,12 +907,16 @@ class TestGetJobDetails:
             "docker_image": "pytorch:2.1",
             "priority": 1,
             "tier": "on-demand",
+            "owner": "u-123",
         },
     ]
 
     @pytest.fixture(autouse=True)
     def _mock_deps(self):
-        with patch("scheduler.list_jobs", return_value=self.FAKE_JOBS):
+        def _get_job(job_id):
+            return next((job for job in self.FAKE_JOBS if job["job_id"] == job_id), None)
+
+        with patch("scheduler.get_job", side_effect=_get_job):
             yield
 
     def test_found(self):
@@ -1056,6 +1063,7 @@ class TestStopJob:
             "status": "running",
             "submitted_by": "u-123",
             "gpu_model": "RTX 4090",
+            "owner": "u-123",
         },
         {
             "job_id": "j-done",
@@ -1063,6 +1071,7 @@ class TestStopJob:
             "status": "completed",
             "submitted_by": "u-123",
             "gpu_model": "A100",
+            "owner": "u-123",
         },
         {
             "job_id": "j-other",
@@ -1070,14 +1079,18 @@ class TestStopJob:
             "status": "running",
             "submitted_by": "u-other",
             "gpu_model": "RTX 4090",
+            "owner": "u-other",
         },
     ]
 
     @pytest.fixture(autouse=True)
     def _mock_deps(self):
+        def _get_job(job_id):
+            return next((job for job in self.FAKE_JOBS if job["job_id"] == job_id), None)
+
         with (
             patch("scheduler.update_job_status") as self.mock_update,
-            patch("scheduler.list_jobs", return_value=self.FAKE_JOBS),
+            patch("scheduler.get_job", side_effect=_get_job),
         ):
             yield
 
@@ -1218,7 +1231,7 @@ class TestListVolumes:
     @pytest.fixture(autouse=True)
     def _mock_deps(self):
         mock_engine = MagicMock()
-        mock_engine.list_volumes.return_value = [
+        mock_engine.list_volumes_for_owner_ids.return_value = [
             {
                 "volume_id": "v-1",
                 "name": "data-vol",
@@ -1250,7 +1263,7 @@ class TestListVolumes:
 
     def test_empty_volumes(self):
         mock_engine = MagicMock()
-        mock_engine.list_volumes.return_value = []
+        mock_engine.list_volumes_for_owner_ids.return_value = []
         with patch("volumes.get_volume_engine", return_value=mock_engine):
             result = _TOOL_HANDLERS["list_volumes"]({}, _user())
             assert result["total"] == 0
@@ -1263,7 +1276,7 @@ class TestListVolumes:
 
     def test_volume_engine_exception(self):
         mock_engine = MagicMock()
-        mock_engine.list_volumes.side_effect = Exception("connection lost")
+        mock_engine.list_volumes_for_owner_ids.side_effect = Exception("connection lost")
         with patch("volumes.get_volume_engine", return_value=mock_engine):
             result = _TOOL_HANDLERS["list_volumes"]({}, _user())
             assert "error" in result

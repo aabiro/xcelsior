@@ -15,7 +15,7 @@ import re
 import secrets as _secrets_mod
 import subprocess
 import time
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 
 log = logging.getLogger("xcelsior")
 

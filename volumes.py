@@ -899,15 +899,28 @@ class VolumeEngine:
         return {"volume_id": volume_id, "status": "available"}
 
     # Public-facing columns (excludes encryption_key_id, mount_path_host, deleted_at)
-    _PUBLIC_COLS = (
-        "volume_id, owner_id, name, storage_type, size_gb, "
-        "region, province, encrypted, status, created_at"
+    _PUBLIC_COLUMNS = (
+        "volume_id",
+        "owner_id",
+        "name",
+        "storage_type",
+        "size_gb",
+        "region",
+        "province",
+        "encrypted",
+        "status",
+        "created_at",
     )
 
     def get_volume(self, volume_id: str) -> Optional[dict]:
+        from psycopg import sql
+
+        columns = sql.SQL(", ").join(sql.Identifier(name) for name in self._PUBLIC_COLUMNS)
         with self._conn() as conn:
             row = conn.execute(
-                f"SELECT {self._PUBLIC_COLS} FROM volumes WHERE volume_id = %s AND status != 'deleted'",
+                sql.SQL(
+                    "SELECT {} FROM volumes WHERE volume_id = %s AND status != 'deleted'"
+                ).format(columns),
                 (volume_id,),
             ).fetchone()
             if not row:
@@ -962,14 +975,19 @@ class VolumeEngine:
         return self.list_volumes_for_owner_ids([owner_id])
 
     def list_volumes_for_owner_ids(self, owner_ids: list[str]) -> list[dict]:
+        from psycopg import sql
+
         unique = [oid for oid in dict.fromkeys(str(x).strip() for x in owner_ids) if oid]
         if not unique:
             return []
         with self._conn() as conn:
-            placeholders = ",".join(["%s"] * len(unique))
+            columns = sql.SQL(", ").join(sql.Identifier(name) for name in self._PUBLIC_COLUMNS)
+            placeholders = sql.SQL(", ").join(sql.Placeholder() for _ in unique)
             rows = conn.execute(
-                f"SELECT {self._PUBLIC_COLS} FROM volumes WHERE owner_id IN ({placeholders}) "
-                "AND status != 'deleted' ORDER BY created_at DESC",
+                sql.SQL(
+                    "SELECT {} FROM volumes WHERE owner_id IN ({}) "
+                    "AND status != 'deleted' ORDER BY created_at DESC"
+                ).format(columns, placeholders),
                 unique,
             ).fetchall()
             vols = [dict(r) for r in rows]

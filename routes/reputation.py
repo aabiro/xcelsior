@@ -1,5 +1,7 @@
 """Routes: reputation."""
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
@@ -21,6 +23,7 @@ from reputation import (
 )
 
 router = APIRouter()
+log = logging.getLogger("xcelsior")
 
 # ── Tier unlock requirements and descriptions ──
 

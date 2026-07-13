@@ -582,8 +582,8 @@ async def handle_thin_webhook(request: Request):
     if not sig_header:
         raise HTTPException(400, "Missing Stripe-Signature header")
 
-    secrets = _thin_webhook_secrets()
-    if not secrets:
+    verification_candidates = _thin_webhook_secrets()
+    if not verification_candidates:
         raise HTTPException(
             503,
             "Webhook secret not configured. Set XCELSIOR_STRIPE_THIN_WEBHOOK_SECRET.",
@@ -595,16 +595,16 @@ async def handle_thin_webhook(request: Request):
     # sibling destinations targeting this endpoint all verify.
     thin_event = None
     last_err = None
-    for secret in secrets:
+    for candidate in verification_candidates:
         try:
-            thin_event = client.parse_event_notification(payload, sig_header, secret)
+            thin_event = client.parse_event_notification(payload, sig_header, candidate)
             break
         except Exception as e:
             last_err = e
     if thin_event is None:
         log.warning(
             "Webhook signature verification failed against %d secret(s): %s",
-            len(secrets),
+            len(verification_candidates),
             last_err,
         )
         raise HTTPException(400, "Invalid webhook signature") from last_err

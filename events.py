@@ -114,7 +114,7 @@ VALID_TRANSITIONS = {
     JobState.COMPLETED: set(),  # Terminal
     JobState.FAILED: {JobState.QUEUED},  # Retry
     JobState.PREEMPTED: {JobState.QUEUED},  # Re-queue
-    JobState.CANCELLED: {JobState.QUEUED},  # User relaunch via requeue
+    JobState.CANCELLED: set(),  # Terminal; explicit relaunch is a new attempt
     JobState.TERMINATED: set(),  # Terminal
 }
 

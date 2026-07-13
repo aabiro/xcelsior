@@ -33,6 +33,8 @@ class TestVolumeLifecycle:
 
             def execute(self, sql, params=None):
                 result = MagicMock()
+                if hasattr(sql, "as_string"):
+                    sql = sql.as_string()
                 sql_lower = sql.strip().lower()
 
                 if "count(*) as cnt" in sql_lower and "owner_id" in sql_lower:

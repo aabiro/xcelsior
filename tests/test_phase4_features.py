@@ -464,7 +464,6 @@ class TestFrontendErrorFixes:
     @pytest.mark.parametrize(
         "page",
         [
-            "inference/page.tsx",
             "volumes/page.tsx",
             "spot-pricing/page.tsx",
         ],
@@ -495,6 +494,28 @@ class TestFrontendErrorFixes:
 
         label_matches = re.findall(r"<StatCard\s+label=", content)
         assert len(label_matches) >= 3, f"Expected ≥3 StatCard with 'label' prop in {page}"
+
+    def test_inference_page_uses_endpoint_management(self):
+        """The consolidated inference page delegates endpoint operations to its manager."""
+        page_path = os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "frontend",
+            "src",
+            "app",
+            "(dashboard)",
+            "dashboard",
+            "inference",
+            "page.tsx",
+        )
+        if not os.path.exists(page_path):
+            pytest.skip("Frontend source not available")
+
+        with open(page_path) as f:
+            content = f.read()
+
+        assert "ServerlessEndpointManagement" in content
+        assert "<ServerlessEndpointManagement" in content
 
     @pytest.mark.parametrize(
         "page",

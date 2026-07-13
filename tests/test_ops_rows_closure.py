@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 
@@ -56,7 +57,15 @@ class TestRow2Mesh:
 
 
 class TestRow8ScipLoi:
-    def test_loi_submitted_and_api(self):
+    def test_loi_submitted_and_api(self, tmp_path, monkeypatch):
+        evidence = {
+            "document_type": "partner_letter_of_intent",
+            "status": "submitted",
+            "submitted_at": time.time(),
+            "partner": {"name": "Synthetic test partner"},
+        }
+        (tmp_path / "scip_partner_loi.json").write_text(json.dumps(evidence))
+        monkeypatch.setattr("host_attestation._COMPLIANCE_DIR", tmp_path)
         assert scip_loi_submitted() is True
         loi = scip_partner_loi()
         assert loi.get("status") == "submitted"

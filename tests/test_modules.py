@@ -417,7 +417,10 @@ class TestVolumeCapacity:
     def test_capacity_exceeded(self, mock_conn):
         mock_cursor = MagicMock()
         mock_cursor.execute.return_value = mock_cursor
-        mock_cursor.fetchone.return_value = {"total": 95}  # 95GB used
+        mock_cursor.fetchone.side_effect = [
+            {"cnt": 0},
+            {"total": 95},  # 95GB used
+        ]
         mock_cm = MagicMock()
         mock_cm.__enter__ = MagicMock(return_value=mock_cursor)
         mock_cm.__exit__ = MagicMock(return_value=False)

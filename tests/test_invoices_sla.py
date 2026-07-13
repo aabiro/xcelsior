@@ -46,6 +46,11 @@ from api import app
 
 client = TestClient(app)
 
+
+def _auth_headers() -> dict[str, str]:
+    token = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
+    return {"Authorization": f"Bearer {token}"}
+
 GOOD_VERSIONS = {
     "runc": "1.2.4",
     "nvidia_ctk": "1.17.8",
@@ -196,7 +201,7 @@ class TestSLAHostsSummary:
         with pool.connection() as conn:
             conn.execute("DELETE FROM hosts")
             conn.commit()
-        r = client.get("/api/sla/hosts-summary")
+        r = client.get("/api/sla/hosts-summary", headers=_auth_headers())
         assert r.status_code == 200
         d = r.json()
         assert d["ok"] is True
@@ -206,7 +211,7 @@ class TestSLAHostsSummary:
     def test_summary_single_host(self):
         """Register one host and check summary includes it."""
         _register_host("sla-h1", gpu="A100", vram=80, versions=GOOD_VERSIONS)
-        r = client.get("/api/sla/hosts-summary")
+        r = client.get("/api/sla/hosts-summary", headers=_auth_headers())
         assert r.status_code == 200
         d = r.json()
         assert d["ok"] is True
@@ -242,7 +247,7 @@ class TestSLAHostsSummary:
             country="CA",
             province="BC",
         )
-        r = client.get("/api/sla/hosts-summary")
+        r = client.get("/api/sla/hosts-summary", headers=_auth_headers())
         assert r.status_code == 200
         d = r.json()
         assert d["count"] >= 3
@@ -254,7 +259,7 @@ class TestSLAHostsSummary:
     def test_summary_fields_structure(self):
         """Each host in summary should have all required fields."""
         _register_host("sla-f1", versions=GOOD_VERSIONS)
-        r = client.get("/api/sla/hosts-summary")
+        r = client.get("/api/sla/hosts-summary", headers=_auth_headers())
         d = r.json()
         for h in d["hosts"]:
             assert "host_id" in h
@@ -272,7 +277,7 @@ class TestSLAHostsSummary:
     def test_summary_uptime_is_percentage(self):
         """Uptime should be between 0 and 100 (or 0 and 1 as proportion)."""
         _register_host("sla-u1", versions=GOOD_VERSIONS)
-        r = client.get("/api/sla/hosts-summary")
+        r = client.get("/api/sla/hosts-summary", headers=_auth_headers())
         d = r.json()
         for h in d["hosts"]:
             assert 0 <= h["uptime_30d_pct"] <= 100
@@ -280,7 +285,7 @@ class TestSLAHostsSummary:
     def test_summary_host_with_pending_status(self):
         """Hosts without versions should appear with pending status."""
         _register_host("sla-p1")  # No versions → pending
-        r = client.get("/api/sla/hosts-summary")
+        r = client.get("/api/sla/hosts-summary", headers=_auth_headers())
         d = r.json()
         found = [h for h in d["hosts"] if h["host_id"] == "sla-p1"]
         assert len(found) == 1
@@ -290,7 +295,7 @@ class TestSLAHostsSummary:
         """Province info should be carried through to summary."""
         _register_host("sla-qc1", ip="10.0.1.1", versions=GOOD_VERSIONS, province="QC")
         _register_host("sla-bc1", ip="10.0.1.2", versions=GOOD_VERSIONS, province="BC")
-        r = client.get("/api/sla/hosts-summary")
+        r = client.get("/api/sla/hosts-summary", headers=_auth_headers())
         d = r.json()
         provinces = {h["host_id"]: h["province"] for h in d["hosts"]}
         assert provinces.get("sla-qc1") == "QC"

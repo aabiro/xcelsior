@@ -526,22 +526,18 @@ def _vram_fits(host, vram_needed):
 
 
 def _gpu_model_candidates(candidates: list[dict], requested_gpu_model: str) -> list[dict]:
-    """Prefer exact GPU model matches; fall back to VRAM-qualified upgrades."""
+    """Return exact GPU model matches for an explicit model request.
+
+    Selecting a different card can change performance, architecture support,
+    and price. Callers that accept any sufficiently capable GPU must omit
+    ``gpu_model`` instead of silently substituting hardware.
+    """
     requested = (requested_gpu_model or "").strip().lower()
     if not requested:
         return candidates
-    exact = [
+    return [
         h for h in candidates if (h.get("gpu_model") or "").strip().lower() == requested
     ]
-    if exact:
-        return exact
-    if candidates:
-        log.info(
-            "ALLOCATE: no exact %s host — using %d upgrade candidate(s)",
-            requested_gpu_model,
-            len(candidates),
-        )
-    return candidates
 
 
 def _allocate_host_score(job: dict, host: dict, *, volume_host_ids: set[str] | None = None) -> tuple:
@@ -3128,7 +3124,12 @@ def requeue_job(job_id, *, user_initiated: bool = False):
         if not j:
             return None
 
-        # Accept running, starting, failed, leased, assigned, and cancelled jobs
+        # Cancelled is terminal for automated failover. A user may explicitly
+        # relaunch it through the authenticated requeue endpoint.
+        if j["status"] == "cancelled" and not user_initiated:
+            log.warning("REQUEUE REJECTED job=%s status=cancelled — explicit relaunch required", job_id)
+            return None
+
         if j["status"] not in (
             "running",
             "starting",
@@ -3142,7 +3143,6 @@ def requeue_job(job_id, *, user_initiated: bool = False):
 
         old_host_id = j.get("host_id")
         old_status = j["status"]
-        user_cancelled = old_status == "cancelled"
 
         # Release VRAM if the job had any reserved on its host
         reserved = float(j.get("vram_reserved_gb", j.get("vram_needed_gb", 0)) or 0)
@@ -3155,8 +3155,6 @@ def requeue_job(job_id, *, user_initiated: bool = False):
         # Manual UI relaunch resets the failover counter — user explicitly opted in.
         if user_initiated:
             retries = 0
-        elif user_cancelled:
-            retries = int(j.get("retries", 0) or 0)
         else:
             retries = int(j.get("retries", 0) or 0) + 1
         max_retries = int(j.get("max_retries", 3) or 3)

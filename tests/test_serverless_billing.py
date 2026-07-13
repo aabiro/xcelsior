@@ -70,7 +70,7 @@ class TestIncrementalBilling:
 
         with patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60), patch(
             "serverless.metering.last_billed_period_end", return_value=1100.0
-        ), patch("serverless.metering.MIN_BILLING_INTERVAL_SEC", 60):
+        ), patch.dict(os.environ, {"XCELSIOR_SERVERLESS_MIN_BILLING_INTERVAL_SEC": "60"}):
             result = charge_serverless_execution(
                 billing,
                 repo,
@@ -94,7 +94,7 @@ class TestIncrementalBilling:
 
         with patch("serverless.metering.get_gpu_rate_per_hour", return_value=1.0), patch(
             "serverless.metering.last_billed_period_end", return_value=None
-        ), patch("serverless.metering.MIN_BILLING_INTERVAL_SEC", 60):
+        ), patch.dict(os.environ, {"XCELSIOR_SERVERLESS_MIN_BILLING_INTERVAL_SEC": "60"}):
             result = charge_serverless_execution(
                 billing, repo, worker, endpoint, final=False
             )

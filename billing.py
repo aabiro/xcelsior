@@ -2232,6 +2232,7 @@ class BillingEngine:
                         full_job = get_job(job_id)
                         if full_job:
                             cname = full_job.get("container_name") or f"xcl-{job_id}"
+                            host_id = str(full_job.get("host_id") or "").strip()
                             _validate_name(cname, "container name")
                             if host_id:
                                 enqueue_agent_command(

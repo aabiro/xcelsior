@@ -199,6 +199,7 @@ class TestInferenceEndpoints:
         # Post result (worker callback)
         resp = client.post(
             f"/api/inference/{job_id}/result",
+            headers={"Authorization": "Bearer test-token-not-for-production"},
             json={
                 "outputs": [{"label": "POSITIVE", "score": 0.95}],
                 "model": "distilbert",
