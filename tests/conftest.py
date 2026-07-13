@@ -8,6 +8,7 @@ Loads .env.test so tests always use the test database and config.
 
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 # Add project root to sys.path so `import scheduler`, `from api import app`, etc. work
@@ -48,9 +49,20 @@ _TEST_ENV_DEFAULTS = {
     "XCELSIOR_STRIPE_SECRET_KEY": "sk_test_ci_placeholder_not_for_production",
     "XCELSIOR_MAX_TOTAL_STORAGE_GB": "100",
     "XCELSIOR_MAX_VOLUME_GB": "2000",
+    "XCELSIOR_SERVERLESS_ENABLED": "true",
 }
 for _key, _val in _TEST_ENV_DEFAULTS.items():
     os.environ.setdefault(_key, _val)
+
+# Scheduler/serverless integration tests must never append generated host scores
+# to a tracked repository fixture.
+_TEST_STATE_DIR = tempfile.mkdtemp(prefix="xcelsior_pytest_state_")
+os.environ["XCELSIOR_COMPUTE_SCORES_FILE"] = os.path.join(
+    _TEST_STATE_DIR, "compute_scores.json"
+)
+
+# Tests must not depend on a local Redis service for OAuth/device auth cache.
+os.environ["XCELSIOR_AUTH_CACHE_BACKEND"] = "memory"
 
 # Empty string from CI env blocks setdefault — treat as unset for optional secrets.
 if not (os.environ.get("XCELSIOR_STRIPE_SECRET_KEY") or "").strip():

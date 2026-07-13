@@ -204,6 +204,7 @@ class HostIn(BaseModel):
     agent_version: str | None = Field(default=None, max_length=32)
     agent_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$|^$")
     cpu_count: int | None = Field(default=None, ge=1, le=512)
+    ssh_user: str | None = Field(default=None, max_length=64, pattern=r"^[A-Za-z0-9_.-]{1,64}$|^$")
     spot_enabled: bool | None = None
     spot_gpu_slots: int | None = Field(default=None, ge=0, le=64)
     spot_min_cents: int | None = Field(default=None, ge=0, le=1_000_000)
@@ -301,6 +302,8 @@ def api_register_host(h: HostIn, request: Request):
         entry["agent_sha256"] = h.agent_sha256
     if h.cpu_count:
         entry["cpu_count"] = int(h.cpu_count)
+    if h.ssh_user:
+        entry["ssh_user"] = h.ssh_user.strip()
     if h.checkpoint_class:
         entry["checkpoint_class"] = h.checkpoint_class.strip().lower()
     if h.capabilities:

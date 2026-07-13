@@ -18,5 +18,14 @@ def endpoint_vanity_slug(name: str, endpoint_id: str) -> str:
 
 
 def vanity_invoke_path(endpoint_id: str, slug: str) -> str:
-    """Primary invoke path (ID-based); slug is informational until DNS vanity lands."""
-    return f"/v1/serverless/{endpoint_id}"
+    """Primary invoke path for serverless endpoints."""
+    clean_slug = endpoint_vanity_slug(slug, endpoint_id)
+    return f"/v1/serverless/{endpoint_id}/{clean_slug}"
+
+
+def clean_endpoint_display_name(value: str) -> str:
+    """Remove provider prefixes from stored user-facing endpoint names."""
+    name = (value or "").strip()
+    if "/" not in name:
+        return name
+    return [part for part in name.split("/") if part][-1] or name

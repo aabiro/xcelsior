@@ -9,7 +9,8 @@ import { pathToFileURL } from "node:url";
 import { render, Box, Text, useApp, useInput } from "ink";
 import { WizardLine } from "./WizardLine.js";
 import { computeWizardBranch, computeWizardMood } from "./hexara-choreography.js";
-import { setupWizardRegion, resetWizardRegion } from "./useWizardAnimation.js";
+import { setupWizardRegion, resetWizardRegion, getCustomStdout } from "./useWizardAnimation.js";
+import { spriteCapable } from "./capability.js";
 import { STATE_COLORS } from "../sprites/wizard/wizard-sprite.js";
 import { WIZARD_STEPS, STATIC_STEP_HELP } from "./wizard-flow.js";
 import { useWizardFlow } from "./useWizardFlow.js";
@@ -249,7 +250,7 @@ export function App() {
   const wizardBranch = useMemo(() => computeWizardBranch(hexaraCtx), [hexaraCtx]);
 
   return (
-    <Box flexDirection="column" alignItems="center">
+    <Box flexDirection="column" alignItems="center" paddingRight={spriteCapable() ? 42 : 0} width="100%">
       {/* Persistent branded title bar (Part I) */}
       <TitleBar />
 
@@ -538,9 +539,9 @@ if (isEntryModule()) {
     // non-TTY / opt-out, so this never hangs headless.
     await initSpriteCapability();
 
-    // Set up scroll region: wizard sprite above, Ink content below
+    // Set up stream interceptor for flawless Hexara Sixel rendering
     setupWizardRegion();
 
-    render(<App />);
+    render(<App />, { stdout: getCustomStdout() });
   })();
 }

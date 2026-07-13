@@ -436,6 +436,7 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
         if (open) ws.send(JSON.stringify({ type: "input", data: "\x12" }));
         return false;
       }
+      // Ctrl+C smart copy: copy selected terminal text instead of sending SIGINT.
       if (ev.ctrlKey && !ev.shiftKey && ev.key === "c" && ev.type === "keydown") {
         const sel = term.getSelection();
         if (sel) {

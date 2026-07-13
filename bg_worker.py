@@ -14,11 +14,19 @@ handles HTTP requests, keeping its PG connection pool free for user traffic.
 """
 
 import logging
+import time
+import json
+import uuid
+import logging
+from typing import Dict, Any
 import os
 import signal
 import sys
 import threading
-import time
+
+from serverless.repo import ServerlessRepo
+from serverless.service import get_serverless_service
+from serverless.webhooks import retry_pending_webhooks
 
 # Ensure project root is importable
 sys.path.insert(0, os.path.dirname(__file__))

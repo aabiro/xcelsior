@@ -144,7 +144,7 @@ x-api-environment: &api-env
   AI_ASSISTANT_RATE_LIMIT: ${AI_ASSISTANT_RATE_LIMIT:-20}
   # SSH for web terminal proxy
   XCELSIOR_SSH_KEY_PATH: /run/secrets/ssh_key
-  XCELSIOR_SSH_USER: ${XCELSIOR_SSH_USER:-aaryn}
+  XCELSIOR_SSH_USER: ${XCELSIOR_SSH_USER:-xcelsior}
   # Observability
   OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://127.0.0.1:4317}
   # Cloudburst
@@ -283,7 +283,7 @@ services:
       XCELSIOR_WEB_PUSH_REVOKED_RETENTION_DAYS: ${XCELSIOR_WEB_PUSH_REVOKED_RETENTION_DAYS:-30}
       XCELSIOR_NOTIFICATION_RETENTION_DAYS: ${XCELSIOR_NOTIFICATION_RETENTION_DAYS:-30}
       XCELSIOR_SSH_KEY_PATH: /run/secrets/ssh_key
-      XCELSIOR_SSH_USER: ${XCELSIOR_SSH_USER:-aaryn}
+      XCELSIOR_SSH_USER: ${XCELSIOR_SSH_USER:-xcelsior}
       XCELSIOR_REGISTRY: ${XCELSIOR_REGISTRY:-}
       # Phase E — these three are forwarded to every service that
       # might interact with the container registry (snapshot endpoint,

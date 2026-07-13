@@ -211,6 +211,7 @@ def _resolve_known_hosts_path() -> str:
 _KNOWN_HOSTS_PATH: str = _resolve_known_hosts_path()
 
 _HOST_IP_RE: _re.Pattern[str] = _re.compile(r"\A[a-zA-Z0-9.\-]+\Z")
+_SSH_USER_RE: _re.Pattern[str] = _re.compile(r"\A[a-zA-Z0-9_.-]{1,64}\Z")
 _CONTAINER_REF_RE: _re.Pattern[str] = _re.compile(r"\A[a-zA-Z0-9][a-zA-Z0-9_.-]{0,254}\Z")
 _DEFAULT_ALLOWED_SHELLS = (
     "/bin/bash,/bin/sh,/bin/zsh,/usr/bin/bash,/usr/bin/sh,/usr/bin/zsh,/bin/ash"
@@ -252,6 +253,7 @@ def _ensure_ssh_identity(ssh_key_path: str) -> None:
         if _ssh_identity_configured:
             return
         try:
+            ssh_key_path = _resolve_ssh_key_path(ssh_key_path)
             if not ssh_key_path or not os.path.isfile(ssh_key_path):
                 return
             ssh_dir = os.path.expanduser("~/.ssh")
@@ -287,10 +289,121 @@ def _ensure_ssh_identity(ssh_key_path: str) -> None:
 
 
 _paramiko_host_keys_patched = False
+_paramiko_identity_key_path = ""
+
+
+def _resolve_ssh_key_path(ssh_key_path: str | None = None) -> str:
+    return os.path.expanduser(
+        str(ssh_key_path or os.environ.get("XCELSIOR_SSH_KEY_PATH") or SSH_KEY_PATH or "")
+    )
+
+
+def _valid_ssh_user(value: str | None) -> str:
+    value = str(value or "").strip()
+    if value and _SSH_USER_RE.fullmatch(value):
+        return value
+    return ""
+
+
+def _resolve_host_ssh_user(host_rec: dict | None = None) -> str:
+    """Resolve the Unix account used for Docker-over-SSH on a provider host.
+
+    New worker heartbeats report ``ssh_user`` from the provider wizard so
+    heterogeneous provider machines don't depend on one global
+    ``XCELSIOR_SSH_USER``. Older hosts fall back to the deployment default.
+    """
+    reported = _valid_ssh_user((host_rec or {}).get("ssh_user"))
+    if reported:
+        return reported
+    fallback = _valid_ssh_user(SSH_USER)
+    host_id = (host_rec or {}).get("host_id", "unknown")
+    if host_rec is not None:
+        log.debug(
+            "TERMINAL host %s has no ssh_user in heartbeat — falling back "
+            "to global SSH_USER=%r. Set XCELSIOR_HOST_SSH_USER in the "
+            "worker .env for this provider.",
+            host_id,
+            fallback,
+        )
+    return fallback
+
+
+def _ssh_key_diagnostics(ssh_key_path: str) -> dict[str, Any]:
+    path = _resolve_ssh_key_path(ssh_key_path)
+    diag: dict[str, Any] = {
+        "path": path,
+        "exists": os.path.exists(path),
+        "is_file": os.path.isfile(path),
+        "readable": os.access(path, os.R_OK) if path else False,
+    }
+    try:
+        st = os.stat(path)
+        diag["mode"] = oct(st.st_mode & 0o777)
+        diag["size"] = st.st_size
+    except Exception:
+        pass
+    return diag
+
+
+def _require_remote_docker_ssh_identity(ssh_key_path: str | None = None) -> str:
+    path = _resolve_ssh_key_path(ssh_key_path)
+    diag = _ssh_key_diagnostics(path)
+    if not (diag.get("is_file") and diag.get("readable") and int(diag.get("size") or 0) > 0):
+        raise DockerException(
+            "Platform SSH key unavailable for Docker-over-SSH "
+            f"(path={diag.get('path')}, exists={diag.get('exists')}, "
+            f"is_file={diag.get('is_file')}, readable={diag.get('readable')}, "
+            f"size={diag.get('size', 0)}, mode={diag.get('mode', 'unknown')}). "
+            "Check the API container XCELSIOR_SSH_KEY_PATH mount."
+        )
+    return path
+
+
+def _set_paramiko_identity_key_path(ssh_key_path: str | None = None) -> str:
+    global _paramiko_identity_key_path
+    path = _require_remote_docker_ssh_identity(ssh_key_path)
+    _paramiko_identity_key_path = path
+    return path
+
+
+def _remote_docker_error_detail(
+    exc: Exception,
+    host_ip: str | None = None,
+    ssh_user: str | None = None,
+) -> str:
+    """Return a sanitized, actionable remote Docker-over-SSH error string."""
+    base = f"{type(exc).__name__}: {exc}"
+    exc_name = type(exc).__name__.lower()
+    exc_text = str(exc).lower()
+    if "auth" not in exc_name and "auth" not in exc_text and "permission" not in exc_text:
+        return base
+
+    diag = _ssh_key_diagnostics(_paramiko_identity_key_path or SSH_KEY_PATH)
+    return (
+        f"{base} "
+        f"(docker_ssh_user={ssh_user or SSH_USER}, host={host_ip or 'unknown'}, "
+        f"key_path={diag.get('path')}, key_exists={diag.get('exists')}, "
+        f"key_readable={diag.get('readable')}, key_size={diag.get('size', 0)}, "
+        f"key_mode={diag.get('mode', 'unknown')}). "
+        "Verify the host's reported ssh_user/XCELSIOR_SSH_USER and that the API container's "
+        "XCELSIOR_SSH_KEY_PATH public key is authorized on the GPU host."
+    )
+
+
+def _apply_paramiko_identity_kwargs(kwargs: dict) -> None:
+    """Force the configured platform SSH key into paramiko connect kwargs."""
+    try:
+        ssh_key_path = _resolve_ssh_key_path(_paramiko_identity_key_path or SSH_KEY_PATH)
+        if ssh_key_path and os.path.isfile(ssh_key_path):
+            kwargs["key_filename"] = ssh_key_path
+            kwargs["look_for_keys"] = False
+            kwargs["allow_agent"] = False
+    except Exception:
+        pass
 
 
 def _patch_paramiko_host_keys() -> bool:
-    """Ensure paramiko's SSHClient auto-loads host keys on connect.
+    """Ensure paramiko's SSHClient auto-loads host keys and our identity.
 
     Why a monkey-patch?
         The Docker SDK (``use_ssh_client=False``) instantiates
@@ -302,6 +415,11 @@ def _patch_paramiko_host_keys() -> bool:
         pinning), paramiko can still raise ``SSHException: not found in
         known_hosts``. Belt-and-braces: we wrap ``connect`` so every SDK
         client also explicitly loads ``~/.ssh/known_hosts`` before dialing.
+        The wrapper also injects ``SSH_KEY_PATH`` as ``key_filename`` because
+        docker-py's paramiko adapter discovers identities only through
+        ``~/.ssh/config``; stale or missing managed config can otherwise
+        produce ``AuthenticationException: Authentication failed`` even when
+        the API container has the correct host key mounted.
         Load-time idempotent \u2014 second call is a no-op.
 
     Hardening (Phase 1.6):
@@ -341,6 +459,9 @@ def _patch_paramiko_host_keys() -> bool:
                 self.load_host_keys(kh)
         except Exception:
             pass
+        # Override stale docker-py SSHConfig identityfile values and avoid
+        # falling back to random container-local keys/agents.
+        _apply_paramiko_identity_kwargs(kwargs)
         return _orig_connect(self, *args, **kwargs)
 
     try:
@@ -349,7 +470,7 @@ def _patch_paramiko_host_keys() -> bool:
         log.warning("TERMINAL paramiko.SSHClient.connect not patchable: %s", e)
         return False
     _paramiko_host_keys_patched = True
-    log.info("TERMINAL paramiko.SSHClient.connect patched for auto known_hosts load")
+    log.info("TERMINAL paramiko.SSHClient.connect patched for host keys + identity")
     return True
 
 
@@ -384,8 +505,8 @@ _tmux_cache: dict[tuple[str, str], tuple[float, bool]] = {}
 _probe_cache_lock = threading.RLock()
 
 
-def _probe_cache_scope(host_ip: str | None) -> str:
-    return _docker_client_cache_key(host_ip, SSH_USER) or "local"
+def _probe_cache_scope(host_ip: str | None, ssh_user: str = SSH_USER) -> str:
+    return _docker_client_cache_key(host_ip, ssh_user) or "local"
 
 
 def _invalidate_probe_cache(scope: str) -> None:
@@ -500,7 +621,7 @@ def _docker_client_cache_key(host_ip: str | None, ssh_user: str) -> str | None:
 def _docker_client(
     host_ip: str | None = None,
     ssh_user: str = SSH_USER,
-    ssh_key_path: str = SSH_KEY_PATH,
+    ssh_key_path: str | None = None,
 ) -> docker.DockerClient:
     """Return a (pooled) Docker SDK client for the given host.
 
@@ -533,6 +654,7 @@ def _docker_client(
         # Build a fresh client. Prerequisites live on disk / global paramiko.
         # cache_key is non-None only for remote hosts, so host_ip is set here.
         assert host_ip is not None
+        ssh_key_path = _set_paramiko_identity_key_path(ssh_key_path)
         _ensure_remote_host_key_pinned(host_ip)
         _ensure_ssh_identity(ssh_key_path)
         if not _patch_paramiko_host_keys():
@@ -563,12 +685,20 @@ def _docker_client(
 # -- Preflight helpers ---------------------------------------------------------
 
 
-def _container_exists(container_ref: str, host_ip: str | None = None) -> bool:
+def _container_exists(
+    container_ref: str,
+    host_ip: str | None = None,
+    ssh_user: str = SSH_USER,
+) -> bool:
     """Return True when *container_ref* exists on the Docker daemon."""
-    return _container_probe(container_ref, host_ip)["found"]
+    return _container_probe(container_ref, host_ip, ssh_user)["found"]
 
 
-def _container_probe(container_ref: str, host_ip: str | None = None) -> dict:
+def _container_probe(
+    container_ref: str,
+    host_ip: str | None = None,
+    ssh_user: str = SSH_USER,
+) -> dict:
     """Probe the Docker daemon for *container_ref*.
 
     Returns a dict with keys:
@@ -585,8 +715,8 @@ def _container_probe(container_ref: str, host_ip: str | None = None) -> dict:
     pays at most one SSH round trip per step. Negative and error results
     are never cached.
     """
-    scope = _probe_cache_scope(host_ip)
-    cache_key = _docker_client_cache_key(host_ip, SSH_USER)
+    scope = _probe_cache_scope(host_ip, ssh_user)
+    cache_key = _docker_client_cache_key(host_ip, ssh_user)
     now = time.monotonic()
     with _probe_cache_lock:
         entry = _probe_cache.get((scope, container_ref))
@@ -594,7 +724,7 @@ def _container_probe(container_ref: str, host_ip: str | None = None) -> dict:
             return entry[1]
     cl = None
     try:
-        cl = _docker_client(host_ip)
+        cl = _docker_client(host_ip, ssh_user=ssh_user)
         cl.containers.get(container_ref)
         result = {"found": True, "reason": "ok", "error": None}
         with _probe_cache_lock:
@@ -603,19 +733,20 @@ def _container_probe(container_ref: str, host_ip: str | None = None) -> dict:
     except NotFound:
         return {"found": False, "reason": "not_found", "error": None}
     except Exception as e:
+        error_detail = _remote_docker_error_detail(e, host_ip, ssh_user)
         log.warning(
             "TERMINAL _container_probe(%s, host=%s) unreachable: %s: %s",
             container_ref,
             host_ip,
             type(e).__name__,
-            e,
+            error_detail,
         )
         if cache_key is not None:
             _evict_docker_client(cache_key)
         return {
             "found": False,
             "reason": "unreachable",
-            "error": f"{type(e).__name__}: {e}",
+            "error": error_detail,
         }
     finally:
         # Close only unpooled (local) clients. Pooled remote clients stay up.
@@ -626,7 +757,11 @@ def _container_probe(container_ref: str, host_ip: str | None = None) -> dict:
                 pass
 
 
-def _tmux_available(container_ref: str, host_ip: str | None = None) -> bool:
+def _tmux_available(
+    container_ref: str,
+    host_ip: str | None = None,
+    ssh_user: str = SSH_USER,
+) -> bool:
     """Return True when tmux is on PATH inside *container_ref*.
 
     Result is cached for ``_PROBE_CACHE_TTL_SEC`` — tmux presence doesn't
@@ -634,8 +769,8 @@ def _tmux_available(container_ref: str, host_ip: str | None = None) -> bool:
     eliminates an SSH round-trip on every reconnect. Cache scope is tied
     to the Docker client; ``_evict_docker_client`` invalidates it.
     """
-    scope = _probe_cache_scope(host_ip)
-    cache_key = _docker_client_cache_key(host_ip, SSH_USER)
+    scope = _probe_cache_scope(host_ip, ssh_user)
+    cache_key = _docker_client_cache_key(host_ip, ssh_user)
     now = time.monotonic()
     with _probe_cache_lock:
         entry = _tmux_cache.get((scope, container_ref))
@@ -643,7 +778,7 @@ def _tmux_available(container_ref: str, host_ip: str | None = None) -> bool:
             return entry[1]
     cl = None
     try:
-        cl = _docker_client(host_ip)
+        cl = _docker_client(host_ip, ssh_user=ssh_user)
         container = cl.containers.get(container_ref)
         result = container.exec_run("which tmux")
         has_tmux = result.exit_code == 0
@@ -1169,11 +1304,13 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
             return
         container_ref = container_candidates[0]
 
+        host_rec: dict | None = None
         host_ip = str(instance.get("host_ip") or "").strip()
-        if not host_ip and host_id:
+        if host_id:
             hosts = await asyncio.to_thread(list_hosts, False)
             hmap = {h["host_id"]: h for h in hosts}
             host_rec = hmap.get(host_id)
+        if not host_ip and host_rec:
             host_ip = str(host_rec.get("ip", "") if host_rec else "").strip()
 
         if host_ip and not _HOST_IP_RE.fullmatch(host_ip):
@@ -1189,6 +1326,13 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
             return
 
         is_remote = bool(host_ip) and host_ip not in ("127.0.0.1", "localhost", "0.0.0.0")
+        ssh_user = _resolve_host_ssh_user(host_rec)
+        if is_remote and not ssh_user:
+            await _send_error(websocket, "Invalid host SSH user", 4003)
+            await websocket.close(code=4003)
+            _conn_errors.labels(reason="invalid_ssh_user").inc()  # type: ignore[attr-defined]
+            return
+
         loop = asyncio.get_running_loop()
         if is_remote:
             try:
@@ -1250,6 +1394,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                     _container_probe,
                     candidate,
                     host_ip if is_remote else None,
+                    ssh_user,
                 )
                 if probe_result["found"]:
                     found_ref = candidate
@@ -1294,6 +1439,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
             _tmux_available,
             container_ref,
             host_ip if is_remote else None,
+            ssh_user,
         )
 
         tmux_session = f"xcl-{instance_id}"
@@ -1304,7 +1450,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
 
         try:
             docker_cl = await _docker_call(
-                lambda: _docker_client(host_ip if is_remote else None),
+                lambda: _docker_client(host_ip if is_remote else None, ssh_user=ssh_user),
                 _DOCKER_CLIENT_TIMEOUT_SEC,
             )
             container = await _docker_call(
@@ -1355,11 +1501,16 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                 _DOCKER_EXEC_START_TIMEOUT_SEC,
             )
         except (asyncio.TimeoutError, NotFound, APIError, DockerException, OSError) as exc:
+            error_detail = _remote_docker_error_detail(
+                exc,
+                host_ip if is_remote else None,
+                ssh_user,
+            )
             # Pooled remote clients: evict so the next session rebuilds the SSH
             # tunnel. Local clients: close outright.
             if docker_cl is not None:
                 if is_remote:
-                    cache_key = _docker_client_cache_key(host_ip, SSH_USER)
+                    cache_key = _docker_client_cache_key(host_ip, ssh_user)
                     if cache_key is not None:
                         _evict_docker_client(cache_key)
                 else:
@@ -1367,7 +1518,14 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                         docker_cl.close()
                     except Exception:
                         pass
-            await _send_error(websocket, f"Failed to spawn terminal: {exc}", 4500)
+            log.warning(
+                "TERMINAL spawn failed instance=%s host=%s container=%s: %s",
+                instance_id,
+                host_ip if is_remote else "local",
+                container_ref,
+                error_detail,
+            )
+            await _send_error(websocket, f"Failed to spawn terminal: {error_detail}", 4500)
             await websocket.close(code=4500)
             _conn_errors.labels(reason="spawn_failed").inc()  # type: ignore[attr-defined]
             return

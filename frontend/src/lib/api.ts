@@ -2648,6 +2648,8 @@ export interface ServerlessEndpoint {
   cuda_version?: string;
   scaling_policy_type?: string;
   scaling_policy_value?: number;
+  execution_mode?: "sync" | "async";
+  queue_timeout_sec?: number;
   status: string;
   min_workers: number;
   max_workers: number;
@@ -2707,6 +2709,36 @@ export interface ServerlessWorker {
   error_message?: string;
   created_at?: number;
   updated_at?: number;
+}
+
+export interface ServerlessWarmStatus {
+  endpoint_id: string;
+  state: "scaled_down" | "starting" | "booting" | "ready" | "failed" | string;
+  ready_count: number;
+  booting_count: number;
+  active_count: number;
+  max_workers?: number;
+  worker?: ServerlessWorker | null;
+  workers: ServerlessWorker[];
+}
+
+export interface ServerlessWorkerTelemetry {
+  gpu_util_pct: number;
+  gpu_memory_pct: number;
+  gpu_memory_used_gb: number;
+  gpu_memory_total_gb: number;
+  cpu_util_pct: number;
+  system_memory_pct: number;
+  stale: boolean;
+  received_at: number;
+}
+
+export interface ServerlessWorkerLogLine {
+  timestamp?: number;
+  ts?: number;
+  level?: string;
+  line?: string;
+  message?: string;
 }
 
 export interface ServerlessJob {
@@ -2864,6 +2896,8 @@ export type ServerlessEndpointCreatePayload = {
   scaledown_window_sec?: number;
   scaling_policy_type?: string;
   scaling_policy_value?: number;
+  execution_mode?: "sync" | "async";
+  queue_timeout_sec?: number;
   health_endpoint?: string;
   health_check_path?: string;
   startup_command?: string;
@@ -2912,6 +2946,8 @@ export async function patchServerlessEndpoint(
     scaling_policy_type: string;
     scaling_policy_value: number;
     keep_warm: boolean;
+    execution_mode: "sync" | "async";
+    queue_timeout_sec: number;
   }>,
 ) {
   return apiFetch<{ ok: boolean; endpoint: ServerlessEndpoint }>(
@@ -2941,6 +2977,40 @@ export async function getServerlessEndpointUsage(endpointId: string) {
 export async function listServerlessWorkers(endpointId: string) {
   return apiFetch<{ ok: boolean; workers: ServerlessWorker[] }>(
     `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/workers`,
+  );
+}
+
+export async function warmServerlessEndpoint(endpointId: string) {
+  return apiFetch<{ ok: boolean; warm: ServerlessWarmStatus }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/warm`,
+    { method: "POST" },
+  );
+}
+
+export async function getServerlessWorkerLogs(endpointId: string, workerId: string, limit = 100) {
+  return apiFetch<{ ok: boolean; worker_id: string; job_id: string | null; logs: ServerlessWorkerLogLine[] }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/workers/${encodeURIComponent(workerId)}/logs?limit=${limit}`,
+  );
+}
+
+export async function getServerlessWorkerTelemetry(endpointId: string, workerId: string) {
+  return apiFetch<{
+    ok: boolean;
+    worker_id: string;
+    host_id: string | null;
+    telemetry: ServerlessWorkerTelemetry | null;
+    stale: boolean;
+    state?: "waiting" | "ready" | "stale" | "unavailable" | string;
+    reason?: string;
+  }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/workers/${encodeURIComponent(workerId)}/telemetry`,
+  );
+}
+
+export function createServerlessWorkerLogStream(endpointId: string, workerId: string): EventSource {
+  return new EventSource(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/workers/${encodeURIComponent(workerId)}/logs/stream`,
+    { withCredentials: true },
   );
 }
 
@@ -2980,7 +3050,7 @@ export async function runServerlessJob(
 ) {
   const headers: Record<string, string> = {};
   if (opts.idempotencyKey) headers["Idempotency-Key"] = opts.idempotencyKey;
-  return apiFetch<{ id: string; status: string }>(
+  return apiFetch<{ id: string; status: string; warm?: ServerlessWarmStatus }>(
     `/v1/serverless/${encodeURIComponent(endpointId)}/run`,
     { method: "POST", body: JSON.stringify({ input, webhook: opts.webhook }), headers },
   );
@@ -2992,6 +3062,26 @@ export async function runServerlessJobSync(
 ) {
   return apiFetch<ServerlessJobStatus>(
     `/v1/serverless/${encodeURIComponent(endpointId)}/runsync`,
+    { method: "POST", body: JSON.stringify({ input }) },
+  );
+}
+
+export async function runServerlessTestJob(
+  endpointId: string,
+  input: Record<string, unknown>,
+) {
+  return apiFetch<{ id: string; status: string; warm?: ServerlessWarmStatus; billing_exempt?: boolean }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/test/run`,
+    { method: "POST", body: JSON.stringify({ input }) },
+  );
+}
+
+export async function runServerlessTestJobSync(
+  endpointId: string,
+  input: Record<string, unknown>,
+) {
+  return apiFetch<ServerlessJobStatus & { billing_exempt?: boolean }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/test/runsync`,
     { method: "POST", body: JSON.stringify({ input }) },
   );
 }
@@ -3033,7 +3123,7 @@ export async function serverlessOpenAIChat(
   onChunk?: (text: string) => void,
 ): Promise<string> {
   const res = await fetch(
-    `/v1/serverless/${encodeURIComponent(endpointId)}/openai/v1/chat/completions`,
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/test/openai/v1/chat/completions`,
     {
       method: "POST",
       credentials: "include",

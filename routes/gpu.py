@@ -40,6 +40,7 @@ def api_gpu_available(request: Request):
             province: str = "",
             count_available: int = 0,
             price_per_hour_cad: float = 0,
+            host_id: str = "",
         ) -> None:
             model = normalize_gpu_model(gpu_model)
             if not model:
@@ -53,11 +54,19 @@ def api_gpu_available(request: Request):
             key = (model, float(vram_gb or 0), normalized_region, province_code)
             price = round(float(price_per_hour_cad or 0), 2)
             existing = gpu_map.get(key)
+            normalized_host_id = str(host_id or "").strip()
             if existing:
-                existing["count_available"] = max(
-                    int(existing.get("count_available") or 0),
-                    int(count_available or 0),
-                )
+                host_ids = existing.setdefault("_host_ids", set())
+                if normalized_host_id and normalized_host_id not in host_ids:
+                    existing["count_available"] = int(existing.get("count_available") or 0) + int(
+                        count_available or 0
+                    )
+                    host_ids.add(normalized_host_id)
+                elif not normalized_host_id:
+                    existing["count_available"] = max(
+                        int(existing.get("count_available") or 0),
+                        int(count_available or 0),
+                    )
                 if price > 0:
                     existing_price = float(existing.get("price_per_hour_cad") or 0)
                     existing["price_per_hour_cad"] = (
@@ -72,6 +81,7 @@ def api_gpu_available(request: Request):
                 "province": province_code,
                 "count_available": int(count_available or 0),
                 "price_per_hour_cad": price,
+                "_host_ids": {normalized_host_id} if normalized_host_id else set(),
             }
 
         from scheduler import (
@@ -123,6 +133,7 @@ def api_gpu_available(request: Request):
                     price_per_hour_cad=(
                         float(r["min_price_cents"]) / 100 if r.get("min_price_cents") else 0
                     ),
+                    host_id=str(r.get("host_id") or ""),
                 )
         except Exception as e:
             log.debug("gpu_offers query failed (table may not exist): %s", e)
@@ -158,12 +169,13 @@ def api_gpu_available(request: Request):
                     province=host.get("province", "") or "",
                     count_available=free_slots,
                     price_per_hour_cad=float(host.get("cost_per_hour") or host.get("price_per_hour") or 0),
+                    host_id=host_id,
                 )
         except Exception as e:
             log.debug("hosts GPU availability query failed: %s", e)
 
         gpus = sorted(
-            gpu_map.values(),
+            [{k: v for k, v in gpu.items() if k != "_host_ids"} for gpu in gpu_map.values()],
             key=lambda g: (str(g.get("gpu_model") or ""), str(g.get("region") or "")),
         )
         if offers_seen and hosts_seen:
