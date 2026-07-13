@@ -816,23 +816,23 @@ class StripeConnectManager:
         if not STRIPE_ENABLED or not stripe:
             return {"handled": False, "reason": "Stripe not enabled"}
 
-        secrets = _webhook_secret_candidates()
-        if not secrets:
+        verification_candidates = _webhook_secret_candidates()
+        if not verification_candidates:
             log.error("No Stripe webhook secret configured — rejecting event")
             return {"handled": False, "error": "no webhook secret configured"}
 
         event = None
         last_err = None
-        for secret in secrets:
+        for candidate in verification_candidates:
             try:
-                event = stripe.Webhook.construct_event(payload, sig_header, secret)
+                event = stripe.Webhook.construct_event(payload, sig_header, candidate)
                 break
             except Exception as e:  # SignatureVerificationError or ValueError
                 last_err = e
         if event is None:
             log.error(
                 "Webhook signature verification failed against %d secret(s): %s",
-                len(secrets),
+                len(verification_candidates),
                 last_err,
             )
             return {"handled": False, "error": str(last_err)}

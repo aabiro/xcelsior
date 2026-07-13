@@ -232,9 +232,10 @@ def get_gpu_rate_per_hour(gpu_tier: str, region: str) -> float:
     """Lookup host/GPU offer rate — mirrors inference engine pricing."""
     if not gpu_tier:
         return 0.0
-    from host_metadata import normalize_region
+    from host_metadata import normalize_gpu_model, normalize_region
 
     region = normalize_region(region)
+    gpu_tier = normalize_gpu_model(gpu_tier)
     from db import _get_pg_pool
     from psycopg.rows import dict_row
 
@@ -254,6 +255,19 @@ def get_gpu_rate_per_hour(gpu_tier: str, region: str) -> float:
             """
             SELECT MIN((payload->>'cost_per_hour')::float) AS price FROM hosts
             WHERE payload->>'gpu_model' = %s AND status = 'active'
+            """,
+            (gpu_tier,),
+        ).fetchone()
+        if row and row.get("price"):
+            return round(float(row["price"]), 4)
+        # A managed endpoint can exist before a matching marketplace host is
+        # online. Never turn that into free compute: fall back to the active
+        # platform on-demand catalog used for quotes and reservation checks.
+        row = conn.execute(
+            """
+            SELECT MIN(base_rate_cad) AS price FROM gpu_pricing
+            WHERE gpu_model = %s AND tier = 'standard'
+              AND pricing_mode = 'on_demand' AND active = true
             """,
             (gpu_tier,),
         ).fetchone()

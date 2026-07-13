@@ -37,6 +37,7 @@ if os.environ.get("CI"):
 # TestClient never sends session cookies; Stripe/OAuth/feature flags stay off.
 _TEST_ENV_DEFAULTS = {
     "XCELSIOR_BASE_URL": "http://localhost:9501",
+    "XCELSIOR_SCHEDULER_URL": "http://localhost:9501",
     "XCELSIOR_API_TOKEN": "test-token-not-for-production",
     "FEATURE_AI_ASSISTANT": "true",
     "GOOGLE_CLIENT_ID": "test-google-client-id",

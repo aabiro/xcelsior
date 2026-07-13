@@ -73,14 +73,15 @@ class TestReaper:
         assert refreshed["status"] == "queued"
         assert refreshed["submitted_at"] > time.time() - 60
 
-    def test_requeue_cancelled_job(self):
+    def test_user_can_explicitly_relaunch_cancelled_job(self):
         _reset_jobs()
         job = scheduler.submit_job("cancel-relaunch", 0)
         job_id = job["job_id"]
         scheduler.update_job_status(job_id, "assigned", host_id="host-1")
         scheduler.update_job_status(job_id, "cancelled")
 
-        result = scheduler.requeue_job(job_id)
+        assert scheduler.requeue_job(job_id) is None
+        result = scheduler.requeue_job(job_id, user_initiated=True)
         assert result is not None
         assert result["status"] == "queued"
         assert result.get("retries", 0) == 0

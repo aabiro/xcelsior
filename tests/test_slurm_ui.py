@@ -60,6 +60,11 @@ from api import app
 
 client = TestClient(app)
 
+
+def _auth_headers() -> dict[str, str]:
+    token = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
+    return {"Authorization": f"Bearer {token}"}
+
 GOOD_VERSIONS = {
     "runc": "1.2.4",
     "nvidia_ctk": "1.17.8",
@@ -309,7 +314,7 @@ class TestSLAHostsSummary:
 
     def test_sla_summary_returns_list(self):
         _register_host("sla-host-1")
-        r = client.get("/api/sla/hosts-summary")
+        r = client.get("/api/sla/hosts-summary", headers=_auth_headers())
         assert r.status_code == 200
         d = r.json()
         assert d.get("ok") is True
@@ -319,7 +324,7 @@ class TestSLAHostsSummary:
 
     def test_sla_summary_has_uptime_fields(self):
         _register_host("sla-host-2", gpu_model="RTX4090")
-        r = client.get("/api/sla/hosts-summary")
+        r = client.get("/api/sla/hosts-summary", headers=_auth_headers())
         d = r.json()
         hosts = d["hosts"]
         if hosts:

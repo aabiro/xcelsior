@@ -156,8 +156,8 @@ class TestAllocate:
         result = scheduler.allocate({"name": "job1", "vram_needed_gb": 8}, hosts)
         assert result["host_id"] == "h2"
 
-    def test_allocate_gpu_upgrade_when_exact_unavailable(self):
-        """RTX 2060 request should land on RTX 3060 when no 2060 host is online."""
+    def test_allocate_rejects_gpu_substitution_when_exact_unavailable(self):
+        """An explicit model request must wait for that exact GPU."""
         hosts = [
             {
                 "host_id": "tower",
@@ -173,8 +173,7 @@ class TestAllocate:
             {"name": "upgrade-job", "vram_needed_gb": 0, "gpu_model": "RTX 2060"},
             hosts,
         )
-        assert result is not None
-        assert result["host_id"] == "tower"
+        assert result is None
 
     def test_allocate_prefers_exact_gpu_model(self):
         hosts = [
@@ -449,7 +448,8 @@ class TestFailover:
     def test_requeue_cancelled_job(self):
         job = scheduler.submit_job("test", 8)
         scheduler.update_job_status(job["job_id"], "cancelled")
-        result = scheduler.requeue_job(job["job_id"])
+        assert scheduler.requeue_job(job["job_id"]) is None
+        result = scheduler.requeue_job(job["job_id"], user_initiated=True)
         assert result is not None
         assert result["status"] == "queued"
         assert result.get("retries", 0) == 0

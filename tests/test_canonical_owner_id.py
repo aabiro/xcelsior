@@ -43,8 +43,8 @@ def test_canonical_strips_whitespace():
     assert _canonical_owner_id({"customer_id": "", "user_id": "  u-xyz\n"}) == "u-xyz"
 
 
-def test_user_images_endpoints_use_canonical_helper():
-    """Grep guard: all 3 user_images handlers must call the helper."""
+def test_user_images_endpoints_use_workspace_scope_helper():
+    """All user-image handlers must honor the active personal/team workspace."""
     from pathlib import Path
 
     src = (Path(__file__).resolve().parent.parent / "routes" / "instances.py").read_text()
@@ -58,9 +58,9 @@ def test_user_images_endpoints_use_canonical_helper():
         if body_end < 0:
             body_end = src.find("\ndef ", idx + 1)
         body = src[idx : body_end if body_end > 0 else len(src)]
-        assert "_canonical_owner_id(user)" in body, (
-            f"{endpoint} must use _canonical_owner_id(user) helper; "
-            f"divergent owner-id patterns are forbidden."
+        assert "_user_image_scope_owner_id(user)" in body, (
+            f"{endpoint} must use _user_image_scope_owner_id(user); "
+            "personal and team image ownership must not diverge."
         )
         assert (
             'user.get("customer_id") or user.get("user_id")' not in body
