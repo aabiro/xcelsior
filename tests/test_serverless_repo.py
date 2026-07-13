@@ -161,6 +161,31 @@ class TestMigration038:
         assert name == "max_queue_size"
 
 
+class TestMigration053:
+    @pytest.mark.parametrize(
+        ("table_name", "column_name"),
+        [
+            ("serverless_workers", "billing_exempt"),
+            ("serverless_workers", "warm_expires_at"),
+            ("serverless_jobs", "billing_exempt"),
+        ],
+    )
+    def test_dashboard_test_billing_columns_exist(self, table_name: str, column_name: str):
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            row = conn.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = %s
+                  AND column_name = %s
+                """,
+                (table_name, column_name),
+            ).fetchone()
+        assert row is not None
+
+
 class TestServerlessRepoEndpoints:
     def test_create_list_get_patch_delete(self, repo: ServerlessRepo, owner_id: str):
         ep = repo.create_endpoint(
@@ -213,6 +238,15 @@ class TestServerlessRepoQueue:
         assert done["status"] == JOB_STATUS_COMPLETED
         assert done["gpu_seconds"] == 12
         assert done["cold_start_seconds"] == 3
+
+    def test_billing_exempt_job_persists(self, repo: ServerlessRepo, endpoint: dict, owner_id: str):
+        job = repo.enqueue_job(
+            endpoint["endpoint_id"],
+            owner_id,
+            {"prompt": "free dashboard test"},
+            billing_exempt=True,
+        )
+        assert job["billing_exempt"] is True
 
     def test_idempotency_returns_same_job(self, repo: ServerlessRepo, endpoint: dict, owner_id: str):
         ep_id = endpoint["endpoint_id"]
