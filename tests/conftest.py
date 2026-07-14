@@ -35,6 +35,17 @@ if os.environ.get("CI"):
 # must be set before any test module imports api (e.g. test_auto_launch), otherwise
 # cookies use secure+production domain (BASE_URL defaults to https://xcelsior.ca) and
 # TestClient never sends session cookies; Stripe/OAuth/feature flags stay off.
+# Always override local .env production flags before any test module imports api.
+_TEST_ENV_FORCE = {
+    "XCELSIOR_ENV": "test",
+    "XCELSIOR_NFS_REQUIRED": "false",
+    # https BASE_URL from .env makes session cookies secure+domain-scoped; TestClient won't store them.
+    "XCELSIOR_BASE_URL": "http://localhost:9501",
+    "XCELSIOR_SCHEDULER_URL": "http://localhost:9501",
+}
+for _key, _val in _TEST_ENV_FORCE.items():
+    os.environ[_key] = _val
+
 _TEST_ENV_DEFAULTS = {
     "XCELSIOR_BASE_URL": "http://localhost:9501",
     "XCELSIOR_SCHEDULER_URL": "http://localhost:9501",
@@ -70,10 +81,6 @@ if not (os.environ.get("XCELSIOR_STRIPE_SECRET_KEY") or "").strip():
     os.environ["XCELSIOR_STRIPE_SECRET_KEY"] = _TEST_ENV_DEFAULTS["XCELSIOR_STRIPE_SECRET_KEY"]
 
 # B1 — agent auth bypass is now an explicit opt-in (see routes/agent.py).
-# Tests that hit /agent/* endpoints without a bearer token need this flag
-# set regardless of which .env was loaded. Also pin XCELSIOR_ENV=test so
-# helpers that branch on it (e.g. logging) still behave.
-os.environ.setdefault("XCELSIOR_ENV", "test")
 os.environ.setdefault("XCELSIOR_ALLOW_UNAUTH_AGENT", "1")
 # Avoid api lifespan background threads during TestClient runs (reduces CI deadlocks/timeouts).
 os.environ.setdefault("XCELSIOR_BG_TASKS", "false")
@@ -89,10 +96,16 @@ import pytest
 def _pin_test_auth_env(monkeypatch):
     """Keep auth flags consistent when tests temporarily rewrite os.environ."""
     import routes._deps as deps
+    import routes.auth as auth_mod
+    import oauth_service as oauth_mod
 
     monkeypatch.setenv("XCELSIOR_ENV", "test")
+    monkeypatch.setenv("XCELSIOR_NFS_REQUIRED", "false")
+    monkeypatch.setenv("XCELSIOR_AUTH_CACHE_BACKEND", "memory")
     monkeypatch.setenv("XCELSIOR_BG_TASKS", "false")
     monkeypatch.setattr(deps, "XCELSIOR_ENV", "test")
+    monkeypatch.setattr(auth_mod, "XCELSIOR_ENV", "test")
+    monkeypatch.setattr(oauth_mod, "AUTH_CACHE_BACKEND", "memory")
     monkeypatch.setattr(deps, "AUTH_REQUIRED", False)
     # test_bitcoin.py sets sqlite at import; CI must stay on migrated Postgres.
     if os.environ.get("CI"):
