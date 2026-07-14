@@ -199,7 +199,7 @@ export default function InferencePage() {
         ) : endpoints.length === 0 ? (
           <ServerlessEmptyState icon={Cpu} title={t("dash.serverless.empty")} accent="cyan">
             {canWrite && (
-              <Button className="mt-2 bg-gradient-to-r from-accent-cyan to-accent-violet text-white" onClick={() => setCreateOpen(true)}>
+              <Button className="mt-2" onClick={() => setCreateOpen(true)}>
                 <Rocket className="h-4 w-4" /> Create endpoint
               </Button>
             )}

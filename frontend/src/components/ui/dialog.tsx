@@ -37,9 +37,8 @@ export function Dialog({
   if (!open) return null;
 
   return createPortal(
-    <div className="dashboard-site-modal-overlay fixed inset-0 z-[300] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
-      <div className={`dashboard-site-modal-panel relative z-10 w-full ${maxWidth} rounded-xl border border-border/50 bg-[var(--popover-solid)] shadow-2xl mx-4 max-h-[85vh] flex flex-col ${className || ""}`}>
+    <div className="dashboard-site-modal-overlay fixed inset-0 z-[300] flex items-center justify-center" onClick={onClose}>
+      <div className={`dashboard-site-modal-panel relative z-10 w-full ${maxWidth} rounded-xl border border-border/50 bg-[var(--popover-solid)] shadow-2xl mx-4 max-h-[85vh] flex flex-col ${className || ""}`} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 pt-5 pb-4">
           <div>
             <h3 className="text-lg font-semibold">{title}</h3>
