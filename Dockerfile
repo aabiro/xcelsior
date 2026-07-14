@@ -17,11 +17,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
     cryptsetup e2fsprogs util-linux \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt ./
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -r requirements.txt
+COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /usr/local/bin/uv
+COPY pyproject.toml uv.lock ./
+ENV UV_PROJECT_ENVIRONMENT=/app/.venv
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
 
 COPY . .
+
+ENV PATH="/app/.venv/bin:${PATH}"
 
 # Ensure templates and migrations are present
 RUN test -d templates && test -d migrations

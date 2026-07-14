@@ -99,8 +99,7 @@ curl -X POST https://xcelsior.ca/instance \
 
 ```bash
 git clone https://github.com/aabiro/xcelsior.git && cd xcelsior
-python3.12 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt && cp .env.example .env
+uv sync && cp .env.example .env
 
 # API
 uvicorn api:app --reload --port 8000
@@ -200,8 +199,8 @@ See `.env.example` for all 50+ configuration variables.
 
 ```bash
 # Backend (1400+ tests)
-python -m pytest tests/ -v              # full suite
-python -m pytest tests/ -v --cov=.      # with coverage
+uv run pytest tests/ -v                 # full suite
+uv run pytest tests/ -v --cov=.         # with coverage
 
 # Frontend (17 tests)
 cd frontend && npm test                 # vitest
