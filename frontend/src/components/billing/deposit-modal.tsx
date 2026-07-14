@@ -137,7 +137,7 @@ function ModalShell({
   children: React.ReactNode;
 }) {
   return (
-    <div className="dashboard-site-modal-overlay fixed inset-0 z-[300] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
+    <div className="dashboard-site-modal-overlay fixed inset-0 z-[300] flex items-center justify-center" onClick={onClose}>
       <div
         className="dashboard-site-modal-panel brand-top-accent w-full max-w-md rounded-2xl border p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}

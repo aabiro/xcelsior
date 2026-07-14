@@ -643,6 +643,14 @@ class VolumeEngine:
             encrypted=encrypted,
             raw_key=raw_key,
         )
+        if not provision_ok:
+            log.warning("NFS provision failed for %s — retrying once", volume_id)
+            provision_ok = self._provision_volume_storage(
+                volume_id,
+                size_gb,
+                encrypted=encrypted,
+                raw_key=raw_key,
+            )
 
         with self._conn() as conn:
             new_status = "available" if provision_ok else "error"

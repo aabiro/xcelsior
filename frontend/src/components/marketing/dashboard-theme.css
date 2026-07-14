@@ -851,8 +851,13 @@
   background: var(--popover-solid);
 }
 
-.dashboard-shell .dashboard-site-modal-overlay {
+.dashboard-site-modal-overlay {
   z-index: 300;
+  background: rgba(0, 0, 0, 0.58);
+}
+
+html.light .dashboard-site-modal-overlay {
+  background: rgba(0, 0, 0, 0.42);
 }
 
 .dashboard-site-modal-panel {

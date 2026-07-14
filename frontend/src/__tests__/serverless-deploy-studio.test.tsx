@@ -1,5 +1,5 @@
 import React from "react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { mockEndpoint } from "./serverless-test-helpers";
 
@@ -14,11 +14,21 @@ const routerMocks = vi.hoisted(() => ({
 const toastMocks = vi.hoisted(() => ({
   success: vi.fn(),
   error: vi.fn(),
+  info: vi.fn(),
 }));
 
-vi.mock("@/lib/api", () => apiMocks);
+vi.mock("@/lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api")>();
+  return {
+    ...actual,
+    createServerlessEndpoint: apiMocks.createServerlessEndpoint,
+  };
+});
 vi.mock("next/navigation", () => ({ useRouter: () => routerMocks }));
 vi.mock("sonner", () => ({ toast: toastMocks }));
+vi.mock("posthog-js", () => ({
+  default: { capture: vi.fn(), captureException: vi.fn() },
+}));
 vi.mock("@/lib/locale", () => ({
   useLocale: () => ({ t: (key: string) => key, locale: "en" }),
 }));
@@ -35,24 +45,35 @@ vi.mock("framer-motion", async () => {
 
 import { DeployStudio } from "@/features/serverless/deploy-studio";
 
+function clickContinue() {
+  fireEvent.click(screen.getByRole("button", { name: /dash\.serverless\.continue/i }));
+}
+
 describe("DeployStudio", () => {
   vi.setConfig({ testTimeout: 20_000 });
 
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     apiMocks.createServerlessEndpoint.mockResolvedValue({ endpoint: mockEndpoint });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.clear();
   });
 
   it("advances through steps and deploys a preset endpoint", async () => {
     render(<DeployStudio gpus={[]} canWrite />);
 
     expect(screen.getByText("dash.serverless.method_title")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("dash.serverless.continue"));
+    clickContinue();
 
     await waitFor(() => {
       expect(screen.getByText("dash.serverless.source_title")).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByText("dash.serverless.continue"));
+    clickContinue();
 
     await waitFor(() => {
       expect(screen.getByText("dash.serverless.hardware_title")).toBeInTheDocument();
@@ -60,20 +81,22 @@ describe("DeployStudio", () => {
 
     const [gpuSelect] = screen.getAllByRole("combobox");
     fireEvent.change(gpuSelect, { target: { value: "A100" } });
-    fireEvent.click(screen.getByText("dash.serverless.continue"));
+    clickContinue();
 
-    fireEvent.click(screen.getByText("dash.serverless.continue"));
-    fireEvent.click(screen.getByText("dash.serverless.continue"));
+    clickContinue();
+    clickContinue();
 
     await waitFor(() => {
       expect(screen.getByText("dash.serverless.review_title")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText("dash.serverless.deploy"));
+    fireEvent.click(screen.getByRole("button", { name: /dash\.serverless\.deploy/i }));
 
     await waitFor(() => {
       expect(apiMocks.createServerlessEndpoint).toHaveBeenCalled();
-      expect(routerMocks.push).toHaveBeenCalledWith(`/dashboard/inference/${mockEndpoint.endpoint_id}`);
+      expect(routerMocks.push).toHaveBeenCalledWith(
+        `/dashboard/inference?endpoint=${encodeURIComponent(mockEndpoint.endpoint_id)}`,
+      );
     });
   });
 
@@ -94,8 +117,8 @@ describe("DeployStudio", () => {
       />,
     );
 
-    fireEvent.click(screen.getByText("dash.serverless.continue"));
-    fireEvent.click(screen.getByText("dash.serverless.continue"));
+    clickContinue();
+    clickContinue();
 
     await waitFor(() => {
       expect(screen.getByText("dash.serverless.hardware_title")).toBeInTheDocument();
@@ -106,10 +129,10 @@ describe("DeployStudio", () => {
       expect(regionSelect).toHaveValue("ca-on");
     });
 
-    fireEvent.click(screen.getByText("dash.serverless.continue"));
-    fireEvent.click(screen.getByText("dash.serverless.continue"));
-    fireEvent.click(screen.getByText("dash.serverless.continue"));
-    fireEvent.click(await screen.findByText("dash.serverless.deploy"));
+    clickContinue();
+    clickContinue();
+    clickContinue();
+    fireEvent.click(await screen.findByRole("button", { name: /dash\.serverless\.deploy/i }));
 
     await waitFor(() => {
       expect(apiMocks.createServerlessEndpoint).toHaveBeenCalledWith(
@@ -124,15 +147,15 @@ describe("DeployStudio", () => {
   it("disables deploy for viewers", async () => {
     render(<DeployStudio gpus={[]} canWrite={false} />);
 
-    fireEvent.click(screen.getByText("dash.serverless.continue"));
-    fireEvent.click(screen.getByText("dash.serverless.continue"));
+    clickContinue();
+    clickContinue();
     fireEvent.change(screen.getAllByRole("combobox")[0], { target: { value: "A100" } });
-    fireEvent.click(screen.getByText("dash.serverless.continue"));
-    fireEvent.click(screen.getByText("dash.serverless.continue"));
-    fireEvent.click(screen.getByText("dash.serverless.continue"));
+    clickContinue();
+    clickContinue();
+    clickContinue();
 
-    const deployBtn = await screen.findByText("dash.serverless.deploy");
-    expect(deployBtn.closest("button")).toBeDisabled();
+    const deployBtn = await screen.findByRole("button", { name: /dash\.serverless\.deploy/i });
+    expect(deployBtn).toBeDisabled();
     expect(apiMocks.createServerlessEndpoint).not.toHaveBeenCalled();
   });
 });

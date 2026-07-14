@@ -453,7 +453,7 @@ export default function TemplatesPage() {
                       <th className="text-left px-3 py-3 font-medium cursor-pointer" onClick={() => toggleSort("created_at")}>
                         Created
                       </th>
-                      <th className="text-right px-3 py-3 font-medium sticky right-0 bg-surface z-10 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.3)]">
+                      <th className="text-right px-3 py-3 font-medium sticky right-0 bg-inherit z-10 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.3)]">
                         Actions
                       </th>
                     </tr>
@@ -530,7 +530,7 @@ export default function TemplatesPage() {
                           </td>
                           <td className={cn(
                             "px-3 py-3 sticky right-0 z-10 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.3)] transition-colors",
-                            rowSelected ? "bg-[color:var(--surface)]" : "bg-surface group-hover:bg-surface-hover",
+                            rowSelected ? "bg-ice-blue/5" : "bg-inherit",
                           )}>
 	                            <select
 	                              aria-label={`Actions for ${img.name}`}

@@ -18,7 +18,7 @@ interface PaymentMethodModalProps {
 function ModalShell({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
   return (
     <div
-      className="dashboard-site-modal-overlay fixed inset-0 z-[300] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      className="dashboard-site-modal-overlay fixed inset-0 z-[300] flex items-center justify-center"
       onClick={onClose}
     >
       <div
