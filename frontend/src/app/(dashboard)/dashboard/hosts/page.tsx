@@ -1098,10 +1098,10 @@ function HostSetupGuideCard({
         </div>
       </Card>
 
-      {/* Image, fully transparent background, theme-aware */}
+      {/* Large hero SVG — palette matches overview launch/provider assets */}
       <div className="relative hidden min-h-[360px] overflow-hidden rounded-2xl xl:block">
         <img
-          src="/xcelsior-hosts-setup-transparent.svg?v=5"
+          src="/xcelsior-hosts-setup-transparent.svg?v=6"
           alt=""
           aria-hidden
           width={1200}
@@ -1109,10 +1109,10 @@ function HostSetupGuideCard({
           loading="eager"
           decoding="sync"
           fetchPriority="high"
-          className="hidden h-full w-full object-cover dark:block"
+          className="site-theme-dark h-full w-full object-cover"
         />
         <img
-          src="/xcelsior-hosts-setup-transparent-light.svg?v=5"
+          src="/xcelsior-hosts-setup-transparent-light.svg?v=6"
           alt=""
           aria-hidden
           width={1200}
@@ -1120,7 +1120,7 @@ function HostSetupGuideCard({
           loading="eager"
           decoding="sync"
           fetchPriority="high"
-          className="block h-full w-full object-cover dark:hidden"
+          className="site-theme-light h-full w-full object-cover"
         />
         <div className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(to bottom, var(--background) 0%, color-mix(in srgb, var(--background) 60%, transparent) 20%, color-mix(in srgb, var(--background) 25%, transparent) 45%, transparent 70%)" }} />
         <div className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(to right, var(--background) 0%, color-mix(in srgb, var(--background) 60%, transparent) 15%, color-mix(in srgb, var(--background) 25%, transparent) 35%, transparent 60%)" }} />

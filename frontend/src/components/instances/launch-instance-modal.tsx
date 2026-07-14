@@ -545,7 +545,7 @@ export function LaunchInstanceModal({
   if (!open) return null;
 
   return createPortal(
-    <div className="dashboard-site-modal-overlay fixed inset-0 z-[300] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
+    <div className="dashboard-site-modal-overlay fixed inset-0 z-[300] flex items-center justify-center" onClick={onClose}>
       <div className="dashboard-site-modal-panel mx-4 w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border border-border/50 bg-[var(--popover-solid)]" onClick={(e) => e.stopPropagation()}>
         <Card className="border-0 bg-[var(--popover-solid)] shadow-none">
           <CardHeader className="flex flex-row items-center justify-between">

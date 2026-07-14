@@ -221,13 +221,13 @@ export default function NotificationsPage() {
                   key={n.id}
                   onClick={() => { handleMarkRead(n.id); setSelectedId(n.id); }}
                   className={cn(
-                    "flex items-start gap-3 py-3 px-2 rounded-md transition-colors hover:bg-surface-hover cursor-pointer",
+                    "flex items-center gap-3 py-3 px-2 rounded-md transition-colors hover:bg-surface-hover cursor-pointer",
                     !n.read && "bg-accent-blue/5",
                     isSelected && "ring-1 ring-accent-cyan/40 bg-accent-cyan/5",
                   )}
                 >
                   {/* Icon */}
-                  <div className={`mt-0.5 flex-shrink-0 ${meta.color}`}>{meta.icon}</div>
+                  <div className={`flex-shrink-0 ${meta.color}`}>{meta.icon}</div>
 
                   {/* Content */}
                   <div className="flex-1 min-w-0">
@@ -247,7 +247,7 @@ export default function NotificationsPage() {
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-1 flex-shrink-0 mt-0.5">
+                  <div className="flex items-center gap-1 flex-shrink-0">
                     {!n.read && (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleMarkRead(n.id); }}

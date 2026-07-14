@@ -88,11 +88,13 @@ html.light {
    (theme is a class on <html>); inside .dashboard-shell the more-specific
    rules still win, so the dashboard is unchanged. */
 :root {
+  --bg: #05070e;
   --popover-solid: #0c1019;
   --popover-solid-2: #111827;
   --edge: rgba(255, 255, 255, 0.12);
 }
 html.light {
+  --bg: #e7ebf5;
   --popover-solid: #ffffff;
   --popover-solid-2: #f4f6fb;
   --edge: rgba(16, 26, 48, 0.15);
