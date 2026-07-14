@@ -2,6 +2,11 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { LocaleProvider, useLocale } from "@/lib/locale";
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  usePathname: () => "/dashboard",
+}));
+
 // Mock localStorage
 const storage: Record<string, string> = {};
 beforeEach(() => {

@@ -38,12 +38,30 @@ vi.mock("@stripe/react-stripe-js", () => ({
   useElements: () => ({}),
 }));
 
+vi.mock("@/lib/stripe-client", () => ({
+  getStripePublishableKey: () =>
+    process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ||
+    process.env.NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY ||
+    process.env.NEXT_PUBLIC_STRIPE_SANDBOX_PUBLISHABLE_KEY ||
+    undefined,
+  getStripePromise: () => {
+    const key =
+      process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ||
+      process.env.NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY ||
+      process.env.NEXT_PUBLIC_STRIPE_SANDBOX_PUBLISHABLE_KEY;
+    if (!key) return null;
+    return Promise.resolve({} as import("@stripe/stripe-js").Stripe);
+  },
+}));
+
 import { DepositModal } from "@/components/billing/deposit-modal";
 
 describe("DepositModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "pk_test_123");
+    vi.stubEnv("NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY", "");
+    vi.stubEnv("NEXT_PUBLIC_STRIPE_SANDBOX_PUBLISHABLE_KEY", "");
     apiMocks.checkPayPalEnabled.mockResolvedValue({ enabled: true });
     apiMocks.fetchWallet.mockResolvedValue({
       ok: true,
@@ -121,6 +139,8 @@ describe("DepositModal", () => {
 
   it("shows unavailable state when Stripe is missing and PayPal is disabled", async () => {
     vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "");
+    vi.stubEnv("NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY", "");
+    vi.stubEnv("NEXT_PUBLIC_STRIPE_SANDBOX_PUBLISHABLE_KEY", "");
     apiMocks.checkPayPalEnabled.mockResolvedValue({ enabled: false });
 
     render(

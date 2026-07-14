@@ -17,6 +17,7 @@ import { useLocale } from "@/lib/locale";
 import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "framer-motion";
+import { AI_PANEL_SPRING } from "@/lib/ai-panel-transition";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { LocaleToggle } from "@/components/ui/locale-toggle";
@@ -233,13 +234,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               <img
                 src={SITE_ASSETS.wordmarkLight}
                 alt="Xcelsior"
-                className="dashboard-site-sidebar-brand-wordmark hidden dark:block"
+                className="dashboard-site-sidebar-brand-wordmark site-theme-dark"
               />
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={SITE_ASSETS.wordmarkDark}
                 alt="Xcelsior"
-                className="dashboard-site-sidebar-brand-wordmark block dark:hidden"
+                className="dashboard-site-sidebar-brand-wordmark site-theme-light"
               />
               <span className="dashboard-pill dashboard-site-beta shrink-0">
                 Beta
@@ -681,7 +682,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                   initial={{ width: 0, opacity: 0 }}
                   animate={{ width: 384, opacity: 1 }}
                   exit={{ width: 0, opacity: 0 }}
-                  transition={{ type: "spring", damping: 30, stiffness: 280, mass: 0.8 }}
+                  transition={AI_PANEL_SPRING}
                   className="dashboard-site-ai-panel ai-panel-border hidden shrink-0 overflow-hidden md:flex md:flex-col"
                 >
                   <AiPanel onClose={closeAiPanel} />

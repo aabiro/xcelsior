@@ -227,7 +227,7 @@ export function ServerlessEndpointManagement({
     return (
       <ServerlessEmptyState icon={Cpu} title={t("dash.serverless.empty")} accent="cyan">
         {canWrite && (
-          <Button className="mt-2 bg-gradient-to-r from-accent-cyan to-accent-violet text-white" onClick={onCreateEndpoint}>
+          <Button className="mt-2" onClick={onCreateEndpoint}>
             <Rocket className="h-4 w-4" /> Create endpoint
           </Button>
         )}
@@ -246,11 +246,7 @@ export function ServerlessEndpointManagement({
         <div className="mb-3 flex items-center justify-between gap-2">
           <p className="text-sm font-medium">My Endpoints</p>
           {canWrite && (
-            <Button
-              size="sm"
-              onClick={onCreateEndpoint}
-              className="bg-gradient-to-r from-accent-cyan to-accent-violet text-white shadow-[0_0_18px_rgba(34,211,238,0.18)]"
-            >
+            <Button size="sm" onClick={onCreateEndpoint}>
               <Rocket className="h-3.5 w-3.5" /> Create
             </Button>
           )}
