@@ -951,7 +951,7 @@ export default function BillingPage() {
                       {btcStatus.available
                         ? "Pay with BTC - zero processing fees, settled in CAD"
                         : btcStatus.enabled
-                          ? (btcStatus.reason || "Bitcoin deposits are temporarily unavailable.")
+                          ? "Bitcoin deposits are temporarily unavailable."
                           : "Bitcoin on-chain deposits are coming soon. Stay tuned!"}
                     </p>
                     <Button

@@ -14,18 +14,7 @@ import { useEventStream } from "@/hooks/useEventStream";
 import { CanadaMapHero } from "@/components/ui/canada-hero";
 import { openLaunchModal } from "@/lib/launch-modal";
 import { cn } from "@/lib/utils";
-import { siteIcon } from "@/lib/brand-assets";
-
-function ThemeAssetIcon({ name }: { name: string }) {
-  return (
-    <>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={siteIcon(name, "dark")} className="site-theme-dark" alt="" aria-hidden />
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={siteIcon(name, "light")} className="site-theme-light" alt="" aria-hidden />
-    </>
-  );
-}
+import { ThemeAssetIcon } from "@/components/ui/theme-asset-icon";
 
 function OverviewActionVisual({
   accent,

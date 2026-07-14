@@ -27,9 +27,19 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Activate venv if not already active
-if [[ -z "${VIRTUAL_ENV:-}" ]] && [[ -d "venv" ]]; then
-    source venv/bin/activate
+# Activate uv-managed .venv (preferred) or legacy venv/
+if [[ -z "${VIRTUAL_ENV:-}" ]]; then
+    if [[ -d ".venv" ]]; then
+        # shellcheck disable=SC1091
+        source .venv/bin/activate
+    elif [[ -d "venv" ]]; then
+        # shellcheck disable=SC1091
+        source venv/bin/activate
+    elif command -v uv >/dev/null 2>&1; then
+        uv sync --frozen 2>/dev/null || uv sync
+        # shellcheck disable=SC1091
+        source .venv/bin/activate
+    fi
 fi
 
 # ── Defaults ──────────────────────────────────────────────────────────────

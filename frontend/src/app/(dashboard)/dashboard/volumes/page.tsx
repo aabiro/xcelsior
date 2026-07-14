@@ -25,6 +25,12 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useLocale } from "@/lib/locale";
 import { getTeamContext } from "@/lib/team-context";
 import { TeamContextBanner } from "@/components/team/team-context-banner";
+import {
+  isVolumeReadyForAttach,
+  isVolumeTransient,
+  provisioningAgeMinutes,
+  shouldSurfaceVolumeStatus,
+} from "./volume-ui";
 
 const PRICE_PER_GB = 0.03;
 
@@ -76,7 +82,7 @@ export default function VolumesPage() {
   const [search, setSearch] = useState("");
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [page, setPage] = useState(1);
@@ -125,13 +131,11 @@ export default function VolumesPage() {
     onEvent: () => { load(); },
   });
 
-  const hasTransientVolumes = volumes.some(
-    (v) => v.status === "provisioning" || v.status === "creating" || v.status === "deleting",
-  );
+  const hasTransientVolumes = volumes.some((v) => isVolumeTransient(v.status));
 
   useEffect(() => {
     if (!hasTransientVolumes) return;
-    const interval = setInterval(() => { load(); }, 15_000);
+    const interval = setInterval(() => { load(); }, 2_000);
     return () => clearInterval(interval);
   }, [hasTransientVolumes, load]);
 
@@ -139,9 +143,32 @@ export default function VolumesPage() {
     if (!newName.trim()) return toast.error("Volume name required");
     setCreating(true);
     try {
-      const res = await api.createVolume({ name: newName.trim(), size_gb: newSize, region: newRegion, encrypted: newEncrypted });
-      if (res.volume?.status === "error") {
+      let res = await api.createVolume({
+        name: newName.trim(),
+        size_gb: newSize,
+        region: newRegion,
+        encrypted: newEncrypted,
+      });
+      let vol = res.volume;
+      if (vol?.status === "error") {
+        try {
+          const retried = await api.retryVolume(vol.volume_id);
+          vol = retried.volume ?? vol;
+          res = { ...res, volume: vol };
+        } catch {
+          /* fall through to error toast */
+        }
+      }
+      if (vol) {
+        setVolumes((prev) => {
+          const rest = prev.filter((v) => v.volume_id !== vol!.volume_id);
+          return [vol!, ...rest];
+        });
+      }
+      if (vol?.status === "error") {
         toast.error(t("dash.volumes.error_provision_failed"));
+      } else if (vol?.status === "available") {
+        toast.success(t("dash.volumes.create_success"));
       } else {
         toast.success(t("dash.volumes.create_success"));
       }
@@ -244,7 +271,7 @@ export default function VolumesPage() {
 
   const handleRetry = async (volumeId: string) => {
     const vol = volumes.find((v) => v.volume_id === volumeId);
-    if (vol && (vol.status === "provisioning" || vol.status === "creating")) {
+    if (vol && vol.status === "provisioning") {
       toast.info(t("dash.volumes.retry_wait_provisioning"), { id: `retry-${volumeId}`, duration: 3500 });
       return;
     }
@@ -272,10 +299,7 @@ export default function VolumesPage() {
     }
   };
 
-  const provisioningAgeMinutes = (createdAt?: number) => {
-    if (!createdAt) return 0;
-    return Math.max(0, Math.floor((Date.now() / 1000 - createdAt) / 60));
-  };
+
 
   const handleRename = async (volumeId: string) => {
     const trimmed = renameValue.trim();
@@ -305,7 +329,6 @@ export default function VolumesPage() {
   // Filter & sort
   const filtered = volumes
     .filter((v) => {
-      if (statusFilter !== "all" && v.status !== statusFilter) return false;
       if (search && !v.name?.toLowerCase().includes(search.toLowerCase()) && !v.volume_id?.toLowerCase().includes(search.toLowerCase())) return false;
       return true;
     })
@@ -324,7 +347,7 @@ export default function VolumesPage() {
   const { paginate, totalPages } = usePagination(filtered, 10);
   const pageItems = paginate(page);
 
-  useEffect(() => { setPage(1); }, [search, statusFilter, sortKey, sortDir]);
+  useEffect(() => { setPage(1); }, [search, sortKey, sortDir]);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir(sortDir === "asc" ? "desc" : "asc");
@@ -584,18 +607,7 @@ export default function VolumesPage() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            <Select
-              className="h-10 min-w-[160px]"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="all">All Statuses</option>
-              <option value="available">Available</option>
-              <option value="attached">Attached</option>
-              <option value="error">Error</option>
-              <option value="creating">Creating</option>
-              <option value="deleting">Deleting</option>
-            </Select>
+
           </div>
         </CardContent>
       </Card>
@@ -657,15 +669,7 @@ export default function VolumesPage() {
                       <SortIcon col="size_gb" />
                     </span>
                   </th>
-                  <th
-                    className="h-12 px-4 text-center font-semibold text-text-primary cursor-pointer select-none hover:bg-surface-hover/60 transition-colors"
-                    onClick={() => toggleSort("status")}
-                  >
-                    <span className="inline-flex items-center gap-2 justify-center">
-                      Status
-                      <SortIcon col="status" />
-                    </span>
-                  </th>
+
                   <th
                     className="h-12 px-4 text-center font-semibold text-text-primary cursor-pointer select-none hover:bg-surface-hover/60 transition-colors"
                     onClick={() => toggleSort("region")}
@@ -753,8 +757,11 @@ export default function VolumesPage() {
                                 <Lock className="h-3 w-3 text-accent-violet" />
                               )}
                             </div>
-                            <div className="flex items-center gap-2 mt-0.5">
+                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                               <CopyableId id={vol.volume_id} />
+                              {shouldSurfaceVolumeStatus(vol.status, vol.created_at) && (
+                                <StatusBadge status={vol.status} />
+                              )}
                               {attachedInstance && (
                                 <NextLink
                                   href={`/dashboard/instances/${attachedInstance.job_id}`}
@@ -776,23 +783,7 @@ export default function VolumesPage() {
                         </span>
                       </td>
 
-                      {/* Status */}
-                      <td className="py-4 px-4 text-center">
-                        <div className="inline-flex flex-col items-center gap-2">
-                          <StatusBadge status={vol.status} />
-                          {vol.status === "error" && (
-                            <span className="text-[10px] text-text-muted max-w-[160px] leading-snug text-center" title={t("dash.volumes.error_hint")}>
-                              {t("dash.volumes.error_hint")}
-                            </span>
-                          )}
-                          {(vol.status === "provisioning" || vol.status === "creating") &&
-                            provisioningAgeMinutes(vol.created_at) >= 10 && (
-                            <span className="text-[10px] text-accent-gold max-w-[160px] leading-snug text-center">
-                              {t("dash.volumes.provisioning_stale")}
-                            </span>
-                          )}
-                        </div>
-                      </td>
+
 
                       {/* Region */}
                       <td className="py-4 px-4 text-center">
@@ -835,11 +826,12 @@ export default function VolumesPage() {
                                 <Camera className="h-3.5 w-3.5" />
                               </Button>
                             </>
-                          ) : vol.status === "creating" || vol.status === "provisioning" || vol.status === "deleting" ? (
+                          ) : vol.status === "provisioning" ? (
                             <span className="inline-flex items-center gap-1.5 text-xs text-text-muted">
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" /> {vol.status}…
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              Preparing…
                             </span>
-                          ) : vol.status === "error" ? (
+                          ) : vol.status === "deleting" ? null : vol.status === "error" ? (
                             <>
                               <Button
                                 variant="ghost"
@@ -887,13 +879,14 @@ export default function VolumesPage() {
                                 </span>
                               )}
                             </div>
-                          ) : (
+                          ) : isVolumeReadyForAttach(vol.status) ? (
                             <>
                               <Button
                                 variant="ghost"
                                 size="sm"
                                 className="h-8 text-text-secondary hover:text-accent-cyan hover:bg-accent-cyan/10"
                                 onClick={() => setAttachingId(vol.volume_id)}
+                                disabled={vol.status !== "available"}
                               >
                                 <Link className="h-3.5 w-3.5 mr-1" /> Attach
                               </Button>
@@ -923,7 +916,7 @@ export default function VolumesPage() {
                                 <Trash2 className="h-3.5 w-3.5" />
                               </Button>
                             </>
-                          )}
+                          ) : null}
                         </div>
                       </td>
                     </tr>

@@ -20,6 +20,7 @@ import {
   getStreamingState,
 } from "@/components/ai/chat-messages";
 import { XcelAiOnboarding, useAiOnboardingGate } from "@/components/ai/xcel-ai-onboarding";
+import { AI_PANEL_CROSSFADE, AI_PANEL_SPRING } from "@/lib/ai-panel-transition";
 
 const AI_PANEL_KEY = "xcelsior-ai-panel-open";
 
@@ -163,7 +164,10 @@ export default function AiAssistantPage() {
     try { localStorage.setItem(AI_PANEL_KEY, "false"); } catch {}
     window.dispatchEvent(new CustomEvent("xcelsior-close-ai-panel"));
     setPanelActive(false);
-  }, []);
+    if (typeof window !== "undefined" && window.location.pathname !== "/dashboard/ai") {
+      router.push("/dashboard/ai");
+    }
+  }, [router]);
 
   useEffect(() => {
     loadConversations();
@@ -211,15 +215,17 @@ export default function AiAssistantPage() {
         onClose={dismissOnboarding}
         onComplete={() => inputRef.current?.focus()}
       />
-      {/* Panel-active state: chat is in the side panel */}
+      <AnimatePresence mode="wait">
       {panelActive ? (
-        <div className="flex flex-1 items-center justify-center">
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, ease: "easeOut" }}
-            className="flex flex-col items-center gap-5 max-w-md text-center px-6"
-          >
+        <motion.div
+          key="panel-active-placeholder"
+          className="flex flex-1 items-center justify-center"
+          initial={AI_PANEL_CROSSFADE.initial}
+          animate={AI_PANEL_CROSSFADE.animate}
+          exit={AI_PANEL_CROSSFADE.exit}
+          transition={AI_PANEL_SPRING}
+        >
+          <div className="flex flex-col items-center gap-5 max-w-md text-center px-6">
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-accent-cyan/15 to-accent-violet/10 ring-1 ring-accent-cyan/10">
               <PanelRight className="h-6 w-6 text-accent-cyan" />
             </div>
@@ -243,10 +249,17 @@ export default function AiAssistantPage() {
               <ArrowLeft className="h-4 w-4" />
               Move it here
             </button>
-          </motion.div>
-        </div>
+          </div>
+        </motion.div>
       ) : (
-      <>
+      <motion.div
+        key="full-page-chat"
+        className="flex flex-1 min-h-0 min-w-0"
+        initial={AI_PANEL_CROSSFADE.initial}
+        animate={AI_PANEL_CROSSFADE.animate}
+        exit={AI_PANEL_CROSSFADE.exit}
+        transition={AI_PANEL_SPRING}
+      >
       {/* Conversation sidebar */}
       <ConversationSidebar
         conversations={conversations}
@@ -353,8 +366,9 @@ export default function AiAssistantPage() {
           inputRef={inputRef}
         />
       </div>
-      </>
+      </motion.div>
       )}
+      </AnimatePresence>
     </div>
   );
 }

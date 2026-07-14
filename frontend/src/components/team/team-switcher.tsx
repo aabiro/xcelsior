@@ -103,7 +103,7 @@ export function TeamSwitcher({ className, compact = false }: TeamSwitcherProps) 
           />
           <div
             role="listbox"
-            className="absolute right-0 top-full z-[200] mt-1 min-w-[12rem] overflow-hidden rounded-xl shadow-xl"
+            className="dashboard-site-team-dropdown absolute right-0 top-full z-[200] mt-1 min-w-[12rem] overflow-hidden rounded-xl border border-[var(--edge)] bg-[var(--popover-solid)] shadow-[var(--shadow-panel)]"
           >
             <button
               type="button"

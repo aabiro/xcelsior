@@ -47,13 +47,19 @@ export function applyTheme(theme: Theme) {
   }
 }
 
+/** Re-read storage and re-apply — used after marketing→dashboard navigation and tab focus. */
+export function syncThemeFromStorage(): Theme {
+  const stored = readStoredTheme();
+  applyTheme(stored);
+  return stored;
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>(() => readStoredTheme());
 
   useEffect(() => {
-    const stored = readStoredTheme();
+    const stored = syncThemeFromStorage();
     setTheme(stored);
-    applyTheme(stored);
   }, []);
 
   useEffect(() => {
@@ -61,13 +67,26 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [theme]);
 
   useEffect(() => {
+    const reconcile = () => {
+      const stored = readStoredTheme();
+      setTheme((current) => (current !== stored ? stored : current));
+      applyTheme(stored);
+    };
     const onStorage = (event: StorageEvent) => {
       if (event.key !== STORAGE_KEY) return;
       const next = event.newValue === "light" || event.newValue === "dark" ? event.newValue : "dark";
       setTheme(next);
+      applyTheme(next);
     };
     window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    window.addEventListener("focus", reconcile);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") reconcile();
+    });
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("focus", reconcile);
+    };
   }, []);
 
   const toggleTheme = useCallback(() => {
