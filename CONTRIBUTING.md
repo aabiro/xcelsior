@@ -3,10 +3,7 @@
 ## Local setup
 
 ```bash
-python3.12 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-pip install ruff black pytest pre-commit
+uv sync
 pre-commit install   # one-time: installs the git hook
 ```
 
@@ -15,8 +12,8 @@ pre-commit install   # one-time: installs the git hook
 CI runs the same checks locally:
 
 ```bash
-ruff check .
-black --check *.py routes/*.py tests/
+uv run ruff check .
+uv run black --check *.py routes/*.py tests/
 ./run-tests.sh          # full suite (excludes live e2e)
 ./run-tests.sh quick    # ~15s unit tests
 ```

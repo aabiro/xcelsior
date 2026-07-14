@@ -17,18 +17,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install linters
-        # Pin to match the versions developers run locally so formatting
-        # rules can't drift between local and CI (a version bump in black
-        # can otherwise turn a green local checkout red in CI).
-        run: pip install ruff==0.15.8 black==26.3.1
+      - name: Install linters (uv lockfile)
+        run: uv sync --frozen
       - name: Lint (ruff)
-        run: ruff check .
+        run: uv run ruff check .
       - name: Format check (black)
-        run: black --check *.py routes/*.py tests/
+        run: uv run black --check *.py routes/*.py tests/
 
   compose:
     # Catch docker-compose.yml regressions (bad interpolation, malformed
@@ -50,17 +50,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: pip
-      - name: Install deps + pyright
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyright==1.1.410
+      - name: Install deps + pyright (uv lockfile)
+        run: uv sync --frozen
       - name: Wrong-call / wrong-arg gate (pyright)
-        run: python scripts/pyright_gate.py
+        run: uv run python scripts/pyright_gate.py
 
   test:
     runs-on: ubuntu-latest
@@ -95,15 +94,14 @@ jobs:
       # Honor pyproject timeout=180 (func_only); do not override with a lower cap.
     steps:
       - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: pip
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-cov pytest-timeout
+      - name: Install dependencies (uv lockfile)
+        run: uv sync --frozen
       - name: Cache Postgres schema (migrations)
         uses: actions/cache@v4
         with:
@@ -114,9 +112,9 @@ jobs:
           PGPASSWORD: test
         run: bash scripts/ci_bootstrap_pg_schema.sh
       - name: Critical route auth audit
-        run: python scripts/audit_route_auth.py --critical --strict
+        run: uv run python scripts/audit_route_auth.py --critical --strict
       - name: Guarded route auth audit
-        run: python scripts/audit_route_auth.py --guarded --strict
+        run: uv run python scripts/audit_route_auth.py --guarded --strict
       - name: Optional Stripe key (repository secret)
         # Uses XCELSIOR_STRIPE_SECRET_KEY only — no separate STRIPE_TEST_SECRET_KEY.
         run: |
@@ -128,7 +126,7 @@ jobs:
           test -f scripts/worker_agent.py.sig
           test -f scripts/security.py.sig
           test -f scripts/agent-signing.pub
-          python3 scripts/sign-static-agent.py
+          uv run python scripts/sign-static-agent.py
           git diff --exit-code scripts/*.sig || (echo "Agent signatures out of date — run scripts/sign-static-agent.py" && exit 1)
       - name: Run tests
         # P1.3 — single entrypoint. run-tests.sh centralises target
@@ -140,7 +138,7 @@ jobs:
       - name: Coverage report
         if: success()
         run: |
-          python -m pytest tests/ --cov=. --cov-report=xml --cov-report=term-missing \
+          uv run pytest tests/ --cov=. --cov-report=xml --cov-report=term-missing \
                            -q --tb=line 2>/dev/null || true
       - name: Upload coverage
         if: success()
