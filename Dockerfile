@@ -19,11 +19,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 
 COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock ./
-ENV UV_PROJECT_ENVIRONMENT=/app/.venv
+COPY . .
+ENV UV_PROJECT_ENVIRONMENT=/app/.venv \
+    UV_LINK_MODE=copy
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
-
-COPY . .
 
 ENV PATH="/app/.venv/bin:${PATH}"
 
