@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import {
   Activity,
   BarChart3,
+  Cable,
   Calendar,
   ChevronDown,
   Cpu,
@@ -52,6 +53,7 @@ type NavGroupDef = {
 const PINNED_ITEMS: NavItemDef[] = [
   { href: "/dashboard", key: "dash.overview", icon: LayoutDashboard },
   { href: "/dashboard/ai", key: "dash.ai", icon: Sparkles, badge: "New" },
+  { href: "/dashboard/mcp", key: "dash.mcp", icon: Cable, badge: "New" },
   { href: "/dashboard/settings", key: "dash.settings", icon: Settings },
 ];
 

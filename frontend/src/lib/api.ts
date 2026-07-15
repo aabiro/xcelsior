@@ -1685,6 +1685,23 @@ export async function createOAuthClient(
   );
 }
 
+export interface McpQuickConnect {
+  ok: boolean;
+  client_id: string;
+  access_token: string;
+  expires_in: number;
+  scopes: string[];
+  mcp_url: string;
+  api_url: string;
+}
+
+/** Powers the /dashboard/mcp page: returns a live, ready-to-paste Bearer token
+ * for the caller's auto-provisioned MCP client. `regenerate` rotates the client. */
+export async function getMcpQuickConnect(regenerate = false) {
+  const q = regenerate ? "?regenerate=true" : "";
+  return apiFetch<McpQuickConnect>(`/api/mcp/quick-connect${q}`);
+}
+
 export async function fetchOAuthClients() {
   return apiFetch<{ ok: boolean; clients: OAuthClientInfo[] }>("/api/oauth/clients");
 }
