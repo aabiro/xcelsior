@@ -327,6 +327,24 @@ html.light .aurora-gradient {
   50% { opacity: 0.6; transform: translateY(-10px) scale(1.02); }
 }
 
+/* ── Pixel field (ambient drifting dots, see components/ui/pixel-field.tsx) ── */
+.pixel-field-dot {
+  position: absolute;
+  border-radius: 1px;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pixel-field-dot {
+    animation: pixel-float var(--pf-duration, 10s) ease-in-out var(--pf-delay, 0s) infinite;
+  }
+}
+@keyframes pixel-float {
+  0% { opacity: 0; transform: translateY(0) scale(0.9); }
+  20% { opacity: 0.7; }
+  80% { opacity: 0.5; }
+  100% { opacity: 0; transform: translateY(var(--pf-drift, -30px)) scale(1.05); }
+}
+
 /* ── Glow Card ─────────────────────────────────────────────────────── */
 .glow-card {
   position: relative;

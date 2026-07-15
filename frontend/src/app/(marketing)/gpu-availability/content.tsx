@@ -500,7 +500,7 @@ export function GPUAvailabilityContent() {
           <div className="site-feature-grid site-duo-grid">
             <article className="site-feature-card site-story-card">
               <div className="site-icon-box">
-                <ThemeIcon name="shield-check" />
+                <ThemeIcon name="gauge" />
               </div>
               <div className="site-product-badge" style={{ color: "var(--cyan)" }}>{t("gpus.compliance_badge")}</div>
               <h2 className="site-card-title site-story-title">{t("gpus.compliance_title")}</h2>
@@ -516,7 +516,7 @@ export function GPUAvailabilityContent() {
             </article>
             <div className="site-media-panel site-map-panel">
               <Image
-                src="/gpu-fleet/canada-sovereign.svg"
+                src="/gpu-fleet/spot-pulse.svg"
                 alt={t("gpus.compliance_map_alt")}
                 fill
                 className="site-map-image"
