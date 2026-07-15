@@ -27,6 +27,7 @@ os.environ["XCELSIOR_AUTH_RATE_LIMIT_REQUESTS"] = "5000"  # Prevent auth 429s in
 os.environ.setdefault("GOOGLE_CLIENT_ID", "test-google-client-id")
 os.environ.setdefault("GITHUB_CLIENT_ID", "test-github-client-id")
 os.environ.setdefault("HUGGINGFACE_CLIENT_ID", "test-hf-client-id")
+os.environ.setdefault("FACEBOOK_CLIENT_ID", "test-facebook-client-id")
 
 import scheduler
 
@@ -2036,7 +2037,7 @@ class TestUserAuth:
 
     def test_oauth_login(self):
         """POST /api/auth/oauth/{provider} returns auth URL for redirect."""
-        for provider in ("google", "github", "huggingface"):
+        for provider in ("google", "github", "huggingface", "facebook"):
             r = client.post(f"/api/auth/oauth/{provider}")
             assert r.status_code == 200
             d = r.json()
@@ -2046,7 +2047,7 @@ class TestUserAuth:
 
     def test_oauth_invalid_provider(self):
         """POST /api/auth/oauth/invalid returns 400."""
-        r = client.post("/api/auth/oauth/facebook")
+        r = client.post("/api/auth/oauth/twitter")
         assert r.status_code == 400
 
     def test_get_profile(self):

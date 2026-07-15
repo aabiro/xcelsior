@@ -27,20 +27,20 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   applicationName: "Xcelsior",
   title: {
-    default: "Xcelsior, The Cheapest Compliant GPU Compute in Canada",
+    default: "Xcelsior — The Agent-Native GPU Cloud",
     template: "%s | Xcelsior",
   },
   description:
-    "Rent verified GPUs by the hour in Canadian dollars, PIPEDA compliance and clean hydro built in. From $0.30 CAD/hr, with dynamic spot pricing up to 70% off.",
+    "Rent verified GPUs by the hour in CAD. Native MCP support for AI agents, real-time NVML telemetry, and dynamic spot pricing from $0.30 CAD/hr.",
   keywords: [
     "GPU compute",
-    "Canada",
-    "data residency",
-    "PIPEDA",
+    "MCP",
+    "AI agents",
+    "agent compute",
     "AI compute",
     "machine learning",
     "cloud GPU",
-    "Canadian cloud",
+    "spot GPU",
   ],
   metadataBase: new URL("https://xcelsior.ca"),
   alternates: {
@@ -58,12 +58,12 @@ export const metadata: Metadata = {
         url: SITE_ASSETS.ogImage1200x630,
         width: 1200,
         height: 630,
-        alt: "The Cheapest Compliant GPU Compute in Canada",
+        alt: "Xcelsior — The Agent-Native GPU Cloud",
       },
     ],
-    title: "The Cheapest Compliant GPU Compute in Canada",
+    title: "Xcelsior — The Agent-Native GPU Cloud",
     description:
-      "Rent verified GPUs by the hour in Canadian dollars, PIPEDA compliance and clean hydro built in. From $0.30 CAD/hr, with dynamic spot pricing up to 70% off.",
+      "Rent verified GPUs by the hour in CAD. Native MCP support for AI agents, real-time NVML telemetry, and dynamic spot pricing from $0.30 CAD/hr.",
     url: "https://xcelsior.ca",
     siteName: "Xcelsior",
     locale: "en_CA",
@@ -73,8 +73,8 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     images: [SITE_ASSETS.ogImage1200x630],
-    title: "The Cheapest Compliant GPU Compute in Canada",
-    description: "The Cheapest Compliant GPU Compute in Canada. Ever upward.",
+    title: "Xcelsior — The Agent-Native GPU Cloud",
+    description: "Fast GPUs for your AI agents. Native MCP, real telemetry, spot pricing. Ever upward.",
   },
   appleWebApp: {
     capable: true,
@@ -136,7 +136,7 @@ export default function RootLayout({
               url: "https://xcelsior.ca",
               logo: `${BRAND_ASSET_ORIGIN}${SITE_ASSETS.appGradientRounded512}`,
               description:
-                "Rent verified GPUs by the hour in Canadian dollars, PIPEDA compliance and clean hydro built in. From $0.30 CAD/hr, with dynamic spot pricing up to 70% off.",
+                "Rent verified GPUs by the hour in CAD. Native MCP support for AI agents, real-time NVML telemetry, and dynamic spot pricing from $0.30 CAD/hr.",
               foundingDate: "2024",
               address: {
                 "@type": "PostalAddress",

@@ -1277,6 +1277,10 @@ def _ensure_oauth_auth_tables(conn) -> None:
     )
     cur.execute("ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS team_id TEXT")
     cur.execute(
+        "ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS is_system_managed "
+        "INTEGER NOT NULL DEFAULT 0"
+    )
+    cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_oauth_clients_workspace "
         "ON oauth_clients (workspace_customer_id)"
     )
@@ -2709,10 +2713,11 @@ class OAuthStore:
                     is_first_party,
                     workspace_customer_id,
                     team_id,
+                    is_system_managed,
                     created_at,
                     updated_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (client_id) DO UPDATE SET
                     client_name = EXCLUDED.client_name,
                     client_type = EXCLUDED.client_type,
@@ -2723,6 +2728,7 @@ class OAuthStore:
                     client_secret_salt = EXCLUDED.client_secret_salt,
                     created_by_email = EXCLUDED.created_by_email,
                     is_first_party = EXCLUDED.is_first_party,
+                    is_system_managed = EXCLUDED.is_system_managed,
                     updated_at = EXCLUDED.updated_at
                 """,
                 (
@@ -2738,6 +2744,7 @@ class OAuthStore:
                     int(client.get("is_first_party", 0)),
                     client.get("workspace_customer_id"),
                     client.get("team_id"),
+                    int(client.get("is_system_managed", 0)),
                     client.get("created_at", time.time()),
                     client.get("updated_at", time.time()),
                 ),
@@ -2799,6 +2806,22 @@ class OAuthStore:
                     (created_by_email,),
                 ).fetchall()
             return [dict(row) for row in rows]
+
+    @staticmethod
+    def get_system_managed_client(created_by_email: str, client_name: str) -> dict | None:
+        """Look up a per-user, system-managed client (e.g. the MCP quick-connect
+        client) — these are excluded from the user-facing OAuth client list."""
+        with auth_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM oauth_clients
+                 WHERE created_by_email = %s AND client_name = %s AND is_system_managed = 1
+                 ORDER BY created_at DESC
+                 LIMIT 1
+                """,
+                (created_by_email, client_name),
+            ).fetchone()
+            return dict(row) if row else None
 
     @staticmethod
     def delete_client(client_id: str, created_by_email: str | None = None) -> bool:

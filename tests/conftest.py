@@ -45,6 +45,8 @@ _TEST_ENV_DEFAULTS = {
     "GITHUB_CLIENT_SECRET": "test-github-client-secret",
     "HUGGINGFACE_CLIENT_ID": "test-hf-client-id",
     "HUGGINGFACE_CLIENT_SECRET": "test-hf-client-secret",
+    "FACEBOOK_CLIENT_ID": "test-facebook-client-id",
+    "FACEBOOK_CLIENT_SECRET": "test-facebook-client-secret",
     # Enables STRIPE_ENABLED; retrieve/detach map Stripe errors to 404 in tests.
     "XCELSIOR_STRIPE_SECRET_KEY": "sk_test_ci_placeholder_not_for_production",
     "XCELSIOR_MAX_TOTAL_STORAGE_GB": "100",
