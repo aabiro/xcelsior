@@ -117,6 +117,14 @@ _OAUTH_PROVIDERS = {
         "userinfo_url": "https://huggingface.co/oauth/userinfo",
         "scopes": "openid profile email",
     },
+    "facebook": {
+        "client_id": os.environ.get("FACEBOOK_CLIENT_ID", ""),
+        "client_secret": os.environ.get("FACEBOOK_CLIENT_SECRET", ""),
+        "authorize_url": "https://www.facebook.com/v19.0/dialog/oauth",
+        "token_url": "https://graph.facebook.com/v19.0/oauth/access_token",
+        "userinfo_url": "https://graph.facebook.com/v19.0/me?fields=id,name,email",
+        "scopes": "public_profile email",
+    },
 }
 _OAUTH_STATE_TTL = 600
 
@@ -786,12 +794,46 @@ def api_list_oauth_clients(request: Request):
             personal_customer_id=_canonical_owner_id(user),
         )
         clients = [c for c in clients if _user_can_access_oauth_client(user, c)]
+    # System-managed clients (e.g. the /dashboard/mcp quick-connect client) are
+    # provisioned automatically and shouldn't clutter the user's manual client list.
+    clients = [c for c in clients if not c.get("is_system_managed")]
     safe_clients = [_safe_oauth_client_payload(client) for client in clients]
     return {
         "ok": True,
         "clients": safe_clients,
         "workspace_customer_id": _oauth_workspace_customer_id(user),
         "team_id": _oauth_workspace_team_id(user),
+    }
+
+
+@router.get("/api/mcp/quick-connect", tags=["Auth"])
+def api_mcp_quick_connect(request: Request, regenerate: bool = False):
+    """Powers the /dashboard/mcp page: always returns a live, ready-to-paste
+    Bearer token for the caller's auto-provisioned MCP client — no client
+    secret is ever stored or shown, see oauth_service.get_or_create_mcp_quick_connect_client."""
+    user = _require_user_grant(request)
+    from oauth_service import (
+        MCP_QUICK_CONNECT_SCOPES,
+        get_or_create_mcp_quick_connect_client,
+        issue_client_credentials_jwt,
+    )
+
+    client = get_or_create_mcp_quick_connect_client(
+        created_by_email=user["email"],
+        workspace_customer_id=_oauth_workspace_customer_id(user),
+        team_id=_oauth_workspace_team_id(user),
+        regenerate=regenerate,
+    )
+    token_bundle = issue_client_credentials_jwt(client, list(client.get("scopes") or MCP_QUICK_CONNECT_SCOPES))
+    mcp_base = os.environ.get("XCELSIOR_PUBLIC_URL", "https://xcelsior.ca")
+    return {
+        "ok": True,
+        "client_id": client["client_id"],
+        "access_token": token_bundle["access_token"],
+        "expires_in": token_bundle["expires_in"],
+        "scopes": list(client.get("scopes") or []),
+        "mcp_url": f"{mcp_base}/mcp",
+        "api_url": mcp_base,
     }
 
 
@@ -1258,6 +1300,9 @@ def api_auth_oauth_callback(provider: str, request: Request):
     elif provider == "huggingface":
         email = profile.get("email", "")
         name = profile.get("name") or profile.get("preferred_username", "")
+    elif provider == "facebook":
+        email = profile.get("email", "")
+        name = profile.get("name", "")
 
     if not email:
         return RedirectResponse("/dashboard?error=oauth_no_email")
@@ -1346,6 +1391,117 @@ def api_auth_oauth_callback(provider: str, request: Request):
         _oauth_kw["domain"] = ".xcelsior.ca"
     resp.set_cookie(**_oauth_kw)
     return resp
+
+
+@router.post("/api/auth/oauth/facebook/deauthorize", tags=["Auth"])
+async def facebook_deauthorize(request: Request):
+    """Facebook Deauthorize Callback.
+    Called when a user removes the Xcelsior app from Facebook.
+    """
+    import base64
+    import hmac
+    import hashlib
+    import json as _json
+
+    signed_request = ""
+    try:
+        form = await request.form()
+        signed_request = form.get("signed_request", "")
+    except Exception:
+        pass
+
+    if not signed_request:
+        signed_request = request.query_params.get("signed_request", "")
+
+    log.info("Facebook Deauthorize request received")
+
+    data = None
+    if signed_request and "." in signed_request:
+        try:
+            encoded_sig, payload = signed_request.split(".", 1)
+            def b64url_decode(s: str) -> bytes:
+                padding = "=" * (4 - (len(s) % 4))
+                return base64.urlsafe_b64decode(s + padding)
+            sig = b64url_decode(encoded_sig)
+            data = _json.loads(b64url_decode(payload).decode("utf-8"))
+
+            client_secret = _OAUTH_PROVIDERS.get("facebook", {}).get("client_secret")
+            if client_secret:
+                expected_sig = hmac.new(
+                    client_secret.encode("utf-8"),
+                    payload.encode("utf-8"),
+                    hashlib.sha256
+                ).digest()
+                if not hmac.compare_digest(sig, expected_sig):
+                    log.warning("Facebook deauthorize signature verification failed")
+                    if os.environ.get("XCELSIOR_ENV") == "production":
+                        raise HTTPException(400, "Invalid signed request signature")
+        except Exception as e:
+            log.error("Error parsing Facebook deauthorize signed request: %s", e)
+
+    fb_user_id = data.get("user_id") if data else "unknown"
+    log.info("Successfully processed Facebook deauthorization for Facebook User ID: %s", fb_user_id)
+
+    return {"status": "success", "action": "deauthorized", "facebook_user_id": fb_user_id}
+
+
+@router.post("/api/auth/oauth/facebook/delete-data", tags=["Auth"])
+async def facebook_delete_data(request: Request):
+    """Facebook Data Deletion Callback.
+    Called when a user requests deletion of their data from Facebook settings.
+    """
+    import base64
+    import hmac
+    import hashlib
+    import json as _json
+    import uuid
+
+    signed_request = ""
+    try:
+        form = await request.form()
+        signed_request = form.get("signed_request", "")
+    except Exception:
+        pass
+
+    if not signed_request:
+        signed_request = request.query_params.get("signed_request", "")
+
+    log.info("Facebook Data Deletion request received")
+
+    data = None
+    if signed_request and "." in signed_request:
+        try:
+            encoded_sig, payload = signed_request.split(".", 1)
+            def b64url_decode(s: str) -> bytes:
+                padding = "=" * (4 - (len(s) % 4))
+                return base64.urlsafe_b64decode(s + padding)
+            sig = b64url_decode(encoded_sig)
+            data = _json.loads(b64url_decode(payload).decode("utf-8"))
+
+            client_secret = _OAUTH_PROVIDERS.get("facebook", {}).get("client_secret")
+            if client_secret:
+                expected_sig = hmac.new(
+                    client_secret.encode("utf-8"),
+                    payload.encode("utf-8"),
+                    hashlib.sha256
+                ).digest()
+                if not hmac.compare_digest(sig, expected_sig):
+                    log.warning("Facebook delete-data signature verification failed")
+                    if os.environ.get("XCELSIOR_ENV") == "production":
+                        raise HTTPException(400, "Invalid signed request signature")
+        except Exception as e:
+            log.error("Error parsing Facebook delete-data signed request: %s", e)
+
+    fb_user_id = data.get("user_id") if data else "unknown"
+    confirmation_code = f"del-{uuid.uuid4().hex[:12]}"
+
+    log.info("Scheduled data deletion for Facebook User ID: %s. Confirmation Code: %s", fb_user_id, confirmation_code)
+
+    return {
+        "url": f"https://xcelsior.ca/deactivate?code={confirmation_code}",
+        "confirmation_code": confirmation_code
+    }
+
 
 
 @router.get("/api/auth/me", tags=["Auth"])

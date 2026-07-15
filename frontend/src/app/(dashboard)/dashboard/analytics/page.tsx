@@ -165,7 +165,7 @@ function generateInsights(
     insights.push({
       type: "info",
       title: "Mostly international compute",
-      detail: `Only ${caPct.toFixed(0)}% of jobs run on Canadian GPUs. Consider Canadian hosts for compliant workloads.`,
+      detail: `Only ${caPct.toFixed(0)}% of jobs run on Canadian GPUs. Consider Canadian hosts for lower latency to North American traffic.`,
       metric: `${caPct.toFixed(0)}% Canadian`,
     });
   }
