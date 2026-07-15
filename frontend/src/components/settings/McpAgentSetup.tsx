@@ -12,6 +12,7 @@ import { SettingsSection } from "@/components/settings/settings-layout";
 import { OAuthSecretRevealModal } from "@/components/settings/oauth-secret-reveal-modal";
 import { ScopeChipRow } from "@/components/settings/credential-scope-panel";
 import { CodeBlock } from "@/components/ui/code-block";
+import { mcpUrl, configJson, configPath } from "@/lib/mcp";
 import { useLocale } from "@/lib/locale";
 import * as api from "@/lib/api";
 import type { OAuthClientInfo } from "@/lib/api";
@@ -40,61 +41,6 @@ type FreshClientCredentials = {
   clientSecret: string;
   name: string;
 };
-
-function mcpUrl(): string {
-  if (typeof window !== "undefined" && window.location.hostname === "localhost") {
-    return "http://localhost:8770/mcp";
-  }
-  return "https://xcelsior.ca/mcp";
-}
-
-// MCP client config formats differ by agent:
-//  - Cursor  (~/.cursor/mcp.json):  `mcpServers` + `url` (transport inferred)
-//  - Claude  (.mcp.json):           `mcpServers` + explicit `type: "http"`
-//  - VS Code (.vscode/mcp.json):    `servers` (not mcpServers) + `type: "http"`
-function configJson(agentId: string, tokenPlaceholder = "YOUR_OAUTH_TOKEN"): string {
-  const url = mcpUrl();
-  const headers = { Authorization: `Bearer ${tokenPlaceholder}` };
-  if (agentId === "github") {
-    return JSON.stringify(
-      {
-        mcpServers: {
-          "xcelsior-readonly": {
-            type: "http",
-            url,
-            headers: {
-              Authorization: "Bearer ${COPILOT_MCP_XCELSIOR_ACCESS_TOKEN}",
-            },
-            tools: [
-              "list_available_gpus",
-              "get_spot_prices",
-              "get_pricing_reference",
-              "search_marketplace",
-              "list_tiers",
-            ],
-          },
-        },
-      },
-      null,
-      2,
-    );
-  }
-  if (agentId === "vscode") {
-    return JSON.stringify({ servers: { xcelsior: { type: "http", url, headers } } }, null, 2);
-  }
-  if (agentId === "claude") {
-    return JSON.stringify({ mcpServers: { xcelsior: { type: "http", url, headers } } }, null, 2);
-  }
-  return JSON.stringify({ mcpServers: { xcelsior: { url, headers } } }, null, 2);
-}
-
-// Where each client expects the config file to live (shown above the snippet).
-function configPath(agentId: string): string {
-  if (agentId === "github") return "GitHub -> Settings -> Copilot -> MCP servers";
-  if (agentId === "vscode") return ".vscode/mcp.json";
-  if (agentId === "claude") return ".mcp.json (project root) or claude_desktop_config.json";
-  return "~/.cursor/mcp.json";
-}
 
 function tokenCurl(clientId: string, clientSecret: string): string {
   const base = process.env.NEXT_PUBLIC_API_URL || "https://xcelsior.ca";

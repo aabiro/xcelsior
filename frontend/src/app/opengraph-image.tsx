@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og";
 
 export const runtime = "edge";
-export const alt = "The Cheapest Compliant GPU Compute in Canada";
+export const alt = "Xcelsior — The Agent-Native GPU Cloud";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -78,12 +78,12 @@ export default function OGImage() {
             marginBottom: 40,
           }}
         >
-          The cheapest compliant GPU compute in Canada
+          Fast GPUs for your AI agents
         </p>
 
         {/* Feature pills */}
         <div style={{ display: "flex", gap: 16 }}>
-          {["Transparent Pricing", "Compliance-Aware", "Teams Worldwide"].map(
+          {["Agent-Native", "Real Telemetry", "Spot Pricing"].map(
             (label) => (
               <div
                 key={label}

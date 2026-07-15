@@ -9,7 +9,7 @@ const AboutContent = dynamic(
 export const metadata: Metadata = {
   title: "About Xcelsior",
   description:
-    "Xcelsior is a Canada-first GPU compute marketplace with transparent pricing, compliance-aware operations, and infrastructure for teams worldwide.",
+    "Xcelsior is an agent-native GPU compute marketplace with transparent pricing, real-time telemetry, and infrastructure for teams worldwide.",
   alternates: { canonical: "https://xcelsior.ca/about" },
   openGraph: {
     title: "About Xcelsior",

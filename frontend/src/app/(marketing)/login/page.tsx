@@ -21,7 +21,7 @@ import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 import posthog from "posthog-js";
 
-const OAUTH_PROVIDERS = ["github", "google", "huggingface"] as const;
+const OAUTH_PROVIDERS = ["github", "google", "huggingface", "facebook"] as const;
 
 function LoginPageContent() {
   const router = useRouter();
@@ -438,7 +438,12 @@ function LoginPageContent() {
           <div className="site-auth-section">
             <div className="site-auth-provider-list">
               {OAUTH_PROVIDERS.map((provider) => {
-                const labels = { github: t("auth.github"), google: t("auth.google"), huggingface: t("auth.huggingface") };
+                const labels = {
+                  github: t("auth.github"),
+                  google: t("auth.google"),
+                  huggingface: t("auth.huggingface"),
+                  facebook: t("auth.facebook"),
+                };
                 return (
                   <button key={provider} type="button" className="site-auth-provider" onClick={() => handleOAuth(provider)}>
                     <ProviderLogo provider={provider} framed size={22} className="site-auth-provider-logo" />

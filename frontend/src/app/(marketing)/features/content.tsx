@@ -17,8 +17,8 @@ const products = [
 ] as const;
 
 const foundations = [
-  { icon: "route", title: "features.jurisdiction_title", desc: "features.jurisdiction_desc", cat: "features.cat_jurisdiction" },
-  { icon: "lock", title: "features.cloud_act_title", desc: "features.cloud_act_desc", cat: "features.cat_jurisdiction" },
+  { icon: "bot", title: "features.jurisdiction_title", desc: "features.jurisdiction_desc", cat: "features.cat_jurisdiction" },
+  { icon: "terminal", title: "features.cloud_act_title", desc: "features.cloud_act_desc", cat: "features.cat_jurisdiction" },
   { icon: "gpu", title: "features.marketplace_title", desc: "features.marketplace_desc", cat: "features.cat_compute" },
   { icon: "bolt", title: "features.spot_title", desc: "features.spot_desc", cat: "features.cat_compute" },
   { icon: "activity", title: "features.telemetry_title", desc: "features.telemetry_desc", cat: "features.cat_compute" },
