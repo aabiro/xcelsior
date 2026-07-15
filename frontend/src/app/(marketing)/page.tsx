@@ -20,7 +20,7 @@ const features = [
   ["gpu", "home.feat_marketplace_title", "home.feat_marketplace_desc"],
   ["shield-check", "home.feat_trust_title", "home.feat_trust_desc"],
   ["activity", "home.feat_telemetry_title", "home.feat_telemetry_desc"],
-  ["route", "home.feat_jurisdiction_title", "home.feat_jurisdiction_desc"],
+  ["bolt", "home.feat_jurisdiction_title", "home.feat_jurisdiction_desc"],
   ["dollar", "home.feat_spot_title", "home.feat_spot_desc"],
   ["leaf", "home.feat_green_title", "home.feat_green_desc"],
 ] as const;
