@@ -1,8 +1,12 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { WEB_PUSH_LIFECYCLE_MESSAGE_TYPE } from "../src/lib/pwa/web-push";
+import { DEMO_EMAIL, DEMO_PASSWORD } from "./helpers/demo-auth";
 
-const SMOKE_EMAIL = process.env.XCELSIOR_PWA_SMOKE_EMAIL?.trim();
-const SMOKE_PASSWORD = process.env.XCELSIOR_PWA_SMOKE_PASSWORD?.trim();
+// Auth creds: explicit smoke env wins; otherwise fall back to the demo admin so
+// the auth gate is never what blocks this staging smoke.
+const SMOKE_EMAIL = process.env.XCELSIOR_PWA_SMOKE_EMAIL?.trim() || DEMO_EMAIL;
+const SMOKE_PASSWORD = process.env.XCELSIOR_PWA_SMOKE_PASSWORD?.trim() || DEMO_PASSWORD;
+const HAS_STAGING_TARGET = Boolean(process.env.XCELSIOR_PWA_SMOKE_BASE_URL?.trim());
 const REQUIRE_CLICK = process.env.XCELSIOR_PWA_SMOKE_REQUIRE_CLICK !== "0";
 const CLICK_TIMEOUT_MS = Number(process.env.XCELSIOR_PWA_SMOKE_CLICK_TIMEOUT_MS ?? "45000");
 
@@ -43,8 +47,15 @@ async function registerPushLifecycleListener(page: Page) {
 
 async function login(page: Page) {
   await page.goto("/login");
-  await page.getByLabel("Email").fill(SMOKE_EMAIL!);
-  await page.getByLabel("Password").fill(SMOKE_PASSWORD!);
+  // On the owner's whitelisted networks the demo button is present — one click
+  // fills the fields. Otherwise fill them directly. Either way we submit the form.
+  const demoButton = page.getByTestId("demo-account-button");
+  if (await demoButton.count()) {
+    await demoButton.click();
+  } else {
+    await page.getByLabel("Email").fill(SMOKE_EMAIL);
+    await page.getByLabel("Password").fill(SMOKE_PASSWORD);
+  }
   await Promise.all([
     page.waitForURL(/\/dashboard(?:\/)?$/),
     page.locator("form button[type='submit']").click(),
@@ -84,7 +95,9 @@ async function grantNotificationPermission(context: BrowserContext, baseURL: str
 }
 
 test.describe("authenticated desktop push staging smoke", () => {
-  test.skip(!SMOKE_EMAIL || !SMOKE_PASSWORD, "Set XCELSIOR_PWA_SMOKE_EMAIL and XCELSIOR_PWA_SMOKE_PASSWORD.");
+  // Needs a real staging target (real backend + push/VAPID infra). Auth itself
+  // is handled by the demo account, so we only require a base URL to be set.
+  test.skip(!HAS_STAGING_TARGET, "Set XCELSIOR_PWA_SMOKE_BASE_URL to a staging deploy to run the push smoke.");
 
   test("admin can subscribe, receive a real push, confirm click-through, and unsubscribe", async ({ page, baseURL }) => {
     test.setTimeout(180_000);

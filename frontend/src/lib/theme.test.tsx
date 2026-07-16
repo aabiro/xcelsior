@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { renderHook, act } from "@testing-library/react";
-import { ThemeProvider, useTheme, applyTheme, syncThemeFromStorage } from "@/lib/theme";
+import { renderHook, render, act } from "@testing-library/react";
+import { ThemeProvider, useTheme, applyTheme, syncThemeFromStorage, type Theme } from "@/lib/theme";
 
 const storage: Record<string, string> = {};
 
@@ -58,6 +58,31 @@ describe("applyTheme", () => {
     const theme = syncThemeFromStorage();
     expect(theme).toBe("light");
     expect(document.documentElement.classList.contains("light")).toBe(true);
+    expect(document.documentElement.dataset.theme).toBe("light");
+  });
+});
+
+describe("ThemeProvider hydration safety", () => {
+  // Regression: the shells render `data-theme={theme}`. If the provider's first
+  // render reads localStorage, the client's initial value ("light") disagrees
+  // with the server's ("dark"); React keeps the server markup and the corrective
+  // mount effect becomes a no-op, so the shell stays data-theme="dark" while
+  // <html> is light. The first committed render MUST be the SSR-safe default and
+  // then reconcile — that guarantees a real re-render that flips the attribute.
+  it("first render is dark even when storage is light, then reconciles to light", () => {
+    storage["xcelsior-theme"] = "light";
+    const seen: Theme[] = [];
+    function Probe() {
+      seen.push(useTheme().theme);
+      return null;
+    }
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+    expect(seen[0]).toBe("dark"); // SSR-safe initial render (no hydration mismatch)
+    expect(seen[seen.length - 1]).toBe("light"); // reconciled after mount
     expect(document.documentElement.dataset.theme).toBe("light");
   });
 });
