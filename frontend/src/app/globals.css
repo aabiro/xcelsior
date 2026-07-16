@@ -340,8 +340,8 @@ html.light .aurora-gradient {
 }
 @keyframes pixel-float {
   0% { opacity: 0; transform: translateY(0) scale(0.9); }
-  20% { opacity: 0.7; }
-  80% { opacity: 0.5; }
+  20% { opacity: calc(var(--pf-max-opacity, 0.7) * 1); }
+  80% { opacity: calc(var(--pf-max-opacity, 0.7) * 0.7); }
   100% { opacity: 0; transform: translateY(var(--pf-drift, -30px)) scale(1.05); }
 }
 
