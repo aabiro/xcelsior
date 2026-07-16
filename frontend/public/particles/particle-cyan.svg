@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
+<defs>
+<radialGradient id="pc-b" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#38dbff" stop-opacity=".30"></stop><stop offset="34%" stop-color="#38dbff" stop-opacity=".10"></stop><stop offset="66%" stop-color="#38dbff" stop-opacity=".025"></stop><stop offset="100%" stop-color="#38dbff" stop-opacity="0"></stop></radialGradient>
+<radialGradient id="pc-g" cx="50%" cy="48%" r="50%"><stop offset="0%" stop-color="#ffffff" stop-opacity=".95"></stop><stop offset="14%" stop-color="#bff3ff" stop-opacity=".85"></stop><stop offset="38%" stop-color="#38dbff" stop-opacity=".55"></stop><stop offset="70%" stop-color="#38dbff" stop-opacity=".14"></stop><stop offset="100%" stop-color="#38dbff" stop-opacity="0"></stop></radialGradient>
+</defs>
+<circle cx="60" cy="60" r="58" fill="url(#pc-b)"></circle>
+<circle cx="60" cy="60" r="30" fill="url(#pc-g)"></circle>
+</svg>

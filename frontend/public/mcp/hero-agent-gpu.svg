@@ -1,86 +1,39 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 280" fill="none">
-  <defs>
-    <linearGradient id="brand" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#22e0ff"/>
-      <stop offset="48%" stop-color="#7c3aed"/>
-      <stop offset="100%" stop-color="#f43f5e"/>
-    </linearGradient>
-    <linearGradient id="brandSoft" x1="0" y1="1" x2="1" y2="0">
-      <stop offset="0%" stop-color="#22e0ff" stop-opacity="0.14"/>
-      <stop offset="100%" stop-color="#7c3aed" stop-opacity="0.06"/>
-    </linearGradient>
-    <radialGradient id="spot" cx="50%" cy="34%" r="75%">
-      <stop offset="0%" stop-color="#1b2740"/>
-      <stop offset="100%" stop-color="#070b15"/>
-    </radialGradient>
-    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.14"/>
-      <stop offset="24%" stop-color="#ffffff" stop-opacity="0.04"/>
-      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
-    </linearGradient>
-    <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#16233c"/>
-      <stop offset="100%" stop-color="#0b1322"/>
-    </linearGradient>
-    <radialGradient id="core" cx="50%" cy="42%" r="62%">
-      <stop offset="0%" stop-color="#5eeaff"/>
-      <stop offset="42%" stop-color="#2a8cff"/>
-      <stop offset="100%" stop-color="#0b1b3a"/>
-    </radialGradient>
-    <linearGradient id="violet" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#a78bfa"/>
-      <stop offset="100%" stop-color="#7c3aed"/>
-    </linearGradient>
-    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#fde68a"/>
-      <stop offset="100%" stop-color="#d4a233"/>
-    </linearGradient>
-    <linearGradient id="emerald" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#34d399"/>
-      <stop offset="100%" stop-color="#10b981"/>
-    </linearGradient>
-    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
-      <feGaussianBlur stdDeviation="3" result="b"/>
-      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-    <filter id="bloom" x="-120%" y="-120%" width="340%" height="340%">
-      <feGaussianBlur stdDeviation="22"/>
-    </filter>
-    <filter id="cardShadow" x="-40%" y="-40%" width="180%" height="180%">
-      <feDropShadow dx="0" dy="9" stdDeviation="13" flood-color="#000" flood-opacity="0.45"/>
-    </filter>
-    <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
-      <path d="M24 0H0V24" fill="none" stroke="#22e0ff" stroke-opacity="0.06" stroke-width="1"/>
-    </pattern>
-</defs>
-  <rect width="480" height="280" rx="24" fill="url(#spot)"/>
-  <rect width="480" height="280" rx="24" fill="url(#grid)"/>
-
-  <circle cx="400" cy="60" r="78" fill="#7c3aed" filter="url(#bloom)" opacity="0.16"/>
-  <circle cx="80" cy="220" r="70" fill="#22e0ff" filter="url(#bloom)" opacity="0.12"/>
-  <path d="M118,140 H196" stroke="url(#brand)" stroke-width="2.5" stroke-dasharray="2 9" stroke-linecap="round" opacity="0.7" filter="url(#glow)"/><path d="M284,140 H372" stroke="url(#brand)" stroke-width="2.5" stroke-dasharray="2 9" stroke-linecap="round" opacity="0.7" filter="url(#glow)"/>
-  
-  <g transform="translate(74,140)" filter="url(#cardShadow)">
-    <rect x="-44" y="-34" width="88" height="60" rx="14" fill="url(#panel)" stroke="url(#violet)" stroke-width="1.5"/>
-    <rect x="-44" y="-34" width="88" height="60" rx="14" fill="url(#glass)"/>
-    <path d="M-22,26 L-22,40 L-4,26 Z" fill="url(#panel)" stroke="url(#violet)" stroke-width="1.5"/>
-    <g fill="#c4b5fd" opacity="0.85"><rect x="-30" y="-18" width="48" height="6" rx="3"/><rect x="-30" y="-4" width="60" height="6" rx="3" opacity="0.6"/><rect x="-30" y="10" width="34" height="6" rx="3" opacity="0.4"/></g>
-  </g>
-  
-  <g transform="translate(240,140) scale(1.0)" filter="url(#cardShadow)">
-    <polygon points="0,-46 40,-23 40,23 0,46 -40,23 -40,-23" fill="url(#panel)" stroke="url(#brand)" stroke-width="1.75"/>
-    <polygon points="0,-46 40,-23 40,23 0,46 -40,23 -40,-23" fill="url(#glass)"/>
-    <polygon points="0,-26 22,-13 22,13 0,26 -22,13 -22,-13" fill="none" stroke="#7cf2ff" stroke-opacity="0.5" stroke-width="1.5"/>
-    <text x="0" y="6" text-anchor="middle" fill="#eafcff" font-family="ui-monospace,monospace" font-size="14" font-weight="700">MCP</text>
-  </g>
-  
-  <g transform="translate(418,140)" filter="url(#cardShadow)">
-    <rect x="-46" y="-36" width="92" height="72" rx="12" fill="url(#panel)" stroke="url(#brand)" stroke-width="1.5"/>
-    <rect x="-46" y="-36" width="92" height="72" rx="12" fill="url(#glass)"/>
-    <rect x="-30" y="-22" width="60" height="44" rx="7" fill="url(#core)" opacity="0.85" stroke="#7cf2ff" stroke-opacity="0.4"/>
-    <g stroke="#0a1322" stroke-opacity="0.5" stroke-width="1"><path d="M-10,-22 V22 M10,-22 V22 M-30,0 H30"/></g>
-    <circle cx="0" cy="0" r="7" fill="#eafcff" opacity="0.9" filter="url(#glow)"/>
-  </g>
-
-  <rect width="480" height="280" rx="24" fill="url(#brandSoft)"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" fill="none">
+<defs>
+    <linearGradient id="mad-body" x1="162" y1="150" x2="282" y2="270" gradientUnits="userSpaceOnUse"><stop stop-color="#17243d"></stop><stop offset=".55" stop-color="#0c1526"></stop><stop offset="1" stop-color="#070f1c"></stop></linearGradient>
+    <linearGradient id="mad-edge" x1="40" y1="60" x2="600" y2="380" gradientUnits="userSpaceOnUse"><stop stop-color="#38dbff"></stop><stop offset=".6" stop-color="#9b6dff"></stop><stop offset="1" stop-color="#34d399"></stop></linearGradient>
+    <linearGradient id="mad-bolt" x1="202" y1="180" x2="242" y2="240" gradientUnits="userSpaceOnUse"><stop stop-color="#38dbff"></stop><stop offset="1" stop-color="#9b6dff"></stop></linearGradient>
+    <linearGradient id="mad-gold" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#fde68a"></stop><stop offset="1" stop-color="#d4a233"></stop></linearGradient>
+    <linearGradient id="mad-line" x1="60" y1="120" x2="580" y2="380" gradientUnits="userSpaceOnUse"><stop stop-color="#38dbff"></stop><stop offset=".5" stop-color="#9b6dff"></stop><stop offset="1" stop-color="#34d399"></stop></linearGradient>
+    <radialGradient id="mad-core" cx="50%" cy="42%" r="60%"><stop offset="0%" stop-color="#38dbff"></stop><stop offset="55%" stop-color="#9b6dff" stop-opacity=".4"></stop><stop offset="100%" stop-color="#0c1526" stop-opacity="0"></stop></radialGradient>
+    <radialGradient id="mad-halo" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#38dbff" stop-opacity="0.4"></stop><stop offset="100%" stop-color="#38dbff" stop-opacity="0"></stop></radialGradient>
+    <pattern id="mad-grid" width="34" height="34" patternUnits="userSpaceOnUse"><path d="M34 0H0V34" fill="none" stroke="#38dbff" stroke-opacity=".05" stroke-width="1"></path></pattern>
+    <filter id="mad-glow" x="-40%" y="-40%" width="180%" height="180%" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#38dbff" flood-opacity=".55"></feDropShadow><feDropShadow dx="0" dy="10" stdDeviation="15" flood-color="#9b6dff" flood-opacity=".3"></feDropShadow></filter><filter id="mad-cardglow" x="-40%" y="-40%" width="180%" height="180%" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#38dbff" flood-opacity=".55"></feDropShadow><feDropShadow dx="0" dy="10" stdDeviation="15" flood-color="#9b6dff" flood-opacity=".3"></feDropShadow></filter><filter id="mad-node" x="-160%" y="-160%" width="420%" height="420%" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="#38dbff" flood-opacity="0.7"></feDropShadow></filter>
+    <filter id="mad-bloom" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="38"></feGaussianBlur></filter>
+  </defs>
+  <rect x="0" y="0" width="640" height="420" fill="url(#mad-grid)"></rect>
+  <circle cx="120" cy="120" r="150" fill="#38dbff" opacity=".06" filter="url(#mad-bloom)"></circle><circle cx="540" cy="330" r="160" fill="#9b6dff" opacity=".07" filter="url(#mad-bloom)"></circle>
+  <circle cx="222" cy="210" r="120" fill="url(#mad-halo)"></circle>
+  <line x1="262" y1="210" x2="452" y2="82" stroke="url(#mad-line)" stroke-opacity="0.32" stroke-width="1.6"></line><line x1="262" y1="210" x2="552" y2="186" stroke="url(#mad-line)" stroke-opacity="0.32" stroke-width="1.6"></line><line x1="262" y1="210" x2="540" y2="316" stroke="url(#mad-line)" stroke-opacity="0.32" stroke-width="1.6"></line><line x1="262" y1="210" x2="430" y2="372" stroke="url(#mad-line)" stroke-opacity="0.32" stroke-width="1.6"></line><line x1="262" y1="210" x2="360" y2="120" stroke="url(#mad-line)" stroke-opacity="0.256" stroke-width="1.4"></line><line x1="262" y1="210" x2="372" y2="300" stroke="url(#mad-line)" stroke-opacity="0.256" stroke-width="1.4"></line><line x1="180" y1="328" x2="184" y2="240" stroke="url(#mad-line)" stroke-opacity="0.32" stroke-width="1.6"></line><circle cx="182" cy="284" r="3" fill="#34d399" filter="url(#mad-node)"></circle><circle cx="357" cy="146" r="3" fill="#38dbff" filter="url(#mad-node)"></circle><circle cx="442" cy="195" r="3" fill="#38dbff" filter="url(#mad-node)"></circle><circle cx="468" cy="288" r="3" fill="#38dbff" filter="url(#mad-node)"></circle><circle cx="360" cy="120" r="5" fill="url(#mad-body)" stroke="url(#mad-edge)" stroke-width="1.6" filter="url(#mad-node)"></circle><circle cx="360" cy="120" r="2" fill="#9b6dff"></circle><circle cx="372" cy="300" r="5" fill="url(#mad-body)" stroke="url(#mad-edge)" stroke-width="1.6" filter="url(#mad-node)"></circle><circle cx="372" cy="300" r="2" fill="#34d399"></circle><g filter="url(#mad-cardglow)"><rect x="423" y="64" width="58" height="36" rx="7" fill="url(#mad-body)" stroke="url(#mad-edge)" stroke-width="1.8"></rect></g>
+    <path d="M429 70h46" stroke="#38dbff" stroke-opacity="0.238" stroke-width="1.4" stroke-linecap="round"></path>
+    <circle cx="440" cy="81" r="6.5" stroke="url(#mad-edge)" stroke-width="1.6" fill="none"></circle><circle cx="440" cy="81" r="2" fill="#38dbff"></circle><circle cx="464" cy="81" r="6.5" stroke="url(#mad-edge)" stroke-width="1.6" fill="none"></circle><circle cx="464" cy="81" r="2" fill="#38dbff"></circle>
+    <rect x="439" y="95" width="26" height="3" rx="1.5" fill="url(#mad-gold)" opacity=".9"></rect><g filter="url(#mad-cardglow)"><rect x="523" y="168" width="58" height="36" rx="7" fill="url(#mad-body)" stroke="url(#mad-edge)" stroke-width="1.8"></rect></g>
+    <path d="M529 174h46" stroke="#38dbff" stroke-opacity="0.238" stroke-width="1.4" stroke-linecap="round"></path>
+    <circle cx="540" cy="185" r="6.5" stroke="url(#mad-edge)" stroke-width="1.6" fill="none"></circle><circle cx="540" cy="185" r="2" fill="#38dbff"></circle><circle cx="564" cy="185" r="6.5" stroke="url(#mad-edge)" stroke-width="1.6" fill="none"></circle><circle cx="564" cy="185" r="2" fill="#38dbff"></circle>
+    <rect x="539" y="199" width="26" height="3" rx="1.5" fill="url(#mad-gold)" opacity=".9"></rect><g filter="url(#mad-cardglow)"><rect x="511" y="298" width="58" height="36" rx="7" fill="url(#mad-body)" stroke="url(#mad-edge)" stroke-width="1.8"></rect></g>
+    <path d="M517 304h46" stroke="#38dbff" stroke-opacity="0.238" stroke-width="1.4" stroke-linecap="round"></path>
+    <circle cx="528" cy="315" r="6.5" stroke="url(#mad-edge)" stroke-width="1.6" fill="none"></circle><circle cx="528" cy="315" r="2" fill="#38dbff"></circle><circle cx="552" cy="315" r="6.5" stroke="url(#mad-edge)" stroke-width="1.6" fill="none"></circle><circle cx="552" cy="315" r="2" fill="#38dbff"></circle>
+    <rect x="527" y="329" width="26" height="3" rx="1.5" fill="url(#mad-gold)" opacity=".9"></rect><g filter="url(#mad-cardglow)"><rect x="401" y="354" width="58" height="36" rx="7" fill="url(#mad-body)" stroke="url(#mad-edge)" stroke-width="1.8"></rect></g>
+    <path d="M407 360h46" stroke="#38dbff" stroke-opacity="0.238" stroke-width="1.4" stroke-linecap="round"></path>
+    <circle cx="418" cy="371" r="6.5" stroke="url(#mad-edge)" stroke-width="1.6" fill="none"></circle><circle cx="418" cy="371" r="2" fill="#38dbff"></circle><circle cx="442" cy="371" r="6.5" stroke="url(#mad-edge)" stroke-width="1.6" fill="none"></circle><circle cx="442" cy="371" r="2" fill="#38dbff"></circle>
+    <rect x="417" y="385" width="26" height="3" rx="1.5" fill="url(#mad-gold)" opacity=".9"></rect><g filter="url(#mad-cardglow)"><path d="M70 300 h96 a10 10 0 0 1 10 10 v34 a10 10 0 0 1 -10 10 h-70 l-14 14 v-14 h-12 a10 10 0 0 1 -10 -10 v-34 a10 10 0 0 1 10 -10 Z" fill="url(#mad-body)" stroke="url(#mad-edge)" stroke-width="1.8"></path></g>
+    <g stroke="#38dbff" stroke-opacity="0.34" stroke-width="2.4" stroke-linecap="round"><path d="M86 316h64M86 327h64M86 338h40"></path></g>
+  <path d="M222.0 116.0L303.4 163.0L303.4 257.0L222.0 304.0L140.6 257.0L140.6 163.0Z" stroke="url(#mad-edge)" stroke-opacity=".26" stroke-width="1.5"></path>
+  <path d="M222.0 132.0L289.5 171.0L289.5 249.0L222.0 288.0L154.5 249.0L154.5 171.0Z" fill="url(#mad-core)"></path>
+  <path d="M222.0 140.0L282.6 175.0L282.6 245.0L222.0 280.0L161.4 245.0L161.4 175.0Z" fill="url(#mad-body)" stroke="url(#mad-edge)" stroke-width="2.6" filter="url(#mad-glow)"></path>
+  <circle cx="222" cy="210" r="34" stroke="url(#mad-edge)" stroke-opacity=".3" stroke-width="1.2" fill="none"></circle>
+  <line x1="222" y1="210" x2="222.0" y2="176.0" stroke="url(#mad-edge)" stroke-opacity=".5" stroke-width="2"></line><circle cx="222.0" cy="176.0" r="4.5" fill="#38dbff"></circle><line x1="222" y1="210" x2="251.4" y2="227.0" stroke="url(#mad-edge)" stroke-opacity=".5" stroke-width="2"></line><circle cx="251.4" cy="227.0" r="4.5" fill="#9b6dff"></circle><line x1="222" y1="210" x2="192.6" y2="227.0" stroke="url(#mad-edge)" stroke-opacity=".5" stroke-width="2"></line><circle cx="192.6" cy="227.0" r="4.5" fill="#34d399"></circle>
+  <circle cx="222" cy="210" r="11" fill="url(#mad-core)"></circle>
+  <circle cx="222" cy="210" r="7" fill="url(#mad-bolt)"></circle>
+  <circle cx="222" cy="210" r="7" stroke="#ecfeff" stroke-opacity="0.6" stroke-width="1.2"></circle>
 </svg>
