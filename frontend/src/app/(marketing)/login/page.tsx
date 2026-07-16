@@ -8,6 +8,7 @@ import { ProviderLogo } from "@/components/ui/provider-logo";
 import { SiteAuthAlert, SiteAuthCard, SiteAuthDivider, SiteAuthHeader } from "@/components/marketing/SiteAuthShell";
 import {
   ApiError,
+  getDemoCredentials,
   login as apiLogin,
   normalizeAuthRedirectPath,
   oauthInitiate,
@@ -70,6 +71,27 @@ function LoginPageContent() {
     const match = document.cookie.match(/(?:^|;\s*)xcelsior_last_oauth=([^;]*)/);
     setLastOAuth(match ? decodeURIComponent(match[1]) : null);
   }, []);
+
+  // Demo account: only whitelisted networks (see demo_account.py) get real creds
+  // back; everyone else gets null and never sees the button.
+  const [demoCreds, setDemoCreds] = useState<{ email: string; password: string } | null>(null);
+  useEffect(() => {
+    let active = true;
+    getDemoCredentials().then((creds) => {
+      if (active) setDemoCreds(creds);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  function fillDemoCredentials() {
+    if (!demoCreds) return;
+    setEmail(demoCreds.email);
+    setPassword(demoCreds.password);
+    setError("");
+    posthog.capture("demo_account_prefill");
+  }
 
   if (!authLoading && user) {
     router.replace(redirectTarget);
@@ -496,6 +518,17 @@ function LoginPageContent() {
               <button type="submit" className="site-button site-button-primary site-auth-button" disabled={loading}>
                 {loading ? t("auth.login_loading") : t("auth.login_button")}
               </button>
+              {demoCreds ? (
+                <button
+                  type="button"
+                  data-testid="demo-account-button"
+                  onClick={fillDemoCredentials}
+                  className="site-button site-button-ghost site-auth-button"
+                  title="Fill the demo admin credentials (available on trusted networks only)"
+                >
+                  Demo account
+                </button>
+              ) : null}
             </form>
 
             <p className="site-auth-footer">

@@ -977,13 +977,26 @@ def api_auth_register(body: RegisterRequest, request: Request):
     except Exception as e:
         log.debug("signup alert failed: %s", e)
 
-    # Welcome notification for the new user
+    # Welcome notification for the new user. Providers get an expectations-first
+    # message (weekly uptime goal + how earning works + the don't-drop-mid-job
+    # rule) so the guidance is waiting in their inbox even before the email lands.
     try:
+        if requested_role == "provider":
+            from provider_expectations import provider_welcome_notification
+
+            _notif_title, _notif_body = provider_welcome_notification()
+        else:
+            _notif_title = "Welcome to Xcelsior!"
+            _notif_body = (
+                "Welcome to your Notifications Inbox! This is your new go-to destination "
+                "for important account updates and personalized recommendations. Check back "
+                "here to stay informed and maximize your Xcelsior experience!"
+            )
         NotificationStore.create(
             email,
             "system",
-            "Welcome to Xcelsior!",
-            "Welcome to your Notifications Inbox! This is your new go-to destination for important account updates and personalized recommendations. Check back here to stay informed and maximize your Xcelsior experience!",
+            _notif_title,
+            _notif_body,
             {"user_id": user_id},
         )
     except Exception as e:
@@ -1035,6 +1048,29 @@ def api_auth_register(body: RegisterRequest, request: Request):
             "message": "Account created. Please check your email to verify your address.",
         }
     )
+
+
+@router.get("/api/auth/demo-credentials", tags=["Auth"])
+def api_auth_demo_credentials(request: Request):
+    """Reveal the standing demo-account credentials, but ONLY to whitelisted IPs
+    (the owner's public IP, Tailscale nodes, home LAN, localhost). The login page
+    calls this on mount: 200 → show the one-click "Demo account" button and
+    prefill the fields; anything else → hide it. See demo_account.py for the
+    whitelist and the security caveats. Kill switch: XCELSIOR_DEMO_ENABLED=0."""
+    from demo_account import (
+        DEMO_EMAIL,
+        DEMO_PASSWORD,
+        demo_enabled,
+        is_ip_whitelisted,
+    )
+
+    if not demo_enabled():
+        raise HTTPException(404, "Not found")
+    client_ip = _deps_get_real_client_ip(request)
+    if not is_ip_whitelisted(client_ip):
+        # 403, not 404: the endpoint exists, this network just isn't allowed.
+        raise HTTPException(403, "Demo login is not available from this network.")
+    return {"email": DEMO_EMAIL, "password": DEMO_PASSWORD}
 
 
 @router.post("/api/auth/login", tags=["Auth"])
@@ -2108,21 +2144,36 @@ def api_auth_verify_email(req: VerifyEmailRequest, request: Request):
         user, request, client_id="xcelsior-web", session_type="browser"
     )
 
-    # Send welcome email now that they're verified
+    # Send welcome email now that they're verified. Providers get a different
+    # email that sets expectations "straight out" — the weekly uptime goal, how
+    # scoring works, what reliability is worth, and the one thing that hurts the
+    # whole network (dropping a job). Copy is derived from the real reputation
+    # engine via provider_expectations, so it can never overstate the rewards.
     try:
         display_name = user.get("name", email.split("@")[0])
-        _send_team_email(
-            email,
-            f"Welcome to Xcelsior, {display_name}!",
-            f"Hi {display_name},\n\n"
-            "Your email is verified and your account is active.\n\n"
-            "From your dashboard you can browse available GPU hosts, "
-            "launch compute instances, and track your usage — all billed in CAD with full Canadian data residency.\n\n"
-            "We're currently in early access, so if you run into anything or have questions, just reply to this email. "
-            "We'd love to hear from you.",
-            cta_url="https://xcelsior.ca/dashboard",
-            cta_label="Go to Dashboard",
-        )
+        if user.get("role") == "provider":
+            from provider_expectations import provider_welcome_email_text
+
+            _send_team_email(
+                email,
+                "Welcome to Xcelsior — here's how you earn",
+                provider_welcome_email_text(display_name),
+                cta_url="https://docs.xcelsior.ca/earn",
+                cta_label="See how you earn",
+            )
+        else:
+            _send_team_email(
+                email,
+                f"Welcome to Xcelsior, {display_name}!",
+                f"Hi {display_name},\n\n"
+                "Your email is verified and your account is active.\n\n"
+                "From your dashboard you can browse available GPU hosts, "
+                "launch compute instances, and track your usage — all billed in CAD with full Canadian data residency.\n\n"
+                "We're currently in early access, so if you run into anything or have questions, just reply to this email. "
+                "We'd love to hear from you.",
+                cta_url="https://xcelsior.ca/dashboard",
+                cta_label="Go to Dashboard",
+            )
     except Exception as e:
         log.debug("email notification send failed: %s", e)
 

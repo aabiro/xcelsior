@@ -1,0 +1,91 @@
+---
+title: Earn as a Provider
+subtitle: What we expect, how scoring works, and exactly what reliability is worth.
+slug: earn
+---
+
+## The deal, straight out
+
+You put a GPU on Xcelsior. We match it to paying jobs, handle the billing in CAD, and take a cut. The more reliable you are, the smaller our cut gets and the more jobs you win — so being dependable literally pays.
+
+There is no cash bonus for showing up and nothing to game. Everything below is how the real scoring engine behaves, not marketing.
+
+## The one goal: ~40 online hours a week
+
+We are **not** asking you to run 24/7. Predictable part-time availability is worth more to the network than an erratic always-on rig. Pick the target that fits your hardware:
+
+| Target | Hours / week | What it looks like | What it gets you |
+|--------|--------------|--------------------|------------------|
+| **Casual** | 20 | ~3 hrs/day, or a weekend rig | Stay listed and outrun activity decay — you keep earning points instead of bleeding them. |
+| **Reliable** ⭐ | 40 | Evenings + weekends, or an always-on desktop overnight | A strong reliability score and a steady climb toward Gold, where our commission drops. |
+| **Pro** | 100+ | A mostly-on dedicated rig | Fastest path to Platinum/Diamond, the 90–92% payout band, top search placement, and the highest price premium buyers will pay. |
+
+**Reliable (40 hrs/week) is the recommended target.** A home desktop left on overnight clears it easily.
+
+## How your score works
+
+Your reputation score drives everything — how high you rank in search, how much you can charge, and how much of each dollar you keep. It is built from four parts:
+
+```
+score = ( verification + activity + penalties ) × reliability
+```
+
+- **Verification** — up to **+250 points**, one time, for verifying your email, phone, government ID, and hardware. This is the single fastest way to jump tiers on day one.
+- **Activity** — **+10 points** per completed job (full value for your first 50, then half) and **+2 points** for every day you host. Sitting idle costs you: after a 7-day grace period, inactivity decays your activity points by 1/day.
+- **Penalties** — subtracted for failures (see below).
+- **Reliability** — a **0.0–1.0 multiplier** applied to *everything else*. This is the important one.
+
+### Reliability is a multiplier, not a bonus
+
+Because reliability multiplies your whole score, it's the difference between a good provider and a great one. It's measured from three things:
+
+| Component | Weight | Plain English |
+|-----------|--------|---------------|
+| Measured uptime | **40%** | Are you actually online when you said you'd be? |
+| Job success rate | **35%** | Jobs finished vs. jobs that failed on your machine. |
+| Network stability | **25%** | Low jitter, low packet loss. |
+
+Uptime is the biggest single lever you control. Keep your machine online and dependable and your entire score scales up with it.
+
+## What climbing is worth
+
+As your score rises you move through six tiers. Higher tiers mean **we take a smaller cut**, **you rank higher in search** (so you win more jobs), and **you can charge a premium**:
+
+| Tier | Reach | Our commission | You keep | Price premium | Search boost |
+|------|-------|---------------|----------|---------------|--------------|
+| New | join | 15% | **85%** | — | 0.8× |
+| Bronze | 100 | 15% | **85%** | — | 1.0× |
+| Silver | 250 | 15% | **85%** | +5% | 1.1× |
+| Gold | 450 | 12% | **88%** | +20% | 1.25× |
+| Platinum | 650 | 10% | **90%** | +40% | 1.5× |
+| Diamond | 850 | 8% | **92%** | +50% | 2.0× |
+
+A **Gold** host keeps about **3% more of every dollar** than a new host *and* ranks 25% higher in search. A **Diamond** host keeps **92%** of everything they earn and appears at the top of every relevant match. None of this is subsidized — you earn a bigger share by being worth more to the network.
+
+## The one thing that hurts everyone
+
+If you disappear **in the middle of a job**, that customer's work has to fail over to another provider. They wait. The whole network looks less reliable to the buyers we're trying to attract. And you personally take a double hit:
+
+- a **−75 point** SLA-breach penalty, **and**
+- a drop in your reliability multiplier, which **scales your entire score down**.
+
+One dropped week can cost you a tier. Other failures cost you too:
+
+| Event | Points |
+|-------|--------|
+| Going offline mid-job / breaking an uptime commitment | −75 |
+| A job fails because of your machine | −50 |
+| A security incident on your host | −200 |
+
+### Planned downtime is free
+
+You will need to reboot, patch, or take your rig back for gaming. That's fine — **there is no penalty for planned downtime.** Just stop accepting new jobs before you go offline instead of vanishing mid-job. Predictable beats always-on.
+
+## Getting started
+
+1. **Register your host** — see [GPU Hosts](/hosts) for the API and the worker-agent setup.
+2. **Verify everything you can** — email, phone, ID, hardware. That's up to +250 points immediately.
+3. **Set a weekly hours target** you can actually keep, and keep it.
+4. **Watch your score** on your dashboard under **Reputation**, and let jobs finish.
+
+For the full trust model and verification API, see [Trust &amp; Reputation](/trust).

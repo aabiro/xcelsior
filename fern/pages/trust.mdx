@@ -1,6 +1,6 @@
 ---
 title: Trust & Reputation
-subtitle: Multi-factor trust scoring from Bronze to Platinum.
+subtitle: Multi-factor trust scoring from New to Diamond.
 slug: trust
 ---
 
@@ -10,28 +10,45 @@ Xcelsior uses a multi-factor reputation system to build trust between providers 
 
 ## Trust Tiers
 
-| Tier | Min Score | Requirements |
-|------|-----------|-------------|
-| **Bronze** | 0 | Email verified |
-| **Silver** | 50 | Phone verified, 10+ completed jobs |
-| **Gold** | 75 | Government ID verified, 50+ jobs, 95%+ uptime |
-| **Platinum** | 90 | Incorporation verified, 200+ jobs, 99%+ uptime |
+There are six tiers. Each one lowers the platform commission and raises your marketplace visibility. For a provider-focused walkthrough of what each tier is worth, see [Earn as a Provider](/earn).
 
-## Scoring Factors
+| Tier | Min Score | Commission | Search boost | Unlocks |
+|------|-----------|-----------|--------------|---------|
+| **New** | 0 | 15% | 0.8× | Baseline access |
+| **Bronze** | 100 | 15% | 1.0× | Standard marketplace visibility |
+| **Silver** | 250 | 15% | 1.1× | +5% price premium, priority payout |
+| **Gold** | 450 | 12% | 1.25× | Verified badge, +20% price premium |
+| **Platinum** | 650 | 10% | 1.5× | Featured placement, +40% price premium |
+| **Diamond** | 850 | 8% | 2.0× | Top visibility, +50% price premium |
 
-The reputation score (0-100) is calculated from:
+## Scoring Model
+
+The score is **not** capped at 100. It is:
+
+```
+score = ( verification + activity + penalties ) × reliability
+```
+
+| Component | Range | How it's earned |
+|-----------|-------|-----------------|
+| **Verification** | 0 to +250 | One-time points for verifying email, phone, government ID, hardware, and incorporation. |
+| **Activity** | 0 to +500 | +10 per completed job (halved after your first 50) and +2 per day hosted. |
+| **Penalties** | negative | SLA breach −75, host-side job failure −50, chargeback −100, security incident −200, fraud −250. |
+| **Reliability** | ×0.0 to ×1.0 | A multiplier applied to everything else (see below). |
+
+### Reliability multiplier
+
+The reliability multiplier is the highest-leverage factor because it scales the *entire* score:
 
 | Factor | Weight | Description |
 |--------|--------|-------------|
-| Job completion rate | 30% | Successful jobs / total jobs |
-| Uptime | 25% | Host availability percentage |
-| Response time | 15% | Average job pickup latency |
-| Verification level | 20% | Email → Phone → Gov ID → Incorporation |
-| Community rating | 10% | Peer reviews and disputes |
+| Measured uptime | 40% | Availability vs. what you committed to. |
+| Job success rate | 35% | Completed jobs / (completed + host-side failures). |
+| Network stability | 25% | 1 − (jitter + packet loss). |
 
 ### Grace Period
 
-New providers get a **7-day grace period** where score decay is suspended, allowing time to build a track record.
+New providers get a **7-day grace period** where activity-point decay is suspended, allowing time to build a track record. After that, idle providers lose 1 activity point per day.
 
 ## Verification
 
@@ -50,12 +67,15 @@ Content-Type: application/json
 
 ### Verification Types
 
-| Type | Tier Unlock | Process |
-|------|------------|---------|
-| `email` | Bronze | Email confirmation link |
-| `phone` | Silver | SMS verification code |
-| `gov_id` | Gold | Government-issued ID scan |
-| `incorporation` | Platinum | Certificate of incorporation |
+Verification points are one-time and capped at **+250 total** — the fastest way to climb tiers on day one.
+
+| Type | Points | Process |
+|------|--------|---------|
+| `email` | +50 | Email confirmation link |
+| `phone` | +50 | SMS verification code |
+| `gov_id` | +75 | Government-issued ID scan |
+| `hardware_audit` | +75 | Automated host hardware attestation |
+| `incorporation` | +100 | Certificate of incorporation |
 
 ## Leaderboard
 
