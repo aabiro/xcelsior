@@ -4,11 +4,17 @@ import {
   createContext,
   useContext,
   useEffect,
+  useLayoutEffect,
   useState,
   useCallback,
 } from "react";
 
 export type Theme = "dark" | "light";
+
+// Layout effect on the client (runs before paint), plain effect on the server
+// (useLayoutEffect warns during SSR and is a no-op there anyway).
+const useIsomorphicLayoutEffect =
+  typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 const STORAGE_KEY = "xcelsior-theme";
 
@@ -55,10 +61,24 @@ export function syncThemeFromStorage(): Theme {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(() => readStoredTheme());
+  // Initialize to a STABLE value on both server and client. Do NOT read
+  // localStorage in this initializer: on the server it returns "dark", on the
+  // client it would return the stored theme — a mismatch that React resolves by
+  // keeping the server-rendered markup. Worse, because the mount effect below
+  // would then be setting the value the client already initialized to, it
+  // produces no re-render, so the stale server value (e.g. data-theme="dark" on
+  // the dashboard/marketing shells) is never corrected. That stranded the
+  // dashboard in dark mode while <html> was already light — everything keyed on
+  // the shell's data-theme stayed dark while the app bar (keyed on the <html>
+  // class the inline script sets) went light. Keep this constant.
+  const [theme, setTheme] = useState<Theme>("dark");
 
-  useEffect(() => {
-    const stored = syncThemeFromStorage();
+  // Reconcile to the stored theme before the browser paints the hydrated tree,
+  // so the shells' data-theme flips in the same frame (no flash) and — crucially
+  // — a real re-render occurs, updating the DOM attribute the shells render.
+  useIsomorphicLayoutEffect(() => {
+    const stored = readStoredTheme();
+    applyTheme(stored);
     setTheme(stored);
   }, []);
 
