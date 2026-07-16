@@ -209,7 +209,7 @@ export function DesktopAppPreferences() {
             size="sm"
             onClick={handleInstall}
             disabled={installing}
-            className="min-w-36"
+            className="min-w-36 self-end md:ml-auto md:self-auto"
           >
             <Download className="h-4 w-4" />
             {installing ? "Installing..." : "Install app"}
@@ -244,7 +244,7 @@ export function DesktopAppPreferences() {
               size="sm"
               onClick={pushSubscribed ? handleDisablePush : handleEnablePush}
               disabled={pushLoading}
-              className="min-w-44"
+              className="min-w-44 self-end md:ml-auto md:self-auto"
             >
               {pushLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <BellRing className="h-4 w-4" />}
               {pushSubscribed ? "Disable notifications" : "Enable notifications"}

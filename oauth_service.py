@@ -592,6 +592,7 @@ def create_oauth_client(
         # Industry-standard client secret: a long, unprefixed 256-bit hex token.
         client_secret = secrets.token_hex(32)
         secret_hash, secret_salt = hash_secret(client_secret)
+    secret_preview = f"{client_secret[:4]}...{client_secret[-4:]}" if client_secret else None
 
     client = {
         "client_id": client_id,
@@ -602,6 +603,7 @@ def create_oauth_client(
         "scopes": scopes,
         "client_secret_hash": secret_hash,
         "client_secret_salt": secret_salt,
+        "client_secret_preview": secret_preview,
         "created_by_email": created_by_email,
         "is_first_party": 1 if is_first_party else 0,
         "workspace_customer_id": workspace_customer_id,
@@ -625,6 +627,7 @@ def create_oauth_client(
         "created_at": now,
         "updated_at": now,
         "last_used": None,
+        "client_secret_preview": secret_preview,
     }
     if client_secret:
         response["client_secret"] = client_secret
