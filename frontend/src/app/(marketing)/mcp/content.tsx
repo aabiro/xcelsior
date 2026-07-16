@@ -6,6 +6,7 @@ import Link from "next/link";
 import { AuthAwareLink } from "@/components/marketing/auth-aware-link";
 import { ArrowRight, CheckCircle2, Zap } from "lucide-react";
 import { CodeBlock } from "@/components/ui/code-block";
+import { PixelField } from "@/components/ui/pixel-field";
 import { m } from "@/components/marketing/motion";
 import { siteIcon } from "@/lib/brand-assets";
 import { useLocale } from "@/lib/locale";
@@ -103,7 +104,9 @@ export function McpLandingContent() {
   const configSnippet = mcpConfigSnippet(agentTab);
 
   return (
-    <>
+    <div className="mcp-particle-page">
+      <PixelField position="fixed" className="mcp-particle-field" />
+      <div className="mcp-particle-content">
       <section className="site-hero">
         <div className="site-grid-bg" aria-hidden />
         <div className="site-container">
@@ -284,6 +287,7 @@ export function McpLandingContent() {
           </Link>
         </section>
       </div>
-    </>
+      </div>
+    </div>
   );
 }

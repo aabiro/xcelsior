@@ -1,93 +1,203 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useRef } from "react";
 
-/**
- * Ambient "tech whimsical" background: premium glowing orbs drifting upward and
- * fading, in the Xcelsior brand triad (cyan/purple weighted over emerald).
- * Uses the design-bundle orb sprites (public/particles/*), CSS-only motion (no
- * canvas / JS loop). Sits behind glass content — parent must clip via
- * `overflow-hidden`. Motion is gated behind `prefers-reduced-motion`.
- */
-
-// Weighted like the design bundle's particle field: cyan/purple dominate, emerald accents.
 const SPRITES = [
-  { src: "/particles/particle-cyan.svg", weight: 0.42 },
-  { src: "/particles/particle-purple.svg", weight: 0.42 },
-  { src: "/particles/particle-emerald.svg", weight: 0.16 },
+  "/particles/particle-cyan.svg",
+  "/particles/particle-purple.svg",
+  "/particles/particle-emerald.svg",
 ] as const;
 
-type Orb = {
-  left: number;
-  top: number;
+const WEIGHTS = [0.42, 0.42, 0.16] as const;
+
+type Particle = {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
   size: number;
-  src: string;
+  depth: number;
+  image: number;
   opacity: number;
-  duration: number;
-  delay: number;
-  drift: number;
+  phase: number;
+  pulseSpeed: number;
 };
 
-// Deterministic pseudo-random so SSR and client agree (no hydration mismatch).
-function seeded(i: number, salt: number): number {
-  const x = Math.sin(i * 928.371 + salt * 41.117) * 43758.5453;
-  return x - Math.floor(x);
+function randomBetween(min: number, max: number) {
+  return min + Math.random() * (max - min);
 }
 
-function pickSprite(r: number): string {
-  let acc = 0;
-  for (const s of SPRITES) {
-    acc += s.weight;
-    if (r <= acc) return s.src;
+function pickSprite() {
+  const value = Math.random();
+  let accumulated = 0;
+
+  for (let index = 0; index < WEIGHTS.length; index += 1) {
+    accumulated += WEIGHTS[index];
+    if (value <= accumulated) return index;
   }
-  return SPRITES[0].src;
+
+  return 0;
 }
 
-function buildOrbs(count: number): Orb[] {
-  return Array.from({ length: count }, (_, i) => {
-    const depth = seeded(i, 3); // 0 far … 1 near
+function makeParticles(count: number, width: number, height: number): Particle[] {
+  return Array.from({ length: count }, () => {
+    const depth = Math.random();
+    const size = randomBetween(8, 34) * (0.5 + depth);
+
     return {
-      left: seeded(i, 1) * 100,
-      top: seeded(i, 2) * 100,
-      size: Math.round((10 + seeded(i, 8) * 28) * (0.55 + depth * 0.6)), // ~10–40px, depth-scaled
-      src: pickSprite(seeded(i, 4)),
-      opacity: 0.35 + depth * 0.5,
-      duration: 7 + seeded(i, 5) * 7, // 7–14s
-      delay: seeded(i, 6) * -14, // negative → staggered, already in-flight on load
-      drift: 24 + seeded(i, 7) * 46, // px of upward travel
+      x: Math.random() * width,
+      y: Math.random() * height,
+      vx: randomBetween(-0.14, 0.14) * (0.4 + depth),
+      vy: randomBetween(-0.14, 0.14) * (0.4 + depth),
+      size,
+      depth,
+      image: pickSprite(),
+      opacity: randomBetween(0.25, 0.9) * (0.45 + depth * 0.6),
+      phase: Math.random() * Math.PI * 2,
+      pulseSpeed: randomBetween(0.0006, 0.0016),
     };
   });
 }
 
-export function PixelField({ count = 16, className }: { count?: number; className?: string }) {
-  const orbs = useMemo(() => buildOrbs(count), [count]);
+type PixelFieldProps = {
+  count?: number;
+  className?: string;
+  position?: "absolute" | "fixed";
+};
+
+/**
+ * Canvas particle field based directly on the site-assets particle demo.
+ * Particle depth drives size, velocity, opacity, and eased pointer parallax;
+ * the SVG sprites are composited additively to retain their original glow.
+ */
+export function PixelField({ count, className, position = "absolute" }: PixelFieldProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const context = canvas.getContext("2d");
+    if (!context) return;
+
+    const images = SPRITES.map((source) => {
+      const image = new Image();
+      image.src = source;
+      return image;
+    });
+
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let width = 0;
+    let height = 0;
+    let dpr = 1;
+    let pointerX = 0;
+    let pointerY = 0;
+    let targetPointerX = 0;
+    let targetPointerY = 0;
+    let particles: Particle[] = [];
+    let animationFrame = 0;
+    let disposed = false;
+
+    const resize = () => {
+      const bounds = canvas.getBoundingClientRect();
+      width = bounds.width;
+      height = bounds.height;
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      context.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      if (particles.length === 0 && width > 0 && height > 0) {
+        const particleCount = count ?? Math.round(Math.min(90, Math.max(38, (width * height) / 22000)));
+        particles = makeParticles(particleCount, width, height);
+      }
+    };
+
+    const draw = (now: number, advance: boolean) => {
+      context.clearRect(0, 0, width, height);
+      pointerX += (targetPointerX - pointerX) * 0.05;
+      pointerY += (targetPointerY - pointerY) * 0.05;
+      context.globalCompositeOperation = "lighter";
+
+      for (const particle of particles) {
+        if (advance) {
+          particle.x += particle.vx;
+          particle.y += particle.vy;
+        }
+
+        const margin = particle.size;
+        if (particle.x < -margin) particle.x = width + margin;
+        if (particle.x > width + margin) particle.x = -margin;
+        if (particle.y < -margin) particle.y = height + margin;
+        if (particle.y > height + margin) particle.y = -margin;
+
+        const pulse = 0.72 + 0.28 * Math.sin(particle.phase + now * particle.pulseSpeed);
+        const parallax = 26 * particle.depth;
+        const x = particle.x + pointerX * parallax;
+        const y = particle.y + pointerY * parallax;
+        const image = images[particle.image];
+
+        if (image.complete && image.naturalWidth) {
+          context.globalAlpha = Math.min(1, particle.opacity * pulse);
+          const size = particle.size * (0.9 + 0.1 * pulse);
+          context.drawImage(image, x - size / 2, y - size / 2, size, size);
+        }
+      }
+
+      context.globalAlpha = 1;
+      context.globalCompositeOperation = "source-over";
+    };
+
+    const frame = (now: number) => {
+      if (disposed) return;
+      draw(now || 0, true);
+      animationFrame = window.requestAnimationFrame(frame);
+    };
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (width <= 0 || height <= 0) return;
+      const bounds = canvas.getBoundingClientRect();
+      targetPointerX = ((event.clientX - bounds.left) / width - 0.5) * 2;
+      targetPointerY = ((event.clientY - bounds.top) / height - 0.5) * 2;
+    };
+
+    const resetPointer = () => {
+      targetPointerX = 0;
+      targetPointerY = 0;
+    };
+
+    const drawStatic = () => {
+      if (!disposed) draw(0, false);
+    };
+
+    resize();
+    window.addEventListener("resize", resize);
+    window.addEventListener("pointermove", handlePointerMove, { passive: true });
+    window.addEventListener("pointerleave", resetPointer);
+
+    if (reduceMotion) {
+      images.forEach((image) => image.addEventListener("load", drawStatic));
+      drawStatic();
+    } else {
+      animationFrame = window.requestAnimationFrame(frame);
+    }
+
+    return () => {
+      disposed = true;
+      window.cancelAnimationFrame(animationFrame);
+      window.removeEventListener("resize", resize);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerleave", resetPointer);
+      images.forEach((image) => image.removeEventListener("load", drawStatic));
+    };
+  }, [count]);
+
   return (
-    <div
+    <canvas
+      ref={canvasRef}
       aria-hidden
-      className={`pointer-events-none absolute inset-0 overflow-hidden ${className ?? ""}`}
-    >
-      {orbs.map((p, i) => (
-        <img
-          key={i}
-          src={p.src}
-          alt=""
-          className="pixel-field-dot"
-          style={
-            {
-              left: `${p.left}%`,
-              top: `${p.top}%`,
-              width: `${p.size}px`,
-              height: `${p.size}px`,
-              // orbs carry their own radial glow; opacity is animated by the keyframe,
-              // scaled by this per-orb ceiling via the CSS var below.
-              ["--pf-max-opacity" as string]: p.opacity.toFixed(2),
-              ["--pf-duration" as string]: `${p.duration}s`,
-              ["--pf-delay" as string]: `${p.delay}s`,
-              ["--pf-drift" as string]: `-${p.drift}px`,
-            } as React.CSSProperties
-          }
-        />
-      ))}
-    </div>
+      className={`${position} inset-0 block h-full w-full pointer-events-none ${className ?? ""}`}
+    />
   );
 }

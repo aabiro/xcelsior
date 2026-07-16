@@ -109,6 +109,8 @@ def test_oauth_device_authorize(user_headers):
     )
     assert created.status_code == 200
     oauth_client = created.json()["client"]
+    original_secret = oauth_client["client_secret"]
+    assert oauth_client["client_secret_preview"] == f"{original_secret[:4]}...{original_secret[-4:]}"
     r = client.post(
         "/oauth/device/authorize",
         json={
@@ -142,7 +144,19 @@ def test_oauth_rotate_secret(user_headers):
         headers=headers,
     )
     assert r.status_code == 200
-    assert r.json().get("client_secret")
+    rotated = r.json()
+    assert rotated.get("client_secret")
+    assert rotated["client_secret_preview"] == (
+        f"{rotated['client_secret'][:4]}...{rotated['client_secret'][-4:]}"
+    )
+
+    listed = client.get("/api/oauth/clients", headers=headers)
+    assert listed.status_code == 200
+    listed_client = next(
+        item for item in listed.json()["clients"] if item["client_id"] == oauth_client["client_id"]
+    )
+    assert listed_client["client_secret_preview"] == rotated["client_secret_preview"]
+    assert "client_secret" not in listed_client
 
 
 # ── MFA routes (routes/mfa.py) — reachable, no unhandled 500 ────────────

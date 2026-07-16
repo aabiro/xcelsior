@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { createPortal } from "react-dom";
 import { ArrowRight, ChevronLeft, Rocket, Server, Sparkles, Terminal, Wallet, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -86,28 +87,25 @@ export function XcelAiOnboarding({
   const [step, setStep] = useState(0);
 
   const finish = useCallback(() => {
+    setStep(0);
     markAiOnboardingSeen();
     onComplete?.();
     onClose();
   }, [onClose, onComplete]);
-
-  useEffect(() => {
-    if (!open) setStep(0);
-  }, [open]);
 
   if (!open) return null;
 
   const slide = SLIDES[step];
   const isLast = step === SLIDES.length - 1;
 
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-navy/80 backdrop-blur-md" onClick={finish} aria-hidden />
+  return createPortal(
+    <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-navy/75 backdrop-blur-[3px]" onClick={finish} aria-hidden />
       <motion.div
         initial={{ opacity: 0, scale: 0.96, y: 12 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 12 }}
-        className="relative z-10 w-full max-w-lg overflow-hidden rounded-2xl border border-border/60 bg-surface shadow-2xl shadow-accent-cyan/5"
+        className="relative z-10 flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-border/60 bg-surface shadow-2xl shadow-black/50"
       >
         <button
           type="button"
@@ -118,7 +116,7 @@ export function XcelAiOnboarding({
           <X className="h-4 w-4" />
         </button>
 
-        <div className="relative overflow-hidden">
+        <div className="relative min-h-0 overflow-y-auto">
           <AnimatePresence mode="wait">
             <motion.div
               key={slide.id}
@@ -127,14 +125,14 @@ export function XcelAiOnboarding({
               exit={{ opacity: 0, x: -24 }}
               transition={{ duration: 0.22 }}
             >
-              <div className="relative aspect-[12/7] w-full bg-navy">
+              <div className="relative flex h-44 w-full items-center justify-center overflow-hidden bg-navy/70 p-4 sm:h-52 sm:p-5">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={slide.image}
                   alt=""
-                  className="h-full w-full object-cover"
+                  className="relative z-0 max-h-full max-w-full object-contain"
                 />
-                <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-surface to-transparent" />
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-12 bg-gradient-to-t from-surface to-transparent" />
               </div>
               <div className="px-6 pb-6 pt-4">
                 <div className="flex items-center gap-2 mb-2">
@@ -196,7 +194,8 @@ export function XcelAiOnboarding({
           </div>
         </div>
       </motion.div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import {
   KeyRound, Plus, Copy, CheckCircle, AlertTriangle, Trash2,
   Loader2, RotateCcw, Pencil, Power, PowerOff, Clock, MoreVertical,
+  ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
@@ -155,6 +156,13 @@ function formatDate(epoch: number | null | undefined): string {
     month: "short", day: "numeric", year: "numeric",
     hour: "2-digit", minute: "2-digit",
   });
+}
+
+function maskedSecretPreview(preview: string | null | undefined): string {
+  if (!preview) return "••••••••••••••••";
+  const [start, end] = preview.split("...");
+  if (!start || !end) return "••••••••••••••••";
+  return `${start}••••••••${end}`;
 }
 
 // ── Scope Matrix ─────────────────────────────────────────────────────
@@ -522,6 +530,17 @@ function ClientRow({
               <code className="mt-1 block text-xs text-text-muted font-mono truncate">
                 {client.client_id}
               </code>
+              <div className="mt-1.5 flex min-w-0 items-center gap-2 text-[11px] text-text-muted">
+                <span className="shrink-0">{t("dash.settings.oauth.client_secret_label")}</span>
+                <code className="truncate font-mono text-text-secondary">
+                  {maskedSecretPreview(client.client_secret_preview)}
+                </code>
+                {!client.client_secret_preview && (
+                  <span className="truncate text-text-muted/70">
+                    {t("dash.settings.oauth.secret_preview_unavailable")}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
           <ScopeChipRow scopes={client.scopes || []} maxVisible={6} />
@@ -580,6 +599,7 @@ export function OAuthClientManager({ clients, onClientsChange, team }: OAuthClie
   const [rotatingClient, setRotatingClient] = useState<OAuthClientInfo | null>(null);
   const [deletingClient, setDeletingClient] = useState<OAuthClientInfo | null>(null);
   const [togglingClient, setTogglingClient] = useState<OAuthClientInfo | null>(null);
+  const [page, setPage] = useState(1);
   const [secretReveal, setSecretReveal] = useState<{
     clientId: string;
     secret: string;
@@ -654,6 +674,10 @@ export function OAuthClientManager({ clients, onClientsChange, team }: OAuthClie
 
   const activeClients = clients.filter((c) => c.status !== "disabled");
   const disabledClients = clients.filter((c) => c.status === "disabled");
+  const pageSize = 5;
+  const pageCount = Math.max(1, Math.ceil(clients.length / pageSize));
+  const visiblePage = Math.min(page, pageCount);
+  const pagedClients = clients.slice((visiblePage - 1) * pageSize, visiblePage * pageSize);
 
   return (
     <>
@@ -720,7 +744,7 @@ export function OAuthClientManager({ clients, onClientsChange, team }: OAuthClie
             </div>
           ) : (
             <StaggerList className="space-y-3">
-              {clients.map((client) => (
+              {pagedClients.map((client) => (
                 <StaggerItem key={client.client_id}>
                   <ClientRow
                     client={client}
@@ -734,6 +758,34 @@ export function OAuthClientManager({ clients, onClientsChange, team }: OAuthClie
                 </StaggerItem>
               ))}
             </StaggerList>
+          )}
+
+          {clients.length > pageSize && (
+            <div className="flex items-center justify-between border-t border-border/50 pt-4">
+              <p className="text-xs text-text-muted">
+                {t("dash.settings.pagination", { page: visiblePage, pages: pageCount })}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  disabled={visiblePage === 1}
+                  aria-label={t("dash.settings.previous_page")}
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+                  disabled={visiblePage === pageCount}
+                  aria-label={t("dash.settings.next_page")}
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
           )}
         </div>
       </SettingsSection>
