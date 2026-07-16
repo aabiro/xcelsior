@@ -99,6 +99,24 @@ export const LEARN_SLIDES: LearnSlide[] = [
     },
     {
         mode: "learn",
+        heading: "Aim for ~40 hours a week",
+        lines: [
+            "No need to run 24/7. ~40 online hours a",
+            "week is the sweet spot — evenings and",
+            "overnight clears it. Predictable wins.",
+        ],
+    },
+    {
+        mode: "learn",
+        heading: "Don't vanish mid-job",
+        lines: [
+            "Staying online lifts your reliability —",
+            "and reliability multiplies your whole",
+            "score. Drop a job and you lose a tier.",
+        ],
+    },
+    {
+        mode: "learn",
         heading: "Live marketplace depth",
         lines: [
             "Capacity ebbs and flows. The scheduler",
