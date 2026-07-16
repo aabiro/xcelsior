@@ -1259,6 +1259,7 @@ def _ensure_oauth_auth_tables(conn) -> None:
             scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
             client_secret_hash TEXT,
             client_secret_salt TEXT,
+            client_secret_preview TEXT,
             created_by_email TEXT,
             is_first_party INTEGER NOT NULL DEFAULT 0,
             status TEXT NOT NULL DEFAULT 'active',
@@ -1272,6 +1273,7 @@ def _ensure_oauth_auth_tables(conn) -> None:
         "ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'"
     )
     cur.execute("ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS last_used DOUBLE PRECISION")
+    cur.execute("ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS client_secret_preview TEXT")
     cur.execute(
         "ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS workspace_customer_id TEXT"
     )
@@ -2630,13 +2632,17 @@ class OAuthStore:
         client_id: str,
         new_secret_hash: str,
         new_secret_salt: str,
+        new_secret_preview: str,
         *,
         workspace_customer_id: str,
         personal_customer_id: str,
         user_email: str,
     ) -> bool:
-        set_clause = "client_secret_hash = %s, client_secret_salt = %s, updated_at = %s"
-        values = [new_secret_hash, new_secret_salt, time.time()]
+        set_clause = (
+            "client_secret_hash = %s, client_secret_salt = %s, "
+            "client_secret_preview = %s, updated_at = %s"
+        )
+        values = [new_secret_hash, new_secret_salt, new_secret_preview, time.time()]
         where, where_vals = OAuthStore._workspace_where(
             client_id,
             workspace_customer_id=workspace_customer_id,
@@ -2656,10 +2662,14 @@ class OAuthStore:
         client_id: str,
         new_secret_hash: str,
         new_secret_salt: str,
+        new_secret_preview: str,
         created_by_email: str | None = None,
     ) -> bool:
-        set_clause = "client_secret_hash = %s, client_secret_salt = %s, updated_at = %s"
-        values = [new_secret_hash, new_secret_salt, time.time()]
+        set_clause = (
+            "client_secret_hash = %s, client_secret_salt = %s, "
+            "client_secret_preview = %s, updated_at = %s"
+        )
+        values = [new_secret_hash, new_secret_salt, new_secret_preview, time.time()]
         if created_by_email:
             values.extend([client_id, created_by_email])
             where = "client_id = %s AND created_by_email = %s AND is_first_party = 0"
@@ -2709,6 +2719,7 @@ class OAuthStore:
                     scopes,
                     client_secret_hash,
                     client_secret_salt,
+                    client_secret_preview,
                     created_by_email,
                     is_first_party,
                     workspace_customer_id,
@@ -2717,7 +2728,7 @@ class OAuthStore:
                     created_at,
                     updated_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (client_id) DO UPDATE SET
                     client_name = EXCLUDED.client_name,
                     client_type = EXCLUDED.client_type,
@@ -2726,6 +2737,7 @@ class OAuthStore:
                     scopes = EXCLUDED.scopes,
                     client_secret_hash = EXCLUDED.client_secret_hash,
                     client_secret_salt = EXCLUDED.client_secret_salt,
+                    client_secret_preview = EXCLUDED.client_secret_preview,
                     created_by_email = EXCLUDED.created_by_email,
                     is_first_party = EXCLUDED.is_first_party,
                     is_system_managed = EXCLUDED.is_system_managed,
@@ -2740,6 +2752,7 @@ class OAuthStore:
                     Jsonb(list(client.get("scopes") or [])),
                     client.get("client_secret_hash"),
                     client.get("client_secret_salt"),
+                    client.get("client_secret_preview"),
                     client.get("created_by_email"),
                     int(client.get("is_first_party", 0)),
                     client.get("workspace_customer_id"),

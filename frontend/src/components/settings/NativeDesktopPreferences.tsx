@@ -144,7 +144,7 @@ export function NativeDesktopPreferences() {
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap justify-end gap-2 md:ml-auto">
           <Button type="button" variant="secondary" size="sm" onClick={() => void openControlCenter("/desktop")}>
             <PlugZap className="h-4 w-4" />
             Open Control Center

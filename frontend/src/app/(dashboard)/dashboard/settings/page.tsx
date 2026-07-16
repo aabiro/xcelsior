@@ -10,7 +10,7 @@ import {
   Lock, Trash2, Download, Eye, EyeOff, Copy, Plus, AlertTriangle,
   CheckCircle, Loader2, ShieldCheck, X, Users, UserPlus, UserMinus,
   User, Fingerprint, MonitorSmartphone, KeyRound, Wallet, TrendingDown,
-  ChevronRight, Pencil, Mail, MailCheck,
+  ChevronLeft, ChevronRight, Pencil, Mail, MailCheck,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
@@ -1048,10 +1048,12 @@ function ProfileTab({
         </StaggerItem>
 
         <StaggerItem>
-          <Button onClick={onSave} disabled={saving} className="w-full sm:w-auto">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            {saving ? "Saving..." : t("dash.settings.save")}
-          </Button>
+          <div className="flex justify-end">
+            <Button onClick={onSave} disabled={saving} className="w-full sm:w-auto">
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              {saving ? "Saving..." : t("dash.settings.save")}
+            </Button>
+          </div>
         </StaggerItem>
       </StaggerList>
     </SettingsTabPanel>
@@ -1112,6 +1114,15 @@ function SecurityTab({
     | { type: "passkey-remove"; id: number; name: string }
     | null;
   const [mfaConfirm, setMfaConfirm] = useState<MfaConfirm>(null);
+  const [showBackupCodes, setShowBackupCodes] = useState(Boolean(backupCodes));
+  const [sessionPage, setSessionPage] = useState(1);
+  const sessionPageSize = 5;
+  const sessionPageCount = Math.max(1, Math.ceil(sessions.length / sessionPageSize));
+  const visibleSessionPage = Math.min(sessionPage, sessionPageCount);
+  const pagedSessions = sessions.slice(
+    (visibleSessionPage - 1) * sessionPageSize,
+    visibleSessionPage * sessionPageSize,
+  );
 
   const newPasswordValidation = getPasswordValidation(newPw);
   const matchingPasswords = passwordsMatch(newPw, confirmPw);
@@ -1200,9 +1211,11 @@ function SecurityTab({
               </div>
             </div>
             <PasswordRequirements items={passwordRequirements} />
-            <Button type="submit" disabled={changingPw || !currentPw || !newPasswordValidation.isValid || !matchingPasswords}>
-              {changingPw ? <><Loader2 className="h-4 w-4 animate-spin" /> Changing...</> : t("dash.settings.change_pw")}
-            </Button>
+            <div className="flex justify-end">
+              <Button type="submit" disabled={changingPw || !currentPw || !newPasswordValidation.isValid || !matchingPasswords}>
+                {changingPw ? <><Loader2 className="h-4 w-4 animate-spin" /> Changing...</> : t("dash.settings.change_pw")}
+              </Button>
+            </div>
           </form>
           </SettingsSection>
         </StaggerItem>
@@ -1429,11 +1442,24 @@ function SecurityTab({
                       {t("dash.settings.mfa_backup_remaining", { count: String(mfaBackupRemaining) })}
                     </p>
                   </div>
-                  <Button variant="outline" size="sm" onClick={onRegenerateBackupCodes}>
-                    {t("dash.settings.mfa_backup_regenerate")}
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {backupCodes && (
+                      <Button variant="outline" size="sm" onClick={() => setShowBackupCodes((visible) => !visible)}>
+                        {showBackupCodes ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        {showBackupCodes ? t("dash.settings.mfa_backup_hide") : t("dash.settings.mfa_backup_view")}
+                      </Button>
+                    )}
+                    <Button variant="outline" size="sm" onClick={() => { setShowBackupCodes(true); onRegenerateBackupCodes(); }}>
+                      {t("dash.settings.mfa_backup_regenerate")}
+                    </Button>
+                  </div>
                 </div>
-                {backupCodes && (
+                {!backupCodes && (
+                  <p className="text-xs leading-relaxed text-text-muted">
+                    {t("dash.settings.mfa_backup_not_retrievable")}
+                  </p>
+                )}
+                {backupCodes && showBackupCodes && (
                   <div className="space-y-2">
                     <p className="text-xs text-accent-gold flex items-center gap-1">
                       <AlertTriangle className="h-3 w-3" /> {t("dash.settings.mfa_backup_desc")}
@@ -1492,7 +1518,7 @@ function SecurityTab({
             ) : sessions.length === 0 ? (
               <p className="text-sm text-text-muted">{t("dash.settings.sessions_none")}</p>
             ) : (
-              sessions.map((s) => {
+              pagedSessions.map((s) => {
                 const ua = s.user_agent || "";
                 const browser = ua.match(/Chrome|Firefox|Safari|Edge|Opera/)?.[0] || "Unknown browser";
                 const os = ua.match(/Windows|Mac OS|Linux|Android|iOS/)?.[0] || "Unknown OS";
@@ -1520,6 +1546,33 @@ function SecurityTab({
                   </div>
                 );
               })
+            )}
+            {sessions.length > sessionPageSize && (
+              <div className="flex items-center justify-between border-t border-border/50 pt-3">
+                <p className="text-xs text-text-muted">
+                  {t("dash.settings.pagination", { page: String(visibleSessionPage), pages: String(sessionPageCount) })}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSessionPage((current) => Math.max(1, current - 1))}
+                    disabled={visibleSessionPage === 1}
+                    aria-label={t("dash.settings.previous_page")}
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSessionPage((current) => Math.min(sessionPageCount, current + 1))}
+                    disabled={visibleSessionPage === sessionPageCount}
+                    aria-label={t("dash.settings.next_page")}
+                  >
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
             )}
           </div>
         </SettingsSection>

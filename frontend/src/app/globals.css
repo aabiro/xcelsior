@@ -327,24 +327,6 @@ html.light .aurora-gradient {
   50% { opacity: 0.6; transform: translateY(-10px) scale(1.02); }
 }
 
-/* ── Pixel field (ambient drifting dots, see components/ui/pixel-field.tsx) ── */
-.pixel-field-dot {
-  position: absolute;
-  border-radius: 1px;
-  opacity: 0;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .pixel-field-dot {
-    animation: pixel-float var(--pf-duration, 10s) ease-in-out var(--pf-delay, 0s) infinite;
-  }
-}
-@keyframes pixel-float {
-  0% { opacity: 0; transform: translateY(0) scale(0.9); }
-  20% { opacity: calc(var(--pf-max-opacity, 0.7) * 1); }
-  80% { opacity: calc(var(--pf-max-opacity, 0.7) * 0.7); }
-  100% { opacity: 0; transform: translateY(var(--pf-drift, -30px)) scale(1.05); }
-}
-
 /* ── Glow Card ─────────────────────────────────────────────────────── */
 .glow-card {
   position: relative;
@@ -771,9 +753,21 @@ input[type="number"]:focus {
    length. */
 [data-sonner-toast] {
   position: relative !important;
+  align-items: flex-start !important;
 }
 [data-sonner-toast] [data-content] {
+  align-self: flex-start !important;
+  justify-content: flex-start !important;
   padding-bottom: 22px !important;
+}
+[data-sonner-toast] [data-icon] {
+  align-self: flex-start !important;
+  margin-top: 2px !important;
+}
+[data-sonner-toast] [data-title],
+[data-sonner-toast] [data-description] {
+  margin: 0 !important;
+  line-height: 1.35 !important;
 }
 [data-sonner-toast] .xcelsior-toast-dismiss,
 [data-sonner-toast] [data-close-button].xcelsior-toast-dismiss {

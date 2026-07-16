@@ -22,8 +22,9 @@ export function McpConnectCard() {
     try {
       const res = await api.getMcpQuickConnect(regenerate);
       setConn(res);
+      if (regenerate) toast.success(t("dash.mcp.regenerated"));
     } catch {
-      toast.error(t("dash.mcp.load_failed"));
+      toast.error(t(regenerate ? "dash.mcp.regenerate_failed" : "dash.mcp.load_failed"));
     } finally {
       setLoading(false);
       setRegenerating(false);
@@ -56,8 +57,21 @@ export function McpConnectCard() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleCopyToken = () => {
+    if (!token) return;
+    void navigator.clipboard.writeText(token);
+    toast.success(t("dash.mcp.token_copied"));
+  };
+
+  const tokenIndex = token ? promptText.indexOf(token) : -1;
+  const promptBeforeToken = tokenIndex >= 0 ? promptText.slice(0, tokenIndex) : promptText;
+  const promptAfterToken = tokenIndex >= 0 ? promptText.slice(tokenIndex + token.length) : "";
+  const abbreviatedToken = token.length > 24
+    ? `${token.slice(0, 12)}…${token.slice(-8)}`
+    : token;
+
   return (
-    <div className="glow-card glass relative mx-auto w-full max-w-2xl rounded-[22px] p-6 sm:p-8">
+    <div className="mcp-connect-card glow-card glass relative mx-auto w-full max-w-2xl rounded-[22px] p-6 sm:p-8">
       <div className="brand-line mb-6 rounded-full" />
 
       <div className="mb-6 flex justify-center">
@@ -72,7 +86,7 @@ export function McpConnectCard() {
         />
       </div>
 
-      <p className="mb-3 text-sm text-text-secondary">{t("dash.mcp.prompt_intro")}</p>
+      <p className="mb-3 text-center text-sm text-text-secondary">{t("dash.mcp.prompt_intro")}</p>
 
       {/* Prompt surface */}
       <div className="rounded-xl border border-border/70 bg-surface/50 p-4">
@@ -86,8 +100,20 @@ export function McpConnectCard() {
             <div className="skeleton h-4 w-3/4 rounded" />
           </div>
         ) : (
-          <p className="whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-text-primary">
-            {promptText}
+          <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-text-primary">
+            {promptBeforeToken}
+            {tokenIndex >= 0 && (
+              <button
+                type="button"
+                onClick={handleCopyToken}
+                className="inline rounded-sm px-0.5 font-mono text-[10px] text-accent-cyan/70 decoration-accent-cyan/50 underline-offset-4 transition-colors hover:text-accent-cyan hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-cyan/50"
+                aria-label={t("dash.mcp.copy_token")}
+                title={t("dash.mcp.copy_token")}
+              >
+                {abbreviatedToken}
+              </button>
+            )}
+            {promptAfterToken}
           </p>
         )}
         {tab === "cli" && !loading && (

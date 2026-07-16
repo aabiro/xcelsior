@@ -261,7 +261,7 @@ export function MessageBubble({
       <div
         className={cn(
           "rounded-2xl leading-relaxed min-w-0",
-          compact ? "max-w-[85%] px-3 py-2 text-xs" : "max-w-[80%] px-4 py-2.5 text-sm",
+          compact ? "max-w-[88%] px-3 py-2.5 text-sm" : "max-w-[80%] px-4 py-2.5 text-sm",
           isUser
             ? "bg-accent-cyan/20 text-text-primary rounded-br-md border border-accent-cyan/30"
             : "bg-surface-hover/80 text-text-primary rounded-bl-md border border-border/30",
@@ -274,7 +274,7 @@ export function MessageBubble({
             <div
               className={cn(
                 "prose-invert [&_pre]:my-1 [&_a]:text-accent-cyan",
-                compact ? "prose-xs [&_code]:text-[10px]" : "prose-sm [&_code]:text-xs",
+                "prose-sm [&_code]:text-xs",
               )}
               dangerouslySetInnerHTML={{ __html: formatMarkdown(displayedText) }}
             />
@@ -351,8 +351,8 @@ export function EmptyState({
         </div>
       </div>
 
-      <h3 className={cn("font-semibold mb-1.5", compact ? "text-sm" : "text-lg")}>{title}</h3>
-      <p className={cn("text-text-secondary mb-5 max-w-md leading-relaxed", compact ? "text-[11px]" : "text-sm")}>{description}</p>
+      <h3 className={cn("font-semibold mb-1.5", compact ? "text-base" : "text-lg")}>{title}</h3>
+      <p className="mb-5 max-w-md text-sm leading-relaxed text-text-secondary">{description}</p>
 
       {suggestions.length > 0 && (
         <div className="flex flex-wrap gap-2 justify-center max-w-lg">
@@ -367,7 +367,7 @@ export function EmptyState({
                 "rounded-full border border-border/50 bg-surface/60 text-text-secondary backdrop-blur-sm",
                 "hover:border-accent-cyan/30 hover:text-accent-cyan hover:bg-accent-cyan/5 hover:shadow-[0_0_12px_rgba(0,212,255,0.06)]",
                 "transition-all duration-200",
-                compact ? "px-2.5 py-1 text-[10px]" : "px-3.5 py-1.5 text-xs",
+                compact ? "px-3 py-1.5 text-xs" : "px-3.5 py-1.5 text-xs",
               )}
             >
               {s.label}
@@ -426,7 +426,7 @@ export function ChatInput({
             className={cn(
               "w-full resize-none bg-transparent text-text-primary placeholder:text-text-muted/60 focus:outline-none",
               compact
-                ? "px-3 py-2 text-xs max-h-20"
+                ? "px-3 py-2.5 text-sm max-h-24"
                 : "px-4 py-2.5 text-sm max-h-32",
             )}
             style={{ minHeight: compact ? "2rem" : "2.5rem" }}
@@ -453,7 +453,7 @@ export function ChatInput({
       </div>
       <p className={cn(
         "text-center text-text-muted/40 leading-tight",
-        compact ? "mt-0.5 text-[8px]" : "mt-0.5 text-[9px]",
+        compact ? "mt-1 text-[10px]" : "mt-0.5 text-[10px]",
       )}>
         {disclaimer}
       </p>

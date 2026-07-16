@@ -741,6 +741,7 @@ def _safe_oauth_client_payload(client: dict) -> dict:
         "created_at": client.get("created_at"),
         "updated_at": client.get("updated_at"),
         "last_used": client.get("last_used"),
+        "client_secret_preview": client.get("client_secret_preview"),
     }
 
 
@@ -2633,10 +2634,11 @@ def api_rotate_oauth_client_secret(client_id: str, request: Request):
     user = _require_user_grant(request)
     new_secret = base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip("=")
     hash_, salt = hash_secret(new_secret)
+    preview = f"{new_secret[:4]}...{new_secret[-4:]}"
     from db import OAuthStore
 
     if _is_platform_admin(user):
-        ok = OAuthStore.rotate_client_secret(client_id, hash_, salt, None)
+        ok = OAuthStore.rotate_client_secret(client_id, hash_, salt, preview, None)
     else:
         client = OAuthStore.get_client(client_id)
         if not client:
@@ -2646,10 +2648,16 @@ def api_rotate_oauth_client_secret(client_id: str, request: Request):
             client_id,
             hash_,
             salt,
+            preview,
             workspace_customer_id=_oauth_workspace_customer_id(user),
             personal_customer_id=_canonical_owner_id(user),
             user_email=user["email"],
         )
     if not ok:
         raise HTTPException(404, "OAuth client not found or not permitted")
-    return {"ok": True, "client_id": client_id, "client_secret": new_secret}
+    return {
+        "ok": True,
+        "client_id": client_id,
+        "client_secret": new_secret,
+        "client_secret_preview": preview,
+    }

@@ -188,6 +188,10 @@
   box-shadow: var(--shadow-panel);
 }
 
+.dashboard-shell .mcp-connect-card {
+  background: linear-gradient(180deg, var(--popover-solid-2), var(--popover-solid));
+}
+
 .dashboard-shell .glow-card::before {
   opacity: 1;
   background: linear-gradient(135deg, rgba(56, 219, 255, 0.18), rgba(155, 109, 255, 0.16), transparent 62%);
@@ -709,9 +713,8 @@
 .dashboard-site-control > div > .dashboard-site-header-balance:hover {
   color: #fff;
   border-color: rgba(56, 219, 255, 0.35);
-  box-shadow: 0 12px 24px rgba(155, 109, 255, 0.24), 0 0 0 1px rgba(56, 219, 255, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.38);
-  filter: brightness(1.05);
-  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(155, 109, 255, 0.2), 0 0 0 1px rgba(56, 219, 255, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.34);
+  filter: brightness(1.025);
 }
 
 .dashboard-site-header-balance-negative {
@@ -729,6 +732,14 @@
 .dashboard-site-main:has(.dashboard-ai-page) {
   padding: 0;
   overflow: hidden;
+}
+
+.dashboard-site-main:has(.dashboard-mcp-page) {
+  overflow: hidden;
+}
+
+.dashboard-site-main:has(.dashboard-mcp-page) .dashboard-site-main-inner {
+  height: 100%;
 }
 
 .dashboard-site-main:has(.dashboard-ai-page) .dashboard-site-main-inner {

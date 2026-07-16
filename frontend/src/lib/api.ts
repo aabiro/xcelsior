@@ -1716,7 +1716,7 @@ export interface McpQuickConnect {
  * for the caller's auto-provisioned MCP client. `regenerate` rotates the client. */
 export async function getMcpQuickConnect(regenerate = false) {
   const q = regenerate ? "?regenerate=true" : "";
-  return apiFetch<McpQuickConnect>(`/api/mcp/quick-connect${q}`);
+  return apiFetch<McpQuickConnect>(`/api/mcp/quick-connect${q}`, { cache: "no-store" });
 }
 
 export async function fetchOAuthClients() {
@@ -1740,7 +1740,7 @@ export async function updateOAuthClient(
 }
 
 export async function rotateOAuthClientSecret(clientId: string) {
-  return apiFetch<{ ok: boolean; client_id: string; client_secret: string }>(
+  return apiFetch<{ ok: boolean; client_id: string; client_secret: string; client_secret_preview?: string }>(
     `/api/oauth/clients/${encodeURIComponent(clientId)}/rotate-secret`,
     { method: "POST" },
   );
@@ -2606,6 +2606,7 @@ export interface OAuthClientInfo {
   created_at?: number;
   updated_at?: number;
   last_used?: number | null;
+  client_secret_preview?: string | null;
 }
 
 export interface ConsentRecord {
