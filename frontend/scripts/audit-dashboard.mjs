@@ -25,6 +25,12 @@ const DASHBOARD_ROUTES = [
   "/dashboard/compliance",
 ];
 
+// Falls back to the standing demo admin (demo@xcelsior.ca) so this never dies at
+// the auth gate — the demo login works from the owner's whitelisted networks.
+// Mirrors demo_account.py; override with AUDIT_EMAIL/AUDIT_PASSWORD or .env.audit.
+const DEMO_EMAIL = process.env.DEMO_EMAIL || "demo@xcelsior.ca";
+const DEMO_PASSWORD = process.env.DEMO_PASSWORD || "DemoUser123abc!";
+
 function loadEnvAudit() {
   const env = {
     base: (process.env.AUDIT_BASE || "https://xcelsior.ca").replace(/\/$/, ""),
@@ -32,16 +38,19 @@ function loadEnvAudit() {
     password: process.env.AUDIT_PASSWORD || "",
   };
   const p = path.join(REPO, ".env.audit");
-  if (!fs.existsSync(p)) return env;
-  for (const line of fs.readFileSync(p, "utf8").split("\n")) {
-    const s = line.trim();
-    if (!s || s.startsWith("#") || !s.includes("=")) continue;
-    const [k, v] = s.split("=", 2);
-    const val = v.trim().replace(/^["']|["']$/g, "");
-    if (k === "AUDIT_BASE" && !process.env.AUDIT_BASE) env.base = val.replace(/\/$/, "");
-    if (k === "AUDIT_EMAIL" && !process.env.AUDIT_EMAIL) env.email = val;
-    if (k === "AUDIT_PASSWORD" && !process.env.AUDIT_PASSWORD) env.password = val;
+  if (fs.existsSync(p)) {
+    for (const line of fs.readFileSync(p, "utf8").split("\n")) {
+      const s = line.trim();
+      if (!s || s.startsWith("#") || !s.includes("=")) continue;
+      const [k, v] = s.split("=", 2);
+      const val = v.trim().replace(/^["']|["']$/g, "");
+      if (k === "AUDIT_BASE" && !process.env.AUDIT_BASE) env.base = val.replace(/\/$/, "");
+      if (k === "AUDIT_EMAIL" && !process.env.AUDIT_EMAIL) env.email = val;
+      if (k === "AUDIT_PASSWORD" && !process.env.AUDIT_PASSWORD) env.password = val;
+    }
   }
+  if (!env.email) env.email = DEMO_EMAIL;
+  if (!env.password) env.password = DEMO_PASSWORD;
   return env;
 }
 

@@ -373,6 +373,23 @@ export async function login(email: string, password: string) {
   });
 }
 
+/** IP-gated: returns the standing demo-account credentials only when the caller's
+ * network is whitelisted (see demo_account.py), otherwise null. Used to reveal
+ * the one-click "Demo account" button on the login page. Never throws. */
+export async function getDemoCredentials(): Promise<{ email: string; password: string } | null> {
+  try {
+    const res = await fetch("/api/auth/demo-credentials", { credentials: "include" });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data && typeof data.email === "string" && typeof data.password === "string") {
+      return { email: data.email, password: data.password };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export async function register(email: string, password: string, name?: string) {
   return apiFetch<{
     ok: boolean;
