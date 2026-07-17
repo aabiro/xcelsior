@@ -1099,7 +1099,7 @@ function HostSetupGuideCard({
       </Card>
 
       {/* Large hero SVG — palette matches overview launch/provider assets */}
-      <div className="relative hidden min-h-[360px] overflow-hidden rounded-2xl xl:block">
+      <div className="relative hidden min-h-[360px] h-full overflow-hidden rounded-2xl xl:block">
         <img
           src="/mesh-dark.svg"
           alt=""
@@ -1122,12 +1122,10 @@ function HostSetupGuideCard({
           fetchPriority="high"
           className="site-theme-light h-full w-full object-none"
         />
-        {/* Multi-layered smooth top/bottom/left transparency fades */}
-        <div className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(to bottom, var(--background) 0%, color-mix(in srgb, var(--background) 60%, transparent) 20%, color-mix(in srgb, var(--background) 25%, transparent) 45%, transparent 70%)" }} />
-        <div className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(to top, var(--background) 0%, color-mix(in srgb, var(--background) 60%, transparent) 20%, color-mix(in srgb, var(--background) 25%, transparent) 45%, transparent 70%)" }} />
-        <div className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(to bottom, var(--background) 0%, transparent 35%)" }} />
-        <div className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(to top, var(--background) 0%, transparent 35%)" }} />
-        <div className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(to right, var(--background) 0%, color-mix(in srgb, var(--background) 60%, transparent) 15%, color-mix(in srgb, var(--background) 25%, transparent) 35%, transparent 60%)" }} />
+        {/* Localized smooth edge transparency fades (no center overlap/blur) */}
+        <div className="pointer-events-none absolute top-0 left-0 right-0 h-24" style={{ background: "linear-gradient(to bottom, var(--background) 0%, transparent 100%)" }} />
+        <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-24" style={{ background: "linear-gradient(to top, var(--background) 0%, transparent 100%)" }} />
+        <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-24" style={{ background: "linear-gradient(to right, var(--background) 0%, transparent 100%)" }} />
       </div>
       </div>
 
