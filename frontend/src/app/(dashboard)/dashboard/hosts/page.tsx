@@ -1109,7 +1109,7 @@ function HostSetupGuideCard({
           loading="eager"
           decoding="sync"
           fetchPriority="high"
-          className="site-theme-dark h-full w-full object-contain"
+          className="site-theme-dark h-full w-full object-cover"
         />
         <img
           src="/mesh-light.svg"
@@ -1120,9 +1120,10 @@ function HostSetupGuideCard({
           loading="eager"
           decoding="sync"
           fetchPriority="high"
-          className="site-theme-light h-full w-full object-contain"
+          className="site-theme-light h-full w-full object-cover"
         />
         <div className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(to bottom, var(--background) 0%, color-mix(in srgb, var(--background) 60%, transparent) 20%, color-mix(in srgb, var(--background) 25%, transparent) 45%, transparent 70%)" }} />
+        <div className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(to top, var(--background) 0%, color-mix(in srgb, var(--background) 60%, transparent) 20%, color-mix(in srgb, var(--background) 25%, transparent) 45%, transparent 70%)" }} />
         <div className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(to right, var(--background) 0%, color-mix(in srgb, var(--background) 60%, transparent) 15%, color-mix(in srgb, var(--background) 25%, transparent) 35%, transparent 60%)" }} />
       </div>
       </div>
