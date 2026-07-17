@@ -284,15 +284,26 @@ def api_agent_commands_drain(host_id: str, request: Request):
         raise HTTPException(400, "Invalid host_id")
     pool = _get_pg_pool()
     with pool.connection() as conn, conn.cursor() as cur:
-        # Drop expired rows for any host (cheap housekeeping).
-        cur.execute("DELETE FROM agent_commands WHERE expires_at < EXTRACT(EPOCH FROM NOW())")
-        # Atomically claim pending rows for this host.
+        # Drop expired rows for any host (cheap housekeeping). Attempt-
+        # bound commands are excluded: their lifecycle (claim/ACK,
+        # backoff, dead-letter, cancellation on lease expiry) is owned by
+        # the /agent/v2 protocol and control_plane.commands.
+        cur.execute(
+            "DELETE FROM agent_commands "
+            "WHERE expires_at < EXTRACT(EPOCH FROM NOW()) "
+            "AND attempt_id IS NULL"
+        )
+        # Atomically claim pending rows for this host. attempt_id IS NULL:
+        # a legacy drain must never destroy a v2 start_attempt command —
+        # v1 dispatch would refuse the unknown name and the DELETE would
+        # have already destroyed the placement's only delivery.
         cur.execute(
             """
             DELETE FROM agent_commands
             WHERE id IN (
                 SELECT id FROM agent_commands
                 WHERE host_id = %s AND status = 'pending'
+                  AND attempt_id IS NULL
                 ORDER BY created_at ASC
                 LIMIT 50
                 FOR UPDATE SKIP LOCKED
