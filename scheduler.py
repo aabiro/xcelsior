@@ -2251,6 +2251,46 @@ def scheduler_tick():
             log.error("Scheduler queue error: %s", e)
 
 
+def start_shadow_runner():
+    """Track A Phase 3: start the shadow placement runner if enabled.
+
+    Runs the new claim→filter→score pipeline read-only alongside this
+    legacy loop and persists would-be decisions for comparison. Requires
+    XCELSIOR_SCHEDULER_MODE=shadow, the postgres backend, and migration
+    058; anything missing logs once and leaves the legacy loop untouched.
+    """
+    try:
+        from control_plane.scheduler.config import SchedulerConfig, SchedulerMode
+
+        cfg = SchedulerConfig.from_env()
+        if cfg.mode is not SchedulerMode.SHADOW:
+            return None
+        if _active_backend() != "postgres":
+            log.warning("Shadow scheduler requires the postgres backend; not starting")
+            return None
+        from control_plane.scheduler.main import run_shadow_loop, shadow_schema_ready
+
+        if not shadow_schema_ready():
+            log.error(
+                "Shadow scheduler enabled but scheduler_shadow_decisions is "
+                "missing — run alembic upgrade to 058; not starting"
+            )
+            return None
+        thread = threading.Thread(
+            target=run_shadow_loop, args=(cfg,), name="shadow-scheduler", daemon=True
+        )
+        thread.start()
+        log.info(
+            "Shadow scheduler thread started (replica=%s, interval=%ds)",
+            cfg.replica_id,
+            cfg.shadow_interval_sec,
+        )
+        return thread
+    except Exception as e:
+        log.error("Shadow scheduler failed to start: %s", e)
+        return None
+
+
 def scheduler_main():
     """Production scheduler entry point.
 
@@ -2267,6 +2307,9 @@ def scheduler_main():
     # Start failover monitor: requeues orphaned jobs every 60s
     start_failover_monitor(interval=60)
     log.info("Failover monitor thread started (60s interval)")
+
+    # Track A Phase 3: shadow placement comparison (no-op unless enabled)
+    start_shadow_runner()
 
     event_store = get_event_store()
     tick_count = 0
