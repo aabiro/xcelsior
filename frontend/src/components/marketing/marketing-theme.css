@@ -1304,6 +1304,13 @@
   gap: 18px;
 }
 
+/* .site-icon-box's margin-bottom is meant for icons stacked above a title —
+   here it sits inline next to the CTA button, so it needs no bottom margin
+   to stay level with it. */
+.site-callout-actions .site-icon-box {
+  margin-bottom: 0;
+}
+
 .site-callout-button {
   padding: 14px 22px;
 }

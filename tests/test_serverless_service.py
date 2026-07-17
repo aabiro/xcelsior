@@ -86,6 +86,9 @@ class TestModelTask:
         assert model_task("BAAI/bge-m3") == "embed"
         assert model_task("nomic-ai/nomic-embed-text-v1.5") == "embed"
         assert model_task("BAAI/bge-reranker-v2-m3") == "rerank"
+        assert model_task("VoyageAI/voyage-3") == "embed"
+        assert model_task("VoyageAI/voyage-3-code") == "embed"
+        assert model_task("Cohere/cohere-rerank-v3.5") == "rerank"
         assert model_task(None) == "chat"
 
     def test_embeddings_gate_matches_task(self):

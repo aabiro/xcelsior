@@ -111,6 +111,18 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   const [redirectingToLogin, setRedirectingToLogin] = useState(false);
+  // Gate the full-screen spinner behind a short delay so a fast auth check
+  // (the common case) never flashes it — only genuinely slow loads show it.
+  const [showLoadingGate, setShowLoadingGate] = useState(false);
+  const isGateLoading = (authLoading && !user) || redirectingToLogin || !user;
+  useEffect(() => {
+    if (!isGateLoading) {
+      setShowLoadingGate(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowLoadingGate(true), 200);
+    return () => clearTimeout(timer);
+  }, [isGateLoading]);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -195,12 +207,14 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", handleKeydown);
   }, [desktopMode, desktopState.isNativeDesktop, openControlCenter, router, toggleAiPanel]);
 
-  // Full-screen gate only on first session probe (not every tab change).
-  if ((authLoading && !user) || redirectingToLogin || !user) {
+  // Full-screen gate only on first session probe (not every tab change). The
+  // spinner itself is delay-gated (showLoadingGate) so a fast auth check never
+  // flashes it — but we still block rendering the real shell until resolved.
+  if (isGateLoading) {
     return (
       <div className="dashboard-shell" data-theme={theme}>
         <div className="dashboard-shell-loading">
-          <div className="dashboard-shell-loading-spinner animate-spin" />
+          {showLoadingGate && <div className="dashboard-shell-loading-spinner animate-spin" />}
         </div>
       </div>
     );

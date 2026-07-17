@@ -39,6 +39,9 @@ export const PRESET_MODELS = [
   { id: "Qwen/Qwen3-8B", label: "Qwen3 8B (default)", vram: 16, task: "chat" as PresetTask },
   { id: "BAAI/bge-m3", label: "BGE-M3 (embeddings)", vram: 8, task: "embed" },
   { id: "BAAI/bge-reranker-v2-m3", label: "BGE Reranker v2 (rerank)", vram: 8, task: "rerank" },
+  { id: "VoyageAI/voyage-3", label: "Voyage-3 (embeddings)", vram: 8, task: "embed" },
+  { id: "VoyageAI/voyage-3-code", label: "Voyage-3-code (embeddings)", vram: 8, task: "embed" },
+  { id: "Cohere/cohere-rerank-v3.5", label: "Cohere Rerank v3.5 (rerank)", vram: 8, task: "rerank" },
 ] as const;
 
 export const DEPLOY_STUDIO_STEPS = [

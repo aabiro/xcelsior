@@ -23,11 +23,11 @@ SUPPORTED_ROUTES = frozenset(
 
 # Preset model-task classification by model id. Embedding/reranker presets launch
 # vLLM with --task embed / --task score and expose /v1/embeddings or /v1/rerank.
-_RERANK_MARKERS = ("rerank", "reranker", "cross-encoder")
+_RERANK_MARKERS = ("rerank", "reranker", "cross-encoder", "cohere-rerank")
 _EMBED_MARKERS = (
     "bge-m3", "bge-large", "bge-base", "bge-small", "nomic-embed", "gte-",
     "e5-large", "e5-base", "e5-small", "stella", "snowflake-arctic-embed",
-    "embed",
+    "embed", "voyage",
 )
 
 

@@ -26,7 +26,7 @@ type ConsoleMode = "chat" | "job" | "snippets";
 function presetTaskFor(modelId: string): "chat" | "embed" | "rerank" {
   const s = modelId.toLowerCase();
   if (/rerank|cross-encoder/.test(s)) return "rerank";
-  if (/bge-m3|bge-large|bge-base|bge-small|nomic-embed|gte-|e5-(?:large|base|small)|stella|snowflake-arctic-embed|embed/.test(s)) {
+  if (/bge-m3|bge-large|bge-base|bge-small|nomic-embed|gte-|e5-(?:large|base|small)|stella|snowflake-arctic-embed|embed|voyage/.test(s)) {
     return "embed";
   }
   return "chat";

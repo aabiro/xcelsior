@@ -88,9 +88,10 @@ export function McpConnectCard() {
 
       <p className="mb-3 text-center text-sm text-text-secondary">{t("dash.mcp.prompt_intro")}</p>
 
-      {/* Prompt surface */}
-      <div className="rounded-xl border border-border/70 bg-surface/50 p-4">
-        <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-text-muted">
+      {/* Prompt surface — deliberately more opaque than the glass card behind it, so it reads
+          as the focal element rather than blending into the surrounding panel. */}
+      <div className="rounded-xl border border-border bg-surface p-4 shadow-inner">
+        <div className="mb-2 flex items-center justify-center gap-2 text-[11px] font-medium uppercase tracking-wider text-text-muted">
           <Terminal className="h-3.5 w-3.5" />
           {t("dash.mcp.prompt_label")}
         </div>
