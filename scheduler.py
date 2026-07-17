@@ -961,6 +961,8 @@ def process_queue_binpack(canada_only=None, province=None):
         hosts = [h for h in hosts if h.get("province", "").upper() == province.upper()]
 
     jobs = [j for j in list_jobs() if j.get("status") == "queued"]
+    # Phase 4 partition: skip jobs the transactional scheduler owns.
+    jobs = [j for j in jobs if not _control_plane_owns_job(j)]
     # Best-fit-decreasing: sort by VRAM descending
     jobs.sort(key=lambda j: j.get("vram_needed_gb", 0), reverse=True)
 
@@ -2113,6 +2115,9 @@ def process_queue():
     assigned = []
 
     queued = list_jobs(status="queued")
+    # Phase 4 partition: jobs owned by the transactional scheduler are
+    # placed by _control_plane_tick; the legacy walkers must skip them.
+    queued = [j for j in queued if not _control_plane_owns_job(j)]
     queued.sort(key=lambda j: (-j["priority"], j["submitted_at"]))
 
     jobs_snapshot = list_jobs()
@@ -2194,11 +2199,18 @@ def process_assigned():
     if not assigned_jobs:
         return []
 
+    # Jobs bound by the transactional scheduler start via the durable
+    # agent start command (claim → lease → container); the legacy SSH
+    # path starting them too would double-start the workload.
+    attempt_owned = _attempt_owned_job_ids()
+
     hosts = list_hosts(active_only=False)
     host_map = {h["host_id"]: h for h in hosts}
     started = []
 
     for job in assigned_jobs:
+        if job.get("job_id") in attempt_owned:
+            continue
         host_id = job.get("host_id")
         if not host_id:
             log.warning("RUNNER: assigned job %s has no host_id, requeueing", job.get("job_id"))
@@ -2246,9 +2258,85 @@ def scheduler_tick():
     """
     with _scheduler_lock:
         try:
+            _control_plane_tick()
+        except Exception as e:
+            log.error("Control-plane scheduler tick error: %s", e)
+        try:
             process_queue()
         except Exception as e:
             log.error("Scheduler queue error: %s", e)
+
+
+_cp_service = None
+_cp_config = None
+
+
+def _control_plane_config():
+    """Cached SchedulerConfig (env is static per process); None off postgres."""
+    global _cp_config
+    if _cp_config is None:
+        if _active_backend() != "postgres":
+            return None
+        from control_plane.scheduler.config import SchedulerConfig
+
+        _cp_config = SchedulerConfig.from_env()
+    return _cp_config
+
+
+def _control_plane_owns_job(job: dict) -> bool:
+    """True when the transactional scheduler owns queued→assigned for job.
+
+    The legacy queue walker must skip exactly these jobs (the claim SQL
+    selects exactly them), keeping the Phase 4 partition exclusive.
+    """
+    from control_plane.scheduler.config import SchedulerMode
+
+    cfg = _control_plane_config()
+    if cfg is None or cfg.mode not in (SchedulerMode.CANARY, SchedulerMode.ACTIVE):
+        return False
+    return cfg.owns_job(job)
+
+
+def _control_plane_tick():
+    """Track A Phase 4: one transactional-scheduler tick (canary/active).
+
+    No-op unless XCELSIOR_SCHEDULER_MODE is canary or active on the
+    postgres backend. Failures are contained — the legacy loop must keep
+    running whatever happens here.
+    """
+    global _cp_service
+    from control_plane.scheduler.config import SchedulerMode
+
+    cfg = _control_plane_config()
+    if cfg is None or cfg.mode not in (SchedulerMode.CANARY, SchedulerMode.ACTIVE):
+        return None
+    if _cp_service is None:
+        from control_plane.scheduler.service import SchedulerService
+
+        _cp_service = SchedulerService(cfg)
+    return _cp_service.tick()
+
+
+def _attempt_owned_job_ids() -> set:
+    """Assigned jobs bound by the transactional scheduler (have an active
+    attempt). Their containers start via the durable agent start command,
+    never via the legacy SSH path — process_assigned must skip them."""
+    if _active_backend() != "postgres":
+        return set()
+    try:
+        from db import _get_pg_pool
+
+        with _get_pg_pool().connection() as conn:
+            rows = conn.execute(
+                "SELECT job_id FROM jobs "
+                "WHERE status = 'assigned' AND active_attempt_id IS NOT NULL"
+            ).fetchall()
+        return {
+            str(r["job_id"] if isinstance(r, dict) else r[0]) for r in rows
+        }
+    except Exception as e:
+        log.error("attempt-owned job lookup failed: %s", e)
+        return set()
 
 
 def start_shadow_runner():
@@ -4252,6 +4340,9 @@ def process_queue_filtered(canada_only=None):
     assigned = []
 
     queued = list_jobs(status="queued")
+    # Phase 4 partition: jobs owned by the transactional scheduler are
+    # placed by _control_plane_tick; the legacy walkers must skip them.
+    queued = [j for j in queued if not _control_plane_owns_job(j)]
     queued.sort(key=lambda j: (-j["priority"], j["submitted_at"]))
 
     for job in queued:
@@ -5061,6 +5152,9 @@ def process_queue_sovereign(canada_only=None, province=None, trust_tier=None):
     assigned = []
 
     queued = list_jobs(status="queued")
+    # Phase 4 partition: jobs owned by the transactional scheduler are
+    # placed by _control_plane_tick; the legacy walkers must skip them.
+    queued = [j for j in queued if not _control_plane_owns_job(j)]
     queued.sort(key=lambda j: (-j["priority"], j["submitted_at"]))
 
     for job in queued:

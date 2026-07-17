@@ -45,6 +45,20 @@ def _int_env(name: str, default: int, *, minimum: int = 1) -> int:
         return default
 
 
+def _bool_env(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _csv_env(name: str) -> frozenset[str]:
+    raw = os.environ.get(name) or ""
+    return frozenset(
+        part.strip().lower() for part in raw.split(",") if part.strip()
+    )
+
+
 def default_replica_id() -> str:
     """Stable-per-process, unique-per-replica identity for claim owners."""
     return f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:6]}"
@@ -72,6 +86,43 @@ class SchedulerConfig:
     explain_max_rejections: int = 25
     explain_max_ranked: int = 10
 
+    # ── Phase 4 cutover scoping ──────────────────────────────────────
+    # Kill switch (§ Phase 4 exit gate): stops NEW claims without touching
+    # active attempts/leases — maintenance sweeps keep running.
+    claims_enabled: bool = True
+    # Canary job scope: jobs whose requested gpu_model (lowercased) is in
+    # this set — or that carry payload {"scheduler": "v2"} — are owned by
+    # the new scheduler in canary mode. Active mode owns every job.
+    canary_gpu_models: frozenset[str] = frozenset()
+    # Optional canary host pool; empty = every host is in scope.
+    canary_host_ids: frozenset[str] = frozenset()
+    # Placement work per tick (bounds one replica's burst).
+    tick_max_placements: int = 10
+    # Lease shape handed to reservations.
+    lease_claim_ttl_sec: int = 60
+    lease_renewal_ttl_sec: int = 300
+
+    def owns_job(self, job: dict) -> bool:
+        """Does the new scheduler own queued→assigned for this job?
+
+        The partition must be exclusive: the legacy queue walker skips
+        exactly the jobs this returns True for, so no job ever has two
+        schedulers racing to place it.
+        """
+        if self.mode is SchedulerMode.ACTIVE:
+            return True
+        if self.mode is not SchedulerMode.CANARY:
+            return False
+        if str(job.get("scheduler") or "").strip().lower() == "v2":
+            return True
+        model = str(job.get("gpu_model") or "").strip().lower()
+        return bool(model) and model in self.canary_gpu_models
+
+    def host_in_scope(self, host_id: str) -> bool:
+        if self.mode is SchedulerMode.ACTIVE or not self.canary_host_ids:
+            return True
+        return str(host_id).strip().lower() in self.canary_host_ids
+
     @classmethod
     def from_env(cls) -> SchedulerConfig:
         raw_mode = (os.environ.get("XCELSIOR_SCHEDULER_MODE") or "paused").strip().lower()
@@ -95,5 +146,13 @@ class SchedulerConfig:
             shadow_retention_days=_int_env("XCELSIOR_SCHEDULER_SHADOW_RETENTION_DAYS", 14),
             host_freshness_timeout_sec=_int_env(
                 "XCELSIOR_SCHEDULER_HOST_FRESHNESS_TIMEOUT_SEC", 300
+            ),
+            claims_enabled=_bool_env("XCELSIOR_SCHEDULER_CLAIMS_ENABLED", True),
+            canary_gpu_models=_csv_env("XCELSIOR_SCHEDULER_CANARY_GPU_MODELS"),
+            canary_host_ids=_csv_env("XCELSIOR_SCHEDULER_CANARY_HOSTS"),
+            tick_max_placements=_int_env("XCELSIOR_SCHEDULER_TICK_MAX_PLACEMENTS", 10),
+            lease_claim_ttl_sec=_int_env("XCELSIOR_SCHEDULER_LEASE_CLAIM_TTL_SEC", 60),
+            lease_renewal_ttl_sec=_int_env(
+                "XCELSIOR_SCHEDULER_LEASE_RENEWAL_TTL_SEC", 300
             ),
         )

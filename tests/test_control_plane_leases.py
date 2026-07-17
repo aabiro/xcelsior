@@ -66,12 +66,12 @@ def _reserved(fleet, *, lease_claim_ttl_sec=60, lease_renewal_ttl_sec=300):
             """INSERT INTO jobs (job_id, status, priority, submitted_at, payload,
                                  phase, desired_state, queued_at)
                VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', now())""",
-            (job_id, time.time(), json.dumps({"name": job_id})),
+            (job_id, time.time(), json.dumps({"name": job_id, "gpu_model": job_id})),
         )
         conn.execute(
             """INSERT INTO hosts (host_id, status, registered_at, payload,
                                   administrative_state, availability_state)
-               VALUES (%s, 'active', %s, '{}', 'admitted', 'ready')""",
+               VALUES (%s, 'active', %s, '{"admitted": true}', 'admitted', 'ready')""",
             (host_id, time.time()),
         )
         conn.execute(
@@ -85,7 +85,10 @@ def _reserved(fleet, *, lease_claim_ttl_sec=60, lease_renewal_ttl_sec=300):
     fleet["jobs"].append(job_id)
     fleet["hosts"].append(host_id)
     with _pool.connection() as conn:
-        claimed = claim_next_job(conn, replica_id="lease-test")
+        # Scoped claim (gpu_model == job_id): immune to queue residue.
+        claimed = claim_next_job(
+            conn, replica_id="lease-test", scope_gpu_models=[job_id]
+        )
         conn.commit()
     assert claimed is not None and claimed.job_id == job_id
     return run_transaction(
@@ -328,7 +331,9 @@ class TestExpirySweep:
         time.sleep(1.2)
         run_transaction(lambda conn: expire_stale_leases(conn, grace_sec=0))
         with _pool.connection() as conn:
-            claimed = claim_next_job(conn, replica_id="lease-test-2")
+            claimed = claim_next_job(
+                conn, replica_id="lease-test-2", scope_gpu_models=[resv.job_id]
+            )
             conn.commit()
         assert claimed is not None and claimed.job_id == resv.job_id
         resv2 = run_transaction(

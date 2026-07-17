@@ -11,6 +11,7 @@ All ordering and expiry decisions use PostgreSQL time
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -20,6 +21,12 @@ DEFAULT_CLAIM_TTL_SEC = 15
 
 # Queue order is part of the replica contract (§10.7): every replica must
 # order work identically or two replicas fight over ordering fairness.
+#
+# The scope predicate implements the Phase 4 canary partition: in canary
+# mode only jobs the new scheduler owns (matching gpu_model, or explicit
+# payload {"scheduler": "v2"} opt-in) are claimable; the legacy queue
+# walker skips exactly the same set (SchedulerConfig.owns_job), so no job
+# is ever contested by both schedulers.
 _CLAIM_SQL = """
 WITH candidate AS (
     SELECT job_id
@@ -29,6 +36,9 @@ WITH candidate AS (
        AND (next_schedule_at IS NULL OR next_schedule_at <= clock_timestamp())
        AND (schedule_claim_expires_at IS NULL
             OR schedule_claim_expires_at < clock_timestamp())
+       AND (%(scope_all)s
+            OR lower(COALESCE(payload->>'gpu_model', '')) = ANY(%(scope_models)s)
+            OR lower(COALESCE(payload->>'scheduler', '')) = 'v2')
      ORDER BY effective_priority DESC,
               fair_share_finish ASC,
               queued_at ASC NULLS LAST
@@ -76,6 +86,7 @@ def claim_next_job(
     *,
     replica_id: str,
     claim_ttl_sec: int = DEFAULT_CLAIM_TTL_SEC,
+    scope_gpu_models: Sequence[str] | None = None,
 ) -> ClaimedJob | None:
     """Claim the single highest-ranked schedulable job, or None.
 
@@ -83,11 +94,21 @@ def claim_next_job(
     row is taken ``FOR UPDATE SKIP LOCKED``, so two replicas can never
     claim the same job and never block each other — a locked candidate is
     simply skipped in favor of the next one.
+
+    ``scope_gpu_models=None`` claims from the whole queue (active mode);
+    a sequence — even an empty one — restricts claims to the canary
+    partition (matching gpu_model or explicit v2 opt-in).
     """
     if claim_ttl_sec <= 0:
         raise ValueError("claim_ttl_sec must be positive")
     row = conn.execute(
-        _CLAIM_SQL, {"replica_id": replica_id, "ttl_sec": claim_ttl_sec}
+        _CLAIM_SQL,
+        {
+            "replica_id": replica_id,
+            "ttl_sec": claim_ttl_sec,
+            "scope_all": scope_gpu_models is None,
+            "scope_models": [m.strip().lower() for m in (scope_gpu_models or [])],
+        },
     ).fetchone()
     if row is None:
         return None
