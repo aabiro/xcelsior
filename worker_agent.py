@@ -1915,6 +1915,14 @@ def report_job_status(
 
     PATCH /instance/{job_id}
     """
+    # Phase 5: mirror lifecycle onto the fenced attempt when this job is
+    # v2-owned (no-op otherwise). Runs first so the fenced report cannot
+    # be skipped by a v1 transport failure.
+    try:
+        _v2_on_job_status(job_id, status, error_message=error_message)
+    except Exception as _v2_exc:  # never let v2 mirroring break v1 flow
+        log.warning("v2 status mirror failed for job %s: %s", job_id, _v2_exc)
+
     data = {"status": status}
     if host_id:
         data["host_id"] = host_id
@@ -2077,6 +2085,300 @@ def release_lease(job_id, reason="completed"):
             _report_agent_degraded("lease_release_non_200", context=f"job={job_id} status={resp.status_code}")
     except requests.RequestException as e:
         _report_agent_degraded("lease_release_error", context=f"job={job_id} err={e}")
+
+
+# ── /agent/v2 fenced protocol (Track A Phase 5) ──────────────────────
+# Claim + ACK work delivery, hard lease gate before any container start,
+# and fenced status reporting. Negotiated per host at startup; hosts the
+# server hasn't enrolled keep the v1 poll/drain path untouched.
+
+WORKER_SESSION_ID = uuid.uuid4().hex
+
+_v2_enabled = False
+# job_id -> v2 authority dict while an attempt runs on this host:
+# {lease_id, job_id, attempt_id, host_id, fencing_token,
+#  worker_session_id, renewal_ttl_sec, stop: threading.Event}
+_v2_attempts: dict = {}
+_v2_attempts_lock = threading.Lock()
+
+
+def negotiate_protocol_v2() -> bool:
+    """Ask the API which protocol this host should speak (canary rollout)."""
+    global _v2_enabled
+    try:
+        resp = requests.get(
+            _api_url(f"/agent/v2/negotiate/{HOST_ID}"),
+            headers=_api_headers(),
+            timeout=10,
+        )
+        if resp.status_code == 200 and resp.json().get("v2"):
+            _v2_enabled = True
+            log.info(
+                "Protocol v2 negotiated (session=%s features=%s)",
+                WORKER_SESSION_ID[:8],
+                resp.json().get("features"),
+            )
+        else:
+            _v2_enabled = False
+    except requests.RequestException as e:
+        _v2_enabled = False
+        log.info("Protocol negotiation unavailable (%s) — staying on v1", e)
+    return _v2_enabled
+
+
+def _v2_post(path: str, payload: dict, timeout: int = 10):
+    """POST helper: returns (status_code, parsed_json_or_empty_dict)."""
+    try:
+        resp = requests.post(
+            _api_url(path), json=payload, headers=_api_headers(), timeout=timeout
+        )
+        try:
+            body = resp.json()
+        except ValueError:
+            body = {}
+        return resp.status_code, body
+    except requests.RequestException as e:
+        log.warning("v2 POST %s transport error: %s", path, e)
+        return 0, {}
+
+
+def v2_claim_commands(limit: int = 5) -> list:
+    code, body = _v2_post(
+        "/agent/v2/commands/claim",
+        {"host_id": HOST_ID, "worker_session_id": WORKER_SESSION_ID, "limit": limit},
+    )
+    if code != 200:
+        return []
+    return body.get("commands", []) or []
+
+
+def v2_ack_command(command_id: str, result: dict | None = None) -> bool:
+    code, _ = _v2_post(
+        f"/agent/v2/commands/{command_id}/ack",
+        {"host_id": HOST_ID, "result": result or {}},
+    )
+    return code == 200
+
+
+def v2_nack_command(
+    command_id: str, error_code: str, details: dict | None = None, retryable: bool = True
+) -> bool:
+    code, _ = _v2_post(
+        f"/agent/v2/commands/{command_id}/nack",
+        {
+            "host_id": HOST_ID,
+            "error_code": error_code,
+            "error_details": details or {},
+            "retryable": retryable,
+        },
+    )
+    return code == 200
+
+
+def _v2_auth_payload(auth: dict) -> dict:
+    return {
+        "lease_id": auth["lease_id"],
+        "job_id": auth["job_id"],
+        "attempt_id": auth["attempt_id"],
+        "host_id": HOST_ID,
+        "fencing_token": auth["fencing_token"],
+        "worker_session_id": WORKER_SESSION_ID,
+    }
+
+
+def v2_claim_lease_fenced(auth: dict) -> dict | None:
+    """§11.2 HARD GATE: no grant → no container start, ever."""
+    code, body = _v2_post("/agent/v2/leases/claim", _v2_auth_payload(auth))
+    if code == 200:
+        return body
+    log.error(
+        "v2 lease claim REJECTED job=%s attempt=%s fence=%s: HTTP %s %s",
+        auth["job_id"], auth["attempt_id"][:8], auth["fencing_token"], code,
+        (body.get("detail") or body) if body else "",
+    )
+    return None
+
+
+def v2_report_attempt_status(
+    auth: dict, status: str, failure_code: str | None = None, detail: dict | None = None
+) -> str:
+    """Fenced status report. Returns 'ok', 'fenced', or 'error'."""
+    payload = {
+        "job_id": auth["job_id"],
+        "attempt_id": auth["attempt_id"],
+        "host_id": HOST_ID,
+        "fencing_token": auth["fencing_token"],
+        "status": status,
+    }
+    if failure_code:
+        payload["failure_code"] = failure_code
+    if detail:
+        payload["detail"] = detail
+    code, _body = _v2_post("/agent/v2/attempts/status", payload)
+    if code == 200:
+        return "ok"
+    if code == 409:
+        return "fenced"
+    return "error"
+
+
+def _v2_stop_container(job_id: str, why: str) -> None:
+    """Definitive fence-loss behavior (§11.5): authority gone → stop now."""
+    container_name = f"xcl-{job_id}"
+    log.error(
+        "FENCE LOST job=%s (%s) — stopping container %s", job_id, why, container_name
+    )
+    try:
+        subprocess.run(
+            ["docker", "kill", container_name],
+            capture_output=True, text=True, timeout=30,
+        )
+    except Exception as e:
+        log.error("fence-loss docker kill failed for %s: %s", container_name, e)
+
+
+def _v2_forget_attempt(job_id: str) -> None:
+    with _v2_attempts_lock:
+        auth = _v2_attempts.pop(job_id, None)
+    if auth is not None:
+        auth["stop"].set()
+
+
+def _v2_renewal_loop(auth: dict) -> None:
+    """Renew the lease; any definitive rejection or expiry stops the job.
+
+    Disconnected grace: transport errors are tolerated until the last
+    successful renewal is older than the lease's renewal TTL — past that
+    the worker must assume it has been fenced out (§11.5).
+    """
+    job_id = auth["job_id"]
+    ttl = max(30, int(auth.get("renewal_ttl_sec") or 300))
+    interval = max(10, ttl // 3)
+    last_ok = time.time()
+    stop: threading.Event = auth["stop"]
+    while not stop.wait(interval):
+        code, body = _v2_post("/agent/v2/leases/renew", _v2_auth_payload(auth))
+        if code == 200:
+            last_ok = time.time()
+            continue
+        if code == 409:
+            _v2_forget_attempt(job_id)
+            _v2_stop_container(job_id, "lease renewal rejected")
+            return
+        # Transport / server error: keep the container while inside the
+        # authority window, but no further.
+        if time.time() - last_ok > ttl:
+            _v2_forget_attempt(job_id)
+            _v2_stop_container(job_id, "renewal window expired while disconnected")
+            return
+
+
+_V2_STATUS_MAP = {
+    "starting": "starting",
+    "running": "running",
+    "completed": "succeeded",
+    "failed": "failed",
+}
+
+
+def _v2_on_job_status(job_id: str, status: str, error_message: str | None = None):
+    """v1 report funnel hook: mirror lifecycle onto the fenced attempt.
+
+    report_job_status() is the single funnel every v1 code path uses, so
+    hooking here covers all of run_job's exit points without forking its
+    control flow. Terminal statuses release the local authority record;
+    the server settles allocations/lease atomically in the same report.
+    """
+    v2_status = _V2_STATUS_MAP.get(status)
+    if v2_status is None:
+        return
+    with _v2_attempts_lock:
+        auth = _v2_attempts.get(job_id)
+    if auth is None:
+        return
+    failure_code = "container_failed" if v2_status == "failed" else None
+    detail = {"error": error_message[:300]} if (error_message and failure_code) else None
+    outcome = v2_report_attempt_status(auth, v2_status, failure_code, detail)
+    if outcome == "fenced":
+        _v2_forget_attempt(job_id)
+        _v2_stop_container(job_id, "status report fenced")
+        return
+    if v2_status in ("succeeded", "failed"):
+        _v2_forget_attempt(job_id)
+
+
+def handle_start_attempt(cmd: dict) -> None:
+    """Execute one fenced start_attempt command (thread body).
+
+    Order is the whole point: lease claim FIRST (abort on rejection —
+    the container is never started without authority), then ACK the
+    command (execution has begun; the job itself outlives any command
+    claim TTL), then the existing run_job machinery with the v1 status
+    funnel mirroring every transition onto the fenced attempt.
+    """
+    command_id = str(cmd.get("command_id"))
+    args = cmd.get("args") or {}
+    job_id = str(cmd.get("job_id") or args.get("job_id") or "")
+    auth = {
+        "lease_id": str(args.get("lease_id") or ""),
+        "job_id": job_id,
+        "attempt_id": str(cmd.get("attempt_id") or args.get("attempt_id") or ""),
+        "fencing_token": int(cmd.get("fencing_token") or args.get("fencing_token") or 0),
+        "stop": threading.Event(),
+    }
+    if not (job_id and auth["lease_id"] and auth["attempt_id"] and auth["fencing_token"]):
+        v2_nack_command(command_id, "malformed_start_attempt", {"args_keys": sorted(args)}, retryable=False)
+        return
+
+    # §11.2 hard gate — no grant, no container. Non-retryable: the offer
+    # is single-shot; the lease-expiry sweep requeues with a new fence.
+    grant = v2_claim_lease_fenced(auth)
+    if grant is None:
+        v2_nack_command(command_id, "lease_claim_rejected", retryable=False)
+        return
+    auth["renewal_ttl_sec"] = grant.get("renewal_ttl_sec") or 300
+
+    with _v2_attempts_lock:
+        _v2_attempts[job_id] = auth
+    v2_report_attempt_status(auth, "lease_claimed")
+    v2_ack_command(command_id, {"lease_claimed": True, "session": WORKER_SESSION_ID})
+
+    threading.Thread(
+        target=_v2_renewal_loop, args=(auth,),
+        name=f"v2-renew-{job_id[:8]}", daemon=True,
+    ).start()
+
+    job = dict(args.get("spec") or {})
+    job.setdefault("job_id", job_id)
+    try:
+        run_job(job)
+    except Exception as e:
+        log.exception("start_attempt run_job crashed for job %s", job_id)
+        v2_report_attempt_status(auth, "failed", "agent_exception", {"error": str(e)[:300]})
+        _v2_forget_attempt(job_id)
+
+
+def drain_v2_commands() -> int:
+    """Claim + dispatch attempt-bound commands (v2 work delivery)."""
+    if not _v2_enabled:
+        return 0
+    commands = v2_claim_commands()
+    dispatched = 0
+    for cmd in commands:
+        name = cmd.get("command")
+        if name == "start_attempt":
+            job_ref = str(cmd.get("job_id") or "?")
+            threading.Thread(
+                target=handle_start_attempt, args=(cmd,),
+                name=f"v2-start-{job_ref[:8]}", daemon=True,
+            ).start()
+            dispatched += 1
+        else:
+            v2_nack_command(
+                str(cmd.get("command_id")), "unsupported_command",
+                {"command": str(name)}, retryable=False,
+            )
+    return dispatched
 
 
 def report_mining_alert(gpu_index, confidence, reason):
@@ -5417,6 +5719,9 @@ def main():
     # ── Banner ──
     print_startup_banner(gpu_info, host_ip, admitted, runtime_name)
 
+    # ── Protocol negotiation (Phase 5): v2 claim/ACK + fenced leases ──
+    negotiate_protocol_v2()
+
     # ── Step 6: Initialize image cache ──
     cache_init()
     log.info(
@@ -5572,6 +5877,10 @@ def main():
 
             # Drain admin control-plane commands (reinject_shell, etc.)
             drain_agent_commands()
+
+            # Phase 5: claim + dispatch fenced attempt commands (v2 hosts)
+            if _v2_enabled:
+                drain_v2_commands()
 
             # Poll for new work (only if admitted)
             if admitted:

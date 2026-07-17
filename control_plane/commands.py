@@ -70,12 +70,19 @@ def claim_commands(
     worker_session_id: str,
     claim_ttl_sec: int = DEFAULT_CLAIM_TTL_SEC,
     limit: int = 10,
+    attempt_commands_only: bool = False,
 ) -> list[ClaimedCommand]:
     """Claim deliverable commands for one host (pending → claimed).
 
     SKIP LOCKED keeps concurrent API workers serving the same host from
     double-delivering; a claimed command is invisible to other fetches
     until its claim expires.
+
+    ``attempt_commands_only=True`` restricts the claim to commands bound
+    to a placement attempt (``attempt_id IS NOT NULL``) — the /agent/v2
+    protocol partition. Plain admin commands stay visible to the v1
+    drain, which in turn excludes attempt-bound commands, so the two
+    delivery paths can never destroy each other's work.
     """
     rows = conn.execute(
         """
@@ -88,6 +95,7 @@ def claim_commands(
                AND (next_attempt_at IS NULL
                     OR next_attempt_at <= clock_timestamp())
                AND expires_at >= EXTRACT(EPOCH FROM NOW())
+               AND (%(attempt_only)s IS FALSE OR attempt_id IS NOT NULL)
              ORDER BY priority DESC, created_at ASC
              LIMIT %(limit)s
                FOR UPDATE SKIP LOCKED
@@ -110,6 +118,7 @@ def claim_commands(
             "session": worker_session_id,
             "ttl": claim_ttl_sec,
             "limit": limit,
+            "attempt_only": attempt_commands_only,
         },
     ).fetchall()
     return [
