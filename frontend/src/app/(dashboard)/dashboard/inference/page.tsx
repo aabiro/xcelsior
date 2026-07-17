@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { Cpu, Loader2, RefreshCw, Rocket, Sparkles, Zap } from "lucide-react";
+import { Cpu, Loader2, Plus, RefreshCw, Rocket, Sparkles, Zap } from "lucide-react";
 import { FadeIn } from "@/components/ui/motion";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
@@ -129,8 +129,8 @@ export default function InferencePage() {
             <RefreshCw className="h-3.5 w-3.5" />
           </Button>
           {canWrite ? (
-            <Button size="sm" variant="outline" title="AI-guided endpoint creation is coming next.">
-              <Sparkles className="h-3.5 w-3.5" /> AI Guided Endpoint
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-3.5 w-3.5" /> + ENDPOINT
             </Button>
           ) : (
             <Button size="sm" disabled title={t("dash.serverless.viewer_blocked")}>

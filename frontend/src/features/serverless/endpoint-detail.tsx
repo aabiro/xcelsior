@@ -378,17 +378,27 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
 	              )}
 	            </div>
 	            <div className="space-y-1">
-	              {allEndpoints.map((ep) => (
-	                <Link
-	                  key={ep.endpoint_id}
-	                  href={`/dashboard/inference/${ep.endpoint_id}`}
-	                  className={`block rounded-lg px-2 py-2 text-sm ${ep.endpoint_id === endpointId ? "bg-accent-violet/12 text-accent-violet" : "text-text-muted hover:bg-surface-hover hover:text-text-primary"}`}
-	                >
-	                  <span className="block truncate">{ep.name || formatModelDisplayName(ep.model_ref || ep.model_name || ep.endpoint_id)}</span>
-	                  <span className="block truncate text-[11px] opacity-70">{formatServerlessChip(ep.status)} · {ep.min_workers}-{ep.max_workers}</span>
-	                </Link>
-	              ))}
-	            </div>
+              {allEndpoints.map((ep) => {
+                const active = ep.endpoint_id === endpointId;
+                return (
+                  <Link
+                    key={ep.endpoint_id}
+                    href={`/dashboard/inference/${ep.endpoint_id}`}
+                    className={`block rounded-lg px-2.5 py-2.5 text-left text-sm transition-all border border-transparent ${active ? "bg-accent-violet/12 text-accent-violet border-accent-violet/20" : "text-text-muted hover:bg-surface-hover hover:text-text-primary"}`}
+                  >
+                    <span className={`block truncate text-[10px] font-mono tracking-tight ${active ? "text-accent-violet/90" : "text-text-muted"}`}>
+                      {ep.openai_base_url || ep.invoke_path || "/run"}
+                    </span>
+                    <span className={`block truncate text-sm font-semibold mt-0.5 ${active ? "text-accent-violet" : "text-text-primary"}`}>
+                      {ep.name || "Untitled Endpoint"}
+                    </span>
+                    <span className="block truncate text-[11px] opacity-70 mt-0.5">
+                      {formatServerlessChip(ep.status)} · Workers {ep.min_workers}-{ep.max_workers}
+                    </span>
+                  </Link>
+                );
+              })}
+            </div>
 	          </div>
 	        </aside>
 	        <div className="min-w-0 space-y-5">

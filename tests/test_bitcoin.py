@@ -4,18 +4,15 @@ import io
 import os
 import time
 import json
-import tempfile
 import urllib.error
 from unittest.mock import patch, MagicMock
 import pytest
 
-_tmp_ctx = tempfile.TemporaryDirectory(prefix="xcelsior_btc_test_")
-_tmpdir = _tmp_ctx.name
-
-# Ensure BTC is enabled for tests (local sqlite; CI uses postgres from workflow).
-if not os.environ.get("CI"):
-    os.environ["XCELSIOR_DB_BACKEND"] = "sqlite"
-os.environ["XCELSIOR_DB_PATH"] = os.path.join(_tmpdir, "xcelsior_btc_test.db")
+# Ensure BTC is enabled for tests. These tests run against the shared
+# postgres test database (like CI) — never flip XCELSIOR_DB_BACKEND here:
+# it is process-global, and rebinding it to sqlite poisons every
+# DB singleton created after this module imports (billing, users, ...),
+# which broke ~90 later tests in full-suite runs.
 os.environ["XCELSIOR_BTC_ENABLED"] = "true"
 os.environ["XCELSIOR_BTC_RPC_HOST"] = "127.0.0.1"
 os.environ["XCELSIOR_BTC_RPC_PORT"] = "18332"
@@ -25,6 +22,16 @@ os.environ["XCELSIOR_BTC_CONFIRMATIONS"] = "3"
 os.environ["XCELSIOR_BTC_DEPOSIT_EXPIRY"] = "1800"
 
 import bitcoin
+
+# Skip cleanly (matching the other PG-backed test modules) when no test
+# database is reachable, instead of erroring inside every fixture.
+try:
+    from db import _get_pg_pool
+
+    with _get_pg_pool().connection() as _c:
+        _c.execute("SELECT 1").fetchone()
+except Exception as _e:  # pragma: no cover - skip path
+    pytestmark = pytest.mark.skip(f"no pg pool available: {_e}")
 
 
 @pytest.fixture(autouse=True)
