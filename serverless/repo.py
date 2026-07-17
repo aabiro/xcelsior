@@ -1537,15 +1537,45 @@ class ServerlessRepo:
             ).fetchone()
         return dict(row) if row else None
 
-    def try_advisory_lock(self, lock_key: int = 0x534C5652) -> bool:
-        """Postgres advisory lock for single-writer reconcile (SLVR)."""
-        with self._conn() as conn:
-            row = conn.execute(
-                "SELECT pg_try_advisory_lock(%s) AS acquired",
-                (lock_key,),
-            ).fetchone()
-        return bool(row and row.get("acquired"))
+    @contextmanager
+    def reconcile_lock(self, lock_key: int = 0x534C5652):
+        """Single-writer reconcile guard (SLVR). Yields True when acquired.
 
-    def release_advisory_lock(self, lock_key: int = 0x534C5652) -> None:
-        with self._conn() as conn:
-            conn.execute("SELECT pg_advisory_unlock(%s)", (lock_key,))
+        Session advisory locks belong to the physical PostgreSQL session,
+        so acquire and release MUST happen on the same checked-out
+        connection. The previous try/release pair used two independent
+        pool checkouts, which could leak the lock on one pooled session
+        and no-op the unlock on another (control-plane blueprint §2.5).
+        This context manager pins one connection for the whole reconcile
+        pass; the lock is released on that exact connection, and the
+        finally-block runs even when reconcile raises. Skipped replicas
+        see False and back off — the periodic tick retries them.
+        """
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            row = conn.execute(
+                "SELECT pg_try_advisory_lock(%s) AS acquired", (lock_key,)
+            ).fetchone()
+            conn.commit()
+            acquired = bool(row and row.get("acquired"))
+            if not acquired:
+                yield False
+                return
+            try:
+                yield True
+            finally:
+                # Same connection object — the only session that can
+                # release this lock. If the connection itself died, the
+                # server already dropped the lock with the session.
+                try:
+                    conn.execute("SELECT pg_advisory_unlock(%s)", (lock_key,))
+                    conn.commit()
+                except Exception:
+                    log.warning(
+                        "reconcile_lock: unlock failed; lock dies with session",
+                        exc_info=True,
+                    )

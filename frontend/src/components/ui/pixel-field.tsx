@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useTheme } from "@/lib/theme";
 
 const SPRITES = [
   "/particles/particle-cyan.svg",
@@ -72,6 +73,7 @@ type PixelFieldProps = {
  */
 export function PixelField({ count, className, position = "absolute" }: PixelFieldProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const { theme } = useTheme();
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -118,7 +120,9 @@ export function PixelField({ count, className, position = "absolute" }: PixelFie
       context.clearRect(0, 0, width, height);
       pointerX += (targetPointerX - pointerX) * 0.05;
       pointerY += (targetPointerY - pointerY) * 0.05;
-      context.globalCompositeOperation = "lighter";
+
+      const isLight = theme === "light";
+      context.globalCompositeOperation = isLight ? "source-over" : "lighter";
 
       for (const particle of particles) {
         if (advance) {
@@ -139,7 +143,8 @@ export function PixelField({ count, className, position = "absolute" }: PixelFie
         const image = images[particle.image];
 
         if (image.complete && image.naturalWidth) {
-          context.globalAlpha = Math.min(1, particle.opacity * pulse);
+          const opacityMultiplier = isLight ? 1.65 : 1.0;
+          context.globalAlpha = Math.min(1, particle.opacity * pulse * opacityMultiplier);
           const size = particle.size * (0.9 + 0.1 * pulse);
           context.drawImage(image, x - size / 2, y - size / 2, size, size);
         }
@@ -204,7 +209,7 @@ export function PixelField({ count, className, position = "absolute" }: PixelFie
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       images.forEach((image) => image.removeEventListener("load", drawStatic));
     };
-  }, [count]);
+  }, [count, theme]);
 
   return (
     <canvas

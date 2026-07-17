@@ -909,12 +909,17 @@ class ServerlessService:
     # ── Reconcile (autoscaler + dispatch) ─────────────────────────────
 
     def reconcile_all(self) -> dict:
-        """Single-writer reconcile tick — acquire advisory lock first."""
+        """Single-writer reconcile tick — acquire advisory lock first.
+
+        The lock is held on one pinned connection for the whole pass (see
+        SLVRRepo.reconcile_lock); acquire/release on separate pooled
+        connections previously leaked the session lock.
+        """
         if os.environ.get("XCELSIOR_SERVERLESS_RECONCILE", "true").lower() == "false":
             return {"skipped": True, "reason": "disabled"}
-        if not self.repo.try_advisory_lock():
-            return {"skipped": True, "reason": "lock_held"}
-        try:
+        with self.repo.reconcile_lock() as acquired:
+            if not acquired:
+                return {"skipped": True, "reason": "lock_held"}
             from serverless.reaper import reap_all
 
             from serverless.observability import refresh_all_gauges
@@ -936,8 +941,6 @@ class ServerlessService:
                 "endpoints": results,
                 "reaper": reaper_stats,
             }
-        finally:
-            self.repo.release_advisory_lock()
 
     def reconcile_endpoint(self, endpoint_id: str) -> dict:
         ep = self.repo.get_endpoint(endpoint_id)
