@@ -202,7 +202,7 @@ for chunk in response:
     <ServerlessPanel className="p-4 sm:p-5 space-y-4">
       <ServerlessSegmentedTabs tabs={modeTabs} value={mode} onChange={setMode} label={t} />
 
-      {(endpoint.min_workers ?? 0) === 0 && (
+      {mode !== "snippets" && (endpoint.min_workers ?? 0) === 0 && (
         <div className="rounded-xl border border-amber-400/25 bg-amber-400/10 p-3 text-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>

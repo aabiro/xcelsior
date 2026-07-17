@@ -101,13 +101,13 @@ export function McpConnectCard() {
             <div className="skeleton h-4 w-3/4 rounded" />
           </div>
         ) : (
-          <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-text-primary">
+          <p className="whitespace-pre-wrap break-words text-sm sm:text-base leading-relaxed text-text-primary font-medium">
             {promptBeforeToken}
             {tokenIndex >= 0 && (
               <button
                 type="button"
                 onClick={handleCopyToken}
-                className="inline rounded-sm px-0.5 font-mono text-[10px] text-accent-cyan/70 decoration-accent-cyan/50 underline-offset-4 transition-colors hover:text-accent-cyan hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-cyan/50"
+                className="inline rounded px-1 py-0.5 bg-accent-cyan/10 font-mono text-xs sm:text-sm text-accent-cyan decoration-accent-cyan/50 underline-offset-4 transition-colors hover:bg-accent-cyan/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-cyan/50 font-bold"
                 aria-label={t("dash.mcp.copy_token")}
                 title={t("dash.mcp.copy_token")}
               >

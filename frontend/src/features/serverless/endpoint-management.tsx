@@ -260,12 +260,17 @@ export function ServerlessEndpointManagement({
                 type="button"
                 onClick={() => onSelectEndpoint(endpoint.endpoint_id)}
                 className={cn(
-                  "block w-full rounded-lg px-2 py-2 text-left text-sm transition-colors",
-                  active ? "bg-accent-violet/12 text-accent-violet" : "text-text-muted hover:bg-surface-hover hover:text-text-primary",
+                  "block w-full rounded-lg px-2.5 py-2.5 text-left text-sm transition-all border border-transparent",
+                  active ? "bg-accent-violet/12 text-accent-violet border-accent-violet/20" : "text-text-muted hover:bg-surface-hover hover:text-text-primary",
                 )}
               >
-                <span className="block truncate font-medium">{endpointLabel(endpoint)}</span>
-                <span className="block truncate text-[11px] opacity-75">
+                <span className={cn("block truncate text-[10px] font-mono tracking-tight", active ? "text-accent-violet/90" : "text-text-muted")}>
+                  {endpoint.openai_base_url || endpoint.invoke_path || "/run"}
+                </span>
+                <span className={cn("block truncate text-sm font-semibold mt-0.5", active ? "text-accent-violet" : "text-text-primary")}>
+                  {endpoint.name || "Untitled Endpoint"}
+                </span>
+                <span className="block truncate text-[11px] opacity-75 mt-0.5">
                   {formatServerlessChip(endpoint.status)} · Workers {endpoint.min_workers}-{endpoint.max_workers}
                 </span>
               </button>
