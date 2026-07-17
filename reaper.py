@@ -89,15 +89,22 @@ def reaper_tick() -> int:
                 #   - assigned/starting: the row's last transition time lives in
                 #     payload->>'updated_at' (set by update_job_status). Fall back
                 #     to submitted_at for legacy rows without that field.
+                # active_attempt_id IS NULL: jobs bound by the
+                # transactional scheduler are stuck-handled by the
+                # lease-expiry sweep (attempt fails, allocations release,
+                # job requeues with a durable reason); reaping them here
+                # would fail the job while its attempt/lease stay live.
                 if status == "queued":
                     cur.execute(
                         "SELECT job_id FROM jobs WHERE status = %s AND submitted_at < %s "
+                        "AND active_attempt_id IS NULL "
                         "AND COALESCE(payload->>'queue_reason', '') != 'gpu_busy'",
                         (status, cutoff),
                     )
                 else:
                     cur.execute(
                         "SELECT job_id FROM jobs WHERE status = %s AND "
+                        "active_attempt_id IS NULL AND "
                         "COALESCE((payload->>'updated_at')::float, submitted_at) < %s",
                         (status, cutoff),
                     )
@@ -119,6 +126,7 @@ def reaper_tick() -> int:
                         "    '{updated_at}', to_jsonb(EXTRACT(EPOCH FROM NOW()))), "
                         "  '{host_id}', 'null'::jsonb) "
                         "WHERE job_id = %s AND status = %s "
+                        "AND active_attempt_id IS NULL "
                         "RETURNING job_id",
                         (job_id, status),
                     )

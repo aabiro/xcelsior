@@ -3255,6 +3255,31 @@ def requeue_job(job_id, *, user_initiated: bool = False):
         if not j:
             return None
 
+        # Phase 4 boundary: a job bound by the transactional scheduler
+        # (active attempt) is owned by the lease/fencing engine — its
+        # failover path is the lease-expiry sweep, which fails the
+        # attempt, releases device allocations exactly once, and requeues
+        # with a fresh fence. A legacy requeue here would clobber the
+        # jobs projection while attempt/lease/allocations stay live.
+        # (User relaunch for v2 jobs arrives with the Phase 5 attempt
+        # termination flow.)
+        if _active_backend() == "postgres":
+            _row = conn.execute(
+                "SELECT active_attempt_id FROM jobs WHERE job_id = %s",
+                (job_id,),
+            ).fetchone()
+            _owned = (
+                _row.get("active_attempt_id") if isinstance(_row, dict) else _row[0]
+            ) if _row else None
+            if _owned:
+                log.warning(
+                    "REQUEUE REJECTED job=%s — attempt-owned (attempt=%s); "
+                    "lease engine owns its failover",
+                    job_id,
+                    _owned,
+                )
+                return None
+
         # Cancelled is terminal for automated failover. A user may explicitly
         # relaunch it through the authenticated requeue endpoint.
         if j["status"] == "cancelled" and not user_initiated:
