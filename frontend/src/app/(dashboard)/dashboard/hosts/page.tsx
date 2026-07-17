@@ -1101,7 +1101,7 @@ function HostSetupGuideCard({
       {/* Large hero SVG — palette matches overview launch/provider assets */}
       <div className="relative hidden min-h-[360px] overflow-hidden rounded-2xl xl:block">
         <img
-          src="/xcelsior-hosts-setup-transparent.svg?v=8"
+          src="/mesh-dark.svg"
           alt=""
           aria-hidden
           width={1200}
@@ -1112,7 +1112,7 @@ function HostSetupGuideCard({
           className="site-theme-dark h-full w-full object-cover"
         />
         <img
-          src="/xcelsior-hosts-setup-transparent-light.svg?v=8"
+          src="/mesh-light.svg"
           alt=""
           aria-hidden
           width={1200}

@@ -132,12 +132,20 @@ export function McpLandingContent() {
             <m.div initial="hidden" animate="visible" variants={fadeUp} custom={1} className="site-telemetry-wrap">
               <div className="site-telemetry-card site-hero-visual-card">
                 <Image
-                  src="/mcp/hero-agent-gpu.svg"
+                  src="/mcp/mcp-agent-dark.svg"
                   alt=""
-                  width={480}
-                  height={280}
+                  width={640}
+                  height={420}
                   priority
-                  className="site-hero-illustration"
+                  className="site-hero-illustration site-theme-dark"
+                />
+                <Image
+                  src="/mcp/mcp-agent-light.svg"
+                  alt=""
+                  width={640}
+                  height={420}
+                  priority
+                  className="site-hero-illustration site-theme-light"
                 />
                 <div className="site-hero-stat-grid">
                   <div className="site-hero-stat-card">

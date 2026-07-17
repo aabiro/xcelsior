@@ -109,7 +109,7 @@ export function PixelField({ count, className, position = "absolute" }: PixelFie
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       if (particles.length === 0 && width > 0 && height > 0) {
-        const particleCount = count ?? Math.round(Math.min(90, Math.max(38, (width * height) / 22000)));
+        const particleCount = count ?? Math.round(Math.min(65, Math.max(32, (width * height) / 26000)));
         particles = makeParticles(particleCount, width, height);
       }
     };
@@ -155,6 +155,17 @@ export function PixelField({ count, className, position = "absolute" }: PixelFie
       animationFrame = window.requestAnimationFrame(frame);
     };
 
+    // Backgrounded tabs gain nothing from an animated wallpaper — stop spending
+    // CPU/GPU on it while hidden, and pick back up cleanly on return.
+    const handleVisibilityChange = () => {
+      if (reduceMotion) return;
+      if (document.hidden) {
+        window.cancelAnimationFrame(animationFrame);
+      } else if (!disposed) {
+        animationFrame = window.requestAnimationFrame(frame);
+      }
+    };
+
     const handlePointerMove = (event: PointerEvent) => {
       if (width <= 0 || height <= 0) return;
       const bounds = canvas.getBoundingClientRect();
@@ -175,11 +186,12 @@ export function PixelField({ count, className, position = "absolute" }: PixelFie
     window.addEventListener("resize", resize);
     window.addEventListener("pointermove", handlePointerMove, { passive: true });
     window.addEventListener("pointerleave", resetPointer);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     if (reduceMotion) {
       images.forEach((image) => image.addEventListener("load", drawStatic));
       drawStatic();
-    } else {
+    } else if (!document.hidden) {
       animationFrame = window.requestAnimationFrame(frame);
     }
 
@@ -189,6 +201,7 @@ export function PixelField({ count, className, position = "absolute" }: PixelFie
       window.removeEventListener("resize", resize);
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerleave", resetPointer);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       images.forEach((image) => image.removeEventListener("load", drawStatic));
     };
   }, [count]);

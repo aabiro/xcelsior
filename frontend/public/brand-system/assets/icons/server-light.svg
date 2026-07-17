@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+<defs>
+    <linearGradient id="sl-body" x1="26" y1="20" x2="102" y2="106" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff"></stop><stop offset=".55" stop-color="#f1f5f9"></stop><stop offset="1" stop-color="#e2e8f0"></stop></linearGradient>
+    <linearGradient id="sl-edge" x1="24" y1="20" x2="104" y2="108" gradientUnits="userSpaceOnUse"><stop stop-color="#0891b2"></stop><stop offset=".6" stop-color="#7c3aed"></stop><stop offset="1" stop-color="#059669"></stop></linearGradient>
+    <radialGradient id="sl-sh" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#1e293b" stop-opacity="0.16"></stop><stop offset="100%" stop-color="#1e293b" stop-opacity="0"></stop></radialGradient>
+  <filter id="sl-glow" x="-35%" y="-35%" width="170%" height="170%" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#0f172a" flood-opacity=".16"></feDropShadow><feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#0891b2" flood-opacity=".24"></feDropShadow></filter></defs>
+  <ellipse cx="64" cy="116" rx="42" ry="7" fill="url(#sl-sh)"></ellipse>
+  <g filter="url(#sl-glow)">
+    <rect x="26" y="22" width="76" height="24" rx="7" fill="url(#sl-body)" stroke="url(#sl-edge)" stroke-width="2.2"></rect>
+    <rect x="32" y="28" width="4.5" height="12" rx="2.2" fill="url(#sl-edge)"></rect>
+    <g stroke="#0891b2" stroke-opacity="0.4" stroke-width="2" stroke-linecap="round"><path d="M42 29h20M42 34h20M42 39h16"></path></g>
+    <circle cx="88" cy="34" r="2.6" fill="#059669"></circle>
+    <circle cx="96" cy="34" r="2.6" fill="#0891b2"></circle>
+    <rect x="26" y="52" width="76" height="24" rx="7" fill="url(#sl-body)" stroke="url(#sl-edge)" stroke-width="2.2"></rect>
+    <rect x="32" y="58" width="4.5" height="12" rx="2.2" fill="url(#sl-edge)"></rect>
+    <g stroke="#0891b2" stroke-opacity="0.4" stroke-width="2" stroke-linecap="round"><path d="M42 59h20M42 64h20M42 69h16"></path></g>
+    <circle cx="88" cy="64" r="2.6" fill="#0891b2"></circle>
+    <circle cx="96" cy="64" r="2.6" fill="#7c3aed"></circle>
+    <rect x="26" y="82" width="76" height="24" rx="7" fill="url(#sl-body)" stroke="url(#sl-edge)" stroke-width="2.2"></rect>
+    <rect x="32" y="88" width="4.5" height="12" rx="2.2" fill="url(#sl-edge)"></rect>
+    <g stroke="#0891b2" stroke-opacity="0.4" stroke-width="2" stroke-linecap="round"><path d="M42 89h20M42 94h20M42 99h16"></path></g>
+    <circle cx="88" cy="94" r="2.6" fill="#7c3aed"></circle>
+    <circle cx="96" cy="94" r="2.6" fill="#059669"></circle></g>
+</svg>

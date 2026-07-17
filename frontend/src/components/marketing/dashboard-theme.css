@@ -263,7 +263,8 @@
 .dashboard-shell-loading-spinner {
   width: 42px;
   height: 42px;
-  border: 2px solid rgba(56, 219, 255, 0.24);
+  background: transparent;
+  border: 3px solid rgba(56, 219, 255, 0.38);
   border-top-color: var(--cyan);
   border-right-color: var(--violet);
   border-radius: 999px;
@@ -735,11 +736,30 @@
 }
 
 .dashboard-site-main:has(.dashboard-mcp-page) {
+  padding: 0;
   overflow: hidden;
 }
 
 .dashboard-site-main:has(.dashboard-mcp-page) .dashboard-site-main-inner {
+  max-width: none;
+  padding: 0;
   height: 100%;
+}
+
+/* Connect page reads as a focused, full-bleed installer screen, not a bordered
+   card sitting inside the usual dashboard chrome — drop the ambient dot-grid
+   and the main-column rail guides here only, and reclaim the AI-rail's width
+   so the pixel field and corner link reach the true page edge. */
+.dashboard-shell:has(.dashboard-mcp-page)::before {
+  display: none;
+}
+
+.dashboard-site-main:has(.dashboard-mcp-page) .dashboard-site-main-inner::before {
+  display: none;
+}
+
+.dashboard-site-workspace:has(.dashboard-mcp-page) .dashboard-site-ai-rail {
+  display: none;
 }
 
 .dashboard-site-main:has(.dashboard-ai-page) .dashboard-site-main-inner {
