@@ -1017,7 +1017,7 @@ function HostSetupGuideCard({
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 xl:grid-cols-[0.98fr_1.02fr]">
+      <div className="grid gap-4 xl:grid-cols-2">
       {/* Steps card */}
       <Card className="relative overflow-hidden border-border/60 bg-gradient-to-br from-surface via-surface to-accent-cyan/[0.04]">
         <div className="absolute -right-16 top-0 h-40 w-40 rounded-full bg-accent-cyan/10 blur-3xl" />
