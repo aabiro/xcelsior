@@ -118,6 +118,9 @@ class TestSizeTieredTokenPricing:
         # MoE / large families map to the top band even without an explicit size.
         assert infer_model_params_b("deepseek-ai/DeepSeek-R1") == float("inf")
         assert infer_model_params_b("mistralai/Mixtral-8x7B") == float("inf")
+        assert infer_model_params_b("VoyageAI/voyage-3") == 1.0
+        assert infer_model_params_b("VoyageAI/voyage-3-code") == 1.0
+        assert infer_model_params_b("Cohere/cohere-rerank-v3.5") == 1.0
         assert infer_model_params_b(None) is None
         assert infer_model_params_b("some-unknown-model") is None
 

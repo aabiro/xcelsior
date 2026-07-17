@@ -86,6 +86,9 @@ def infer_model_params_b(model_ref: str | None) -> float | None:
     """
     if not model_ref:
         return None
+    from serverless.openai_proxy import model_task
+    if model_task(model_ref) in ("embed", "rerank"):
+        return 1.0  # auxiliary models get lowest pricing band (<= 9B)
     s = model_ref.lower()
     if any(marker in s for marker in _LARGE_MODEL_MARKERS):
         return float("inf")

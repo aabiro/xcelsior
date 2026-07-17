@@ -17,17 +17,17 @@ export default function McpConnectPage() {
       className="dashboard-mcp-page relative isolate h-full min-h-0 overflow-hidden"
       style={{ fontFamily: "var(--font-geist-sans), Geist, system-ui, sans-serif" }}
     >
-      <PixelField count={18} className="z-0" />
+      <PixelField className="z-0" />
 
       {/* Corner API reference link — mirrors a "Developer Platform" affordance */}
       <a
         href="https://docs.xcelsior.ca"
         target="_blank"
         rel="noopener noreferrer"
-        className="absolute right-0 top-0 z-20 inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface/70 px-3 py-1.5 text-xs text-text-secondary shadow-sm backdrop-blur-sm transition-colors hover:border-border-light hover:text-text-primary"
+        className="absolute right-5 top-0 z-20 inline-flex items-center gap-2 rounded-full border border-border/60 bg-surface/70 px-4 py-2 text-sm font-medium text-text-secondary shadow-sm backdrop-blur-sm transition-colors hover:border-border-light hover:text-text-primary sm:right-7"
       >
         {t("dash.mcp.api_ref")}
-        <ExternalLink className="h-3 w-3" />
+        <ExternalLink className="h-3.5 w-3.5" />
       </a>
 
       <div className="relative z-10 mx-auto flex h-full max-w-2xl flex-col items-center justify-center px-4 py-2 text-center sm:py-4">
@@ -42,19 +42,21 @@ export default function McpConnectPage() {
           />
         </FadeIn>
 
-        <FadeIn delay={0.08}>
+        <FadeIn delay={0.08} className="w-full">
           <h1 className="brand-gradient-text mb-2 text-3xl font-bold tracking-tight sm:text-4xl">
             {t("dash.mcp.headline")}
           </h1>
-          <p className="mb-5 max-w-md text-sm text-text-secondary">{t("dash.mcp.subhead")}</p>
+          <p className="mx-auto mb-5 max-w-md text-center text-sm text-text-secondary">
+            {t("dash.mcp.subhead")}
+          </p>
         </FadeIn>
 
         <FadeIn delay={0.16} className="w-full">
           <McpConnectCard />
         </FadeIn>
 
-        <FadeIn delay={0.24}>
-          <p className="mt-4 text-xs text-text-muted">
+        <FadeIn delay={0.24} className="w-full">
+          <p className="mx-auto mt-4 max-w-2xl text-center text-xs text-text-muted">
             {t("dash.mcp.footnote")}{" "}
             <Link href="/dashboard/settings#mcp" className="text-accent-cyan underline-offset-2 hover:underline">
               {t("dash.mcp.guide")}
