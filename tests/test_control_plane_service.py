@@ -346,6 +346,55 @@ class TestSchedulerServiceTick:
         assert row["reason_code"] in ("no_eligible_host", "no_hosts")
         assert row["next_schedule_at"] is not None  # bounded backoff
 
+    def test_legacy_requeue_rejects_attempt_owned_job(self, fleet):
+        """Dead-host failover / legacy lease expiry both route through
+        requeue_job — it must refuse jobs the lease engine owns."""
+        marker = uuid.uuid4().hex[:8]
+        model = f"RTX-{marker}"
+        host_id = f"h-{marker}-1"
+        job_id = f"j-{marker}-rq"
+        _mk_host(fleet, host_id, gpu_model=model)
+        _mk_job(fleet, job_id, gpu_model=model)
+        report = SchedulerService(self._cfg(marker, [host_id])).tick()
+        assert len(report.placements) == 1
+
+        import scheduler as legacy_scheduler
+
+        assert legacy_scheduler.requeue_job(job_id) is None
+        row = _job_row(job_id)
+        assert row["status"] == "assigned"
+        assert row["active_attempt_id"] is not None
+
+    def test_reaper_skips_attempt_owned_job(self, fleet):
+        marker = uuid.uuid4().hex[:8]
+        model = f"RTX-{marker}"
+        host_id = f"h-{marker}-1"
+        owned_job = f"j-{marker}-owned"
+        plain_job = f"j-{marker}-plain"
+        _mk_host(fleet, host_id, gpu_model=model)
+        _mk_job(fleet, owned_job, gpu_model=model)
+        report = SchedulerService(self._cfg(marker, [host_id])).tick()
+        assert len(report.placements) == 1
+
+        # A legacy-assigned control job with the same staleness DOES reap.
+        _mk_job(fleet, plain_job, gpu_model=model, status="assigned")
+        stale = time.time() - 7200
+        with _pool.connection() as conn:
+            for jid in (owned_job, plain_job):
+                conn.execute(
+                    """UPDATE jobs SET payload =
+                           jsonb_set(payload, '{updated_at}', to_jsonb(%s::float))
+                        WHERE job_id=%s""",
+                    (stale, jid),
+                )
+            conn.commit()
+
+        from reaper import reaper_tick
+
+        reaper_tick()
+        assert _job_row(owned_job)["status"] == "assigned"  # untouched
+        assert _job_row(plain_job)["status"] == "failed"  # legacy reaped
+
     def test_paused_mode_is_noop(self, fleet):
         marker = uuid.uuid4().hex[:8]
         _mk_job(fleet, f"j-{marker}-idle", gpu_model=f"RTX-{marker}")
