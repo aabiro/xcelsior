@@ -60,7 +60,12 @@ def fleet():
 
 def _mkjob(fleet, *, num_gpus=1):
     job_id = f"job-resv-{uuid.uuid4().hex[:10]}"
-    payload = {"name": job_id, "num_gpus": num_gpus, "image": "pytorch:latest"}
+    # gpu_model doubles as a unique claim scope so these tests never
+    # claim residue jobs left behind by other suites (and vice versa).
+    payload = {
+        "name": job_id, "num_gpus": num_gpus, "image": "pytorch:latest",
+        "gpu_model": job_id,
+    }
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO jobs (job_id, status, priority, submitted_at, payload,
@@ -81,7 +86,7 @@ def _mkhost(fleet, *, gpus=2, inventory_generation=1):
                                   administrative_state, availability_state,
                                   inventory_generation)
                VALUES (%s, 'active', %s, %s, 'admitted', 'ready', %s)""",
-            (host_id, time.time(), json.dumps({}), inventory_generation),
+            (host_id, time.time(), json.dumps({"admitted": True}), inventory_generation),
         )
         for i in range(gpus):
             conn.execute(
@@ -96,13 +101,14 @@ def _mkhost(fleet, *, gpus=2, inventory_generation=1):
     return host_id
 
 
-def _claim(job_id=None):
+def _claim(job_id):
     with _pool.connection() as conn:
-        claimed = claim_next_job(conn, replica_id="resv-test")
+        claimed = claim_next_job(
+            conn, replica_id="resv-test", scope_gpu_models=[job_id]
+        )
         conn.commit()
     assert claimed is not None
-    if job_id is not None:
-        assert claimed.job_id == job_id
+    assert claimed.job_id == job_id
     return claimed
 
 
@@ -208,9 +214,11 @@ class TestConflictsLeaveNoResidue:
         host_id = _mkhost(fleet)
         claimed = _claim(job_id)
         with _pool.connection() as conn:
+            # Cancel via status — the 059 trigger projects phase/desired
+            # ('stopped'/'stopped'), exactly how production writers stop
+            # a job out from under a claim.
             conn.execute(
-                "UPDATE jobs SET phase='stopped', desired_state='stopped' "
-                "WHERE job_id=%s",
+                "UPDATE jobs SET status='cancelled' WHERE job_id=%s",
                 (job_id,),
             )
             conn.commit()
@@ -223,8 +231,13 @@ class TestConflictsLeaveNoResidue:
         host_id = _mkhost(fleet)
         claimed = _claim(job_id)
         with _pool.connection() as conn:
+            # Drain the legacy way (payload flag): the 059 projection
+            # trigger derives administrative_state='draining' from it —
+            # writing the column directly would just be recomputed.
             conn.execute(
-                "UPDATE hosts SET administrative_state='draining' WHERE host_id=%s",
+                """UPDATE hosts
+                      SET payload = jsonb_set(payload, '{draining}', 'true')
+                    WHERE host_id=%s""",
                 (host_id,),
             )
             conn.commit()
@@ -265,8 +278,8 @@ class TestConflictsLeaveNoResidue:
         job_a = _mkjob(fleet)
         job_b = _mkjob(fleet)
         host_id = _mkhost(fleet, gpus=1)
-        claimed_a = _claim()
-        claimed_b = _claim()
+        claimed_a = _claim(job_a)
+        claimed_b = _claim(job_b)
         assert {claimed_a.job_id, claimed_b.job_id} == {job_a, job_b}
         _reserve(claimed_a, host_id)
         with pytest.raises(CapacityConflict):

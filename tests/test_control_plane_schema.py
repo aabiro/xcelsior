@@ -176,25 +176,43 @@ class TestSchemaPresence:
 
 
 # ── Invariant: legacy status projections are constrained ────────────
+# Since migration 059 the projection trigger *normalizes* every write —
+# an invalid value handed to the projection columns never reaches the
+# CHECK constraint because the trigger recomputes it from the legacy
+# truth first. The invariant under test is therefore "garbage cannot
+# persist", not "garbage raises".
 
 
 class TestJobProjectionConstraints:
-    def test_invalid_phase_rejected(self, cleanup_ids):
-        with pytest.raises(CheckViolation):
-            _mkjob(cleanup_ids, phase="warming_up")
+    def test_invalid_phase_normalized_by_trigger(self, cleanup_ids):
+        job_id = _mkjob(cleanup_ids, phase="warming_up")
+        with _pool.connection() as conn:
+            row = conn.execute(
+                "SELECT phase FROM jobs WHERE job_id=%s", (job_id,)
+            ).fetchone()
+        assert row[0] == "pending"  # projected from status='queued'
 
-    def test_invalid_desired_state_rejected(self, cleanup_ids):
-        with pytest.raises(CheckViolation):
-            _mkjob(cleanup_ids, desired_state="maybe")
+    def test_invalid_desired_state_normalized_by_trigger(self, cleanup_ids):
+        job_id = _mkjob(cleanup_ids, desired_state="maybe")
+        with _pool.connection() as conn:
+            row = conn.execute(
+                "SELECT desired_state FROM jobs WHERE job_id=%s", (job_id,)
+            ).fetchone()
+        assert row[0] == "running"
 
-    def test_invalid_host_admin_state_rejected(self, cleanup_ids):
+    def test_invalid_host_admin_state_normalized_by_trigger(self, cleanup_ids):
         host_id = _mkhost(cleanup_ids)
         with _pool.connection() as conn:
-            with pytest.raises(CheckViolation):
-                conn.execute(
-                    "UPDATE hosts SET administrative_state='paused' WHERE host_id=%s",
-                    (host_id,),
-                )
+            conn.execute(
+                "UPDATE hosts SET administrative_state='paused' WHERE host_id=%s",
+                (host_id,),
+            )
+            conn.commit()
+            row = conn.execute(
+                "SELECT administrative_state FROM hosts WHERE host_id=%s",
+                (host_id,),
+            ).fetchone()
+        assert row[0] in ("pending", "admitted", "draining", "disabled")
 
 
 # ── Invariant 8.1: at most one active attempt per job ───────────────

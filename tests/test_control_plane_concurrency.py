@@ -53,7 +53,7 @@ def stress_fleet():
             conn.execute(
                 """INSERT INTO hosts (host_id, status, registered_at, payload,
                                       administrative_state, availability_state)
-                   VALUES (%s, 'active', %s, '{}', 'admitted', 'ready')""",
+                   VALUES (%s, 'active', %s, '{"admitted": true}', 'admitted', 'ready')""",
                 (host_id, time.time()),
             )
             for g in range(GPUS_PER_HOST):
@@ -71,7 +71,11 @@ def stress_fleet():
                                      effective_priority, queued_at)
                    VALUES (%s, 'queued', %s, %s, %s, 'pending', 'running', %s,
                            now())""",
-                (job_id, i % 3, time.time(), json.dumps({"name": job_id}), i % 3),
+                (
+                    job_id, i % 3, time.time(),
+                    json.dumps({"name": job_id, "gpu_model": f"stress-{marker}"}),
+                    i % 3,
+                ),
             )
         conn.commit()
     yield marker, job_ids, host_ids

@@ -31,7 +31,12 @@ def run_replica(dsn: str, replica_id: str, host_ids: list[str], marker: str) -> 
         while empty_polls < 3:
             claimed = None
             try:
-                claimed = claim_next_job(conn, replica_id=replica_id)
+                # Scoped to this test's jobs (gpu_model carries the marker)
+                # so replicas never churn on shared-DB residue.
+                claimed = claim_next_job(
+                    conn, replica_id=replica_id,
+                    scope_gpu_models=[f"stress-{marker}"],
+                )
                 conn.commit()
             except Exception as exc:
                 conn.rollback()
