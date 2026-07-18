@@ -2399,6 +2399,17 @@ def scheduler_main():
     # Track A Phase 3: shadow placement comparison (no-op unless enabled)
     start_shadow_runner()
 
+    # Track A Phase 7: outbox dispatcher — delivers the transactional
+    # writers' side-effect intents (SSE via pg_notify, agent wake).
+    if _active_backend() == "postgres":
+        try:
+            from control_plane.outbox_runtime import start_outbox_dispatcher
+
+            if start_outbox_dispatcher() is not None:
+                log.info("Outbox dispatcher thread started")
+        except Exception as e:
+            log.error("Outbox dispatcher failed to start: %s", e)
+
     event_store = get_event_store()
     tick_count = 0
 
