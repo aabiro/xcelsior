@@ -60,4 +60,14 @@ if [[ -n "$HEAD" ]]; then
   echo "Stamped alembic_version = ${HEAD}"
 fi
 
+# Migration-seeded reference rows a schema-only clone omits (data, not
+# DDL). Kept faithful to the migrations that insert them.
+echo "Seeding migration reference data…"
+psql -h "$PGHOST" -U "$PGUSER" -d "$TARGET_DB" -q -c \
+  "INSERT INTO scheduled_tasks (task_name, interval_seconds, payload)
+     VALUES ('telemetry_partition_maintenance', 86400,
+             '{\"table\": \"telemetry_samples\", \"months_ahead\": 2,
+               \"retention_months\": 6}'::jsonb)
+     ON CONFLICT (task_name) DO NOTHING;" >/dev/null
+
 echo "Done. ${TARGET_DB} is ready and isolated from ${SOURCE_DB}."
