@@ -2,8 +2,10 @@
 
 Blueprint §13.3 (migration 056): the durable-work backbone for Track A.
 
-- ``agent_commands`` is *evolved in place* (expand-only) with the claim/ACK
-  lifecycle (§9.4: pending → claimed → acknowledged | failed → pending |
+- ``agent_commands`` base table is created with ``CREATE TABLE IF NOT
+  EXISTS`` (A1.6 — historically only runtime DDL in ``db._ensure_pg_tables``)
+  then *evolved in place* (expand-only) with the claim/ACK lifecycle
+  (§9.4: pending → claimed → acknowledged | failed → pending |
   dead_letter; pending → cancelled; claimed → pending on claim timeout),
   attempt/fence references, retry budget, idempotency key, and result
   fields. The v1 drain path (DELETE ... RETURNING in routes/agent.py) keeps
@@ -47,6 +49,37 @@ COMMAND_STATUSES = (
 def upgrade() -> None:
     op.execute("SET lock_timeout = '5s'")
     op.execute("SET statement_timeout = '5min'")
+
+    # ── agent_commands base table (A1.6) ─────────────────────────────
+    # Historically created only by db._ensure_pg_tables() runtime DDL.
+    # Pure `alembic upgrade head` from an empty DB failed here because the
+    # expand ALTERs below assume the table exists. CREATE IF NOT EXISTS is
+    # a no-op on already-bootstrapped environments (same pattern as
+    # migration 030 for gpu_pricing).
+    op.execute(
+        """
+        CREATE TABLE IF NOT EXISTS agent_commands (
+            id BIGSERIAL PRIMARY KEY,
+            host_id TEXT NOT NULL,
+            command TEXT NOT NULL,
+            args JSONB NOT NULL DEFAULT '{}'::jsonb,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at DOUBLE PRECISION NOT NULL
+                DEFAULT EXTRACT(EPOCH FROM NOW()),
+            expires_at DOUBLE PRECISION NOT NULL
+                DEFAULT EXTRACT(EPOCH FROM NOW()) + 900,
+            created_by TEXT,
+            result JSONB
+        )
+        """
+    )
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_agent_commands_host_pending
+        ON agent_commands (host_id, status, created_at)
+        WHERE status = 'pending'
+        """
+    )
 
     # ── agent_commands: claim/ACK lifecycle (expand in place) ────────
     # Stable identity for the v2 protocol; the legacy BIGSERIAL id stays
