@@ -218,7 +218,8 @@ def report_attempt_status(
                        WHEN %(job_status)s = 'stopped' THEN
                            jsonb_set(
                                jsonb_set(
-                                   COALESCE(payload, '{}'::jsonb),
+                                   COALESCE(payload, '{}'::jsonb)
+                                       - 'lifecycle_intent',
                                    '{status}',
                                    to_jsonb(%(job_status)s::text),
                                    true
@@ -230,7 +231,8 @@ def report_attempt_status(
                        WHEN %(job_status)s = 'terminated' THEN
                            jsonb_set(
                                jsonb_set(
-                                   COALESCE(payload, '{}'::jsonb),
+                                   COALESCE(payload, '{}'::jsonb)
+                                       - 'lifecycle_intent',
                                    '{status}',
                                    to_jsonb(%(job_status)s::text),
                                    true
@@ -242,7 +244,8 @@ def report_attempt_status(
                        WHEN %(job_status)s = 'cancelled' THEN
                            jsonb_set(
                                jsonb_set(
-                                   COALESCE(payload, '{}'::jsonb),
+                                   COALESCE(payload, '{}'::jsonb)
+                                       - 'lifecycle_intent',
                                    '{status}',
                                    to_jsonb(%(job_status)s::text),
                                    true
@@ -252,12 +255,16 @@ def report_attempt_status(
                                true
                            )
                        WHEN %(job_status)s = 'queued' THEN
+                           -- Consume lifecycle_intent so a later normal
+                           -- stop_attempt cannot re-read intent=restart and
+                           -- requeue again (sticky restart poison).
                            jsonb_set(
                                jsonb_set(
                                    (COALESCE(payload, '{}'::jsonb)
                                         - 'stopped_at'
                                         - 'stop_reason'
-                                        - 'stopping_at'),
+                                        - 'stopping_at'
+                                        - 'lifecycle_intent'),
                                    '{status}',
                                    '"queued"'::jsonb,
                                    true
