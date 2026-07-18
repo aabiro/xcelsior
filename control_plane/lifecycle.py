@@ -3,8 +3,11 @@
 Terminate and cancel of attempt-owned work must not use the legacy unfenced
 kill/detach path. This module records stop/terminate/cancel intent on the
 job row and enqueues a durable ``stop_attempt`` bound to the current
-host/attempt/fence. Volume detach stays deferred until observation/ACK
-settles the attempt (or a later residual step); never pre-ACK.
+host/attempt/fence — **in one transaction**, so a refused enqueue never
+leaves the job stuck in ``stopping`` without a command.
+
+Volume detach stays deferred until observation/ACK settles the attempt
+(or a later residual step); never pre-ACK.
 """
 
 from __future__ import annotations
@@ -26,8 +29,6 @@ log = logging.getLogger("xcelsior.control_plane.lifecycle")
 
 LifecycleIntent = Literal["stop", "cancel", "terminate"]
 
-_VALID_INTENTS = frozenset({"stop", "cancel", "terminate"})
-
 
 @dataclass(frozen=True)
 class FencedLifecycleResult:
@@ -40,6 +41,10 @@ class FencedLifecycleResult:
     command_id: str | None = None
     fencing_token: int | None = None
     host_id: str | None = None
+    # True only when this call inserted a new agent_commands row (not an
+    # idempotent collision on the same intent:attempt key). Billing anchors
+    # and similar side effects must gate on this.
+    command_created: bool = False
 
 
 def _mark_stopping_with_intent(
@@ -94,6 +99,10 @@ def request_fenced_stop_remove(
 ) -> FencedLifecycleResult:
     """Record terminate/cancel intent and enqueue fenced ``stop_attempt``.
 
+    Intent projection and command insert commit together. If the job has no
+    active fenced authority, the transaction rolls back and the job row is
+    left unchanged (not ``stopping`` with zero commands).
+
     ``preserve=False`` so the worker stops and removes the attempt container.
     Idempotent on the same attempt via command idempotency key
     ``{intent}:{attempt_id}``.
@@ -108,14 +117,12 @@ def request_fenced_stop_remove(
             reason="invalid_intent",
         )
 
-    from db import _get_pg_pool
-    from psycopg.rows import dict_row
-
     now = time.time()
-    tag = reason_tag or ("user_terminated" if intent == "terminate" else "user_cancelled")
-    pool = _get_pg_pool()
-    with pool.connection() as conn:
-        conn.row_factory = dict_row
+    tag = reason_tag or (
+        "user_terminated" if intent == "terminate" else "user_cancelled"
+    )
+
+    def _txn(conn: Any) -> FencedLifecycleResult:
         job = conn.execute(
             """
             SELECT job_id, status, host_id, active_attempt_id,
@@ -130,7 +137,7 @@ def request_fenced_stop_remove(
             """,
             (job_id,),
         ).fetchone()
-        if not job:
+        if job is None:
             return FencedLifecycleResult(
                 ok=False,
                 job_id=job_id,
@@ -138,21 +145,57 @@ def request_fenced_stop_remove(
                 status="",
                 reason="already_terminal_or_not_found",
             )
-        if not job.get("active_attempt_id"):
+        # Support both dict_row and tuple_row pool connections.
+        if isinstance(job, dict):
+            active_attempt_id = job.get("active_attempt_id")
+            job_status = str(job.get("status") or "")
+            cname_from_job = job.get("container_name")
+        else:
+            active_attempt_id = job[3]
+            job_status = str(job[1] or "")
+            cname_from_job = job[4]
+
+        if not active_attempt_id:
             return FencedLifecycleResult(
                 ok=False,
                 job_id=job_id,
                 intent=intent,
-                status=str(job.get("status") or ""),
+                status=job_status,
                 reason="not_attempt_owned",
             )
 
-        cname = (
-            container_name
-            or job.get("container_name")
-            or f"xcl-{job_id}"
+        attempt_id = str(active_attempt_id)
+        cname = container_name or cname_from_job or f"xcl-{job_id}"
+        idemp_key = f"{intent}:{attempt_id}"
+
+        prior = conn.execute(
+            """
+            SELECT command_id FROM agent_commands
+             WHERE job_id = %s
+               AND idempotency_key = %s
+             LIMIT 1
+            """,
+            (job_id, idemp_key),
+        ).fetchone()
+        command_created = prior is None
+
+        # Authority check + command insert first; failure raises and rolls
+        # back any subsequent mark (and we mark after so refuse leaves job
+        # untouched even if mark ran — still order enqueue before mark).
+        enqueued: EnqueuedAttemptCommand = enqueue_current_attempt_command(
+            conn,
+            job_id=job_id,
+            command="stop_attempt",
+            args={
+                "container_name": cname,
+                "preserve": False,
+                "intent": intent,
+            },
+            created_by=created_by,
+            idempotency_key=idemp_key,
         )
-        # Intermediate projection — never mark terminal before worker proof.
+
+        # Intermediate projection — never terminal before worker proof.
         _mark_stopping_with_intent(
             conn,
             job_id=job_id,
@@ -160,64 +203,54 @@ def request_fenced_stop_remove(
             now=now,
             reason_tag=tag,
         )
-        conn.commit()
+
+        return FencedLifecycleResult(
+            ok=True,
+            job_id=job_id,
+            intent=intent,
+            status="stopping",
+            attempt_id=enqueued.attempt_id,
+            command_id=enqueued.command_id,
+            fencing_token=enqueued.fencing_token,
+            host_id=enqueued.host_id,
+            command_created=command_created,
+        )
 
     try:
-        enqueued: EnqueuedAttemptCommand = run_transaction(
-            lambda c: enqueue_current_attempt_command(
-                c,
-                job_id=job_id,
-                command="stop_attempt",
-                args={
-                    "container_name": cname,
-                    "preserve": False,
-                    "intent": intent,
-                },
-                created_by=created_by,
-                # Distinct from preserve-stop's default key stop_attempt:{attempt}.
-                idempotency_key=f"{intent}:{job.get('active_attempt_id')}",
-            ),
-            what=f"enqueue_fenced_{intent}",
-        )
+        result = run_transaction(_txn, what=f"fenced_{intent}")
     except CommandProtocolError as exc:
         log.warning(
             "fenced %s enqueue refused for %s: %s", intent, job_id, exc
         )
+        # No durable write — job projection unchanged.
         return FencedLifecycleResult(
             ok=False,
             job_id=job_id,
             intent=intent,
-            status="stopping",
+            status="",
             reason="no_active_fenced_authority",
         )
     except Exception as exc:
-        log.warning("fenced %s enqueue failed for %s: %s", intent, job_id, exc)
+        log.warning("fenced %s failed for %s: %s", intent, job_id, exc)
         return FencedLifecycleResult(
             ok=False,
             job_id=job_id,
             intent=intent,
-            status="stopping",
+            status="",
             reason="enqueue_failed",
         )
 
-    log.info(
-        "fenced %s queued job=%s attempt=%s fence=%s cmd=%s",
-        intent,
-        job_id,
-        enqueued.attempt_id[:8],
-        enqueued.fencing_token,
-        enqueued.command_id[:8],
-    )
-    return FencedLifecycleResult(
-        ok=True,
-        job_id=job_id,
-        intent=intent,
-        status="stopping",
-        attempt_id=enqueued.attempt_id,
-        command_id=enqueued.command_id,
-        fencing_token=enqueued.fencing_token,
-        host_id=enqueued.host_id,
-    )
+    if result.ok:
+        log.info(
+            "fenced %s queued job=%s attempt=%s fence=%s cmd=%s created=%s",
+            intent,
+            job_id,
+            (result.attempt_id or "")[:8],
+            result.fencing_token,
+            (result.command_id or "")[:8],
+            result.command_created,
+        )
+    return result
 
 
 def settle_queued_cancel_without_attempt(

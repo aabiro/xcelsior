@@ -1747,23 +1747,30 @@ class BillingEngine:
                     "job_id": job_id,
                     "status": fenced.status or None,
                 }
-            cycle_id = f"BC-term-{int(now)}-{os.urandom(3).hex()}"
-            with pool.connection() as bconn:
-                bconn.execute(
-                    """INSERT INTO billing_cycles
-                       (cycle_id, job_id, customer_id, host_id, resource_type,
-                        period_start, period_end, duration_seconds, rate_per_hour,
-                        gpu_model, tier, tier_multiplier, amount_cad, status,
-                        created_at)
-                       VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0,
-                               0, 'terminated', %s)""",
-                    (cycle_id, job_id, owner, host_id, now, now, now),
-                )
-                bconn.commit()
+            # Billing anchor once per attempt: only when this call first
+            # owns the durable command (idempotent re-entry reuses the
+            # command without a second BC-term row). Deterministic cycle_id
+            # is a second line of defense against concurrent double-insert.
+            if fenced.command_created and fenced.attempt_id:
+                cycle_id = f"BC-term-{fenced.attempt_id}"
+                with pool.connection() as bconn:
+                    bconn.execute(
+                        """INSERT INTO billing_cycles
+                           (cycle_id, job_id, customer_id, host_id, resource_type,
+                            period_start, period_end, duration_seconds, rate_per_hour,
+                            gpu_model, tier, tier_multiplier, amount_cad, status,
+                            created_at)
+                           VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0,
+                                   0, 'terminated', %s)
+                           ON CONFLICT (cycle_id) DO NOTHING""",
+                        (cycle_id, job_id, owner, host_id, now, now, now),
+                    )
+                    bconn.commit()
             log.info(
-                "TERMINATE fenced stop_attempt queued job=%s attempt=%s",
+                "TERMINATE fenced stop_attempt queued job=%s attempt=%s created=%s",
                 job_id,
                 (fenced.attempt_id or "")[:8],
+                fenced.command_created,
             )
             return {
                 "terminated": True,

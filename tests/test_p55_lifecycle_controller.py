@@ -299,3 +299,70 @@ def test_routes_no_longer_hardfail_only_on_controller_missing():
     # Must not be the only return for attempt-owned terminate.
     assert 'reason": "fenced_terminate_requires_controller"' not in billing
     assert 'raise HTTPException(409, "fenced_cancel_requires_controller")' not in instances
+
+
+def test_enqueue_refuse_does_not_leave_stopping_without_command(cleanup_ids):
+    """Atomicity: no lease → ok=False, status still running, zero commands."""
+    host_id = f"h-p55-refuse-{uuid.uuid4().hex[:6]}"
+    _mkhost(cleanup_ids, host_id)
+    job_id, _ = _mkjob(cleanup_ids, host_id=host_id)
+    attempt_id = str(uuid.uuid4())
+    with _pool.connection() as conn:
+        conn.execute(
+            """INSERT INTO job_attempts
+                   (attempt_id, job_id, attempt_number, status, host_id,
+                    fencing_token)
+               VALUES (%s, %s, 1, 'running', %s,
+                       nextval('placement_fencing_token_seq'))""",
+            (attempt_id, job_id, host_id),
+        )
+        conn.execute(
+            "UPDATE jobs SET active_attempt_id=%s WHERE job_id=%s",
+            (attempt_id, job_id),
+        )
+        conn.commit()
+
+    from control_plane.lifecycle import request_fenced_stop_remove
+
+    result = request_fenced_stop_remove(
+        job_id=job_id, intent="terminate", created_by="test"
+    )
+    assert result.ok is False
+    assert result.reason == "no_active_fenced_authority"
+    assert result.command_created is False
+
+    with _pool.connection() as conn:
+        row = conn.execute(
+            """SELECT status, payload->>'lifecycle_intent'
+                 FROM jobs WHERE job_id=%s""",
+            (job_id,),
+        ).fetchone()
+        n = conn.execute(
+            "SELECT COUNT(*) FROM agent_commands WHERE job_id=%s", (job_id,)
+        ).fetchone()[0]
+    assert row[0] == "running"
+    assert row[1] is None
+    assert n == 0
+
+
+def test_terminate_billing_cycle_once_per_attempt(cleanup_ids):
+    host_id = f"h-p55-bc-{uuid.uuid4().hex[:6]}"
+    _mkhost(cleanup_ids, host_id)
+    job_id, _ = _mkjob(cleanup_ids, host_id=host_id)
+    attempt_id, _ = _mk_active_attempt(job_id, host_id)
+
+    from billing import BillingEngine
+
+    assert BillingEngine().terminate_instance(job_id)["terminated"] is True
+    assert BillingEngine().terminate_instance(job_id)["terminated"] is True
+    with _pool.connection() as conn:
+        n_bc = conn.execute(
+            """SELECT COUNT(*) FROM billing_cycles
+                WHERE job_id=%s AND cycle_id = %s""",
+            (job_id, f"BC-term-{attempt_id}"),
+        ).fetchone()[0]
+        n_cmd = conn.execute(
+            "SELECT COUNT(*) FROM agent_commands WHERE job_id=%s", (job_id,)
+        ).fetchone()[0]
+    assert n_bc == 1
+    assert n_cmd == 1
