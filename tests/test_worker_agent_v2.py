@@ -219,3 +219,154 @@ class TestRenewalFenceLoss:
         assert any("kill" in argv for argv in killed)
         with worker_agent._v2_attempts_lock:
             assert "job-1" not in worker_agent._v2_attempts
+
+
+class TestJournalAndAdoption:
+    def setup_method(self):
+        worker_agent._v2_enabled = True
+
+    def teardown_method(self):
+        worker_agent._v2_enabled = False
+        with worker_agent._v2_attempts_lock:
+            worker_agent._v2_attempts.clear()
+
+    def _journal(self, tmp_path, records):
+        path = tmp_path / "v2_attempts.json"
+        path.write_text(__import__("json").dumps(records))
+        return str(path)
+
+    def _rec(self, job_id="job-1"):
+        return {
+            job_id: {
+                "lease_id": "lease-1", "job_id": job_id, "attempt_id": "att-1",
+                "fencing_token": 7, "renewal_ttl_sec": 300,
+            }
+        }
+
+    def test_journal_roundtrip(self, tmp_path):
+        path = str(tmp_path / "v2_attempts.json")
+        auth = {
+            "lease_id": "lease-1", "job_id": "job-1", "attempt_id": "att-1",
+            "fencing_token": 7, "renewal_ttl_sec": 120,
+            "stop": threading.Event(),
+        }
+        with mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", path):
+            with worker_agent._v2_attempts_lock:
+                worker_agent._v2_attempts["job-1"] = auth
+            worker_agent._v2_journal_save()
+            loaded = worker_agent._v2_journal_load()
+        assert loaded["job-1"]["attempt_id"] == "att-1"
+        assert loaded["job-1"]["fencing_token"] == 7
+        assert "stop" not in loaded["job-1"]
+
+    def test_adopts_running_container_with_valid_lease(self, tmp_path):
+        path = self._journal(tmp_path, self._rec())
+        renews = []
+
+        def fake_post(url, json=None, headers=None, timeout=None):
+            if "/leases/renew" in url:
+                renews.append(json)
+                return _resp(200, {"ok": True})
+            return _resp(200, {"ok": True})
+
+        with mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", path), \
+             mock.patch.object(worker_agent.requests, "post", fake_post), \
+             mock.patch.object(
+                 worker_agent, "_v2_container_state",
+                 return_value=("running", -1, "att-1"),
+             ):
+            adopted = worker_agent.v2_adopt_attempts()
+
+        assert adopted == 1
+        assert renews and renews[0]["attempt_id"] == "att-1"
+        with worker_agent._v2_attempts_lock:
+            assert "job-1" in worker_agent._v2_attempts
+
+    def test_fenced_adoption_kills_container(self, tmp_path):
+        path = self._journal(tmp_path, self._rec())
+        killed = []
+
+        def fake_post(url, json=None, headers=None, timeout=None):
+            if "/leases/renew" in url:
+                return _resp(409, {"error": {"code": "lease_renew_rejected"}})
+            return _resp(200, {"ok": True})
+
+        def fake_run(argv, **kw):
+            killed.append(argv)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", path), \
+             mock.patch.object(worker_agent.requests, "post", fake_post), \
+             mock.patch.object(worker_agent.subprocess, "run", fake_run), \
+             mock.patch.object(
+                 worker_agent, "_v2_container_state",
+                 return_value=("running", -1, "att-1"),
+             ):
+            adopted = worker_agent.v2_adopt_attempts()
+
+        assert adopted == 0
+        assert any("kill" in argv for argv in killed)
+        with worker_agent._v2_attempts_lock:
+            assert "job-1" not in worker_agent._v2_attempts
+
+    def test_exited_container_reports_terminal(self, tmp_path):
+        path = self._journal(tmp_path, self._rec())
+        reports = []
+
+        def fake_post(url, json=None, headers=None, timeout=None):
+            if "/attempts/status" in url:
+                reports.append(json)
+            return _resp(200, {"ok": True})
+
+        with mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", path), \
+             mock.patch.object(worker_agent.requests, "post", fake_post), \
+             mock.patch.object(
+                 worker_agent, "_v2_container_state",
+                 return_value=("exited", 0, "att-1"),
+             ):
+            worker_agent.v2_adopt_attempts()
+        assert reports and reports[0]["status"] == "succeeded"
+
+    def test_missing_container_reports_failure(self, tmp_path):
+        path = self._journal(tmp_path, self._rec())
+        reports = []
+
+        def fake_post(url, json=None, headers=None, timeout=None):
+            if "/attempts/status" in url:
+                reports.append(json)
+            return _resp(200, {"ok": True})
+
+        with mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", path), \
+             mock.patch.object(worker_agent.requests, "post", fake_post), \
+             mock.patch.object(
+                 worker_agent, "_v2_container_state",
+                 return_value=("missing", -1, ""),
+             ):
+            worker_agent.v2_adopt_attempts()
+        assert reports and reports[0]["status"] == "failed"
+        assert reports[0]["failure_code"] == "container_missing"
+
+    def test_label_mismatch_never_killed(self, tmp_path):
+        """A container from a NEWER attempt must not be touched."""
+        path = self._journal(tmp_path, self._rec())
+        killed = []
+        reports = []
+
+        def fake_post(url, json=None, headers=None, timeout=None):
+            if "/attempts/status" in url:
+                reports.append(json)
+            return _resp(200, {"ok": True})
+
+        def fake_run(argv, **kw):
+            killed.append(argv)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", path), \
+             mock.patch.object(worker_agent.requests, "post", fake_post), \
+             mock.patch.object(worker_agent.subprocess, "run", fake_run), \
+             mock.patch.object(
+                 worker_agent, "_v2_container_state",
+                 return_value=("running", -1, "att-NEWER"),
+             ):
+            adopted = worker_agent.v2_adopt_attempts()
+        assert adopted == 0 and killed == [] and reports == []

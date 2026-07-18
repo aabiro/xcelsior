@@ -39,6 +39,11 @@ if os.environ.get("CI"):
 _TEST_ENV_FORCE = {
     "XCELSIOR_ENV": "test",
     "XCELSIOR_NFS_REQUIRED": "false",
+    # Parity with CI: api's lifespan background threads (scheduler tick,
+    # failover monitor, reconcilers) must not run inside the test process
+    # — a live process_queue loop assigns leftover queued jobs onto test
+    # fixture hosts mid-test, corrupting capacity assertions.
+    "XCELSIOR_BG_TASKS": "false",
     # https BASE_URL from .env makes session cookies secure+domain-scoped; TestClient won't store them.
     "XCELSIOR_BASE_URL": "http://localhost:9501",
     "XCELSIOR_SCHEDULER_URL": "http://localhost:9501",
