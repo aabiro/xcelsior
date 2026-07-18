@@ -38,6 +38,29 @@ if extra: print(f'EXTRA: {sorted(extra)}'); sys.exit(1)
 print(f'{len(api)} vars, parity OK')
 " 2>&1) && pass "Env parity: $parity_result" || fail "Env parity: $parity_result"
 
+# 2b. Track A ownership variables must reach both API colours and scheduler.
+# The API runs legacy walkers during canary rollout and must skip exactly the
+# jobs that scheduler-worker owns.
+canary_env_ok=$(python3 -c "
+import yaml
+d = yaml.safe_load(open('docker-compose.yml'))
+required = {
+    'XCELSIOR_SCHEDULER_MODE',
+    'XCELSIOR_SCHEDULER_CANARY_GPU_MODELS',
+    'XCELSIOR_SCHEDULER_CANARY_HOSTS',
+    'XCELSIOR_SCHEDULER_CLAIMS_ENABLED',
+}
+for svc in ('api', 'api-blue', 'scheduler-worker'):
+    env = d['services'][svc]['environment']
+    missing = required - set(env)
+    assert not missing, f'{svc} missing {sorted(missing)}'
+for key in required:
+    values = {svc: d['services'][svc]['environment'][key]
+              for svc in ('api', 'api-blue', 'scheduler-worker')}
+    assert len(set(values.values())) == 1, f'{key} differs: {values}'
+print('API colours and scheduler ownership env match')
+" 2>&1) && pass "Track A canary env: $canary_env_ok" || fail "Track A canary env: $canary_env_ok"
+
 # 3. Port differentiation
 ports_ok=$(python3 -c "
 import yaml
