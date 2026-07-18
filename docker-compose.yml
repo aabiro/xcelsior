@@ -287,6 +287,10 @@ services:
       XCELSIOR_SCHEDULER_CLAIMS_ENABLED: ${XCELSIOR_SCHEDULER_CLAIMS_ENABLED:-true}
       # Phase 7: deliver outbox side-effect intents (SSE via pg_notify)
       XCELSIOR_OUTBOX_DISPATCHER: ${XCELSIOR_OUTBOX_DISPATCHER:-true}
+      # Phase 6 (P6.3): per-finding-type reconciler remediation. Default
+      # report-only; "enforce" enqueues a durable stop_container command
+      # for stale-fence containers (the §11.5 fence-loss backstop).
+      XCELSIOR_RECONCILE_ACTION_STALE_FENCE_CONTAINER: ${XCELSIOR_RECONCILE_ACTION_STALE_FENCE_CONTAINER:-report_only}
       XCELSIOR_CANADA_ONLY: ${XCELSIOR_CANADA_ONLY:-false}
       XCELSIOR_PLATFORM_CUT: ${XCELSIOR_PLATFORM_CUT:-0.20}
       XCELSIOR_SMTP_HOST: ${XCELSIOR_SMTP_HOST:-}
