@@ -99,9 +99,25 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies (uv lockfile)
         run: uv sync --frozen
-      - name: Migration gate — fresh → head → pre-Track-A → head
+      # Reach head via the same proven path as the `test` job. A pure
+      # `alembic upgrade head` from an empty DB does NOT work yet — some
+      # base tables (e.g. agent_commands) are created by db._ensure_pg_tables
+      # runtime DDL rather than a migration, and migration 056 ALTERs them
+      # (tracked as A1.6). ci_bootstrap_pg_schema.sh + the shared schema
+      # cache is the reliable bootstrap until that debt is paid down.
+      - name: Cache Postgres schema (migrations)
+        uses: actions/cache@v4
+        with:
+          path: ci-cache/pg_schema.sql
+          key: pg-schema-${{ hashFiles('migrations/versions/**', 'migrations/env.py', 'alembic.ini') }}
+      - name: Bootstrap Postgres schema
+        env:
+          PGPASSWORD: test
+        run: bash scripts/ci_bootstrap_pg_schema.sh
+      - name: Migration reversibility gate — head → pre-Track-A (053) → head
+        # Exercises that the Track A migrations (054–059) downgrade and
+        # re-upgrade cleanly, so a production rollback can never strand.
         run: |
-          uv run alembic upgrade head
           uv run alembic downgrade 053
           uv run alembic upgrade head
       - name: Concurrency gate — 8-replica placement stress
