@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
-# Bootstrap CI Postgres: restore cached schema dump or migrate + cache.
+# Bootstrap CI Postgres via the deterministic from-empty path (A1.6).
+#
+# Always runs scripts/bootstrap_pg_from_empty.sh (alembic upgrade head +
+# ensure/seed). A schema dump cache is no longer required for success;
+# optional dump write is retained only as a local debugging artifact when
+# CI_WRITE_SCHEMA_CACHE=1.
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCHEMA_FILE="${1:-ci-cache/pg_schema.sql}"
 PGHOST="${PGHOST:-localhost}"
 PGUSER="${PGUSER:-xcelsior}"
@@ -9,32 +15,18 @@ PGDATABASE="${PGDATABASE:-xcelsior_test}"
 export PGPASSWORD="${PGPASSWORD:-test}"
 
 if ! command -v psql >/dev/null 2>&1 || ! command -v pg_dump >/dev/null 2>&1; then
-  sudo apt-get update -qq
-  sudo apt-get install -y -qq postgresql-client
+  if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update -qq
+    sudo apt-get install -y -qq postgresql-client
+  fi
 fi
 
-if [[ -s "${SCHEMA_FILE}" ]]; then
-  echo "Restoring cached Postgres schema from ${SCHEMA_FILE}"
-  psql -h "${PGHOST}" -U "${PGUSER}" -d "${PGDATABASE}" -v ON_ERROR_STOP=1 -f "${SCHEMA_FILE}"
-else
-  echo "Schema cache miss — running alembic upgrade head"
-  if ! alembic upgrade head; then
-    echo "alembic upgrade failed — removing stale schema cache if present" >&2
-    rm -f "${SCHEMA_FILE}"
-    exit 1
-  fi
+echo "CI Postgres bootstrap: deterministic from-empty path (no schema-dump restore)"
+bash "$ROOT/scripts/bootstrap_pg_from_empty.sh"
+
+if [[ "${CI_WRITE_SCHEMA_CACHE:-0}" == "1" ]]; then
   mkdir -p "$(dirname "${SCHEMA_FILE}")"
   pg_dump -h "${PGHOST}" -U "${PGUSER}" -d "${PGDATABASE}" \
     --schema-only --no-owner --no-privileges -f "${SCHEMA_FILE}"
-  echo "Wrote schema cache to ${SCHEMA_FILE}"
+  echo "Wrote optional schema cache to ${SCHEMA_FILE}"
 fi
-
-# Migration 030 clears gpu_pricing; schema-only dumps have no seed rows.
-echo "Ensuring scheduler tables and gpu_pricing seed data"
-python - <<'PY'
-from db import _ensure_pg_tables, _get_pg_pool
-
-with _get_pg_pool().connection() as conn:
-    _ensure_pg_tables(conn)
-    conn.commit()
-PY

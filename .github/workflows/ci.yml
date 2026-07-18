@@ -99,18 +99,9 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies (uv lockfile)
         run: uv sync --frozen
-      # Reach head via the same proven path as the `test` job. A pure
-      # `alembic upgrade head` from an empty DB does NOT work yet — some
-      # base tables (e.g. agent_commands) are created by db._ensure_pg_tables
-      # runtime DDL rather than a migration, and migration 056 ALTERs them
-      # (tracked as A1.6). ci_bootstrap_pg_schema.sh + the shared schema
-      # cache is the reliable bootstrap until that debt is paid down.
-      - name: Cache Postgres schema (migrations)
-        uses: actions/cache@v4
-        with:
-          path: ci-cache/pg_schema.sql
-          key: pg-schema-${{ hashFiles('migrations/versions/**', 'migrations/env.py', 'alembic.ini') }}
-      - name: Bootstrap Postgres schema
+      # A1.6: deterministic from-empty bootstrap (alembic upgrade head).
+      # No schema-dump cache — migration 056 creates agent_commands base.
+      - name: Bootstrap Postgres schema (from empty)
         env:
           PGPASSWORD: test
         run: bash scripts/ci_bootstrap_pg_schema.sh
@@ -164,12 +155,7 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies (uv lockfile)
         run: uv sync --frozen
-      - name: Cache Postgres schema (migrations)
-        uses: actions/cache@v4
-        with:
-          path: ci-cache/pg_schema.sql
-          key: pg-schema-${{ hashFiles('migrations/versions/**', 'migrations/env.py', 'alembic.ini') }}
-      - name: Bootstrap Postgres schema
+      - name: Bootstrap Postgres schema (from empty)
         env:
           PGPASSWORD: test
         run: bash scripts/ci_bootstrap_pg_schema.sh
