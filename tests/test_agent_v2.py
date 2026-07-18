@@ -42,6 +42,13 @@ from control_plane.scheduler.service import SchedulerService
 client = TestClient(app)
 
 
+def _worker_headers() -> dict:
+    import os
+
+    token = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
+    return {"Authorization": f"Bearer {token}"}
+
+
 @pytest.fixture
 def fleet():
     ids = {"jobs": [], "hosts": []}
@@ -369,3 +376,62 @@ class TestFencedLeaseLifecycle:
         }
         assert j["status"] == "failed" and j["reason_code"] == "container_failed"
         assert a["status"] == "failed" and a["failure_code"] == "container_failed"
+
+
+class TestLegacyPatchFence:
+    def test_wrong_host_patch_fenced_out(self, fleet):
+        """Split-brain guard: a worker on another host cannot v1-report
+        status for an attempt-owned job."""
+        marker = uuid.uuid4().hex[:8]
+        job_id, host_id, refs = _place_one(fleet, marker)
+        r = client.patch(
+            f"/instance/{job_id}",
+            json={"status": "running", "host_id": f"h-{marker}-imposter"},
+            headers=_worker_headers(),
+        )
+        assert r.status_code == 409
+        assert r.json()["error"]["code"] == "fencing_violation"
+        with _pool.connection() as conn:
+            row = conn.execute(
+                "SELECT status FROM jobs WHERE job_id=%s", (job_id,)
+            ).fetchone()
+        assert (row[0] if not isinstance(row, dict) else row["status"]) == "assigned"
+
+    def test_authority_host_patch_allowed(self, fleet):
+        marker = uuid.uuid4().hex[:8]
+        job_id, host_id, refs = _place_one(fleet, marker)
+        r = client.patch(
+            f"/instance/{job_id}",
+            json={"status": "starting", "host_id": host_id},
+            headers=_worker_headers(),
+        )
+        assert r.status_code == 200
+
+    def test_patch_without_host_id_passes(self, fleet):
+        """Unattributable reports pass (v2 mirror is authoritative for
+        enrolled hosts) — the fence is best-effort by design."""
+        marker = uuid.uuid4().hex[:8]
+        job_id, host_id, refs = _place_one(fleet, marker)
+        r = client.patch(
+            f"/instance/{job_id}", json={"status": "starting"},
+            headers=_worker_headers(),
+        )
+        assert r.status_code == 200
+
+    def test_non_attempt_job_unaffected(self, fleet):
+        marker = uuid.uuid4().hex[:8]
+        job_id = f"j-{marker}-legacy"
+        with _pool.connection() as conn:
+            conn.execute(
+                "INSERT INTO jobs (job_id, status, priority, submitted_at, payload) "
+                "VALUES (%s, 'assigned', 0, %s, %s)",
+                (job_id, time.time(), json.dumps({"job_id": job_id, "name": job_id})),
+            )
+            conn.commit()
+        fleet["jobs"].append(job_id)
+        r = client.patch(
+            f"/instance/{job_id}",
+            json={"status": "starting", "host_id": "any-host"},
+            headers=_worker_headers(),
+        )
+        assert r.status_code == 200
