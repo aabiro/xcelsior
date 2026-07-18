@@ -83,6 +83,17 @@ class SchedulerService:
         commands = run_transaction(
             lambda c: redeliver_expired_claims(c), what="sched_command_sweep"
         )
+        # Phase 6: desired-vs-observed reconciliation (report-only) —
+        # processes hosts enqueued by observation ingest.
+        try:
+            from control_plane.reconcile import process_due
+
+            run_transaction(
+                lambda c: process_due(c, worker_id=self.config.replica_id),
+                what="sched_reconcile",
+            )
+        except Exception:
+            log.exception("reconcile sweep failed; continuing")
         return claims, len(leases), commands
 
     def _sync_inventory(self, hosts: list[dict[str, Any]]) -> int:

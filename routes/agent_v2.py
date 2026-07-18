@@ -21,6 +21,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from control_plane.attempts import AttemptStatusRejected, report_attempt_status
+from control_plane.observations import ingest_observation
 from control_plane.commands import (
     CommandProtocolError,
     ack_command,
@@ -260,6 +261,54 @@ def api_v2_lease_release(req: LeaseAuthorityRequest, request: Request):
         what="v2_lease_release",
     )
     return {"ok": True, "released": bool(released)}
+
+
+# ── Host observations (§12.2) ────────────────────────────────────────
+
+
+class ObservedWorkload(BaseModel):
+    job_id: str | None = Field(default=None, max_length=128)
+    attempt_id: str | None = Field(default=None, max_length=64)
+    fencing_token: int | None = Field(default=None, ge=1)
+    container_id: str | None = Field(default=None, max_length=128)
+    container_name: str | None = Field(default=None, max_length=256)
+    spec_hash: str | None = Field(default=None, max_length=128)
+    state: str = Field(default="unknown", max_length=32)
+    details: dict[str, Any] | None = None
+
+
+class ObservationReport(BaseModel):
+    host_id: str = Field(min_length=1, max_length=128)
+    worker_session_id: str = Field(min_length=1, max_length=128)
+    observation_generation: int = Field(ge=0)
+    workloads: list[ObservedWorkload] = Field(default_factory=list, max_length=256)
+    agent_version: str | None = Field(default=None, max_length=64)
+    worker_reported_at: float | None = None
+
+
+@router.post("/agent/v2/observations", tags=["AgentV2"])
+def api_v2_observations(report: ObservationReport, request: Request):
+    """Ingest one full-state worker observation (immutable snapshot);
+    enqueues the host for desired-vs-observed reconciliation."""
+    _require_agent_auth(request, host_id=report.host_id)
+    result = run_transaction(
+        lambda c: ingest_observation(
+            c,
+            host_id=report.host_id,
+            session_id=report.worker_session_id,
+            observation_generation=report.observation_generation,
+            workloads=[w.model_dump() for w in report.workloads],
+            agent_version=report.agent_version,
+            worker_reported_at=report.worker_reported_at,
+        ),
+        what="v2_observation_ingest",
+    )
+    return {
+        "ok": True,
+        "duplicate": result.duplicate,
+        "observation_id": result.observation_id,
+        "workloads": result.workloads,
+    }
 
 
 # ── Fenced attempt status (§8.1 write gate) ──────────────────────────
