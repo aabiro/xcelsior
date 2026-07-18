@@ -283,14 +283,16 @@ def test_start_fenced_history_requeues_without_start_container(
     with _pool.connection() as conn:
         row = conn.execute(
             """SELECT status, host_id, active_attempt_id,
-                      payload->>'lifecycle_intent'
+                      payload->>'lifecycle_intent',
+                      payload->>'resume_kind'
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
         ).fetchone()
     assert row[0] == "queued"
     assert row[1] is None
     assert row[2] is None
-    assert row[3] == "resume"
+    assert row[3] is None  # consumed / not sticky
+    assert row[4] == "resume"
 
 
 def test_restart_active_fenced_attempt_enqueues_stop_with_restart_intent(

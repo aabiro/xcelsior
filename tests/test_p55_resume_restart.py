@@ -190,7 +190,8 @@ def test_start_stopped_fenced_requeues(cleanup_ids, captured_enqueue):
     with _pool.connection() as conn:
         row = conn.execute(
             """SELECT status, host_id, phase, desired_state,
-                      payload->>'lifecycle_intent'
+                      payload->>'lifecycle_intent',
+                      payload->>'resume_kind'
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
         ).fetchone()
@@ -199,7 +200,8 @@ def test_start_stopped_fenced_requeues(cleanup_ids, captured_enqueue):
     # 059 trigger derives phase/desired from status.
     assert row[2] == "pending"
     assert row[3] == "running"
-    assert row[4] == "resume"
+    assert row[4] is None  # no sticky lifecycle_intent
+    assert row[5] == "resume"
 
 
 def test_start_idempotent_when_already_queued(cleanup_ids, captured_enqueue):
@@ -257,7 +259,11 @@ def test_restart_running_fenced_enqueues_stop_attempt(
 
 
 def test_restart_ack_projects_to_queued(cleanup_ids, captured_enqueue):
-    """Worker stopped report + lifecycle_intent=restart → jobs.status queued."""
+    """Worker stopped report + lifecycle_intent=restart → jobs.status queued.
+
+    Also proves lifecycle_intent is *consumed* so a later normal stop on a
+    new attempt settles to ``stopped`` (not sticky requeue).
+    """
     owner = "rr-ack@test"
     host = f"h-rr-a-{uuid.uuid4().hex[:6]}"
     _mkwallet(cleanup_ids, owner)
@@ -282,7 +288,8 @@ def test_restart_ack_projects_to_queued(cleanup_ids, captured_enqueue):
         )
         conn.commit()
         row = conn.execute(
-            """SELECT status, host_id, active_attempt_id, phase, desired_state
+            """SELECT status, host_id, active_attempt_id, phase, desired_state,
+                      payload->>'lifecycle_intent'
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
         ).fetchone()
@@ -295,8 +302,72 @@ def test_restart_ack_projects_to_queued(cleanup_ids, captured_enqueue):
     assert row[2] is None
     assert row[3] == "pending"
     assert row[4] == "running"
+    assert row[5] is None  # intent consumed — not sticky
     assert lease == "released"
     assert captured_enqueue == []
+
+    # New placement attempt then user stop (no lifecycle_intent) → stopped.
+    attempt2 = str(uuid.uuid4())
+    with _pool.connection() as conn:
+        conn.execute(
+            """INSERT INTO job_attempts
+                   (attempt_id, job_id, attempt_number, status, host_id,
+                    fencing_token)
+               VALUES (%s, %s, 2, 'running', %s,
+                       nextval('placement_fencing_token_seq'))""",
+            (attempt2, job_id, host),
+        )
+        fence2 = conn.execute(
+            "SELECT fencing_token FROM job_attempts WHERE attempt_id=%s",
+            (attempt2,),
+        ).fetchone()[0]
+        conn.execute(
+            """UPDATE jobs
+                  SET status = 'running',
+                      host_id = %s,
+                      active_attempt_id = %s
+                WHERE job_id = %s""",
+            (host, attempt2, job_id),
+        )
+        conn.execute(
+            """INSERT INTO placement_leases
+                   (job_id, attempt_id, host_id, fencing_token, status,
+                    claim_deadline, claimed_at, last_renewed_at, expires_at)
+               VALUES (%s, %s, %s, %s, 'active',
+                       clock_timestamp() + interval '10 minutes',
+                       clock_timestamp(), clock_timestamp(),
+                       clock_timestamp() + interval '10 minutes')""",
+            (job_id, attempt2, host, fence2),
+        )
+        conn.commit()
+        # Normal user-stop path: intermediate stopping without restart intent.
+        conn.execute(
+            """UPDATE jobs SET status = 'stopping',
+                   payload = jsonb_set(
+                       COALESCE(payload, '{}'::jsonb) - 'lifecycle_intent',
+                       '{status}', '"stopping"'::jsonb, true
+                   )
+             WHERE job_id = %s""",
+            (job_id,),
+        )
+        report_attempt_status(
+            conn,
+            job_id=job_id,
+            attempt_id=attempt2,
+            host_id=host,
+            fencing_token=int(fence2),
+            status="stopped",
+        )
+        conn.commit()
+        after = conn.execute(
+            """SELECT status, payload->>'lifecycle_intent'
+                 FROM jobs WHERE job_id=%s""",
+            (job_id,),
+        ).fetchone()
+    assert after[0] == "stopped", (
+        f"sticky lifecycle_intent would requeue; got status={after[0]!r} intent={after[1]!r}"
+    )
+    assert after[1] is None
 
 
 def test_restart_stopped_fenced_requeues(cleanup_ids, captured_enqueue):
