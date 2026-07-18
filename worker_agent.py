@@ -2501,6 +2501,82 @@ def handle_start_attempt(cmd: dict) -> None:
         _v2_forget_attempt(job_id)
 
 
+_OBSERVATION_INTERVAL_SEC = int(os.environ.get("XCELSIOR_OBSERVATION_INTERVAL", "60"))
+_last_observation_at = 0.0
+
+
+def _collect_local_workloads() -> list[dict]:
+    """Everything actually running here: xcl-* containers with labels."""
+    try:
+        ps = subprocess.run(
+            [
+                "docker", "ps", "-a", "--filter", "name=xcl-",
+                "--format",
+                '{{.ID}}\t{{.Names}}\t{{.State}}\t'
+                '{{.Label "ai.xcelsior.job_id"}}\t'
+                '{{.Label "ai.xcelsior.attempt_id"}}\t'
+                '{{.Label "ai.xcelsior.fencing_token"}}',
+            ],
+            capture_output=True, text=True, timeout=15,
+        )
+    except Exception as e:
+        log.warning("observation: docker ps failed: %s", e)
+        return []
+    if ps.returncode != 0:
+        return []
+    state_map = {
+        "running": "running", "paused": "paused", "exited": "exited",
+        "created": "preparing", "restarting": "preparing",
+        "removing": "removing", "dead": "exited",
+    }
+    workloads = []
+    for line in (ps.stdout or "").splitlines():
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        cid, name, state = parts[0], parts[1], parts[2]
+        label_job = parts[3] if len(parts) > 3 else ""
+        attempt = parts[4] if len(parts) > 4 else ""
+        fence = parts[5] if len(parts) > 5 else ""
+        # Container name is xcl-{job_id}; the label wins when present.
+        job_id = label_job or (name[4:] if name.startswith("xcl-") else "")
+        workloads.append({
+            "job_id": job_id or None,
+            "attempt_id": attempt or None,
+            "fencing_token": int(fence) if fence.isdigit() else None,
+            "container_id": cid,
+            "container_name": name,
+            "state": state_map.get(state.strip().lower(), "unknown"),
+        })
+    return workloads
+
+
+def report_observations_v2(force: bool = False) -> bool:
+    """§12.2 full-state report, throttled to the observation interval."""
+    global _last_observation_at
+    if not _v2_enabled:
+        return False
+    now = time.time()
+    if not force and now - _last_observation_at < _OBSERVATION_INTERVAL_SEC:
+        return False
+    _last_observation_at = now
+    code, _body = _v2_post(
+        "/agent/v2/observations",
+        {
+            "host_id": HOST_ID,
+            "worker_session_id": WORKER_SESSION_ID,
+            # Monotonic per session: epoch seconds — each report is a new
+            # immutable snapshot; duplicates within a second collapse.
+            "observation_generation": int(now),
+            "workloads": _collect_local_workloads(),
+            "agent_version": VERSION,
+            "worker_reported_at": now,
+        },
+        timeout=15,
+    )
+    return code == 200
+
+
 def drain_v2_commands() -> int:
     """Claim + dispatch attempt-bound commands (v2 work delivery)."""
     if not _v2_enabled:
@@ -6042,6 +6118,11 @@ def main():
             # Phase 5: claim + dispatch fenced attempt commands (v2 hosts)
             if _v2_enabled:
                 drain_v2_commands()
+                # Phase 6: periodic full-state observation (§12.2)
+                try:
+                    report_observations_v2()
+                except Exception as e:
+                    log.warning("observation report failed: %s", e)
 
             # Poll for new work (only if admitted)
             if admitted:

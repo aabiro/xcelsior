@@ -103,6 +103,9 @@ def _place_one(fleet, marker):
         replica_id=f"v2test-{marker}",
         canary_gpu_models=frozenset({model.lower()}),
         canary_host_ids=frozenset({host_id}),
+        # Long offer TTL: full-suite runs exceed the 60s default and a
+        # rival test's lease-expiry sweep would cancel our start command.
+        lease_claim_ttl_sec=600,
     )
     report = SchedulerService(cfg).tick()
     assert len(report.placements) == 1, report
