@@ -29,6 +29,13 @@ x-api-environment: &api-env
   XCELSIOR_DUAL_READ_FROM: ${XCELSIOR_DUAL_READ_FROM:-postgres}
   XCELSIOR_RATE_LIMIT_REQUESTS: ${XCELSIOR_RATE_LIMIT_REQUESTS:-120}
   XCELSIOR_RATE_LIMIT_WINDOW_SEC: ${XCELSIOR_RATE_LIMIT_WINDOW_SEC:-60}
+  # Track A canary ownership must be identical in the API and scheduler.
+  # The API still runs legacy queue walkers during rollout; without these
+  # values it cannot skip jobs owned by the transactional scheduler.
+  XCELSIOR_SCHEDULER_MODE: ${XCELSIOR_SCHEDULER_MODE:-paused}
+  XCELSIOR_SCHEDULER_CANARY_GPU_MODELS: ${XCELSIOR_SCHEDULER_CANARY_GPU_MODELS:-}
+  XCELSIOR_SCHEDULER_CANARY_HOSTS: ${XCELSIOR_SCHEDULER_CANARY_HOSTS:-}
+  XCELSIOR_SCHEDULER_CLAIMS_ENABLED: ${XCELSIOR_SCHEDULER_CLAIMS_ENABLED:-true}
   # Phase 5: hosts allowed to speak the /agent/v2 fenced protocol
   # (csv of host_ids, or "*"). Empty = every agent stays on v1.
   XCELSIOR_AGENT_V2_HOSTS: ${XCELSIOR_AGENT_V2_HOSTS:-}
