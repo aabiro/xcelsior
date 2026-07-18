@@ -294,6 +294,25 @@ def _stop_commands(host_id):
     ]
 
 
+def _activate_lease(attempt_id):
+    """Move the reservation's offered lease to active (as a worker would)."""
+    with _pool.connection() as conn:
+        conn.execute(
+            "UPDATE placement_leases "
+            "   SET status='active', claimed_at=clock_timestamp(), "
+            "       expires_at=clock_timestamp() + interval '5 minutes' "
+            " WHERE attempt_id=%s AND status='offered'",
+            (attempt_id,),
+        )
+        conn.commit()
+
+
+def _scalar(row):
+    if row is None:
+        return None
+    return row[0] if not isinstance(row, dict) else next(iter(row.values()))
+
+
 class TestReconcileActions:
     def _stale_fence_obs(self, host_id, job_id, resv, session):
         _ingest(host_id, session, 1, [{
@@ -386,6 +405,77 @@ class TestReconcileActions:
             ).fetchone()
         attempt_id = row[0] if not isinstance(row, dict) else row["attempt_id"]
         assert attempt_id is None  # v1-drain visible, not v2-claimable
+
+    def test_missing_container_report_only_default(self, fleet, monkeypatch):
+        monkeypatch.delenv(
+            "XCELSIOR_RECONCILE_ACTION_ATTEMPT_CONTAINER_MISSING", raising=False
+        )
+        marker = uuid.uuid4().hex[:8]
+        job_id, host_id, resv = _place(fleet, marker)
+        _activate_lease(resv.attempt_id)
+        _ingest(host_id, "sess-mc-ro", 1, [])  # observation with no container
+        report = run_transaction(
+            lambda c: reconcile_host(c, host_id, missing_grace_sec=0), what="t"
+        )
+        assert "attempt_container_missing" in report.findings_opened
+        assert report.actions_taken == []
+        # Lease untouched, still active with a future expiry.
+        with _pool.connection() as conn:
+            future = _scalar(conn.execute(
+                "SELECT expires_at > clock_timestamp() FROM placement_leases "
+                "WHERE attempt_id=%s AND status='active'", (resv.attempt_id,)
+            ).fetchone())
+        assert future is True
+
+    def test_missing_container_enforce_expedites_lease_and_settles(
+        self, fleet, monkeypatch
+    ):
+        monkeypatch.setenv(
+            "XCELSIOR_RECONCILE_ACTION_ATTEMPT_CONTAINER_MISSING", "enforce"
+        )
+        marker = uuid.uuid4().hex[:8]
+        job_id, host_id, resv = _place(fleet, marker)
+        _activate_lease(resv.attempt_id)
+        _ingest(host_id, "sess-mc-en", 1, [])
+        report = run_transaction(
+            lambda c: reconcile_host(c, host_id, missing_grace_sec=0), what="t"
+        )
+        assert report.actions_taken == ["attempt_container_missing"]
+
+        # The action recorded on the finding + lease now expired-in-the-past.
+        with _pool.connection() as conn:
+            action = _scalar(conn.execute(
+                "SELECT action_taken FROM reconciliation_findings "
+                "WHERE resource_type='attempt' AND resource_id=%s "
+                "AND resolved_at IS NULL", (resv.attempt_id,)
+            ).fetchone())
+            past = _scalar(conn.execute(
+                "SELECT expires_at < clock_timestamp() FROM placement_leases "
+                "WHERE attempt_id=%s AND status='active'", (resv.attempt_id,)
+            ).fetchone())
+        assert action == "expire_lease"
+        assert past is True
+
+        # The lease controller (not the reconciler) then does the terminal
+        # settlement uniformly: attempt lost, job requeued, allocations freed.
+        from control_plane.leases import expire_stale_leases
+
+        run_transaction(lambda c: expire_stale_leases(c, grace_sec=0), what="t")
+        with _pool.connection() as conn:
+            att_status = _scalar(conn.execute(
+                "SELECT status FROM job_attempts WHERE attempt_id=%s",
+                (resv.attempt_id,)
+            ).fetchone())
+            job_status = _scalar(conn.execute(
+                "SELECT status FROM jobs WHERE job_id=%s", (job_id,)
+            ).fetchone())
+            active_allocs = _scalar(conn.execute(
+                "SELECT count(*) FROM gpu_device_allocations "
+                "WHERE attempt_id=%s AND status='active'", (resv.attempt_id,)
+            ).fetchone())
+        assert att_status == "lost"
+        assert job_status == "queued"
+        assert active_allocs == 0
 
 
 class TestQueueProcessing:

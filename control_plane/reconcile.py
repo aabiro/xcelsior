@@ -50,6 +50,11 @@ _OBSERVED_LIVE_STATES = ("preparing", "running", "paused")
 # cycle; the worker GCs expired admin commands on drain.
 _STOP_COMMAND_EXPIRY_SEC = 3600
 
+# When the missing-container action expedites a lease's expiry, it stamps
+# expires_at this far into the past so the very next expire_stale_leases
+# sweep (its grace is much smaller) settles the attempt uniformly.
+_EXPEDITE_PAST_SEC = 3600
+
 
 class ActionPolicy(str, enum.Enum):
     """Per-finding-type remediation posture (blueprint Phase 6 rollout)."""
@@ -60,11 +65,19 @@ class ActionPolicy(str, enum.Enum):
 
 # Only these finding types have a defined, safe remediation. Everything
 # else is report-only regardless of env — an operator cannot enable an
-# action that does not exist. `stale_fence_container` is the first
-# enforced type: a container under a revoked fence should never be
-# running (§11.5), and the remediation (a durable stop_container command
-# by name) is idempotent and cannot harm the current authority holder.
-_ENFORCEABLE: frozenset[str] = frozenset({"stale_fence_container"})
+# action that does not exist.
+#
+# - `stale_fence_container`: a container under a revoked fence should
+#   never be running (§11.5); remediation is a durable stop_container
+#   command by name, idempotent and harmless to the current authority.
+# - `attempt_container_missing`: a runtime-active attempt whose container
+#   vanished but whose worker may still be renewing the lease (a "zombie"
+#   the lease-deadline sweep never catches). Remediation expedites the
+#   lease's expiry so the tested lease controller revokes authority and
+#   requeues — the retry mints a higher fence that fences any zombie.
+_ENFORCEABLE: frozenset[str] = frozenset(
+    {"stale_fence_container", "attempt_container_missing"}
+)
 
 
 def action_policy_for(finding_type: str) -> ActionPolicy:
@@ -182,6 +195,36 @@ def _enqueue_stop_container(
         "container_name": container_name,
         "enqueued": enqueued,
         "reason": reason,
+    }
+
+
+def _expedite_lease_expiry(
+    conn: Connection, *, attempt_id: str
+) -> dict[str, Any]:
+    """Stamp this attempt's active lease as already-expired.
+
+    The reconcile transaction does not settle the attempt itself — it
+    hands the work to the lease controller by moving ``expires_at`` well
+    into the past, so the next ``expire_stale_leases`` sweep (running in
+    the scheduler service tick) performs the one tested terminal
+    settlement: attempt → lost, allocations released once, start command
+    cancelled, job requeued with a durable reason, higher fence on retry.
+    Reusing that path avoids duplicating settlement SQL and keeps a
+    single authority for attempt failure (§12 domain controllers).
+    """
+    result = conn.execute(
+        """
+        UPDATE placement_leases
+           SET expires_at = clock_timestamp() - make_interval(secs => %s)
+         WHERE attempt_id = %s
+           AND status = 'active'
+        """,
+        (_EXPEDITE_PAST_SEC, attempt_id),
+    )
+    return {
+        "action": "expire_lease",
+        "attempt_id": attempt_id,
+        "leases_expedited": result.rowcount,
     }
 
 
@@ -305,6 +348,15 @@ def reconcile_host(
             )
             if finding_id is not None:
                 opened.append("attempt_container_missing")
+                # Enforced remediation: hand the zombie attempt to the
+                # lease controller by expediting its lease expiry.
+                if (
+                    action_policy_for("attempt_container_missing")
+                    is ActionPolicy.ENFORCE
+                ):
+                    result = _expedite_lease_expiry(conn, attempt_id=attempt_id)
+                    _record_action(conn, finding_id, "expire_lease", result)
+                    actions.append("attempt_container_missing")
 
     # Observed → desired: stale fences and unknown workloads.
     current_fence_by_job = {
