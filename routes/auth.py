@@ -120,9 +120,9 @@ _OAUTH_PROVIDERS = {
     "facebook": {
         "client_id": os.environ.get("FACEBOOK_CLIENT_ID", ""),
         "client_secret": os.environ.get("FACEBOOK_CLIENT_SECRET", ""),
-        "authorize_url": "https://www.facebook.com/v19.0/dialog/oauth",
-        "token_url": "https://graph.facebook.com/v19.0/oauth/access_token",
-        "userinfo_url": "https://graph.facebook.com/v19.0/me?fields=id,name,email",
+        "authorize_url": "https://www.facebook.com/v25.0/dialog/oauth",
+        "token_url": "https://graph.facebook.com/v25.0/oauth/access_token",
+        "userinfo_url": "https://graph.facebook.com/v25.0/me?fields=id,name,email",
         "scopes": "public_profile email",
     },
 }
