@@ -1070,10 +1070,55 @@ def api_get_instance(job_id: str, request: Request):
     return {"instance": j}
 
 
+def _fence_attempt_owned_patch(job_id: str, reporting_host_id: str | None) -> None:
+    """Phase 5 transitional fence on the legacy v1 status write.
+
+    Jobs bound by the transactional scheduler carry an active attempt;
+    their authoritative writes go through the fenced /agent/v2 surface.
+    This guard blocks the classic split-brain: a worker on a *different*
+    host (dead-host failover re-placed the job) reporting v1 status for
+    a job it no longer runs. Best-effort by design — a report without a
+    host_id can't be attributed and passes (the v2 mirror is the
+    authoritative write for enrolled hosts); full tuple fencing is v2.
+    """
+    if not reporting_host_id:
+        return
+    try:
+        from db import _get_pg_pool
+
+        with _get_pg_pool().connection() as conn:
+            row = conn.execute(
+                "SELECT active_attempt_id, host_id FROM jobs WHERE job_id = %s",
+                (job_id,),
+            ).fetchone()
+    except Exception:
+        return  # sqlite/dev or DB hiccup: never block v1 reports on this
+    if row is None:
+        return
+    active_attempt = row["active_attempt_id"] if isinstance(row, dict) else row[0]
+    authority_host = row["host_id"] if isinstance(row, dict) else row[1]
+    if active_attempt is None or not authority_host:
+        return
+    if str(reporting_host_id) != str(authority_host):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": {
+                    "code": "fencing_violation",
+                    "message": (
+                        f"job {job_id} is bound to host {authority_host}; "
+                        "status reports from other hosts are fenced out"
+                    ),
+                }
+            },
+        )
+
+
 @router.patch("/instance/{job_id}", tags=["Instances"])
 def api_update_instance(job_id: str, update: StatusUpdate, request: Request):
     """Update a job's status."""
     _require_worker_status_update(request)
+    _fence_attempt_owned_patch(job_id, update.host_id)
     with otel_span("job.status_update", {"job.id": job_id, "job.status": update.status}):
         if update.status == "preempted":
             try:

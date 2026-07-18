@@ -2237,11 +2237,151 @@ def _v2_stop_container(job_id: str, why: str) -> None:
         log.error("fence-loss docker kill failed for %s: %s", container_name, e)
 
 
+# §11.3 local idempotency journal: authority records persisted across
+# agent restarts so running containers can be re-adopted instead of
+# orphaned (renewals stop → lease expires → attempt fenced → killed).
+_V2_JOURNAL_PATH = os.environ.get(
+    "XCELSIOR_V2_JOURNAL_PATH", "/var/lib/xcelsior/v2_attempts.json"
+)
+
+
+def _v2_journal_save() -> None:
+    """Persist the authority registry (best-effort, atomic replace)."""
+    with _v2_attempts_lock:
+        snapshot = {
+            job_id: {
+                "lease_id": a["lease_id"],
+                "job_id": a["job_id"],
+                "attempt_id": a["attempt_id"],
+                "fencing_token": a["fencing_token"],
+                "renewal_ttl_sec": a.get("renewal_ttl_sec", 300),
+            }
+            for job_id, a in _v2_attempts.items()
+        }
+    try:
+        os.makedirs(os.path.dirname(_V2_JOURNAL_PATH), exist_ok=True)
+        tmp = _V2_JOURNAL_PATH + ".tmp"
+        with open(tmp, "w") as fh:
+            json.dump(snapshot, fh)
+        os.replace(tmp, _V2_JOURNAL_PATH)
+    except OSError as e:
+        log.warning("v2 journal save failed (%s) — adoption unavailable", e)
+
+
+def _v2_journal_load() -> dict:
+    try:
+        with open(_V2_JOURNAL_PATH) as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
 def _v2_forget_attempt(job_id: str) -> None:
     with _v2_attempts_lock:
         auth = _v2_attempts.pop(job_id, None)
     if auth is not None:
         auth["stop"].set()
+        _v2_journal_save()
+
+
+def _v2_container_state(job_id: str) -> tuple[str, int, str]:
+    """(state, exit_code, attempt_label) for xcl-{job_id}.
+
+    state is 'running', 'exited', or 'missing'.
+    """
+    try:
+        inspect = subprocess.run(
+            [
+                "docker", "inspect", "-f",
+                '{{.State.Running}} {{.State.ExitCode}} '
+                '{{index .Config.Labels "ai.xcelsior.attempt_id"}}',
+                f"xcl-{job_id}",
+            ],
+            capture_output=True, text=True, timeout=10,
+        )
+    except Exception:
+        return ("missing", -1, "")
+    if inspect.returncode != 0:
+        return ("missing", -1, "")
+    parts = (inspect.stdout or "").strip().split()
+    running = len(parts) > 0 and parts[0] == "true"
+    try:
+        exit_code = int(parts[1]) if len(parts) > 1 else -1
+    except ValueError:
+        exit_code = -1
+    label = parts[2] if len(parts) > 2 else ""
+    return ("running" if running else "exited", exit_code, label)
+
+
+def v2_adopt_attempts() -> int:
+    """§11.6 restart adoption: re-arm authority for surviving containers.
+
+    For each journaled attempt: a running container whose attempt label
+    matches gets its renewal loop restarted (one immediate renewal
+    verifies authority; a definitive rejection kills it). An exited
+    container gets its terminal status reported. A missing or
+    mismatched-label container just drops the record — never kill a
+    container we cannot prove is ours.
+    """
+    if not _v2_enabled:
+        return 0
+    journal = _v2_journal_load()
+    adopted = 0
+    for job_id, rec in journal.items():
+        try:
+            auth = {
+                "lease_id": str(rec["lease_id"]),
+                "job_id": str(rec["job_id"]),
+                "attempt_id": str(rec["attempt_id"]),
+                "fencing_token": int(rec["fencing_token"]),
+                "renewal_ttl_sec": int(rec.get("renewal_ttl_sec", 300)),
+                "stop": threading.Event(),
+            }
+        except (KeyError, TypeError, ValueError):
+            continue
+        state, exit_code, label = _v2_container_state(job_id)
+        if label and label != auth["attempt_id"]:
+            log.warning(
+                "adoption: container for job %s belongs to attempt %s "
+                "(journal has %s) — dropping record",
+                job_id, label[:8], auth["attempt_id"][:8],
+            )
+            continue
+        if state == "running":
+            code, _body = _v2_post("/agent/v2/leases/renew", _v2_auth_payload(auth))
+            if code == 409:
+                _v2_stop_container(job_id, "adoption renewal rejected")
+                continue
+            with _v2_attempts_lock:
+                _v2_attempts[job_id] = auth
+            threading.Thread(
+                target=_v2_renewal_loop, args=(auth,),
+                name=f"v2-renew-{job_id[:8]}", daemon=True,
+            ).start()
+            adopted += 1
+            log.info(
+                "adopted running attempt %s for job %s (fence=%s)",
+                auth["attempt_id"][:8], job_id, auth["fencing_token"],
+            )
+        elif state == "exited":
+            outcome = "succeeded" if exit_code == 0 else "failed"
+            v2_report_attempt_status(
+                auth, outcome,
+                None if exit_code == 0 else "container_exited",
+                None if exit_code == 0 else {"exit_code": exit_code},
+            )
+            log.info(
+                "adoption: job %s container exited (%d) — reported %s",
+                job_id, exit_code, outcome,
+            )
+        else:
+            v2_report_attempt_status(
+                auth, "failed", "container_missing",
+                {"note": "agent restarted; container not found"},
+            )
+    _v2_journal_save()
+    return adopted
 
 
 def _v2_renewal_loop(auth: dict) -> None:
@@ -2340,6 +2480,7 @@ def handle_start_attempt(cmd: dict) -> None:
 
     with _v2_attempts_lock:
         _v2_attempts[job_id] = auth
+    _v2_journal_save()
     v2_report_attempt_status(auth, "lease_claimed")
     v2_ack_command(command_id, {"lease_claimed": True, "session": WORKER_SESSION_ID})
 
@@ -2350,6 +2491,8 @@ def handle_start_attempt(cmd: dict) -> None:
 
     job = dict(args.get("spec") or {})
     job.setdefault("job_id", job_id)
+    job["_v2_attempt_id"] = auth["attempt_id"]
+    job["_v2_fencing_token"] = auth["fencing_token"]
     try:
         run_job(job)
     except Exception as e:
@@ -3164,6 +3307,17 @@ def run_job(job):
         # Interactive mode: override entrypoint to keep container alive
         # and expose SSH port for user access
         extra_docker_args = []
+        # Phase 5 (§11.4): attempt-specific container identity. Labels
+        # let restart adoption verify a container belongs to the exact
+        # attempt it holds authority for — same job, different fence,
+        # different container.
+        _v2_attempt = job.get("_v2_attempt_id")
+        if _v2_attempt:
+            extra_docker_args.extend([
+                "--label", f"ai.xcelsior.attempt_id={_v2_attempt}",
+                "--label", f"ai.xcelsior.fencing_token={job.get('_v2_fencing_token', '')}",
+                "--label", f"ai.xcelsior.job_id={job_id}",
+            ])
         port_map: dict[str, int] = {}
         effective_command = command
         if is_serverless:
@@ -5721,6 +5875,13 @@ def main():
 
     # ── Protocol negotiation (Phase 5): v2 claim/ACK + fenced leases ──
     negotiate_protocol_v2()
+
+    # §11.6 restart adoption: re-arm renewals for journaled attempts
+    # whose containers survived the agent restart.
+    try:
+        v2_adopt_attempts()
+    except Exception as e:
+        log.error("v2 attempt adoption failed: %s", e)
 
     # ── Step 6: Initialize image cache ──
     cache_init()
