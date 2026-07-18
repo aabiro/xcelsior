@@ -312,6 +312,40 @@ class TestFencedStopCommand:
         assert worker_agent._v2_completed_command_result("cmd-stop-1") == {
             "stopped": True,
             "preserved": True,
+            "intent": None,
+        }
+
+    def test_stop_preserve_false_removes_container(self, tmp_path):
+        """Terminate/cancel (preserve=False) must docker rm after stop."""
+        posts = []
+        docker_calls = []
+
+        def fake_post(url, json=None, headers=None, timeout=None):
+            posts.append((url, json))
+            return _resp(200, {"ok": True})
+
+        def fake_run(argv, **kwargs):
+            docker_calls.append(list(argv))
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        cmd = _stop_cmd()
+        cmd["args"] = {**cmd["args"], "preserve": False, "intent": "terminate"}
+        with mock.patch.object(
+            worker_agent, "_V2_JOURNAL_PATH", str(tmp_path / "v2.json")
+        ), mock.patch.object(worker_agent.requests, "post", fake_post), \
+             mock.patch.object(
+                 worker_agent,
+                 "_v2_container_state",
+                 return_value=("running", -1, "att-1"),
+             ), mock.patch.object(worker_agent.subprocess, "run", fake_run):
+            worker_agent.handle_stop_attempt(cmd)
+
+        assert any(c[:2] == ["docker", "stop"] for c in docker_calls)
+        assert any(c[:3] == ["docker", "rm", "-f"] for c in docker_calls)
+        assert worker_agent._v2_completed_command_result("cmd-stop-1") == {
+            "stopped": True,
+            "preserved": False,
+            "intent": "terminate",
         }
 
     def test_stale_command_never_touches_docker(self):

@@ -2768,13 +2768,18 @@ def handle_start_attempt(cmd: dict) -> None:
 def handle_stop_attempt(cmd: dict) -> None:
     """Stop a container only while the command's attempt/fence is current.
 
-    The state-preserving Docker stop happens before the fenced terminal
-    report. A successful report atomically releases lease/allocation and
-    projects the job to ``stopped``; only then is the command ACKed.
+    User-stop enqueues ``preserve=True`` (docker stop only). Terminate/cancel
+    enqueue ``preserve=False`` (stop + rm). The fenced terminal status report
+    then releases lease/allocation and projects the job; only then is the
+    command ACKed.
     """
     command_id = str(cmd.get("command_id") or "")
     args = cmd.get("args") or {}
-    result = {"stopped": True, "preserved": bool(args.get("preserve", True))}
+    result = {
+        "stopped": True,
+        "preserved": bool(args.get("preserve", True)),
+        "intent": args.get("intent"),
+    }
     job_id = str(cmd.get("job_id") or args.get("job_id") or "")
     attempt_id = str(cmd.get("attempt_id") or args.get("attempt_id") or "")
     fencing_token = int(cmd.get("fencing_token") or args.get("fencing_token") or 0)
@@ -2869,6 +2874,41 @@ def handle_stop_attempt(cmd: dict) -> None:
             command_id, "container_state_unknown", {"state": state}, retryable=True
         )
         return
+
+    # Terminate/cancel controllers enqueue preserve=False so the attempt
+    # container is removed after stop; user-stop keeps the container.
+    preserve = bool(args.get("preserve", True))
+    result = {"stopped": True, "preserved": preserve, "intent": args.get("intent")}
+    if not preserve and state != "missing":
+        try:
+            removed = subprocess.run(
+                ["docker", "rm", "-f", container_name],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            v2_nack_command(command_id, "container_remove_timeout", retryable=True)
+            return
+        # "No such container" is success (already gone); other failures retry.
+        if removed.returncode != 0:
+            err = (removed.stderr or "") + (removed.stdout or "")
+            if "No such container" not in err and "no such container" not in err.lower():
+                v2_nack_command(
+                    command_id,
+                    "container_remove_failed",
+                    {"stderr": err[:300]},
+                    retryable=True,
+                )
+                return
+
+    # Refresh pending terminal result after preserve/remove decision.
+    with _v2_attempts_lock:
+        current = _v2_attempts.get(job_id)
+        if current is auth and isinstance(current.get("pending_command"), dict):
+            current["pending_command"]["result"] = result
+            current["pending_command"]["terminal_status"] = "stopped"
+    _v2_journal_save()
 
     stop_event = auth.get("stop")
     if stop_event is not None:

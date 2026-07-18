@@ -1313,10 +1313,8 @@ def api_cancel_instance(job_id: str, request: Request):
     if job.get("status") in ("completed", "failed", "cancelled"):
         raise HTTPException(status_code=400, detail=f"Instance already {job['status']}")
 
-    # The legacy cancel path performs an unfenced direct kill followed by a
-    # raw status write and immediate volume detach. Until the lifecycle
-    # controller can issue a fenced remove command and detach only after its
-    # observation/ACK, fail closed for attempt-owned workloads.
+    # Attempt-owned: fenced stop/remove via lifecycle controller. Do not
+    # unfenced-kill or detach volumes before the worker ACK.
     try:
         from db import _get_pg_pool
 
@@ -1332,9 +1330,34 @@ def api_cancel_instance(job_id: str, request: Request):
         else active_attempt[0] if active_attempt else None
     )
     if active_attempt_id is not None:
-        raise HTTPException(409, "fenced_cancel_requires_controller")
+        from control_plane.lifecycle import request_fenced_stop_remove
 
-    # If running on a host, kill the container directly and also schedule via agent
+        fenced = request_fenced_stop_remove(
+            job_id=job_id,
+            intent="cancel",
+            created_by=str(
+                user.get("customer_id") or user.get("user_id") or "user_cancel"
+            ),
+            container_name=job.get("container_name") or f"xcl-{job_id}",
+            reason_tag="user_cancelled",
+        )
+        if not fenced.ok:
+            detail = fenced.reason or "fenced_cancel_failed"
+            code = 409 if detail == "no_active_fenced_authority" else 400
+            raise HTTPException(code, detail)
+        broadcast_sse(
+            "job_cancelled",
+            {"job_id": job_id, "status": "stopping", "attempt_id": fenced.attempt_id},
+        )
+        return {
+            "ok": True,
+            "job_id": job_id,
+            "status": "stopping",
+            "attempt_id": fenced.attempt_id,
+            "command_id": fenced.command_id,
+        }
+
+    # Legacy (non-attempt-owned): direct kill + immediate cancel + detach.
     if job.get("host_id") and job.get("status") in ("running", "assigned", "leased"):
         hosts = list_hosts()
         hmap = {h["host_id"]: h for h in hosts}
@@ -1349,7 +1372,7 @@ def api_cancel_instance(job_id: str, request: Request):
     update_job_status(job_id, "cancelled")
     broadcast_sse("job_cancelled", {"job_id": job_id})
 
-    # Detach any volumes still attached to this instance
+    # Detach any volumes still attached to this instance (legacy only).
     try:
         from volumes import get_volume_engine
 
@@ -1695,7 +1718,10 @@ def api_terminate_instance(job_id: str, request: Request):
     result = be.terminate_instance(job_id)
     if not result.get("terminated"):
         detail = result.get("reason", "terminate failed")
-        code = 409 if detail == "fenced_terminate_requires_controller" else 400
+        code = 409 if detail in (
+            "fenced_terminate_requires_controller",
+            "no_active_fenced_authority",
+        ) else 400
         raise HTTPException(status_code=code, detail=detail)
 
     broadcast_sse("instance_terminated", {"job_id": job_id})
