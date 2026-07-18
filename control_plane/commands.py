@@ -57,10 +57,108 @@ class AckOutcome:
     result: dict[str, Any] | None
 
 
+@dataclass(frozen=True)
+class EnqueuedAttemptCommand:
+    command_id: str
+    job_id: str
+    attempt_id: str
+    host_id: str
+    fencing_token: int
+
+
 def _get(row: Any, key: str, index: int) -> Any:
     if isinstance(row, dict):
         return cast("dict[str, Any]", row)[key]
     return row[index]
+
+
+def enqueue_current_attempt_command(
+    conn: Connection,
+    *,
+    job_id: str,
+    command: str,
+    args: dict[str, Any] | None = None,
+    created_by: str,
+    idempotency_key: str | None = None,
+    expires_in_sec: int = 900,
+) -> EnqueuedAttemptCommand:
+    """Enqueue a lifecycle command bound to the job's current authority.
+
+    The job/attempt/lease rows are locked before the command is created, so
+    the tuple in the durable command cannot race a concurrent re-placement.
+    Retried API requests collapse on ``idempotency_key``.
+    """
+    authority = conn.execute(
+        """
+        SELECT j.active_attempt_id, a.host_id, a.fencing_token, a.spec_hash,
+               l.lease_id
+          FROM jobs j
+          JOIN job_attempts a ON a.attempt_id = j.active_attempt_id
+          JOIN placement_leases l ON l.attempt_id = a.attempt_id
+         WHERE j.job_id = %s
+           AND a.status IN ('lease_claimed', 'starting', 'running')
+           AND l.status = 'active'
+           AND l.expires_at > clock_timestamp()
+         ORDER BY l.claimed_at DESC NULLS LAST
+         LIMIT 1
+           FOR UPDATE OF j, a, l
+        """,
+        (job_id,),
+    ).fetchone()
+    if authority is None:
+        raise CommandProtocolError(
+            f"job {job_id} has no active fenced authority", job_id=job_id
+        )
+    attempt_id = str(_get(authority, "active_attempt_id", 0))
+    host_id = str(_get(authority, "host_id", 1))
+    fencing_token = int(_get(authority, "fencing_token", 2))
+    spec_hash = _get(authority, "spec_hash", 3)
+    lease_id = str(_get(authority, "lease_id", 4))
+    command_key = idempotency_key or f"{command}:{attempt_id}"
+    payload = dict(args or {})
+    payload.update(
+        {
+            "job_id": job_id,
+            "attempt_id": attempt_id,
+            "host_id": host_id,
+            "fencing_token": fencing_token,
+            "lease_id": lease_id,
+        }
+    )
+    row = conn.execute(
+        """
+        INSERT INTO agent_commands
+            (host_id, command, args, status, created_by, expires_at,
+             job_id, attempt_id, fencing_token, spec_hash, idempotency_key)
+        VALUES (%s, %s, %s, 'pending', %s,
+                EXTRACT(EPOCH FROM NOW()) + %s,
+                %s, %s, %s, %s, %s)
+        ON CONFLICT (host_id, idempotency_key) WHERE idempotency_key IS NOT NULL
+        DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key
+        RETURNING command_id
+        """,
+        (
+            host_id,
+            command,
+            Jsonb(payload),
+            created_by,
+            int(expires_in_sec),
+            job_id,
+            attempt_id,
+            fencing_token,
+            spec_hash,
+            command_key,
+        ),
+    ).fetchone()
+    if row is None:  # pragma: no cover - INSERT/UPSERT always returns
+        raise CommandProtocolError("attempt command insert returned no row")
+    return EnqueuedAttemptCommand(
+        command_id=str(_get(row, "command_id", 0)),
+        job_id=job_id,
+        attempt_id=attempt_id,
+        host_id=host_id,
+        fencing_token=fencing_token,
+    )
 
 
 def claim_commands(

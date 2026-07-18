@@ -15,8 +15,10 @@ We use a static-source check rather than full integration because:
      what we want to detect.
 
 Sites covered:
-- BillingService.stop_instance        → "pause_container"  (state-machine: STOPPED→RESTARTING needs container)
-- suspended-wallet sweep / grace expired → "stop_container"
+- BillingService.stop_instance → "pause_container" for legacy jobs and a
+  durable "stop_attempt" command for fenced jobs.
+- suspended-wallet / grace-expired paths delegate to stop_instance instead of
+  bypassing its fencing and state-settlement rules.
 """
 
 from __future__ import annotations
@@ -61,17 +63,15 @@ def test_stop_instance_preserves_container(billing_src: str) -> None:
     )
 
 
-def test_terminal_paths_use_stop_container(billing_src: str) -> None:
-    """Wallet-suspension / grace-expired truly destroy the container."""
-    pairs = _enqueue_calls(billing_src)
-    cmds_for_terminal = [
-        c
-        for by, c in pairs
-        if by in {"billing_suspended", "billing_grace_expired", "billing_topup_failure"}
-    ]
-    assert any(c == "stop_container" for c in cmds_for_terminal), (
-        "Terminal billing sweepers must enqueue stop_container (docker stop + rm). "
-        "Found created_by labels: " + repr([by for by, _ in pairs])
+def test_billing_sweepers_delegate_to_stop_instance(billing_src: str) -> None:
+    """Automated stops must use the same fenced lifecycle service as users."""
+    delegated = re.findall(
+        r"self\.stop_instance\(\s*job_id,\s*reason=\"billing_suspended\"\s*\)",
+        billing_src,
+    )
+    assert len(delegated) >= 2, (
+        "Grace-expired and suspended-wallet sweepers must delegate to "
+        "stop_instance so v2 jobs receive attempt-bound commands."
     )
 
 

@@ -1392,7 +1392,14 @@ def _tool_stop_job(args: dict, user: dict) -> dict:
         return {"error": f"Job {job_id} not found."}
     if job.get("status") not in ("queued", "assigned", "running"):
         return {"error": f"Job {job_id} is already {job.get('status')} and cannot be stopped."}
-    update_job_status(job_id, "cancelled")
+    try:
+        # The scheduler writer now rejects attempt-owned jobs unless the
+        # caller presents the full current authority tuple. This preserves the
+        # compatibility tool for legacy/queued work without giving it a path
+        # around v2 fencing.
+        update_job_status(job_id, "cancelled")
+    except RuntimeError as exc:
+        return {"error": f"Job {job_id} requires the fenced lifecycle controller: {exc}"}
     return {"job_id": job_id, "status": "cancelled", "message": "Job stopped."}
 
 

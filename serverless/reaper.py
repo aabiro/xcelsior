@@ -22,7 +22,8 @@ ACTIVE_WORKER_STATES = frozenset({"booting", "ready", "idle", "draining"})
 
 
 def _scheduler_worker_id(job: dict) -> str:
-    payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
+    raw_payload = job.get("payload")
+    payload: dict = raw_payload if isinstance(raw_payload, dict) else {}
     return str(
         job.get("serverless_worker_id")
         or job.get("worker_id")
@@ -36,6 +37,11 @@ def _kill_scheduler_job(job: dict) -> bool:
     try:
         from scheduler import kill_job, list_hosts, update_job_status
 
+        job_id = str(job.get("job_id") or "")
+        # Fence gate first. update_job_status locks and rejects an
+        # attempt-owned job without a current authority tuple, so no direct
+        # host-side kill can happen before that decision.
+        update_job_status(job_id, "cancelled")
         host_id = str(job.get("host_id") or "")
         hosts = {str(h.get("host_id") or ""): h for h in list_hosts()}
         host = hosts.get(host_id) if host_id else None
@@ -43,11 +49,11 @@ def _kill_scheduler_job(job: dict) -> bool:
             kill_job(job, host)
         else:
             log.warning(
-                "Orphan serverless scheduler job %s has no reachable host %s; cancelling record",
-                job.get("job_id"),
+                "Orphan serverless scheduler job %s has no reachable host %s; "
+                "cancelled record",
+                job_id,
                 host_id or "(none)",
             )
-        update_job_status(str(job.get("job_id") or ""), "cancelled")
         return True
     except Exception as exc:
         log.warning("Failed to kill orphan serverless scheduler job %s: %s", job.get("job_id"), exc)

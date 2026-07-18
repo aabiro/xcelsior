@@ -36,6 +36,8 @@ else:
 from fastapi.testclient import TestClient
 
 from api import app
+from control_plane.commands import enqueue_current_attempt_command
+from control_plane.db import run_transaction
 from control_plane.scheduler.config import SchedulerConfig, SchedulerMode
 from control_plane.scheduler.service import SchedulerService
 
@@ -380,8 +382,100 @@ class TestFencedLeaseLifecycle:
         assert j["status"] == "failed" and j["reason_code"] == "container_failed"
         assert a["status"] == "failed" and a["failure_code"] == "container_failed"
 
+    def test_fenced_stop_command_is_idempotent_and_settles_attempt(self, fleet):
+        marker = uuid.uuid4().hex[:8]
+        job_id, host_id, refs = _place_one(fleet, marker)
+
+        # Consume the reservation's start command, then establish active
+        # worker authority and move the attempt to running.
+        claimed = client.post(
+            "/agent/v2/commands/claim",
+            json={"host_id": host_id, "worker_session_id": "sess-test"},
+        ).json()["commands"]
+        start = next(c for c in claimed if c["command_id"] == refs["command_id"])
+        assert start["command"] == "start_attempt"
+        assert client.post(
+            f"/agent/v2/commands/{refs['command_id']}/ack",
+            json={"host_id": host_id, "result": {"lease_claimed": True}},
+        ).status_code == 200
+        auth = _auth(job_id, host_id, refs)
+        assert client.post("/agent/v2/leases/claim", json=auth).status_code == 200
+        assert client.post(
+            "/agent/v2/attempts/status",
+            json={**auth, "status": "running"},
+        ).status_code == 200
+
+        def enqueue(conn):
+            return enqueue_current_attempt_command(
+                conn,
+                job_id=job_id,
+                command="stop_attempt",
+                args={"preserve": True},
+                created_by="test_fenced_stop",
+            )
+
+        first = run_transaction(enqueue)
+        duplicate = run_transaction(enqueue)
+        assert duplicate.command_id == first.command_id
+        assert first.attempt_id == refs["attempt_id"]
+        assert first.fencing_token == refs["fencing_token"]
+
+        stop_claims = client.post(
+            "/agent/v2/commands/claim",
+            json={"host_id": host_id, "worker_session_id": "sess-test"},
+        ).json()["commands"]
+        stop = next(c for c in stop_claims if c["command_id"] == first.command_id)
+        assert stop["command"] == "stop_attempt"
+        assert stop["attempt_id"] == refs["attempt_id"]
+        assert stop["fencing_token"] == refs["fencing_token"]
+
+        stopped = client.post(
+            "/agent/v2/attempts/status",
+            json={**auth, "status": "stopped"},
+        )
+        assert stopped.status_code == 200 and stopped.json()["terminal"] is True
+        with _pool.connection() as conn:
+            job = conn.execute(
+                "SELECT status, active_attempt_id, payload FROM jobs WHERE job_id=%s",
+                (job_id,),
+            ).fetchone()
+            attempt = conn.execute(
+                "SELECT status FROM job_attempts WHERE attempt_id=%s",
+                (refs["attempt_id"],),
+            ).fetchone()
+            lease = conn.execute(
+                "SELECT status FROM placement_leases WHERE lease_id=%s",
+                (refs["lease_id"],),
+            ).fetchone()
+            active_allocations = conn.execute(
+                "SELECT count(*) FROM gpu_device_allocations "
+                "WHERE attempt_id=%s AND status='active'",
+                (refs["attempt_id"],),
+            ).fetchone()[0]
+        assert job[0] == "stopped" and job[1] is None
+        assert job[2]["status"] == "stopped"
+        assert isinstance(job[2]["stopped_at"], (int, float))
+        assert attempt[0] == "cancelled"
+        assert lease[0] == "released"
+        assert active_allocations == 0
+
 
 class TestLegacyPatchFence:
+    def test_scheduler_raw_writer_is_fenced_for_attempt_owned_job(self, fleet):
+        marker = uuid.uuid4().hex[:8]
+        job_id, host_id, refs = _place_one(fleet, marker)
+        from scheduler import update_job_status
+
+        with pytest.raises(RuntimeError, match="raw lifecycle mutation is fenced out"):
+            update_job_status(job_id, "running", host_id=host_id)
+        with _pool.connection() as conn:
+            row = conn.execute(
+                "SELECT status, active_attempt_id FROM jobs WHERE job_id=%s",
+                (job_id,),
+            ).fetchone()
+        assert row[0] == "assigned"
+        assert str(row[1]) == refs["attempt_id"]
+
     def test_wrong_host_patch_fenced_out(self, fleet):
         """Split-brain guard: a worker on another host cannot v1-report
         status for an attempt-owned job."""
@@ -389,7 +483,12 @@ class TestLegacyPatchFence:
         job_id, host_id, refs = _place_one(fleet, marker)
         r = client.patch(
             f"/instance/{job_id}",
-            json={"status": "running", "host_id": f"h-{marker}-imposter"},
+            json={
+                "status": "running",
+                "host_id": f"h-{marker}-imposter",
+                "attempt_id": refs["attempt_id"],
+                "fencing_token": refs["fencing_token"],
+            },
             headers=_worker_headers(),
         )
         assert r.status_code == 409
@@ -405,21 +504,42 @@ class TestLegacyPatchFence:
         job_id, host_id, refs = _place_one(fleet, marker)
         r = client.patch(
             f"/instance/{job_id}",
-            json={"status": "starting", "host_id": host_id},
+            json={
+                "status": "starting",
+                "host_id": host_id,
+                "attempt_id": refs["attempt_id"],
+                "fencing_token": refs["fencing_token"],
+            },
             headers=_worker_headers(),
         )
         assert r.status_code == 200
 
-    def test_patch_without_host_id_passes(self, fleet):
-        """Unattributable reports pass (v2 mirror is authoritative for
-        enrolled hosts) — the fence is best-effort by design."""
+    def test_patch_without_authority_tuple_is_fenced(self, fleet):
+        """Attempt-owned compatibility writes fail closed when unattributed."""
         marker = uuid.uuid4().hex[:8]
         job_id, host_id, refs = _place_one(fleet, marker)
         r = client.patch(
             f"/instance/{job_id}", json={"status": "starting"},
             headers=_worker_headers(),
         )
-        assert r.status_code == 200
+        assert r.status_code == 409
+        assert r.json()["error"]["code"] == "fencing_violation"
+
+    def test_same_host_wrong_fence_is_rejected(self, fleet):
+        marker = uuid.uuid4().hex[:8]
+        job_id, host_id, refs = _place_one(fleet, marker)
+        r = client.patch(
+            f"/instance/{job_id}",
+            json={
+                "status": "running",
+                "host_id": host_id,
+                "attempt_id": refs["attempt_id"],
+                "fencing_token": refs["fencing_token"] + 1,
+            },
+            headers=_worker_headers(),
+        )
+        assert r.status_code == 409
+        assert r.json()["error"]["code"] == "fencing_violation"
 
     def test_non_attempt_job_unaffected(self, fleet):
         marker = uuid.uuid4().hex[:8]

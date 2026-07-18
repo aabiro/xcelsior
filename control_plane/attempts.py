@@ -36,9 +36,12 @@ _REPORT_ORDER: dict[str, int] = {
     "running": 2,
     "succeeded": 3,
     "failed": 3,
+    # User stop preserves the container but terminates execution authority.
+    # It is stored as the existing terminal ``cancelled`` attempt status.
+    "stopped": 3,
 }
 
-_TERMINAL = ("succeeded", "failed")
+_TERMINAL = ("succeeded", "failed", "stopped")
 
 # Attempt status → legacy jobs.status projection (the 059 trigger derives
 # phase/desired_state from this, so one write keeps everything coherent).
@@ -48,6 +51,7 @@ _JOB_PROJECTION = {
     "running": "running",
     "succeeded": "completed",
     "failed": "failed",
+    "stopped": "stopped",
 }
 
 
@@ -126,6 +130,7 @@ def report_attempt_status(
         )
 
     terminal = status in _TERMINAL
+    stored_status = "cancelled" if status == "stopped" else status
     conn.execute(
         """
         UPDATE job_attempts
@@ -151,7 +156,7 @@ def report_attempt_status(
          WHERE attempt_id = %(attempt_id)s
         """,
         {
-            "status": status,
+            "status": stored_status,
             "terminal": terminal,
             "failure_code": failure_code or ("error" if status == "failed" else None),
             "detail": Jsonb(detail) if detail else None,
@@ -168,6 +173,26 @@ def report_attempt_status(
             UPDATE jobs
                SET status = %(job_status)s,
                    active_attempt_id = NULL,
+                   payload = CASE
+                       WHEN %(job_status)s = 'stopped' THEN
+                           jsonb_set(
+                               jsonb_set(
+                                   COALESCE(payload, '{}'::jsonb),
+                                   '{status}',
+                                   to_jsonb(%(job_status)s::text),
+                                   true
+                               ),
+                               '{stopped_at}',
+                               to_jsonb(EXTRACT(EPOCH FROM clock_timestamp())),
+                               true
+                           )
+                       ELSE jsonb_set(
+                           COALESCE(payload, '{}'::jsonb),
+                           '{status}',
+                           to_jsonb(%(job_status)s::text),
+                           true
+                       )
+                   END,
                    reason_code = CASE
                        WHEN %(job_status)s = 'failed' THEN %(failure_code)s
                        ELSE NULL END,
@@ -210,6 +235,12 @@ def report_attempt_status(
             """
             UPDATE jobs
                SET status = %(job_status)s,
+                   payload = jsonb_set(
+                       COALESCE(payload, '{}'::jsonb),
+                       '{status}',
+                       to_jsonb(%(job_status)s::text),
+                       true
+                   ),
                    version = version + 1,
                    updated_at = clock_timestamp()
              WHERE job_id = %(job_id)s
