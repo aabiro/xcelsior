@@ -403,6 +403,32 @@ class TestHealthEndpoint:
         assert r.json()["status"] == "ready"
         assert r.json()["storage"]["ok"] is True
 
+    def test_readyz_reports_schema_on_postgres(self):
+        r = client.get("/readyz")
+        assert r.status_code == 200
+        # Postgres test DB is migrated well past the min revision.
+        schema = r.json().get("schema")
+        assert schema is not None
+        assert schema["current"] is not None
+        assert schema["minimum"] is not None
+
+    def test_readyz_503_on_incompatible_schema(self, monkeypatch):
+        # Force the required minimum above the DB's current revision; the
+        # gate must refuse traffic rather than serve on a schema this build
+        # does not understand (blueprint ADR-009).
+        monkeypatch.setenv("XCELSIOR_DB_SCHEMA_MIN_REVISION", "9999")
+        r = client.get("/readyz")
+        assert r.status_code == 503
+        assert "schema incompatible" in r.json()["error"]["message"].lower()
+
+    def test_readyz_schema_gate_can_be_disabled(self, monkeypatch):
+        # Even with an impossible minimum, the kill switch bypasses the gate.
+        monkeypatch.setenv("XCELSIOR_DB_SCHEMA_MIN_REVISION", "9999")
+        monkeypatch.setenv("XCELSIOR_READYZ_SCHEMA_CHECK", "false")
+        r = client.get("/readyz")
+        assert r.status_code == 200
+        assert r.json().get("schema") is None
+
     def test_metrics(self):
         r = client.get("/metrics")
         assert r.status_code == 200

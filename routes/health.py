@@ -587,6 +587,40 @@ def readyz():
             status_code=503, detail="API token not configured for non-dev environment"
         )
 
+    # Schema-revision gate (blueprint ADR-009 / §13.8; data-architecture
+    # companion §4.4 rule 2): refuse traffic when the database is outside
+    # this build's supported migration range, instead of limping along
+    # against a schema it does not understand. Postgres only; env-toggle
+    # for emergencies. A DB that cannot be reached to answer this is, by
+    # definition, not ready to serve.
+    schema_gate = os.environ.get("XCELSIOR_READYZ_SCHEMA_CHECK", "true").lower()
+    if (
+        schema_gate not in ("0", "false", "no", "off")
+        and os.environ.get("XCELSIOR_DB_BACKEND", "postgres").lower() == "postgres"
+    ):
+        from control_plane.schema_compat import (
+            SchemaIncompatibleError,
+            assert_schema_compatible,
+        )
+
+        try:
+            from db import _get_pg_pool
+
+            with _get_pg_pool().connection() as conn:
+                schema = assert_schema_compatible(conn)
+        except SchemaIncompatibleError as exc:
+            raise HTTPException(
+                status_code=503, detail=f"Database schema incompatible: {exc}"
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503, detail=f"Database not ready (schema check): {exc}"
+            )
+    else:
+        schema = None
+
     storage = storage_healthcheck()
     if not storage.get("ok"):
         raise HTTPException(
@@ -603,7 +637,14 @@ def readyz():
             detail=f"NFS volume storage not ready: {nfs.get('error') or nfs.get('mode', 'unreachable')}",
         )
 
-    return {"ok": True, "status": "ready", "storage": storage, "nfs_volumes": nfs}
+    resp = {"ok": True, "status": "ready", "storage": storage, "nfs_volumes": nfs}
+    if schema is not None:
+        resp["schema"] = {
+            "current": schema.current,
+            "minimum": schema.minimum,
+            "maximum": schema.maximum,
+        }
+    return resp
 
 
 @router.get("/api/status", tags=["Infrastructure"])
