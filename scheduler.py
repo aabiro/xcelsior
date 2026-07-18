@@ -1915,6 +1915,9 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
         )
     alert_failed = None
     alert_completed = None
+    validated_attempt_id = kwargs.pop("_attempt_id", None)
+    validated_fencing_token = kwargs.pop("_fencing_token", None)
+    validated_host_id = kwargs.pop("_authority_host_id", None)
 
     with _atomic_mutation() as conn:
         _migrate_jobs_if_needed(conn)
@@ -1922,6 +1925,48 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
         j = _get_job_by_id_conn(conn, job_id)
         if not j:
             return None
+
+        if _active_backend() == "postgres":
+            authority = conn.execute(
+                """SELECT j.active_attempt_id, j.host_id, a.fencing_token
+                     FROM jobs j
+                     LEFT JOIN job_attempts a
+                       ON a.attempt_id = j.active_attempt_id
+                    WHERE j.job_id=%s
+                      FOR UPDATE OF j""",
+                (job_id,),
+            ).fetchone()
+            active_attempt_id = (
+                authority.get("active_attempt_id")
+                if isinstance(authority, dict)
+                else authority[0] if authority else None
+            )
+            authority_host_id = (
+                authority.get("host_id")
+                if isinstance(authority, dict)
+                else authority[1] if authority else None
+            )
+            authority_fence = (
+                authority.get("fencing_token")
+                if isinstance(authority, dict)
+                else authority[2] if authority else None
+            )
+            tuple_matches = (
+                active_attempt_id is not None
+                and validated_attempt_id is not None
+                and validated_fencing_token is not None
+                and validated_host_id is not None
+                and authority_fence is not None
+                and authority_host_id is not None
+                and str(validated_attempt_id) == str(active_attempt_id)
+                and int(validated_fencing_token) == int(authority_fence)
+                and str(validated_host_id) == str(authority_host_id)
+            )
+            if active_attempt_id is not None and not tuple_matches:
+                raise RuntimeError(
+                    f"job {job_id} is attempt-owned ({active_attempt_id}); "
+                    "raw lifecycle mutation is fenced out"
+                )
 
         old_status = j.get("status")
         old_host_id = j.get("host_id")

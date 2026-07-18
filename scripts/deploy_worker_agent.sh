@@ -111,5 +111,12 @@ python3 "$SCRIPT_DIR/sign-static-agent.py" >/dev/null
 rsync -az --partial "${RSYNC_COMPRESS_OPTS[@]}" -e "$(_rsync_shell)" \
   "$SRC" "$TARGET:${REMOTE_DIR}/worker_agent.py"
 
-ssh "${SSH_OPTS[@]}" "$TARGET" "sudo systemctl restart xcelsior-worker || true"
-echo "Deployed worker_agent.py to ${WORKER_USER}@${WORKER_HOST}:${REMOTE_DIR}"
+ssh "${SSH_OPTS[@]}" "$TARGET" "sudo systemctl restart xcelsior-worker"
+ssh "${SSH_OPTS[@]}" "$TARGET" "sudo systemctl is-active --quiet xcelsior-worker"
+REMOTE_VERSION="$(ssh "${SSH_OPTS[@]}" "$TARGET" \
+  "sed -n 's/^VERSION = \"\(.*\)\"/\1/p' '${REMOTE_DIR}/worker_agent.py' | head -1")"
+if [[ -z "$REMOTE_VERSION" ]]; then
+  echo "ERROR: deployed worker version could not be verified" >&2
+  exit 1
+fi
+echo "Deployed worker_agent.py v${REMOTE_VERSION} to ${WORKER_USER}@${WORKER_HOST}:${REMOTE_DIR} (service active)"

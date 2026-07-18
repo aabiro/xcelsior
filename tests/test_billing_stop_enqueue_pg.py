@@ -113,6 +113,33 @@ def _mkwallet(cleanup, customer_id, balance_cad=10.0):
     cleanup["wallets"].append(customer_id)
 
 
+def _mk_attempt_history(job_id, host_id, *, active=False):
+    attempt_id = str(uuid.uuid4())
+    with _pool.connection() as conn:
+        conn.execute(
+            """INSERT INTO job_attempts
+                   (attempt_id, job_id, attempt_number, status, host_id,
+                    fencing_token, ended_at)
+               VALUES (%s, %s, 1, %s, %s,
+                       nextval('placement_fencing_token_seq'),
+                       CASE WHEN %s THEN NULL ELSE clock_timestamp() END)""",
+            (
+                attempt_id,
+                job_id,
+                "running" if active else "cancelled",
+                host_id,
+                active,
+            ),
+        )
+        if active:
+            conn.execute(
+                "UPDATE jobs SET active_attempt_id=%s WHERE job_id=%s",
+                (attempt_id, job_id),
+            )
+        conn.commit()
+    return attempt_id
+
+
 @pytest.fixture
 def captured_enqueue(monkeypatch):
     """Patch routes.agent.enqueue_agent_command and record every call."""
@@ -229,3 +256,125 @@ def test_billing_stop_args_shape_complete(cleanup_ids, captured_enqueue):
     assert (
         "job_id" in args and args["job_id"]
     ), "job_id is required for worker callback / metrics correlation"
+
+
+def test_start_fails_closed_after_fenced_attempt(cleanup_ids, captured_enqueue):
+    _mkhost(cleanup_ids, "h-v2-stopped")
+    job_id = _mkjob(
+        cleanup_ids,
+        owner="v2-start@test",
+        host_id="h-v2-stopped",
+        status="stopped",
+        container_name="xcl-v2-stopped",
+    )
+    _mk_attempt_history(job_id, "h-v2-stopped")
+
+    from billing import BillingEngine
+
+    result = BillingEngine().start_instance(job_id)
+    assert result == {
+        "started": False,
+        "reason": "fenced_resume_requires_new_attempt",
+    }
+    assert captured_enqueue == []
+
+
+def test_restart_fails_closed_for_active_fenced_attempt(cleanup_ids, captured_enqueue):
+    _mkhost(cleanup_ids, "h-v2-running")
+    job_id = _mkjob(
+        cleanup_ids,
+        owner="v2-restart@test",
+        host_id="h-v2-running",
+        status="running",
+        container_name="xcl-v2-running",
+    )
+    _mk_attempt_history(job_id, "h-v2-running", active=True)
+
+    from billing import BillingEngine
+
+    result = BillingEngine().restart_instance(job_id)
+    assert result == {
+        "restarted": False,
+        "reason": "fenced_restart_requires_controller",
+    }
+    assert captured_enqueue == []
+
+
+def test_stop_active_fenced_attempt_uses_v2_command_and_stays_stopping(
+    cleanup_ids, captured_enqueue
+):
+    _mkhost(cleanup_ids, "h-v2-stop")
+    job_id = _mkjob(
+        cleanup_ids,
+        owner="v2-stop@test",
+        host_id="h-v2-stop",
+        status="running",
+        container_name="xcl-v2-stop",
+    )
+    attempt_id = _mk_attempt_history(job_id, "h-v2-stop", active=True)
+    with _pool.connection() as conn:
+        fence = conn.execute(
+            "SELECT fencing_token FROM job_attempts WHERE attempt_id=%s",
+            (attempt_id,),
+        ).fetchone()[0]
+        conn.execute(
+            """INSERT INTO placement_leases
+                   (job_id, attempt_id, host_id, fencing_token, status,
+                    claim_deadline, claimed_at, last_renewed_at, expires_at)
+               VALUES (%s, %s, %s, %s, 'active',
+                       clock_timestamp() + interval '10 minutes',
+                       clock_timestamp(), clock_timestamp(),
+                       clock_timestamp() + interval '10 minutes')""",
+            (job_id, attempt_id, "h-v2-stop", fence),
+        )
+        conn.commit()
+
+    from billing import BillingEngine
+
+    result = BillingEngine().stop_instance(job_id, "user_stopped")
+    assert result == {"stopped": True, "job_id": job_id, "status": "stopping"}
+    assert captured_enqueue == []
+    with _pool.connection() as conn:
+        job_status = conn.execute(
+            "SELECT status FROM jobs WHERE job_id=%s", (job_id,)
+        ).fetchone()[0]
+        command = conn.execute(
+            """SELECT command, attempt_id, fencing_token, status, args
+                 FROM agent_commands
+                WHERE job_id=%s AND command='stop_attempt'""",
+            (job_id,),
+        ).fetchone()
+    assert job_status == "stopping"
+    assert command[0] == "stop_attempt"
+    assert str(command[1]) == attempt_id
+    assert command[2] == fence
+    assert command[3] == "pending"
+    assert command[4]["job_id"] == job_id
+
+
+def test_terminate_fails_closed_for_active_fenced_attempt(
+    cleanup_ids, captured_enqueue
+):
+    _mkhost(cleanup_ids, "h-v2-terminate")
+    job_id = _mkjob(
+        cleanup_ids,
+        owner="v2-terminate@test",
+        host_id="h-v2-terminate",
+        status="running",
+        container_name="xcl-v2-terminate",
+    )
+    _mk_attempt_history(job_id, "h-v2-terminate", active=True)
+
+    from billing import BillingEngine
+
+    result = BillingEngine().terminate_instance(job_id)
+    assert result == {
+        "terminated": False,
+        "reason": "fenced_terminate_requires_controller",
+    }
+    assert captured_enqueue == []
+    with _pool.connection() as conn:
+        status = conn.execute(
+            "SELECT status FROM jobs WHERE job_id=%s", (job_id,)
+        ).fetchone()[0]
+    assert status == "running"

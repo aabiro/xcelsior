@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Xcelsior Worker Agent v2.1.0
+# Xcelsior Worker Agent v2.2.0
 # Pull-based GPU worker agent for distributed GPU scheduling.
 #
 # Architecture change from v1.0.0 (push-based):
@@ -23,6 +23,7 @@ import re
 import hashlib
 import secrets
 import signal
+import shutil
 import subprocess
 import shlex
 import sys
@@ -61,6 +62,7 @@ from security import (
     get_gpu_telemetry,
     get_local_versions,
     install_gvisor,
+    is_gvisor_available,
     recommend_runtime,
 )
 
@@ -140,7 +142,7 @@ TAILSCALE_SOCKET = os.environ.get("XCELSIOR_TAILSCALE_SOCKET", "").strip()
 # gVisor preference
 PREFER_GVISOR = os.environ.get("XCELSIOR_PREFER_GVISOR", "true").lower() in ("1", "true", "yes")
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 _HOST_SSH_USER_RE = re.compile(r"\A[A-Za-z0-9_.-]{1,64}\Z")
 
 
@@ -1245,7 +1247,7 @@ def _handle_upgrade_agent(args: dict, cmd_id: str = "", by: str = "?") -> bool:
     args: {
         "url": "https://xcelsior.ca/static/worker_agent.py",
         "sha256": "<hex>",          # required — we refuse to install unverified bytes
-        "min_version": "2.1.0",      # optional — skip if our VERSION >= this
+        "min_version": "2.2.0",      # optional — skip if our VERSION >= this
         "modules": {                 # optional — sibling modules worker_agent.py
             "worker_image_cache.py": "<sha256>",  # imports (split out of the
             "worker_nfs.py": "<sha256>",           # monolith); fetched from
@@ -1915,16 +1917,41 @@ def report_job_status(
 
     PATCH /instance/{job_id}
     """
+    # Capture authority before the mirror: a terminal v2 report removes the
+    # local journal entry, but the compatibility PATCH still needs the exact
+    # tuple so the API can distinguish it from a stale worker.
+    with _v2_attempts_lock:
+        v2_auth = dict(_v2_attempts.get(job_id) or {})
+
     # Phase 5: mirror lifecycle onto the fenced attempt when this job is
     # v2-owned (no-op otherwise). Runs first so the fenced report cannot
     # be skipped by a v1 transport failure.
+    mirror_outcome = "not_v2"
     try:
-        _v2_on_job_status(job_id, status, error_message=error_message)
-    except Exception as _v2_exc:  # never let v2 mirroring break v1 flow
+        mirror_outcome = _v2_on_job_status(
+            job_id, status, error_message=error_message
+        )
+    except Exception as _v2_exc:
         log.warning("v2 status mirror failed for job %s: %s", job_id, _v2_exc)
+        mirror_outcome = "error"
+
+    # The compatibility PATCH is not a fallback state machine. If the
+    # fenced write was rejected or unavailable, allowing a raw legacy status
+    # mutation would strand the active attempt/lease/allocation out of sync.
+    if v2_auth and mirror_outcome != "ok":
+        log.error(
+            "refusing legacy status fallback for v2 job %s: fenced mirror=%s",
+            job_id,
+            mirror_outcome,
+        )
+        return False
 
     data = {"status": status}
-    if host_id:
+    if v2_auth:
+        data["host_id"] = HOST_ID
+        data["attempt_id"] = v2_auth.get("attempt_id")
+        data["fencing_token"] = v2_auth.get("fencing_token")
+    elif host_id:
         data["host_id"] = host_id
     if container_id:
         data["container_id"] = container_id
@@ -2190,7 +2217,20 @@ def v2_claim_lease_fenced(auth: dict) -> dict | None:
     """§11.2 HARD GATE: no grant → no container start, ever."""
     code, body = _v2_post("/agent/v2/leases/claim", _v2_auth_payload(auth))
     if code == 200:
-        return body
+        response_matches = (
+            str(body.get("lease_id") or "") == str(auth["lease_id"])
+            and str(body.get("job_id") or "") == str(auth["job_id"])
+            and str(body.get("attempt_id") or "") == str(auth["attempt_id"])
+            and int(body.get("fencing_token") or 0) == int(auth["fencing_token"])
+        )
+        if response_matches:
+            return body
+        log.error(
+            "v2 lease claim response authority mismatch job=%s attempt=%s",
+            auth["job_id"],
+            auth["attempt_id"][:8],
+        )
+        return None
     log.error(
         "v2 lease claim REJECTED job=%s attempt=%s fence=%s: HTTP %s %s",
         auth["job_id"], auth["attempt_id"][:8], auth["fencing_token"], code,
@@ -2222,9 +2262,35 @@ def v2_report_attempt_status(
     return "error"
 
 
-def _v2_stop_container(job_id: str, why: str) -> None:
+def _v2_container_name(job_id: str, attempt_id: str) -> str:
+    """Stable attempt-specific identity; a newer fence never shares a name."""
+    return f"xcl-{job_id}-{attempt_id[:8]}"
+
+
+def _v2_stop_container(
+    job_id: str,
+    why: str,
+    container_name: str | None = None,
+    expected_attempt_id: str | None = None,
+) -> None:
     """Definitive fence-loss behavior (§11.5): authority gone → stop now."""
-    container_name = f"xcl-{job_id}"
+    container_name = container_name or f"xcl-{job_id}"
+    if expected_attempt_id:
+        state, _exit_code, observed_attempt_id = _v2_container_state(
+            job_id, container_name
+        )
+        if state == "missing":
+            return
+        if observed_attempt_id != expected_attempt_id:
+            log.critical(
+                "FENCE STOP REFUSED job=%s container=%s expected_attempt=%s "
+                "observed_attempt=%s",
+                job_id,
+                container_name,
+                expected_attempt_id,
+                observed_attempt_id or "(unlabeled)",
+            )
+            return
     log.error(
         "FENCE LOST job=%s (%s) — stopping container %s", job_id, why, container_name
     )
@@ -2243,11 +2309,22 @@ def _v2_stop_container(job_id: str, why: str) -> None:
 _V2_JOURNAL_PATH = os.environ.get(
     "XCELSIOR_V2_JOURNAL_PATH", "/var/lib/xcelsior/v2_attempts.json"
 )
+_V2_COMPLETED_COMMANDS_KEY = "__completed_commands__"
+_V2_COMMAND_RESULT_RETENTION_SEC = 24 * 3600
+_v2_completed_commands: dict[str, dict] = {}
 
 
 def _v2_journal_save() -> None:
-    """Persist the authority registry (best-effort, atomic replace)."""
+    """Persist attempt authority and replayable command results atomically."""
     with _v2_attempts_lock:
+        cutoff = time.time() - _V2_COMMAND_RESULT_RETENTION_SEC
+        expired = [
+            command_id
+            for command_id, record in _v2_completed_commands.items()
+            if float(record.get("completed_at") or 0) < cutoff
+        ]
+        for command_id in expired:
+            _v2_completed_commands.pop(command_id, None)
         snapshot = {
             job_id: {
                 "lease_id": a["lease_id"],
@@ -2255,8 +2332,20 @@ def _v2_journal_save() -> None:
                 "attempt_id": a["attempt_id"],
                 "fencing_token": a["fencing_token"],
                 "renewal_ttl_sec": a.get("renewal_ttl_sec", 300),
+                "container_name": a.get("container_name")
+                or _v2_container_name(a["job_id"], a["attempt_id"]),
+                "spec_hash": a.get("spec_hash"),
+                **(
+                    {"pending_command": dict(a["pending_command"])}
+                    if isinstance(a.get("pending_command"), dict)
+                    else {}
+                ),
             }
             for job_id, a in _v2_attempts.items()
+        }
+        snapshot[_V2_COMPLETED_COMMANDS_KEY] = {
+            command_id: dict(record)
+            for command_id, record in _v2_completed_commands.items()
         }
     try:
         os.makedirs(os.path.dirname(_V2_JOURNAL_PATH), exist_ok=True)
@@ -2269,12 +2358,45 @@ def _v2_journal_save() -> None:
 
 
 def _v2_journal_load() -> dict:
+    global _v2_completed_commands
     try:
         with open(_V2_JOURNAL_PATH) as fh:
             data = json.load(fh)
-        return data if isinstance(data, dict) else {}
+        if not isinstance(data, dict):
+            return {}
+        raw_completed = data.pop(_V2_COMPLETED_COMMANDS_KEY, {})
+        with _v2_attempts_lock:
+            _v2_completed_commands = (
+                {
+                    str(command_id): dict(record)
+                    for command_id, record in raw_completed.items()
+                    if isinstance(record, dict)
+                }
+                if isinstance(raw_completed, dict)
+                else {}
+            )
+        return data
     except (OSError, ValueError):
         return {}
+
+
+def _v2_mark_command_complete(command_id: str, result: dict) -> None:
+    """Durably remember an outcome before relying on its network ACK."""
+    with _v2_attempts_lock:
+        _v2_completed_commands[command_id] = {
+            "result": dict(result),
+            "completed_at": time.time(),
+        }
+    _v2_journal_save()
+
+
+def _v2_completed_command_result(command_id: str) -> dict | None:
+    with _v2_attempts_lock:
+        record = _v2_completed_commands.get(command_id)
+        if not record:
+            return None
+        result = record.get("result")
+        return dict(result) if isinstance(result, dict) else {}
 
 
 def _v2_forget_attempt(job_id: str) -> None:
@@ -2285,18 +2407,21 @@ def _v2_forget_attempt(job_id: str) -> None:
         _v2_journal_save()
 
 
-def _v2_container_state(job_id: str) -> tuple[str, int, str]:
-    """(state, exit_code, attempt_label) for xcl-{job_id}.
+def _v2_container_state(
+    job_id: str, container_name: str | None = None
+) -> tuple[str, int, str]:
+    """Return state, exit code, and attempt label for one owned container.
 
     state is 'running', 'exited', or 'missing'.
     """
+    container_name = container_name or f"xcl-{job_id}"
     try:
         inspect = subprocess.run(
             [
                 "docker", "inspect", "-f",
                 '{{.State.Running}} {{.State.ExitCode}} '
                 '{{index .Config.Labels "ai.xcelsior.attempt_id"}}',
-                f"xcl-{job_id}",
+                container_name,
             ],
             capture_output=True, text=True, timeout=10,
         )
@@ -2312,6 +2437,45 @@ def _v2_container_state(job_id: str) -> tuple[str, int, str]:
         exit_code = -1
     label = parts[2] if len(parts) > 2 else ""
     return ("running" if running else "exited", exit_code, label)
+
+
+def _v2_pending_adoption_loop(auth: dict) -> None:
+    """Bound restart uncertainty; adopt only after an exact renew succeeds."""
+    job_id = str(auth["job_id"])
+    ttl = max(30, int(auth.get("renewal_ttl_sec") or 300))
+    deadline = time.monotonic() + ttl
+    stop: threading.Event = auth["stop"]
+    while not stop.is_set():
+        code, _body = _v2_post("/agent/v2/leases/renew", _v2_auth_payload(auth))
+        if code == 200:
+            threading.Thread(
+                target=_v2_renewal_loop,
+                args=(auth,),
+                name=f"v2-renew-{job_id[:8]}",
+                daemon=True,
+            ).start()
+            log.info(
+                "adoption confirmed after retry: attempt %s job %s",
+                auth["attempt_id"][:8],
+                job_id,
+            )
+            return
+        if code == 409 or time.monotonic() >= deadline:
+            reason = (
+                "adoption renewal rejected"
+                if code == 409
+                else "adoption confirmation grace expired"
+            )
+            container_name = auth.get("container_name")
+            _v2_forget_attempt(job_id)
+            _v2_stop_container(
+                job_id,
+                reason,
+                container_name,
+                str(auth["attempt_id"]),
+            )
+            return
+        stop.wait(min(10.0, max(0.1, deadline - time.monotonic())))
 
 
 def v2_adopt_attempts() -> int:
@@ -2336,12 +2500,21 @@ def v2_adopt_attempts() -> int:
                 "attempt_id": str(rec["attempt_id"]),
                 "fencing_token": int(rec["fencing_token"]),
                 "renewal_ttl_sec": int(rec.get("renewal_ttl_sec", 300)),
+                "container_name": str(
+                    rec.get("container_name")
+                    or _v2_container_name(str(rec["job_id"]), str(rec["attempt_id"]))
+                ),
+                "spec_hash": rec.get("spec_hash"),
                 "stop": threading.Event(),
             }
+            if isinstance(rec.get("pending_command"), dict):
+                auth["pending_command"] = dict(rec["pending_command"])
         except (KeyError, TypeError, ValueError):
             continue
-        state, exit_code, label = _v2_container_state(job_id)
-        if label and label != auth["attempt_id"]:
+        state, exit_code, label = _v2_container_state(
+            job_id, auth["container_name"]
+        )
+        if state != "missing" and label != auth["attempt_id"]:
             log.warning(
                 "adoption: container for job %s belongs to attempt %s "
                 "(journal has %s) — dropping record",
@@ -2351,35 +2524,72 @@ def v2_adopt_attempts() -> int:
         if state == "running":
             code, _body = _v2_post("/agent/v2/leases/renew", _v2_auth_payload(auth))
             if code == 409:
-                _v2_stop_container(job_id, "adoption renewal rejected")
+                _v2_stop_container(
+                    job_id,
+                    "adoption renewal rejected",
+                    auth["container_name"],
+                    auth["attempt_id"],
+                )
                 continue
             with _v2_attempts_lock:
                 _v2_attempts[job_id] = auth
-            threading.Thread(
-                target=_v2_renewal_loop, args=(auth,),
-                name=f"v2-renew-{job_id[:8]}", daemon=True,
-            ).start()
-            adopted += 1
-            log.info(
-                "adopted running attempt %s for job %s (fence=%s)",
-                auth["attempt_id"][:8], job_id, auth["fencing_token"],
-            )
+            if code == 200:
+                threading.Thread(
+                    target=_v2_renewal_loop, args=(auth,),
+                    name=f"v2-renew-{job_id[:8]}", daemon=True,
+                ).start()
+                adopted += 1
+                log.info(
+                    "adopted running attempt %s for job %s (fence=%s)",
+                    auth["attempt_id"][:8], job_id, auth["fencing_token"],
+                )
+            else:
+                # Transport/server uncertainty is not confirmation. Keep the
+                # labeled container only for one bounded lease window while a
+                # dedicated retry loop seeks exact authority.
+                threading.Thread(
+                    target=_v2_pending_adoption_loop,
+                    args=(auth,),
+                    name=f"v2-adopt-{job_id[:8]}",
+                    daemon=True,
+                ).start()
         elif state == "exited":
-            outcome = "succeeded" if exit_code == 0 else "failed"
-            v2_report_attempt_status(
-                auth, outcome,
-                None if exit_code == 0 else "container_exited",
-                None if exit_code == 0 else {"exit_code": exit_code},
+            pending = auth.get("pending_command")
+            outcome = (
+                str(pending.get("terminal_status"))
+                if isinstance(pending, dict) and pending.get("terminal_status")
+                else "succeeded" if exit_code == 0 else "failed"
             )
+            report_outcome = v2_report_attempt_status(
+                auth,
+                outcome,
+                None if outcome != "failed" else "container_exited",
+                None if outcome != "failed" else {"exit_code": exit_code},
+            )
+            if report_outcome == "ok" and isinstance(pending, dict):
+                command_id = str(pending.get("command_id") or "")
+                result = pending.get("result")
+                if command_id and isinstance(result, dict):
+                    _v2_mark_command_complete(command_id, result)
+                    v2_ack_command(command_id, result)
+            elif report_outcome == "error":
+                # Retain the terminal intent so the next redelivery/restart
+                # retries the fenced report instead of misclassifying a
+                # deliberately stopped container as a successful workload.
+                with _v2_attempts_lock:
+                    _v2_attempts[job_id] = auth
             log.info(
                 "adoption: job %s container exited (%d) — reported %s",
                 job_id, exit_code, outcome,
             )
         else:
-            v2_report_attempt_status(
+            report_outcome = v2_report_attempt_status(
                 auth, "failed", "container_missing",
                 {"note": "agent restarted; container not found"},
             )
+            if report_outcome == "error":
+                with _v2_attempts_lock:
+                    _v2_attempts[job_id] = auth
     _v2_journal_save()
     return adopted
 
@@ -2402,14 +2612,26 @@ def _v2_renewal_loop(auth: dict) -> None:
             last_ok = time.time()
             continue
         if code == 409:
+            container_name = auth.get("container_name")
             _v2_forget_attempt(job_id)
-            _v2_stop_container(job_id, "lease renewal rejected")
+            _v2_stop_container(
+                job_id,
+                "lease renewal rejected",
+                container_name,
+                auth["attempt_id"],
+            )
             return
         # Transport / server error: keep the container while inside the
         # authority window, but no further.
         if time.time() - last_ok > ttl:
+            container_name = auth.get("container_name")
             _v2_forget_attempt(job_id)
-            _v2_stop_container(job_id, "renewal window expired while disconnected")
+            _v2_stop_container(
+                job_id,
+                "renewal window expired while disconnected",
+                container_name,
+                auth["attempt_id"],
+            )
             return
 
 
@@ -2418,10 +2640,13 @@ _V2_STATUS_MAP = {
     "running": "running",
     "completed": "succeeded",
     "failed": "failed",
+    "stopped": "stopped",
 }
 
 
-def _v2_on_job_status(job_id: str, status: str, error_message: str | None = None):
+def _v2_on_job_status(
+    job_id: str, status: str, error_message: str | None = None
+) -> str:
     """v1 report funnel hook: mirror lifecycle onto the fenced attempt.
 
     report_job_status() is the single funnel every v1 code path uses, so
@@ -2431,20 +2656,24 @@ def _v2_on_job_status(job_id: str, status: str, error_message: str | None = None
     """
     v2_status = _V2_STATUS_MAP.get(status)
     if v2_status is None:
-        return
+        return "unsupported"
     with _v2_attempts_lock:
         auth = _v2_attempts.get(job_id)
     if auth is None:
-        return
+        return "not_v2"
     failure_code = "container_failed" if v2_status == "failed" else None
     detail = {"error": error_message[:300]} if (error_message and failure_code) else None
     outcome = v2_report_attempt_status(auth, v2_status, failure_code, detail)
     if outcome == "fenced":
+        container_name = auth.get("container_name")
         _v2_forget_attempt(job_id)
-        _v2_stop_container(job_id, "status report fenced")
-        return
-    if v2_status in ("succeeded", "failed"):
+        _v2_stop_container(
+            job_id, "status report fenced", container_name, auth["attempt_id"]
+        )
+        return outcome
+    if outcome == "ok" and v2_status in ("succeeded", "failed", "stopped"):
         _v2_forget_attempt(job_id)
+    return outcome
 
 
 def handle_start_attempt(cmd: dict) -> None:
@@ -2464,10 +2693,34 @@ def handle_start_attempt(cmd: dict) -> None:
         "job_id": job_id,
         "attempt_id": str(cmd.get("attempt_id") or args.get("attempt_id") or ""),
         "fencing_token": int(cmd.get("fencing_token") or args.get("fencing_token") or 0),
+        "spec_hash": cmd.get("spec_hash") or args.get("spec_hash"),
         "stop": threading.Event(),
     }
     if not (job_id and auth["lease_id"] and auth["attempt_id"] and auth["fencing_token"]):
         v2_nack_command(command_id, "malformed_start_attempt", {"args_keys": sorted(args)}, retryable=False)
+        return
+
+    spec = args.get("spec")
+    expected_spec_hash = str(auth.get("spec_hash") or "")
+    if not isinstance(spec, dict) or not expected_spec_hash:
+        v2_nack_command(
+            command_id,
+            "malformed_start_attempt",
+            {"missing": "spec_or_spec_hash"},
+            retryable=False,
+        )
+        return
+    canonical_spec = json.dumps(
+        spec, sort_keys=True, separators=(",", ":"), default=str
+    )
+    actual_spec_hash = "sha256:" + hashlib.sha256(canonical_spec.encode()).hexdigest()
+    if not secrets.compare_digest(actual_spec_hash, expected_spec_hash):
+        v2_nack_command(
+            command_id,
+            "spec_hash_mismatch",
+            {"expected": expected_spec_hash, "actual": actual_spec_hash},
+            retryable=False,
+        )
         return
 
     # §11.2 hard gate — no grant, no container. Non-retryable: the offer
@@ -2477,28 +2730,159 @@ def handle_start_attempt(cmd: dict) -> None:
         v2_nack_command(command_id, "lease_claim_rejected", retryable=False)
         return
     auth["renewal_ttl_sec"] = grant.get("renewal_ttl_sec") or 300
+    auth["container_name"] = _v2_container_name(job_id, auth["attempt_id"])
 
     with _v2_attempts_lock:
         _v2_attempts[job_id] = auth
     _v2_journal_save()
-    v2_report_attempt_status(auth, "lease_claimed")
-    v2_ack_command(command_id, {"lease_claimed": True, "session": WORKER_SESSION_ID})
+    lease_report = v2_report_attempt_status(auth, "lease_claimed")
+    if lease_report == "fenced":
+        _v2_forget_attempt(job_id)
+        v2_nack_command(
+            command_id, "lease_authority_lost_before_start", retryable=False
+        )
+        return
+    start_result = {"lease_claimed": True, "session": WORKER_SESSION_ID}
+    _v2_mark_command_complete(command_id, start_result)
+    v2_ack_command(command_id, start_result)
 
     threading.Thread(
         target=_v2_renewal_loop, args=(auth,),
         name=f"v2-renew-{job_id[:8]}", daemon=True,
     ).start()
 
-    job = dict(args.get("spec") or {})
+    job = dict(spec)
     job.setdefault("job_id", job_id)
     job["_v2_attempt_id"] = auth["attempt_id"]
     job["_v2_fencing_token"] = auth["fencing_token"]
+    job["_v2_spec_hash"] = auth.get("spec_hash") or ""
+    job["_v2_container_name"] = auth["container_name"]
     try:
         run_job(job)
     except Exception as e:
         log.exception("start_attempt run_job crashed for job %s", job_id)
         v2_report_attempt_status(auth, "failed", "agent_exception", {"error": str(e)[:300]})
         _v2_forget_attempt(job_id)
+
+
+def handle_stop_attempt(cmd: dict) -> None:
+    """Stop a container only while the command's attempt/fence is current.
+
+    The state-preserving Docker stop happens before the fenced terminal
+    report. A successful report atomically releases lease/allocation and
+    projects the job to ``stopped``; only then is the command ACKed.
+    """
+    command_id = str(cmd.get("command_id") or "")
+    args = cmd.get("args") or {}
+    result = {"stopped": True, "preserved": bool(args.get("preserve", True))}
+    job_id = str(cmd.get("job_id") or args.get("job_id") or "")
+    attempt_id = str(cmd.get("attempt_id") or args.get("attempt_id") or "")
+    fencing_token = int(cmd.get("fencing_token") or args.get("fencing_token") or 0)
+    with _v2_attempts_lock:
+        local = _v2_attempts.get(job_id)
+    if not local or (
+        str(local.get("attempt_id")) != attempt_id
+        or int(local.get("fencing_token") or 0) != fencing_token
+    ):
+        v2_nack_command(
+            command_id,
+            "authority_not_local",
+            {"job_id": job_id, "attempt_id": attempt_id},
+            retryable=False,
+        )
+        return
+
+    auth = local
+    # Revalidate immediately before the side effect; a stale command that
+    # survived re-placement must never touch the new container.
+    code, _body = _v2_post("/agent/v2/leases/renew", _v2_auth_payload(auth))
+    if code != 200:
+        v2_nack_command(
+            command_id,
+            "stop_authority_rejected" if code == 409 else "stop_authority_unavailable",
+            retryable=code != 409,
+        )
+        if code == 409:
+            container_name = auth.get("container_name")
+            _v2_forget_attempt(job_id)
+            _v2_stop_container(
+                job_id,
+                "stop command authority rejected",
+                container_name,
+                auth["attempt_id"],
+            )
+        return
+
+    container_name = str(
+        auth.get("container_name") or _v2_container_name(job_id, attempt_id)
+    )
+    state, _exit_code, label = _v2_container_state(job_id, container_name)
+    if label != attempt_id:
+        v2_nack_command(
+            command_id,
+            "container_attempt_mismatch",
+            {"expected": attempt_id, "observed": label},
+            retryable=False,
+        )
+        return
+
+    # Persist the intended terminal interpretation before the Docker side
+    # effect. If the process dies after `docker stop` but before the status
+    # report/ACK, restart adoption must report `stopped` (not `succeeded`) and
+    # replay the command outcome.
+    with _v2_attempts_lock:
+        current = _v2_attempts.get(job_id)
+        authority_changed = current is not auth
+        if not authority_changed:
+            auth["pending_command"] = {
+                "command_id": command_id,
+                "terminal_status": "stopped",
+                "result": result,
+            }
+    if authority_changed:
+        v2_nack_command(
+            command_id, "authority_changed_before_stop", retryable=False
+        )
+        return
+    _v2_journal_save()
+    if state == "running":
+        try:
+            stopped = subprocess.run(
+                ["docker", "stop", "-t", "30", container_name],
+                capture_output=True,
+                text=True,
+                timeout=45,
+            )
+        except subprocess.TimeoutExpired:
+            v2_nack_command(command_id, "container_stop_timeout", retryable=True)
+            return
+        if stopped.returncode != 0:
+            v2_nack_command(
+                command_id,
+                "container_stop_failed",
+                {"stderr": (stopped.stderr or "")[:300]},
+                retryable=True,
+            )
+            return
+    elif state not in ("exited", "missing"):
+        v2_nack_command(
+            command_id, "container_state_unknown", {"state": state}, retryable=True
+        )
+        return
+
+    stop_event = auth.get("stop")
+    if stop_event is not None:
+        stop_event.set()
+    outcome = v2_report_attempt_status(auth, "stopped")
+    if outcome == "ok":
+        _v2_mark_command_complete(command_id, result)
+        v2_ack_command(command_id, result)
+        _v2_forget_attempt(job_id)
+    elif outcome == "fenced":
+        v2_nack_command(command_id, "stop_status_fenced", retryable=False)
+        _v2_forget_attempt(job_id)
+    else:
+        v2_nack_command(command_id, "stop_status_error", retryable=True)
 
 
 _OBSERVATION_INTERVAL_SEC = int(os.environ.get("XCELSIOR_OBSERVATION_INTERVAL", "60"))
@@ -2515,7 +2899,12 @@ def _collect_local_workloads() -> list[dict]:
                 '{{.ID}}\t{{.Names}}\t{{.State}}\t'
                 '{{.Label "ai.xcelsior.job_id"}}\t'
                 '{{.Label "ai.xcelsior.attempt_id"}}\t'
-                '{{.Label "ai.xcelsior.fencing_token"}}',
+                '{{.Label "ai.xcelsior.fencing_token"}}\t'
+                '{{.Label "ai.xcelsior.spec_hash"}}\t'
+                '{{.Label "xcelsior.job_id"}}\t'
+                '{{.Label "xcelsior.attempt_id"}}\t'
+                '{{.Label "xcelsior.fencing_token"}}\t'
+                '{{.Label "xcelsior.spec_hash"}}',
             ],
             capture_output=True, text=True, timeout=15,
         )
@@ -2535,9 +2924,18 @@ def _collect_local_workloads() -> list[dict]:
         if len(parts) < 3:
             continue
         cid, name, state = parts[0], parts[1], parts[2]
-        label_job = parts[3] if len(parts) > 3 else ""
-        attempt = parts[4] if len(parts) > 4 else ""
-        fence = parts[5] if len(parts) > 5 else ""
+        label_job = (parts[7] if len(parts) > 7 else "") or (
+            parts[3] if len(parts) > 3 else ""
+        )
+        attempt = (parts[8] if len(parts) > 8 else "") or (
+            parts[4] if len(parts) > 4 else ""
+        )
+        fence = (parts[9] if len(parts) > 9 else "") or (
+            parts[5] if len(parts) > 5 else ""
+        )
+        spec_hash = (parts[10] if len(parts) > 10 else "") or (
+            parts[6] if len(parts) > 6 else ""
+        )
         # Container name is xcl-{job_id}; the label wins when present.
         job_id = label_job or (name[4:] if name.startswith("xcl-") else "")
         workloads.append({
@@ -2546,6 +2944,7 @@ def _collect_local_workloads() -> list[dict]:
             "fencing_token": int(fence) if fence.isdigit() else None,
             "container_id": cid,
             "container_name": name,
+            "spec_hash": spec_hash or None,
             "state": state_map.get(state.strip().lower(), "unknown"),
         })
     return workloads
@@ -2584,6 +2983,15 @@ def drain_v2_commands() -> int:
     commands = v2_claim_commands()
     dispatched = 0
     for cmd in commands:
+        command_id = str(cmd.get("command_id") or "")
+        completed_result = _v2_completed_command_result(command_id)
+        if completed_result is not None:
+            # The side effect and terminal status completed before an earlier
+            # ACK reached the API. Replay only the durable result; never touch
+            # Docker twice.
+            if v2_ack_command(command_id, completed_result):
+                dispatched += 1
+            continue
         name = cmd.get("command")
         if name == "start_attempt":
             job_ref = str(cmd.get("job_id") or "?")
@@ -2592,9 +3000,16 @@ def drain_v2_commands() -> int:
                 name=f"v2-start-{job_ref[:8]}", daemon=True,
             ).start()
             dispatched += 1
+        elif name == "stop_attempt":
+            job_ref = str(cmd.get("job_id") or "?")
+            threading.Thread(
+                target=handle_stop_attempt, args=(cmd,),
+                name=f"v2-stop-{job_ref[:8]}", daemon=True,
+            ).start()
+            dispatched += 1
         else:
             v2_nack_command(
-                str(cmd.get("command_id")), "unsupported_command",
+                command_id, "unsupported_command",
                 {"command": str(name)}, retryable=False,
             )
     return dispatched
@@ -2979,7 +3394,9 @@ def _serverless_callback(worker_id: str, suffix: str, body: dict | None = None) 
         return False
 
 
-def _monitor_serverless_worker(job_id, container_name, worker_id, log_forwarder=None):
+def _monitor_serverless_worker(
+    job_id, container_name, worker_id, log_forwarder=None, is_v2_attempt=False
+):
     """Monitor a serverless worker container until exit; notify control plane."""
     check_interval = 5
     while not _shutdown.is_set():
@@ -3008,11 +3425,13 @@ def _monitor_serverless_worker(job_id, container_name, worker_id, log_forwarder=
                 if exit_code == 0:
                     log.info("Serverless worker %s completed (job %s)", worker_id, job_id)
                     report_job_status(job_id, "completed")
-                    release_lease(job_id, "completed")
+                    if not is_v2_attempt:
+                        release_lease(job_id, "completed")
                 else:
                     log.warning("Serverless worker %s failed exit=%d (job %s)", worker_id, exit_code, job_id)
                     report_job_status(job_id, "failed", error_message=err_msg)
-                    release_lease(job_id, "failed")
+                    if not is_v2_attempt:
+                        release_lease(job_id, "failed")
                 _remove_container(container_name)
                 return
             if status not in ("running", "created"):
@@ -3022,7 +3441,8 @@ def _monitor_serverless_worker(job_id, container_name, worker_id, log_forwarder=
                     {"exit_code": 1, "error_message": f"unexpected state: {status}"},
                 )
                 report_job_status(job_id, "failed", error_message=f"unexpected state: {status}")
-                release_lease(job_id, "failed")
+                if not is_v2_attempt:
+                    release_lease(job_id, "failed")
                 _remove_container(container_name)
                 return
         except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
@@ -3087,7 +3507,16 @@ def run_job(job):
         report_job_status(job_id, "failed")
         return
 
-    container_name = f"xcl-{job_id}"
+    v2_attempt_id = str(job.get("_v2_attempt_id") or "")
+    is_v2_attempt = bool(v2_attempt_id)
+    container_name = str(
+        job.get("_v2_container_name")
+        or (
+            _v2_container_name(job_id, v2_attempt_id)
+            if is_v2_attempt
+            else f"xcl-{job_id}"
+        )
+    )
 
     # ── Requeue guard: stop old container if this job was already running ──
     with _active_lock:
@@ -3102,12 +3531,18 @@ def run_job(job):
 
     # ── Lease Protocol: claim lease before starting work ──
     # Job arrives as "assigned"; agent claims lease → "leased" → then "running"
-    lease_info = claim_lease(job_id)
+    lease_info = None if is_v2_attempt else claim_lease(job_id)
     lease_interval = (lease_info or {}).get("duration_sec", 300) // 2  # Renew at half-life
 
     # Report starting status (leased → starting); will become "running" after
     # the container is actually created (image pull + docker run may take minutes).
-    report_job_status(job_id, "starting", host_id=HOST_ID)
+    starting_reported = report_job_status(job_id, "starting", host_id=HOST_ID)
+    if is_v2_attempt and not starting_reported:
+        log.error(
+            "Job %s: fenced starting report failed — refusing container setup",
+            job_id,
+        )
+        return
 
     with _active_lock:
         _active_containers[job_id] = container_name
@@ -3151,11 +3586,18 @@ def run_job(job):
             daemon=True,
         )
         lease_thread.start()
-    else:
+    elif not is_v2_attempt:
         log.warning(
             "Job %s: no active lease — skipping renewal loop (lease claim failed)",
             job_id,
         )
+
+    def _release_execution_lease(reason: str) -> None:
+        # A v2 terminal status report settles the placement lease atomically.
+        # Calling the compatibility lease endpoint as well would create a
+        # second, unfenced lifecycle writer for the same workload.
+        if not is_v2_attempt:
+            release_lease(job_id, reason)
 
     encrypted_vol_ids = []
     managed_vol_mounts = []  # /mnt/xcelsior-volumes/{vid} paths for cleanup
@@ -3178,7 +3620,7 @@ def run_job(job):
                 "failed",
                 error_message=f"exclusive_gpu acquire failed: {err}",
             )
-            release_lease(job_id, "failed")
+            _release_execution_lease("failed")
             return
 
     try:
@@ -3186,15 +3628,38 @@ def run_job(job):
         # volume_ids are present — those mount per-volume under /mnt/xcelsior-volumes/{id}.
         # Also skip interactive instances (30s mount timeout blocks SSH startup).
         has_managed_volumes = bool(job.get("volume_ids"))
-        if nfs_server and nfs_path and not is_interactive and not has_managed_volumes:
+        job_requires_nfs = bool(
+            job.get("require_nfs")
+            or job.get("nfs_server")
+            or job.get("nfs_path")
+        )
+        if job_requires_nfs and not has_managed_volumes and not (nfs_server and nfs_path):
+            err = "required NFS configuration incomplete"
+            log.error("Job %s aborting — %s", job_id, err)
+            report_job_status(job_id, "failed", error_message=err)
+            _release_execution_lease("failed")
+            return
+        if (
+            nfs_server
+            and nfs_path
+            and not has_managed_volumes
+            and (not is_interactive or job_requires_nfs)
+        ):
             nfs_mounted = _mount_nfs(nfs_server, nfs_path, nfs_mount_point)
             if nfs_mounted:
                 log.info("NFS mounted: %s:%s → %s", nfs_server, nfs_path, nfs_mount_point)
                 volumes = list(volumes) + [f"{nfs_mount_point}:/data/nfs:rw"]
             else:
-                log.warning("NFS mount failed — continuing without shared storage")
+                if job_requires_nfs:
+                    err = "required NFS mount failed"
+                    log.error("Job %s aborting — %s", job_id, err)
+                    report_job_status(job_id, "failed", error_message=err)
+                    _release_execution_lease("failed")
+                    return
+                log.warning("NFS mount failed — optional shared storage unavailable")
 
         # 0b. Attach encrypted volumes (if specified)
+        failed_encrypted_vol_ids: list[str] = []
         for vol in job.get("encrypted_volumes", []):
             vol_id = vol.get("volume_id")
             vol_mount = vol.get("mount_path", f"/data/vol-{vol_id[:8]}")
@@ -3206,7 +3671,18 @@ def run_job(job):
                     encrypted_vol_ids.append(vol_id)
                     log.info("Encrypted volume %s attached at %s", vol_id, vol_mount)
                 else:
-                    log.warning("Encrypted volume %s attach failed — skipping", vol_id)
+                    log.error("Encrypted volume %s attach failed", vol_id)
+                    failed_encrypted_vol_ids.append(str(vol_id))
+
+        if failed_encrypted_vol_ids:
+            err = (
+                "required encrypted volume attach failed: "
+                + ", ".join(failed_encrypted_vol_ids)
+            )
+            log.error("Job %s aborting — %s", job_id, err)
+            report_job_status(job_id, "failed", error_message=err)
+            _release_execution_lease("failed")
+            return
 
         # 0c. Mount managed volumes (volume_ids from job payload)
         # Prefer API-injected nfs_server (prod Mac appliance); fall back to worker env.
@@ -3243,7 +3719,7 @@ def run_job(job):
             err = f"required volume mount failed: {', '.join(failed_volume_ids)}"
             log.error("Job %s aborting — %s", job_id, err)
             report_job_status(job_id, "failed", error_message=err)
-            release_lease(job_id, "failed")
+            _release_execution_lease("failed")
             return
 
         # 0d. Encrypted workspace (ephemeral LUKS volume on GPU host)
@@ -3275,10 +3751,35 @@ def run_job(job):
             else:
                 log.error("Encrypted workspace provisioning failed for job %s — aborting", job_id)
                 report_job_status(job_id, "failed", error_message="encrypted workspace provisioning failed")
+                _release_execution_lease("failed")
                 return
 
         # 1. Pull image (with cache tracking + LRU eviction)
         current_stage = "pulling image"
+
+        if job.get("require_image_signature"):
+            cosign = shutil.which("cosign")
+            public_key = str(
+                job.get("image_signature_key")
+                or os.environ.get("XCELSIOR_COSIGN_PUBLIC_KEY", "")
+            ).strip()
+            if not cosign or not public_key:
+                err = "required image signature verifier/key is unavailable"
+                report_job_status(job_id, "failed", error_message=err)
+                _release_execution_lease("failed")
+                return
+            verified = subprocess.run(
+                [cosign, "verify", "--key", public_key, image],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if verified.returncode != 0:
+                err = "required image signature verification failed"
+                log.error("Job %s: %s: %s", job_id, err, verified.stderr[:300])
+                report_job_status(job_id, "failed", error_message=err)
+                _release_execution_lease("failed")
+                return
 
         # Check if image already cached — skip eviction + pull if so
         with _image_cache_lock:
@@ -3357,7 +3858,29 @@ def run_job(job):
         gpu_info = get_gpu_info()
         runtime_name = "runc"
         is_interactive = bool(job.get("interactive", False))
-        if has_managed_volumes:
+        required_runtime = str(job.get("required_runtime") or "").strip().lower()
+        if required_runtime in ("gvisor", "runsc"):
+            if has_managed_volumes or is_interactive:
+                err = (
+                    "required gVisor runtime is incompatible with this "
+                    "interactive/managed-volume workload"
+                )
+                report_job_status(job_id, "failed", error_message=err)
+                _release_execution_lease("failed")
+                return
+            if not is_gvisor_available():
+                err = "required gVisor runtime is unavailable"
+                report_job_status(job_id, "failed", error_message=err)
+                _release_execution_lease("failed")
+                return
+            runtime_name = "runsc"
+            log.info("Runtime: runsc (hard requirement)")
+        elif required_runtime and required_runtime != "runc":
+            err = f"unsupported required runtime: {required_runtime}"
+            report_job_status(job_id, "failed", error_message=err)
+            _release_execution_lease("failed")
+            return
+        elif has_managed_volumes:
             log.info("Runtime: runc (managed NFS volume bind-mount)")
         elif PREFER_GVISOR and not is_interactive:
             runtime_name, reason = recommend_runtime(gpu_info["gpu_model"])
@@ -3388,12 +3911,25 @@ def run_job(job):
         # attempt it holds authority for — same job, different fence,
         # different container.
         _v2_attempt = job.get("_v2_attempt_id")
+        container_labels = {
+            "xcelsior.managed": "true",
+            "xcelsior.job_id": job_id,
+            "xcelsior.container_name": container_name,
+        }
         if _v2_attempt:
-            extra_docker_args.extend([
-                "--label", f"ai.xcelsior.attempt_id={_v2_attempt}",
-                "--label", f"ai.xcelsior.fencing_token={job.get('_v2_fencing_token', '')}",
-                "--label", f"ai.xcelsior.job_id={job_id}",
-            ])
+            v2_labels = {
+                "xcelsior.attempt_id": str(_v2_attempt),
+                "xcelsior.fencing_token": str(job.get("_v2_fencing_token") or ""),
+                "xcelsior.spec_hash": str(job.get("_v2_spec_hash") or ""),
+                # Transitional aliases consumed by the Phase 6 observation
+                # parser on already-enrolled workers.
+                "ai.xcelsior.managed": "true",
+                "ai.xcelsior.job_id": job_id,
+                "ai.xcelsior.attempt_id": str(_v2_attempt),
+                "ai.xcelsior.fencing_token": str(job.get("_v2_fencing_token") or ""),
+                "ai.xcelsior.spec_hash": str(job.get("_v2_spec_hash") or ""),
+            }
+            container_labels.update(v2_labels)
         port_map: dict[str, int] = {}
         effective_command = command
         if is_serverless:
@@ -3515,11 +4051,7 @@ def run_job(job):
             runtime=runtime_name,
             environment=env_vars,
             volumes=volumes,
-            labels={
-                "xcelsior.managed": "true",
-                "xcelsior.job_id": job_id,
-                "xcelsior.container_name": container_name,
-            },
+            labels=container_labels,
             command=effective_command,
             extra_args=extra_docker_args if extra_docker_args else None,
             interactive=is_interactive,
@@ -3611,7 +4143,7 @@ def run_job(job):
                     {"exit_code": 1, "error_message": err},
                 )
                 report_job_status(job_id, "failed", error_message=err)
-                release_lease(job_id, "failed")
+                _release_execution_lease("failed")
                 _kill_container(container_name)
                 return
             _serverless_callback(worker_id, "ready", {"host_id": str(HOST_ID or "")})
@@ -3711,11 +4243,22 @@ def run_job(job):
                 container_name,
                 str(job.get("serverless_worker_id") or ""),
                 log_forwarder=log_fwd,
+                is_v2_attempt=is_v2_attempt,
             )
         elif is_interactive:
-            _monitor_interactive(job_id, container_name, log_forwarder=log_fwd)
+            _monitor_interactive(
+                job_id,
+                container_name,
+                log_forwarder=log_fwd,
+                is_v2_attempt=is_v2_attempt,
+            )
         else:
-            _monitor_container(job_id, container_name, log_forwarder=log_fwd)
+            _monitor_container(
+                job_id,
+                container_name,
+                log_forwarder=log_fwd,
+                is_v2_attempt=is_v2_attempt,
+            )
 
     except subprocess.TimeoutExpired:
         log.error("Job %s timed out while %s", job_id, current_stage)
@@ -3732,7 +4275,7 @@ def run_job(job):
         )
         _kill_container(container_name)
         report_job_status(job_id, "failed", error_message=timeout_msg)
-        release_lease(job_id, "failed")
+        _release_execution_lease("failed")
     except Exception as e:
         stage_msg = f"{current_stage}: {e}"
         log.error("Job %s failed during %s: %s", job_id, current_stage, e, exc_info=True)
@@ -3748,7 +4291,7 @@ def run_job(job):
         )
         _kill_container(container_name)
         report_job_status(job_id, "failed", error_message=stage_msg)
-        release_lease(job_id, "failed")
+        _release_execution_lease("failed")
     finally:
         # Stop log forwarding (final flush)
         if log_fwd:
@@ -3975,7 +4518,9 @@ class LogForwarder:
             pass
 
 
-def _monitor_container(job_id, container_name, log_forwarder=None):
+def _monitor_container(
+    job_id, container_name, log_forwarder=None, is_v2_attempt=False
+):
     """Monitor a running container until it exits or is preempted."""
     check_interval = 5  # seconds
 
@@ -4002,7 +4547,8 @@ def _monitor_container(job_id, container_name, log_forwarder=None):
                 if exit_code == 0:
                     log.info("Job %s completed successfully", job_id)
                     report_job_status(job_id, "completed")
-                    release_lease(job_id, "completed")
+                    if not is_v2_attempt:
+                        release_lease(job_id, "completed")
                 else:
                     log.warning("Job %s exited with code %d", job_id, exit_code)
                     # Collect logs for debugging
@@ -4018,7 +4564,8 @@ def _monitor_container(job_id, container_name, log_forwarder=None):
                     except Exception as e:
                         log.debug("docker logs retrieval failed: %s", e)
                     report_job_status(job_id, "failed")
-                    release_lease(job_id, "failed")
+                    if not is_v2_attempt:
+                        release_lease(job_id, "failed")
 
                 # Cleanup container
                 _remove_container(container_name)
@@ -4027,7 +4574,8 @@ def _monitor_container(job_id, container_name, log_forwarder=None):
             elif status not in ("running", "created"):
                 log.warning("Container %s in unexpected state: %s", container_name, status)
                 report_job_status(job_id, "failed")
-                release_lease(job_id, "failed")
+                if not is_v2_attempt:
+                    release_lease(job_id, "failed")
                 _remove_container(container_name)
                 return
 
@@ -4046,7 +4594,9 @@ def _monitor_container(job_id, container_name, log_forwarder=None):
             time.sleep(1)
 
 
-def _monitor_interactive(job_id, container_name, log_forwarder=None):
+def _monitor_interactive(
+    job_id, container_name, log_forwarder=None, is_v2_attempt=False
+):
     """Monitor an interactive container — stays running until cancelled or shutdown.
 
     Unlike batch containers, interactive containers run indefinitely.
@@ -4121,7 +4671,8 @@ def _monitor_interactive(job_id, container_name, log_forwarder=None):
                     reported_status,
                 )
                 report_job_status(job_id, reported_status)
-                release_lease(job_id, reported_status)
+                if not is_v2_attempt:
+                    release_lease(job_id, reported_status)
                 _remove_container(container_name)
                 return
 
@@ -4137,7 +4688,8 @@ def _monitor_interactive(job_id, container_name, log_forwarder=None):
                     "Interactive container %s in unexpected state: %s", container_name, status
                 )
                 report_job_status(job_id, "failed")
-                release_lease(job_id, "failed")
+                if not is_v2_attempt:
+                    release_lease(job_id, "failed")
                 _remove_container(container_name)
                 return
 
