@@ -63,6 +63,12 @@ def fleet():
             conn.execute(
                 "DELETE FROM reconciliation_queue WHERE resource_id=%s", (hid,)
             )
+            # Reconciler-enqueued stop commands are host-scoped (no job_id).
+            conn.execute(
+                "DELETE FROM agent_commands WHERE host_id=%s "
+                "AND created_by='reconciler'",
+                (hid,),
+            )
             conn.execute("DELETE FROM hosts WHERE host_id=%s", (hid,))
         conn.commit()
 
@@ -272,6 +278,114 @@ class TestReconcileFindings:
             what="t",
         )
         assert report.findings_opened == []  # inside the grace window
+
+
+def _stop_commands(host_id):
+    with _pool.connection() as conn:
+        rows = conn.execute(
+            "SELECT args, status FROM agent_commands "
+            "WHERE host_id=%s AND command='stop_container' "
+            "AND created_by='reconciler'",
+            (host_id,),
+        ).fetchall()
+    return [
+        (r[0], r[1]) if not isinstance(r, dict) else (r["args"], r["status"])
+        for r in rows
+    ]
+
+
+class TestReconcileActions:
+    def _stale_fence_obs(self, host_id, job_id, resv, session):
+        _ingest(host_id, session, 1, [{
+            "job_id": job_id, "attempt_id": str(uuid.uuid4()),
+            "fencing_token": resv.fencing_token + 999,
+            "container_name": f"xcl-{job_id}", "state": "running",
+        }])
+
+    def test_policy_resolution(self, monkeypatch):
+        from control_plane.reconcile import ActionPolicy, action_policy_for
+
+        # Non-enforceable types are always report-only, even if env says otherwise.
+        monkeypatch.setenv("XCELSIOR_RECONCILE_ACTION_UNMANAGED_WORKLOAD", "enforce")
+        assert action_policy_for("unmanaged_workload") is ActionPolicy.REPORT_ONLY
+        # Enforceable type defaults to report-only.
+        monkeypatch.delenv("XCELSIOR_RECONCILE_ACTION_STALE_FENCE_CONTAINER",
+                           raising=False)
+        assert action_policy_for("stale_fence_container") is ActionPolicy.REPORT_ONLY
+        # Opt-in.
+        monkeypatch.setenv("XCELSIOR_RECONCILE_ACTION_STALE_FENCE_CONTAINER", "enforce")
+        assert action_policy_for("stale_fence_container") is ActionPolicy.ENFORCE
+        # Malformed fails safe.
+        monkeypatch.setenv("XCELSIOR_RECONCILE_ACTION_STALE_FENCE_CONTAINER", "yes-please")
+        assert action_policy_for("stale_fence_container") is ActionPolicy.REPORT_ONLY
+
+    def test_report_only_default_takes_no_action(self, fleet, monkeypatch):
+        monkeypatch.delenv("XCELSIOR_RECONCILE_ACTION_STALE_FENCE_CONTAINER",
+                           raising=False)
+        marker = uuid.uuid4().hex[:8]
+        job_id, host_id, resv = _place(fleet, marker)
+        self._stale_fence_obs(host_id, job_id, resv, "sess-ro")
+        report = run_transaction(
+            lambda c: reconcile_host(c, host_id, missing_grace_sec=3600), what="t"
+        )
+        assert "stale_fence_container" in report.findings_opened
+        assert report.actions_taken == []
+        assert _stop_commands(host_id) == []
+
+    def test_enforce_enqueues_stop_command_once(self, fleet, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_RECONCILE_ACTION_STALE_FENCE_CONTAINER", "enforce")
+        marker = uuid.uuid4().hex[:8]
+        job_id, host_id, resv = _place(fleet, marker)
+        self._stale_fence_obs(host_id, job_id, resv, "sess-en")
+
+        report = run_transaction(
+            lambda c: reconcile_host(c, host_id, missing_grace_sec=3600), what="t"
+        )
+        assert report.actions_taken == ["stale_fence_container"]
+        cmds = _stop_commands(host_id)
+        assert len(cmds) == 1
+        args, status = cmds[0]
+        assert args["container_name"] == f"xcl-{job_id}"
+        assert status == "pending"
+
+        # Finding records the action.
+        with _pool.connection() as conn:
+            row = conn.execute(
+                "SELECT action_taken, action_result FROM reconciliation_findings "
+                "WHERE resource_id=%s AND finding_type='stale_fence_container' "
+                "AND resolved_at IS NULL",
+                (host_id,),
+            ).fetchone()
+        action_taken = row[0] if not isinstance(row, dict) else row["action_taken"]
+        result = row[1] if not isinstance(row, dict) else row["action_result"]
+        assert action_taken == "stop_container"
+        assert result["enqueued"] is True
+
+        # Re-running the same still-open finding does NOT re-enqueue.
+        run_transaction(
+            lambda c: reconcile_host(c, host_id, missing_grace_sec=3600), what="t"
+        )
+        assert len(_stop_commands(host_id)) == 1
+
+    def test_stop_command_visible_to_v1_drain(self, fleet, monkeypatch):
+        """The reconciler stop is attempt_id NULL, so the v1 drain (not the
+        v2 fenced path) delivers it — a stale fence has no valid authority."""
+        monkeypatch.setenv("XCELSIOR_RECONCILE_ACTION_STALE_FENCE_CONTAINER", "enforce")
+        marker = uuid.uuid4().hex[:8]
+        job_id, host_id, resv = _place(fleet, marker)
+        self._stale_fence_obs(host_id, job_id, resv, "sess-drain")
+        run_transaction(
+            lambda c: reconcile_host(c, host_id, missing_grace_sec=3600), what="t"
+        )
+        with _pool.connection() as conn:
+            row = conn.execute(
+                "SELECT attempt_id FROM agent_commands "
+                "WHERE host_id=%s AND command='stop_container' "
+                "AND created_by='reconciler'",
+                (host_id,),
+            ).fetchone()
+        attempt_id = row[0] if not isinstance(row, dict) else row["attempt_id"]
+        assert attempt_id is None  # v1-drain visible, not v2-claimable
 
 
 class TestQueueProcessing:

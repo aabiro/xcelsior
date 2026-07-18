@@ -27,7 +27,9 @@ the condition, the open finding is marked resolved.
 
 from __future__ import annotations
 
+import enum
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import Any, cast
 
@@ -44,6 +46,42 @@ DEFAULT_MISSING_GRACE_SEC = 180.0
 _ACTIVE_RUNTIME_ATTEMPT_STATUSES = ("lease_claimed", "starting", "running")
 _OBSERVED_LIVE_STATES = ("preparing", "running", "paused")
 
+# Stale-fence stop command lives long enough to survive a worker restart
+# cycle; the worker GCs expired admin commands on drain.
+_STOP_COMMAND_EXPIRY_SEC = 3600
+
+
+class ActionPolicy(str, enum.Enum):
+    """Per-finding-type remediation posture (blueprint Phase 6 rollout)."""
+
+    REPORT_ONLY = "report_only"
+    ENFORCE = "enforce"
+
+
+# Only these finding types have a defined, safe remediation. Everything
+# else is report-only regardless of env — an operator cannot enable an
+# action that does not exist. `stale_fence_container` is the first
+# enforced type: a container under a revoked fence should never be
+# running (§11.5), and the remediation (a durable stop_container command
+# by name) is idempotent and cannot harm the current authority holder.
+_ENFORCEABLE: frozenset[str] = frozenset({"stale_fence_container"})
+
+
+def action_policy_for(finding_type: str) -> ActionPolicy:
+    """Resolve the remediation policy for a finding type from the env.
+
+    ``XCELSIOR_RECONCILE_ACTION_<FINDING_TYPE>=enforce`` opts a single
+    enforceable finding type into action; the default (and the only
+    option for non-enforceable types) is report-only. A malformed value
+    fails safe to report-only.
+    """
+    if finding_type not in _ENFORCEABLE:
+        return ActionPolicy.REPORT_ONLY
+    raw = os.environ.get(
+        f"XCELSIOR_RECONCILE_ACTION_{finding_type.upper()}", ""
+    ).strip().lower()
+    return ActionPolicy.ENFORCE if raw == "enforce" else ActionPolicy.REPORT_ONLY
+
 
 def _get(row: Any, key: str, index: int) -> Any:
     if isinstance(row, dict):
@@ -56,6 +94,7 @@ class ReconcileReport:
     host_id: str
     findings_opened: list[str] = field(default_factory=list)
     findings_resolved: int = 0
+    actions_taken: list[str] = field(default_factory=list)
     observation_id: str | None = None
 
 
@@ -69,8 +108,14 @@ def _open_finding(
     summary: str,
     desired: dict[str, Any] | None,
     observed: dict[str, Any] | None,
-) -> bool:
-    """Record a finding unless an identical one is already open."""
+) -> str | None:
+    """Record a finding unless an identical one is already open.
+
+    Returns the new finding_id when a row was created, else None (an
+    identical finding is already open — dedupe, and the newly-created
+    return signals the caller to run any enforced remediation exactly
+    once per occurrence).
+    """
     existing = conn.execute(
         """
         SELECT 1 FROM reconciliation_findings
@@ -81,23 +126,76 @@ def _open_finding(
         (resource_type, resource_id, finding_type),
     ).fetchone()
     if existing is not None:
-        return False
-    conn.execute(
+        return None
+    row = conn.execute(
         """
         INSERT INTO reconciliation_findings
             (resource_type, resource_id, finding_type, severity, summary,
              desired, observed, action_taken)
         VALUES (%s, %s, %s, %s, %s, %s, %s, 'report_only')
+        RETURNING finding_id
         """,
         (
             resource_type, resource_id, finding_type, severity, summary,
             Jsonb(desired) if desired else None,
             Jsonb(observed) if observed else None,
         ),
-    )
+    ).fetchone()
     log.warning("reconcile finding [%s] %s %s: %s",
                 severity, finding_type, resource_id, summary)
-    return True
+    return str(_get(row, "finding_id", 0)) if row is not None else None
+
+
+def _enqueue_stop_container(
+    conn: Connection, *, host_id: str, container_name: str, reason: str
+) -> dict[str, Any]:
+    """Durable stop_container command by name (idempotent per container).
+
+    Enqueued inside the reconcile transaction, so the stop intent is
+    atomic with recording the action. A stale-fence container's fence is
+    not current, so the fenced /agent/v2 path would reject it — this
+    admin-level command (attempt_id NULL) is delivered by the worker's v1
+    drain, which already knows stop_container.
+    """
+    row = conn.execute(
+        """
+        INSERT INTO agent_commands
+            (host_id, command, args, status, created_by, expires_at,
+             idempotency_key)
+        VALUES (%s, 'stop_container', %s, 'pending', 'reconciler',
+                EXTRACT(EPOCH FROM NOW()) + %s, %s)
+        ON CONFLICT (host_id, idempotency_key)
+            WHERE idempotency_key IS NOT NULL
+            DO NOTHING
+        RETURNING id
+        """,
+        (
+            host_id,
+            Jsonb({"container_name": container_name, "reason": reason}),
+            _STOP_COMMAND_EXPIRY_SEC,
+            f"reconcile_stop:{host_id}:{container_name}",
+        ),
+    ).fetchone()
+    enqueued = row is not None
+    return {
+        "action": "stop_container",
+        "container_name": container_name,
+        "enqueued": enqueued,
+        "reason": reason,
+    }
+
+
+def _record_action(
+    conn: Connection, finding_id: str, action_taken: str, result: dict[str, Any]
+) -> None:
+    conn.execute(
+        """
+        UPDATE reconciliation_findings
+           SET action_taken = %s, action_result = %s
+         WHERE finding_id = %s
+        """,
+        (action_taken, Jsonb(result), finding_id),
+    )
 
 
 def _resolve_findings_not_in(
@@ -178,6 +276,7 @@ def reconcile_host(
 
     still_open: set[tuple[str, str, str]] = set()
     opened: list[str] = []
+    actions: list[str] = []
 
     for row in desired_rows:
         attempt_id = str(_get(row, "attempt_id", 0))
@@ -191,7 +290,7 @@ def reconcile_host(
                 continue  # young attempt: container may still be starting
             key = ("attempt", attempt_id, "attempt_container_missing")
             still_open.add(key)
-            if _open_finding(
+            finding_id = _open_finding(
                 conn,
                 resource_type="attempt", resource_id=attempt_id,
                 finding_type="attempt_container_missing", severity="warning",
@@ -203,7 +302,8 @@ def reconcile_host(
                 desired={"job_id": job_id, "status": status, "fence": fence},
                 observed={"observation_id": observation["observation_id"],
                           "workload": seen},
-            ):
+            )
+            if finding_id is not None:
                 opened.append("attempt_container_missing")
 
     # Observed → desired: stale fences and unknown workloads.
@@ -221,7 +321,7 @@ def reconcile_host(
             if current is not None and int(fence) != current:
                 key = ("host", host_id, "stale_fence_container")
                 still_open.add(key)
-                if _open_finding(
+                finding_id = _open_finding(
                     conn,
                     resource_type="host", resource_id=host_id,
                     finding_type="stale_fence_container", severity="error",
@@ -232,8 +332,30 @@ def reconcile_host(
                     ),
                     desired={"job_id": job_id, "fence": current},
                     observed=w,
-                ):
+                )
+                if finding_id is not None:
                     opened.append("stale_fence_container")
+                    # First enforced remediation (§11.5 backstop): stop the
+                    # stale container, once per occurrence, if enabled.
+                    container_name = w.get("container_name")
+                    if (
+                        container_name
+                        and action_policy_for("stale_fence_container")
+                        is ActionPolicy.ENFORCE
+                    ):
+                        result = _enqueue_stop_container(
+                            conn,
+                            host_id=host_id,
+                            container_name=str(container_name),
+                            reason=(
+                                f"stale fence {fence} (current authority "
+                                f"{current}) for job {job_id}"
+                            ),
+                        )
+                        _record_action(
+                            conn, finding_id, "stop_container", result
+                        )
+                        actions.append("stale_fence_container")
             continue
         if job_id is None:
             continue  # not attributable at all; ingest normalized elsewhere
@@ -243,7 +365,7 @@ def reconcile_host(
         if exists is None:
             key = ("host", host_id, "unmanaged_workload")
             still_open.add(key)
-            if _open_finding(
+            finding_id = _open_finding(
                 conn,
                 resource_type="host", resource_id=host_id,
                 finding_type="unmanaged_workload", severity="info",
@@ -252,7 +374,8 @@ def reconcile_host(
                     f"which the control plane does not know"
                 ),
                 desired=None, observed=w,
-            ):
+            )
+            if finding_id is not None:
                 opened.append("unmanaged_workload")
 
     resolved = _resolve_findings_not_in(conn, host_id=host_id, still_open=still_open)
@@ -260,6 +383,7 @@ def reconcile_host(
         host_id=host_id,
         findings_opened=opened,
         findings_resolved=resolved,
+        actions_taken=actions,
         observation_id=observation["observation_id"],
     )
 
@@ -309,7 +433,7 @@ def process_due(
     ).fetchall()
 
     stats = {"claimed": len(rows), "reconciled": 0, "failed": 0,
-             "findings_opened": 0, "findings_resolved": 0}
+             "findings_opened": 0, "findings_resolved": 0, "actions_taken": 0}
     for row in rows:
         rtype = str(_get(row, "resource_type", 0))
         rid = str(_get(row, "resource_id", 1))
@@ -320,6 +444,7 @@ def process_due(
                 )
                 stats["findings_opened"] += len(report.findings_opened)
                 stats["findings_resolved"] += report.findings_resolved
+                stats["actions_taken"] += len(report.actions_taken)
             else:
                 log.info("reconcile: no controller for %s/%s yet", rtype, rid)
             conn.execute(
