@@ -349,6 +349,8 @@ def request_fresh_attempt_resume(
                 intent=intent,
             )
 
+        # Re-admit without sticky lifecycle_intent — a residual
+        # resume/restart key would poison the next fenced stop ACK.
         conn.execute(
             """
             UPDATE jobs
@@ -360,32 +362,24 @@ def request_fresh_attempt_resume(
                    schedule_claim_expires_at = NULL,
                    generation = generation + 1,
                    submitted_at = %s,
-                   payload = (
-                       jsonb_set(
-                           jsonb_set(
-                               jsonb_set(
-                                   COALESCE(payload, '{}'::jsonb)
-                                       - 'stopped_at'
-                                       - 'stop_reason'
-                                       - 'stopping_at',
-                                   '{status}',
-                                   '"queued"'::jsonb,
-                                   true
-                               ),
-                               '{lifecycle_intent}',
-                               %s::jsonb,
-                               true
-                           ),
-                           '{resumed_at}',
-                           to_jsonb(%s::float),
-                           true
-                       )
+                   payload = jsonb_set(
+                       (COALESCE(payload, '{}'::jsonb)
+                            - 'stopped_at'
+                            - 'stop_reason'
+                            - 'stopping_at'
+                            - 'lifecycle_intent'),
+                       '{status}',
+                       '"queued"'::jsonb,
+                       true
+                   ) || jsonb_build_object(
+                       'resumed_at', %s::float,
+                       'resume_kind', %s::text
                    ),
                    version = version + 1,
                    updated_at = clock_timestamp()
              WHERE job_id = %s
             """,
-            (now, json.dumps(intent), now, job_id),
+            (now, now, intent, job_id),
         )
         log.info(
             "fresh-attempt resume job=%s intent=%s by=%s",

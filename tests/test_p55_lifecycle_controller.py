@@ -233,7 +233,7 @@ def test_stopped_report_projects_terminated_from_intent(cleanup_ids):
 
     assert row[0] == "terminated"
     assert row[1] is None
-    assert row[2] == "terminate"
+    assert row[2] is None  # intent consumed on terminal settle
     assert lease == "released"
 
 
