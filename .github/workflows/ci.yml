@@ -61,6 +61,52 @@ jobs:
       - name: Wrong-call / wrong-arg gate (pyright)
         run: uv run python scripts/pyright_gate.py
 
+  # Track A cross-cutting gate: the migration chain must cycle cleanly
+  # (deploy runs `alembic upgrade head`; a broken downgrade would strand
+  # a rollback), and the multi-process scheduler concurrency invariants
+  # must hold on every change to the control plane.
+  control-plane:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: lint
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: xcelsior_test
+          POSTGRES_USER: xcelsior
+          POSTGRES_PASSWORD: test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U xcelsior"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      XCELSIOR_ENV: test
+      XCELSIOR_API_TOKEN: test-token-not-for-production
+      XCELSIOR_DB_BACKEND: postgres
+      XCELSIOR_POSTGRES_DSN: "postgresql://xcelsior:test@localhost:5432/xcelsior_test"
+      XCELSIOR_PG_DSN: "postgresql://xcelsior:test@localhost:5432/xcelsior_test"
+      XCELSIOR_BG_TASKS: "false"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies (uv lockfile)
+        run: uv sync --frozen
+      - name: Migration gate — fresh → head → pre-Track-A → head
+        run: |
+          uv run alembic upgrade head
+          uv run alembic downgrade 053
+          uv run alembic upgrade head
+      - name: Concurrency gate — 8-replica placement stress
+        run: uv run pytest tests/test_control_plane_concurrency.py -q
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 90
