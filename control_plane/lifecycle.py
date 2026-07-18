@@ -27,7 +27,7 @@ from control_plane.db import run_transaction
 
 log = logging.getLogger("xcelsior.control_plane.lifecycle")
 
-LifecycleIntent = Literal["stop", "cancel", "terminate"]
+LifecycleIntent = Literal["stop", "cancel", "terminate", "restart", "resume"]
 
 
 @dataclass(frozen=True)
@@ -45,6 +45,17 @@ class FencedLifecycleResult:
     # idempotent collision on the same intent:attempt key). Billing anchors
     # and similar side effects must gate on this.
     command_created: bool = False
+
+
+@dataclass(frozen=True)
+class FreshAttemptResult:
+    """Outcome of re-admitting a stopped fenced job for a new placement."""
+
+    ok: bool
+    job_id: str
+    status: str
+    reason: str | None = None
+    intent: str = "resume"
 
 
 def _mark_stopping_with_intent(
@@ -108,7 +119,8 @@ def request_fenced_stop_remove(
     ``{intent}:{attempt_id}``.
     """
     # User stop (preserve=True) stays on BillingEngine.stop_instance.
-    if intent not in ("cancel", "terminate"):
+    # resume is requeue-only (see request_fresh_attempt_resume).
+    if intent not in ("cancel", "terminate", "restart"):
         return FencedLifecycleResult(
             ok=False,
             job_id=job_id,
@@ -118,9 +130,11 @@ def request_fenced_stop_remove(
         )
 
     now = time.time()
-    tag = reason_tag or (
-        "user_terminated" if intent == "terminate" else "user_cancelled"
-    )
+    tag = reason_tag or {
+        "terminate": "user_terminated",
+        "cancel": "user_cancelled",
+        "restart": "user_restart",
+    }.get(intent, intent)
 
     def _txn(conn: Any) -> FencedLifecycleResult:
         job = conn.execute(
@@ -253,6 +267,145 @@ def request_fenced_stop_remove(
     return result
 
 
+def request_fresh_attempt_resume(
+    *,
+    job_id: str,
+    created_by: str,
+    intent: LifecycleIntent = "resume",
+) -> FreshAttemptResult:
+    """Re-admit a stopped fenced-history job for a **new** placement attempt.
+
+    Does not enqueue ``start_container`` / revive the old fence labels.
+    Sets ``status=queued`` (trigger → phase=pending, desired_state=running),
+    clears host assignment and schedule-claim residue, records
+    ``lifecycle_intent``. Scheduler claim/reserve creates the next attempt.
+    """
+    if intent not in ("resume", "restart"):
+        return FreshAttemptResult(
+            ok=False, job_id=job_id, status="", reason="invalid_intent", intent=str(intent)
+        )
+
+    now = time.time()
+
+    def _txn(conn: Any) -> FreshAttemptResult:
+        job = conn.execute(
+            """
+            SELECT job_id, status, host_id, active_attempt_id,
+                   payload->>'lifecycle_intent' AS lifecycle_intent,
+                   EXISTS (
+                       SELECT 1 FROM job_attempts a WHERE a.job_id = jobs.job_id
+                   ) AS has_fenced_history
+              FROM jobs
+             WHERE job_id = %s
+             FOR UPDATE
+            """,
+            (job_id,),
+        ).fetchone()
+        if job is None:
+            return FreshAttemptResult(
+                ok=False, job_id=job_id, status="", reason="not_found", intent=intent
+            )
+        if isinstance(job, dict):
+            status = str(job.get("status") or "")
+            active_attempt_id = job.get("active_attempt_id")
+            has_fenced = bool(job.get("has_fenced_history"))
+        else:
+            status = str(job[1] or "")
+            active_attempt_id = job[3]
+            has_fenced = bool(job[5])
+
+        # Idempotent: already waiting for placement.
+        if status == "queued" and not active_attempt_id:
+            return FreshAttemptResult(
+                ok=True, job_id=job_id, status="queued", intent=intent
+            )
+
+        if status == "stopping" and not active_attempt_id:
+            # Tear-down already in flight without authority — treat as resume.
+            pass
+        elif status not in ("stopped", "stopping"):
+            return FreshAttemptResult(
+                ok=False,
+                job_id=job_id,
+                status=status,
+                reason="not_stopped",
+                intent=intent,
+            )
+
+        if active_attempt_id:
+            return FreshAttemptResult(
+                ok=False,
+                job_id=job_id,
+                status=status,
+                reason="still_attempt_owned",
+                intent=intent,
+            )
+        if not has_fenced:
+            return FreshAttemptResult(
+                ok=False,
+                job_id=job_id,
+                status=status,
+                reason="not_fenced_history",
+                intent=intent,
+            )
+
+        conn.execute(
+            """
+            UPDATE jobs
+               SET status = 'queued',
+                   host_id = NULL,
+                   active_attempt_id = NULL,
+                   schedule_claim_owner = NULL,
+                   schedule_claim_token = NULL,
+                   schedule_claim_expires_at = NULL,
+                   generation = generation + 1,
+                   submitted_at = %s,
+                   payload = (
+                       jsonb_set(
+                           jsonb_set(
+                               jsonb_set(
+                                   COALESCE(payload, '{}'::jsonb)
+                                       - 'stopped_at'
+                                       - 'stop_reason'
+                                       - 'stopping_at',
+                                   '{status}',
+                                   '"queued"'::jsonb,
+                                   true
+                               ),
+                               '{lifecycle_intent}',
+                               %s::jsonb,
+                               true
+                           ),
+                           '{resumed_at}',
+                           to_jsonb(%s::float),
+                           true
+                       )
+                   ),
+                   version = version + 1,
+                   updated_at = clock_timestamp()
+             WHERE job_id = %s
+            """,
+            (now, json.dumps(intent), now, job_id),
+        )
+        log.info(
+            "fresh-attempt resume job=%s intent=%s by=%s",
+            job_id,
+            intent,
+            created_by,
+        )
+        return FreshAttemptResult(
+            ok=True, job_id=job_id, status="queued", intent=intent
+        )
+
+    try:
+        return run_transaction(_txn, what=f"fresh_attempt_{intent}")
+    except Exception as exc:
+        log.warning("fresh-attempt %s failed for %s: %s", intent, job_id, exc)
+        return FreshAttemptResult(
+            ok=False, job_id=job_id, status="", reason="resume_failed", intent=intent
+        )
+
+
 def settle_queued_cancel_without_attempt(
     *,
     job_id: str,
@@ -347,4 +500,6 @@ def terminal_job_status_for_stopped_report(
         return "terminated"
     if lifecycle_intent == "cancel":
         return "cancelled"
+    if lifecycle_intent == "restart":
+        return "queued"
     return "stopped"

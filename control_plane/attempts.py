@@ -186,12 +186,34 @@ def report_attempt_status(
             job_status = "terminated"
         elif intent == "cancel":
             job_status = "cancelled"
+        elif intent == "restart":
+            # Tear-down complete → re-admit for a new placement attempt.
+            job_status = "queued"
     if terminal:
         conn.execute(
             """
             UPDATE jobs
                SET status = %(job_status)s,
                    active_attempt_id = NULL,
+                   host_id = CASE
+                       WHEN %(job_status)s = 'queued' THEN NULL
+                       ELSE host_id END,
+                   schedule_claim_owner = CASE
+                       WHEN %(job_status)s = 'queued' THEN NULL
+                       ELSE schedule_claim_owner END,
+                   schedule_claim_token = CASE
+                       WHEN %(job_status)s = 'queued' THEN NULL
+                       ELSE schedule_claim_token END,
+                   schedule_claim_expires_at = CASE
+                       WHEN %(job_status)s = 'queued' THEN NULL
+                       ELSE schedule_claim_expires_at END,
+                   generation = CASE
+                       WHEN %(job_status)s = 'queued' THEN generation + 1
+                       ELSE generation END,
+                   submitted_at = CASE
+                       WHEN %(job_status)s = 'queued'
+                           THEN EXTRACT(EPOCH FROM clock_timestamp())
+                       ELSE submitted_at END,
                    payload = CASE
                        WHEN %(job_status)s = 'stopped' THEN
                            jsonb_set(
@@ -226,6 +248,21 @@ def report_attempt_status(
                                    true
                                ),
                                '{cancelled_at}',
+                               to_jsonb(EXTRACT(EPOCH FROM clock_timestamp())),
+                               true
+                           )
+                       WHEN %(job_status)s = 'queued' THEN
+                           jsonb_set(
+                               jsonb_set(
+                                   (COALESCE(payload, '{}'::jsonb)
+                                        - 'stopped_at'
+                                        - 'stop_reason'
+                                        - 'stopping_at'),
+                                   '{status}',
+                                   '"queued"'::jsonb,
+                                   true
+                               ),
+                               '{resumed_at}',
                                to_jsonb(EXTRACT(EPOCH FROM clock_timestamp())),
                                true
                            )
