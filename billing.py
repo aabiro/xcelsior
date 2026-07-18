@@ -1251,11 +1251,17 @@ class BillingEngine:
         from psycopg.rows import dict_row
 
         now = time.time()
+        if reason in ("paused_low_balance", "low_balance"):
+            stop_reason_tag = "low_balance"
+        elif reason == "billing_suspended":
+            stop_reason_tag = "billing_suspended"
+        else:
+            stop_reason_tag = "user"
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
             job = conn.execute(
-                """SELECT job_id, status, host_id,
+                """SELECT job_id, status, host_id, active_attempt_id,
                           payload->>'owner' AS owner,
                           payload->>'name' AS name,
                           payload->>'container_name' AS container_name
@@ -1269,16 +1275,20 @@ class BillingEngine:
             conn.execute(
                 """UPDATE jobs SET status = 'stopping',
                    payload = jsonb_set(
-                       jsonb_set(payload, '{stopping_at}', to_jsonb(%s::float)),
-                       '{status}', '"stopping"'::jsonb
+                       jsonb_set(
+                           jsonb_set(payload, '{stopping_at}', to_jsonb(%s::float)),
+                           '{status}', '"stopping"'::jsonb
+                       ),
+                       '{stop_reason}', %s::jsonb
                    )
                    WHERE job_id = %s""",
-                (now, job_id),
+                (now, json.dumps(stop_reason_tag), job_id),
             )
             conn.commit()
 
         owner = job.get("owner") or ""
         host_id = job.get("host_id") or ""
+        active_attempt_id = job.get("active_attempt_id")
         container_name = job.get("container_name") or f"xcl-{job_id}"
 
         # P3 post-C — enqueue pause_container via agent queue (CGNAT-safe).
@@ -1288,57 +1298,87 @@ class BillingEngine:
         # still exist so `docker start` can resume it. The previous use of
         # stop_container destroyed the container and left restart broken
         # ("enqueue_failed" on the user side, but really: nothing to start).
-        # Wallet-suspension and grace-expired sweepers keep stop_container
-        # because those paths truly terminate the instance.
+        # Wallet-suspension and grace-expired sweepers call this same lifecycle
+        # service. They stop compute and billing but preserve the instance so a
+        # later top-up can resume it through the normal start controller.
         stop_queued = False
+        fenced_stop_queued = False
         if host_id:
             try:
-                from routes.agent import enqueue_agent_command
                 from scheduler import _validate_name
 
                 _validate_name(container_name, "container name")
-                enqueue_agent_command(
-                    host_id,
-                    "pause_container",
-                    {"container_name": container_name, "job_id": job_id},
-                    created_by="billing_stop",
-                )
+                if active_attempt_id:
+                    # Attempt-owned workloads must never fall back to the v1
+                    # destructive drain. Bind the stop to the current
+                    # host/attempt/fence and let /agent/v2 claim + ACK it.
+                    from control_plane.commands import enqueue_current_attempt_command
+                    from control_plane.db import run_transaction
+
+                    enqueued = run_transaction(
+                        lambda conn: enqueue_current_attempt_command(
+                            conn,
+                            job_id=job_id,
+                            command="stop_attempt",
+                            args={"container_name": container_name, "preserve": True},
+                            created_by="billing_stop",
+                        ),
+                        what="enqueue_stop_attempt",
+                    )
+                    log.info(
+                        "STOP fenced stop_attempt queued: %s attempt=%s fence=%s",
+                        container_name,
+                        enqueued.attempt_id[:8],
+                        enqueued.fencing_token,
+                    )
+                    fenced_stop_queued = True
+                else:
+                    from routes.agent import enqueue_agent_command
+
+                    enqueue_agent_command(
+                        host_id,
+                        "pause_container",
+                        {"container_name": container_name, "job_id": job_id},
+                        created_by="billing_stop",
+                    )
+                    log.info("STOP pause_container queued: %s on %s", container_name, host_id)
                 stop_queued = True
-                log.info("STOP pause_container queued: %s on %s", container_name, host_id)
             except Exception as e:
                 log.warning("STOP container stop enqueue failed for %s: %s", job_id, e)
 
-        # Update final status (optimistic; reconciler catches drift).
-        final_status = "stopped" if stop_queued else "running"
-        # Normalize caller reason into the user-facing stop_reason tag
-        # persisted on payload.stop_reason (stays consistent with the
-        # alembic 031 migration values: "user" or "low_balance").
-        if reason in ("paused_low_balance", "low_balance"):
-            stop_reason_tag = "low_balance"
-        elif reason == "billing_suspended":
-            stop_reason_tag = "billing_suspended"
-        else:
-            stop_reason_tag = "user"
+        # Legacy commands have no ACK path, so retain their existing
+        # optimistic projection. Attempt-owned jobs stay ``stopping`` until
+        # the worker's fenced terminal report atomically releases the lease
+        # and allocation and projects the job to ``stopped``. Reporting the
+        # stop before that proof would make control-plane truth outrun Docker.
+        final_status = (
+            "stopping" if fenced_stop_queued else "stopped" if stop_queued else "running"
+        )
         with pool.connection() as conn:
             conn.row_factory = dict_row
-            conn.execute(
-                """UPDATE jobs SET status = %s,
-                   payload = jsonb_set(
-                       jsonb_set(
-                           jsonb_set(payload, '{stopped_at}', to_jsonb(%s::float)),
-                           '{status}', %s::jsonb
-                       ),
-                       '{stop_reason}', %s::jsonb
-                   )
-                   WHERE job_id = %s""",
-                (
-                    final_status,
-                    now,
-                    json.dumps(final_status),
-                    json.dumps(stop_reason_tag),
-                    job_id,
-                ),
-            )
+            if not fenced_stop_queued:
+                conn.execute(
+                    """UPDATE jobs SET status = %s,
+                       payload = jsonb_set(
+                           jsonb_set(
+                               jsonb_set(payload, '{stopped_at}', to_jsonb(%s::float)),
+                               '{status}', %s::jsonb
+                           ),
+                           '{stop_reason}', %s::jsonb
+                       )
+                       WHERE job_id = %s
+                         AND status = 'stopping'
+                         AND (%s::uuid IS NULL OR active_attempt_id = %s::uuid)""",
+                    (
+                        final_status,
+                        now,
+                        json.dumps(final_status),
+                        json.dumps(stop_reason_tag),
+                        job_id,
+                        active_attempt_id,
+                        active_attempt_id,
+                    ),
+                )
             # Billing anchor: closes the current compute billing period.
             if stop_queued:
                 owner_id = owner
@@ -1371,7 +1411,7 @@ class BillingEngine:
             pass
 
         log.info("STOP job=%s reason=%s owner=%s", job_id, reason, owner)
-        return {"stopped": True, "job_id": job_id, "status": "stopped"}
+        return {"stopped": True, "job_id": job_id, "status": final_status}
 
     def start_instance(self, job_id: str) -> dict:
         """Start a stopped instance. Restores the container from its exited state.
@@ -1390,13 +1430,29 @@ class BillingEngine:
                 """SELECT job_id, status, host_id,
                           payload->>'owner' AS owner,
                           payload->>'name' AS name,
-                          payload->>'container_name' AS container_name
+                          payload->>'container_name' AS container_name,
+                          EXISTS (
+                              SELECT 1 FROM job_attempts a
+                               WHERE a.job_id = jobs.job_id
+                          ) AS has_fenced_history
                    FROM jobs
                    WHERE job_id = %s AND status = 'stopped' FOR UPDATE""",
                 (job_id,),
             ).fetchone()
             if not job:
                 return {"started": False, "reason": "not_stopped"}
+
+            # A stopped v2 attempt has relinquished its lease, allocation,
+            # and fencing authority. ``docker start`` would revive a
+            # container carrying the old immutable attempt/fence labels with
+            # no valid lease. Resume must therefore go through the job
+            # controller and a newly reserved attempt; until that controller
+            # lands, fail closed instead of creating unowned GPU execution.
+            if job.get("has_fenced_history"):
+                return {
+                    "started": False,
+                    "reason": "fenced_resume_requires_new_attempt",
+                }
 
             owner = job.get("owner") or ""
             wallet = self.get_wallet(owner)
@@ -1502,16 +1558,31 @@ class BillingEngine:
         with pool.connection() as conn:
             conn.row_factory = dict_row
             job = conn.execute(
-                """SELECT job_id, status, host_id,
+                """SELECT job_id, status, host_id, active_attempt_id,
                           payload->>'owner' AS owner,
                           payload->>'name' AS name,
-                          payload->>'container_name' AS container_name
+                          payload->>'container_name' AS container_name,
+                          EXISTS (
+                              SELECT 1 FROM job_attempts a
+                               WHERE a.job_id = jobs.job_id
+                          ) AS has_fenced_history
                    FROM jobs
                    WHERE job_id = %s AND status IN ('running', 'stopped') FOR UPDATE""",
                 (job_id,),
             ).fetchone()
             if not job:
                 return {"restarted": False, "reason": "not_restartable"}
+
+            # A restart is stop + start. Either half is unsafe through the
+            # legacy unfenced command queue once a job has v2 authority.
+            # The lifecycle controller will implement this as terminal stop
+            # followed by a fresh reservation/fence; block the compatibility
+            # shortcut until then.
+            if job.get("active_attempt_id") or job.get("has_fenced_history"):
+                return {
+                    "restarted": False,
+                    "reason": "fenced_restart_requires_controller",
+                }
 
             owner = job.get("owner") or ""
             wallet = self.get_wallet(owner)
@@ -1635,7 +1706,7 @@ class BillingEngine:
         with pool.connection() as conn:
             conn.row_factory = dict_row
             job = conn.execute(
-                """SELECT job_id, status, host_id,
+                """SELECT job_id, status, host_id, active_attempt_id,
                           payload->>'owner' AS owner,
                           payload->>'name' AS name,
                           payload->>'container_name' AS container_name
@@ -1647,6 +1718,16 @@ class BillingEngine:
             ).fetchone()
             if not job:
                 return {"terminated": False, "reason": "already_terminal_or_not_found"}
+
+            # Permanent termination needs a fenced stop/remove command and a
+            # post-observation volume-detach controller. The compatibility
+            # path below marks the job terminal and detaches storage before a
+            # worker ACK exists, so it must never operate on v2 authority.
+            if job.get("active_attempt_id"):
+                return {
+                    "terminated": False,
+                    "reason": "fenced_terminate_requires_controller",
+                }
 
             conn.execute(
                 """UPDATE jobs SET status = 'terminated',
@@ -2224,38 +2305,16 @@ class BillingEngine:
                     and charge_result.get("action") == "account_suspended"
                 ):
                     suspended += 1
-                    # Actually terminate the running container (via agent queue)
                     try:
-                        from scheduler import get_job, _validate_name
-                        from routes.agent import enqueue_agent_command
-
-                        full_job = get_job(job_id)
-                        if full_job:
-                            cname = full_job.get("container_name") or f"xcl-{job_id}"
-                            host_id = str(full_job.get("host_id") or "").strip()
-                            _validate_name(cname, "container name")
-                            if host_id:
-                                enqueue_agent_command(
-                                    host_id,
-                                    "stop_container",
-                                    {"container_name": cname, "job_id": job_id},
-                                    created_by="billing_grace_expired",
-                                )
-                                log.warning(
-                                    "BILLING: Queued stop_container for job %s (suspended account %s)",
-                                    job_id,
-                                    customer_id,
-                                )
-                            # Mark job stopped in DB
-                            with pool.connection() as kconn:
-                                kconn.row_factory = dict_row
-                                kconn.execute(
-                                    "UPDATE jobs SET status = 'stopped', payload = jsonb_set(payload, '{completed_at}', to_jsonb(%s::float)) WHERE job_id = %s",
-                                    (time.time(), job_id),
-                                )
-                                kconn.commit()
-                        else:
-                            log.warning("BILLING: Job %s not found for kill on suspension", job_id)
+                        stop_result = self.stop_instance(
+                            job_id, reason="billing_suspended"
+                        )
+                        if not stop_result.get("stopped"):
+                            log.error(
+                                "BILLING: Failed to stop job %s on suspension: %s",
+                                job_id,
+                                stop_result.get("reason"),
+                            )
                     except Exception as kill_err:
                         log.error(
                             "BILLING: Failed to kill job %s on suspension: %s", job_id, kill_err
@@ -2640,6 +2699,7 @@ class BillingEngine:
                     "Auto-topup failed for %s (attempt %d/3): %s", customer_id, new_failures, e
                 )
 
+                jobs_to_stop: list[str] = []
                 with pool.connection() as conn:
                     conn.row_factory = dict_row
                     if new_failures >= 3:
@@ -2656,49 +2716,14 @@ class BillingEngine:
                             "Auto-topup DISABLED for %s after 3 failures — stopping instances",
                             customer_id,
                         )
-                        # Stop all running instances for this customer with
-                        # stop_reason=low_balance. The container is preserved
-                        # (pause_container = docker stop only); the user can
-                        # start it again after topping up.
+                        # Snapshot targets while updating the wallet, then
+                        # invoke the shared lifecycle service after commit.
                         running = conn.execute(
-                            """SELECT job_id, host_id,
-                                      payload->>'container_name' AS container_name
+                            """SELECT job_id
                                FROM jobs WHERE payload->>'owner' = %s AND status = 'running'""",
                             (customer_id,),
                         ).fetchall()
-                        for job in running:
-                            conn.execute(
-                                """UPDATE jobs SET status = 'stopped',
-                                   payload = jsonb_set(
-                                       jsonb_set(payload, '{paused_at}', to_jsonb(%s::float)),
-                                       '{stop_reason}', '\"low_balance\"'::jsonb
-                                   )
-                                   WHERE job_id = %s""",
-                                (now, job["job_id"]),
-                            )
-                        conn.commit()
-                        # Enqueue stop_container for each job (after commit)
-                        try:
-                            from scheduler import _validate_name
-                            from routes.agent import enqueue_agent_command
-
-                            for job in running:
-                                hid = job.get("host_id")
-                                if not hid:
-                                    continue
-                                cname = job.get("container_name") or f"xcl-{job['job_id']}"
-                                try:
-                                    _validate_name(cname, "container name")
-                                    enqueue_agent_command(
-                                        hid,
-                                        "stop_container",
-                                        {"container_name": cname, "job_id": job["job_id"]},
-                                        created_by="billing_autotopup_failed",
-                                    )
-                                except Exception:
-                                    pass
-                        except Exception:
-                            pass
+                        jobs_to_stop = [str(job["job_id"]) for job in running]
                     else:
                         conn.execute(
                             """UPDATE wallets
@@ -2708,6 +2733,15 @@ class BillingEngine:
                             (new_failures, now, customer_id),
                         )
                     conn.commit()
+
+                for job_id in jobs_to_stop:
+                    stop_result = self.stop_instance(job_id, reason="low_balance")
+                    if not stop_result.get("stopped"):
+                        log.error(
+                            "Auto-topup exhaustion failed to stop job=%s reason=%s",
+                            job_id,
+                            stop_result.get("reason"),
+                        )
 
         if topped_up or errors:
             log.info("AUTO-TOPUP: %d topped up, %d errors", topped_up, errors)
@@ -2847,60 +2881,31 @@ class BillingEngine:
             suspended = conn.execute(
                 "SELECT customer_id FROM wallets WHERE status = 'suspended'",
             ).fetchall()
-
+            running_job_ids: list[tuple[str, str]] = []
             for w in suspended:
                 cid = w["customer_id"]
                 running = conn.execute(
-                    """SELECT job_id, host_id,
-                              payload->>'container_name' AS container_name
+                    """SELECT job_id
                        FROM jobs WHERE payload->>'owner' = %s AND status = 'running'""",
                     (cid,),
                 ).fetchall()
                 for job in running:
-                    conn.execute(
-                        "UPDATE jobs SET status = 'stopped', payload = jsonb_set(payload, '{completed_at}', to_jsonb(%s::float)) WHERE job_id = %s AND status = 'running'",
-                        (time.time(), job["job_id"]),
-                    )
-                    stopped += 1
-                    log.warning("Stopped job %s for suspended wallet %s", job["job_id"], cid)
-            conn.commit()
+                    running_job_ids.append((str(job["job_id"]), str(cid)))
 
-        # Enqueue stop_container for each stopped job (after releasing the connection)
-        if stopped:
-            try:
-                from scheduler import _validate_name
-                from routes.agent import enqueue_agent_command
-
-                for w in suspended:
-                    cid = w["customer_id"]
-                    with pool.connection() as kconn:
-                        kconn.row_factory = dict_row
-                        just_stopped = kconn.execute(
-                            """SELECT job_id, host_id,
-                                      payload->>'container_name' AS container_name
-                               FROM jobs WHERE payload->>'owner' = %s AND status = 'stopped'
-                                 AND (payload->>'completed_at')::double precision > %s""",
-                            (cid, time.time() - 30),
-                        ).fetchall()
-                    for job in just_stopped:
-                        hid = job.get("host_id")
-                        if not hid:
-                            continue
-                        cname = job.get("container_name") or f"xcl-{job['job_id']}"
-                        try:
-                            _validate_name(cname, "container name")
-                            enqueue_agent_command(
-                                hid,
-                                "stop_container",
-                                {"container_name": cname, "job_id": job["job_id"]},
-                                created_by="billing_wallet_suspended",
-                            )
-                        except Exception as ke:
-                            log.warning(
-                                "stop_container enqueue failed for %s: %s", job["job_id"], ke
-                            )
-            except Exception as e:
-                log.warning("Container cleanup enqueue failed: %s", e)
+        # One lifecycle service owns both v1 and v2 stops. In particular,
+        # attempt-owned jobs receive a durable fenced command instead of a
+        # raw status write plus an unfenced legacy remove.
+        for job_id, cid in running_job_ids:
+            result = self.stop_instance(job_id, reason="billing_suspended")
+            if result.get("stopped"):
+                stopped += 1
+                log.warning("Stopped job %s for suspended wallet %s", job_id, cid)
+            else:
+                log.warning(
+                    "Suspended-wallet stop failed job=%s reason=%s",
+                    job_id,
+                    result.get("reason"),
+                )
 
         # Deprovision serverless workers owned by suspended wallets
         try:

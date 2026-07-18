@@ -343,6 +343,7 @@ class TestWorkerCollection:
         assert got[0] == {
             "job_id": "job-1", "attempt_id": "att-1", "fencing_token": 7,
             "container_id": "abc123", "container_name": "xcl-job-1",
+            "spec_hash": None,
             "state": "running",
         }
         assert got[1]["job_id"] == "job-2"  # from container name

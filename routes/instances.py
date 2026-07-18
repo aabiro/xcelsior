@@ -416,6 +416,10 @@ class JobIn(BaseModel):
 class StatusUpdate(BaseModel):
     status: str
     host_id: str | None = None
+    # Transitional Phase 5 fence for the legacy PATCH compatibility path.
+    # Attempt-owned workers must supply the same authority tuple as /agent/v2.
+    attempt_id: str | None = None
+    fencing_token: int | None = None
     container_id: str | None = None
     container_name: str | None = None
     # ssh_port here is the GATEWAY-SIDE PUBLIC port the worker mapped to
@@ -1070,44 +1074,63 @@ def api_get_instance(job_id: str, request: Request):
     return {"instance": j}
 
 
-def _fence_attempt_owned_patch(job_id: str, reporting_host_id: str | None) -> None:
+def _fence_attempt_owned_patch(
+    job_id: str,
+    reporting_host_id: str | None,
+    reporting_attempt_id: str | None,
+    reporting_fencing_token: int | None,
+) -> None:
     """Phase 5 transitional fence on the legacy v1 status write.
 
     Jobs bound by the transactional scheduler carry an active attempt;
     their authoritative writes go through the fenced /agent/v2 surface.
-    This guard blocks the classic split-brain: a worker on a *different*
-    host (dead-host failover re-placed the job) reporting v1 status for
-    a job it no longer runs. Best-effort by design — a report without a
-    host_id can't be attributed and passes (the v2 mirror is the
-    authoritative write for enrolled hosts); full tuple fencing is v2.
+    The compatibility PATCH may still carry payload fields used by the
+    existing UI, but it must present the exact host/attempt/fence tuple.
+    Missing attribution fails closed: allowing it would let an old worker
+    overwrite a newer same-host attempt after its v2 report was rejected.
     """
-    if not reporting_host_id:
-        return
     try:
         from db import _get_pg_pool
 
         with _get_pg_pool().connection() as conn:
             row = conn.execute(
-                "SELECT active_attempt_id, host_id FROM jobs WHERE job_id = %s",
+                """SELECT j.active_attempt_id, j.host_id, a.fencing_token
+                     FROM jobs j
+                     LEFT JOIN job_attempts a
+                       ON a.attempt_id = j.active_attempt_id
+                    WHERE j.job_id = %s""",
                 (job_id,),
             ).fetchone()
-    except Exception:
-        return  # sqlite/dev or DB hiccup: never block v1 reports on this
+    except Exception as exc:
+        # This endpoint mutates lifecycle authority. If the fence cannot be
+        # checked, failing open would recreate the split-brain path Phase 5
+        # exists to remove.
+        raise HTTPException(503, "Unable to verify attempt authority") from exc
     if row is None:
         return
     active_attempt = row["active_attempt_id"] if isinstance(row, dict) else row[0]
     authority_host = row["host_id"] if isinstance(row, dict) else row[1]
-    if active_attempt is None or not authority_host:
+    authority_fence = row["fencing_token"] if isinstance(row, dict) else row[2]
+    if active_attempt is None:
         return
-    if str(reporting_host_id) != str(authority_host):
+    tuple_matches = (
+        bool(reporting_host_id)
+        and bool(reporting_attempt_id)
+        and reporting_fencing_token is not None
+        and str(reporting_host_id) == str(authority_host)
+        and str(reporting_attempt_id) == str(active_attempt)
+        and int(reporting_fencing_token) == int(authority_fence)
+    )
+    if not tuple_matches:
         raise HTTPException(
             status_code=409,
             detail={
                 "error": {
                     "code": "fencing_violation",
                     "message": (
-                        f"job {job_id} is bound to host {authority_host}; "
-                        "status reports from other hosts are fenced out"
+                        f"job {job_id} requires its current host/attempt/fence "
+                        "authority tuple; this legacy status report is stale "
+                        "or unattributed"
                     ),
                 }
             },
@@ -1118,7 +1141,12 @@ def _fence_attempt_owned_patch(job_id: str, reporting_host_id: str | None) -> No
 def api_update_instance(job_id: str, update: StatusUpdate, request: Request):
     """Update a job's status."""
     _require_worker_status_update(request)
-    _fence_attempt_owned_patch(job_id, update.host_id)
+    _fence_attempt_owned_patch(
+        job_id,
+        update.host_id,
+        update.attempt_id,
+        update.fencing_token,
+    )
     with otel_span("job.status_update", {"job.id": job_id, "job.status": update.status}):
         if update.status == "preempted":
             try:
@@ -1131,6 +1159,10 @@ def api_update_instance(job_id: str, update: StatusUpdate, request: Request):
                 log.warning("Worker preempt billing close failed for %s: %s", job_id, exc)
 
         status_kwargs: dict = {}
+        if update.attempt_id and update.fencing_token is not None:
+            status_kwargs["_attempt_id"] = update.attempt_id
+            status_kwargs["_fencing_token"] = update.fencing_token
+            status_kwargs["_authority_host_id"] = update.host_id
         if update.error_message:
             status_kwargs["error_message"] = update.error_message[:500]
             status_kwargs["failure_reason"] = update.error_message[:500]
@@ -1138,6 +1170,18 @@ def api_update_instance(job_id: str, update: StatusUpdate, request: Request):
             update_job_status(job_id, update.status, host_id=update.host_id, **status_kwargs)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+        except RuntimeError as e:
+            if "raw lifecycle mutation is fenced out" in str(e):
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "error": {
+                            "code": "fencing_violation",
+                            "message": str(e),
+                        }
+                    },
+                ) from e
+            raise
 
         if update.status == "preempted":
             job = get_job(job_id)
@@ -1268,6 +1312,27 @@ def api_cancel_instance(job_id: str, request: Request):
 
     if job.get("status") in ("completed", "failed", "cancelled"):
         raise HTTPException(status_code=400, detail=f"Instance already {job['status']}")
+
+    # The legacy cancel path performs an unfenced direct kill followed by a
+    # raw status write and immediate volume detach. Until the lifecycle
+    # controller can issue a fenced remove command and detach only after its
+    # observation/ACK, fail closed for attempt-owned workloads.
+    try:
+        from db import _get_pg_pool
+
+        with _get_pg_pool().connection() as conn:
+            active_attempt = conn.execute(
+                "SELECT active_attempt_id FROM jobs WHERE job_id=%s", (job_id,)
+            ).fetchone()
+    except Exception as exc:
+        raise HTTPException(503, "Unable to verify attempt authority") from exc
+    active_attempt_id = (
+        active_attempt["active_attempt_id"]
+        if isinstance(active_attempt, dict)
+        else active_attempt[0] if active_attempt else None
+    )
+    if active_attempt_id is not None:
+        raise HTTPException(409, "fenced_cancel_requires_controller")
 
     # If running on a host, kill the container directly and also schedule via agent
     if job.get("host_id") and job.get("status") in ("running", "assigned", "leased"):
@@ -1501,7 +1566,13 @@ def api_start_instance(job_id: str, request: Request):
     result = be.start_instance(job_id)
     if not result.get("started"):
         detail = result.get("reason", "start failed")
-        code = 402 if detail == "insufficient_balance" else 500
+        code = (
+            402
+            if detail == "insufficient_balance"
+            else 409
+            if detail == "fenced_resume_requires_new_attempt"
+            else 500
+        )
         raise HTTPException(status_code=code, detail=detail)
 
     broadcast_sse("instance_started", {"job_id": job_id})
@@ -1543,7 +1614,13 @@ def api_restart_instance(job_id: str, request: Request):
     result = be.restart_instance(job_id)
     if not result.get("restarted"):
         detail = result.get("reason", "restart failed")
-        code = 402 if detail == "insufficient_balance" else 500
+        code = (
+            402
+            if detail == "insufficient_balance"
+            else 409
+            if detail == "fenced_restart_requires_controller"
+            else 500
+        )
         raise HTTPException(status_code=code, detail=detail)
 
     broadcast_sse("instance_restarted", {"job_id": job_id})
@@ -1617,7 +1694,9 @@ def api_terminate_instance(job_id: str, request: Request):
     be = get_billing_engine()
     result = be.terminate_instance(job_id)
     if not result.get("terminated"):
-        raise HTTPException(status_code=400, detail=result.get("reason", "terminate failed"))
+        detail = result.get("reason", "terminate failed")
+        code = 409 if detail == "fenced_terminate_requires_controller" else 400
+        raise HTTPException(status_code=code, detail=detail)
 
     broadcast_sse("instance_terminated", {"job_id": job_id})
     append_user_audit_event("user.instance.terminated", "job", job_id, user)
