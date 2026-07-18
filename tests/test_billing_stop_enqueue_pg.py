@@ -451,10 +451,60 @@ def test_terminate_idempotent_second_call_reuses_command(
     second = BillingEngine().terminate_instance(job_id)
     assert first.get("terminated") and second.get("terminated")
     with _pool.connection() as conn:
-        n = conn.execute(
+        n_cmd = conn.execute(
             """SELECT COUNT(*) FROM agent_commands
                 WHERE job_id=%s AND command='stop_attempt'""",
             (job_id,),
         ).fetchone()[0]
+        n_bc = conn.execute(
+            """SELECT COUNT(*) FROM billing_cycles
+                WHERE job_id=%s AND status='terminated'
+                  AND cycle_id LIKE 'BC-term-%%'""",
+            (job_id,),
+        ).fetchone()[0]
     # Same attempt idempotency key → one durable command row.
-    assert n == 1
+    assert n_cmd == 1
+    # Second terminate must not insert another billing anchor.
+    assert n_bc == 1
+
+
+def test_terminate_enqueue_refuse_leaves_job_running(cleanup_ids, captured_enqueue):
+    """No active lease → no command and job stays running (not stuck stopping)."""
+    host_id = "h-v2-term-nolease"
+    _mkhost(cleanup_ids, host_id)
+    job_id = _mkjob(
+        cleanup_ids,
+        owner="v2-term-nolease@test",
+        host_id=host_id,
+        status="running",
+        container_name="xcl-v2-term-nolease",
+    )
+    # Active attempt but intentionally no placement_lease.
+    _mk_attempt_history(job_id, host_id, active=True)
+
+    from billing import BillingEngine
+
+    result = BillingEngine().terminate_instance(job_id)
+    assert result.get("terminated") is False
+    assert result.get("reason") == "no_active_fenced_authority"
+    with _pool.connection() as conn:
+        status = conn.execute(
+            "SELECT status FROM jobs WHERE job_id=%s", (job_id,)
+        ).fetchone()[0]
+        n_cmd = conn.execute(
+            "SELECT COUNT(*) FROM agent_commands WHERE job_id=%s", (job_id,)
+        ).fetchone()[0]
+        intent = conn.execute(
+            "SELECT payload->>'lifecycle_intent' FROM jobs WHERE job_id=%s",
+            (job_id,),
+        ).fetchone()[0]
+        n_bc = conn.execute(
+            """SELECT COUNT(*) FROM billing_cycles
+                WHERE job_id=%s AND cycle_id LIKE 'BC-term-%%'""",
+            (job_id,),
+        ).fetchone()[0]
+    assert status == "running"
+    assert n_cmd == 0
+    assert intent is None
+    assert n_bc == 0
+    assert captured_enqueue == []
