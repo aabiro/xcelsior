@@ -1414,10 +1414,11 @@ class BillingEngine:
         return {"stopped": True, "job_id": job_id, "status": final_status}
 
     def start_instance(self, job_id: str) -> dict:
-        """Start a stopped instance. Restores the container from its exited state.
+        """Start a stopped instance.
 
-        Requires a positive wallet balance. Billing resumes at the compute rate
-        from the moment the container is running again.
+        Legacy (no fenced history): docker start via agent queue.
+        Fenced history: re-admit for a **new** placement attempt (never
+        revive the old attempt/fence labels with start_container).
         """
         from db import _get_pg_pool
         from psycopg.rows import dict_row
@@ -1427,7 +1428,7 @@ class BillingEngine:
         with pool.connection() as conn:
             conn.row_factory = dict_row
             job = conn.execute(
-                """SELECT job_id, status, host_id,
+                """SELECT job_id, status, host_id, active_attempt_id,
                           payload->>'owner' AS owner,
                           payload->>'name' AS name,
                           payload->>'container_name' AS container_name,
@@ -1436,30 +1437,48 @@ class BillingEngine:
                                WHERE a.job_id = jobs.job_id
                           ) AS has_fenced_history
                    FROM jobs
-                   WHERE job_id = %s AND status = 'stopped' FOR UPDATE""",
+                   WHERE job_id = %s
+                     AND status IN ('stopped', 'queued')
+                   FOR UPDATE""",
                 (job_id,),
             ).fetchone()
             if not job:
                 return {"started": False, "reason": "not_stopped"}
-
-            # A stopped v2 attempt has relinquished its lease, allocation,
-            # and fencing authority. ``docker start`` would revive a
-            # container carrying the old immutable attempt/fence labels with
-            # no valid lease. Resume must therefore go through the job
-            # controller and a newly reserved attempt; until that controller
-            # lands, fail closed instead of creating unowned GPU execution.
-            if job.get("has_fenced_history"):
-                return {
-                    "started": False,
-                    "reason": "fenced_resume_requires_new_attempt",
-                }
 
             owner = job.get("owner") or ""
             wallet = self.get_wallet(owner)
             if wallet["balance_cad"] <= 0:
                 return {"started": False, "reason": "insufficient_balance"}
 
-            # Mark transitional state
+            # Fenced history: fresh-attempt resume (requeue), not container revive.
+            if job.get("has_fenced_history"):
+                conn.commit()
+                from control_plane.lifecycle import request_fresh_attempt_resume
+
+                resumed = request_fresh_attempt_resume(
+                    job_id=job_id,
+                    created_by="billing_start",
+                    intent="resume",
+                )
+                if not resumed.ok:
+                    return {
+                        "started": False,
+                        "reason": resumed.reason or "fenced_resume_failed",
+                        "job_id": job_id,
+                        "status": resumed.status or None,
+                    }
+                log.info("START fenced resume → queued job=%s", job_id)
+                return {
+                    "started": True,
+                    "job_id": job_id,
+                    "status": "queued",
+                    "fresh_attempt": True,
+                }
+
+            if job.get("status") != "stopped":
+                return {"started": False, "reason": "not_stopped"}
+
+            # Mark transitional state (legacy path)
             conn.execute(
                 """UPDATE jobs SET status = 'restarting',
                    payload = jsonb_set(
@@ -1542,13 +1561,13 @@ class BillingEngine:
         return {"started": True, "job_id": job_id, "status": "running"}
 
     def restart_instance(self, job_id: str) -> dict:
-        """Restart a running or stopped instance. Container data is preserved.
+        """Restart a running or stopped instance.
 
-        For a running instance: stop gracefully then start.
-        For a stopped instance: same as start_instance.
-        Billing is continuous — no gap anchor is inserted. The compute billing
-        period simply picks up again from when the container is running.
-        Requires a positive wallet balance.
+        Legacy: pause_container + start_container via agent queue.
+        Fenced / attempt-owned: never unfenced docker start. Running jobs
+        get a fenced stop_attempt (intent=restart); worker ACK re-admits
+        the job as ``queued`` for a new attempt. Already-stopped fenced
+        jobs requeue immediately via fresh-attempt resume.
         """
         from db import _get_pg_pool
         from psycopg.rows import dict_row
@@ -1567,27 +1586,80 @@ class BillingEngine:
                                WHERE a.job_id = jobs.job_id
                           ) AS has_fenced_history
                    FROM jobs
-                   WHERE job_id = %s AND status IN ('running', 'stopped') FOR UPDATE""",
+                   WHERE job_id = %s
+                     AND status IN ('running', 'stopped', 'stopping', 'queued')
+                   FOR UPDATE""",
                 (job_id,),
             ).fetchone()
             if not job:
                 return {"restarted": False, "reason": "not_restartable"}
 
-            # A restart is stop + start. Either half is unsafe through the
-            # legacy unfenced command queue once a job has v2 authority.
-            # The lifecycle controller will implement this as terminal stop
-            # followed by a fresh reservation/fence; block the compatibility
-            # shortcut until then.
-            if job.get("active_attempt_id") or job.get("has_fenced_history"):
-                return {
-                    "restarted": False,
-                    "reason": "fenced_restart_requires_controller",
-                }
-
             owner = job.get("owner") or ""
             wallet = self.get_wallet(owner)
             if wallet["balance_cad"] <= 0:
                 return {"restarted": False, "reason": "insufficient_balance"}
+
+            has_fenced = bool(job.get("has_fenced_history") or job.get("active_attempt_id"))
+            if has_fenced:
+                conn.commit()
+                status = job.get("status")
+                # Live attempt: fenced tear-down; ACK projects to queued.
+                if job.get("active_attempt_id") and status in ("running", "stopping"):
+                    from control_plane.lifecycle import request_fenced_stop_remove
+
+                    fenced = request_fenced_stop_remove(
+                        job_id=job_id,
+                        intent="restart",
+                        created_by="billing_restart",
+                        container_name=job.get("container_name") or f"xcl-{job_id}",
+                        reason_tag="user_restart",
+                    )
+                    if not fenced.ok:
+                        return {
+                            "restarted": False,
+                            "reason": fenced.reason or "fenced_restart_failed",
+                            "job_id": job_id,
+                            "status": fenced.status or None,
+                        }
+                    log.info(
+                        "RESTART fenced stop_attempt job=%s attempt=%s",
+                        job_id,
+                        (fenced.attempt_id or "")[:8],
+                    )
+                    return {
+                        "restarted": True,
+                        "job_id": job_id,
+                        "status": "stopping",
+                        "attempt_id": fenced.attempt_id,
+                        "command_id": fenced.command_id,
+                        "fresh_attempt": True,
+                    }
+
+                # Already stopped / queued / authority released: re-admit.
+                from control_plane.lifecycle import request_fresh_attempt_resume
+
+                resumed = request_fresh_attempt_resume(
+                    job_id=job_id,
+                    created_by="billing_restart",
+                    intent="restart",
+                )
+                if not resumed.ok:
+                    return {
+                        "restarted": False,
+                        "reason": resumed.reason or "fenced_restart_failed",
+                        "job_id": job_id,
+                        "status": resumed.status or None,
+                    }
+                log.info("RESTART fenced resume → queued job=%s", job_id)
+                return {
+                    "restarted": True,
+                    "job_id": job_id,
+                    "status": "queued",
+                    "fresh_attempt": True,
+                }
+
+            if job["status"] not in ("running", "stopped"):
+                return {"restarted": False, "reason": "not_restartable"}
 
             was_running = job["status"] == "running"
 
@@ -1605,9 +1677,7 @@ class BillingEngine:
         host_id = job.get("host_id") or ""
         container_name = job.get("container_name") or f"xcl-{job_id}"
 
-        # P3 post-C — restart via agent queue (CGNAT-safe). If container was
-        # running, enqueue stop_container first; then enqueue start_container.
-        # Agent executes sequentially per-host (FIFO drain), so ordering holds.
+        # Legacy: restart via agent queue (CGNAT-safe).
         restart_queued = False
         enqueue_error: str | None = None
         if not host_id:
@@ -1623,10 +1693,6 @@ class BillingEngine:
 
                 _validate_name(container_name, "container name")
                 if was_running:
-                    # Use pause_container (docker stop only, no rm) so the
-                    # subsequent start_container can actually resume the
-                    # same container. stop_container would delete it and
-                    # start_container would fail with "No such container".
                     enqueue_agent_command(
                         host_id,
                         "pause_container",
