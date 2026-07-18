@@ -1719,16 +1719,62 @@ class BillingEngine:
             if not job:
                 return {"terminated": False, "reason": "already_terminal_or_not_found"}
 
-            # Permanent termination needs a fenced stop/remove command and a
-            # post-observation volume-detach controller. The compatibility
-            # path below marks the job terminal and detaches storage before a
-            # worker ACK exists, so it must never operate on v2 authority.
-            if job.get("active_attempt_id"):
+            # Snapshot under lock, then release before fenced enqueue / legacy work.
+            active_attempt_id = job.get("active_attempt_id")
+            owner = job.get("owner") or ""
+            host_id = job.get("host_id") or ""
+            container_name = job.get("container_name") or f"xcl-{job_id}"
+            conn.commit()
+
+        # Attempt-owned: fenced stop/remove via lifecycle controller.
+        # Do NOT mark terminal or detach volumes here — that races the
+        # worker. Intermediate ``stopping`` + durable stop_attempt
+        # (preserve=False, intent=terminate); ACK projects terminated.
+        if active_attempt_id:
+            from control_plane.lifecycle import request_fenced_stop_remove
+
+            fenced = request_fenced_stop_remove(
+                job_id=job_id,
+                intent="terminate",
+                created_by="billing_terminate",
+                container_name=container_name,
+                reason_tag="user_terminated",
+            )
+            if not fenced.ok:
                 return {
                     "terminated": False,
-                    "reason": "fenced_terminate_requires_controller",
+                    "reason": fenced.reason or "fenced_terminate_failed",
+                    "job_id": job_id,
+                    "status": fenced.status or None,
                 }
+            cycle_id = f"BC-term-{int(now)}-{os.urandom(3).hex()}"
+            with pool.connection() as bconn:
+                bconn.execute(
+                    """INSERT INTO billing_cycles
+                       (cycle_id, job_id, customer_id, host_id, resource_type,
+                        period_start, period_end, duration_seconds, rate_per_hour,
+                        gpu_model, tier, tier_multiplier, amount_cad, status,
+                        created_at)
+                       VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0,
+                               0, 'terminated', %s)""",
+                    (cycle_id, job_id, owner, host_id, now, now, now),
+                )
+                bconn.commit()
+            log.info(
+                "TERMINATE fenced stop_attempt queued job=%s attempt=%s",
+                job_id,
+                (fenced.attempt_id or "")[:8],
+            )
+            return {
+                "terminated": True,
+                "job_id": job_id,
+                "status": "stopping",
+                "attempt_id": fenced.attempt_id,
+                "command_id": fenced.command_id,
+            }
 
+        # Legacy (non-attempt-owned): mark terminal, detach, direct kill.
+        with pool.connection() as conn:
             conn.execute(
                 """UPDATE jobs SET status = 'terminated',
                    payload = jsonb_set(
@@ -1738,9 +1784,6 @@ class BillingEngine:
                    WHERE job_id = %s""",
                 (now, job_id),
             )
-            # Final billing anchor
-            owner = job.get("owner") or ""
-            host_id = job.get("host_id") or ""
             cycle_id = f"BC-term-{int(now)}-{os.urandom(3).hex()}"
             conn.execute(
                 """INSERT INTO billing_cycles
@@ -1752,7 +1795,6 @@ class BillingEngine:
             )
             conn.commit()
 
-        # Detach all managed volumes attached to this instance
         try:
             from volumes import get_volume_engine
 
@@ -1760,8 +1802,6 @@ class BillingEngine:
         except Exception as e:
             log.warning("Volume detach failed for %s: %s", job_id, e)
 
-        owner = job.get("owner") or ""
-        container_name = job.get("container_name") or f"xcl-{job_id}"
         if host_id:
             try:
                 from scheduler import terminate_job as _terminate_job, list_hosts, _validate_name

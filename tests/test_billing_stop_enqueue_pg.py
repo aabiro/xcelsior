@@ -352,29 +352,109 @@ def test_stop_active_fenced_attempt_uses_v2_command_and_stays_stopping(
     assert command[4]["job_id"] == job_id
 
 
-def test_terminate_fails_closed_for_active_fenced_attempt(
+def _mk_active_lease(job_id, host_id, attempt_id):
+    with _pool.connection() as conn:
+        fence = conn.execute(
+            "SELECT fencing_token FROM job_attempts WHERE attempt_id=%s",
+            (attempt_id,),
+        ).fetchone()[0]
+        conn.execute(
+            """INSERT INTO placement_leases
+                   (job_id, attempt_id, host_id, fencing_token, status,
+                    claim_deadline, claimed_at, last_renewed_at, expires_at)
+               VALUES (%s, %s, %s, %s, 'active',
+                       clock_timestamp() + interval '10 minutes',
+                       clock_timestamp(), clock_timestamp(),
+                       clock_timestamp() + interval '10 minutes')""",
+            (job_id, attempt_id, host_id, fence),
+        )
+        conn.commit()
+    return fence
+
+
+def test_terminate_active_fenced_attempt_enqueues_stop_remove(
     cleanup_ids, captured_enqueue
 ):
-    _mkhost(cleanup_ids, "h-v2-terminate")
+    """P5.5: attempt-owned terminate → fenced stop_attempt (preserve=False)."""
+    host_id = "h-v2-terminate"
+    _mkhost(cleanup_ids, host_id)
     job_id = _mkjob(
         cleanup_ids,
         owner="v2-terminate@test",
-        host_id="h-v2-terminate",
+        host_id=host_id,
         status="running",
         container_name="xcl-v2-terminate",
     )
-    _mk_attempt_history(job_id, "h-v2-terminate", active=True)
+    attempt_id = _mk_attempt_history(job_id, host_id, active=True)
+    fence = _mk_active_lease(job_id, host_id, attempt_id)
 
     from billing import BillingEngine
 
     result = BillingEngine().terminate_instance(job_id)
-    assert result == {
-        "terminated": False,
-        "reason": "fenced_terminate_requires_controller",
-    }
+    assert result.get("terminated") is True, result
+    assert result.get("status") == "stopping"
+    assert result.get("attempt_id") == attempt_id
+    assert result.get("command_id")
+    # Must not fall through to legacy unfenced agent enqueue.
     assert captured_enqueue == []
+
     with _pool.connection() as conn:
-        status = conn.execute(
+        row = conn.execute(
+            """SELECT status, payload->>'lifecycle_intent' AS intent,
+                      active_attempt_id::text
+                 FROM jobs WHERE job_id=%s""",
+            (job_id,),
+        ).fetchone()
+        command = conn.execute(
+            """SELECT command, attempt_id::text, fencing_token, status, args
+                 FROM agent_commands
+                WHERE job_id=%s AND command='stop_attempt'
+                ORDER BY created_at DESC LIMIT 1""",
+            (job_id,),
+        ).fetchone()
+        vol_detach_risk = conn.execute(
             "SELECT status FROM jobs WHERE job_id=%s", (job_id,)
         ).fetchone()[0]
-    assert status == "running"
+
+    assert row[0] == "stopping"
+    assert row[1] == "terminate"
+    assert row[2] == attempt_id  # authority not cleared pre-ACK
+    assert command is not None
+    assert command[0] == "stop_attempt"
+    assert command[1] == attempt_id
+    assert command[2] == fence
+    assert command[3] == "pending"
+    assert command[4].get("preserve") is False
+    assert command[4].get("intent") == "terminate"
+    # Intermediate only — not terminal before worker proof.
+    assert vol_detach_risk == "stopping"
+
+
+def test_terminate_idempotent_second_call_reuses_command(
+    cleanup_ids, captured_enqueue
+):
+    host_id = "h-v2-term-idem"
+    _mkhost(cleanup_ids, host_id)
+    job_id = _mkjob(
+        cleanup_ids,
+        owner="v2-term-idem@test",
+        host_id=host_id,
+        status="running",
+        container_name="xcl-v2-term-idem",
+    )
+    attempt_id = _mk_attempt_history(job_id, host_id, active=True)
+    _mk_active_lease(job_id, host_id, attempt_id)
+
+    from billing import BillingEngine
+
+    first = BillingEngine().terminate_instance(job_id)
+    second = BillingEngine().terminate_instance(job_id)
+    assert first.get("terminated") and second.get("terminated")
+    with _pool.connection() as conn:
+        n = conn.execute(
+            """SELECT COUNT(*) FROM agent_commands
+                WHERE job_id=%s AND command='stop_attempt'""",
+            (job_id,),
+        ).fetchone()[0]
+    # Same attempt idempotency key → one durable command row.
+    assert n == 1

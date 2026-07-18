@@ -165,8 +165,27 @@ def report_attempt_status(
     )
 
     # Job projection: one legacy-status write; the 059 trigger keeps
-    # phase/desired_state coherent with it.
+    # phase/desired_state coherent with it. P5.5: when the controller
+    # recorded lifecycle_intent=terminate|cancel, a worker ``stopped``
+    # report settles to that terminal status (not plain ``stopped``).
     job_status = _JOB_PROJECTION[status]
+    if terminal and status == "stopped":
+        intent_row = conn.execute(
+            """
+            SELECT payload->>'lifecycle_intent' AS lifecycle_intent
+              FROM jobs
+             WHERE job_id = %s
+               AND active_attempt_id = %s
+            """,
+            (job_id, attempt_id),
+        ).fetchone()
+        intent = None
+        if intent_row is not None:
+            intent = _get(intent_row, "lifecycle_intent", 0)
+        if intent == "terminate":
+            job_status = "terminated"
+        elif intent == "cancel":
+            job_status = "cancelled"
     if terminal:
         conn.execute(
             """
@@ -183,6 +202,30 @@ def report_attempt_status(
                                    true
                                ),
                                '{stopped_at}',
+                               to_jsonb(EXTRACT(EPOCH FROM clock_timestamp())),
+                               true
+                           )
+                       WHEN %(job_status)s = 'terminated' THEN
+                           jsonb_set(
+                               jsonb_set(
+                                   COALESCE(payload, '{}'::jsonb),
+                                   '{status}',
+                                   to_jsonb(%(job_status)s::text),
+                                   true
+                               ),
+                               '{terminated_at}',
+                               to_jsonb(EXTRACT(EPOCH FROM clock_timestamp())),
+                               true
+                           )
+                       WHEN %(job_status)s = 'cancelled' THEN
+                           jsonb_set(
+                               jsonb_set(
+                                   COALESCE(payload, '{}'::jsonb),
+                                   '{status}',
+                                   to_jsonb(%(job_status)s::text),
+                                   true
+                               ),
+                               '{cancelled_at}',
                                to_jsonb(EXTRACT(EPOCH FROM clock_timestamp())),
                                true
                            )
