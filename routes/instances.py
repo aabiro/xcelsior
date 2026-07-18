@@ -1593,7 +1593,14 @@ def api_start_instance(job_id: str, request: Request):
             402
             if detail == "insufficient_balance"
             else 409
-            if detail == "fenced_resume_requires_new_attempt"
+            if detail
+            in (
+                "fenced_resume_requires_new_attempt",
+                "still_attempt_owned",
+                "no_active_fenced_authority",
+            )
+            else 400
+            if detail in ("not_stopped", "not_fenced_history")
             else 500
         )
         raise HTTPException(status_code=code, detail=detail)
@@ -1641,7 +1648,14 @@ def api_restart_instance(job_id: str, request: Request):
             402
             if detail == "insufficient_balance"
             else 409
-            if detail == "fenced_restart_requires_controller"
+            if detail
+            in (
+                "fenced_restart_requires_controller",
+                "no_active_fenced_authority",
+                "still_attempt_owned",
+            )
+            else 400
+            if detail in ("not_restartable", "not_stopped")
             else 500
         )
         raise HTTPException(status_code=code, detail=detail)

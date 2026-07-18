@@ -258,7 +258,11 @@ def test_billing_stop_args_shape_complete(cleanup_ids, captured_enqueue):
     ), "job_id is required for worker callback / metrics correlation"
 
 
-def test_start_fails_closed_after_fenced_attempt(cleanup_ids, captured_enqueue):
+def test_start_fenced_history_requeues_without_start_container(
+    cleanup_ids, captured_enqueue
+):
+    """P5.5 resume: stopped fenced job → queued for new attempt, no start_container."""
+    _mkwallet(cleanup_ids, "v2-start@test")
     _mkhost(cleanup_ids, "h-v2-stopped")
     job_id = _mkjob(
         cleanup_ids,
@@ -272,14 +276,28 @@ def test_start_fails_closed_after_fenced_attempt(cleanup_ids, captured_enqueue):
     from billing import BillingEngine
 
     result = BillingEngine().start_instance(job_id)
-    assert result == {
-        "started": False,
-        "reason": "fenced_resume_requires_new_attempt",
-    }
+    assert result.get("started") is True, result
+    assert result.get("status") == "queued"
+    assert result.get("fresh_attempt") is True
     assert captured_enqueue == []
+    with _pool.connection() as conn:
+        row = conn.execute(
+            """SELECT status, host_id, active_attempt_id,
+                      payload->>'lifecycle_intent'
+                 FROM jobs WHERE job_id=%s""",
+            (job_id,),
+        ).fetchone()
+    assert row[0] == "queued"
+    assert row[1] is None
+    assert row[2] is None
+    assert row[3] == "resume"
 
 
-def test_restart_fails_closed_for_active_fenced_attempt(cleanup_ids, captured_enqueue):
+def test_restart_active_fenced_attempt_enqueues_stop_with_restart_intent(
+    cleanup_ids, captured_enqueue
+):
+    """P5.5 restart (running): fenced stop_attempt intent=restart, no legacy enqueue."""
+    _mkwallet(cleanup_ids, "v2-restart@test")
     _mkhost(cleanup_ids, "h-v2-running")
     job_id = _mkjob(
         cleanup_ids,
@@ -288,16 +306,33 @@ def test_restart_fails_closed_for_active_fenced_attempt(cleanup_ids, captured_en
         status="running",
         container_name="xcl-v2-running",
     )
-    _mk_attempt_history(job_id, "h-v2-running", active=True)
+    attempt_id = _mk_attempt_history(job_id, "h-v2-running", active=True)
+    fence = _mk_active_lease(job_id, "h-v2-running", attempt_id)
 
     from billing import BillingEngine
 
     result = BillingEngine().restart_instance(job_id)
-    assert result == {
-        "restarted": False,
-        "reason": "fenced_restart_requires_controller",
-    }
+    assert result.get("restarted") is True, result
+    assert result.get("status") == "stopping"
+    assert result.get("attempt_id") == attempt_id
     assert captured_enqueue == []
+    with _pool.connection() as conn:
+        job = conn.execute(
+            """SELECT status, payload->>'lifecycle_intent'
+                 FROM jobs WHERE job_id=%s""",
+            (job_id,),
+        ).fetchone()
+        cmd = conn.execute(
+            """SELECT command, args, fencing_token
+                 FROM agent_commands WHERE job_id=%s""",
+            (job_id,),
+        ).fetchone()
+    assert job[0] == "stopping"
+    assert job[1] == "restart"
+    assert cmd[0] == "stop_attempt"
+    assert cmd[1].get("preserve") is False
+    assert cmd[1].get("intent") == "restart"
+    assert cmd[2] == fence
 
 
 def test_stop_active_fenced_attempt_uses_v2_command_and_stays_stopping(
