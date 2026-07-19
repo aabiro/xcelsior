@@ -209,7 +209,9 @@ def _alembic_current(db_dsn: str) -> str:
     )
     assert r.returncode == 0, f"alembic current failed: {r.stderr}\n{r.stdout}"
     # e.g. "059 (head)"
-    m = re.search(r"\b(\d{3})\b", r.stdout)
+    m = re.search(r"([0-9a-fA-F]+)\s*\(head\)", r.stdout)
+    if not m:
+        m = re.search(r"\b([0-9a-fA-F]+)\b", r.stdout)
     assert m, f"no revision in alembic current output: {r.stdout!r}"
     return m.group(1)
 
