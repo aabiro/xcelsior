@@ -288,9 +288,13 @@ services:
       # Phase 7: deliver outbox side-effect intents (SSE via pg_notify)
       XCELSIOR_OUTBOX_DISPATCHER: ${XCELSIOR_OUTBOX_DISPATCHER:-true}
       # Phase 6 (P6.3): per-finding-type reconciler remediation. Default
-      # report-only; "enforce" enqueues a durable stop_container command
-      # for stale-fence containers (the §11.5 fence-loss backstop).
+      # report-only per action; "enforce" turns each on. stale-fence →
+      # durable stop_container (§11.5 backstop); attempt-container-missing →
+      # expedite lease expiry (zombie attempt); orphaned-allocation →
+      # release a device leaked by a partial settlement (§8.2 capacity).
       XCELSIOR_RECONCILE_ACTION_STALE_FENCE_CONTAINER: ${XCELSIOR_RECONCILE_ACTION_STALE_FENCE_CONTAINER:-report_only}
+      XCELSIOR_RECONCILE_ACTION_ATTEMPT_CONTAINER_MISSING: ${XCELSIOR_RECONCILE_ACTION_ATTEMPT_CONTAINER_MISSING:-report_only}
+      XCELSIOR_RECONCILE_ACTION_ORPHANED_ALLOCATION: ${XCELSIOR_RECONCILE_ACTION_ORPHANED_ALLOCATION:-report_only}
       XCELSIOR_CANADA_ONLY: ${XCELSIOR_CANADA_ONLY:-false}
       XCELSIOR_PLATFORM_CUT: ${XCELSIOR_PLATFORM_CUT:-0.20}
       XCELSIOR_SMTP_HOST: ${XCELSIOR_SMTP_HOST:-}
