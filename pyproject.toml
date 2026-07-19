@@ -51,6 +51,11 @@ dependencies = [
     "opentelemetry-exporter-otlp~=1.40.0",
     "anthropic~=0.86.0",
     "reportlab>=4.0",
+    # S3-compatible artifact storage (B2 / R2 / S3 / MinIO). Declared so a
+    # remote backend is never silently unavailable — the artifact service
+    # fails closed rather than falling back to local file:// storage
+    # (data-architecture companion §2.4/§6.6).
+    "boto3>=1.34",
 ]
 
 [project.optional-dependencies]
