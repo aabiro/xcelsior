@@ -478,6 +478,86 @@ class TestReconcileActions:
         assert active_allocs == 0
 
 
+class TestOrphanedAllocations:
+    def _active_allocs(self, attempt_id):
+        with _pool.connection() as conn:
+            return _scalar(conn.execute(
+                "SELECT count(*) FROM gpu_device_allocations "
+                "WHERE attempt_id=%s AND status='active'", (attempt_id,)
+            ).fetchone())
+
+    def _make_orphan(self, fleet, marker):
+        """Place a job, then simulate a crashed settlement: attempt
+        terminal while its device allocation stays active."""
+        job_id, host_id, resv = _place(fleet, marker)
+        with _pool.connection() as conn:
+            conn.execute(
+                "UPDATE job_attempts SET status='failed', "
+                "ended_at=clock_timestamp() WHERE attempt_id=%s",
+                (resv.attempt_id,),
+            )
+            conn.commit()
+        _ingest(host_id, "sess-orphan", 1, [])  # observation so reconcile runs
+        return job_id, host_id, resv
+
+    def test_report_only_default_flags_but_leaves(self, fleet, monkeypatch):
+        monkeypatch.delenv(
+            "XCELSIOR_RECONCILE_ACTION_ORPHANED_ALLOCATION", raising=False
+        )
+        marker = uuid.uuid4().hex[:8]
+        job_id, host_id, resv = self._make_orphan(fleet, marker)
+        report = run_transaction(
+            lambda c: reconcile_host(c, host_id, missing_grace_sec=3600), what="t"
+        )
+        assert "orphaned_allocation" in report.findings_opened
+        assert report.actions_taken == []
+        assert ("orphaned_allocation", "warning") in _open_findings(host_id)
+        assert self._active_allocs(resv.attempt_id) == 1  # untouched
+
+    def test_enforce_releases_and_resolves(self, fleet, monkeypatch):
+        monkeypatch.setenv(
+            "XCELSIOR_RECONCILE_ACTION_ORPHANED_ALLOCATION", "enforce"
+        )
+        marker = uuid.uuid4().hex[:8]
+        job_id, host_id, resv = self._make_orphan(fleet, marker)
+        report = run_transaction(
+            lambda c: reconcile_host(c, host_id, missing_grace_sec=3600), what="t"
+        )
+        assert report.actions_taken == ["orphaned_allocation"]
+        assert self._active_allocs(resv.attempt_id) == 0  # released
+        with _pool.connection() as conn:
+            result = _scalar(conn.execute(
+                "SELECT action_result->>'released' FROM reconciliation_findings "
+                "WHERE resource_id=%s AND finding_type='orphaned_allocation' "
+                "AND resolved_at IS NULL", (host_id,)
+            ).fetchone())
+        assert result == "1"
+        # Next pass: no orphan remains, the finding auto-resolves.
+        report2 = run_transaction(
+            lambda c: reconcile_host(c, host_id, missing_grace_sec=3600), what="t"
+        )
+        assert "orphaned_allocation" not in report2.findings_opened
+        assert report2.findings_resolved >= 1
+        assert _open_findings(host_id) == []
+
+    def test_live_attempt_allocation_not_flagged(self, fleet, monkeypatch):
+        monkeypatch.setenv(
+            "XCELSIOR_RECONCILE_ACTION_ORPHANED_ALLOCATION", "enforce"
+        )
+        marker = uuid.uuid4().hex[:8]
+        job_id, host_id, resv = _place(fleet, marker)  # attempt running, alloc active
+        _ingest(host_id, "sess-live", 1, [{
+            "job_id": job_id, "attempt_id": resv.attempt_id,
+            "fencing_token": resv.fencing_token,
+            "container_name": f"xcl-{job_id}", "state": "running",
+        }])
+        report = run_transaction(
+            lambda c: reconcile_host(c, host_id, missing_grace_sec=3600), what="t"
+        )
+        assert "orphaned_allocation" not in report.findings_opened
+        assert self._active_allocs(resv.attempt_id) == 1  # a live attempt keeps it
+
+
 class TestQueueProcessing:
     def test_process_due_settles_entry(self, fleet):
         marker = uuid.uuid4().hex[:8]
