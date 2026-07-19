@@ -501,31 +501,20 @@ def cancel_slurm_job(slurm_job_id):
 # ── Sync Engine ──────────────────────────────────────────────────────
 # Tracks mapping between Xcelsior job_ids and Slurm job_ids
 
-_slurm_job_map: dict[str, str] = {}  # xcelsior_job_id -> slurm_job_id
-SLURM_MAP_FILE = os.environ.get("XCELSIOR_SLURM_MAP", "data/slurm_jobs.json")
-
-
-def _load_slurm_map():
-    """Load Xcelsior↔Slurm job mapping from disk."""
-    global _slurm_job_map
-    if os.path.exists(SLURM_MAP_FILE):
-        with open(SLURM_MAP_FILE) as f:
-            _slurm_job_map = json.load(f)
-    return _slurm_job_map
-
-
-def _save_slurm_map():
-    """Persist Xcelsior↔Slurm job mapping to disk."""
-    os.makedirs(os.path.dirname(SLURM_MAP_FILE) or ".", exist_ok=True)
-    with open(SLURM_MAP_FILE, "w") as f:
-        json.dump(_slurm_job_map, f, indent=2)
-
+from db import pg_transaction, pg_connection
+import time
 
 def register_slurm_job(xcelsior_job_id, slurm_job_id):
     """Register a mapping between Xcelsior and Slurm job IDs."""
-    _slurm_job_map[xcelsior_job_id] = slurm_job_id
-    _save_slurm_map()
-
+    with pg_transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO slurm_job_mappings (xcelsior_job_id, slurm_job_id, created_at)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (xcelsior_job_id) DO UPDATE SET slurm_job_id = EXCLUDED.slurm_job_id
+            """,
+            (xcelsior_job_id, str(slurm_job_id), time.time())
+        )
 
 def sync_slurm_statuses(update_callback=None):
     """Poll all tracked Slurm jobs and sync status back to Xcelsior.
@@ -536,10 +525,14 @@ def sync_slurm_statuses(update_callback=None):
     Returns:
         list of (xcelsior_job_id, slurm_job_id, old_state, new_state) tuples
     """
-    _load_slurm_map()
     changes = []
-
-    for xcelsior_id, slurm_id in list(_slurm_job_map.items()):
+    with pg_connection() as conn:
+        cursor = conn.execute("SELECT xcelsior_job_id, slurm_job_id FROM slurm_job_mappings")
+        mappings = cursor.fetchall()
+        
+    for row in mappings:
+        xcelsior_id = row[0]
+        slurm_id = row[1]
         status = get_slurm_job_status(slurm_id)
         if "error" in status:
             continue
@@ -551,9 +544,12 @@ def sync_slurm_statuses(update_callback=None):
 
         # Clean up completed/failed jobs from tracking
         if new_state in ("completed", "failed", "cancelled"):
-            del _slurm_job_map[xcelsior_id]
+            with pg_transaction() as conn:
+                conn.execute(
+                    "DELETE FROM slurm_job_mappings WHERE xcelsior_job_id = %s",
+                    (xcelsior_id,)
+                )
 
-    _save_slurm_map()
     return changes
 
 
@@ -595,8 +591,13 @@ def slurm_status_cli(xcelsior_job_id=None, slurm_job_id=None):
     if slurm_job_id:
         status = get_slurm_job_status(slurm_job_id)
     elif xcelsior_job_id:
-        _load_slurm_map()
-        s_id = _slurm_job_map.get(xcelsior_job_id)
+        from db import pg_connection
+        with pg_connection() as conn:
+            row = conn.execute(
+                "SELECT slurm_job_id FROM slurm_job_mappings WHERE xcelsior_job_id = %s",
+                (xcelsior_job_id,)
+            ).fetchone()
+            s_id = row[0] if row else None
         if not s_id:
             return f"No Slurm job found for Xcelsior job {xcelsior_job_id}"
         status = get_slurm_job_status(s_id)
