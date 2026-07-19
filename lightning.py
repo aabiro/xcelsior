@@ -7,12 +7,12 @@ import json
 import logging
 import os
 import ssl
-import sqlite3
+from psycopg.rows import dict_row
+from db import pg_transaction, pg_connection
 import time
 import urllib.error
 import urllib.request
 import uuid
-from contextlib import contextmanager
 
 log = logging.getLogger("xcelsior")
 
@@ -26,10 +26,10 @@ LN_DB_PATH = os.environ.get("XCELSIOR_LN_DB_PATH", "xcelsior_ln.db")
 LN_MIN_CAD = float(os.environ.get("XCELSIOR_LN_MIN_CAD", "1"))
 LN_MAX_CAD = float(os.environ.get("XCELSIOR_LN_MAX_CAD", "1000"))
 
-# SSL context for clnrest (self-signed certificate)
+# SSL context for clnrest
 _ssl_ctx = ssl.create_default_context()
-_ssl_ctx.check_hostname = False
-_ssl_ctx.verify_mode = ssl.CERT_NONE
+if os.environ.get("XCELSIOR_LN_CA_CERT"):
+    _ssl_ctx.load_verify_locations(os.environ.get("XCELSIOR_LN_CA_CERT"))
 
 
 # ── CLN clnrest HTTP API ──────────────────────────────────────────────
@@ -153,67 +153,6 @@ def get_btc_cad_rate() -> float:
         raise RuntimeError(f"Unable to fetch BTC/CAD rate: {e}") from e
 
 
-# ── Database ──────────────────────────────────────────────────────────
-
-
-def _get_ln_db_path() -> str:
-    return os.environ.get("XCELSIOR_LN_DB_PATH", LN_DB_PATH)
-
-
-@contextmanager
-def _ln_conn():
-    path = _get_ln_db_path()
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=5000")
-    try:
-        yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-
-def _ensure_ln_tables():
-    with _ln_conn() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS ln_deposits (
-                deposit_id TEXT PRIMARY KEY,
-                customer_id TEXT NOT NULL,
-                label TEXT NOT NULL UNIQUE,
-                bolt11 TEXT NOT NULL,
-                payment_hash TEXT NOT NULL,
-                amount_msat INTEGER NOT NULL,
-                amount_sats INTEGER NOT NULL,
-                amount_btc REAL NOT NULL,
-                amount_cad REAL NOT NULL,
-                btc_cad_rate REAL NOT NULL,
-                status TEXT DEFAULT 'pending',
-                payment_preimage TEXT DEFAULT '',
-                created_at REAL NOT NULL,
-                expires_at REAL NOT NULL,
-                paid_at REAL DEFAULT 0,
-                credited_at REAL DEFAULT 0
-            )
-        """)
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_ln_deposits_customer ON ln_deposits(customer_id)"
-        )
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_ln_deposits_label ON ln_deposits(label)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_ln_deposits_status ON ln_deposits(status)")
-
-
-_tables_ensured = False
-
-
-def _ensure_tables_once():
-    global _tables_ensured
-    if not _tables_ensured:
-        _ensure_ln_tables()
-        _tables_ensured = True
 
 
 # ── Deposit Lifecycle ─────────────────────────────────────────────────
@@ -274,7 +213,6 @@ def create_deposit(customer_id: str, amount_cad: float) -> dict:
         dict with deposit_id, bolt11, amount_sats, amount_cad, btc_cad_rate,
         expires_at, payment_hash.
     """
-    _ensure_tables_once()
 
     if not LN_ENABLED:
         raise RuntimeError("Lightning deposits are not enabled")
@@ -297,13 +235,13 @@ def create_deposit(customer_id: str, amount_cad: float) -> dict:
 
     invoice = create_invoice(amount_msat, label, description)
 
-    with _ln_conn() as conn:
+    with pg_transaction() as conn:
         conn.execute(
             """INSERT INTO ln_deposits
                (deposit_id, customer_id, label, bolt11, payment_hash,
                 amount_msat, amount_sats, amount_btc, amount_cad, btc_cad_rate,
                 status, created_at, expires_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)""",
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s, %s)""",
             (
                 deposit_id,
                 customer_id,
@@ -343,9 +281,8 @@ def create_deposit(customer_id: str, amount_cad: float) -> dict:
 
 def check_deposit(deposit_id: str) -> dict | None:
     """Check status of a Lightning deposit. Updates DB if newly paid."""
-    _ensure_tables_once()
 
-    with _ln_conn() as conn:
+    with pg_transaction() as conn:
         row = conn.execute(
             "SELECT * FROM ln_deposits WHERE deposit_id = ?", (deposit_id,)
         ).fetchone()
@@ -366,13 +303,13 @@ def check_deposit(deposit_id: str) -> dict | None:
     now = time.time()
 
     if cln_status == "paid" and dep["status"] != "paid":
-        with _ln_conn() as conn:
+        with pg_transaction() as conn:
             conn.execute(
                 """UPDATE ln_deposits
                    SET status = 'paid',
-                       payment_preimage = ?,
-                       paid_at = ?
-                   WHERE deposit_id = ? AND status IN ('pending')""",
+                       payment_preimage = %s,
+                       paid_at = %s
+                   WHERE deposit_id = %s AND status IN ('pending')""",
                 (inv.get("payment_preimage", ""), inv.get("paid_at", now), deposit_id),
             )
         dep["status"] = "paid"
@@ -381,9 +318,9 @@ def check_deposit(deposit_id: str) -> dict | None:
         log.info("LN DEPOSIT PAID: %s | %d sats", deposit_id, dep["amount_sats"])
 
     elif cln_status == "expired" and dep["status"] == "pending":
-        with _ln_conn() as conn:
+        with pg_transaction() as conn:
             conn.execute(
-                "UPDATE ln_deposits SET status = 'expired' WHERE deposit_id = ? AND status = 'pending'",
+                "UPDATE ln_deposits SET status = 'expired' WHERE deposit_id = %s AND status = 'pending'",
                 (deposit_id,),
             )
         dep["status"] = "expired"
@@ -393,8 +330,7 @@ def check_deposit(deposit_id: str) -> dict | None:
 
 def mark_credited(deposit_id: str) -> bool:
     """Mark a paid deposit as credited (wallet balance updated)."""
-    _ensure_tables_once()
-    with _ln_conn() as conn:
+    with pg_transaction() as conn:
         result = conn.execute(
             """UPDATE ln_deposits
                SET status = 'credited', credited_at = ?
@@ -406,24 +342,21 @@ def mark_credited(deposit_id: str) -> bool:
 
 def get_pending_deposits() -> list[dict]:
     """Get all pending (unpaid) Lightning deposits for confirmation checking."""
-    _ensure_tables_once()
-    with _ln_conn() as conn:
+    with pg_transaction() as conn:
         rows = conn.execute("SELECT * FROM ln_deposits WHERE status = 'pending'").fetchall()
         return [dict(r) for r in rows]
 
 
 def get_paid_uncredited() -> list[dict]:
     """Get all paid but not yet credited deposits."""
-    _ensure_tables_once()
-    with _ln_conn() as conn:
+    with pg_transaction() as conn:
         rows = conn.execute("SELECT * FROM ln_deposits WHERE status = 'paid'").fetchall()
         return [dict(r) for r in rows]
 
 
 def get_customer_deposits(customer_id: str, limit: int = 20) -> list[dict]:
     """Get recent Lightning deposits for a customer."""
-    _ensure_tables_once()
-    with _ln_conn() as conn:
+    with pg_transaction() as conn:
         rows = conn.execute(
             "SELECT * FROM ln_deposits WHERE customer_id = ? ORDER BY created_at DESC LIMIT ?",
             (customer_id, limit),
