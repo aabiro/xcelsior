@@ -40,6 +40,13 @@ class StorageBackend(str, Enum):
     S3 = "s3"  # Generic S3-compatible
 
 
+class StorageUnavailable(RuntimeError):
+    """A configured remote artifact backend cannot be reached or
+    initialized (data-architecture companion §6.6). Raised instead of
+    silently degrading to local ``file://`` storage — a misconfigured
+    production backend must fail loudly, never masquerade as healthy."""
+
+
 class ArtifactType(str, Enum):
     MODEL_WEIGHTS = "model_weights"
     JOB_OUTPUT = "job_output"
@@ -138,18 +145,32 @@ class StorageClient:
         self._client = None
 
     def _get_client(self):
-        """Lazy-initialize boto3 S3 client."""
+        """Lazy-initialize the boto3 S3 client.
+
+        Returns ``None`` ONLY for the explicit local backend (the
+        development/filesystem profile). For any remote backend a missing
+        SDK or a client-init failure is fatal — it raises
+        :class:`StorageUnavailable` rather than returning ``None``, which
+        every caller would otherwise treat as "use local file:// storage"
+        (companion §6.6: no silent remote→local fallback).
+        """
         if self._client is not None:
             return self._client
 
-        # Local backend doesn't use remote S3 — always use filesystem fallback
+        # Local backend doesn't use remote S3 — filesystem path (dev profile).
         if self.config.backend == StorageBackend.LOCAL:
             return None
 
         try:
             import boto3
             from botocore.config import Config as BotoConfig
+        except ImportError as exc:
+            raise StorageUnavailable(
+                f"artifact backend is '{self.config.backend}' but boto3 is not "
+                "installed; refusing to fall back to local file:// storage"
+            ) from exc
 
+        try:
             kwargs = {
                 "service_name": "s3",
                 "aws_access_key_id": self.config.access_key_id,
@@ -159,7 +180,6 @@ class StorageClient:
                     retries={"max_attempts": 3, "mode": "standard"},
                 ),
             }
-
             if self.config.endpoint_url:
                 kwargs["endpoint_url"] = self.config.endpoint_url
             if self.config.region:
@@ -167,12 +187,11 @@ class StorageClient:
 
             self._client = boto3.client(**kwargs)
             return self._client
-        except ImportError:
-            log.warning(
-                "boto3 not installed — storage operations will fail. "
-                "Install with: pip install boto3"
-            )
-            return None
+        except Exception as exc:
+            raise StorageUnavailable(
+                f"failed to initialize '{self.config.backend}' storage client: "
+                f"{exc}"
+            ) from exc
 
     def generate_upload_url(
         self,
@@ -343,8 +362,10 @@ class StorageClient:
                 for obj in response.get("Contents", [])
             ]
         except Exception as e:
+            # A listing error is an error — never return an empty list that
+            # a caller would report as "no artifacts" (companion §6.6).
             log.error("Failed to list objects: %s", e)
-            return []
+            raise StorageUnavailable(f"list_objects failed: {e}") from e
 
     # ── Local filesystem fallback ────────────────────────────────────
 
