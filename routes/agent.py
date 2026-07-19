@@ -774,15 +774,96 @@ class TelemetryPayload(BaseModel):
     metrics: dict = {}
 
 
+def _telemetry_pg_enabled() -> bool:
+    return os.environ.get("XCELSIOR_DB_BACKEND", "postgres").lower() in (
+        "postgres",
+        "dual",
+    )
+
+
+def _persist_telemetry_latest(host_id: str, record: dict) -> None:
+    """Upsert one host's latest telemetry into ``telemetry_latest``
+    (migration 057) so every API replica shares one view instead of each
+    keeping its own process-local dict — the fleet's live state stops
+    living in one worker's memory (data-architecture companion §2.6/§5.8).
+
+    Best-effort: the process-local cache remains the dev/sqlite path, and a
+    DB blip never fails the agent's telemetry post. One row per host
+    (``gpu_uuid=''``); the schema allows per-GPU rows for future detail.
+    """
+    if not _telemetry_pg_enabled():
+        return
+    try:
+        from psycopg.types.json import Jsonb
+
+        sample = {
+            "timestamp": record.get("timestamp"),
+            "metrics": record.get("metrics", {}),
+        }
+        with _get_pg_pool().connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO telemetry_latest (host_id, gpu_uuid, sample, received_at)
+                VALUES (%s, '', %s, clock_timestamp())
+                ON CONFLICT (host_id, gpu_uuid) DO UPDATE
+                   SET sample = EXCLUDED.sample,
+                       received_at = clock_timestamp()
+                """,
+                (host_id, Jsonb(sample)),
+            )
+    except Exception as e:
+        log.debug("telemetry_latest upsert failed for %s: %s", host_id, e)
+
+
+def _read_telemetry_latest(host_id: str | None = None) -> dict[str, dict] | None:
+    """Latest telemetry for one host (or the whole fleet) from the shared
+    ``telemetry_latest`` store, or ``None`` when it is unavailable so the
+    caller falls back to the process-local cache. ``received_at`` is the
+    DB-clock epoch (authoritative freshness, §12.2)."""
+    if not _telemetry_pg_enabled():
+        return None
+    try:
+        with _get_pg_pool().connection() as conn:
+            if host_id is not None:
+                rows = conn.execute(
+                    "SELECT host_id, sample, "
+                    "EXTRACT(EPOCH FROM received_at) AS recv_epoch "
+                    "FROM telemetry_latest WHERE gpu_uuid = '' AND host_id = %s",
+                    (host_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT host_id, sample, "
+                    "EXTRACT(EPOCH FROM received_at) AS recv_epoch "
+                    "FROM telemetry_latest WHERE gpu_uuid = ''"
+                ).fetchall()
+    except Exception as e:
+        log.debug("telemetry_latest read failed: %s", e)
+        return None
+    result: dict[str, dict] = {}
+    for r in rows:
+        hid = r["host_id"] if isinstance(r, dict) else r[0]
+        sample = (r["sample"] if isinstance(r, dict) else r[1]) or {}
+        recv = float(r["recv_epoch"] if isinstance(r, dict) else r[2])
+        result[str(hid)] = {
+            "timestamp": sample.get("timestamp"),
+            "metrics": sample.get("metrics", {}),
+            "received_at": recv,
+        }
+    return result
+
+
 @router.post("/agent/telemetry", tags=["Telemetry"])
 def api_agent_telemetry(payload: TelemetryPayload, request: Request):
     """Receive periodic GPU telemetry from agent (every 5s)."""
     _require_agent_auth(request, host_id=payload.host_id)
-    _host_telemetry[payload.host_id] = {
+    record = {
         "timestamp": payload.timestamp or time.time(),
         "metrics": payload.metrics,
         "received_at": time.time(),
     }
+    _host_telemetry[payload.host_id] = record  # fast local cache
+    _persist_telemetry_latest(payload.host_id, record)  # shared across replicas
     return {"ok": True}
 
 
@@ -790,10 +871,14 @@ def api_agent_telemetry(payload: TelemetryPayload, request: Request):
 def api_get_telemetry(host_id: str, request: Request):
     """Get latest telemetry for a host (dashboard live gauges)."""
     _require_user_grant(request, allow_api_key=True)
-    if host_id not in _host_telemetry:
+    shared = _read_telemetry_latest(host_id)
+    if shared is not None and host_id in shared:
+        data = shared[host_id]
+    elif host_id in _host_telemetry:
+        data = _host_telemetry[host_id]  # dev/sqlite or pre-persist fallback
+    else:
         raise HTTPException(404, f"No telemetry for host {host_id}")
 
-    data = _host_telemetry[host_id]
     stale = (time.time() - data.get("received_at", 0)) > 30  # >30s = stale
     return {"ok": True, "host_id": host_id, "stale": stale, **data}
 
@@ -804,9 +889,11 @@ def api_all_telemetry(request: Request):
     user = _require_user_grant(request, allow_api_key=True)
     if not user.get("is_admin") and user.get("role") != "provider":
         raise HTTPException(403, "Admin or provider role required")
+    shared = _read_telemetry_latest()
+    source = shared if shared is not None else _host_telemetry
     now = time.time()
     result = {}
-    for host_id, data in _host_telemetry.items():
+    for host_id, data in source.items():
         result[host_id] = {
             **data,
             "stale": (now - data.get("received_at", 0)) > 30,
