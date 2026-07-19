@@ -29,6 +29,19 @@ def redis_rate_limits_enabled() -> bool:
     )
 
 
+def _redis_timeout_sec() -> float:
+    """Socket timeout bound for the rate-limit Redis path.
+
+    A Redis outage must fail fast — well under the API request deadline —
+    so a stalled limiter can never hold the request open or trigger retry
+    storms that exhaust the connection pool (companion §5.5).
+    """
+    try:
+        return max(0.1, float(os.environ.get("XCELSIOR_SERVERLESS_REDIS_TIMEOUT_SEC", "2")))
+    except (TypeError, ValueError):
+        return 2.0
+
+
 def _get_redis():
     global _REDIS_CLIENT, _REDIS_TRIED
     if _REDIS_TRIED:
@@ -42,7 +55,16 @@ def _get_redis():
     try:
         import redis
 
-        _REDIS_CLIENT = redis.from_url(url, decode_responses=True)
+        timeout = _redis_timeout_sec()
+        # Bounded socket timeouts + a single (non-retrying) attempt so a
+        # Redis hang surfaces quickly instead of blocking the request.
+        _REDIS_CLIENT = redis.from_url(
+            url,
+            decode_responses=True,
+            socket_timeout=timeout,
+            socket_connect_timeout=timeout,
+            retry_on_timeout=False,
+        )
         _REDIS_CLIENT.ping()
         return _REDIS_CLIENT
     except Exception as exc:

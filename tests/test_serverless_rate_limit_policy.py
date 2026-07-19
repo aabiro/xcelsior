@@ -7,6 +7,8 @@ behavior is an explicit policy, and an undefined production policy is
 rejected (fail closed).
 """
 
+from unittest import mock
+
 import pytest
 
 from serverless import limits
@@ -101,3 +103,52 @@ class TestCheckBehaviorWhenGlobalLimiterDown:
         # No silent per-process fallback: the check raises rather than admit.
         with pytest.raises(RateLimitPolicyError):
             check_key_rate_limit("k-prod", rpm=60)
+
+
+class TestRedisTimeoutBound:
+    """Companion §5.5: a Redis outage must fail fast (bounded socket
+    timeout) so it never holds the request open or triggers retry storms."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_redis_cache(self):
+        import serverless.rate_limit_store as rls
+        rls._REDIS_TRIED = False
+        rls._REDIS_CLIENT = None
+        yield
+        rls._REDIS_TRIED = False
+        rls._REDIS_CLIENT = None
+
+    def test_timeout_default_floor_and_bad_value(self, monkeypatch):
+        import serverless.rate_limit_store as rls
+        monkeypatch.delenv("XCELSIOR_SERVERLESS_REDIS_TIMEOUT_SEC", raising=False)
+        assert rls._redis_timeout_sec() == 2.0
+        monkeypatch.setenv("XCELSIOR_SERVERLESS_REDIS_TIMEOUT_SEC", "0.01")
+        assert rls._redis_timeout_sec() == 0.1  # floored
+        monkeypatch.setenv("XCELSIOR_SERVERLESS_REDIS_TIMEOUT_SEC", "5")
+        assert rls._redis_timeout_sec() == 5.0
+        monkeypatch.setenv("XCELSIOR_SERVERLESS_REDIS_TIMEOUT_SEC", "garbage")
+        assert rls._redis_timeout_sec() == 2.0  # fail-safe default
+
+    def test_get_redis_passes_bounded_timeouts(self, monkeypatch):
+        import serverless.rate_limit_store as rls
+        monkeypatch.setenv("XCELSIOR_SERVERLESS_REDIS_RATE_LIMITS", "true")
+        monkeypatch.setenv("XCELSIOR_SERVERLESS_REDIS_URL", "redis://localhost:6379/0")
+        monkeypatch.setenv("XCELSIOR_SERVERLESS_REDIS_TIMEOUT_SEC", "1.5")
+
+        captured: dict = {}
+        fake_client = mock.Mock()
+
+        def fake_from_url(url, **kw):
+            captured.update(kw)
+            return fake_client
+
+        fake_redis = mock.Mock()
+        fake_redis.from_url = fake_from_url
+        with mock.patch.dict("sys.modules", {"redis": fake_redis}):
+            client = rls._get_redis()
+
+        assert client is fake_client
+        assert captured["socket_timeout"] == 1.5
+        assert captured["socket_connect_timeout"] == 1.5
+        assert captured["retry_on_timeout"] is False
+        fake_client.ping.assert_called_once()
