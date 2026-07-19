@@ -45,6 +45,11 @@ DEFAULT_MISSING_GRACE_SEC = 180.0
 
 _ACTIVE_RUNTIME_ATTEMPT_STATUSES = ("lease_claimed", "starting", "running")
 _OBSERVED_LIVE_STATES = ("preparing", "running", "paused")
+# An attempt in any of these is done; its device allocations should have
+# been released at settlement. A still-active allocation here is a leak.
+_TERMINAL_ATTEMPT_STATUSES = (
+    "succeeded", "failed", "cancelled", "preempted", "lost", "fenced",
+)
 
 # Stale-fence stop command lives long enough to survive a worker restart
 # cycle; the worker GCs expired admin commands on drain.
@@ -75,8 +80,13 @@ class ActionPolicy(str, enum.Enum):
 #   the lease-deadline sweep never catches). Remediation expedites the
 #   lease's expiry so the tested lease controller revokes authority and
 #   requeues — the retry mints a higher fence that fences any zombie.
+# - `orphaned_allocation`: a gpu_device_allocation left `active` after its
+#   attempt reached a terminal state (§8.2 capacity leak from a crashed or
+#   partial settlement). Remediation releases the allocation so the device
+#   is schedulable again — idempotent and safe (the attempt is already
+#   done, so nothing is using the device).
 _ENFORCEABLE: frozenset[str] = frozenset(
-    {"stale_fence_container", "attempt_container_missing"}
+    {"stale_fence_container", "attempt_container_missing", "orphaned_allocation"}
 )
 
 
@@ -226,6 +236,57 @@ def _expedite_lease_expiry(
         "attempt_id": attempt_id,
         "leases_expedited": result.rowcount,
     }
+
+
+def _find_orphaned_allocations(
+    conn: Connection, host_id: str
+) -> list[dict[str, Any]]:
+    """Active device allocations on this host whose attempt is terminal."""
+    rows = conn.execute(
+        """
+        SELECT a.allocation_id, a.gpu_device_id, a.attempt_id, ja.status
+          FROM gpu_device_allocations a
+          JOIN job_attempts ja ON ja.attempt_id = a.attempt_id
+         WHERE a.host_id = %s
+           AND a.status = 'active'
+           AND ja.status = ANY(%s)
+         ORDER BY a.allocation_id
+        """,
+        (host_id, list(_TERMINAL_ATTEMPT_STATUSES)),
+    ).fetchall()
+    return [
+        {
+            "allocation_id": str(_get(r, "allocation_id", 0)),
+            "gpu_device_id": str(_get(r, "gpu_device_id", 1)),
+            "attempt_id": str(_get(r, "attempt_id", 2)),
+            "attempt_status": str(_get(r, "status", 3)),
+        }
+        for r in rows
+    ]
+
+
+def _release_orphaned_allocations(
+    conn: Connection, allocation_ids: list[str]
+) -> dict[str, Any]:
+    """Release leaked allocations so their devices become schedulable.
+
+    Idempotent: the attempts are already terminal, so nothing is using the
+    devices; the release-shape CHECK is satisfied by stamping released_at.
+    """
+    if not allocation_ids:
+        return {"action": "release_allocation", "released": 0}
+    result = conn.execute(
+        """
+        UPDATE gpu_device_allocations
+           SET status = 'released',
+               released_at = clock_timestamp(),
+               release_reason = 'reconciler_orphan'
+         WHERE allocation_id = ANY(%s)
+           AND status = 'active'
+        """,
+        (allocation_ids,),
+    )
+    return {"action": "release_allocation", "released": result.rowcount}
 
 
 def _record_action(
@@ -429,6 +490,33 @@ def reconcile_host(
             )
             if finding_id is not None:
                 opened.append("unmanaged_workload")
+
+    # Capacity backstop (§8.2): device allocations left active after their
+    # attempt terminated. Independent of the observation payload — a purely
+    # DB-internal consistency check that piggybacks on the per-host pass.
+    orphans = _find_orphaned_allocations(conn, host_id)
+    if orphans:
+        key = ("host", host_id, "orphaned_allocation")
+        still_open.add(key)
+        finding_id = _open_finding(
+            conn,
+            resource_type="host", resource_id=host_id,
+            finding_type="orphaned_allocation", severity="warning",
+            summary=(
+                f"{len(orphans)} device allocation(s) on {host_id} are still "
+                f"active but their attempt is terminal — capacity leak"
+            ),
+            desired=None,
+            observed={"orphans": orphans},
+        )
+        if finding_id is not None:
+            opened.append("orphaned_allocation")
+            if action_policy_for("orphaned_allocation") is ActionPolicy.ENFORCE:
+                result = _release_orphaned_allocations(
+                    conn, [o["allocation_id"] for o in orphans]
+                )
+                _record_action(conn, finding_id, "release_allocation", result)
+                actions.append("orphaned_allocation")
 
     resolved = _resolve_findings_not_in(conn, host_id=host_id, still_open=still_open)
     return ReconcileReport(
