@@ -132,6 +132,8 @@ def api_list_all_artifacts(request: Request):
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "artifacts:read")
 
+    from artifacts import StorageUnavailable
+
     try:
         mgr = get_artifact_manager()
         objects: list[dict] = []
@@ -148,9 +150,23 @@ def api_list_all_artifacts(request: Request):
             for slot in slots:
                 objects.extend(mgr.get_job_artifacts(slot))
         return {"ok": True, "artifacts": [_entry_from_object(o) for o in objects]}
+    except StorageUnavailable as e:
+        # A storage outage is NOT "no artifacts" — surface it as 503 so the
+        # UI shows an error instead of a silently-empty list (companion §6.6).
+        log.error("artifacts.list_all storage unavailable user=%s: %s",
+                  user.get("user_id"), e)
+        raise HTTPException(
+            status_code=503,
+            detail={"error": {"code": "storage_unavailable",
+                              "message": "Artifact storage is unavailable"}},
+        )
     except Exception as e:
-        log.warning("artifacts.list_all failed user=%s: %s", user.get("user_id"), e)
-        return {"ok": True, "artifacts": []}
+        log.error("artifacts.list_all failed user=%s: %s", user.get("user_id"), e)
+        raise HTTPException(
+            status_code=500,
+            detail={"error": {"code": "artifact_list_failed",
+                              "message": "Failed to list artifacts"}},
+        )
 
 
 @router.get("/api/artifacts/{job_id}", tags=["Artifacts"])

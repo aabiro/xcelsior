@@ -3,6 +3,7 @@
 import os
 import tempfile
 import time
+from unittest import mock
 
 import pytest
 
@@ -17,6 +18,7 @@ from artifacts import (
     StorageBackend,
     StorageClient,
     StorageConfig,
+    StorageUnavailable,
 )
 
 # ── StorageConfig ────────────────────────────────────────────────────
@@ -368,3 +370,69 @@ class TestArtifactManagerNoCache:
     def test_download_without_cache_uses_primary(self):
         result = self.manager.request_download("model_weights/job-1/w.bin", prefer_cache=True)
         assert self._dir in result["url"]
+
+
+# ── Remote backend fail-closed behavior (companion §2.4/§6.6) ────────
+
+
+class TestRemoteBackendFailsClosed:
+    """A configured remote backend that cannot initialize must fail closed
+    (StorageUnavailable), never silently fall back to local file:// storage."""
+
+    def _remote(self):
+        cfg = StorageConfig(
+            backend=StorageBackend.S3,
+            bucket="b",
+            access_key_id="k",
+            secret_access_key="s",
+            endpoint_url="https://example.invalid",
+        )
+        return StorageClient(cfg)
+
+    def test_get_client_raises_when_boto3_missing(self):
+        client = self._remote()
+        with mock.patch.dict("sys.modules", {"boto3": None}):
+            with pytest.raises(StorageUnavailable):
+                client._get_client()
+
+    def test_upload_url_fails_closed_not_local(self):
+        client = self._remote()
+        with mock.patch.dict("sys.modules", {"boto3": None}):
+            with pytest.raises(StorageUnavailable):
+                client.generate_upload_url("job_output/j1/out.bin")
+
+    def test_download_url_fails_closed_not_local(self):
+        client = self._remote()
+        with mock.patch.dict("sys.modules", {"boto3": None}):
+            with pytest.raises(StorageUnavailable):
+                client.generate_download_url("job_output/j1/out.bin")
+
+    def test_list_objects_fails_closed_when_unavailable(self):
+        client = self._remote()
+        with mock.patch.dict("sys.modules", {"boto3": None}):
+            with pytest.raises(StorageUnavailable):
+                client.list_objects("job_output/")
+
+    def test_get_client_raises_on_init_failure(self):
+        client = self._remote()
+        with mock.patch("boto3.client", side_effect=RuntimeError("bad creds")):
+            with pytest.raises(StorageUnavailable):
+                client._get_client()
+
+    def test_list_objects_reraises_client_error_not_empty(self):
+        # A working client that errors on list must NOT return [] (which a
+        # caller would report as "no artifacts").
+        client = self._remote()
+        fake = mock.Mock()
+        fake.list_objects_v2.side_effect = RuntimeError("network")
+        client._client = fake
+        with pytest.raises(StorageUnavailable):
+            client.list_objects("job_output/")
+
+    def test_local_backend_unchanged(self, tmp_path):
+        cfg = StorageConfig(backend=StorageBackend.LOCAL, local_dir=str(tmp_path))
+        client = StorageClient(cfg)
+        # The explicit local/dev profile still returns file:// and never raises.
+        up = client.generate_upload_url("job_output/j1/out.txt")
+        assert up["url"].startswith("file://")
+        assert client.list_objects("job_output/") == []
