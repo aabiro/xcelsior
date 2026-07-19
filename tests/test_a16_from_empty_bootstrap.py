@@ -277,7 +277,7 @@ def test_from_empty_bootstrap_reaches_head(empty_db):
     assert "from-empty bootstrap: done" in result.stdout
 
     rev = _alembic_current(empty_db)
-    assert rev == "059", f"expected head 059, got {rev!r}"
+    assert rev == "a0985327493e", f"expected head a0985327493e, got {rev!r}"
 
     for table in REQUIRED_AT_HEAD:
         assert _table_exists(empty_db, table), f"missing table after bootstrap: {table}"
@@ -308,7 +308,7 @@ def test_from_empty_bootstrap_is_deterministic(empty_db):
         second = _run_bootstrap(dsn2)
         assert second.returncode == 0, second.stderr
         rev2 = _alembic_current(dsn2)
-        assert rev1 == rev2 == "059"
+        assert rev1 == rev2 == "a0985327493e"
         assert _table_exists(dsn2, "agent_commands")
         assert _column_exists(dsn2, "agent_commands", "command_id")
     finally:
