@@ -621,6 +621,22 @@ def readyz():
     else:
         schema = None
 
+    # Serverless rate-limit degradation policy must be explicitly declared
+    # in production (data-architecture companion §2.3/§5.5): a service that
+    # would silently fall back to per-process rate limiting is not ready.
+    try:
+        from serverless.limits import RateLimitPolicyError, validate_rate_limit_policy
+
+        validate_rate_limit_policy()
+    except RateLimitPolicyError as exc:
+        raise HTTPException(
+            status_code=503, detail=f"Rate-limit policy misconfigured: {exc}"
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # never let an unrelated import error mask readiness
+
     storage = storage_healthcheck()
     if not storage.get("ok"):
         raise HTTPException(

@@ -29,6 +29,10 @@ x-api-environment: &api-env
   XCELSIOR_DUAL_READ_FROM: ${XCELSIOR_DUAL_READ_FROM:-postgres}
   XCELSIOR_RATE_LIMIT_REQUESTS: ${XCELSIOR_RATE_LIMIT_REQUESTS:-120}
   XCELSIOR_RATE_LIMIT_WINDOW_SEC: ${XCELSIOR_RATE_LIMIT_WINDOW_SEC:-60}
+  # Serverless rate-limit degradation policy (companion §2.3/§5.5): what
+  # happens when the global Redis limiter is unavailable. Production must
+  # declare it (undefined fails /readyz); no silent per-process fallback.
+  XCELSIOR_SERVERLESS_RATE_LIMIT_POLICY: ${XCELSIOR_SERVERLESS_RATE_LIMIT_POLICY:-strict-deny}
   # Track A canary ownership must be identical in the API and scheduler.
   # The API still runs legacy queue walkers during rollout; without these
   # values it cannot skip jobs owned by the transactional scheduler.
