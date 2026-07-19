@@ -748,6 +748,28 @@ class TestAuth:
 
 
 class TestTelemetry:
+    @pytest.fixture(autouse=True)
+    def _isolate_telemetry(self):
+        # Telemetry now persists to the shared telemetry_latest table
+        # (companion §2.6/§5.8), which survives across tests — reset both it
+        # and the process-local cache so counts are deterministic.
+        from routes.agent import _host_telemetry
+
+        def _reset():
+            _host_telemetry.clear()
+            try:
+                from db import _get_pg_pool
+
+                with _get_pg_pool().connection() as conn:
+                    conn.execute("DELETE FROM telemetry_latest WHERE gpu_uuid = ''")
+                    conn.commit()
+            except Exception:
+                pass
+
+        _reset()
+        yield
+        _reset()
+
     def test_telemetry_push_pull(self):
         """POST telemetry → GET returns it."""
         token, _ = _register_user("telemetry-user@xcelsior.ca")
@@ -802,6 +824,43 @@ class TestTelemetry:
         }
         r = client.get("/agent/telemetry/h-stale", headers=_bearer(token))
         assert r.json()["stale"] is True
+
+    def test_telemetry_shared_across_replicas(self):
+        """Telemetry posted to one replica is visible from another via the
+        shared telemetry_latest store — not trapped in one process's memory
+        (companion §2.6/§5.8)."""
+        from db import _get_pg_pool
+
+        try:
+            with _get_pg_pool().connection() as conn:
+                conn.execute("SELECT to_regclass('telemetry_latest')")
+        except Exception:
+            pytest.skip("no postgres telemetry_latest")
+
+        token, _ = _register_user("telemetry-shared@xcelsior.ca")
+        client.post(
+            "/agent/telemetry",
+            json={"host_id": "h-shared", "metrics": {"utilization": 77}},
+        )
+        # Simulate a *different* API replica: it never received the POST, so
+        # its process-local cache is empty — the read must come from the DB.
+        from routes.agent import _host_telemetry
+
+        _host_telemetry.clear()
+
+        r = client.get("/agent/telemetry/h-shared", headers=_bearer(token))
+        assert r.status_code == 200
+        assert r.json()["metrics"]["utilization"] == 77
+        assert r.json()["stale"] is False
+
+        # And the row is really in the shared table.
+        with _get_pg_pool().connection() as conn:
+            row = conn.execute(
+                "SELECT sample->'metrics'->>'utilization' FROM telemetry_latest "
+                "WHERE host_id = 'h-shared' AND gpu_uuid = ''"
+            ).fetchone()
+        assert row is not None
+        assert (row[0] if not isinstance(row, dict) else list(row.values())[0]) == "77"
 
 
 class TestReputation:
