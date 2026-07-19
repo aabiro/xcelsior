@@ -429,6 +429,23 @@ class TestHealthEndpoint:
         assert r.status_code == 200
         assert r.json().get("schema") is None
 
+    def test_readyz_503_on_undefined_serverless_rate_limit_policy(self, monkeypatch):
+        # Production with no declared degradation policy is not ready — the
+        # service would otherwise silently fall back to per-process rate
+        # limiting (companion §2.3/§5.5). Bypass the schema gate to isolate.
+        monkeypatch.setenv("XCELSIOR_READYZ_SCHEMA_CHECK", "false")
+        monkeypatch.setenv("XCELSIOR_ENV", "production")
+        monkeypatch.delenv("XCELSIOR_SERVERLESS_RATE_LIMIT_POLICY", raising=False)
+        r = client.get("/readyz")
+        assert r.status_code == 503
+        assert "rate-limit policy" in r.json()["error"]["message"].lower()
+
+    def test_readyz_ok_with_declared_policy(self, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_ENV", "production")
+        monkeypatch.setenv("XCELSIOR_SERVERLESS_RATE_LIMIT_POLICY", "strict-deny")
+        r = client.get("/readyz")
+        assert r.status_code == 200
+
     def test_metrics(self):
         r = client.get("/metrics")
         assert r.status_code == 200
