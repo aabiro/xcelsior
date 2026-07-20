@@ -1,0 +1,35 @@
+name: Sync to Org Mirror
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch all history so push succeeds seamlessly
+
+      - name: Push to Org Mirror
+        env:
+          SYNC_ORG_PAT: ${{ secrets.SYNC_ORG_PAT }}
+        run: |
+          if [ -z "$SYNC_ORG_PAT" ]; then
+            echo "Error: SYNC_ORG_PAT secret is not set."
+            exit 1
+          fi
+          
+          # Configure Git
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Add the organization repository as a remote
+          # Change 'xcelsior-gpu' or 'xcelsior' if your destination org/repo has a different name
+          git remote add mirror "https://x-access-token:${SYNC_ORG_PAT}@github.com/xcelsior-gpu/xcelsior.git"
+          
+          # Push the main branch to the organization mirror
+          git push mirror main --force
