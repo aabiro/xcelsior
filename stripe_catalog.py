@@ -154,7 +154,7 @@ def build_invoice_line_items(
             if line_type in ("storage", "serverless"):
                 product_id = resolve_platform_product_id(line_type, data)
             elif li.get("gpu_model"):
-                product_id = resolve_product_id(li.get("gpu_model"), manifest=data)
+                product_id = resolve_product_id(str(li.get("gpu_model")), manifest=data)
         if product_id:
             out.append(
                 {

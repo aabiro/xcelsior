@@ -649,6 +649,13 @@ class ArtifactManager:
                        FROM storage.artifacts WHERE artifact_id = %s""",
                     (artifact_id,),
                 ).fetchone()
+                if art is None:
+                    # The session's FK guarantees this row; its absence
+                    # means the catalog was mutated out from under us.
+                    raise RuntimeError(
+                        f"Upload session {session_id} references missing "
+                        f"artifact {artifact_id}"
+                    )
                 return {
                     "artifact_id": str(art[0]),
                     "logical_name": art[1],
@@ -686,7 +693,9 @@ class ArtifactManager:
             size_bytes = meta.get("size_bytes", 0)
 
             # 4. Atomically transition state to 'available'
-            now = conn.execute("SELECT clock_timestamp()").fetchone()[0]
+            now_row = conn.execute("SELECT clock_timestamp()").fetchone()
+            assert now_row is not None  # SELECT of a constant always returns a row
+            now = now_row[0]
             conn.execute(
                 """UPDATE storage.artifacts
                    SET state = 'available',

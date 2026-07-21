@@ -48,7 +48,7 @@ def _get(row: Any, key: str, index: int) -> Any:
 
 
 def append_event(
-    conn: Connection,
+    conn: Connection[Any],
     *,
     aggregate_type: str,
     aggregate_id: str,
@@ -84,7 +84,7 @@ def append_event(
 
 
 def claim_batch(
-    conn: Connection,
+    conn: Connection[Any],
     *,
     dispatcher_id: str,
     destination_class: str | None = None,
@@ -142,7 +142,7 @@ def claim_batch(
     ]
 
 
-def mark_published(conn: Connection, event_ids: list[str]) -> int:
+def mark_published(conn: Connection[Any], event_ids: list[str]) -> int:
     if not event_ids:
         return 0
     result = conn.execute(
@@ -161,7 +161,7 @@ def mark_published(conn: Connection, event_ids: list[str]) -> int:
 
 
 def mark_failed(
-    conn: Connection,
+    conn: Connection[Any],
     event_id: str,
     error: str,
     *,

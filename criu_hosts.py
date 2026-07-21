@@ -160,6 +160,10 @@ def job_is_resumable(job: dict[str, Any] | None) -> bool:
     """A job can resume from checkpoint when metadata is present and not expired."""
     if not job_has_checkpoint(job):
         return False
+    # job_has_checkpoint() already rejects None; restate it for the reader
+    # (and the type checker) rather than relying on that coupling.
+    if job is None:
+        return False
     meta = job.get("resume_from") or {}
     if meta.get("success") is False:
         return False
@@ -174,7 +178,8 @@ def job_is_resumable(job: dict[str, Any] | None) -> bool:
 def enrich_job_resumable(job: dict[str, Any]) -> dict[str, Any]:
     """Add ``resumable`` and ``checkpoint_class`` fields for API consumers."""
     job["resumable"] = job_is_resumable(job)
-    meta = job.get("resume_from") if isinstance(job.get("resume_from"), dict) else {}
+    raw_meta = job.get("resume_from")
+    meta: dict[str, Any] = raw_meta if isinstance(raw_meta, dict) else {}
     job["checkpoint_class"] = str(meta.get("checkpoint_class") or job.get("checkpoint_class") or "")
     return job
 

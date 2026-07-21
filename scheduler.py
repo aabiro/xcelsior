@@ -17,7 +17,10 @@ import urllib.request
 import uuid
 from contextlib import contextmanager
 from email.mime.text import MIMEText
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from psycopg import Connection as PgConnection
 
 from db import (
     get_engine,
@@ -91,17 +94,29 @@ def setup_logging(log_file=None, level=logging.INFO):
         "[%(asctime)s] %(levelname)-8s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
     )
 
-    # File handler — the permanent record
-    fh = logging.FileHandler(log_file)
-    fh.setLevel(level)
-    fh.setFormatter(fmt)
-    logger.addHandler(fh)
-
-    # Console handler — see it live
+    # Console handler — see it live. Added first so that a container with
+    # a read-only root filesystem (blueprint §19.4/§21.1 hardened image)
+    # still logs: stdout is the log stream there, and refusing to start
+    # over an unwritable *auxiliary* file would be a self-inflicted outage.
     ch = logging.StreamHandler()
     ch.setLevel(level)
     ch.setFormatter(fmt)
     logger.addHandler(ch)
+
+    # File handler — the permanent record, when the path is writable.
+    try:
+        fh = logging.FileHandler(log_file)
+    except OSError as exc:
+        logger.warning(
+            "file logging disabled (%s): %s — console only. "
+            "Set XCELSIOR_LOG_FILE to a writable path (e.g. /data/xcelsior.log).",
+            log_file,
+            exc,
+        )
+    else:
+        fh.setLevel(level)
+        fh.setFormatter(fmt)
+        logger.addHandler(fh)
 
     return logger
 
@@ -199,6 +214,18 @@ def _atomic_mutation():
         return
     with _db_connection() as conn:
         yield conn
+
+
+def _pg_conn(conn):
+    """Narrow a dual-backend connection to psycopg for control-plane calls.
+
+    ``_atomic_mutation`` yields either a sqlite3 or a psycopg connection.
+    Every call site that reaches the control-plane helpers below is already
+    guarded by ``_active_backend() == "postgres"``, but that runtime check
+    is invisible to the type checker — this makes the narrowing explicit
+    instead of leaving the union to be silently accepted.
+    """
+    return cast("PgConnection", conn)
 
 
 def _namespace_key(path):
@@ -378,7 +405,7 @@ def set_host_draining(host_id, draining=True):
             from control_plane.outbox_runtime import try_append_lifecycle_outbox
 
             outbox_enqueued = try_append_lifecycle_outbox(
-                conn,
+                _pg_conn(conn),
                 aggregate_type="host",
                 aggregate_id=str(host_id),
                 event_type="host.v1.status_changed",
@@ -1202,7 +1229,7 @@ def _persist_queue_reason(job: dict, reason: str, detail: str) -> bool:
                 # Align idempotency with the 300s process-local notify throttle.
                 window = int(time.time() // 300)
                 outbox_enqueued = try_append_lifecycle_outbox(
-                    conn,
+                    _pg_conn(conn),
                     aggregate_type="job",
                     aggregate_id=job_id,
                     event_type="job.v1.queue_blocked",
@@ -1362,7 +1389,7 @@ def register_host(
             from control_plane.outbox_runtime import try_append_lifecycle_outbox
 
             outbox_enqueued = try_append_lifecycle_outbox(
-                conn,
+                _pg_conn(conn),
                 aggregate_type="host",
                 aggregate_id=str(host_id),
                 event_type="host.v1.status_changed",
@@ -1423,7 +1450,7 @@ def update_host_spot_settings(
             from control_plane.outbox_runtime import try_append_lifecycle_outbox
 
             outbox_enqueued = try_append_lifecycle_outbox(
-                conn,
+                _pg_conn(conn),
                 aggregate_type="host",
                 aggregate_id=str(host_id),
                 event_type="host.v1.status_changed",
@@ -1477,7 +1504,7 @@ def remove_host(host_id):
             from control_plane.outbox_runtime import try_append_lifecycle_outbox
 
             outbox_enqueued = try_append_lifecycle_outbox(
-                conn,
+                _pg_conn(conn),
                 aggregate_type="host",
                 aggregate_id=str(host_id),
                 event_type="host.v1.removed",
@@ -1866,7 +1893,7 @@ def submit_job(
             from control_plane.outbox_runtime import try_append_lifecycle_outbox
 
             outbox_enqueued = try_append_lifecycle_outbox(
-                conn,
+                _pg_conn(conn),
                 aggregate_type="job",
                 aggregate_id=str(job["job_id"]),
                 event_type="job.v1.submitted",
@@ -2190,7 +2217,7 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
             else:
                 try:
                     append_event(
-                        conn,
+                        _pg_conn(conn),
                         aggregate_type="job",
                         aggregate_id=str(job_id),
                         event_type="job.v1.legacy_status_changed",
@@ -5069,7 +5096,7 @@ def update_spot_prices():
                 }
             with _atomic_mutation() as conn:
                 outbox_enqueued = try_append_lifecycle_outbox(
-                    conn,
+                    _pg_conn(conn),
                     aggregate_type="pricing",
                     aggregate_id="spot",
                     event_type="pricing.v1.spot_prices_updated",
@@ -5170,7 +5197,7 @@ def preempt_job(job_id):
             from control_plane.outbox_runtime import try_append_lifecycle_outbox
 
             outbox_enqueued = try_append_lifecycle_outbox(
-                conn,
+                _pg_conn(conn),
                 aggregate_type="job",
                 aggregate_id=str(job_id),
                 event_type="job.v1.preempted",
