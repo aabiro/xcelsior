@@ -12,6 +12,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import (
     HTMLResponse,
+    JSONResponse,
     PlainTextResponse,
     RedirectResponse,
     StreamingResponse,
@@ -59,6 +60,38 @@ _device_lock = threading.Lock()
 def healthz():
     """Lightweight liveness probe for frontend polling."""
     return {"ok": True}
+
+
+@router.get("/livez", tags=["Infrastructure"])
+def livez():
+    """Liveness (blueprint §21.3): the process is alive. No dependency calls.
+
+    Deliberately distinct from ``/readyz``: a liveness probe that touches
+    the database restarts healthy replicas during a database blip, which
+    turns a brief dependency outage into a full outage. This one only
+    proves the event loop is scheduling work.
+    """
+    return {"ok": True, "status": "alive"}
+
+
+@router.get("/startupz", tags=["Infrastructure"])
+def startupz():
+    """Startup gate (blueprint §21.3 / §30): configuration and key material.
+
+    Reports every §30 production requirement that is currently violated,
+    each with its remediation. Returns 503 while any ``error`` finding is
+    outstanding so an orchestrator holds traffic instead of promoting a
+    misconfigured replica.
+    """
+    from control_plane.startup_validation import startup_report
+
+    report = startup_report()
+    if not report["ok"]:
+        # Returned directly rather than raised: the app's HTTPException
+        # handler flattens `detail` into a single message string, and the
+        # whole point of this probe is the itemised finding list.
+        return JSONResponse(status_code=503, content=report)
+    return report
 
 
 @router.get("/dashboard", response_class=HTMLResponse, tags=["Infrastructure"])
@@ -637,6 +670,40 @@ def readyz():
     except Exception:
         pass  # never let an unrelated import error mask readiness
 
+    # Worker-identity readiness (blueprint §21.3: "required Redis/identity/
+    # config ready"). A half-configured gateway cutover is the dangerous
+    # state — the API would be told to trust identity headers it has no way
+    # to authenticate. Fail the readiness gate instead of serving.
+    identity: dict[str, Any] | None = None
+    try:
+        from control_plane.identity import (
+            agent_gateway_secret,
+            spiffe_strict_binding,
+            spiffe_trust_domain,
+            trusted_gateway_enabled,
+        )
+
+        if trusted_gateway_enabled():
+            if not agent_gateway_secret():
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "Agent identity not ready: XCELSIOR_TRUSTED_AGENT_GATEWAY=1 "
+                        "requires XCELSIOR_AGENT_GATEWAY_SECRET"
+                    ),
+                )
+            identity = {
+                "agent_gateway": True,
+                "spiffe_trust_domain": spiffe_trust_domain(),
+                "spiffe_strict": spiffe_strict_binding(),
+            }
+        else:
+            identity = {"agent_gateway": False}
+    except HTTPException:
+        raise
+    except Exception:
+        identity = None  # never let an unrelated import error mask readiness
+
     storage = storage_healthcheck()
     if not storage.get("ok"):
         raise HTTPException(
@@ -654,6 +721,8 @@ def readyz():
         )
 
     resp = {"ok": True, "status": "ready", "storage": storage, "nfs_volumes": nfs}
+    if identity is not None:
+        resp["identity"] = identity
     if schema is not None:
         resp["schema"] = {
             "current": schema.current,

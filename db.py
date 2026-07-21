@@ -35,14 +35,42 @@ DB_BACKEND = os.environ.get("XCELSIOR_DB_BACKEND", "postgres").lower()
 _DEFAULT_POSTGRES_DSN = "postgresql://xcelsior:xcelsior@localhost:5432/xcelsior"
 
 
-def resolve_postgres_dsn() -> str:
-    """Postgres DSN from env (CI sets XCELSIOR_POSTGRES_DSN or legacy XCELSIOR_PG_DSN)."""
+def resolve_shared_postgres_dsn() -> str:
+    """The shared application DSN, ignoring any per-service override.
+
+    This is the fallback every service uses until an operator cuts it
+    over to its own least-privilege role (companion §4.2).
+    """
     return (
         os.environ.get("XCELSIOR_POSTGRES_DSN")
         or os.environ.get("XCELSIOR_PG_DSN")
         or os.environ.get("DATABASE_URL")
         or _DEFAULT_POSTGRES_DSN
     )
+
+
+def resolve_postgres_dsn() -> str:
+    """Postgres DSN for this process.
+
+    Resolution order (data-architecture companion §4.2/§4.3):
+
+    1. ``XCELSIOR_POSTGRES_DSN_<SERVICE>`` for the logical service this
+       process declares via ``XCELSIOR_SERVICE`` — this is how a service
+       is cut over to its own least-privilege role. Unset by default, so
+       provisioning roles never changes behaviour on its own.
+    2. the shared application DSN (``XCELSIOR_POSTGRES_DSN`` / legacy
+       ``XCELSIOR_PG_DSN`` / ``DATABASE_URL``).
+    """
+    shared = resolve_shared_postgres_dsn()
+    try:
+        from control_plane.db_roles import current_service, service_dsn_env_var
+
+        specific = (os.environ.get(service_dsn_env_var(current_service())) or "").strip()
+        if specific:
+            return specific
+    except Exception:  # pragma: no cover - never let identity wiring break DB access
+        pass
+    return shared
 
 
 # PostgreSQL connection string (used when backend is "postgres" or "dual")
@@ -171,12 +199,24 @@ def _get_pg_pool() -> Any:
             try:
                 # Re-read DSN at pool init (conftest may set vars after import).
                 dsn = resolve_postgres_dsn()
+                # Companion §4.3: every physical session carries this
+                # service's application_name and bounded statement /
+                # lock / idle-in-transaction timeouts. Applied as libpq
+                # connect options so they hold for the life of the
+                # session and cannot be forgotten by a call site.
+                conn_kwargs: dict[str, Any] = {"autocommit": False}
+                try:
+                    from control_plane.db_roles import connection_kwargs
+
+                    conn_kwargs.update(connection_kwargs())
+                except Exception:  # pragma: no cover - defensive
+                    log.debug("per-service connection identity unavailable", exc_info=True)
                 pool = ConnectionPool(
                     dsn,
                     min_size=2,
                     max_size=PG_POOL_SIZE,
                     max_idle=PG_MAX_OVERFLOW,
-                    kwargs={"autocommit": False},
+                    kwargs=conn_kwargs,
                     reset=_reset_conn,
                 )
                 # Verify the pool can actually connect
