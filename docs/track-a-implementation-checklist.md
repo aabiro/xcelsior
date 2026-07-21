@@ -684,9 +684,139 @@ authenticates. Gate: `tests/test_phase10_identity_privilege.py`.
 - [x] Public nginx strips forgeable gateway headers; agent conf injects secret
   after mTLS (prior + residual tests).
 
-**Still residual (not claimed):** live SPIRE multi-node attestation; Envoy SDS
-production; API non-root/read-only image; full public cutover off `/agent/` to
-agent.xcelsior.ca only (bearer migration path remains stripped of identity
-headers); separate DB roles per service; field-wide bearer rotation (flag defaults off).
+## Phase 11 — Identity mesh, credential rotation, privilege, and edge cutover
+
+Closes the five items previously listed as "still residual". Each is
+implemented in-repo with the operator flip named explicitly; nothing below
+claims a live production deploy that has not happened.
+
+- [x] **11.1 Live SPIRE mesh + Envoy SDS** (2026-07-21) — `infra/spire/` is
+  deployable, not example scaffolding: `docker-compose.spire.yml` brings up
+  spire-server (PostgreSQL datastore, x509pop + join_token attestation, 1h
+  SVIDs), spire-agent (unix + docker workload attestors), and the Envoy
+  gateway; `register-host.sh <host>|--all` creates registration entries for
+  **admitted hosts only**. `infra/envoy/agent-gateway.yaml` takes its server
+  cert *and* trust bundle from the SPIRE Workload API over SDS, accepts only
+  URI SANs under `spiffe://<domain>/worker/host/`, `SANITIZE_SET`s XFCC,
+  strips every forgeable identity header in a Lua filter before deriving
+  `X-Worker-Host-Id` from the verified SVID, and serves `/agent/v2/*` only
+  (§22.3). **Identity binding is now exact:** the previous check accepted any
+  SPIFFE-shaped string containing `/worker/` — including one from an
+  attacker-chosen trust domain — and never bound it to the host it claimed.
+  `parse_worker_spiffe_id` / `spiffe_id_matches_host` require the canonical
+  shape in *this* trust domain, and `XCELSIOR_SPIFFE_STRICT` (default **on**)
+  requires the gateway to present one at all. Nginx mTLS is the interim
+  gateway and no longer fabricates a SPIFFE ID from a certificate DN.
+  Gate: `tests/test_spire_identity_mesh.py` (35 tests: identity contract,
+  foreign-domain/cross-host rejection, gateway admission, Envoy↔Python prefix
+  drift guard, header-strip coverage, and a bash-vs-Python check that
+  `register-host.sh` emits byte-identical SPIFFE IDs). **Operator residual:**
+  run the compose stack and enrol hosts. ✔
+- [x] **11.2 API non-root, capability-free, read-only image** (2026-07-21) —
+  `Dockerfile` creates uid/gid 10001, moves `HOME` to `/home/xcelsior`,
+  precompiles bytecode, makes `/app` read-only to the runtime user, drops
+  `cryptsetup`/`e2fsprogs` (privileged tooling belongs to the
+  volume-provisioner image, §19.4), and ends on `USER 10001`. compose adds
+  `read_only: true`, `cap_drop: [ALL]`, `no-new-privileges`, and tmpfs for
+  `/tmp` + `/dev/shm` (gunicorn's `worker_tmp_dir`) on api/api-blue/bg-worker;
+  scheduler-worker's `known_hosts` moved out of `/root`. **Verified by
+  running it**, not by reading the Dockerfile: the image serves `/healthz`
+  and `/readyz` 200 as uid 10001 with a read-only rootfs and all capabilities
+  dropped. That run surfaced a real bug — the default log path is inside
+  `/app`, so `logging.FileHandler` raised at startup; `setup_logging` now adds
+  the console handler first and degrades to console-only on an unwritable
+  path. Gate: `tests/test_hardened_runtime_and_ingress.py` + a CI
+  `supply-chain` job that asserts uid ≠ 0, boots the image read-only, and
+  fails if privileged tooling reappears. ✔
+- [x] **11.3 Public cutover off `/agent/`** (2026-07-21) — closed at **both**
+  layers, because an edge-only cutover leaves the surface live for anything
+  reaching the API directly. `api.AgentIngressMiddleware`
+  (`XCELSIOR_AGENT_PUBLIC_INGRESS=allow|deny`) answers **410 Gone** with a
+  migration hint on `/agent/*` and `/host` unless the request carries the
+  authenticated private-gateway secret; `nginx/snippets/xcelsior-agent-retired.conf`
+  is the drop-in edge half (keeping `/static/worker_agent.py` public, since a
+  host that cannot fetch the agent cannot be migrated). Public `xcelsior.conf`
+  now strips `X-Worker-Identity` and `X-Forwarded-Client-Cert` too — a gap the
+  new header-coverage test found. Default is `allow`: a repo checkout must
+  never cut a live fleet off. Gate: 22 tests incl. product-API non-interference
+  and gateway pass-through. **Operator residual:** flip after fleet migration. ✔
+- [x] **11.4 Separate database roles per service** (2026-07-21) —
+  `control_plane/db_roles.py` assigns every relation to exactly one logical
+  domain (companion §4.2) and defines the eight recommended roles with the
+  *denial* properties that make the split meaningful.
+  `scripts/provision_db_roles.py` converges roles and grants idempotently and
+  refuses to provision a role that already holds SUPERUSER/CREATEDB/CREATEROLE.
+  Runtime: `XCELSIOR_SERVICE` + `XCELSIOR_POSTGRES_DSN_<SERVICE>` select a
+  service's own DSN (unset = shared DSN, so provisioning alone changes
+  nothing), and every pooled connection now carries `application_name` plus
+  §4.3 statement/lock/idle-in-transaction limits. **No runtime role holds
+  `CREATE` on a schema**, which makes companion §4.4 rule 1 ("Alembic is the
+  only DDL authority") enforced by PostgreSQL rather than by convention.
+  Gate: `tests/test_db_service_roles.py` (48 tests) — every denial is proven
+  by *executing* the forbidden statement as that role and requiring rejection,
+  every positive right by executing a permitted one, plus a drift guard that
+  fails when a migration adds a table no domain claims. ✔
+- [x] **11.5 Field-wide bearer rotation** (2026-07-21) — migration `065`
+  adds `host_agent_tokens`; `control_plane/agent_tokens.py` issues per-host
+  credentials that are hashed at rest, scoped to one `host_id` (a token
+  lifted off one GPU host cannot be replayed against another), rotated with a
+  bounded **overlap** grace window so field-wide rotation never strands a
+  worker mid-poll, and revocable with no grace at all. `POST /agent/v2/tokens/rotate`
+  is authenticated by the token being replaced (unattended renewal); admin
+  issue/list/revoke plus `GET /api/admin/agent-tokens/coverage` (read this
+  before flipping — a host with no token is locked out by `require`).
+  `worker_agent.py` persists the credential 0600/atomically, prefers it over
+  the fleet bearer, ignores one issued for another host, and rotates at 25%
+  remaining lifetime with a rate limit so a failing server cannot cause a
+  rotation storm. Expiry is a durable `scheduled_tasks` sweep, not a process
+  timer. `XCELSIOR_AGENT_HOST_TOKENS=off|allow|require`; **`require` is
+  rotation complete** — the shared fleet bearer is then refused on every
+  `/agent/*` surface. Gate: `tests/test_host_agent_tokens.py` (43 tests). ✔
+
+**Drift found and closed in the same pass (2026-07-21):**
+- [x] **Production startup validator (§30) did not exist.** Every item on the
+  blueprint's "must reject" list is now a named check in
+  `control_plane/startup_validation.py` with a documented remediation
+  (SQLite/dual backend, missing DB TLS policy, empty OAuth signing, unauth
+  agent mode, runtime DDL, process-local MCP rate limiting under replicas,
+  API SYS_ADMIN expectation, plus gateway-secret and rotation-coverage
+  gates). Enforced in the API lifespan in production; reports without
+  blocking elsewhere. Gate: `tests/test_startup_validation.py` (26 tests,
+  each condition driven on *and* off).
+- [x] **`/livez` and `/startupz` (§21.3) did not exist** — only `/healthz`
+  and `/readyz`. `/livez` makes no dependency calls (a DB blip must not get
+  healthy replicas restarted; proven by a test that fails if it touches the
+  pool); `/startupz` returns the itemised finding list and 503s while any
+  error is outstanding. `/readyz` gained the §21.3 identity readiness gate:
+  `XCELSIOR_TRUSTED_AGENT_GATEWAY=1` without a gateway secret is 503, not a
+  silently forgeable-header deployment.
+- [x] **Supply-chain gates (§19.6) were absent from CI.** New `supply-chain`
+  job: builds the image, asserts unprivileged uid and a clean read-only boot,
+  generates an SBOM (Syft), blocks CRITICAL findings (Trivy), reports HIGH,
+  checks the MCP image is non-root with a locked install, and cosign-signs the
+  worker agent on main. The `compose` job now also validates the SPIRE compose
+  file and runs `envoy --mode validate` on the gateway config.
+- [x] **Pyright zero-tolerance gate had regressed to 34 findings** — restored
+  to 0. Real fixes, not suppressions: unchecked `fetchone()` results in
+  `artifacts.py`, `Optional` accesses in `criu_hosts.py`/`routes/billing.py`/
+  `routes/serverless.py`/`worker_agent.py`, `UploadFile`-vs-`str` form values
+  in the Facebook deauthorize handlers, and SAVEPOINT names in
+  `outbox_runtime.py` moved from f-string interpolation to `psycopg.sql`
+  composition (type-correct *and* no longer an identifier-injection surface).
+- [x] **A test asserted the opposite of §31.** `test_strict_mode_fails_open_on_db_error`
+  required agent identity to fail **open** on a database error; §31 requires
+  fail-closed with a retryable 503, which the Phase 10 code already did. The
+  test now pins the correct behaviour and explains why.
+- [x] **Cross-test contamination**: `tests/test_bg_worker.py` ran
+  `DELETE FROM scheduled_tasks`, destroying migration-seeded durable sweeps
+  for every later test in the process. Scoped to the tasks it owns.
+
+**Still residual (operator actions, not repo state):** deploy the SPIRE mesh
+and enrol hosts; flip `XCELSIOR_TRUSTED_AGENT_GATEWAY=1` +
+`XCELSIOR_SPIFFE_STRICT=1`; issue per-host tokens and flip
+`XCELSIOR_AGENT_HOST_TOKENS=require`; flip
+`XCELSIOR_AGENT_PUBLIC_INGRESS=deny` with the Nginx retirement snippet;
+run `scripts/provision_db_roles.py` and set the per-service DSNs; canary/active
+scheduler env flip (P4.4b) and the hardened agent rollout (P5.5).
 
 

@@ -985,9 +985,204 @@ def _get_oauth_access_token(force_refresh=False):
         return access_token
 
 
+# ── Per-host agent token (blueprint §19.2 — field-wide bearer rotation) ──
+#
+# The shared platform token authenticates the whole fleet: lifting it off
+# one GPU host yields authority over every host. A per-host token is
+# scoped to this host_id and rotated on a schedule. The credential lives
+# in one 0600 file that is written atomically, so a crash mid-rotation
+# leaves either the old token or the new one — never a truncated file.
+
+AGENT_TOKEN_FILE = os.environ.get(
+    "XCELSIOR_AGENT_TOKEN_FILE",
+    os.path.join(os.path.expanduser("~"), ".xcelsior", "agent-token.json"),
+)
+
+#: Rotate once this fraction of the token's lifetime remains. A wide
+#: margin matters: a host that is offline for a few days must still come
+#: back with a usable credential.
+_TOKEN_ROTATE_AT_REMAINING = 0.25
+_TOKEN_ROTATE_MIN_INTERVAL_SEC = 3600.0
+
+_host_token_lock = threading.Lock()
+# Re-read the credential file only when its mtime changes; rotation
+# rewrites it in place and the poll loop reads it on every request.
+_host_token_mtime: float | None = None
+_host_token_data: dict = {}
+_last_token_rotation_attempt = 0.0
+
+
+def _clear_host_token_cache() -> None:
+    global _host_token_mtime, _host_token_data
+    _host_token_mtime = None
+    _host_token_data = {}
+
+
+def _read_host_token() -> dict:
+    """Load the persisted per-host credential (``{}`` when absent)."""
+    global _host_token_mtime, _host_token_data
+    with _host_token_lock:
+        try:
+            mtime = os.path.getmtime(AGENT_TOKEN_FILE)
+        except OSError:
+            _clear_host_token_cache()
+            return {}
+        if _host_token_mtime == mtime:
+            return dict(_host_token_data)
+        try:
+            with open(AGENT_TOKEN_FILE, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except Exception as exc:
+            log.warning("agent token file unreadable (%s): %s", AGENT_TOKEN_FILE, exc)
+            return {}
+        if not isinstance(data, dict) or not data.get("token"):
+            return {}
+        _host_token_mtime = mtime
+        _host_token_data = data
+        return dict(data)
+
+
+def _write_host_token(data: dict) -> bool:
+    """Persist the credential atomically with 0600 permissions."""
+    directory = os.path.dirname(AGENT_TOKEN_FILE) or "."
+    tmp_path = f"{AGENT_TOKEN_FILE}.tmp"
+    try:
+        os.makedirs(directory, exist_ok=True)
+        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(data, fh)
+                fh.flush()
+                os.fsync(fh.fileno())
+        finally:
+            pass
+        os.replace(tmp_path, AGENT_TOKEN_FILE)
+        os.chmod(AGENT_TOKEN_FILE, 0o600)
+    except Exception as exc:
+        log.error("failed to persist agent token: %s", exc)
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        return False
+    with _host_token_lock:
+        _clear_host_token_cache()
+    return True
+
+
+def _host_token_value() -> str:
+    """This host's agent token, or '' when none has been issued."""
+    data = _read_host_token()
+    token = str(data.get("token") or "")
+    # A credential issued for a different host must never be presented —
+    # it would be rejected server-side anyway, but presenting it would
+    # also suppress the shared-bearer fallback and strand this host.
+    if token and data.get("host_id") and str(data["host_id"]) != HOST_ID:
+        log.warning(
+            "agent token file belongs to host %s, not %s — ignoring",
+            data.get("host_id"),
+            HOST_ID,
+        )
+        return ""
+    return token
+
+
+def _host_token_expiry() -> float:
+    data = _read_host_token()
+    try:
+        return float(data.get("expires_at_epoch") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def maybe_rotate_host_token() -> bool:
+    """Rotate the per-host credential when it is nearing expiry.
+
+    Authenticated by the token being replaced, so no operator step is
+    needed. The server keeps the old token valid through a grace window,
+    which is what makes this safe to run unattended on every host.
+    """
+    global _last_token_rotation_attempt
+
+    token = _host_token_value()
+    if not token:
+        return False
+    now = time.time()
+    if now - _last_token_rotation_attempt < _TOKEN_ROTATE_MIN_INTERVAL_SEC:
+        return False
+
+    data = _read_host_token()
+    expires_at = _host_token_expiry()
+    issued_at = float(data.get("issued_at_epoch") or 0.0)
+    if expires_at <= 0:
+        return False
+    lifetime = max(expires_at - issued_at, 1.0) if issued_at else (expires_at - now)
+    remaining = expires_at - now
+    if remaining > lifetime * _TOKEN_ROTATE_AT_REMAINING:
+        return False
+
+    _last_token_rotation_attempt = now
+    try:
+        resp = requests.post(
+            _api_url("/agent/v2/tokens/rotate"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}",
+            },
+            timeout=15,
+        )
+    except Exception as exc:
+        log.warning("agent token rotation request failed: %s", exc)
+        return False
+    if resp.status_code != 200:
+        log.warning(
+            "agent token rotation rejected (%s): %s", resp.status_code, resp.text[:200]
+        )
+        return False
+    try:
+        body = resp.json()
+        new_token = str(body["token"])
+        expires_iso = str(body.get("expires_at") or "")
+    except Exception as exc:
+        log.warning("agent token rotation response unusable: %s", exc)
+        return False
+
+    expires_epoch = 0.0
+    if expires_iso:
+        try:
+            from datetime import datetime as _dt
+
+            expires_epoch = _dt.fromisoformat(expires_iso).timestamp()
+        except Exception:
+            expires_epoch = 0.0
+
+    ok = _write_host_token(
+        {
+            "token": new_token,
+            "host_id": HOST_ID,
+            "token_id": body.get("token_id"),
+            "expires_at": expires_iso,
+            "expires_at_epoch": expires_epoch,
+            "issued_at_epoch": now,
+        }
+    )
+    if ok:
+        log.info("rotated per-host agent token (expires %s)", expires_iso or "unknown")
+    return ok
+
+
 def _api_headers():
-    """Build standard API headers."""
+    """Build standard API headers.
+
+    Credential precedence is strongest-first: a per-host agent token
+    (§19.2) beats an OAuth access token, which beats the shared fleet
+    bearer that rotation is retiring.
+    """
     headers = {"Content-Type": "application/json"}
+    host_token = _host_token_value()
+    if host_token:
+        headers["Authorization"] = f"Bearer {host_token}"
+        return headers
     access_token = _get_oauth_access_token() if _oauth_client_credentials_enabled() else ""
     if access_token:
         headers["Authorization"] = f"Bearer {access_token}"
@@ -2905,7 +3100,9 @@ def handle_stop_attempt(cmd: dict) -> None:
     # Refresh pending terminal result after preserve/remove decision.
     with _v2_attempts_lock:
         current = _v2_attempts.get(job_id)
-        if current is auth and isinstance(current.get("pending_command"), dict):
+        if current is not None and current is auth and isinstance(
+            current.get("pending_command"), dict
+        ):
             current["pending_command"]["result"] = result
             current["pending_command"]["terminal_status"] = "stopped"
     _v2_journal_save()
@@ -6703,6 +6900,13 @@ def main():
             preempt_jobs = check_preemption()
             if preempt_jobs:
                 handle_preemptions(preempt_jobs)
+
+            # Renew this host's own credential well before it expires
+            # (§19.2). No-op unless a per-host token has been issued.
+            try:
+                maybe_rotate_host_token()
+            except Exception as e:
+                log.warning("agent token rotation check failed: %s", e)
 
             # Drain admin control-plane commands (reinject_shell, etc.)
             drain_agent_commands()

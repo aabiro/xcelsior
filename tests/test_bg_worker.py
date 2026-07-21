@@ -7,11 +7,27 @@ import bg_worker
 from control_plane.scheduled_tasks import register_task, claim_and_run_tasks
 from db import pg_connection
 
+# Task names this module owns. Scoping the cleanup to these matters:
+# `DELETE FROM scheduled_tasks` also removes the rows migrations seed
+# (telemetry_partition_maintenance, wallet_hold_expiry,
+# host_agent_token_expiry), which silently breaks every later test in the
+# same process that asserts those durable sweeps are registered.
+_OWNED_TASKS = ("test_dummy", "test_fail")
+
+
 @pytest.fixture
 def clean_tasks():
-    with pg_connection() as conn:
-        conn.execute("DELETE FROM scheduled_tasks")
-        conn.commit()
+    def _purge():
+        with pg_connection() as conn:
+            conn.execute(
+                "DELETE FROM scheduled_tasks WHERE task_name = ANY(%s)",
+                (list(_OWNED_TASKS),),
+            )
+            conn.commit()
+
+    _purge()
+    yield
+    _purge()
 
 def test_task_registration_and_execution(clean_tasks):
     # Setup test task

@@ -1255,6 +1255,9 @@ def api_pricing_rates(
         mg8_disc = row[3]
         vram_gb = row[4]
     else:
+        # The guard above returns 404 when both row and quote are absent,
+        # so reaching this branch means the live quote exists.
+        assert live_spot_quote is not None
         base_rate = live_spot_quote.rate_cad
         sovereignty_premium = 0.0
         mg4_disc = 0.05

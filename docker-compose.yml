@@ -206,6 +206,29 @@ x-api-environment: &api-env
   XCELSIOR_SERVERLESS_REDIS_RATE_LIMITS: ${XCELSIOR_SERVERLESS_REDIS_RATE_LIMITS:-false}
   XCELSIOR_SERVERLESS_REDIS_URL: ${XCELSIOR_SERVERLESS_REDIS_URL:-}
   XCELSIOR_SERVERLESS_CACHE_REPLICATE_REGIONS: ${XCELSIOR_SERVERLESS_CACHE_REPLICATE_REGIONS:-}
+  # ── Worker identity and credential rotation (blueprint §19.2/§19.3) ──
+  # Gateway identity: only honoured when the private gateway also presents
+  # the shared secret; /readyz fails closed if the flag is on without it.
+  XCELSIOR_TRUSTED_AGENT_GATEWAY: ${XCELSIOR_TRUSTED_AGENT_GATEWAY:-}
+  XCELSIOR_AGENT_GATEWAY_SECRET: ${XCELSIOR_AGENT_GATEWAY_SECRET:-}
+  XCELSIOR_SPIFFE_TRUST_DOMAIN: ${XCELSIOR_SPIFFE_TRUST_DOMAIN:-xcelsior.ca}
+  # Strict SPIFFE→host binding. Default on (live-mesh posture); set 0 only
+  # while the interim Nginx mTLS gateway (cert DN, no SVID) is in front.
+  XCELSIOR_SPIFFE_STRICT: ${XCELSIOR_SPIFFE_STRICT:-1}
+  XCELSIOR_AGENT_STRICT_HOST_BINDING: ${XCELSIOR_AGENT_STRICT_HOST_BINDING:-}
+  # Shared fleet bearer — the credential rotation is retiring.
+  XCELSIOR_AGENT_SHARED_BEARER_MIGRATION: ${XCELSIOR_AGENT_SHARED_BEARER_MIGRATION:-}
+  XCELSIOR_AGENT_SHARED_BEARER_HOSTS: ${XCELSIOR_AGENT_SHARED_BEARER_HOSTS:-}
+  # Per-host agent tokens: off | allow (default) | require.
+  # "require" completes field-wide rotation — check
+  # GET /api/admin/agent-tokens/coverage first, a host without a token
+  # is locked out by that flip.
+  XCELSIOR_AGENT_HOST_TOKENS: ${XCELSIOR_AGENT_HOST_TOKENS:-allow}
+  XCELSIOR_AGENT_TOKEN_TTL_DAYS: ${XCELSIOR_AGENT_TOKEN_TTL_DAYS:-90}
+  XCELSIOR_AGENT_TOKEN_ROTATION_GRACE_MINUTES: ${XCELSIOR_AGENT_TOKEN_ROTATION_GRACE_MINUTES:-60}
+  # Public worker surface: allow (default) | deny. "deny" is the §22.1
+  # cutover — pair it with nginx/snippets/xcelsior-agent-retired.conf.
+  XCELSIOR_AGENT_PUBLIC_INGRESS: ${XCELSIOR_AGENT_PUBLIC_INGRESS:-allow}
 
 # ── Shared API volumes ───────────────────────────────────────────────
 # Phase 10: API/bg-worker do NOT mount host /exports (no privileged volume
@@ -215,21 +238,42 @@ x-api-volumes: &api-volumes
   - xcelsior-data:/data
   - ${HOME}/.ssh/xcelsior:/run/secrets/ssh_key:ro
 
+# ── Unprivileged runtime posture (blueprint §19.4 / §21.1) ───────────
+# The image already runs as uid 10001; this block adds the container-level
+# half: no capabilities at all, no privilege escalation, and a read-only
+# root filesystem with explicit writable tmpfs where the process genuinely
+# needs one (gunicorn's worker heartbeat lives in /dev/shm).
+#
+# XCELSIOR_API_USER exists because the SSH key bind-mounted from the
+# operator's home directory must be readable by the runtime user. Set it
+# to the owning uid:gid on a host where re-owning that key is not
+# acceptable; leave it at the image default everywhere else.
+x-api-hardening: &api-hardening
+  user: "${XCELSIOR_API_USER:-10001:10001}"
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=256m
+    - /dev/shm:rw,nosuid,nodev,size=64m
+    - /home/xcelsior/.ssh:rw,nosuid,nodev,mode=0700,uid=10001,gid=10001,size=1m
+
 services:
   api:
     build: .
+    <<: *api-hardening
     command: gunicorn api:app -c gunicorn.conf.py
     # Phase 10: API is unprivileged — LUKS/NFS privileged ops run via SSH
     # to the host or the volume-provisioner service (no SYS_ADMIN here).
     environment:
       <<: *api-env
+      XCELSIOR_SERVICE: api
+      XCELSIOR_POSTGRES_DSN_API: ${XCELSIOR_POSTGRES_DSN_API:-}
       XCELSIOR_API_PORT: ${XCELSIOR_API_PORT:-9500}
       XCELSIOR_BG_TASKS: "false"
     network_mode: host
-    # Phase 10 exit gate: API has no SYS_ADMIN. Privileged LUKS/NFS work
-    # is host-SSH or volume-provisioner only (see infra/volume-provisioner).
-    security_opt:
-      - no-new-privileges:true
     volumes: *api-volumes
     restart: unless-stopped
     stop_grace_period: 120s
@@ -242,14 +286,15 @@ services:
 
   api-blue:
     build: .
+    <<: *api-hardening
     command: gunicorn api:app -c gunicorn.conf.py
     environment:
       <<: *api-env
+      XCELSIOR_SERVICE: api
+      XCELSIOR_POSTGRES_DSN_API: ${XCELSIOR_POSTGRES_DSN_API:-}
       XCELSIOR_API_PORT: ${XCELSIOR_API_BLUE_PORT:-9501}
       XCELSIOR_BG_TASKS: "false"
     network_mode: host
-    security_opt:
-      - no-new-privileges:true
     profiles: ["blue"]
     volumes: *api-volumes
     restart: unless-stopped
@@ -268,6 +313,10 @@ services:
     command: python -c "from scheduler import scheduler_main; scheduler_main()"
     environment:
       XCELSIOR_ENV: ${XCELSIOR_ENV:-production}
+      # Companion §4.2/§4.3: own connection identity, and (once an
+      # operator sets the DSN) its own least-privilege role.
+      XCELSIOR_SERVICE: scheduler
+      XCELSIOR_POSTGRES_DSN_SCHEDULER: ${XCELSIOR_POSTGRES_DSN_SCHEDULER:-}
       XCELSIOR_API_TOKEN: ${XCELSIOR_API_TOKEN}
       XCELSIOR_DB_BACKEND: ${XCELSIOR_DB_BACKEND:-postgres}
       XCELSIOR_DB_PATH: /data/xcelsior.db
@@ -339,10 +388,17 @@ services:
       XCELSIOR_NFS_EXPORT_BASE: ${XCELSIOR_NFS_EXPORT_BASE:-/exports/volumes}
       XCELSIOR_NFS_MOUNT_OPTS: ${XCELSIOR_NFS_MOUNT_OPTS:-}
       XCELSIOR_NFS_SSH_CMD_WRAP: ${XCELSIOR_NFS_SSH_CMD_WRAP:-}
+    # Runs as the image's unprivileged user; known_hosts moves out of
+    # /root into that user's home so SSH host verification still works.
+    user: "${XCELSIOR_API_USER:-10001:10001}"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - xcelsior-data:/data
       - ${HOME}/.ssh/xcelsior:/run/secrets/ssh_key:ro
-      - ${HOME}/.ssh/known_hosts:/root/.ssh/known_hosts:ro
+      - ${HOME}/.ssh/known_hosts:/home/xcelsior/.ssh/known_hosts:ro
       # No /exports — scheduler uses host-SSH for privileged volume ops.
     restart: unless-stopped
     # This image's Dockerfile HEALTHCHECK probes the API's HTTP /healthz,
@@ -361,10 +417,13 @@ services:
   # and Lightning deposit watcher — all outside the API server process.
   bg-worker:
     build: .
+    <<: *api-hardening
     command: python bg_worker.py
     network_mode: host
     environment:
       <<: *api-env
+      XCELSIOR_SERVICE: billing
+      XCELSIOR_POSTGRES_DSN_BILLING: ${XCELSIOR_POSTGRES_DSN_BILLING:-}
     volumes: *api-volumes
     restart: unless-stopped
     depends_on:

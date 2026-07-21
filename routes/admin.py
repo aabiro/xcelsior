@@ -1821,3 +1821,83 @@ def api_admin_control_plane_scheduled_tasks(request: Request):
             })
         return {"ok": True, "tasks": tasks}
 
+
+
+# ── Per-host agent tokens (blueprint §19.2 — field-wide bearer rotation) ──
+
+
+@router.get("/api/admin/agent-tokens/coverage", tags=["Admin"])
+def api_admin_agent_token_coverage(request: Request):
+    """How far field-wide rotation has progressed across the fleet.
+
+    Operators must read this before flipping
+    ``XCELSIOR_AGENT_HOST_TOKENS=require``: any host listed in
+    ``missing`` would be locked out of the control plane by that flip.
+    """
+    _require_admin(request)
+    from control_plane.agent_tokens import host_token_mode, rotation_coverage
+    from db import _get_pg_pool
+
+    with _get_pg_pool().connection() as conn:
+        coverage = rotation_coverage(conn)
+    return {"ok": True, "mode": host_token_mode(), **coverage}
+
+
+@router.get("/api/admin/hosts/{host_id}/agent-tokens", tags=["Admin"])
+def api_admin_list_host_agent_tokens(host_id: str, request: Request):
+    """Credential history for one host. Secrets are never returned."""
+    _require_admin(request)
+    from control_plane.agent_tokens import list_tokens
+    from db import _get_pg_pool
+
+    with _get_pg_pool().connection() as conn:
+        tokens = list_tokens(conn, host_id)
+    return {"ok": True, "host_id": host_id, "tokens": tokens}
+
+
+@router.post("/api/admin/hosts/{host_id}/agent-tokens", tags=["Admin"])
+def api_admin_issue_host_agent_token(host_id: str, request: Request):
+    """Issue (or rotate) this host's agent token. Returns the secret once.
+
+    Any existing active token is superseded with a grace window rather
+    than revoked, so issuing a replacement never strands a running
+    worker mid-poll.
+    """
+    user = _require_admin(request)
+    from control_plane.agent_tokens import UnknownHost, issue_token
+    from control_plane.db import run_transaction
+
+    actor = str((user or {}).get("user_id") or (user or {}).get("email") or "admin")
+    try:
+        issued = run_transaction(
+            lambda c: issue_token(
+                c, host_id, issued_by=actor, reason="admin_issue"
+            ),
+            what="admin_issue_host_agent_token",
+        )
+    except UnknownHost as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+    return {
+        "ok": True,
+        "host_id": issued.host_id,
+        "token": issued.secret,
+        "token_id": issued.token_id,
+        "token_prefix": issued.prefix,
+        "expires_at": issued.expires_at.isoformat(),
+        "warning": "This secret is shown once. Store it on the host now.",
+    }
+
+
+@router.post("/api/admin/hosts/{host_id}/agent-tokens/revoke", tags=["Admin"])
+def api_admin_revoke_host_agent_tokens(host_id: str, request: Request):
+    """Revoke every live token for a host — immediate, no grace window."""
+    _require_admin(request)
+    from control_plane.agent_tokens import revoke_token
+    from control_plane.db import run_transaction
+
+    revoked = run_transaction(
+        lambda c: revoke_token(c, host_id=host_id, reason="admin_revocation"),
+        what="admin_revoke_host_agent_tokens",
+    )
+    return {"ok": True, "host_id": host_id, "revoked": revoked}

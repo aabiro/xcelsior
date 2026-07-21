@@ -357,3 +357,72 @@ def api_v2_attempt_status(req: AttemptStatusRequest, request: Request):
         "changed": result.changed,
         "terminal": result.terminal,
     }
+
+
+# ── Per-host credential rotation (§19.2) ─────────────────────────────
+
+
+@router.post("/agent/v2/tokens/rotate", tags=["AgentV2"])
+def api_v2_token_rotate(request: Request):
+    """Exchange this host's current agent token for a fresh one.
+
+    Authenticated *by the token being rotated* — the caller proves
+    possession, so no operator step is needed for routine renewal. The
+    old token becomes ``superseded`` with a bounded grace window rather
+    than being revoked, so a worker that crashes between receiving the
+    new secret and persisting it can still authenticate with the old one
+    and retry. The plaintext secret is returned exactly once.
+    """
+    from control_plane.agent_tokens import (
+        TokenRejected,
+        host_tokens_enabled,
+        looks_like_host_token,
+        rotate_token,
+    )
+    from routes.agent import _bearer_credential
+
+    if not host_tokens_enabled():
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {
+                    "code": "host_tokens_disabled",
+                    "message": "Per-host agent tokens are not enabled",
+                }
+            },
+        )
+
+    credential = _bearer_credential(request)
+    if not looks_like_host_token(credential):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error": {
+                    "code": "host_token_required",
+                    "message": "Rotation must be authenticated with the current host token",
+                }
+            },
+        )
+
+    client_ip = request.headers.get("x-real-ip") or (
+        request.client.host if request.client else None
+    )
+    try:
+        issued = run_transaction(
+            lambda c: rotate_token(c, str(credential), client_ip=client_ip),
+            what="v2_token_rotate",
+        )
+    except TokenRejected as exc:
+        raise HTTPException(
+            status_code=401,
+            detail={"error": {"code": "host_token_rejected", "message": exc.reason}},
+        ) from exc
+
+    return {
+        "ok": True,
+        "host_id": issued.host_id,
+        "token": issued.secret,
+        "token_id": issued.token_id,
+        "token_prefix": issued.prefix,
+        "expires_at": issued.expires_at.isoformat(),
+    }

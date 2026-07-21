@@ -586,12 +586,14 @@ def api_serverless_create_batch(
 ):
     """OpenAI-style async batch — discounted token/GPU billing for bulk inference."""
     user, _key, ep = _resolve_serverless_endpoint_auth(request, endpoint_id, write=True)
+    if ep is None:
+        raise HTTPException(404, "Endpoint not found")
     if str(ep.get("mode")) != "preset":
         raise HTTPException(400, "Batch API requires a preset endpoint")
     batch = create_batch(
         _repo(),
         endpoint_id=endpoint_id,
-        owner_id=str(ep.get("owner_id") or user.get("user_id") or ""),
+        owner_id=str(ep.get("owner_id") or (user or {}).get("user_id") or ""),
         requests=body.requests,
         completion_window=body.completion_window,
     )

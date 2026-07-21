@@ -39,6 +39,108 @@ router = APIRouter()
 # agents. Previously these endpoints were completely unauthenticated —
 # anyone reachable could spoof telemetry, claim leases, inject logs,
 # exfiltrate user SSH public keys via /agent/ssh-keys, etc.
+def _bearer_credential(request: Request) -> str | None:
+    """The raw bearer credential presented, if any."""
+    header = request.headers.get("authorization") or ""
+    if header.lower().startswith("bearer "):
+        return header[7:].strip() or None
+    # Workers may also present the credential as an API-key header.
+    return (request.headers.get("x-api-key") or "").strip() or None
+
+
+def _resolve_host_token_identity(
+    request: Request, host_id: str | None
+) -> dict | None:
+    """Authenticate a per-host agent token (blueprint §19.2 rotation).
+
+    Returns a principal on success, ``None`` when no host token was
+    presented (caller falls through to the existing paths). A *presented*
+    host token that fails verification raises — it never degrades to the
+    shared fleet bearer, which would defeat the point of scoping.
+    """
+    from psycopg.errors import UndefinedTable
+
+    from control_plane.agent_tokens import (
+        TokenRejected,
+        host_tokens_enabled,
+        looks_like_host_token,
+        verify_token,
+    )
+
+    if not host_tokens_enabled():
+        return None
+    credential = _bearer_credential(request)
+    if not looks_like_host_token(credential):
+        return None
+
+    client_ip = request.headers.get("x-real-ip") or (
+        request.client.host if request.client else None
+    )
+    try:
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            try:
+                verified = verify_token(
+                    conn,
+                    str(credential),
+                    required_host_id=host_id,
+                    client_ip=client_ip,
+                )
+            except TokenRejected:
+                conn.rollback()
+                raise
+            conn.commit()
+    except TokenRejected as exc:
+        status = 403 if exc.reason == "host_mismatch" else 401
+        log.warning("host agent token rejected (%s)", exc.reason)
+        raise HTTPException(status, f"Host agent token rejected: {exc.reason}") from exc
+    except HTTPException:
+        raise
+    except UndefinedTable:
+        # Migration 065 has not been applied (or was rolled back). No
+        # valid host token can exist against a table that is not there,
+        # so falling through to the ordinary auth path grants nothing —
+        # unlike a generic DB error, this one is unambiguous.
+        log.error(
+            "host agent tokens enabled but host_agent_tokens is missing — "
+            "apply migration 065 or set XCELSIOR_AGENT_HOST_TOKENS=off"
+        )
+        return None
+    except Exception as exc:
+        # Blueprint §31: identity verification never fails open.
+        log.error("host agent token verification failed (fail-closed): %s", exc)
+        raise HTTPException(
+            503, "Identity verification temporarily unavailable"
+        ) from exc
+
+    # The credential proves possession; the host must still be admitted.
+    from control_plane.identity import IdentityAdmissionError, require_admitted_host
+
+    try:
+        all_hosts = list_hosts(active_only=False)
+        row = next((h for h in all_hosts if h.get("host_id") == verified.host_id), None)
+        require_admitted_host(row, host_id=verified.host_id)
+    except IdentityAdmissionError as exc:
+        raise HTTPException(exc.http_status, exc.message) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error("host token admission lookup failed (fail-closed): %s", exc)
+        raise HTTPException(
+            503, "Identity verification temporarily unavailable"
+        ) from exc
+
+    return {
+        "user_id": f"host:{verified.host_id}",
+        "host_token": True,
+        "admitted_host_id": verified.host_id,
+        "identity_source": "host_token",
+        "token_id": verified.token_id,
+        "token_status": verified.status,
+        "is_admin": False,
+    }
+
+
 def _require_agent_auth(request: Request, *, host_id: str | None = None) -> dict:
     """Require auth on /agent/* endpoints. Optionally gate by host ownership.
 
@@ -110,6 +212,25 @@ def _require_agent_auth(request: Request, *, host_id: str | None = None) -> dict
                 "spiffe_id": admitted.spiffe_id,
                 "identity_source": admitted.source,
             }
+
+    # Per-host bearer token (blueprint §19.2). Checked before every other
+    # path — a host-scoped credential is strictly stronger than the shared
+    # fleet bearer and must win whenever it is presented.
+    host_token_identity = _resolve_host_token_identity(request, host_id)
+    if host_token_identity is not None:
+        return host_token_identity
+
+    # Field-wide rotation complete: the shared fleet bearer is no longer
+    # an accepted worker credential anywhere under /agent/*. Only a
+    # verified gateway identity or a per-host token may act.
+    from control_plane.agent_tokens import host_tokens_required
+
+    if host_tokens_required():
+        raise HTTPException(
+            403,
+            "Per-host agent token required (XCELSIOR_AGENT_HOST_TOKENS=require); "
+            "the shared fleet bearer is no longer accepted",
+        )
 
     # 1. Hard refuse in production — escape hatches do NOT apply.
     if env == "production":

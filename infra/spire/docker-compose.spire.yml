@@ -1,0 +1,101 @@
+# Live SPIRE mesh + SPIFFE-aware agent gateway (blueprint §19.2 / §19.3).
+#
+#   docker compose -f infra/spire/docker-compose.spire.yml up -d
+#
+# Brings up, on the control-plane host:
+#   spire-server         issues node and workload SVIDs for xcelsior.ca
+#   spire-agent          attests this node; serves the Workload API socket
+#   agent-gateway        Envoy, gets its SVID over that socket, terminates
+#                        worker mTLS and sets verified identity headers
+#
+# GPU hosts run only `spire-agent` (same image, agent.conf) plus
+# worker_agent.py. Register each admitted host once with
+# `infra/spire/register-host.sh <host_id>`.
+#
+# Required environment (compose reads .env in this directory or the shell):
+#   SPIRE_DATASTORE_DSN            postgres DSN for the SPIRE datastore
+#   SPIRE_SERVER_ADDRESS           reachable address of spire-server
+#   XCELSIOR_AGENT_GATEWAY_SECRET  shared secret the API also holds
+#
+# Then, on the API:
+#   XCELSIOR_TRUSTED_AGENT_GATEWAY=1
+#   XCELSIOR_AGENT_GATEWAY_SECRET=<same value>
+#   XCELSIOR_SPIFFE_TRUST_DOMAIN=xcelsior.ca
+#   XCELSIOR_SPIFFE_STRICT=1
+
+name: xcelsior-spire
+
+services:
+  spire-server:
+    image: ghcr.io/spiffe/spire-server:1.11.2
+    command: ["-config", "/opt/spire/conf/server/server.conf"]
+    environment:
+      SPIRE_DATASTORE_DSN: ${SPIRE_DATASTORE_DSN:?SPIRE_DATASTORE_DSN is required}
+    volumes:
+      - ./server.conf:/opt/spire/conf/server/server.conf:ro
+      - spire-server-data:/opt/spire/data/server
+      - spire-server-socket:/tmp/spire-server/private
+    ports:
+      - "127.0.0.1:8081:8081"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/opt/spire/bin/spire-server", "healthcheck",
+             "-socketPath", "/tmp/spire-server/private/api.sock"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  spire-agent:
+    image: ghcr.io/spiffe/spire-agent:1.11.2
+    command: ["-config", "/opt/spire/conf/agent/agent.conf"]
+    environment:
+      SPIRE_SERVER_ADDRESS: ${SPIRE_SERVER_ADDRESS:-spire-server}
+    depends_on:
+      spire-server:
+        condition: service_healthy
+    volumes:
+      - ./agent.conf:/opt/spire/conf/agent/agent.conf:ro
+      - ./bootstrap.crt:/opt/spire/conf/agent/bootstrap.crt:ro
+      - spire-agent-socket:/run/spire/sockets
+      - spire-agent-data:/opt/spire/data/agent
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    pid: host
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/opt/spire/bin/spire-agent", "healthcheck",
+             "-socketPath", "/run/spire/sockets/agent.sock"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  agent-gateway:
+    image: envoyproxy/envoy:v1.32-latest
+    # Render the shared secret in at start; it is never written to git.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        envsubst < /etc/envoy/agent-gateway.yaml > /tmp/envoy.yaml &&
+        exec /usr/local/bin/envoy -c /tmp/envoy.yaml
+    environment:
+      XCELSIOR_AGENT_GATEWAY_SECRET: ${XCELSIOR_AGENT_GATEWAY_SECRET:?XCELSIOR_AGENT_GATEWAY_SECRET is required}
+    depends_on:
+      spire-agent:
+        condition: service_healthy
+    volumes:
+      - ../envoy/agent-gateway.yaml:/etc/envoy/agent-gateway.yaml:ro
+      - spire-agent-socket:/run/spire/sockets:ro
+    network_mode: host
+    # The gateway holds no privileges of its own — it terminates TLS and
+    # rewrites headers, nothing more.
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  spire-server-data:
+  spire-server-socket:
+  spire-agent-data:
+  spire-agent-socket:

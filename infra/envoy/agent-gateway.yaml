@@ -1,6 +1,36 @@
-# Envoy agent gateway sketch (SPIRE SDS / mTLS) — Phase 10 scaffold.
-# Prefer this over public Nginx for dynamic SVID verification in full mesh.
-# Not auto-wired; operators enable when SPIRE is live.
+# Envoy agent gateway — SPIFFE-aware worker ingress (blueprint §19.3 / §22.3).
+#
+# This is the live-mesh replacement for Nginx mTLS on agent.xcelsior.ca.
+# Envoy gets both its own server certificate and the trust bundle from the
+# local SPIRE agent over the Workload API (SDS), so certificate rotation is
+# continuous and no key material is written to disk.
+#
+# What the control plane relies on this file to guarantee:
+#
+#   1. Client certificates are required and validated against the SPIRE
+#      trust bundle for `spiffe://xcelsior.ca` only.
+#   2. Only URI SANs under `spiffe://xcelsior.ca/worker/host/` are
+#      accepted — a valid SVID for some *other* workload in the mesh is
+#      not a GPU host and is rejected at the edge.
+#   3. Every inbound identity header is removed before routing, then set
+#      from the verified certificate. A client cannot forge them.
+#   4. The gateway shared secret is attached so the API can distinguish
+#      this private gateway from anything that reaches it publicly
+#      (`control_plane.identity.gateway_headers_authenticated`).
+#   5. Only `/agent/v2/*` is proxied (§22.3). Everything else is 404.
+#
+# Render before use — the entrypoint substitutes ${XCELSIOR_*} from the
+# environment so the shared secret is never committed:
+#   envsubst < agent-gateway.yaml > /etc/envoy/envoy.yaml
+
+node:
+  id: xcelsior-agent-gateway
+  cluster: xcelsior-agent-gateway
+
+admin:
+  address:
+    socket_address: { address: 127.0.0.1, port_value: 9901 }
+
 static_resources:
   listeners:
     - name: agent_ingress
@@ -13,28 +43,151 @@ static_resources:
               "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
               require_client_certificate: true
               common_tls_context:
+                tls_params:
+                  tls_minimum_protocol_version: TLSv1_2
                 tls_certificate_sds_secret_configs:
-                  - name: spire_svid
-                validation_context_sds_secret_config:
-                  name: spire_validation
+                  - name: "spiffe://xcelsior.ca/gateway/agent"
+                    sds_config:
+                      resource_api_version: V3
+                      api_config_source:
+                        api_type: GRPC
+                        transport_api_version: V3
+                        grpc_services:
+                          - envoy_grpc: { cluster_name: spire_agent }
+                combined_validation_context:
+                  default_validation_context:
+                    # Guarantee 2: only worker identities may connect.
+                    match_typed_subject_alt_names:
+                      - san_type: URI
+                        matcher:
+                          prefix: "spiffe://xcelsior.ca/worker/host/"
+                  validation_context_sds_secret_config:
+                    name: "spiffe://xcelsior.ca"
+                    sds_config:
+                      resource_api_version: V3
+                      api_config_source:
+                        api_type: GRPC
+                        transport_api_version: V3
+                        grpc_services:
+                          - envoy_grpc: { cluster_name: spire_agent }
           filters:
             - name: envoy.filters.network.http_connection_manager
               typed_config:
                 "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
-                stat_prefix: agent
+                stat_prefix: agent_gateway
+                codec_type: AUTO
+                use_remote_address: true
+                # Guarantee 3: never forward a client-supplied XFCC; Envoy
+                # replaces it with the verified URI SAN.
+                forward_client_cert_details: SANITIZE_SET
+                set_current_client_cert_details:
+                  uri: true
+                  subject: true
+                request_timeout: 120s
+                stream_idle_timeout: 300s
+                common_http_protocol_options:
+                  max_headers_count: 100
+                  headers_with_underscores_action: REJECT_REQUEST
                 route_config:
                   name: agent_route
                   virtual_hosts:
                     - name: agent
                       domains: ["agent.xcelsior.ca", "*"]
+                      # Worker traffic is small and structured; a large
+                      # body here is a bug or an attack, not a payload.
                       routes:
-                        - match: { prefix: "/agent/" }
-                          route: { cluster: xcelsior_api }
+                        - match: { prefix: "/agent/v2/" }
+                          route:
+                            cluster: xcelsior_api
+                            timeout: 120s
+                        # Guarantee 5: no other surface is reachable.
+                        - match: { prefix: "/" }
+                          direct_response:
+                            status: 404
+                            body:
+                              inline_string: |
+                                {"ok":false,"error":{"code":"not_found","message":"agent gateway serves /agent/v2 only"}}
                 http_filters:
+                  - name: envoy.filters.http.lua
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+                      default_source_code:
+                        inline_string: |
+                          -- Derive the worker identity from the verified
+                          -- certificate. Runs after TLS validation, so the
+                          -- URI SAN in XFCC is trustworthy.
+                          local FORGEABLE = {
+                            "x-worker-host-id",
+                            "x-worker-spiffe-id",
+                            "x-worker-provider-id",
+                            "x-spiffe-id",
+                            "x-worker-identity",
+                            "x-xcelsior-agent-gateway",
+                            "x-xcelsior-gateway-auth",
+                          }
+                          local PREFIX = "spiffe://xcelsior.ca/worker/host/"
+
+                          function envoy_on_request(handle)
+                            local headers = handle:headers()
+                            -- Strip anything the client tried to inject.
+                            for _, name in ipairs(FORGEABLE) do
+                              headers:remove(name)
+                            end
+
+                            local xfcc = headers:get("x-forwarded-client-cert")
+                            if xfcc == nil then
+                              handle:respond(
+                                {[":status"] = "401",
+                                 ["content-type"] = "application/json"},
+                                '{"ok":false,"error":{"code":"no_client_identity"}}')
+                              return
+                            end
+
+                            -- XFCC is a comma/semicolon separated k=v list;
+                            -- URI=<spiffe id> is the SVID we validated.
+                            local spiffe = string.match(xfcc, "URI=([^,;]+)")
+                            if spiffe == nil or string.sub(spiffe, 1, #PREFIX) ~= PREFIX then
+                              handle:respond(
+                                {[":status"] = "403",
+                                 ["content-type"] = "application/json"},
+                                '{"ok":false,"error":{"code":"not_a_worker_identity"}}')
+                              return
+                            end
+
+                            local host_id = string.sub(spiffe, #PREFIX + 1)
+                            if host_id == "" or string.find(host_id, "/") then
+                              handle:respond(
+                                {[":status"] = "403",
+                                 ["content-type"] = "application/json"},
+                                '{"ok":false,"error":{"code":"malformed_worker_identity"}}')
+                              return
+                            end
+
+                            headers:add("x-worker-spiffe-id", spiffe)
+                            headers:add("x-worker-host-id", host_id)
+                            headers:add("x-xcelsior-agent-gateway", "1")
+                            headers:add("x-xcelsior-gateway-auth",
+                                        "${XCELSIOR_AGENT_GATEWAY_SECRET}")
+                          end
                   - name: envoy.filters.http.router
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
   clusters:
+    # SPIRE agent Workload API — source of Envoy's SVID and trust bundle.
+    - name: spire_agent
+      connect_timeout: 1s
+      type: STATIC
+      http2_protocol_options: {}
+      load_assignment:
+        cluster_name: spire_agent
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    pipe:
+                      path: /run/spire/sockets/agent.sock
+
     - name: xcelsior_api
       connect_timeout: 2s
       type: STATIC
@@ -45,3 +198,9 @@ static_resources:
               - endpoint:
                   address:
                     socket_address: { address: 127.0.0.1, port_value: 9500 }
+      health_checks:
+        - timeout: 2s
+          interval: 10s
+          unhealthy_threshold: 3
+          healthy_threshold: 1
+          http_health_check: { path: "/healthz" }

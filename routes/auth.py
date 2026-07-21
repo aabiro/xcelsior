@@ -1443,7 +1443,9 @@ async def facebook_deauthorize(request: Request):
     signed_request = ""
     try:
         form = await request.form()
-        signed_request = form.get("signed_request", "")
+        raw_signed = form.get("signed_request", "")
+        # form.get() may hand back an UploadFile; a signed request is text.
+        signed_request = raw_signed if isinstance(raw_signed, str) else ""
     except Exception:
         pass
 
@@ -1496,7 +1498,9 @@ async def facebook_delete_data(request: Request):
     signed_request = ""
     try:
         form = await request.form()
-        signed_request = form.get("signed_request", "")
+        raw_signed = form.get("signed_request", "")
+        # form.get() may hand back an UploadFile; a signed request is text.
+        signed_request = raw_signed if isinstance(raw_signed, str) else ""
     except Exception:
         pass
 

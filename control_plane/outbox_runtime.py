@@ -28,8 +28,9 @@ import logging
 import os
 import threading
 import time
+from typing import Any
 
-from psycopg import Connection
+from psycopg import Connection, sql
 
 from control_plane.db import run_transaction
 from control_plane.outbox import OutboxDispatcher, OutboxEvent
@@ -166,7 +167,7 @@ def sse_payload_for(event: OutboxEvent) -> dict | None:
 
 
 def try_append_lifecycle_outbox(
-    conn: Connection,
+    conn: Connection[Any],
     *,
     aggregate_type: str,
     aggregate_id: str,
@@ -183,8 +184,13 @@ def try_append_lifecycle_outbox(
     """
     from control_plane.outbox import append_event
 
+    # SAVEPOINT names are identifiers, not bindable parameters — compose
+    # them through psycopg's SQL builder so the name is quoted rather
+    # than interpolated into the statement text.
+    savepoint_sql = sql.Identifier(savepoint)
+
     try:
-        conn.execute(f"SAVEPOINT {savepoint}")
+        conn.execute(sql.SQL("SAVEPOINT {}").format(savepoint_sql))
     except Exception as e:
         log.warning(
             "lifecycle outbox SAVEPOINT create failed %s/%s: %s",
@@ -203,11 +209,11 @@ def try_append_lifecycle_outbox(
             destination_class="default",
             idempotency_key=idempotency_key,
         )
-        conn.execute(f"RELEASE SAVEPOINT {savepoint}")
+        conn.execute(sql.SQL("RELEASE SAVEPOINT {}").format(savepoint_sql))
         return True
     except Exception as e:
         try:
-            conn.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+            conn.execute(sql.SQL("ROLLBACK TO SAVEPOINT {}").format(savepoint_sql))
         except Exception as rb_err:
             log.error(
                 "lifecycle outbox SAVEPOINT rollback failed %s/%s: %s (original: %s)",

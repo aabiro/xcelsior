@@ -401,6 +401,28 @@ def _stop_background_tasks():
 @asynccontextmanager
 async def lifespan(app):
     """FastAPI lifespan: start background tasks on startup, stop on shutdown."""
+    # ── Production configuration gate (blueprint §30) ──────────────────
+    # Runs before anything else: a replica that would serve traffic with
+    # a SQLite backend, an unauthenticated agent mode, or process-local
+    # MCP rate limiting must fail the deploy, not discover it in prod.
+    # Outside production this only logs, so a dev machine still boots.
+    try:
+        from control_plane.startup_validation import validate_startup
+
+        for finding in validate_startup():
+            log.warning(
+                "STARTUP %s [%s]: %s — %s",
+                finding.severity.upper(),
+                finding.code,
+                finding.message,
+                finding.remediation,
+            )
+    except Exception as exc:
+        if type(exc).__name__ == "StartupValidationError":
+            log.critical("STARTUP VALIDATION FAILED: %s", exc)
+            raise
+        log.warning("startup validation could not run: %s", exc)
+
     # ── One-time backfill: ensure owner field exists on active jobs ────
     db_backend = os.environ.get("XCELSIOR_DB_BACKEND", "postgres").lower()
     try:
@@ -856,6 +878,90 @@ class ComplianceGateMiddleware:
 
 
 app.add_middleware(ComplianceGateMiddleware)
+
+
+class AgentIngressMiddleware:
+    """Retire the public worker surface (blueprint §22.1 / §22.3).
+
+    Worker traffic belongs on ``agent.xcelsior.ca`` behind mTLS/SPIFFE,
+    not on the public dashboard origin. Cutting the fleet over is a
+    two-sided change — the edge stops proxying, and the API stops
+    accepting — because an edge-only cutover leaves the surface live for
+    anything that reaches the API directly (another origin, a container
+    on the host network, a misordered Nginx include).
+
+    ``XCELSIOR_AGENT_PUBLIC_INGRESS``:
+
+    ``allow`` (default)
+        Current behaviour. Field agents on the public origin keep working.
+    ``deny``
+        Worker paths are refused with **410 Gone** and a migration hint
+        unless the request came through the authenticated private
+        gateway. This is the completed cutover.
+
+    A request that carries the gateway shared secret is always allowed —
+    that is by definition not public ingress.
+    """
+
+    #: Path prefixes that are worker protocol surface, not product API.
+    WORKER_PREFIXES = ("/agent/", "/host")
+
+    def __init__(self, app):
+        self.app = app
+
+    @staticmethod
+    def _mode() -> str:
+        raw = (os.environ.get("XCELSIOR_AGENT_PUBLIC_INGRESS") or "allow").strip().lower()
+        return "deny" if raw in ("deny", "0", "false", "off", "closed") else "allow"
+
+    def _is_worker_path(self, path: str) -> bool:
+        return any(
+            path == prefix.rstrip("/") or path.startswith(prefix)
+            for prefix in self.WORKER_PREFIXES
+        )
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or self._mode() != "deny":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        if not self._is_worker_path(path):
+            await self.app(scope, receive, send)
+            return
+
+        headers = {
+            k.decode("latin-1").lower(): v.decode("latin-1")
+            for k, v in scope.get("headers", [])
+        }
+        try:
+            from control_plane.identity import gateway_headers_authenticated
+
+            if gateway_headers_authenticated(headers):
+                await self.app(scope, receive, send)
+                return
+        except Exception:  # pragma: no cover - fail closed on import trouble
+            pass
+
+        response = JSONResponse(
+            status_code=410,
+            content={
+                "ok": False,
+                "error": {
+                    "code": "agent_ingress_retired",
+                    "message": (
+                        "The worker protocol has moved to the private agent "
+                        "gateway. Point XCELSIOR_SCHEDULER_URL at "
+                        "https://agent.xcelsior.ca and enrol this host in the "
+                        "SPIRE trust domain."
+                    ),
+                },
+            },
+        )
+        await response(scope, receive, send)
+
+
+app.add_middleware(AgentIngressMiddleware)
 
 
 # ── Exception Handlers ────────────────────────────────────────────────

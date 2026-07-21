@@ -187,6 +187,21 @@ def main():
             log.info("wallet_hold_expiry: expired %d hold(s)", n)
     register_task("wallet_hold_expiry", _wallet_hold_expiry, 60)
 
+    # 1c. Expire past-deadline per-host agent tokens (blueprint §19.2).
+    # Verification already refuses an expired credential; this keeps the
+    # one-active-token index and operator views honest about what is live.
+    def _host_agent_token_expiry():
+        from control_plane.agent_tokens import expire_stale_tokens
+        from control_plane.db import run_transaction
+
+        n = run_transaction(
+            lambda c: expire_stale_tokens(c, limit=500),
+            what="host_agent_token_expiry",
+        )
+        if n:
+            log.info("host_agent_token_expiry: expired %d token(s)", n)
+    register_task("host_agent_token_expiry", _host_agent_token_expiry, 300)
+
     # 2. Stripe webhook event processor (every 30 seconds)
     def _webhook_processor():
         from stripe_connect import get_stripe_manager

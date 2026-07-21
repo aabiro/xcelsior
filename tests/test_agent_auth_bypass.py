@@ -189,13 +189,25 @@ class TestStrictHostBinding:
                 _require_agent_auth(_fake_request(), host_id="rogue-host")
             assert ei.value.status_code == 403
 
-    def test_strict_mode_fails_open_on_db_error(self):
-        """DB incident must not lock out the whole fleet."""
+    def test_strict_mode_fails_closed_on_db_error(self):
+        """A DB incident must not become an authentication bypass.
+
+        This assertion was inverted before Phase 10: it required the
+        strict host-binding check to *fail open* so a database outage
+        would not lock the fleet out. Blueprint §31 replaces that rule —
+        "Agent host lookup DB error -> fail open" becomes "auth/identity
+        verification fails closed for mutation; return retryable 503" —
+        because an attacker who can cause (or wait for) a database blip
+        would otherwise be able to claim any host_id. 503 is retryable,
+        so a genuine outage still resolves itself once the DB returns.
+        """
         from routes.agent import _require_agent_auth
 
         with (
             patch.dict(os.environ, _env_strict(env="test", strict="1"), clear=True),
             patch("routes.agent.list_hosts", side_effect=RuntimeError("db down")),
         ):
-            result = _require_agent_auth(_fake_request(), host_id="any-host")
-            assert result.get("unauth") is True
+            with pytest.raises(HTTPException) as ei:
+                _require_agent_auth(_fake_request(), host_id="any-host")
+            assert ei.value.status_code == 503
+            assert "temporarily unavailable" in str(ei.value.detail).lower()

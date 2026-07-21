@@ -38,6 +38,103 @@ jobs:
       - uses: actions/checkout@v5
       - name: Validate docker-compose.yml
         run: docker compose config -q
+      - name: Validate SPIRE mesh compose (infra/spire)
+        env:
+          SPIRE_DATASTORE_DSN: postgresql://spire:spire@127.0.0.1:5432/spire
+          XCELSIOR_AGENT_GATEWAY_SECRET: ci-placeholder
+        run: docker compose -f infra/spire/docker-compose.spire.yml config -q
+      - name: Validate Envoy agent gateway config
+        run: |
+          docker run --rm -e XCELSIOR_AGENT_GATEWAY_SECRET=ci-placeholder \
+            -v "$PWD/infra/envoy:/cfg:ro" \
+            --entrypoint /bin/sh envoyproxy/envoy:v1.32-latest -c \
+            'envsubst < /cfg/agent-gateway.yaml > /tmp/envoy.yaml &&
+             envoy --mode validate -c /tmp/envoy.yaml'
+
+  # Blueprint §19.6: supply-chain and image policy. An unprivileged image
+  # is only a claim until something checks it, so the built artifact is
+  # inspected here rather than trusted from the Dockerfile text.
+  supply-chain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write   # cosign keyless signing on main
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - name: Build API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: xcelsior-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Image must run unprivileged (§19.4 / §21.1)
+        run: |
+          uid="$(docker run --rm xcelsior-api:ci id -u)"
+          echo "runtime uid=$uid"
+          test "$uid" != "0"
+          test "$uid" -ge 1000
+      - name: Image must boot with a read-only root filesystem
+        run: |
+          docker run --rm --read-only --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+            --tmpfs /dev/shm:rw,size=64m \
+            -e XCELSIOR_DB_BACKEND=sqlite -e XCELSIOR_DB_PATH=/tmp/ci.db \
+            xcelsior-api:ci python -c "import api; print('boot ok')"
+      - name: Image must not ship privileged volume tooling (§19.4)
+        run: |
+          ! docker run --rm --entrypoint /bin/sh xcelsior-api:ci -c \
+            'command -v cryptsetup || command -v mkfs.ext4'
+      - name: Generate SBOM (Syft)
+        uses: anchore/sbom-action@v0
+        with:
+          image: xcelsior-api:ci
+          format: spdx-json
+          artifact-name: xcelsior-api-sbom.spdx.json
+      - name: Vulnerability scan (Trivy) — block CRITICAL
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: xcelsior-api:ci
+          format: table
+          exit-code: '1'
+          severity: CRITICAL
+          ignore-unfixed: true
+      - name: Vulnerability report (HIGH, non-blocking)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: xcelsior-api:ci
+          format: table
+          exit-code: '0'
+          severity: HIGH
+          ignore-unfixed: true
+      - name: MCP image must run unprivileged with a locked install
+        run: |
+          docker build -t xcelsior-mcp:ci ./mcp
+          uid="$(docker run --rm --entrypoint id xcelsior-mcp:ci -u)"
+          test "$uid" != "0"
+          ! grep -qE '^\s*RUN .*npm install' mcp/Dockerfile
+      - name: Install cosign
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: sigstore/cosign-installer@v3
+      - name: Sign the worker agent artifact (keyless OIDC)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          cosign sign-blob --yes \
+            --output-signature worker_agent.py.cosign.sig \
+            --output-certificate worker_agent.py.cosign.pem \
+            worker_agent.py
+      - name: Upload signing material
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: worker-agent-signature
+          path: |
+            worker_agent.py.cosign.sig
+            worker_agent.py.cosign.pem
 
   typecheck:
     # Zero-tolerance gate on pyright reportCallIssue + reportArgumentType +

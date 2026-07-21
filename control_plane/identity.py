@@ -102,11 +102,67 @@ def gateway_headers_authenticated(headers: Mapping[str, str]) -> bool:
     return hmac.compare_digest(presented, secret)
 
 
+def spiffe_trust_domain() -> str:
+    """The SPIFFE trust domain this control plane accepts identities from."""
+    return (os.environ.get("XCELSIOR_SPIFFE_TRUST_DOMAIN") or "xcelsior.ca").strip()
+
+
+def spiffe_host_component(host_id: str) -> str:
+    """Path-safe encoding of a host_id inside a SPIFFE ID.
+
+    Deliberately lossy in the same way on both sides (issuer and
+    verifier) so the comparison is exact rather than fuzzy.
+    """
+    return "".join(c if c.isalnum() or c in "-_" else "-" for c in host_id)
+
+
 def spiffe_id_for_host(host_id: str, *, trust_domain: str | None = None) -> str:
-    """Canonical SPIFFE ID shape for an admitted host (scaffold for SPIRE)."""
-    domain = (trust_domain or os.environ.get("XCELSIOR_SPIFFE_TRUST_DOMAIN") or "xcelsior.ca").strip()
-    safe = "".join(c if c.isalnum() or c in "-_" else "-" for c in host_id)
-    return f"spiffe://{domain}/worker/host/{safe}"
+    """Canonical SPIFFE ID for an admitted host.
+
+    ``spiffe://<trust-domain>/worker/host/<host-id>`` — this exact shape
+    is what ``infra/spire/register-host.sh`` registers and what the
+    agent gateway must present. Anything else is not a worker identity.
+    """
+    domain = (trust_domain or spiffe_trust_domain()).strip()
+    return f"spiffe://{domain}/worker/host/{spiffe_host_component(host_id)}"
+
+
+def spiffe_strict_binding() -> bool:
+    """Require a presented SPIFFE ID to match the host exactly.
+
+    Default **on**: a SPIFFE ID that does not resolve to the host it
+    claims is worthless as an identity, and accepting one would let any
+    workload in the mesh act as any GPU host. Set
+    ``XCELSIOR_SPIFFE_STRICT=0`` only while migrating a gateway that
+    cannot yet emit SVID-derived headers (for example plain Nginx mTLS,
+    which has a certificate DN but no SPIFFE ID).
+    """
+    raw = (os.environ.get("XCELSIOR_SPIFFE_STRICT") or "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
+def parse_worker_spiffe_id(spiffe_id: str) -> str | None:
+    """Return the host component of a well-formed worker SPIFFE ID.
+
+    ``None`` when the value is not a worker identity in *this* trust
+    domain — including the case that made the previous check useless:
+    an ID from an attacker-chosen trust domain that merely contained
+    ``/worker/`` somewhere in its path.
+    """
+    value = (spiffe_id or "").strip()
+    prefix = f"spiffe://{spiffe_trust_domain()}/worker/host/"
+    if not value.startswith(prefix):
+        return None
+    host_component = value[len(prefix):]
+    if not host_component or "/" in host_component:
+        return None
+    return host_component
+
+
+def spiffe_id_matches_host(spiffe_id: str, host_id: str) -> bool:
+    """True only when ``spiffe_id`` is this trust domain's ID for ``host_id``."""
+    component = parse_worker_spiffe_id(spiffe_id)
+    return component is not None and component == spiffe_host_component(host_id)
 
 
 def resolve_gateway_identity(
@@ -162,18 +218,25 @@ def resolve_gateway_identity(
             "Gateway host identity does not match request host_id",
             http_status=403,
         )
+    # A SPIFFE ID is only an identity if it *binds to this host*. The
+    # gateway derives it from a verified SVID, so a mismatch means the
+    # mesh and the request disagree about who is calling — fail closed.
     if spiffe:
-        expected_prefix = f"spiffe://{os.environ.get('XCELSIOR_SPIFFE_TRUST_DOMAIN', 'xcelsior.ca').strip()}/worker/"
-        if not spiffe.startswith("spiffe://") or (
-            expected_prefix
-            and not spiffe.startswith(expected_prefix)
-            and "/worker/" not in spiffe
-        ):
+        if not spiffe_id_matches_host(spiffe, host_id):
             raise IdentityAdmissionError(
                 "invalid_spiffe",
-                "Gateway SPIFFE ID is not a worker identity",
+                "Gateway SPIFFE ID is not this host's worker identity",
                 http_status=403,
             )
+    elif spiffe_strict_binding():
+        # Strict mode is the live-mesh posture: the gateway must prove
+        # which workload it verified, not merely that it verified one.
+        raise IdentityAdmissionError(
+            "missing_spiffe",
+            "Gateway did not present a worker SPIFFE ID "
+            "(set XCELSIOR_SPIFFE_STRICT=0 only during gateway migration)",
+            http_status=401,
+        )
     return AdmittedWorkerIdentity(
         host_id=host_id,
         source="gateway_header",

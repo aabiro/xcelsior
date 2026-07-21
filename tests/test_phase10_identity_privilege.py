@@ -197,20 +197,24 @@ def test_agent_auth_strict_db_error_fails_closed(monkeypatch):
     assert ei.value.status_code == 503
 
 
+def _resolved_compose() -> dict:
+    """Parse docker-compose.yml with YAML anchors resolved.
+
+    Reading the raw text would miss (or falsely fail on) settings that
+    come from a shared anchor, which is exactly how the hardening block
+    is applied — so assert against the merged service definition.
+    """
+    import yaml
+
+    return yaml.safe_load((ROOT / "docker-compose.yml").read_text())
+
+
 def test_compose_api_has_no_sys_admin():
-    compose = (ROOT / "docker-compose.yml").read_text()
-    assert "api:" in compose
-    start = compose.index("\n  api:\n")
-    mid = compose.index("\n  api-blue:\n", start)
-    end = compose.index("\n  scheduler-worker:\n", mid)
-    api_block = compose[start:mid]
-    blue_block = compose[mid:end]
-    # Capability grant must be gone (comments may still name SYS_ADMIN).
-    assert "cap_add:" not in api_block
-    assert "cap_add:" not in blue_block
-    assert "- SYS_ADMIN" not in api_block
-    assert "- SYS_ADMIN" not in blue_block
-    assert "no-new-privileges" in api_block
+    services = _resolved_compose()["services"]
+    for name in ("api", "api-blue"):
+        svc = services[name]
+        assert "cap_add" not in svc, f"{name} must grant no capabilities"
+        assert "no-new-privileges:true" in svc.get("security_opt", []), name
 
 
 def test_mcp_dockerfile_locked_npm_ci_and_non_root():
@@ -238,8 +242,18 @@ def test_ingress_separation_configs_exist():
     assert "server_name" in public or "upstream" in public or "location" in public
 
 
-def test_spire_scaffold_present_not_claimed_live():
-    readme = (ROOT / "infra" / "spire" / "README.md").read_text()
-    assert "not" in readme.lower() and "claimed" in readme.lower() or "scaffold" in readme.lower()
-    assert (ROOT / "infra" / "spire" / "server.conf.example").is_file()
+def test_spire_mesh_assets_are_deployable():
+    """The mesh is deployed from these files, so they must be real.
+
+    Superseded the earlier "scaffold, not claimed live" assertion: the
+    `.example` suffixes are gone and `docker-compose.spire.yml` brings up
+    server, agent, and the SPIFFE-aware gateway. Behavioural coverage of
+    the identity contract lives in tests/test_spire_identity_mesh.py.
+    """
+    spire = ROOT / "infra" / "spire"
+    for name in ("README.md", "server.conf", "agent.conf",
+                 "docker-compose.spire.yml", "register-host.sh"):
+        assert (spire / name).is_file(), f"missing infra/spire/{name}"
+    assert not list(spire.glob("*.example")), "SPIRE configs must be deployable, not examples"
+    assert os.access(spire / "register-host.sh", os.X_OK)
     assert (ROOT / "infra" / "volume-provisioner" / "README.md").is_file()
