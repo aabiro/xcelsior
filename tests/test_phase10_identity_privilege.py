@@ -100,17 +100,27 @@ def test_require_admitted_host_accepts_admitted():
 
 def test_gateway_identity_required_when_enabled(monkeypatch):
     monkeypatch.setenv("XCELSIOR_TRUSTED_AGENT_GATEWAY", "1")
+    monkeypatch.setenv("XCELSIOR_AGENT_GATEWAY_SECRET", "s3cr3t-gateway")
     assert trusted_gateway_enabled() is True
+    # No secret presented → reject (public spoof)
     with pytest.raises(IdentityAdmissionError) as ei:
-        resolve_gateway_identity({})
+        resolve_gateway_identity({"x-xcelsior-agent-gateway": "1"})
+    assert ei.value.code == "gateway_auth_required"
     assert ei.value.http_status == 401
 
     with pytest.raises(IdentityAdmissionError):
-        resolve_gateway_identity({"x-xcelsior-agent-gateway": "1"})
+        resolve_gateway_identity(
+            {
+                "x-xcelsior-agent-gateway": "1",
+                "x-xcelsior-gateway-auth": "wrong",
+                "x-worker-host-id": "host-9",
+            }
+        )
 
     ok = resolve_gateway_identity(
         {
             "x-xcelsior-agent-gateway": "1",
+            "x-xcelsior-gateway-auth": "s3cr3t-gateway",
             "x-worker-host-id": "host-9",
             "x-worker-spiffe-id": "spiffe://xcelsior.ca/worker/host/host-9",
         },
@@ -121,9 +131,37 @@ def test_gateway_identity_required_when_enabled(monkeypatch):
     assert ok.source == "gateway_header"
 
 
+def test_gateway_mode_without_secret_fails_closed(monkeypatch):
+    """Enabling gateway mode without a secret must not trust forgeable headers."""
+    monkeypatch.setenv("XCELSIOR_TRUSTED_AGENT_GATEWAY", "1")
+    monkeypatch.delenv("XCELSIOR_AGENT_GATEWAY_SECRET", raising=False)
+    with pytest.raises(IdentityAdmissionError) as ei:
+        resolve_gateway_identity(
+            {
+                "x-xcelsior-agent-gateway": "1",
+                "x-worker-host-id": "evil",
+            }
+        )
+    assert ei.value.code == "gateway_secret_unconfigured"
+    assert ei.value.http_status == 503
+
+
 def test_gateway_mode_off_returns_none(monkeypatch):
     monkeypatch.delenv("XCELSIOR_TRUSTED_AGENT_GATEWAY", raising=False)
     assert resolve_gateway_identity({"x-worker-host-id": "h"}) is None
+
+
+def test_public_nginx_strips_worker_identity_headers():
+    conf = (ROOT / "nginx" / "xcelsior.conf").read_text()
+    agent_block = conf.split("location /agent/")[1].split("location /api/")[0]
+    for hdr in (
+        "X-Worker-Host-Id",
+        "X-Worker-Spiffe-Id",
+        "X-Xcelsior-Agent-Gateway",
+        "X-Xcelsior-Gateway-Auth",
+    ):
+        assert hdr in agent_block, f"public /agent/ must strip {hdr}"
+        assert f'proxy_set_header {hdr} ""' in agent_block or f"proxy_set_header {hdr} \"\"" in agent_block
 
 
 def test_agent_auth_strict_db_error_fails_closed(monkeypatch):

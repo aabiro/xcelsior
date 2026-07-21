@@ -17,14 +17,23 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 
-# Headers a public client must never be allowed to inject.
+# Headers a public client must never be allowed to inject / spoof.
+# Includes the gateway marker itself — only a private edge that also
+# presents XCELSIOR_AGENT_GATEWAY_SECRET may re-set these.
 UNTRUSTED_IDENTITY_HEADERS = (
     "x-worker-host-id",
     "x-worker-spiffe-id",
+    "x-worker-provider-id",
     "x-spiffe-id",
     "x-worker-identity",
     "x-forwarded-client-cert",
+    "x-xcelsior-agent-gateway",
+    "x-xcelsior-gateway-auth",
 )
+
+# Shared secret the private agent gateway injects after mTLS. Public clients
+# must not know it; without it gateway identity headers are ignored/rejected.
+_GATEWAY_AUTH_HEADER = "x-xcelsior-gateway-auth"
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,11 +64,16 @@ def trusted_gateway_enabled() -> bool:
     )
 
 
+def agent_gateway_secret() -> str:
+    """Shared secret the private agent gateway must present (may be empty)."""
+    return (os.environ.get("XCELSIOR_AGENT_GATEWAY_SECRET") or "").strip()
+
+
 def strip_untrusted_identity_headers(headers: Mapping[str, str]) -> dict[str, str]:
     """Return a copy of headers with public-injectable identity keys removed.
 
     Call at the API edge before any identity resolution when the request did
-    not arrive from the private agent gateway.
+    not arrive from a secret-authenticated private agent gateway.
     """
     out: dict[str, str] = {}
     for key, value in headers.items():
@@ -67,6 +81,25 @@ def strip_untrusted_identity_headers(headers: Mapping[str, str]) -> dict[str, st
             continue
         out[key] = value
     return out
+
+
+def gateway_headers_authenticated(headers: Mapping[str, str]) -> bool:
+    """True only when the private gateway shared secret matches.
+
+    A bare ``X-Xcelsior-Agent-Gateway: 1`` is forgeable on public ingress —
+    blueprint §19.2 requires identity headers only after private-network
+    gateway verification. The secret is that proof.
+    """
+    secret = agent_gateway_secret()
+    if not secret:
+        return False
+    presented = (headers.get(_GATEWAY_AUTH_HEADER) or "").strip()
+    if not presented:
+        return False
+    # Constant-time compare for the shared secret.
+    import hmac
+
+    return hmac.compare_digest(presented, secret)
 
 
 def spiffe_id_for_host(host_id: str, *, trust_domain: str | None = None) -> str:
@@ -84,13 +117,30 @@ def resolve_gateway_identity(
     """If trusted gateway mode is on, map gateway-set headers to an identity.
 
     Returns None when gateway mode is off (caller falls through to bearer).
-    Raises IdentityAdmissionError when gateway mode is on but headers are
-    missing/mismatched — fail closed.
+    Raises IdentityAdmissionError when gateway mode is on but:
+      - gateway secret is not configured (misconfig fail-closed),
+      - request lacks matching gateway auth secret (public spoof rejected),
+      - host/SPIFFE headers are missing/mismatched.
     """
     if not trusted_gateway_enabled():
         return None
 
-    # Only accept identity headers when the gateway marker is present.
+    # Fail closed if operators enabled gateway mode without a secret —
+    # otherwise any client could set X-Xcelsior-Agent-Gateway: 1.
+    if not agent_gateway_secret():
+        raise IdentityAdmissionError(
+            "gateway_secret_unconfigured",
+            "XCELSIOR_TRUSTED_AGENT_GATEWAY requires XCELSIOR_AGENT_GATEWAY_SECRET",
+            http_status=503,
+        )
+
+    if not gateway_headers_authenticated(headers):
+        raise IdentityAdmissionError(
+            "gateway_auth_required",
+            "Agent gateway authentication failed",
+            http_status=401,
+        )
+
     if headers.get("x-xcelsior-agent-gateway", "").lower() not in ("1", "true", "yes"):
         raise IdentityAdmissionError(
             "gateway_required",
