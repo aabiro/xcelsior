@@ -486,13 +486,14 @@ class VolumeEngine:
         container_path: str,
         *,
         timeout_sec: int | None = None,
+        container_name: str | None = None,
     ) -> bool:
         """Poll worker until NFS host mount and container bind are present."""
         timeout = timeout_sec or HOT_MOUNT_POLL_TIMEOUT_SEC
         host_mount = self._managed_host_mount(volume_id)
-        container_name = f"xcl-{instance_id}"
+        cname = container_name or f"xcl-{instance_id}"
         safe_host = shlex.quote(host_mount)
-        safe_cname = shlex.quote(container_name)
+        safe_cname = shlex.quote(cname)
         safe_path = shlex.quote(container_path)
         check_cmd = (
             f"mountpoint -q {safe_host} && "
@@ -508,6 +509,22 @@ class VolumeEngine:
             time.sleep(2)
         return False
 
+    def _resolve_instance_container_target(self, instance_id: str):
+        """Resolve residual mount target; None when fenced without authority."""
+        from control_plane.job_targets import resolve_job_command_target
+
+        target = resolve_job_command_target(instance_id)
+        if target is None:
+            return None
+        if not target.allows_unfenced_container_command:
+            log.warning(
+                "volume residual refused for fenced-history instance=%s "
+                "(no live attempt authority)",
+                instance_id,
+            )
+            return None
+        return target
+
     def _enqueue_hot_mount(
         self,
         host_id: str,
@@ -515,8 +532,21 @@ class VolumeEngine:
         volume_id: str,
         mount_path: str,
         mode: str,
+        *,
+        container_name: str | None = None,
     ) -> None:
         from routes.agent import enqueue_agent_command
+
+        cname = container_name
+        if not cname:
+            target = self._resolve_instance_container_target(instance_id)
+            if target is None:
+                raise ValueError(
+                    f"instance {instance_id} has no residual container target"
+                )
+            cname = target.container_name
+            if target.host_id:
+                host_id = target.host_id
 
         enqueue_agent_command(
             host_id=host_id,
@@ -526,6 +556,7 @@ class VolumeEngine:
                 "volume_id": volume_id,
                 "container_path": mount_path,
                 "mode": mode,
+                "container_name": cname,
                 "nfs_server": NFS_SERVER,
                 "nfs_export_base": NFS_EXPORT_BASE,
             },
@@ -538,8 +569,21 @@ class VolumeEngine:
         instance_id: str,
         volume_id: str,
         mount_path: str,
+        *,
+        container_name: str | None = None,
     ) -> None:
         from routes.agent import enqueue_agent_command
+
+        cname = container_name
+        if not cname:
+            target = self._resolve_instance_container_target(instance_id)
+            if target is None:
+                raise ValueError(
+                    f"instance {instance_id} has no residual container target"
+                )
+            cname = target.container_name
+            if target.host_id:
+                host_id = target.host_id
 
         enqueue_agent_command(
             host_id=host_id,
@@ -548,6 +592,7 @@ class VolumeEngine:
                 "job_id": instance_id,
                 "volume_id": volume_id,
                 "container_path": mount_path,
+                "container_name": cname,
             },
             created_by="volume-engine",
         )
@@ -1510,20 +1555,44 @@ class VolumeEngine:
 
         if host_id:
             try:
-                self._enqueue_hot_mount(host_id, instance_id, volume_id, mount_path, mode)
-                if self._wait_for_hot_mount(host_ip, volume_id, instance_id, mount_path):
-                    log.info(
-                        "Hot-attached volume %s on host %s at %s (%s)",
+                target = self._resolve_instance_container_target(instance_id)
+                if target is None:
+                    log.error(
+                        "Cannot mount volume %s: instance %s has no residual "
+                        "container target (fenced without live authority?)",
                         volume_id,
-                        host_id,
+                        instance_id,
+                    )
+                    return False
+                use_host = target.host_id or host_id
+                self._enqueue_hot_mount(
+                    use_host,
+                    instance_id,
+                    volume_id,
+                    mount_path,
+                    mode,
+                    container_name=target.container_name,
+                )
+                if self._wait_for_hot_mount(
+                    host_ip,
+                    volume_id,
+                    instance_id,
+                    mount_path,
+                    container_name=target.container_name,
+                ):
+                    log.info(
+                        "Hot-attached volume %s on host %s at %s (%s) container=%s",
+                        volume_id,
+                        use_host,
                         mount_path,
                         mode,
+                        target.container_name,
                     )
                     return True
                 log.error(
                     "Hot mount timed out for volume %s on host %s (%s)",
                     volume_id,
-                    host_id,
+                    use_host,
                     host_ip,
                 )
                 return False
@@ -1610,7 +1679,24 @@ class VolumeEngine:
 
         if host_id:
             try:
-                self._enqueue_hot_unmount(host_id, instance_id, volume_id, mount_path)
+                target = self._resolve_instance_container_target(instance_id)
+                if target is None:
+                    # Detach DB path continues; host may already be gone.
+                    log.warning(
+                        "Hot-unmount skipped for volume %s instance %s "
+                        "(no residual container target)",
+                        volume_id,
+                        instance_id,
+                    )
+                    return True
+                use_host = target.host_id or host_id
+                self._enqueue_hot_unmount(
+                    use_host,
+                    instance_id,
+                    volume_id,
+                    mount_path,
+                    container_name=target.container_name,
+                )
             except Exception as e:
                 log.warning(
                     "Agent unmount_volume enqueue failed for %s on %s: %s",

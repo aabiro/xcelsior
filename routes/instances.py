@@ -55,6 +55,7 @@ from scheduler import (
     get_job,
     host_accepts_spot_job,
     kill_job,
+    legacy_inline_placement_allowed,
     list_hosts,
     list_jobs,
     list_tiers,
@@ -258,6 +259,36 @@ _job_log_buffers: dict[str, list[dict]] = defaultdict(list)
 _ws_connections: dict[str, set] = defaultdict(set)
 
 
+def _broadcast_instance_lifecycle_sse(
+    sse_event: str,
+    data: dict,
+    *,
+    event_type: str,
+    job_id: str,
+    idempotency_key: str,
+) -> None:
+    """Durable multi-replica SSE for instance lifecycle request-path sites.
+
+    Appends an outbox row (dispatcher → NOTIFY → every API replica's LISTEN
+    bridge). Falls back to process-local ``broadcast_sse`` only when the
+    outbox path is unavailable so single-replica/dev still works.
+    """
+    try:
+        from control_plane.outbox_runtime import enqueue_lifecycle_sse_outbox
+
+        if enqueue_lifecycle_sse_outbox(
+            aggregate_type="job",
+            aggregate_id=str(job_id),
+            event_type=event_type,
+            payload=data,
+            idempotency_key=idempotency_key,
+        ):
+            return
+    except Exception as e:
+        log.debug("instance lifecycle SSE outbox failed (%s); process-local", e)
+    broadcast_sse(sse_event, data)
+
+
 def _require_worker_status_update(request: Request) -> dict:
     """PATCH /instance/{job_id} is for worker agents, not end users.
 
@@ -441,8 +472,15 @@ def _wallet_preflight(
     pricing_mode: str = "on_demand",
     gpu_model: str | None = None,
     num_gpus: int = 1,
-):
-    """Shared wallet check — raises 402 if wallet is suspended or underfunded."""
+    host: dict | None = None,
+    idempotency_key: str | None = None,
+) -> str | None:
+    """Fund gate: durable wallet hold when available balance is sufficient.
+
+    Returns the new ``hold_id`` (or None only when hold infrastructure is
+    unavailable and grace allows a legacy soft pass). Raises 402/503 on
+    suspended or underfunded wallets.
+    """
     from billing import get_billing_engine
 
     be = get_billing_engine()
@@ -450,8 +488,10 @@ def _wallet_preflight(
     if wallet.get("status") == "suspended":
         raise HTTPException(402, detail="Wallet suspended — please add funds to resume service")
 
-    balance = float(wallet.get("balance_cad", 0) or 0)
     in_grace = float(wallet.get("grace_until", 0) or 0) >= time.time()
+    available = float(
+        wallet.get("available_cad", wallet.get("balance_cad", 0)) or 0
+    )
 
     if pricing_mode == "spot":
         from spot.feature import spot_global_enabled
@@ -462,23 +502,59 @@ def _wallet_preflight(
                 detail="Spot instances are temporarily unavailable. Please use on-demand or try again later.",
             )
 
-    if pricing_mode == "spot":
-        from spot_pricing import compute_live_spot_quote
-
-        model = (gpu_model or "").strip() or "RTX 4090"
-        hourly = compute_live_spot_quote(model).rate_cad * max(1, int(num_gpus or 1))
-        if balance < hourly and not in_grace:
-            raise HTTPException(
-                402,
-                detail=(
-                    f"Insufficient wallet balance for spot launch "
-                    f"(~${hourly:.2f}/hr CAD required for one hour)"
-                ),
-            )
-        return
-
-    if balance <= 0 and not in_grace:
+    hold_amount = be.estimate_launch_hold_cad(
+        pricing_mode=pricing_mode,
+        gpu_model=gpu_model,
+        num_gpus=num_gpus,
+        host=host,
+    )
+    # On-demand historically required only positive balance; still reserve
+    # a one-hour estimate so concurrent launches cannot oversubscribe funds.
+    if pricing_mode != "spot" and available <= 0 and not in_grace:
         raise HTTPException(402, detail="Insufficient wallet balance — please deposit credits")
+
+    if available + 1e-9 < hold_amount and not in_grace:
+        raise HTTPException(
+            402,
+            detail=(
+                f"Insufficient available wallet balance for launch "
+                f"(~${hold_amount:.2f} CAD hold required; "
+                f"${available:.2f} CAD available after holds)"
+            ),
+        )
+
+    # Always unique per submit attempt so concurrent same-name launches
+    # each reserve their own hold (never share one estimate).
+    key = (idempotency_key or "").strip() or f"launch:{customer_id}:{uuid.uuid4().hex}"
+    try:
+        result = be.create_wallet_hold(
+            customer_id,
+            hold_amount,
+            idempotency_key=key,
+            expires_in_sec=3600,
+            reason="instance_launch",
+        )
+    except Exception as exc:
+        log.warning("wallet hold create failed for %s: %s", customer_id, exc)
+        # Fail closed: never fall back to pure balance-read preflight.
+        # Grace period is the only soft-pass exception (legacy underfunded).
+        if in_grace:
+            return None
+        raise HTTPException(
+            402, detail="Unable to reserve wallet funds for launch"
+        ) from exc
+
+    if not result.get("held"):
+        if in_grace and result.get("reason") == "insufficient_available":
+            return None
+        raise HTTPException(
+            402,
+            detail=(
+                f"Insufficient available wallet balance for launch "
+                f"(~${hold_amount:.2f} CAD hold required)"
+            ),
+        )
+    return str(result["hold_id"])
 
 
 # ── Image Templates ──
@@ -516,13 +592,140 @@ def _refresh_job(job_id: str):
     return None
 
 
+def _direct_host_launch_or_defer(
+    job: dict,
+    *,
+    target_host_id: str,
+    target_host: dict | None,
+    image: str | None,
+    pricing_mode: str,
+    num_gpus: int = 1,
+) -> dict:
+    """Host-pin placement path used by ``api_submit_instance``.
+
+    P4.4b: when the transactional scheduler owns this job (canary partition
+    or active), refuse inline ``assigned`` + SSH ``run_job``. Leave the job
+    queued with a preferred-host pin so the claim→reserve path is the sole
+    writer (attempt + lease + durable start command).
+    """
+    if not legacy_inline_placement_allowed(job):
+        try:
+            from scheduler import _set_job_fields
+
+            _set_job_fields(job["job_id"], preferred_host_id=target_host_id)
+        except Exception as exc:
+            log.debug(
+                "preferred_host_id pin failed job=%s host=%s: %s",
+                job.get("job_id"),
+                target_host_id,
+                exc,
+            )
+        log.info(
+            "Direct launch deferred for control-plane-owned job %s "
+            "(host pin=%s) — transactional scheduler owns placement/start",
+            job.get("job_id"),
+            target_host_id,
+        )
+        # Wake authoritative tick when running (no-op unless canary/active).
+        try:
+            from scheduler import _control_plane_tick
+
+            _control_plane_tick()
+        except Exception as exc:
+            log.debug("control-plane tick after deferred pin: %s", exc)
+        return _refresh_job(job["job_id"]) or job
+
+    try:
+        if pricing_mode == "spot":
+            try:
+                from marketplace import get_marketplace_engine
+
+                me = get_marketplace_engine()
+                offer = me.get_offer_for_host(
+                    target_host_id,
+                    target_host.get("gpu_model", "") if target_host else "",
+                )
+                if offer:
+                    alloc = me.allocate_gpu(
+                        offer["offer_id"],
+                        job["job_id"],
+                        num_gpus,
+                        allocation_type="spot",
+                    )
+                    if alloc and alloc.get("price_cents_per_hour"):
+                        from scheduler import _set_job_fields
+
+                        job["spot_rate_cad"] = alloc["price_cents_per_hour"] / 100.0
+                        _set_job_fields(
+                            job["job_id"],
+                            spot_rate_cad=job["spot_rate_cad"],
+                        )
+            except Exception as exc:
+                log.debug("Marketplace spot allocation skipped: %s", exc)
+
+        assign_kwargs: dict = {}
+        if pricing_mode == "spot" and not job.get("spot_rate_cad"):
+            from spot_pricing import lock_spot_rate_for_job
+
+            lock_spot_rate_for_job(
+                job,
+                host_gpu_model=target_host.get("gpu_model", "") if target_host else "",
+            )
+            assign_kwargs["spot_rate_cad"] = job.get("spot_rate_cad")
+            assign_kwargs["pricing_mode"] = "spot"
+        elif pricing_mode == "spot":
+            assign_kwargs["spot_rate_cad"] = job.get("spot_rate_cad")
+            assign_kwargs["pricing_mode"] = "spot"
+
+        updated = update_job_status(
+            job["job_id"],
+            "assigned",
+            host_id=target_host_id,
+            **assign_kwargs,
+        )
+        if updated and updated.get("status") == "assigned":
+            hosts = list_hosts()
+            hmap = {h["host_id"]: h for h in hosts}
+            host = hmap.get(target_host_id)
+            if host:
+                container_id = run_job(updated, host, docker_image=image)
+                if container_id:
+                    job = _refresh_job(job["job_id"]) or job
+                    log.info(
+                        "Direct launch: job %s running on host %s",
+                        job["job_id"],
+                        target_host_id,
+                    )
+                else:
+                    job = _refresh_job(job["job_id"]) or job
+                    log.warning(
+                        "Direct launch: container start failed for job %s on host %s",
+                        job["job_id"],
+                        target_host_id,
+                    )
+            else:
+                log.warning(
+                    "Direct launch: host %s not found, job %s stays queued",
+                    target_host_id,
+                    job["job_id"],
+                )
+                update_job_status(job["job_id"], "queued")
+                job = _refresh_job(job["job_id"]) or job
+    except Exception as e:
+        log.error("Direct launch failed for job %s: %s", job["job_id"], e)
+        job = _refresh_job(job["job_id"]) or job
+    return job
+
+
 @router.post("/instance", tags=["Instances"])
 def api_submit_instance(j: JobIn, request: Request):
     """Submit a job to the queue or directly assign to a host.
 
     If host_id is provided (marketplace launch), the job is assigned directly
-    to that host and container start is attempted immediately. Otherwise,
-    the job is queued and process_queue runs to find a host.
+    to that host and container start is attempted immediately — unless the
+    transactional scheduler owns the job (canary/active partition), in which
+    case the pin is recorded and placement/start stay with the claim→reserve
+    path. Otherwise the job is queued and process_queue runs to find a host.
     """
     user = _require_auth(request)
     _require_scope(user, "instances:write")
@@ -614,11 +817,14 @@ def api_submit_instance(j: JobIn, request: Request):
         "job.submit", {"job.name": j.name, "job.tier": j.tier or "", "job.num_gpus": j.num_gpus}
     ):
         customer_id = _effective_billing_customer_id(user)
-        _wallet_preflight(
+        hold_id = _wallet_preflight(
             customer_id,
             pricing_mode=j.pricing_mode,
             gpu_model=j.gpu_model or (target_host.get("gpu_model") if target_host else None),
             num_gpus=j.num_gpus,
+            host=target_host,
+            # Per-submit attempt key — concurrent same-name launches each hold.
+            idempotency_key=f"launch:{customer_id}:{uuid.uuid4().hex}",
         )
 
         # ── Concurrent instance cap (personal or shared team pool) ──
@@ -687,30 +893,55 @@ def api_submit_instance(j: JobIn, request: Request):
         if j.pricing_mode == "spot":
             launch_tier = "spot"
 
-        job = submit_job(
-            j.name,
-            vram_needed,
-            j.priority,
-            tier=launch_tier,
-            num_gpus=j.num_gpus,
-            gpu_model=j.gpu_model,
-            nfs_server=j.nfs_server,
-            nfs_path=j.nfs_path,
-            nfs_mount_point=j.nfs_mount_point,
-            image=j.image,
-            interactive=j.interactive,
-            command=j.command,
-            ssh_port=j.ssh_port,
-            owner=customer_id,
-            volume_ids=validated_volume_ids,
-            encrypted_workspace=j.encrypted_workspace,
-            init_script=j.init_script,
-            git_repo=j.git_repo,
-            auto_launch=j.auto_launch,
-            exposed_ports=j.exposed_ports,
-            source_template_id=source_template_id,
-            pricing_mode=j.pricing_mode,
-        )
+        try:
+            job = submit_job(
+                j.name,
+                vram_needed,
+                j.priority,
+                tier=launch_tier,
+                num_gpus=j.num_gpus,
+                gpu_model=j.gpu_model,
+                nfs_server=j.nfs_server,
+                nfs_path=j.nfs_path,
+                nfs_mount_point=j.nfs_mount_point,
+                image=j.image,
+                interactive=j.interactive,
+                command=j.command,
+                ssh_port=j.ssh_port,
+                owner=customer_id,
+                volume_ids=validated_volume_ids,
+                encrypted_workspace=j.encrypted_workspace,
+                init_script=j.init_script,
+                git_repo=j.git_repo,
+                auto_launch=j.auto_launch,
+                exposed_ports=j.exposed_ports,
+                source_template_id=source_template_id,
+                pricing_mode=j.pricing_mode,
+            )
+        except Exception:
+            if hold_id:
+                try:
+                    from billing import get_billing_engine
+
+                    get_billing_engine().release_wallet_hold(
+                        hold_id, reason="launch_submit_failed"
+                    )
+                except Exception:
+                    pass
+            raise
+
+        if hold_id:
+            try:
+                from billing import get_billing_engine
+
+                get_billing_engine().link_wallet_hold_to_job(hold_id, job["job_id"])
+            except Exception as exc:
+                log.warning(
+                    "wallet hold link failed hold=%s job=%s: %s",
+                    hold_id[:8],
+                    job.get("job_id"),
+                    exc,
+                )
         event_name = "spot_job_submitted" if j.pricing_mode == "spot" else "job_submitted"
 
         # Track job ownership (response-only, already persisted via owner param)
@@ -734,89 +965,20 @@ def api_submit_instance(j: JobIn, request: Request):
         except Exception:
             pass
 
-        # Direct host assignment: assign + start immediately
+        # Direct host assignment: assign + start immediately — unless the
+        # transactional scheduler owns this job (P4.4b exclusive partition).
         if target_host_id:
-            try:
-                if j.pricing_mode == "spot":
-                    try:
-                        from marketplace import get_marketplace_engine
-
-                        me = get_marketplace_engine()
-                        offer = me.get_offer_for_host(
-                            target_host_id,
-                            target_host.get("gpu_model", "") if target_host else "",
-                        )
-                        if offer:
-                            alloc = me.allocate_gpu(
-                                offer["offer_id"],
-                                job["job_id"],
-                                j.num_gpus,
-                                allocation_type="spot",
-                            )
-                            if alloc and alloc.get("price_cents_per_hour"):
-                                from scheduler import _set_job_fields
-
-                                job["spot_rate_cad"] = alloc["price_cents_per_hour"] / 100.0
-                                _set_job_fields(
-                                    job["job_id"],
-                                    spot_rate_cad=job["spot_rate_cad"],
-                                )
-                    except Exception as exc:
-                        log.debug("Marketplace spot allocation skipped: %s", exc)
-
-                assign_kwargs: dict = {}
-                if j.pricing_mode == "spot" and not job.get("spot_rate_cad"):
-                    from spot_pricing import lock_spot_rate_for_job
-
-                    lock_spot_rate_for_job(
-                        job,
-                        host_gpu_model=target_host.get("gpu_model", "") if target_host else "",
-                    )
-                    assign_kwargs["spot_rate_cad"] = job.get("spot_rate_cad")
-                    assign_kwargs["pricing_mode"] = "spot"
-                elif j.pricing_mode == "spot":
-                    assign_kwargs["spot_rate_cad"] = job.get("spot_rate_cad")
-                    assign_kwargs["pricing_mode"] = "spot"
-
-                updated = update_job_status(
-                    job["job_id"],
-                    "assigned",
-                    host_id=target_host_id,
-                    **assign_kwargs,
-                )
-                if updated and updated.get("status") == "assigned":
-                    hosts = list_hosts()
-                    hmap = {h["host_id"]: h for h in hosts}
-                    host = hmap.get(target_host_id)
-                    if host:
-                        container_id = run_job(updated, host, docker_image=j.image or None)
-                        if container_id:
-                            job = _refresh_job(job["job_id"]) or job
-                            log.info(
-                                "Direct launch: job %s running on host %s",
-                                job["job_id"],
-                                target_host_id,
-                            )
-                        else:
-                            job = _refresh_job(job["job_id"]) or job
-                            log.warning(
-                                "Direct launch: container start failed for job %s on host %s",
-                                job["job_id"],
-                                target_host_id,
-                            )
-                    else:
-                        log.warning(
-                            "Direct launch: host %s not found, job %s stays queued",
-                            target_host_id,
-                            job["job_id"],
-                        )
-                        update_job_status(job["job_id"], "queued")
-                        job = _refresh_job(job["job_id"]) or job
-            except Exception as e:
-                log.error("Direct launch failed for job %s: %s", job["job_id"], e)
-                job = _refresh_job(job["job_id"]) or job
+            job = _direct_host_launch_or_defer(
+                job,
+                target_host_id=target_host_id,
+                target_host=target_host,
+                image=j.image or None,
+                pricing_mode=j.pricing_mode,
+                num_gpus=j.num_gpus,
+            )
         else:
-            # Auto-process queue to try to assign immediately
+            # Auto-process queue to try to assign immediately (legacy walker
+            # already skips control-plane-owned jobs).
             try:
                 process_queue()
                 # Refresh job status after queue processing
@@ -1345,9 +1507,20 @@ def api_cancel_instance(job_id: str, request: Request):
             detail = fenced.reason or "fenced_cancel_failed"
             code = 409 if detail == "no_active_fenced_authority" else 400
             raise HTTPException(code, detail)
-        broadcast_sse(
+        cancel_payload = {
+            "job_id": job_id,
+            "status": "stopping",
+            "attempt_id": fenced.attempt_id,
+        }
+        _broadcast_instance_lifecycle_sse(
             "job_cancelled",
-            {"job_id": job_id, "status": "stopping", "attempt_id": fenced.attempt_id},
+            cancel_payload,
+            event_type="job.v1.cancelled",
+            job_id=job_id,
+            idempotency_key=(
+                f"job_cancelled:{job_id}:{fenced.attempt_id or 'none'}:"
+                f"{fenced.command_id or 'none'}:{time.time()}"
+            ),
         )
         return {
             "ok": True,
@@ -1370,7 +1543,13 @@ def api_cancel_instance(job_id: str, request: Request):
         schedule_host_preemptions(job["host_id"], [job_id])
 
     update_job_status(job_id, "cancelled")
-    broadcast_sse("job_cancelled", {"job_id": job_id})
+    _broadcast_instance_lifecycle_sse(
+        "job_cancelled",
+        {"job_id": job_id},
+        event_type="job.v1.cancelled",
+        job_id=job_id,
+        idempotency_key=f"job_cancelled:{job_id}:legacy:{time.time()}",
+    )
 
     # Detach any volumes still attached to this instance (legacy only).
     try:
@@ -1516,14 +1695,25 @@ def api_reset_instance(job_id: str, request: Request):
     if not host_id:
         raise HTTPException(status_code=400, detail="Instance has no host assigned")
 
-    container_name = job.get("container_name") or f"xcl-{job_id}"
-
+    from control_plane.job_targets import resolve_job_command_target
     from routes.agent import enqueue_agent_command
 
+    target = resolve_job_command_target(job_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
+    # Authority-sensitive: never guess legacy xcl-{job} for fenced history.
+    if not target.allows_unfenced_container_command:
+        raise HTTPException(
+            status_code=409,
+            detail="fenced_residual_requires_live_authority",
+        )
+    if not target.host_id:
+        raise HTTPException(status_code=400, detail="Instance has no host assigned")
+
     cmd_id = enqueue_agent_command(
-        host_id=host_id,
+        host_id=target.host_id,
         command="reset_container",
-        args={"job_id": job_id, "container_name": container_name},
+        args={"job_id": job_id, "container_name": target.container_name},
         created_by=_user.get("customer_id", _user.get("user_id", "")),
     )
     broadcast_sse("instance_reset", {"job_id": job_id})
@@ -1555,7 +1745,13 @@ def api_stop_instance(job_id: str, request: Request):
     if not result.get("stopped"):
         raise HTTPException(status_code=500, detail=result.get("reason", "stop failed"))
 
-    broadcast_sse("instance_stopped", {"job_id": job_id})
+    _broadcast_instance_lifecycle_sse(
+        "instance_stopped",
+        {"job_id": job_id},
+        event_type="job.v1.instance_stopped",
+        job_id=job_id,
+        idempotency_key=f"instance_stopped:{job_id}:{time.time()}",
+    )
     append_user_audit_event("user.instance.stopped", "job", job_id, user)
     return {"ok": True, "instance": result}
 
@@ -1580,11 +1776,18 @@ def api_start_instance(job_id: str, request: Request):
     from billing import get_billing_engine
 
     be = get_billing_engine()
-    wallet = be.get_wallet(job_owner or customer_id)
-    if wallet.get("status") == "suspended":
+    fund = be.wallet_has_available_funds(job_owner or customer_id)
+    if fund.get("reason") == "wallet_suspended":
         raise HTTPException(status_code=402, detail="Wallet suspended — please add funds")
-    if wallet["balance_cad"] <= 0:
-        raise HTTPException(status_code=402, detail="Insufficient wallet balance to start instance")
+    if not fund.get("ok"):
+        raise HTTPException(
+            status_code=402,
+            detail=(
+                "Insufficient available wallet balance to start instance "
+                f"(${float(fund.get('available_cad') or 0):.2f} CAD available "
+                f"after ${float(fund.get('held_cad') or 0):.2f} CAD held)"
+            ),
+        )
 
     result = be.start_instance(job_id)
     if not result.get("started"):
@@ -1605,7 +1808,13 @@ def api_start_instance(job_id: str, request: Request):
         )
         raise HTTPException(status_code=code, detail=detail)
 
-    broadcast_sse("instance_started", {"job_id": job_id})
+    _broadcast_instance_lifecycle_sse(
+        "instance_started",
+        {"job_id": job_id},
+        event_type="job.v1.instance_started",
+        job_id=job_id,
+        idempotency_key=f"instance_started:{job_id}:{time.time()}",
+    )
     append_user_audit_event("user.instance.started", "job", job_id, user)
     return {"ok": True, "instance": result}
 
@@ -1633,12 +1842,17 @@ def api_restart_instance(job_id: str, request: Request):
 
     be = get_billing_engine()
     job_owner = (job.get("owner") or "").strip()
-    wallet = be.get_wallet(job_owner)
-    if wallet.get("status") == "suspended":
+    fund = be.wallet_has_available_funds(job_owner)
+    if fund.get("reason") == "wallet_suspended":
         raise HTTPException(status_code=402, detail="Wallet suspended — please add funds")
-    if wallet["balance_cad"] <= 0:
+    if not fund.get("ok"):
         raise HTTPException(
-            status_code=402, detail="Insufficient wallet balance to restart instance"
+            status_code=402,
+            detail=(
+                "Insufficient available wallet balance to restart instance "
+                f"(${float(fund.get('available_cad') or 0):.2f} CAD available "
+                f"after ${float(fund.get('held_cad') or 0):.2f} CAD held)"
+            ),
         )
 
     result = be.restart_instance(job_id)
@@ -1660,7 +1874,13 @@ def api_restart_instance(job_id: str, request: Request):
         )
         raise HTTPException(status_code=code, detail=detail)
 
-    broadcast_sse("instance_restarted", {"job_id": job_id})
+    _broadcast_instance_lifecycle_sse(
+        "instance_restarted",
+        {"job_id": job_id},
+        event_type="job.v1.instance_restarted",
+        job_id=job_id,
+        idempotency_key=f"instance_restarted:{job_id}:{time.time()}",
+    )
     append_user_audit_event("user.instance.restarted", "job", job_id, user)
     return {"ok": True, "instance": result}
 
@@ -1692,23 +1912,40 @@ def api_admin_reinject_shell(job_id: str, request: Request):
     if not host_id:
         raise HTTPException(400, "Instance has no host assigned")
 
-    container_name = job.get("container_name") or f"xcl-{job_id}"
+    from control_plane.job_targets import resolve_job_command_target
     from routes.agent import enqueue_agent_command
 
+    target = resolve_job_command_target(job_id)
+    if target is None:
+        raise HTTPException(404, f"Instance {job_id} not found")
+    if not target.allows_unfenced_container_command:
+        raise HTTPException(
+            status_code=409,
+            detail="fenced_residual_requires_live_authority",
+        )
+    if not target.host_id:
+        raise HTTPException(400, "Instance has no host assigned")
+
     cmd_id = enqueue_agent_command(
-        host_id=host_id,
+        host_id=target.host_id,
         command="reinject_shell",
-        args={"job_id": job_id, "container_name": container_name},
+        args={"job_id": job_id, "container_name": target.container_name},
         created_by=user.get("customer_id", user.get("user_id", "admin")),
     )
     log.info(
-        "Admin %s enqueued reinject_shell cmd=%d host=%s job=%s",
+        "Admin %s enqueued reinject_shell cmd=%d host=%s job=%s class=%s",
         user.get("email", "?"),
         cmd_id,
-        host_id,
+        target.host_id,
         job_id,
+        target.class_,
     )
-    return {"ok": True, "command_id": cmd_id, "host_id": host_id, "job_id": job_id}
+    return {
+        "ok": True,
+        "command_id": cmd_id,
+        "host_id": target.host_id,
+        "job_id": job_id,
+    }
 
 
 @router.post("/instances/{job_id}/terminate", tags=["Instances"])
@@ -1738,7 +1975,13 @@ def api_terminate_instance(job_id: str, request: Request):
         ) else 400
         raise HTTPException(status_code=code, detail=detail)
 
-    broadcast_sse("instance_terminated", {"job_id": job_id})
+    _broadcast_instance_lifecycle_sse(
+        "instance_terminated",
+        {"job_id": job_id},
+        event_type="job.v1.instance_terminated",
+        job_id=job_id,
+        idempotency_key=f"instance_terminated:{job_id}:{time.time()}",
+    )
     append_user_audit_event("user.instance.terminated", "job", job_id, user)
     return {"ok": True, "instance": result}
 
@@ -2507,12 +2750,11 @@ def _owner_slug(owner_id: str) -> str:
 def _build_image_ref(owner_id: str, name: str, tag: str) -> str:
     """Build a fully-qualified OCI image reference.
 
-    Phase E/E2 — ``XCELSIOR_REGISTRY_URL`` is REQUIRED in production.
-    When it is unset we intentionally raise rather than silently falling
-    back to a host-local tag; the old fallback made snapshots look
-    healthy (status=ready) while being completely unusable from any
-    other host, violating the "snapshot = portable template" contract
-    Phase D relies on.
+    ``XCELSIOR_REGISTRY_URL`` is REQUIRED in production. When it is
+    unset we intentionally raise rather than silently falling back to a
+    host-local tag; the old fallback made snapshots look healthy
+    (status=ready) while being completely unusable from any other host,
+    violating the "snapshot = portable template" contract.
 
     Callers at HTTP request time catch this and return 503 with a clear
     operator-facing error, so users retrying later (after the operator
@@ -2633,18 +2875,33 @@ def api_snapshot_instance(job_id: str, body: SnapshotIn, request: Request):
     try:
         image_ref = _build_image_ref(owner_id, body.name, body.tag)
     except RuntimeError as e:
-        # Phase E/E2 — registry not configured. 503 (service unavailable,
-        # retry after operator fix) is the honest status; 500 would
-        # imply a bug. Include the hint from the raiser for ops.
+        # Registry not configured. 503 (service unavailable, retry after
+        # operator fix) is the honest status; 500 would imply a bug.
+        # Include the hint from the raiser for ops.
         _snapshot_requests_total.labels(outcome="registry_unconfigured").inc()
         log.error("snapshot refused — registry_not_configured: %s", e)
         raise HTTPException(503, str(e))
-    container_name = f"xcl-{job_id}"
+
+    from control_plane.job_targets import resolve_job_command_target
+
+    target = resolve_job_command_target(job_id)
+    if target is None:
+        _snapshot_requests_total.labels(outcome="not_found").inc()
+        raise HTTPException(404, f"Instance {job_id} not found")
+    if not target.allows_unfenced_container_command:
+        _snapshot_requests_total.labels(outcome="fenced_no_authority").inc()
+        raise HTTPException(
+            status_code=409,
+            detail="fenced_residual_requires_live_authority",
+        )
+    container_name = target.container_name
+    if target.host_id:
+        host_id = target.host_id
     now = time.time()
 
-    # Phase E/E8 — graceful degradation when the configured registry is
-    # unreachable. Instead of rejecting the snapshot (which would make
-    # the user lose context and force a retry), we persist the row with
+    # Graceful degradation when the configured registry is unreachable.
+    # Instead of rejecting the snapshot (which would make the user lose
+    # context and force a retry), we persist the row with
     # ``status='queued_registry_down'`` and rely on the bg_worker
     # ``snapshot_queue_retry`` task to enqueue the agent command once
     # the registry recovers. The caller still gets a 202-ish payload so

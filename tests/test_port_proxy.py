@@ -22,7 +22,8 @@ from fastapi.testclient import TestClient
 
 os.environ.setdefault("XCELSIOR_ENV", "test")
 os.environ.setdefault("XCELSIOR_ALLOW_UNAUTH_AGENT", "1")
-os.environ.setdefault("XCELSIOR_PUBLIC_HOST", "xcelsior.test")
+os.environ["XCELSIOR_PUBLIC_HOST"] = "xcelsior.test"
+
 
 import api  # noqa: E402
 import routes.instances as rinst  # noqa: E402

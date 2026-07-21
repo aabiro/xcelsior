@@ -1,4 +1,4 @@
-"""A1.6 — deterministic from-empty PostgreSQL bootstrap.
+"""Deterministic from-empty PostgreSQL bootstrap (Alembic head).
 
 Drives the *shipped* bootstrap path (`scripts/bootstrap_pg_from_empty.sh`
 → real `alembic upgrade head`) against a throwaway empty database. This is
@@ -32,7 +32,14 @@ REQUIRED_AT_HEAD = (
     "outbox_events",
     "job_attempts",
     "alembic_version",
+    # Residual tables formerly ensure-only (migration 061).
+    "job_logs",
+    "oauth_clients",
+    "oauth_refresh_tokens",
+    "team_invites",
 )
+EXPECTED_HEAD = "064"
+
 
 
 def _admin_dsn() -> str | None:
@@ -248,7 +255,7 @@ def empty_db():
     if not BOOTSTRAP_SCRIPT.is_file():
         pytest.fail(f"missing bootstrap script: {BOOTSTRAP_SCRIPT}")
 
-    dbname = f"a16_empty_{uuid.uuid4().hex[:10]}"
+    dbname = f"bootstrap_empty_{uuid.uuid4().hex[:10]}"
     if not _try_create_database(admin, dbname):
         pytest.skip("CREATE DATABASE unavailable")
     dsn = _db_url(admin, dbname)
@@ -277,7 +284,7 @@ def test_from_empty_bootstrap_reaches_head(empty_db):
     assert "from-empty bootstrap: done" in result.stdout
 
     rev = _alembic_current(empty_db)
-    assert rev == "a0985327493e", f"expected head a0985327493e, got {rev!r}"
+    assert rev == EXPECTED_HEAD, f"expected head {EXPECTED_HEAD}, got {rev!r}"
 
     for table in REQUIRED_AT_HEAD:
         assert _table_exists(empty_db, table), f"missing table after bootstrap: {table}"
@@ -287,6 +294,12 @@ def test_from_empty_bootstrap_reaches_head(empty_db):
         assert _column_exists(empty_db, "agent_commands", col), (
             f"agent_commands.{col} missing after bootstrap"
         )
+    # 061 residual ensure columns
+    for table, col in (
+        ("billing_cycles", "token_cost_cad"),
+        ("users", "max_concurrent_instances"),
+    ):
+        assert _column_exists(empty_db, table, col), f"{table}.{col} missing"
 
 
 def test_from_empty_bootstrap_is_deterministic(empty_db):
@@ -301,14 +314,14 @@ def test_from_empty_bootstrap_is_deterministic(empty_db):
     assert first.returncode == 0, first.stderr
     rev1 = _alembic_current(empty_db)
 
-    dbname2 = f"a16_empty_{uuid.uuid4().hex[:10]}"
+    dbname2 = f"bootstrap_empty_{uuid.uuid4().hex[:10]}"
     assert _try_create_database(admin, dbname2)
     dsn2 = _db_url(admin, dbname2)
     try:
         second = _run_bootstrap(dsn2)
         assert second.returncode == 0, second.stderr
         rev2 = _alembic_current(dsn2)
-        assert rev1 == rev2 == "a0985327493e"
+        assert rev1 == rev2 == EXPECTED_HEAD
         assert _table_exists(dsn2, "agent_commands")
         assert _column_exists(dsn2, "agent_commands", "command_id")
     finally:

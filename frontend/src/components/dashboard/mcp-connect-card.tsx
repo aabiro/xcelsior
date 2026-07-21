@@ -86,7 +86,9 @@ export function McpConnectCard() {
         />
       </div>
 
-      <p className="mb-3 text-center text-sm text-text-secondary">{t("dash.mcp.prompt_intro")}</p>
+      <p className="mb-3 text-center text-sm text-text-secondary">
+        {tab === "cli" ? t("dash.mcp.cli_intro") : t("dash.mcp.prompt_intro")}
+      </p>
 
       {/* Prompt surface — deliberately more opaque than the glass card behind it, so it reads
           as the focal element rather than blending into the surrounding panel. */}

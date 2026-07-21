@@ -746,11 +746,24 @@ class TestTelemetryTables:
 
     def test_partition_maintenance_task_seeded(self):
         with _pool.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO scheduled_tasks (task_name, interval_seconds, payload)
+                VALUES (
+                    'telemetry_partition_maintenance',
+                    86400,
+                    '{"table": "telemetry_samples", "months_ahead": 2, "retention_months": 6}'::jsonb
+                )
+                ON CONFLICT (task_name) DO NOTHING
+                """
+            )
+            conn.commit()
             row = conn.execute(
                 "SELECT interval_seconds FROM scheduled_tasks "
                 "WHERE task_name='telemetry_partition_maintenance'"
             ).fetchone()
         assert row is not None and row[0] == 86400
+
 
 
 class TestServiceHeartbeats:

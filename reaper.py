@@ -1,38 +1,21 @@
-"""Stuck-job reaper.
+"""Stuck-job reaper — thin periodic invoker over domain transitions.
 
-Periodically scans the jobs table for rows stuck in a non-terminal transition
-state (queued / assigned / starting) past their configured deadline and fails
-them. The reaper exists because the scheduler + worker_agent + SSH relay chain
-has several points where a job can wedge silently:
+Scans the jobs table for rows stuck in a non-terminal transition state
+(queued / assigned / leased / starting) past their configured deadline.
 
-  - queued:   user submitted, scheduler never matched (no suitable host online)
-  - assigned: scheduler matched a host, worker agent never claimed (agent crash,
-              network partition, host reboot between NOTIFY and poll)
-  - starting: worker pulled image but container never reached running (bad image,
-              OOM at start, cudnn mismatch, volume mount failure)
-
-Without this, instances accumulate in limbo — users see "starting…" forever,
-admin dashboards show inflated active counts, billing may tick incorrectly, and
-scheduler re-matching can be blocked.
-
-Design principles:
-  - Compare-and-swap idempotency: UPDATE ... WHERE status = <expected> so a
-    worker that simultaneously transitions the row to running/failed wins
-    trivially (0 rows returned = back off silently).
-  - Env-configurable timeouts: per-status budgets so ops can tune without code
-    changes. Defaults chosen for production safety (long queued budget because
-    users legitimately queue overnight; short assigned because that transition
-    should complete in seconds; medium starting because image pulls can be slow).
-  - First-class observability: every kill emits a structured log line AND
-    increments `xcelsior_reaper_jobs_killed_total{status, reason}`. The Prom
-    metric lets ops alert on reaper surges (e.g. "more than 10 reaps/hour"
-    suggests scheduler or image infrastructure is degraded).
-  - Transition logging: each killed job gets a job_log entry so users see
-    "Failed: stuck in starting state for >1200s" instead of silent "failed".
+Production rules (control-plane cutover):
+  - Attempt-owned / fenced jobs (``active_attempt_id IS NOT NULL``) are
+    never candidates — the lease-expiry / lifecycle controllers own that
+    failure class end-to-end.
+  - Legacy stuck jobs are failed only through
+    :func:`control_plane.stuck_jobs.fail_stuck_legacy_job` →
+    :func:`scheduler.update_job_status` (CAS via ``expected_status``,
+    fence gate, durable outbox SSE). No raw unconstrained SQL status
+    machine in this module.
 
 Invocation:
-  Registered in api.py's background task list (60 s cadence). The tick function
-  is a no-op if no stuck jobs exist, so 60 s is cheap.
+  Registered in api.py / bg_worker (60 s cadence). The tick is a no-op
+  when no stuck jobs exist.
 """
 
 from __future__ import annotations
@@ -42,6 +25,8 @@ import os
 import time
 
 from prometheus_client import Counter
+
+from control_plane.stuck_jobs import DEFAULT_TIMEOUTS, fail_stuck_legacy_job
 
 log = logging.getLogger("xcelsior.reaper")
 
@@ -53,126 +38,121 @@ _reaper_killed = Counter(
 )
 
 # ── Timeouts (seconds, env-configurable) ─────────────────────────────
-# Defaults align with expected transition budgets:
-#   - queued    2h   — users legitimately queue jobs overnight; 2h catches
-#                       truly abandoned queues without false-positives.
-#   - assigned  3m   — NOTIFY fires instantly; workers poll every 10s;
-#                       3m is 18× normal budget.
-#   - starting  20m  — image pull over slow links can take 5-15m for large
-#                       CUDA base images; 20m covers worst-case + container init.
 _TIMEOUTS: dict[str, int] = {
-    "queued": int(os.environ.get("REAPER_QUEUED_TIMEOUT_SEC", "7200")),
-    "assigned": int(os.environ.get("REAPER_ASSIGNED_TIMEOUT_SEC", "180")),
-    "leased": int(os.environ.get("REAPER_LEASED_TIMEOUT_SEC", "1200")),
-    "starting": int(os.environ.get("REAPER_STARTING_TIMEOUT_SEC", "1200")),
+    status: int(os.environ.get(f"REAPER_{status.upper()}_TIMEOUT_SEC", str(default)))
+    for status, default in DEFAULT_TIMEOUTS.items()
 }
 
 
-def reaper_tick() -> int:
-    """Scan once, fail every stuck job past its deadline.
+def list_stuck_legacy_job_ids(
+    *,
+    status: str,
+    cutoff: float,
+    conn=None,
+) -> list[str]:
+    """Return job_ids stuck in *status* past *cutoff* that are not attempt-owned.
 
-    Returns the number of jobs successfully killed this tick (useful for
-    admin debug endpoints that want to trigger a reap and see the result).
+    Pure candidate selection — no mutations. Excludes fenced work so the
+    lease controller remains the sole failure authority for that set.
     """
     from db import _get_pg_pool
 
+    def _select(c) -> list[str]:
+        cur = c.cursor()
+        if status == "queued":
+            cur.execute(
+                "SELECT job_id FROM jobs WHERE status = %s AND submitted_at < %s "
+                "AND active_attempt_id IS NULL "
+                "AND COALESCE(payload->>'queue_reason', '') != 'gpu_busy'",
+                (status, cutoff),
+            )
+        else:
+            cur.execute(
+                "SELECT job_id FROM jobs WHERE status = %s AND "
+                "active_attempt_id IS NULL AND "
+                "COALESCE((payload->>'updated_at')::float, submitted_at) < %s",
+                (status, cutoff),
+            )
+        return [
+            str(r[0] if not isinstance(r, dict) else r["job_id"]) for r in cur.fetchall()
+        ]
+
+    if conn is not None:
+        return _select(conn)
+    with _get_pg_pool().connection() as owned:
+        return _select(owned)
+
+
+def reaper_tick() -> int:
+    """Scan once; fail every legacy stuck job past its deadline.
+
+    Returns the number of jobs successfully failed this tick.
+    """
     now = time.time()
     total_killed = 0
 
     for status, timeout_sec in _TIMEOUTS.items():
         cutoff = now - timeout_sec
         try:
-            with _get_pg_pool().connection() as conn, conn.cursor() as cur:
-                # Candidate selection — use different timestamp source per status:
-                #   - queued: submitted_at is a real column, indexed as part of
-                #     the jobs PK workflow; simplest signal of "how long queued".
-                #   - assigned/starting: the row's last transition time lives in
-                #     payload->>'updated_at' (set by update_job_status). Fall back
-                #     to submitted_at for legacy rows without that field.
-                # active_attempt_id IS NULL: jobs bound by the
-                # transactional scheduler are stuck-handled by the
-                # lease-expiry sweep (attempt fails, allocations release,
-                # job requeues with a durable reason); reaping them here
-                # would fail the job while its attempt/lease stay live.
-                if status == "queued":
-                    cur.execute(
-                        "SELECT job_id FROM jobs WHERE status = %s AND submitted_at < %s "
-                        "AND active_attempt_id IS NULL "
-                        "AND COALESCE(payload->>'queue_reason', '') != 'gpu_busy'",
-                        (status, cutoff),
-                    )
-                else:
-                    cur.execute(
-                        "SELECT job_id FROM jobs WHERE status = %s AND "
-                        "active_attempt_id IS NULL AND "
-                        "COALESCE((payload->>'updated_at')::float, submitted_at) < %s",
-                        (status, cutoff),
-                    )
-                candidates = [r[0] for r in cur.fetchall()]
-
-                for job_id in candidates:
-                    # Compare-and-swap: only transition if the row is STILL in
-                    # `status`. Racing workers that already claimed/completed the
-                    # job win trivially — we get 0 rows back and move on.
-                    cur.execute(
-                        "UPDATE jobs SET status = 'failed', host_id = NULL, "
-                        "payload = jsonb_set("
-                        "  jsonb_set("
-                        "    jsonb_set("
-                        "      jsonb_set("
-                        "        jsonb_set(payload, '{status}', '\"failed\"'::jsonb), "
-                        "        '{failure_reason}', '\"stuck-no-progress\"'::jsonb), "
-                        "      '{completed_at}', to_jsonb(EXTRACT(EPOCH FROM NOW()))), "
-                        "    '{updated_at}', to_jsonb(EXTRACT(EPOCH FROM NOW()))), "
-                        "  '{host_id}', 'null'::jsonb) "
-                        "WHERE job_id = %s AND status = %s "
-                        "AND active_attempt_id IS NULL "
-                        "RETURNING job_id",
-                        (job_id, status),
-                    )
-                    won = cur.fetchone() is not None
-                    if not won:
-                        log.debug(
-                            "Reaper lost race for job=%s (status changed between SELECT and UPDATE)",
-                            job_id,
-                        )
-                        continue
-
-                    conn.commit()
-                    total_killed += 1
-                    log.warning(
-                        "Reaper killed job=%s stuck in status=%s for >%ds",
-                        job_id,
-                        status,
-                        timeout_sec,
-                    )
-                    _reaper_killed.labels(status=status, reason="timeout").inc()
-
-                    try:
-                        from routes.instances import emit_lifecycle_log
-                        from scheduler import get_job
-
-                        job_row = get_job(job_id) or {}
-                        job_row["failure_reason"] = (
-                            f"stuck in '{status}' state for >{timeout_sec}s without progress "
-                            "(scheduler or worker never advanced the job)"
-                        )
-                        emit_lifecycle_log(job_id, status, "failed", job_row)
-                    except Exception as e:
-                        log.debug("reaper lifecycle log failed for %s: %s", job_id, e)
-                        try:
-                            from routes.instances import push_job_log
-
-                            push_job_log(
-                                job_id,
-                                f"Failed: stuck in '{status}' state for >{timeout_sec}s without progress "
-                                "(scheduler or worker never advanced the job)",
-                                level="error",
-                            )
-                        except Exception:
-                            pass
-
+            candidates = list_stuck_legacy_job_ids(status=status, cutoff=cutoff)
         except Exception as e:
-            log.error("reaper_tick error for status=%s: %s", status, e)
+            log.error("reaper_tick candidate scan failed status=%s: %s", status, e)
+            continue
+
+        for job_id in candidates:
+            try:
+                updated = fail_stuck_legacy_job(
+                    job_id,
+                    stuck_status=status,
+                    timeout_sec=timeout_sec,
+                )
+            except Exception as e:
+                log.error(
+                    "reaper_tick fail path error job=%s status=%s: %s",
+                    job_id,
+                    status,
+                    e,
+                )
+                continue
+
+            if updated is None:
+                # Race lost (status advanced) or fenced — not a kill.
+                log.debug(
+                    "Reaper skipped job=%s (status changed or fenced between SELECT and fail)",
+                    job_id,
+                )
+                continue
+
+            total_killed += 1
+            log.warning(
+                "Reaper killed job=%s stuck in status=%s for >%ds",
+                job_id,
+                status,
+                timeout_sec,
+            )
+            _reaper_killed.labels(status=status, reason="timeout").inc()
+
+            try:
+                from routes.instances import emit_lifecycle_log
+
+                job_row = dict(updated)
+                job_row["failure_reason"] = updated.get("failure_reason") or (
+                    f"stuck in '{status}' state for >{timeout_sec}s without progress "
+                    "(scheduler or worker never advanced the job)"
+                )
+                emit_lifecycle_log(job_id, status, "failed", job_row)
+            except Exception as e:
+                log.debug("reaper lifecycle log failed for %s: %s", job_id, e)
+                try:
+                    from routes.instances import push_job_log
+
+                    push_job_log(
+                        job_id,
+                        f"Failed: stuck in '{status}' state for >{timeout_sec}s without progress "
+                        "(scheduler or worker never advanced the job)",
+                        level="error",
+                    )
+                except Exception:
+                    pass
 
     return total_killed

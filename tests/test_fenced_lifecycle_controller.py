@@ -1,4 +1,4 @@
-"""P5.5 — fenced terminate/cancel lifecycle controller.
+"""Fenced terminate/cancel lifecycle controller.
 
 Drives the shipped entry points (BillingEngine.terminate_instance and
 control_plane.lifecycle.request_fenced_stop_remove for cancel) against
@@ -66,10 +66,10 @@ def _mkhost(cleanup, host_id):
 
 
 def _mkjob(cleanup, *, host_id, status="running", container_name=None):
-    job_id = f"job-p55-{uuid.uuid4().hex[:10]}"
+    job_id = f"job-life-{uuid.uuid4().hex[:10]}"
     cname = container_name or f"xcl-{job_id}"
     payload = {
-        "owner": "p55@test",
+        "owner": "lifecycle@test",
         "name": job_id,
         "container_name": cname,
     }
@@ -119,7 +119,7 @@ def _mk_active_attempt(job_id, host_id):
 
 
 def test_terminate_entry_point_enqueues_fenced_remove(cleanup_ids):
-    host_id = f"h-p55-t-{uuid.uuid4().hex[:6]}"
+    host_id = f"h-life-t-{uuid.uuid4().hex[:6]}"
     _mkhost(cleanup_ids, host_id)
     job_id, cname = _mkjob(cleanup_ids, host_id=host_id)
     attempt_id, fence = _mk_active_attempt(job_id, host_id)
@@ -158,7 +158,7 @@ def test_terminate_entry_point_enqueues_fenced_remove(cleanup_ids):
 
 
 def test_cancel_entry_point_enqueues_fenced_remove(cleanup_ids):
-    host_id = f"h-p55-c-{uuid.uuid4().hex[:6]}"
+    host_id = f"h-life-c-{uuid.uuid4().hex[:6]}"
     _mkhost(cleanup_ids, host_id)
     job_id, _cname = _mkjob(cleanup_ids, host_id=host_id)
     attempt_id, fence = _mk_active_attempt(job_id, host_id)
@@ -198,7 +198,7 @@ def test_cancel_entry_point_enqueues_fenced_remove(cleanup_ids):
 
 def test_stopped_report_projects_terminated_from_intent(cleanup_ids):
     """Worker ``stopped`` + lifecycle_intent=terminate → jobs.status terminated."""
-    host_id = f"h-p55-ack-{uuid.uuid4().hex[:6]}"
+    host_id = f"h-life-ack-{uuid.uuid4().hex[:6]}"
     _mkhost(cleanup_ids, host_id)
     job_id, _ = _mkjob(cleanup_ids, host_id=host_id)
     attempt_id, fence = _mk_active_attempt(job_id, host_id)
@@ -238,7 +238,7 @@ def test_stopped_report_projects_terminated_from_intent(cleanup_ids):
 
 
 def test_stopped_report_projects_cancelled_from_intent(cleanup_ids):
-    host_id = f"h-p55-ackc-{uuid.uuid4().hex[:6]}"
+    host_id = f"h-life-ackc-{uuid.uuid4().hex[:6]}"
     _mkhost(cleanup_ids, host_id)
     job_id, _ = _mkjob(cleanup_ids, host_id=host_id)
     attempt_id, fence = _mk_active_attempt(job_id, host_id)
@@ -267,7 +267,7 @@ def test_stopped_report_projects_cancelled_from_intent(cleanup_ids):
 
 
 def test_legacy_terminate_still_marks_terminal_without_attempt(cleanup_ids):
-    host_id = f"h-p55-leg-{uuid.uuid4().hex[:6]}"
+    host_id = f"h-life-leg-{uuid.uuid4().hex[:6]}"
     _mkhost(cleanup_ids, host_id)
     job_id, _ = _mkjob(cleanup_ids, host_id=host_id)
 
@@ -303,7 +303,7 @@ def test_routes_no_longer_hardfail_only_on_controller_missing():
 
 def test_enqueue_refuse_does_not_leave_stopping_without_command(cleanup_ids):
     """Atomicity: no lease → ok=False, status still running, zero commands."""
-    host_id = f"h-p55-refuse-{uuid.uuid4().hex[:6]}"
+    host_id = f"h-life-refuse-{uuid.uuid4().hex[:6]}"
     _mkhost(cleanup_ids, host_id)
     job_id, _ = _mkjob(cleanup_ids, host_id=host_id)
     attempt_id = str(uuid.uuid4())
@@ -346,7 +346,7 @@ def test_enqueue_refuse_does_not_leave_stopping_without_command(cleanup_ids):
 
 
 def test_terminate_billing_cycle_once_per_attempt(cleanup_ids):
-    host_id = f"h-p55-bc-{uuid.uuid4().hex[:6]}"
+    host_id = f"h-life-bc-{uuid.uuid4().hex[:6]}"
     _mkhost(cleanup_ids, host_id)
     job_id, _ = _mkjob(cleanup_ids, host_id=host_id)
     attempt_id, _ = _mk_active_attempt(job_id, host_id)
