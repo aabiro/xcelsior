@@ -326,7 +326,7 @@ of the last edit to this file.
   (`tests/test_worker_agent_v2.py` — gate abort, ack-after-grant,
   malformed NACK, status mirror, fence-loss kill, renewal 409 kill).
   Affected suites 282 green; pyright clean.
-- [~] **P5.5 Remaining Phase 5 hardening** — atomic local authority and
+- [x] **P5.5 Remaining Phase 5 hardening** — atomic local authority and
   command-result journal now survives restart, records pending terminal
   intent, and replays ACKs without repeating Docker side effects; restart
   adoption requires an exact renewal (transport uncertainty gets one
