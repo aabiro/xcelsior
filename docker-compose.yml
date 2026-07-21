@@ -387,6 +387,12 @@ services:
       MCP_PORT: ${MCP_PORT:-8770}
       MCP_PATH: /mcp
       MCP_RATE_LIMIT_PER_MIN: ${MCP_RATE_LIMIT_PER_MIN:-120}
+      # Phase 10 / §31: multi-replica rate limit — Redis required, fail-closed
+      # when backend is down (never process-local unlimited under replicas).
+      MCP_RATE_LIMIT_BACKEND: ${MCP_RATE_LIMIT_BACKEND:-redis}
+      MCP_REDIS_URL: ${MCP_REDIS_URL:-${XCELSIOR_AUTH_REDIS_URL:-redis://127.0.0.1:6379/0}}
+      MCP_RATE_LIMIT_REQUIRE_REDIS: ${MCP_RATE_LIMIT_REQUIRE_REDIS:-true}
+      MCP_RATE_LIMIT_FAIL_CLOSED: ${MCP_RATE_LIMIT_FAIL_CLOSED:-true}
     depends_on:
       - api
     restart: unless-stopped
