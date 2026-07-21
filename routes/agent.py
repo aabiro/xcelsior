@@ -128,17 +128,33 @@ def _require_agent_auth(request: Request, *, host_id: str | None = None) -> dict
                 raise HTTPException(
                     503, "Identity verification temporarily unavailable"
                 ) from exc
-            # Ownership: non-admin platform tokens may only act as that host's owner.
-            if not user.get("is_admin"):
-                owner = (row or {}).get("owner") or ""
-                if owner and owner != user.get("user_id") and owner != user.get("email"):
-                    # Shared fleet bearer (api-token) is migration-only: allowed
-                    # when the authenticated principal is the platform agent.
-                    if user.get("user_id") not in ("api-admin", "api-token"):
-                        raise HTTPException(
-                            403, "Host is not owned by the authenticated caller"
-                        )
-            user = {**user, "admitted_host_id": host_id, "identity_source": "bearer_host"}
+            # Ownership / shared fleet bearer (Phase 10 residual closeout):
+            # shared api-token is NOT a permanent fail-open for arbitrary hosts.
+            # Requires XCELSIOR_AGENT_SHARED_BEARER_MIGRATION=1 (+ optional host CSV).
+            from control_plane.identity import allow_shared_bearer_for_host
+
+            owner = (row or {}).get("owner") or ""
+            allowed, reason = allow_shared_bearer_for_host(
+                user, host_id=host_id, host_owner=str(owner) if owner else None
+            )
+            if not allowed:
+                detail = {
+                    "shared_bearer_migration_disabled": (
+                        "Shared fleet bearer cannot act on host_id without "
+                        "XCELSIOR_AGENT_SHARED_BEARER_MIGRATION=1"
+                    ),
+                    "shared_bearer_host_not_allowlisted": (
+                        "Host not in XCELSIOR_AGENT_SHARED_BEARER_HOSTS allowlist"
+                    ),
+                    "not_owner": "Host is not owned by the authenticated caller",
+                }.get(reason, "Host identity admission denied")
+                raise HTTPException(403, detail)
+            user = {
+                **user,
+                "admitted_host_id": host_id,
+                "identity_source": "bearer_host",
+                "admission_reason": reason,
+            }
         return user
 
     # B1 defense-in-depth: when bypass is active AND strict binding is enabled,

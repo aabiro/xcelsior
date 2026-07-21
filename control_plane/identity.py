@@ -182,6 +182,67 @@ def resolve_gateway_identity(
     )
 
 
+def shared_bearer_migration_enabled() -> bool:
+    """Time-bounded migration flag for the platform shared fleet bearer.
+
+    When false (default), production rejects ``api-token`` / ``api-admin``
+    principals acting on a host they do not own — blueprint §19.2 rotate-away.
+    """
+    return os.environ.get("XCELSIOR_AGENT_SHARED_BEARER_MIGRATION", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+def shared_bearer_host_allowlisted(host_id: str) -> bool:
+    """Optional CSV allowlist of host_ids the shared bearer may still touch."""
+    raw = (os.environ.get("XCELSIOR_AGENT_SHARED_BEARER_HOSTS") or "").strip()
+    if not raw:
+        # Empty allowlist while migration is on = all admitted hosts (broad migration).
+        return True
+    allowed = {h.strip() for h in raw.split(",") if h.strip()}
+    return host_id in allowed
+
+
+def is_shared_fleet_bearer(principal: Mapping[str, Any] | None) -> bool:
+    """True for the platform shared agent bearer principals (migration path)."""
+    if not principal:
+        return False
+    uid = str(principal.get("user_id") or "")
+    return uid in ("api-token", "api-admin")
+
+
+def allow_shared_bearer_for_host(
+    principal: Mapping[str, Any] | None,
+    *,
+    host_id: str,
+    host_owner: str | None,
+) -> tuple[bool, str]:
+    """Decide whether a shared fleet bearer may mutate ``host_id``.
+
+    Returns ``(allowed, reason_code)``. Owner match always allows (not shared
+    impersonation). Shared bearer requires migration flag (+ optional host
+    allowlist).
+    """
+    if not principal:
+        return False, "no_principal"
+    uid = str(principal.get("user_id") or "")
+    email = str(principal.get("email") or "")
+    owner = (host_owner or "").strip()
+    if owner and (owner == uid or owner == email):
+        return True, "owner"
+    if principal.get("is_admin"):
+        return True, "admin"
+    if not is_shared_fleet_bearer(principal):
+        return False, "not_owner"
+    if not shared_bearer_migration_enabled():
+        return False, "shared_bearer_migration_disabled"
+    if not shared_bearer_host_allowlisted(host_id):
+        return False, "shared_bearer_host_not_allowlisted"
+    return True, "shared_bearer_migration"
+
+
 def _is_explicitly_admitted(value: Any) -> bool:
     """True only for an explicit affirmative admission flag (fail closed)."""
     if value is True or value == 1:
