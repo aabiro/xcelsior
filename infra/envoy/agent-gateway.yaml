@@ -1,0 +1,47 @@
+# Envoy agent gateway sketch (SPIRE SDS / mTLS) — Phase 10 scaffold.
+# Prefer this over public Nginx for dynamic SVID verification in full mesh.
+# Not auto-wired; operators enable when SPIRE is live.
+static_resources:
+  listeners:
+    - name: agent_ingress
+      address:
+        socket_address: { address: 0.0.0.0, port_value: 8443 }
+      filter_chains:
+        - transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+              require_client_certificate: true
+              common_tls_context:
+                tls_certificate_sds_secret_configs:
+                  - name: spire_svid
+                validation_context_sds_secret_config:
+                  name: spire_validation
+          filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: agent
+                route_config:
+                  name: agent_route
+                  virtual_hosts:
+                    - name: agent
+                      domains: ["agent.xcelsior.ca", "*"]
+                      routes:
+                        - match: { prefix: "/agent/" }
+                          route: { cluster: xcelsior_api }
+                http_filters:
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+  clusters:
+    - name: xcelsior_api
+      connect_timeout: 2s
+      type: STATIC
+      load_assignment:
+        cluster_name: xcelsior_api
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address: { address: 127.0.0.1, port_value: 9500 }

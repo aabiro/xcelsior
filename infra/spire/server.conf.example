@@ -1,0 +1,27 @@
+# SPIRE server example — not auto-applied. Customize before production deploy.
+server {
+  bind_address = "0.0.0.0"
+  bind_port = "8081"
+  trust_domain = "xcelsior.ca"
+  data_dir = "/opt/spire/data/server"
+  log_level = "INFO"
+  ca_ttl = "24h"
+  default_x509_svid_ttl = "1h"
+}
+
+plugins {
+  DataStore "sql" {
+    plugin_data {
+      database_type = "sqlite3"
+      connection_string = "/opt/spire/data/server/datastore.sqlite3"
+    }
+  }
+  NodeAttestor "join_token" {
+    plugin_data {}
+  }
+  KeyManager "disk" {
+    plugin_data {
+      keys_path = "/opt/spire/data/server/keys.json"
+    }
+  }
+}
