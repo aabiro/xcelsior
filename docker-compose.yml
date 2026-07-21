@@ -217,14 +217,17 @@ services:
   api:
     build: .
     command: gunicorn api:app -c gunicorn.conf.py
+    # Phase 10: API is unprivileged — LUKS/NFS privileged ops run via SSH
+    # to the host or the volume-provisioner service (no SYS_ADMIN here).
     environment:
       <<: *api-env
       XCELSIOR_API_PORT: ${XCELSIOR_API_PORT:-9500}
       XCELSIOR_BG_TASKS: "false"
     network_mode: host
-    # LUKS volume provisioning needs loop devices when NFS is colocated (127.0.0.1).
-    cap_add:
-      - SYS_ADMIN
+    # Phase 10 exit gate: API has no SYS_ADMIN. Privileged LUKS/NFS work
+    # is host-SSH or volume-provisioner only (see infra/volume-provisioner).
+    security_opt:
+      - no-new-privileges:true
     volumes: *api-volumes
     restart: unless-stopped
     stop_grace_period: 120s
@@ -243,8 +246,8 @@ services:
       XCELSIOR_API_PORT: ${XCELSIOR_API_BLUE_PORT:-9501}
       XCELSIOR_BG_TASKS: "false"
     network_mode: host
-    cap_add:
-      - SYS_ADMIN
+    security_opt:
+      - no-new-privileges:true
     profiles: ["blue"]
     volumes: *api-volumes
     restart: unless-stopped

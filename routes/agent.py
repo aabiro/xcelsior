@@ -54,15 +54,82 @@ def _require_agent_auth(request: Request, *, host_id: str | None = None) -> dict
 
     B1: when XCELSIOR_AGENT_STRICT_HOST_BINDING=1 AND a bypass rule (2 or 3)
     would otherwise grant access, any supplied `host_id` must still resolve
-    to a registered row in the hosts table. Fail-open if the DB lookup
-    raises (avoids locking out the whole fleet during a DB incident).
+    to a registered row in the hosts table.
+
+    Phase 10 / blueprint §31: identity verification fails closed on DB
+    lookup errors for host binding (retryable 503) — never fail-open.
+    When XCELSIOR_TRUSTED_AGENT_GATEWAY=1, gateway-set identity headers
+    are required; public-injected X-Worker-* headers alone are rejected.
     """
+    from control_plane.identity import (
+        IdentityAdmissionError,
+        require_admitted_host,
+        resolve_gateway_identity,
+        trusted_gateway_enabled,
+    )
+
     env = os.environ.get("XCELSIOR_ENV", "").lower()
+    header_map = {k.lower(): v for k, v in request.headers.items()}
+
+    # Trusted private agent gateway path (mTLS/SPIFFE terminator).
+    if trusted_gateway_enabled():
+        try:
+            admitted = resolve_gateway_identity(header_map, required_host_id=host_id)
+        except IdentityAdmissionError as exc:
+            raise HTTPException(exc.http_status, exc.message) from exc
+        if admitted is not None:
+            if host_id and admitted.host_id != host_id:
+                raise HTTPException(403, "Gateway host identity does not match request")
+            # Still require the host to be registered+admitted in control-plane state.
+            try:
+                all_hosts = list_hosts(active_only=False)
+                row = next(
+                    (h for h in all_hosts if h.get("host_id") == admitted.host_id),
+                    None,
+                )
+                require_admitted_host(row, host_id=admitted.host_id)
+            except IdentityAdmissionError as exc:
+                raise HTTPException(exc.http_status, exc.message) from exc
+            except Exception as exc:
+                log.error("agent identity host lookup failed (fail-closed): %s", exc)
+                raise HTTPException(
+                    503, "Identity verification temporarily unavailable"
+                ) from exc
+            return {
+                "agent_gateway": True,
+                "host_id": admitted.host_id,
+                "spiffe_id": admitted.spiffe_id,
+                "identity_source": admitted.source,
+            }
+
     # 1. Hard refuse in production — escape hatches do NOT apply.
     if env == "production":
         user = _get_current_user(request)
         if not user:
             raise HTTPException(401, "Authentication required")
+        if host_id:
+            try:
+                all_hosts = list_hosts(active_only=False)
+                row = next((h for h in all_hosts if h.get("host_id") == host_id), None)
+                require_admitted_host(row, host_id=host_id)
+            except IdentityAdmissionError as exc:
+                raise HTTPException(exc.http_status, exc.message) from exc
+            except Exception as exc:
+                log.error("agent host admission lookup failed (fail-closed): %s", exc)
+                raise HTTPException(
+                    503, "Identity verification temporarily unavailable"
+                ) from exc
+            # Ownership: non-admin platform tokens may only act as that host's owner.
+            if not user.get("is_admin"):
+                owner = (row or {}).get("owner") or ""
+                if owner and owner != user.get("user_id") and owner != user.get("email"):
+                    # Shared fleet bearer (api-token) is migration-only: allowed
+                    # when the authenticated principal is the platform agent.
+                    if user.get("user_id") not in ("api-admin", "api-token"):
+                        raise HTTPException(
+                            403, "Host is not owned by the authenticated caller"
+                        )
+            user = {**user, "admitted_host_id": host_id, "identity_source": "bearer_host"}
         return user
 
     # B1 defense-in-depth: when bypass is active AND strict binding is enabled,
@@ -81,8 +148,12 @@ def _require_agent_auth(request: Request, *, host_id: str | None = None) -> dict
             return
         try:
             all_hosts = list_hosts(active_only=False)
-        except Exception:
-            return  # DB unavailable — fail-open rather than lock out fleet
+        except Exception as exc:
+            # Blueprint §31: auth/identity verification fails closed (503).
+            log.error("strict host binding lookup failed (fail-closed): %s", exc)
+            raise HTTPException(
+                503, "Identity verification temporarily unavailable"
+            ) from exc
         if not any(h.get("host_id") == host_id for h in all_hosts):
             raise HTTPException(403, "Unknown host_id")
 
@@ -110,8 +181,11 @@ def _require_agent_auth(request: Request, *, host_id: str | None = None) -> dict
         try:
             all_hosts = list_hosts(active_only=False)
             host = next((h for h in all_hosts if h.get("host_id") == host_id), None)
-        except Exception:
-            host = None
+        except Exception as exc:
+            log.error("agent host ownership lookup failed (fail-closed): %s", exc)
+            raise HTTPException(
+                503, "Identity verification temporarily unavailable"
+            ) from exc
         if host:
             owner = host.get("owner") or ""
             if owner and owner != user.get("user_id") and owner != user.get("email"):

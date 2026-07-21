@@ -1,4 +1,9 @@
 .dashboard-shell {
+  /* Shared layout tokens: heavy content rails sit on light grid verticals.
+     pad 28 + n*76 half-span → content max = 2*(n*76 + 28). n=8 → 1272. */
+  --dashboard-grid-step: 76px;
+  --dashboard-content-pad: 28px;
+  --dashboard-content-max: 1272px;
   position: relative;
   isolation: isolate;
   min-height: 100vh;
@@ -32,7 +37,10 @@
   background-image:
     linear-gradient(var(--grid) 1px, transparent 1px),
     linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-  background-size: 76px 76px;
+  /* Same step as before — perfect squares; origin centered so verticals
+     coincide with heavy rails on the main column content box. */
+  background-size: var(--dashboard-grid-step) var(--dashboard-grid-step);
+  background-position: center top;
   mask-image: radial-gradient(circle at 38% 14%, #000 18%, transparent 78%);
 }
 
@@ -292,12 +300,14 @@
 }
 
 .dashboard-site-sidebar::before,
-.dashboard-site-topbar::before,
+.dashboard-site-topbar-inner::before,
 .dashboard-site-main-inner::before {
   content: "";
   position: absolute;
-  left: 28px;
-  right: 28px;
+  /* Inset matches --dashboard-content-pad so appbar + main heavy rails share
+     the same verticals as the centered light grid (see --dashboard-content-max). */
+  left: var(--dashboard-content-pad, 28px);
+  right: var(--dashboard-content-pad, 28px);
   top: 0;
   bottom: 0;
   border-left: 1px solid var(--line);
@@ -484,9 +494,9 @@
   justify-content: space-between;
   gap: 16px;
   height: 72px;
-  max-width: 1240px;
+  max-width: var(--dashboard-content-max, 1272px);
   margin: 0 auto;
-  padding: 0 28px;
+  padding: 0 var(--dashboard-content-pad, 28px);
 }
 
 .dashboard-site-crumbs {
@@ -712,6 +722,7 @@
 }
 
 .dashboard-site-control > div > .dashboard-site-header-balance:hover {
+  background: linear-gradient(100deg, var(--cyan), var(--violet));
   color: #fff;
   border-color: rgba(56, 219, 255, 0.35);
   box-shadow: 0 10px 20px rgba(155, 109, 255, 0.2), 0 0 0 1px rgba(56, 219, 255, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.34);
@@ -770,9 +781,9 @@
 
 .dashboard-site-main-inner {
   position: relative;
-  max-width: 1240px;
+  max-width: var(--dashboard-content-max, 1272px);
   margin: 0 auto;
-  padding: 0 28px;
+  padding: 0 var(--dashboard-content-pad, 28px);
 }
 
 .dashboard-site-workspace {
@@ -846,9 +857,9 @@
 .dashboard-site-banner-content {
   position: relative;
   z-index: 1;
-  max-width: 1240px;
+  max-width: var(--dashboard-content-max, 1272px);
   margin: 0 auto;
-  padding: 10px 28px;
+  padding: 10px var(--dashboard-content-pad, 28px);
 }
 
 .dashboard-site-banner-action {
@@ -859,17 +870,24 @@
 .dashboard-overview {
   position: relative;
   display: grid;
-  gap: 28px;
+  /* Uniform vertical rhythm between markers, cards, and appbar-adjacent blocks. */
+  gap: 24px;
+  --dashboard-marker-gap: 16px;
 }
 
 .dashboard-overview-page-heading {
   display: flex;
   justify-content: flex-start;
+  /* Match section marker → content spacing so [01] feels even with [02]/[0n]. */
+  margin: 0;
+  padding: 0;
 }
 
-.dashboard-overview-page-heading .site-marker {
+.dashboard-overview-page-heading .site-marker,
+.dashboard-overview-section .site-marker {
   align-items: center;
-  margin-bottom: 0;
+  margin-top: 0;
+  margin-bottom: var(--dashboard-marker-gap, 16px);
 }
 
 .dashboard-overview-hero-cta {
@@ -1081,7 +1099,11 @@ html.light .dashboard-site-modal-overlay {
 
 .dashboard-overview-section {
   position: relative;
-  padding: 0 0 4px;
+  display: flex;
+  flex-direction: column;
+  /* Marker-to-card spacing is owned by .site-marker margin-bottom token. */
+  gap: 0;
+  padding: 0;
 }
 
 .dashboard-overview-actions {
@@ -1421,7 +1443,7 @@ html.light .dashboard-site-modal-overlay {
     padding-left: 22px;
   }
 
-  .dashboard-site-topbar::before,
+  .dashboard-site-topbar-inner::before,
   .dashboard-site-main-inner::before {
     left: 22px;
     right: 22px;

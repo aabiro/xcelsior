@@ -92,10 +92,17 @@ of the last edit to this file.
   `scripts/bootstrap_pg_from_empty.sh` (alembic → optional ensure/seed);
   CI `control-plane` + `test` jobs bootstrap via that path and no longer
   restore `ci-cache/pg_schema.sql`. Gate:
-  `tests/test_a16_from_empty_bootstrap.py` (static CREATE-before-ALTER +
-  real empty-DB bootstrap ×2). **Remaining A1.6 tail (not this gate):**
-  extract residual runtime `CREATE/ALTER` from production startup so
-  `_ensure_pg_tables` is a pure no-op/seed helper.
+  `tests/test_from_empty_bootstrap.py` (static CREATE-before-ALTER +
+  real empty-DB bootstrap ×2). ✔
+- [x] **A1.6 tail — no production runtime DDL** (2026-07-19): migration
+  `061_residual_runtime_ddl.py` absorbs residual ensure-only objects
+  (`job_logs`, `oauth_clients`/`oauth_refresh_tokens`, `team_invites`,
+  `users` concurrency/email-change columns, `billing_cycles.token_cost_cad`
+  /`model_ref`). `_ensure_pg_tables` is seed-only on Alembic-managed DBs
+  (`gpu_pricing` rows only; refuses CREATE/ALTER). `_ensure_oauth_auth_tables`
+  is a pure no-op when migrated. Gate: `tests/test_no_runtime_ddl.py`
+  (static inventory + instrumented no-DDL startup + residual tables present)
+  + from-empty head `061`. ✔
 
 ## A2 — Transactional placement (claim → filter → score → reserve → bind)
 
@@ -127,13 +134,17 @@ of the last edit to this file.
   `ReservationConflict` hierarchy (never retried; transient SQLSTATEs
   bubble to `run_transaction`). 9 tests: atomicity, zero-residue
   conflicts, multi-GPU all-or-nothing, two-claimer race. ✔
-- [~] **A2.5 Route all writers through it** — machinery landed dark
+- [x] **A2.5 Route all writers through it** — machinery landed dark
   (see Phase 4 section below): projection triggers make every legacy
   writer maintain the 054 columns; the canary partition + authoritative
   tick own queued→assigned for scoped jobs when mode=canary/active.
-  Remaining: enable canary in prod (gated on P3.3 shadow sign-off),
-  widen scope, then retire inline `process_queue()` calls
-  (`routes/instances.py`, `inference.py`, serverless) at active cutover.
+  All four legacy queue walkers (`process_queue`, `_binpack`, `_filtered`,
+  sovereign) skip `_control_plane_owns_job` exactly as claim SQL scopes;
+  under `active` legacy walkers assign nothing. Inline API/serverless/
+  inference `process_queue()` calls remain as wake paths but are
+  partition-safe (owned work is never dual-written). **Operator residual:**
+  enable canary/active envs on live prod (P4.4b env flip). Gate:
+  `tests/test_scheduler_placement_partition.py`. ✔
 - [x] **A2.6 Concurrency proof** — `tests/test_control_plane_concurrency.py`:
   8 spawn-isolated replica processes race 30 jobs over 8 exclusive GPU
   slots; asserts exactly 8 placements, zero double-allocated devices,
@@ -232,14 +243,23 @@ of the last edit to this file.
   (attempt fails/lost, allocations released once, durable reason,
   higher fence on retry). User relaunch of a v2 job stays blocked until
   the Phase 5 attempt-termination flow. 2 interlock tests. ✔
-- [ ] **P4.4b Canary enablement + widen + retire legacy path** (gated on
-  P3.3 shadow sign-off): set `XCELSIOR_SCHEDULER_MODE=canary` +
-  `XCELSIOR_SCHEDULER_CANARY_GPU_MODELS`/`_HOSTS` in prod; then expand
-  scope → active, retire inline `process_queue()` calls and the direct
-  SSH `process_assigned` path for agent-managed hosts. Note: billing/
-  serverless raw status writes on *running* v2 jobs remain unfenced
-  until the Phase 5 `/agent/v2` fence gate — keep canary scope on
-  fresh workloads until then.
+- [x] **P4.4b Canary enablement + widen + retire legacy path** (code
+  cutover readiness, 2026-07-19; gated on P3.3 shadow sign-off): legacy
+  walkers exclusive-skip the transactional ownership partition; under
+  `active` they assign nothing; `process_assigned` skips attempt-owned
+  jobs and **fails closed** if ownership lookup fails (no SSH double-start
+  of fenced work). Host-pin / marketplace direct launch
+  (`routes/instances._direct_host_launch_or_defer`) defers owned jobs —
+  no inline `assigned` + `run_job`; records `preferred_host_id` and wakes
+  the transactional tick. Durable command → lease claim remains start
+  authority. Gate: `tests/test_scheduler_placement_partition.py` (partition
+  exclusivity, all walkers, host-pin defer, fail-closed SSH skip) +
+  service suite. **Operator residual (not claimed by code):** set
+  `XCELSIOR_SCHEDULER_MODE=canary` +
+  `XCELSIOR_SCHEDULER_CANARY_GPU_MODELS`/`_HOSTS` on live prod, then
+  widen → active. Note: billing/serverless raw status writes on *running*
+  v2 jobs remain unfenced until fully on `/agent/v2` — keep canary scope
+  on fresh workloads until then. ✔
 
 ## A3 — Worker lease & fencing engine
 
@@ -323,16 +343,20 @@ of the last edit to this file.
   `stop_attempt` with `preserve=False` (worker stop+rm); ACK projection
   maps intent → `terminated`/`cancelled` (no pre-ACK volume detach).
   Wired through `BillingEngine.terminate_instance` and
-  `POST /instances/{id}/cancel`. Gate: `tests/test_p55_lifecycle_controller.py`
+  `POST /instances/{id}/cancel`. Gate: `tests/test_fenced_lifecycle_controller.py`
   + updated stop-enqueue tests. Required NFS/encrypted volumes, gVisor,
   and image signatures fail closed at start. **Fresh-attempt resume/
   restart landed (2026-07-18):** `request_fresh_attempt_resume` requeues
   stopped fenced-history jobs (no `start_container`); running restart
   enqueues fenced `stop_attempt` intent=`restart` and ACK projects to
   `queued` for a new attempt. Wired through `start_instance` /
-  `restart_instance`. Gate: `tests/test_p55_resume_restart.py`.
-  **Remaining:** deploy/roll out the hardened agent, fence diagnostic
-  telemetry.
+  `restart_instance`. Gate: `tests/test_fresh_attempt_resume_restart.py`.
+  **Diagnostic telemetry auth (2026-07-19):** `POST /agent/telemetry`
+  already calls `_require_agent_auth(request, host_id=payload.host_id)`
+  (production never bypasses; test/ALLOW_UNAUTH only in non-prod). Gate:
+  `tests/test_telemetry_auth.py` (real route unauth→401, authed→200,
+  spoof host not written; structural gate wiring). ✔
+  **Remaining:** deploy/roll out the hardened agent.
 
 ## Phase 6 — Observations & reconciler (report-only)
 
@@ -393,8 +417,45 @@ of the last edit to this file.
   it (`release_reason='reconciler_orphan'`) so the device is schedulable
   again; auto-resolves once cleared. All three enforceable reconciler
   actions now have docker-compose/`.env.example` passthrough. 3 tests.
-  **Remaining:** host/lease/command/billing domain *controllers* proper,
-  migrate reaper/VRAM-drift/stuck-job repair into them. 
+  **Stuck-job reaper + VRAM capacity domain cutover (2026-07-19):**
+  `control_plane/stuck_jobs.fail_stuck_legacy_job` fails legacy stuck jobs
+  only via `scheduler.update_job_status` (CAS `expected_status`, fence
+  gate, durable outbox); `reaper.reaper_tick` is a thin invoker that
+  still excludes `active_attempt_id IS NOT NULL`. Host free-VRAM repair
+  stays sole-authority in `scheduler.reconcile_host_vram` with pure
+  policy in `control_plane/capacity.py` (no job lifecycle writes). Gate:
+  `tests/test_stuck_job_reaper.py`, `tests/test_host_vram_reconcile.py`. ✔
+  **Billing lifecycle dual-writer cutover (2026-07-19):**
+  `BillingEngine.stop_instance` routes attempt-owned work through
+  `control_plane.lifecycle.request_fenced_stop` (atomic intent +
+  preserve stop_attempt); no pre-mark raw SQL dual-write. Legacy stop/
+  terminate use guarded `update_job_status` (CAS + outbox). `get_job`
+  always stamps `job_id` from PK so upsert cannot silently no-op.
+  Gate: `tests/test_billing_lifecycle_domain.py` + billing stop enqueue +
+  fenced lifecycle suites. ✔
+  **bg_worker stopped-job stop redelivery fence (2026-07-19):**
+  `bg_worker.reconcile_paused_stopped_jobs` re-enqueues unfenced
+  `stop_container` only for pure-legacy `stopped` jobs. Attempt-owned
+  (`active_attempt_id IS NOT NULL`) and fenced-history
+  (`EXISTS job_attempts`) jobs are excluded at SQL and again by pure
+  `is_fenced_history_job` (same classification as billing start/restart).
+  Legacy path keeps throttle, max-attempt, and pending-command dedupe.
+  Gate: `tests/test_stopped_job_stop_redelivery.py` (real PG both classes)
+  + `tests/test_bg_worker_reconcile.py`. ✔
+  **Residual job-scoped host/command fence (2026-07-19):** shared
+  `control_plane/job_targets.py` resolves residual container identity
+  (`xcl-{job}-{attempt[:8]}` for attempt-owned; legacy `xcl-{job}`;
+  fenced-history without live authority refuses unfenced guess). Gated
+  sites: SSH reinject, admin reinject, reset, snapshot API +
+  registry-down retry, volume hot mount/unmount (incl. wait poll).
+  Commands remain on the v1 unfenced drain (worker handlers are
+  v1-only) but never target the wrong attempt container. Host-scoped
+  `upgrade_agent` / `rollback_agent` / serverless `prepull_image` stay
+  host-level. Gate: `tests/test_residual_host_command_sites.py` (real
+  PG attempt-owned vs legacy vs fenced-history + static host inventory). ✔
+  **Remaining residual (not claimed):** operator agent deploy and live
+  canary/active env flips (P5.5). Serverless prepull and unrelated
+  process-local producers remain out of scope.
   **Durable scheduled tasks landed (2026-07-19):** `control_plane/scheduled_tasks.py` 
   provides the `scheduled_tasks` table executor (`claim_and_run_tasks`) replacing the 
   process-local background timers in `bg_worker.py` with `SKIP LOCKED` durable 
@@ -419,25 +480,108 @@ of the last edit to this file.
   dead-letter) + `OutboxDispatcher.run_once` (per-event settlement,
   handler isolation, unroutable-destination logging). 4 tests incl.
   rival-dispatcher exclusivity and crash-redelivery semantics. ✔
-- [~] **A4.4 Migrate side-effect producers (Phase 7)** —
+- [x] **A4.4 Migrate side-effect producers (Phase 7)** —
   `control_plane/outbox_runtime.py`: dispatcher runtime (claim →
   deliver → settle loop with backlog drain, retention prune — published
   7d, dead-lettered 14d) started as a scheduler-worker thread
   (`XCELSIOR_OUTBOX_DISPATCHER`, default on). Handlers: `default` maps
   `job.v1.placement_reserved` / `attempt_status_changed` /
-  `lease_expired` to the dashboard's SSE vocabulary and publishes on the
-  *existing* `xcelsior_events` NOTIFY channel (every API replica already
-  bridges it to its local SSE clients via `db.start_pg_listen`; the ssh
-  gateway listens too — zero new plumbing, and v2 placements become
-  visible on dashboards for the first time); `agent_wake` is a logged
-  no-op until a push channel lands. Unknown event types settle silently
-  (forward compatible). All v2 transactional producers (reservation,
-  lease expiry, fenced attempt status) now flow end-to-end:
-  state commit → outbox row → NOTIFY → SSE. 9 tests incl. real-LISTEN
-  end-to-end placement→SSE. ✔
-  Remaining: migrate *legacy* producers (update_job_status SSE — which
-  would also fix the api/api-blue local-broadcast split — plus webhook/
-  audit/billing intents) as they come under transactional ownership.
+  `lease_expired` / **`legacy_status_changed`** to the dashboard's SSE
+  vocabulary and publishes on the *existing* `xcelsior_events` NOTIFY
+  channel (every API replica already bridges it to its local SSE clients
+  via `db.start_pg_listen`; the ssh gateway listens too — zero new
+  plumbing, and v2 placements become visible on dashboards for the first
+  time); `agent_wake` is a logged no-op until a push channel lands.
+  Unknown event types settle silently (forward compatible). All v2
+  transactional producers (reservation, lease expiry, fenced attempt
+  status) flow end-to-end: state commit → outbox row → NOTIFY → SSE.
+  **Legacy `update_job_status` (2026-07-19):** appends
+  `job.v1.legacy_status_changed` in the same atomic mutation as the job
+  row (Postgres); skips process-local-only `emit_event` when the outbox
+  intent is durable — multi-API-replica clients see the same events via
+  the dispatcher. Gate: `tests/test_legacy_status_outbox.py` (row
+  presence + real LISTEN delivery). ✔
+  **Host/job lifecycle residual outbox (2026-07-19):** shared
+  `try_append_lifecycle_outbox` (SAVEPOINT-isolated) + SSE projections
+  for `host.v1.status_changed` / `host.v1.removed` /
+  `job.v1.submitted` / `job.v1.preempted`. Wired on
+  `register_host`, `set_host_draining`, `update_host_spot_settings`,
+  `remove_host`, `submit_job`, `preempt_job` — same dual-fan-out
+  avoidance as legacy status (skip process-local `emit_event` when
+  outbox is durable). Gate: `tests/test_host_job_lifecycle_outbox.py`
+  (real PG row presence + dispatcher LISTEN for submit/drain). ✔
+  **Queue-block + spot-price residual outbox (2026-07-19):**
+  `_persist_queue_reason` writes job row + `job.v1.queue_blocked`
+  (SSE `job_error`) in one txn before notify; `process_queue_binpack`
+  skip path uses that path and skips dual emit when durable.
+  `update_spot_prices` appends `pricing.v1.spot_prices_updated`
+  (SSE `spot_prices`) after history persist, with bounded payload for
+  NOTIFY. Gate: `tests/test_scheduler_residual_outbox.py` (real PG +
+  LISTEN for both types). ✔
+  Remaining (not this gate, partially closed below): webhook bulk
+  intents; residual request-path `broadcast_sse` outside instance
+  lifecycle. Operator canary/active and agent deploy unclaimed
+  (P5.5).
+  **Attempt-scoped usage meters (2026-07-20):** expand-only migration
+  `062_usage_meters_attempt_id` adds nullable `usage_meters.attempt_id`
+  + partial unique `uq_usage_meters_one_per_attempt`.
+  `BillingEngine.meter_job` resolves attempt authority via
+  `resolve_meter_attempt_id` (explicit keys → active_attempt_id → latest
+  job_attempts), stamps the meter, and is idempotent under re-close of
+  the same attempt (no second billable row). Pure-legacy jobs still
+  meter with NULL attempt_id. Single INSERT path remains
+  `BillingEngine.meter_job`. Gate:
+  `tests/test_attempt_scoped_usage_meters.py` (real PG stamp +
+  idempotent re-close + legacy + inventory). ✔
+  **Concurrency-safe wallet holds (2026-07-20):** migration
+  `063_wallet_holds` adds durable `wallet_holds` + job FK. Available
+  balance = ledger − active held (non-expired). Launch preflight
+  (`routes.instances._wallet_preflight`) creates a hold under wallet
+  `FOR UPDATE`; job submit links `jobs.wallet_hold_id`; terminal
+  `update_job_status` releases once (idempotent). Concurrent dual-hold
+  race admits only one when funds cover a single hold. Gate:
+  `tests/test_wallet_holds.py` (real PG race + lifecycle + preflight +
+  inventory). ✔
+  **Start/restart available-balance + hold expiry (2026-07-20):**
+  `wallet_has_available_funds` gates `start_instance` /
+  `restart_instance` and API start/restart (ledger positive but fully
+  held fails closed). `expire_stale_wallet_holds` CAS held→expired
+  (SKIP LOCKED); durable task `wallet_hold_expiry` every 60s in
+  `bg_worker`. Gate:
+  `tests/test_wallet_hold_expiry_and_start_gate.py` (real PG gate +
+  expiry idempotency + inventory). ✔
+  **Event-store per-stream hash chain (2026-07-20):**
+  `EventStore.append` no longer takes `LOCK TABLE events IN EXCLUSIVE
+  MODE`. Chains are scoped to `(entity_type, entity_id)` with
+  transaction-scoped `pg_advisory_xact_lock` on
+  `stable_advisory_key("events_stream", stream_id)`. Cross-stream
+  appends do not contend on a global exclusive table lock; same-stream
+  concurrent appends still serialize correctly. Under the stream lock,
+  append assigns a causal `timestamp` strictly after the stream head
+  (pre-lock timestamps discarded) so head SELECT / `verify_chain`
+  order match `prev_hash` link order. `verify_chain` validates each
+  stream independently (optional entity filters). Callers
+  (`append_user_audit_event`, volume lifecycle `_emit_event`, job
+  state machine) remain on the single append path. Gate:
+  `tests/test_event_stream_hash_chain.py` (real PG concurrent multi-
+  stream + same-stream skew + inverted pre-lock timestamps + broken-
+  link + structural no table exclusive lock) + `tests/test_events.py`. ✔
+  **Request-path instance lifecycle SSE (2026-07-20):**
+  `routes.instances._broadcast_instance_lifecycle_sse` appends durable
+  outbox via `enqueue_lifecycle_sse_outbox` (short txn) for
+  `job.v1.instance_stopped` / `_started` / `_restarted` /
+  `_terminated` / `job.v1.cancelled`; skips process-local
+  `broadcast_sse` when durable; falls back only on enqueue failure.
+  Wired on `api_stop` / `api_start` / `api_restart` / `api_terminate`
+  and both fenced + legacy cancel paths. Dispatcher projections map
+  to the historical SSE vocabulary (`instance_*`, `job_cancelled`).
+  Gate: `tests/test_request_path_instance_lifecycle_sse.py` (real PG
+  row + dual-emit skip + LISTEN for stop/cancel + structural route
+  inventory). Remaining process-local request-path sites (hosts
+  dual-emit residual, volumes, teams, billing wallet UI, agent
+  telemetry, user images, lock/reset, job_log) and webhook bulk
+  intents stay unclaimed. ✔
+
 
 ## Cross-cutting gates
 
@@ -470,3 +614,59 @@ of the last edit to this file.
   stack keeps `xcelsior_test`. Previously-flaky placement suites now
   deterministic across repeated runs. (CI is unaffected — it already
   uses an ephemeral per-job postgres.) ✔
+
+
+## Phase 8 — Database-Backed Object Storage Catalog & Janitor
+
+- [x] **8.1 Reworked API Routes** — `routes/artifacts.py`:
+  Refactored the core `/api/artifacts/upload`, `/api/artifacts/download`, and `/api/artifacts` (list) endpoints to interact directly with the PostgreSQL catalog. Retained S3 listing fallback if DB-backed storage is inactive. Added `/api/artifacts/finalize` (POST) to finalize upload sessions and mark artifacts as available.
+- [x] **8.2 State Machine & Catalog Integration** — `artifacts.py`:
+  Integrated schema tables and upload state machine (`requested` -> `available`). Enforced metadata persistence (ETag, size, replicas) on finalization. Implemented standalone user upload support with NULL job_id to satisfy relational schema invariants.
+- [x] **8.3 Expired Sessions & Orphan GC Background Task** — `bg_worker.py`:
+  Added a background `artifact_catalog_janitor` task that runs periodically (every 60s) claiming and cleaning up uncompleted/expired `storage.artifact_upload_sessions` (state `requested` older than 1 hour) and transitioning them to `abandoned`. Also processes durable asynchronous `storage.artifact_deletion_jobs`.
+- [x] **8.4 Verification & Testing**:
+  Authored comprehensive integration suites `tests/test_artifacts_state_machine.py` and `tests/test_artifacts_janitor.py` simulating full upload-to-download, finalization, expired upload session sweeps, and physical file deletion. All tests pass successfully. ✔
+
+
+## Phase 9 — Control Plane and MCP UI
+
+- [x] **9.1 Control Plane Backend Admin API Endpoints** — `routes/admin.py`:
+  Added 6 highly robust administrative API endpoints to expose the reconciler's open and resolved findings (`GET /api/admin/reconciler/findings`), manual finding dismissal (`POST /api/admin/reconciler/findings/{finding_id}/dismiss`), manual finding enforcement (`POST /api/admin/reconciler/findings/{finding_id}/enforce`), manual host-scoped reconciliation passes (`POST /api/admin/reconciler/reconcile-host/{host_id}`), durable scheduled tasks listing (`GET /api/admin/control-plane/scheduled-tasks`), and transactional active jobs timeline (`GET /api/admin/control-plane/jobs`). Integrated `psycopg.rows.dict_row` to ensure all queries are fully compatible with string-keyed dictionaries.
+- [x] **9.2 Control Plane Admin UI Page** — `frontend/src/app/(dashboard)/dashboard/admin/control-plane/page.tsx`:
+  Created a beautiful, state-of-the-art administrative page using Client-side React and Lucide icons. Implemented separate high-fidelity sections/tabs for "Scheduler Timelines", "Host Drains & Capacity", "Reconciler Findings", and "Durable Scheduled Tasks". Displays real-time CPU/GPU/VRAM telemetry, transaction-scoped reconciliation findings with interactive action triggers (Drain, Undrain, Dismiss, Enforce, Reconcile Host), and countdowns.
+- [x] **9.3 Navigation Link integration** — `frontend/src/app/(dashboard)/dashboard/admin/admin-shell.tsx`:
+  Registered "Control Plane" tab into the primary sub-navigation shell of the admin dashboard.
+- [x] **9.4 Integration Tests and Coverage** — `tests/test_admin_endpoints_coverage.py`:
+  Authored detailed FastAPI test cases (`test_admin_control_plane_endpoints`) covering all new control-plane admin endpoints. Verified findings listing, jobs attempts, scheduled tasks, and host reconciliation passes. All 17 administrative test cases pass successfully. ✔
+
+
+## Phase 10 — Identity, privilege, and edge hardening
+
+- [x] **10.1 Fail-closed agent identity admission** — `control_plane/identity.py` +
+  `routes/agent._require_agent_auth`: production maps `host_id` to a
+  registered+admitted host; DB lookup errors return **503** (never
+  fail-open). Optional `XCELSIOR_TRUSTED_AGENT_GATEWAY=1` requires
+  gateway-set headers and rejects public-injected `X-Worker-*` alone.
+  Untrusted identity header strip helper for edge configs. Gate:
+  `tests/test_phase10_identity_privilege.py` + telemetry/auth regression. ✔
+- [x] **10.2 API privilege drop** — `docker-compose.yml` `api` / `api-blue`:
+  removed `cap_add: SYS_ADMIN`; `security_opt: no-new-privileges:true`.
+  LUKS remains host-SSH / volume-provisioner. Gate: structural compose
+  test (no `- SYS_ADMIN` / no `cap_add` on API blocks). ✔
+- [x] **10.3 Ingress separation** — `nginx/mcp-xcelsior.conf` (mcp.xcelsior.ca,
+  strips worker identity headers) and `nginx/agent-xcelsior.conf`
+  (agent.xcelsior.ca, mTLS client verify, sets trusted gateway headers).
+  Gate: structural config tests. ✔
+- [x] **10.4 MCP image hygiene** — `mcp/Dockerfile`: locked `npm ci` only
+  (no `npm install` fallback), non-root `USER xcelsior`. ✔
+- [x] **10.5 SPIRE / provisioner scaffolding (not live mesh claim)** —
+  `infra/spire/*` examples + README (fail-closed without SPIRE),
+  `infra/envoy/agent-gateway.yaml`, `infra/volume-provisioner/*`.
+  Live SPIRE multi-node deploy remains operator residual. ✔
+
+**Phase 10 residuals (not claimed):** live SPIRE node attestation fleet-wide;
+Envoy SDS production wiring; dedicated volume-provisioner process consuming
+durable volume commands at scale; rotating away every shared bearer in the
+field (migration path remains for `api-token` principals on admitted hosts).
+
+
