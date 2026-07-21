@@ -1,9 +1,10 @@
 """Registry health probe + cached state.
 
-Phase E/E7 — Prometheus gauges for container registry reachability.
-Phase E/E8 — ``is_registry_healthy()`` guard used by the snapshot
-endpoint to decide between enqueuing immediately and deferring the
-snapshot into the ``queued_registry_down`` state.
+Prometheus gauges track container registry reachability.
+``is_registry_healthy()`` is the guard the snapshot endpoint uses to
+decide between enqueuing immediately and deferring the snapshot into
+the ``queued_registry_down`` state (promoted later by the bg_worker
+``snapshot_queue_retry`` task).
 
 Design notes
 ------------

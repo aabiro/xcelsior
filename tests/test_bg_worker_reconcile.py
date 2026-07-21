@@ -1,14 +1,14 @@
-"""P3/A4 + A5 — bg_worker reconcile + user_images sweeper regression.
+"""bg_worker reconcile + user_images sweeper regression.
 
-These are structural tests that extract the two task closures from
-bg_worker.main(), substitute a stub pool, and assert the SQL + enqueue
-behavior. We deliberately avoid importing a real pg pool so the tests
-run fast in any environment.
+Structural tests: stub pool + enqueue, drive the shipped
+``reconcile_paused_stopped_jobs`` path (and task registration via main).
+Real Postgres class coverage lives in
+``tests/test_stopped_job_stop_redelivery.py``.
 """
 
 import os
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 os.environ.setdefault("XCELSIOR_API_TOKEN", "")
 os.environ.setdefault("XCELSIOR_ENV", "test")
@@ -68,77 +68,63 @@ class _FakePool:
         return _Ctx()
 
 
-def _extract_closures():
-    """Pull the two closure functions out of bg_worker.main without
-    actually launching threads. We monkeypatch threading.Thread so
-    main() returns immediately after wiring tasks."""
+def _extract_registrations():
+    """Run bg_worker.main with durable register_task captured (no DB/threads)."""
     import bg_worker
 
-    collected: dict[str, object] = {}
+    collected: dict[str, tuple] = {}
 
-    orig_append = list.append
+    def capture(name, func, interval, enabled=True):
+        collected[name] = (func, interval, enabled)
 
-    def fake_thread_start(self, *a, **kw):
-        return None
-
-    # Hijack _stop so main() exits its _stop.wait() immediately.
+    # Hijack _stop so main() exits its wait immediately after wiring.
     bg_worker._stop.set()
 
-    with patch("bg_worker.threading.Thread") as T:
+    with (
+        patch("bg_worker.register_task", side_effect=capture),
+        patch("bg_worker.threading.Thread") as T,
+    ):
         T.return_value.start = lambda: None
         T.return_value.join = lambda *a, **kw: None
-        # Capture tasks list via patching list.append is overkill; simpler:
-        # replay the tasks after main builds them. main() assigns tasks
-        # locally, so we capture via signal.signal wrapper — but easiest
-        # is to re-import and call main with a small wrapper that
-        # replaces _bg_loop so tasks are introspectable. Simpler still:
-        # monkeypatch main itself. Instead, import bg_worker fresh and
-        # scrape the closures via inspect after running main to the
-        # thread launch point.
-        # Use a lighter approach: call main() but interrupt via _stop.
         try:
             bg_worker.main()
         except SystemExit:
             pass
-
-    # main() dropped out after wiring. Pull closures out of its frame:
-    # tasks is a local — we need to introspect via the thread-Mock's
-    # call_args_list which received (target=_bg_loop, args=(name, func, interval)).
-    calls = T.call_args_list
-    for c in calls:
-        kwargs = c.kwargs
-        args = kwargs.get("args") or (c.args[1] if len(c.args) > 1 else None)
-        if not args:
-            continue
-        name, func, interval = args
-        collected[name] = (func, interval)
     return collected
 
 
 def test_reconcile_task_registered_with_60s_interval():
-    closures = _extract_closures()
+    closures = _extract_registrations()
     assert "reconcile_paused_stopped" in closures, list(closures)
-    _, interval = closures["reconcile_paused_stopped"]
+    _, interval, _ = closures["reconcile_paused_stopped"]
     assert interval == 60
 
 
 def test_serverless_reconcile_task_registered_with_45s_interval():
-    closures = _extract_closures()
+    closures = _extract_registrations()
     assert "serverless_reconcile" in closures, list(closures)
-    _, interval = closures["serverless_reconcile"]
+    _, interval, _ = closures["serverless_reconcile"]
     assert interval == 45
 
 
 def test_user_images_sweeper_registered_with_300s_interval():
-    closures = _extract_closures()
+    closures = _extract_registrations()
     assert "user_images_pending_sweeper" in closures, list(closures)
-    _, interval = closures["user_images_pending_sweeper"]
+    _, interval, _ = closures["user_images_pending_sweeper"]
     assert interval == 300
 
 
+def test_is_fenced_history_job_classifier():
+    import bg_worker
+
+    assert bg_worker.is_fenced_history_job(active_attempt_id=None, has_fenced_history=False) is False
+    assert bg_worker.is_fenced_history_job(active_attempt_id="aid", has_fenced_history=False) is True
+    assert bg_worker.is_fenced_history_job(active_attempt_id=None, has_fenced_history=True) is True
+    assert bg_worker.is_fenced_history_job(active_attempt_id="aid", has_fenced_history=True) is True
+
+
 def test_reconcile_reenqueues_stale_stopped_jobs():
-    closures = _extract_closures()
-    func, _ = closures["reconcile_paused_stopped"]
+    import bg_worker
 
     stale_ts = time.time() - 300.0  # > 120s old
     rows = [
@@ -148,6 +134,8 @@ def test_reconcile_reenqueues_stale_stopped_jobs():
             "host_id": "host-1",
             "container_name": "xcl-job-A",
             "state_age_ts": stale_ts,
+            "active_attempt_id": None,
+            "has_fenced_history": False,
         },
         {
             "job_id": "job-B",
@@ -155,6 +143,8 @@ def test_reconcile_reenqueues_stale_stopped_jobs():
             "host_id": "host-2",
             "container_name": "xcl-job-B",
             "state_age_ts": stale_ts,
+            "active_attempt_id": None,
+            "has_fenced_history": False,
         },
     ]
     conn = _FakeConn(rows_for_select=rows, pending=False)
@@ -170,16 +160,58 @@ def test_reconcile_reenqueues_stale_stopped_jobs():
         patch("db._get_pg_pool", return_value=pool),
         patch("routes.agent.enqueue_agent_command", side_effect=fake_enqueue),
     ):
-        func()
+        n = bg_worker.reconcile_paused_stopped_jobs()
 
     names = {(h, c) for h, c, _ in enqueued}
     assert ("host-1", "stop_container") in names
     assert ("host-2", "stop_container") in names
+    assert n == 2
+
+
+def test_reconcile_skips_fenced_history_even_if_row_returned():
+    """Python gate: fenced-history rows must never get unfenced stop."""
+    import bg_worker
+
+    stale_ts = time.time() - 300.0
+    rows = [
+        {
+            "job_id": "job-fenced",
+            "status": "stopped",
+            "host_id": "host-1",
+            "container_name": "xcl-job-fenced",
+            "state_age_ts": stale_ts,
+            "active_attempt_id": None,
+            "has_fenced_history": True,
+        },
+        {
+            "job_id": "job-attempt-owned",
+            "status": "stopped",
+            "host_id": "host-2",
+            "container_name": "xcl-job-owned",
+            "state_age_ts": stale_ts,
+            "active_attempt_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "has_fenced_history": False,
+        },
+    ]
+    conn = _FakeConn(rows_for_select=rows, pending=False)
+    pool = _FakePool(conn)
+    enqueued: list = []
+
+    with (
+        patch("db._get_pg_pool", return_value=pool),
+        patch(
+            "routes.agent.enqueue_agent_command",
+            side_effect=lambda *a, **kw: enqueued.append(a),
+        ),
+    ):
+        n = bg_worker.reconcile_paused_stopped_jobs()
+
+    assert enqueued == [], "fenced-history / attempt-owned must not dual-command stop"
+    assert n == 0
 
 
 def test_reconcile_skips_fresh_jobs():
-    closures = _extract_closures()
-    func, _ = closures["reconcile_paused_stopped"]
+    import bg_worker
 
     fresh_ts = time.time() - 30.0  # < 120s
     rows = [
@@ -189,6 +221,8 @@ def test_reconcile_skips_fresh_jobs():
             "host_id": "host-1",
             "container_name": "xcl-job-fresh",
             "state_age_ts": fresh_ts,
+            "active_attempt_id": None,
+            "has_fenced_history": False,
         }
     ]
     conn = _FakeConn(rows_for_select=rows)
@@ -201,13 +235,12 @@ def test_reconcile_skips_fresh_jobs():
             "routes.agent.enqueue_agent_command", side_effect=lambda *a, **kw: enqueued.append(a)
         ),
     ):
-        func()
+        bg_worker.reconcile_paused_stopped_jobs()
     assert enqueued == [], "fresh jobs must not be reconciled"
 
 
 def test_reconcile_skips_when_pending_command_exists():
-    closures = _extract_closures()
-    func, _ = closures["reconcile_paused_stopped"]
+    import bg_worker
 
     stale_ts = time.time() - 300.0
     rows = [
@@ -217,6 +250,8 @@ def test_reconcile_skips_when_pending_command_exists():
             "host_id": "host-1",
             "container_name": "xcl-job-pending",
             "state_age_ts": stale_ts,
+            "active_attempt_id": None,
+            "has_fenced_history": False,
         }
     ]
     conn = _FakeConn(rows_for_select=rows, pending=True)  # pending cmd exists
@@ -229,14 +264,12 @@ def test_reconcile_skips_when_pending_command_exists():
             "routes.agent.enqueue_agent_command", side_effect=lambda *a, **kw: enqueued.append(a)
         ),
     ):
-        func()
+        bg_worker.reconcile_paused_stopped_jobs()
     assert enqueued == [], "must not duplicate a pending reconcile command"
 
 
-
 def test_reconcile_throttles_recent_stop_attempts():
-    closures = _extract_closures()
-    func, _ = closures["reconcile_paused_stopped"]
+    import bg_worker
 
     stale_ts = time.time() - 300.0
     rows = [
@@ -248,6 +281,8 @@ def test_reconcile_throttles_recent_stop_attempts():
             "state_age_ts": stale_ts,
             "last_reconcile_stop_at": time.time() - 60.0,
             "reconcile_stop_count": 1,
+            "active_attempt_id": None,
+            "has_fenced_history": False,
         }
     ]
     conn = _FakeConn(rows_for_select=rows, pending=False)
@@ -260,13 +295,26 @@ def test_reconcile_throttles_recent_stop_attempts():
             "routes.agent.enqueue_agent_command", side_effect=lambda *a, **kw: enqueued.append(a)
         ),
     ):
-        func()
+        bg_worker.reconcile_paused_stopped_jobs()
     assert enqueued == [], "recent reconcile attempts must be throttled"
 
 
+def test_reconcile_sql_excludes_fenced_history():
+    """Static gate: production SELECT must exclude attempt/fenced rows."""
+    import inspect
+
+    import bg_worker
+
+    src = inspect.getsource(bg_worker.reconcile_paused_stopped_jobs)
+    assert "active_attempt_id IS NULL" in src
+    assert "NOT EXISTS" in src
+    assert "job_attempts" in src
+    assert "stop_container" in src
+
+
 def test_user_images_sweeper_marks_stale_pending_failed():
-    closures = _extract_closures()
-    func, _ = closures["user_images_pending_sweeper"]
+    closures = _extract_registrations()
+    func, _, _ = closures["user_images_pending_sweeper"]
 
     conn = _FakeConn(rowcount=3)
     pool = _FakePool(conn)

@@ -165,3 +165,29 @@ def test_admin_agent_rollout_accepts_valid_modules():
     # No matching host_ids, so nothing enqueued, but the request itself
     # must be accepted (modules validated, not rejected).
     assert body["enqueued"] == []
+
+
+def test_admin_control_plane_endpoints():
+    # 1. Test GET /api/admin/reconciler/findings
+    r = client.get("/api/admin/reconciler/findings", headers=_admin_headers())
+    assert r.status_code == 200
+    assert r.json().get("ok") is True
+    assert isinstance(r.json().get("findings"), list)
+
+    # 2. Test GET /api/admin/control-plane/jobs
+    r = client.get("/api/admin/control-plane/jobs", headers=_admin_headers())
+    assert r.status_code == 200
+    assert r.json().get("ok") is True
+    assert isinstance(r.json().get("jobs"), list)
+
+    # 3. Test GET /api/admin/control-plane/scheduled-tasks
+    r = client.get("/api/admin/control-plane/scheduled-tasks", headers=_admin_headers())
+    assert r.status_code == 200
+    assert r.json().get("ok") is True
+    assert isinstance(r.json().get("tasks"), list)
+
+    # 4. Test POST /api/admin/reconciler/reconcile-host/nonexistent-host
+    r = client.post("/api/admin/reconciler/reconcile-host/test-host", headers=_admin_headers())
+    assert r.status_code == 200
+    assert r.json().get("ok") is True
+    assert r.json().get("host_id") == "test-host"

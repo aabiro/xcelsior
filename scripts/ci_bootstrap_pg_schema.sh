@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bootstrap CI Postgres via the deterministic from-empty path (A1.6).
+# Bootstrap CI Postgres via the deterministic from-empty path.
 #
 # Always runs scripts/bootstrap_pg_from_empty.sh (alembic upgrade head +
 # ensure/seed). A schema dump cache is no longer required for success;

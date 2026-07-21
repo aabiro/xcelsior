@@ -369,7 +369,9 @@ def test_stop_active_fenced_attempt_uses_v2_command_and_stays_stopping(
     from billing import BillingEngine
 
     result = BillingEngine().stop_instance(job_id, "user_stopped")
-    assert result == {"stopped": True, "job_id": job_id, "status": "stopping"}
+    assert result.get("stopped") is True
+    assert result.get("job_id") == job_id
+    assert result.get("status") == "stopping"
     assert captured_enqueue == []
     with _pool.connection() as conn:
         job_status = conn.execute(

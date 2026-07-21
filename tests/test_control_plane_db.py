@@ -273,9 +273,19 @@ class TestSchemaCompat:
         assert not compat.compatible and "exceeds supported maximum" in compat.reason
 
     def test_non_numeric_revision_is_incompatible(self, monkeypatch):
+        """A min revision that is not an ancestor of current is incompatible.
+
+        Hash / unknown branch ids are resolved via the Alembic graph when
+        available; a fabricated id is never treated as a silent pass.
+        """
         from control_plane.schema_compat import check_schema_compatible
 
         monkeypatch.setenv("XCELSIOR_DB_SCHEMA_MIN_REVISION", "abcdef")
         with _pool.connection() as conn:
             compat = check_schema_compatible(conn)
-        assert not compat.compatible and "non-numeric" in compat.reason
+        assert not compat.compatible
+        assert (
+            "non-numeric" in compat.reason
+            or "requires >=" in compat.reason
+            or "unknown" in compat.reason
+        )

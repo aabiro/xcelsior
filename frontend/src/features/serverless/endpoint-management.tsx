@@ -264,10 +264,10 @@ export function ServerlessEndpointManagement({
                   active ? "bg-accent-violet/12 text-accent-violet border-accent-violet/20" : "text-text-muted hover:bg-surface-hover hover:text-text-primary",
                 )}
               >
-                <span className={cn("block truncate text-[10px] font-mono tracking-tight", active ? "text-accent-violet/90" : "text-text-muted")}>
+                <span className={cn("block truncate text-sm font-bold text-white", active ? "text-accent-violet" : "")}>
                   {endpoint.openai_base_url || endpoint.invoke_path || "/run"}
                 </span>
-                <span className={cn("block truncate text-sm font-semibold mt-0.5", active ? "text-accent-violet" : "text-text-primary")}>
+                <span className={cn("block truncate text-xs text-text-muted mt-0.5")}>
                   {endpoint.name || "Untitled Endpoint"}
                 </span>
                 <span className="block truncate text-[11px] opacity-75 mt-0.5">

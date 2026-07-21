@@ -392,6 +392,7 @@ def test_artifacts_global_list_scoped_to_accessible_jobs(team_roles, monkeypatch
         return []
 
     monkeypatch.setattr("artifacts.ArtifactManager.get_job_artifacts", fake_get_job_artifacts)
+    monkeypatch.setattr("artifacts.ArtifactManager._is_db_active", lambda self: False)
 
     member_list = client.get("/api/artifacts", headers=team_roles["member"]["headers"])
     assert member_list.status_code == 200, member_list.text[:200]

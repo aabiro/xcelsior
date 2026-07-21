@@ -129,8 +129,8 @@ export default function InferencePage() {
             <RefreshCw className="h-3.5 w-3.5" />
           </Button>
           {canWrite ? (
-            <Button size="sm" onClick={() => setCreateOpen(true)}>
-              <Plus className="h-3.5 w-3.5" /> + ENDPOINT
+            <Button size="sm" className="font-mono text-[13px] font-semibold tracking-[0.04em] uppercase" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-3.5 w-3.5 mr-1" /> ENDPOINT
             </Button>
           ) : (
             <Button size="sm" disabled title={t("dash.serverless.viewer_blocked")}>

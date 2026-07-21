@@ -415,9 +415,12 @@ class TestRemoteBackendFailsClosed:
 
     def test_get_client_raises_on_init_failure(self):
         client = self._remote()
-        with mock.patch("boto3.client", side_effect=RuntimeError("bad creds")):
+        mock_boto3 = mock.MagicMock()
+        mock_boto3.client.side_effect = RuntimeError("bad creds")
+        with mock.patch.dict("sys.modules", {"boto3": mock_boto3}):
             with pytest.raises(StorageUnavailable):
                 client._get_client()
+
 
     def test_list_objects_reraises_client_error_not_empty(self):
         # A working client that errors on list must NOT return [] (which a

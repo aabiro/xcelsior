@@ -378,6 +378,12 @@
   z-index: 0;
 }
 
+/* Light theme: keep particle canvas fully opaque so saturated light sprites
+   (cyan / purple / emerald) read clearly against pale marketing surfaces. */
+.marketing-site[data-theme="light"] .mcp-particle-field {
+  opacity: 1;
+}
+
 .mcp-particle-content {
   position: relative;
   z-index: 1;
@@ -2781,10 +2787,6 @@
   font-family: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
 }
 
-.marketing-site[data-theme="light"] .site-marketing-code {
-  background: rgba(15, 24, 48, 0.92) !important;
-}
-
 .site-marketing-code > div {
   border-bottom-color: rgba(255, 255, 255, 0.09) !important;
   background: rgba(255, 255, 255, 0.04) !important;
@@ -2793,6 +2795,20 @@
 .site-marketing-code pre {
   margin: 0;
   color: var(--text-2) !important;
+}
+
+.marketing-site[data-theme="light"] .site-marketing-code {
+  background: var(--surface) !important;
+  box-shadow: var(--shadow-sm) !important;
+}
+
+.marketing-site[data-theme="light"] .site-marketing-code > div {
+  border-bottom-color: var(--border) !important;
+  background: var(--surface-hover) !important;
+}
+
+.marketing-site[data-theme="light"] .site-marketing-code pre {
+  color: var(--color-text-primary) !important;
 }
 
 .site-download-primary,
@@ -2877,6 +2893,10 @@
 
 .site-inline-heading {
   margin-bottom: 14px;
+}
+
+.site-inline-heading .site-callout-title {
+  margin-bottom: 0;
 }
 
 .site-inline-icon {

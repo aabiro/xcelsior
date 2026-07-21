@@ -376,366 +376,58 @@ def _seed_gpu_pricing(cur):
     log.info("Seeded gpu_pricing table with %d rows", len(_GPU_PRICING_SEED))
 
 
-def _ensure_pg_tables(conn):
-    """Ensure all scheduler persistence tables and indexes exist in PostgreSQL.
+def _pg_schema_is_migrated(conn) -> bool:
+    """True when Alembic has stamped a revision on this database.
 
-    Uses JSONB for payload columns with GIN indexes for query-critical fields.
+    Production schema authority is Alembic only. Runtime ensure
+    paths use this to stay seed-only (or no-op) on migrated DBs.
     """
     cur = conn.cursor()
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS state (
-            namespace TEXT PRIMARY KEY,
-            payload JSONB NOT NULL
-        )
-        """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS jobs (
-            job_id TEXT PRIMARY KEY,
-            status TEXT NOT NULL,
-            priority INTEGER NOT NULL,
-            submitted_at DOUBLE PRECISION NOT NULL,
-            host_id TEXT,
-            payload JSONB NOT NULL
-        )
-        """)
-    cur.execute(
-        "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS pricing_mode TEXT NOT NULL DEFAULT 'on_demand'"
-    )
-    cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS spot_rate_cad DOUBLE PRECISION")
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS hosts (
-            host_id TEXT PRIMARY KEY,
-            status TEXT NOT NULL,
-            registered_at DOUBLE PRECISION NOT NULL,
-            payload JSONB NOT NULL
-        )
-        """)
-
-    # Indexed columns for scheduler queries
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_jobs_queue "
-        "ON jobs(status, priority DESC, submitted_at ASC)"
-    )
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_hosts_status " "ON hosts(status, registered_at ASC)"
-    )
-
-    # GIN indexes on JSONB payloads for GPU capability queries
-    # Allows: SELECT * FROM hosts WHERE payload->'gpu_specs' @> '{"vram_gb": 24}'
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_hosts_payload_gin " "ON hosts USING GIN (payload)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_jobs_payload_gin " "ON jobs USING GIN (payload)")
-
-    # Expression indexes for hot-path queries
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_hosts_gpu_model " "ON hosts ((payload->>'gpu_model'))"
-    )
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_jobs_tier " "ON jobs ((payload->>'tier'))")
-
-    # ── Job logs (persistent container output) ──
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS job_logs (
-            id BIGSERIAL PRIMARY KEY,
-            job_id TEXT NOT NULL,
-            ts DOUBLE PRECISION NOT NULL,
-            level TEXT NOT NULL DEFAULT 'info',
-            line TEXT NOT NULL,
-            created_at DOUBLE PRECISION NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())
-        )
-    """)
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_job_logs_job_ts " "ON job_logs (job_id, ts)")
-
-    # ── Billing cycles (charge records for running instances) ──
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS billing_cycles (
-            cycle_id TEXT PRIMARY KEY,
-            job_id TEXT NOT NULL,
-            customer_id TEXT NOT NULL,
-            host_id TEXT DEFAULT '',
-            resource_type TEXT NOT NULL DEFAULT 'gpu',
-            period_start DOUBLE PRECISION NOT NULL,
-            period_end DOUBLE PRECISION NOT NULL,
-            duration_seconds DOUBLE PRECISION NOT NULL,
-            rate_per_hour DOUBLE PRECISION NOT NULL,
-            gpu_model TEXT DEFAULT '',
-            tier TEXT DEFAULT 'free',
-            tier_multiplier DOUBLE PRECISION DEFAULT 1.0,
-            amount_cad DOUBLE PRECISION NOT NULL,
-            status TEXT DEFAULT 'charged',
-            created_at DOUBLE PRECISION NOT NULL
-        )
-    """)
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_billing_cycles_job " "ON billing_cycles (job_id)")
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_billing_cycles_customer " "ON billing_cycles (customer_id)"
-    )
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_billing_cycles_created_at " "ON billing_cycles (created_at)"
-    )
-    cur.execute(
-        "ALTER TABLE billing_cycles "
-        "ADD COLUMN IF NOT EXISTS pricing_mode TEXT NOT NULL DEFAULT 'on_demand'"
-    )
-    # Token cost accrued for the slice (blended serverless meter / token-revenue reporting).
-    cur.execute(
-        "ALTER TABLE billing_cycles "
-        "ADD COLUMN IF NOT EXISTS token_cost_cad DOUBLE PRECISION NOT NULL DEFAULT 0"
-    )
-    # Serverless model reference for the slice (margin-per-model-size reporting).
-    cur.execute(
-        "ALTER TABLE billing_cycles "
-        "ADD COLUMN IF NOT EXISTS model_ref TEXT NOT NULL DEFAULT ''"
-    )
-    cur.execute(
-        "ALTER TABLE usage_meters "
-        "ADD COLUMN IF NOT EXISTS pricing_mode TEXT NOT NULL DEFAULT 'on_demand'"
-    )
-
-    # ── Persistent volumes ──
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS volumes (
-            volume_id TEXT PRIMARY KEY,
-            owner_id TEXT NOT NULL,
-            name TEXT NOT NULL,
-            storage_type TEXT DEFAULT 'nfs',
-            size_gb INTEGER NOT NULL DEFAULT 50,
-            region TEXT DEFAULT '',
-            province TEXT DEFAULT '',
-            encrypted BOOLEAN DEFAULT TRUE,
-            status TEXT NOT NULL DEFAULT 'provisioning',
-            encryption_key_id TEXT DEFAULT '',
-            key_ciphertext TEXT DEFAULT '',
-            mount_path_host TEXT DEFAULT '',
-            created_at DOUBLE PRECISION NOT NULL,
-            deleted_at DOUBLE PRECISION DEFAULT 0
-        )
-    """)
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_volumes_owner " "ON volumes (owner_id, status)")
-
-    # ── Volume attachments ──
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS volume_attachments (
-            attachment_id TEXT PRIMARY KEY,
-            volume_id TEXT NOT NULL REFERENCES volumes(volume_id),
-            instance_id TEXT NOT NULL,
-            mount_path TEXT DEFAULT '/workspace',
-            mode TEXT DEFAULT 'rw',
-            attached_at DOUBLE PRECISION NOT NULL,
-            detached_at DOUBLE PRECISION DEFAULT 0
-        )
-    """)
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_volume_attachments_volume "
-        "ON volume_attachments (volume_id, detached_at)"
-    )
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_volume_attachments_instance "
-        "ON volume_attachments (instance_id, detached_at)"
-    )
-
-    # ── Volume snapshots (P2.5 — instant CoW copies via reflink) ──
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS volume_snapshots (
-            snapshot_id TEXT PRIMARY KEY,
-            volume_id TEXT NOT NULL REFERENCES volumes(volume_id),
-            owner_id TEXT NOT NULL,
-            label TEXT DEFAULT '',
-            size_bytes BIGINT DEFAULT 0,
-            status TEXT NOT NULL DEFAULT 'ready',
-            created_at DOUBLE PRECISION NOT NULL,
-            deleted_at DOUBLE PRECISION DEFAULT 0
-        )
-    """)
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_volume_snapshots_volume "
-        "ON volume_snapshots (volume_id, deleted_at)"
-    )
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_volume_snapshots_owner "
-        "ON volume_snapshots (owner_id, deleted_at)"
-    )
-
-    # ── GPU Pricing (platform-controlled rates) ──
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS gpu_pricing (
-            id SERIAL PRIMARY KEY,
-            gpu_model TEXT NOT NULL,
-            vram_gb INTEGER NOT NULL,
-            form_factor TEXT NOT NULL DEFAULT 'PCIe',
-            high_frequency BOOLEAN NOT NULL DEFAULT FALSE,
-            tier TEXT NOT NULL DEFAULT 'standard',
-            pricing_mode TEXT NOT NULL DEFAULT 'on_demand',
-            base_rate_cad DOUBLE PRECISION NOT NULL,
-            priority_multiplier DOUBLE PRECISION DEFAULT 1.0,
-            sovereignty_premium DOUBLE PRECISION DEFAULT 0.0,
-            spot_discount DOUBLE PRECISION DEFAULT 0.0,
-            multi_gpu_discount_4 DOUBLE PRECISION DEFAULT 0.0,
-            multi_gpu_discount_8 DOUBLE PRECISION DEFAULT 0.0,
-            active BOOLEAN DEFAULT TRUE,
-            updated_at DOUBLE PRECISION DEFAULT EXTRACT(EPOCH FROM NOW()),
-            CONSTRAINT gpu_pricing_variant_unique UNIQUE
-              (gpu_model, vram_gb, form_factor, high_frequency, tier, pricing_mode)
-        )
-    """)
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_gpu_pricing_model "
-        "ON gpu_pricing (gpu_model, vram_gb, form_factor, high_frequency, tier, pricing_mode) "
-        "WHERE active = TRUE"
-    )
-    _seed_gpu_pricing(cur)
-
-    # ── Agent command queue (admin → worker control plane) ──
-    # Rows are inserted by admin endpoints and consumed once by the target
-    # worker agent's poll loop. The worker deletes the row after successful
-    # dispatch; status='pending' rows older than expires_at are GC'd by the
-    # API (stale hosts shouldn't accumulate commands).
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS agent_commands (
-            id BIGSERIAL PRIMARY KEY,
-            host_id TEXT NOT NULL,
-            command TEXT NOT NULL,
-            args JSONB NOT NULL DEFAULT '{}'::jsonb,
-            status TEXT NOT NULL DEFAULT 'pending',
-            created_at DOUBLE PRECISION NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()),
-            expires_at DOUBLE PRECISION NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()) + 900,
-            created_by TEXT,
-            result JSONB
-        )
-    """)
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_agent_commands_host_pending "
-        "ON agent_commands (host_id, status, created_at) WHERE status = 'pending'"
-    )
-
-    # ── user_images: P3.1 save-as-template (pod snapshots via docker commit) ──
-    # image_ref is the fully-qualified image tag the worker uses when
-    # starting a container from this template. v1 stores the image locally
-    # on the source host; once XCELSIOR_REGISTRY_URL is wired up, image_ref
-    # will resolve to registry.xcelsior.ca/{owner}/{name}:{tag}.
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS user_images (
-            image_id TEXT PRIMARY KEY,
-            owner_id TEXT NOT NULL,
-            name TEXT NOT NULL,
-            tag TEXT NOT NULL DEFAULT 'latest',
-            description TEXT DEFAULT '',
-            source_job_id TEXT,
-            host_id TEXT,
-            image_ref TEXT NOT NULL,
-            size_bytes BIGINT DEFAULT 0,
-            status TEXT NOT NULL DEFAULT 'pending',
-            created_at DOUBLE PRECISION NOT NULL,
-            deleted_at DOUBLE PRECISION DEFAULT 0
-        )
-    """)
-    # Drop legacy plain UNIQUE constraint (migration 024 shape) if present —
-    # it blocks re-creating a template after soft-delete. Migration 025 does
-    # the same for alembic-tracked deployments.
-    cur.execute("""
-        DO $$
-        BEGIN
-            IF EXISTS (
-                SELECT 1 FROM pg_constraint
-                 WHERE conrelid = 'user_images'::regclass
-                   AND contype = 'u'
-                   AND conname = 'user_images_owner_id_name_tag_key'
-            ) THEN
-                ALTER TABLE user_images
-                    DROP CONSTRAINT user_images_owner_id_name_tag_key;
-            END IF;
-        END$$;
-        """)
-    cur.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS ux_user_images_live "
-        "ON user_images (owner_id, name, tag) WHERE deleted_at = 0"
-    )
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_user_images_owner " "ON user_images (owner_id, deleted_at)"
-    )
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_user_images_source_job "
-        "ON user_images (source_job_id) WHERE source_job_id IS NOT NULL"
-    )
-    # Phase E/E6 — columns for the /dashboard/templates UI. Idempotent
-    # DDL mirrors migration 026 so fresh databases get the same shape
-    # without needing the full alembic history.
-    cur.execute("""
-        ALTER TABLE user_images
-            ADD COLUMN IF NOT EXISTS is_public  boolean NOT NULL DEFAULT false,
-            ADD COLUMN IF NOT EXISTS labels     jsonb   NOT NULL DEFAULT '[]'::jsonb,
-            ADD COLUMN IF NOT EXISTS starred_at double precision NULL,
-            ADD COLUMN IF NOT EXISTS error      text    DEFAULT ''
-        """)
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_user_images_public_live "
-        "ON user_images (created_at DESC) "
-        "WHERE is_public = true AND deleted_at = 0"
-    )
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_user_images_starred_per_owner "
-        "ON user_images (owner_id, starred_at DESC) "
-        "WHERE starred_at IS NOT NULL AND deleted_at = 0"
-    )
-
-    # ── Phase E/E7 — registry health probe cache ──
-    # Small key-value table so bg_worker (probe) and the API process
-    # (is_registry_healthy + /metrics/prometheus) see the same truth.
-    # Each process has its own prometheus_client REGISTRY and module
-    # state, so we need a cross-process channel. One row per distinct
-    # registry URL; current deploys only use one.
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS registry_health_cache (
-            registry      TEXT PRIMARY KEY,
-            reachable     BOOLEAN NOT NULL DEFAULT FALSE,
-            last_probe_at DOUBLE PRECISION NOT NULL DEFAULT 0,
-            latency_ms    DOUBLE PRECISION NOT NULL DEFAULT 0,
-            status_code   INTEGER NULL,
-            error         TEXT NULL
-        )
-        """)
-
-    # ── P1.2 — agent rollout tracking (auto-rollback driver) ──
-    # When the admin rollout endpoint enqueues an upgrade_agent command,
-    # it also inserts a row here. A bg_worker watchdog polls this table
-    # and compares target_sha vs the heartbeat-reported agent_sha256 on
-    # each host; hosts that fail to pick up the new bytes within
-    # ROLLBACK_GRACE_SEC get a rollback_agent directive enqueued
-    # automatically (restores .bak).
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS agent_rollouts (
-            id             BIGSERIAL PRIMARY KEY,
-            host_id        TEXT NOT NULL,
-            from_sha       TEXT,
-            target_sha     TEXT NOT NULL,
-            enqueued_at    DOUBLE PRECISION NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()),
-            completed_at   DOUBLE PRECISION NULL,
-            status         TEXT NOT NULL DEFAULT 'pending',
-            last_check_at  DOUBLE PRECISION NULL,
-            error          TEXT NULL
-        )
-        """)
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_agent_rollouts_pending "
-        "ON agent_rollouts (enqueued_at) WHERE status = 'pending'"
-    )
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_agent_rollouts_host "
-        "ON agent_rollouts (host_id, enqueued_at DESC)"
-    )
-
-    # ── Users table: per-user concurrency override ──
-    # NULL means "use env default MAX_CONCURRENT_INSTANCES". The users table
-    # itself is created via alembic migrations elsewhere; this ALTER is
-    # idempotent and silently noops if users doesn't exist yet (fresh bootstrap).
     try:
-        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS max_concurrent_instances INTEGER")
-    except Exception as _e:
-        # users table may not exist in very fresh deployments; harmless — the
-        # concurrency lookup falls back to the env default when the column
-        # isn't present.
-        pass
+        cur.execute("SELECT to_regclass('public.alembic_version')")
+        reg = cur.fetchone()
+        if reg is None or reg[0] is None:
+            return False
+        cur.execute("SELECT version_num FROM alembic_version LIMIT 1")
+        row = cur.fetchone()
+        if row is None:
+            return False
+        version = row[0] if not isinstance(row, dict) else row.get("version_num")
+        return bool(version)
+    except Exception:
+        return False
+
+
+def _ensure_pg_tables(conn):
+    """Seed-only ensure helper — no runtime CREATE/ALTER on migrated Postgres.
+
+    Schema evolution is owned by Alembic (residual ensure-only objects
+    live in migration 061). On a migrated database this only seeds
+    ``gpu_pricing`` reference rows (idempotent ON CONFLICT DO NOTHING).
+    On an unmigrated database it refuses to invent schema and logs —
+    operators must run ``alembic upgrade head`` or
+    ``scripts/bootstrap_pg_from_empty.sh``.
+    """
+    if not _pg_schema_is_migrated(conn):
+        log.error(
+            "PostgreSQL schema is not Alembic-managed (alembic_version "
+            "missing/empty). Runtime CREATE/ALTER is disabled  — "
+            "run scripts/bootstrap_pg_from_empty.sh or alembic upgrade head."
+        )
+        return
+
+    cur = conn.cursor()
+    try:
+        _seed_gpu_pricing(cur)
+    except Exception as e:
+        # Migrated stamp without gpu_pricing means the expand chain is
+        # incomplete or a wrong database was pointed at the pool.
+        log.error(
+            "gpu_pricing seed failed on Alembic-managed DB (A1.6 seed-only "
+            "path): %s",
+            e,
+        )
+
 
 
 @contextmanager
@@ -789,7 +481,12 @@ class DatabaseOps:
         """Upsert a job record."""
         job_id = str(job.get("job_id", "")).strip()
         if not job_id:
-            return
+            log.error(
+                "upsert_job refused: missing job_id (status=%r) — "
+                "caller must set job_id from the jobs PK",
+                job.get("status") if isinstance(job, dict) else None,
+            )
+            raise ValueError("upsert_job requires job_id")
 
         status = str(job.get("status") or "queued")
         priority = int(job.get("priority", 0) or 0)
@@ -906,6 +603,9 @@ class DatabaseOps:
         job = DatabaseOps.decode_payload(payload)
         if not isinstance(job, dict):
             return job
+        # PK is column authority — payload may omit job_id (billing fixtures,
+        # partial writers). Without this, upsert_job silently no-ops.
+        job["job_id"] = str(job_id)
         if col_status and job.get("status") != col_status:
             job["status"] = col_status
         # Indexed host_id column wins; NULL clears stale payload after reaper/unassign.
@@ -1246,127 +946,17 @@ _auth_schema_ensured = False
 
 
 def _ensure_oauth_auth_tables(conn) -> None:
-    """Ensure incremental OAuth auth tables/columns exist."""
-    cur = conn.cursor()
+    """A1.6: auth/OAuth schema is Alembic-owned (migration 061 / 051).
 
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS oauth_clients (
-            client_id TEXT PRIMARY KEY,
-            client_name TEXT NOT NULL,
-            client_type TEXT NOT NULL,
-            redirect_uris JSONB NOT NULL DEFAULT '[]'::jsonb,
-            grant_types JSONB NOT NULL DEFAULT '[]'::jsonb,
-            scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
-            client_secret_hash TEXT,
-            client_secret_salt TEXT,
-            client_secret_preview TEXT,
-            created_by_email TEXT,
-            is_first_party INTEGER NOT NULL DEFAULT 0,
-            status TEXT NOT NULL DEFAULT 'active',
-            last_used DOUBLE PRECISION,
-            created_at DOUBLE PRECISION NOT NULL,
-            updated_at DOUBLE PRECISION NOT NULL
-        )
-        """)
-    # Add columns if missing (for migrations)
-    cur.execute(
-        "ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'"
-    )
-    cur.execute("ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS last_used DOUBLE PRECISION")
-    cur.execute("ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS client_secret_preview TEXT")
-    cur.execute(
-        "ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS workspace_customer_id TEXT"
-    )
-    cur.execute("ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS team_id TEXT")
-    cur.execute(
-        "ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS is_system_managed "
-        "INTEGER NOT NULL DEFAULT 0"
-    )
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_oauth_clients_workspace "
-        "ON oauth_clients (workspace_customer_id)"
-    )
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
-            token_id TEXT PRIMARY KEY,
-            token_hash TEXT NOT NULL UNIQUE,
-            family_id TEXT NOT NULL,
-            parent_token_id TEXT,
-            session_token TEXT UNIQUE,
-            client_id TEXT NOT NULL,
-            email TEXT,
-            user_id TEXT,
-            session_type TEXT NOT NULL DEFAULT 'browser',
-            scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
-            created_at DOUBLE PRECISION NOT NULL,
-            expires_at DOUBLE PRECISION NOT NULL,
-            consumed_at DOUBLE PRECISION,
-            revoked_at DOUBLE PRECISION,
-            replaced_by_token_id TEXT,
-            reuse_detected_at DOUBLE PRECISION
-        )
-        """)
-    cur.execute(
-        "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS session_type TEXT NOT NULL DEFAULT 'legacy'"
-    )
-    cur.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS client_id TEXT")
-
-    # Pending email-change verification (self-service email update flow).
-    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_email TEXT")
-    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_change_token TEXT")
-    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_change_expires DOUBLE PRECISION")
-
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_oauth_clients_owner ON oauth_clients (created_by_email)"
-    )
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family ON oauth_refresh_tokens (family_id)"
-    )
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_email ON oauth_refresh_tokens (email)"
-    )
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_session ON oauth_refresh_tokens (session_token)"
-    )
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_expires ON oauth_refresh_tokens (expires_at)"
-    )
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_sessions_email_type "
-        "ON sessions (email, session_type, last_active DESC)"
-    )
-
-    cur.execute(
-        "ALTER TABLE teams ADD COLUMN IF NOT EXISTS billing_customer_id TEXT NOT NULL DEFAULT ''"
-    )
-
-    # Team invites
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS team_invites (
-            token TEXT PRIMARY KEY,
-            team_id TEXT NOT NULL,
-            email TEXT NOT NULL,
-            role TEXT NOT NULL DEFAULT 'member',
-            invited_by TEXT NOT NULL,
-            created_at DOUBLE PRECISION NOT NULL,
-            expires_at DOUBLE PRECISION NOT NULL
-        )
-        """)
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_team_invites_email ON team_invites (email)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_team_invites_team ON team_invites (team_id)")
-
-    # Profile avatars — image bytes live in Postgres so they survive redeploys.
-    # (The old path wrote to the artifact-manager local dir, which is ephemeral,
-    # so avatars reverted to the default after every restart.) Images are <= 2 MB.
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS user_avatars (
-            user_id TEXT PRIMARY KEY,
-            content_type TEXT NOT NULL,
-            data BYTEA NOT NULL,
-            updated_at DOUBLE PRECISION NOT NULL DEFAULT 0
-        )
-        """
+    No runtime CREATE/ALTER. On a migrated DB this is a pure no-op; on an
+    unmigrated DB we log once-path-equivalent and refuse to invent tables
+    (operators must ``alembic upgrade head``).
+    """
+    if _pg_schema_is_migrated(conn):
+        return
+    log.error(
+        "Auth schema ensure skipped — PostgreSQL is not Alembic-managed "
+        ". Run alembic upgrade head before serving auth traffic."
     )
 
 
