@@ -664,9 +664,18 @@ of the last edit to this file.
   `infra/envoy/agent-gateway.yaml`, `infra/volume-provisioner/*`.
   Live SPIRE multi-node deploy remains operator residual. ✔
 
-**Phase 10 residuals (not claimed):** live SPIRE node attestation fleet-wide;
-Envoy SDS production wiring; dedicated volume-provisioner process consuming
-durable volume commands at scale; rotating away every shared bearer in the
-field (migration path remains for `api-token` principals on admitted hosts).
+**Phase 10 code-audit fixes (2026-07-21):** gateway identity no longer
+trusts client-settable `X-Xcelsior-Agent-Gateway` alone — requires
+`XCELSIOR_AGENT_GATEWAY_SECRET` (`X-Xcelsior-Gateway-Auth`); public
+`nginx/xcelsior.conf` strips worker identity headers on `/agent/` and
+`/host`; API strips untrusted identity headers unless the gateway secret
+authenticates. Gate: `tests/test_phase10_identity_privilege.py`.
+
+**Phase 10 residuals (not claimed — code review vs blueprint §19/§31):**
+live SPIRE node attestation; Envoy SDS; volume-provisioner cutover (API
+still mounts `/exports`); API non-root/read-only image; rotating off
+shared fleet `api-token` bearer; MCP Redis-backed rate limit (process-local
+Map today multiplies under replicas); full public cutover off `/agent/`
+to agent.xcelsior.ca only; separate DB roles per service.
 
 

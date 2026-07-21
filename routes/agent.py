@@ -63,15 +63,24 @@ def _require_agent_auth(request: Request, *, host_id: str | None = None) -> dict
     """
     from control_plane.identity import (
         IdentityAdmissionError,
+        gateway_headers_authenticated,
         require_admitted_host,
         resolve_gateway_identity,
+        strip_untrusted_identity_headers,
         trusted_gateway_enabled,
     )
 
     env = os.environ.get("XCELSIOR_ENV", "").lower()
-    header_map = {k.lower(): v for k, v in request.headers.items()}
+    raw_headers = {k.lower(): v for k, v in request.headers.items()}
+    # Blueprint §19.2: strip client-injected worker identity unless the
+    # private gateway proved itself with the shared secret. Public ingress
+    # must never be able to spoof X-Worker-* / gateway markers.
+    if gateway_headers_authenticated(raw_headers):
+        header_map = raw_headers
+    else:
+        header_map = strip_untrusted_identity_headers(raw_headers)
 
-    # Trusted private agent gateway path (mTLS/SPIFFE terminator).
+    # Trusted private agent gateway path (mTLS/SPIFFE terminator + secret).
     if trusted_gateway_enabled():
         try:
             admitted = resolve_gateway_identity(header_map, required_host_id=host_id)
