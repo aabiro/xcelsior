@@ -552,170 +552,169 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           )}
         </AnimatePresence>
 
-        {/* Main */}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          {/* Session expiry warning, above topbar */}
-          <SessionExpiryBanner />
+        {/* Main row: shared content column (topbar + main) + AI chrome.
+            Topbar and main-inner must share the same horizontal box so heavy
+            rails and appbar edges stay co-aligned; AI rail/panel sit outside. */}
+        <div className="dashboard-site-main-row flex min-h-0 min-w-0 flex-1 overflow-hidden">
+          <div className="dashboard-site-content-column flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <SessionExpiryBanner />
 
-          {/* Topbar */}
-          <header className={cn("dashboard-site-topbar glass relative shrink-0", desktopMode && "desktop-topbar")}>
-            <div className="brand-line absolute bottom-0 left-0 right-0" />
-            <div className="dashboard-site-topbar-inner">
-              {/* Mobile menu button */}
-              <button
-                className="dashboard-site-icon-button flex h-11 w-11 items-center justify-center rounded-full md:hidden"
-                onClick={() => setMobileOpen(true)}
-                aria-label="Open menu"
-              >
-                <Menu className="h-6 w-6" />
-              </button>
-              <Link
-                href="/dashboard"
-                className={cn("dashboard-site-topbar-brand flex min-w-0 items-center gap-2.5", !collapsed && "md:hidden")}
-              >
-              </Link>
-              <div className="dashboard-site-crumbs hidden min-w-0 md:block">
-                <Breadcrumb />
-              </div>
-              <DesktopStatusStrip className="dashboard-site-status hidden xl:flex" />
-              <div className={cn("dashboard-site-actions flex items-center", desktopMode && "desktop-topbar-actions")}>
-                <LocaleToggle className="dashboard-site-pill-control" />
-                <ThemeToggle />
-                <div className="h-6 w-px bg-[var(--line)] hidden sm:block" />
-                <div className="dashboard-site-control">
-                  <NotificationBell />
-                </div>
-                <TeamSwitcher compact className="dashboard-site-team-control" />
-                <div className="dashboard-site-control">
-                  <CreditsButton />
-                </div>
-                <div className="h-7 w-px bg-[var(--line)] hidden sm:block" />
-                <div className="relative" ref={profileRef}>
-                  <button
-                    onClick={() => setProfileOpen(!profileOpen)}
-                    className="dashboard-site-profile-trigger flex items-center gap-2 rounded-full px-3 py-2"
-                  >
-                    <UserAvatar user={user} size="md" />
-                    {user && (
-                      <div className="hidden text-left sm:block">
-                        <p className="text-base font-medium leading-none text-[var(--text)]">{user.name || user.email}</p>
-                        <p className="text-sm text-[var(--text-4)]">
-                          {team.isTeamMember
-                            ? `${team.teamName || t("dash.team")} · ${formatTeamRoleLabel(team.teamRole)}`
-                            : user.is_admin
-                              ? (user.role && user.role !== "admin" ? `Admin · ${user.role}` : "Admin")
-                              : user.role || "user"}
-                        </p>
-                      </div>
-                    )}
-                    <ChevronDown className={cn("hidden h-4 w-4 text-[var(--text-4)] transition-transform sm:block", profileOpen && "rotate-180")} />
-                  </button>
-                  {/* Profile dropdown */}
-                  <AnimatePresence>
-                    {profileOpen && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -4 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -4 }}
-                        transition={{ duration: 0.15 }}
-                        className="dashboard-site-header-dropdown dashboard-site-popout absolute right-0 top-full mt-2 w-56 overflow-hidden rounded-[22px]"
-                      >
-                        <div className="dashboard-site-popout-section flex items-center gap-3 border-b px-3 py-3">
-                          <UserAvatar user={user} size="sm" />
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-medium text-[var(--text)]">{user?.name || user?.email}</p>
-                            <p className="truncate text-xs text-[var(--text-4)]">{user?.email}</p>
-                          </div>
-                        </div>
-                        <div className="py-1">
-                          <Link
-                            href="/dashboard/settings"
-                            className="dashboard-site-popout-link flex items-center gap-2.5 px-3 py-2 text-sm"
-                            onClick={() => setProfileOpen(false)}
-                          >
-                            <Settings className="h-4 w-4" />
-                            {t("dash.settings")}
-                          </Link>
-                          <Link
-                            href="/dashboard/settings#team"
-                            className="dashboard-site-popout-link flex items-center gap-2.5 px-3 py-2 text-sm"
-                            onClick={() => setProfileOpen(false)}
-                          >
-                            <Users className="h-4 w-4" />
-                            {t("dash.team") || "Team"}
-                          </Link>
-                          <Link
-                            href="/dashboard/settings#api-keys"
-                            className="dashboard-site-popout-link flex items-center gap-2.5 px-3 py-2 text-sm"
-                            onClick={() => setProfileOpen(false)}
-                          >
-                            <Key className="h-4 w-4" />
-                            {t("dash.settings.api_keys") || "API Keys"}
-                          </Link>
-                        </div>
-                        <div className="dashboard-site-popout-section border-t py-1">
-                          <button
-                            onClick={() => { setProfileOpen(false); void logout(); }}
-                            className="dashboard-site-popout-link flex w-full items-center gap-2.5 px-3 py-2 text-sm hover:text-[var(--coral)]"
-                          >
-                            <LogOut className="h-4 w-4" />
-                            {t("dash.sign_out")}
-                          </button>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              </div>
-            </div>
-          </header>
-
-          {/* Content + AI panel (below topbar, never overlays it) */}
-          <div className="dashboard-site-workspace flex min-h-0 flex-1 overflow-hidden">
-            <main
-              aria-label={t("dash.main_label")}
-              className={cn(
-                "dashboard-site-main min-h-0 flex-1",
-                pathname === "/dashboard/ai" ? "overflow-hidden" : "overflow-y-auto",
-                desktopMode && "desktop-main-surface",
-              )}
-            >
-              <div
-                className={cn(
-                  "dashboard-site-main-inner",
-                  pathname === "/dashboard/ai" && "flex h-full min-h-0 flex-col",
-                )}
-              >
-                {children}
-              </div>
-            </main>
-
-            <AnimatePresence>
-              {aiPanelOpen && (
-                <motion.aside
-                  initial={{ width: 0, opacity: 0 }}
-                  animate={{ width: 384, opacity: 1 }}
-                  exit={{ width: 0, opacity: 0 }}
-                  transition={AI_PANEL_SPRING}
-                  className="dashboard-site-ai-panel ai-panel-border hidden shrink-0 overflow-hidden md:flex md:flex-col"
+            <header className={cn("dashboard-site-topbar glass relative shrink-0", desktopMode && "desktop-topbar")}>
+              <div className="brand-line absolute bottom-0 left-0 right-0" />
+              <div className="dashboard-site-topbar-inner">
+                <button
+                  className="dashboard-site-icon-button flex h-11 w-11 items-center justify-center rounded-full md:hidden"
+                  onClick={() => setMobileOpen(true)}
+                  aria-label="Open menu"
                 >
-                  <AiPanel onClose={closeAiPanel} />
-                </motion.aside>
-              )}
-            </AnimatePresence>
+                  <Menu className="h-6 w-6" />
+                </button>
+                <Link
+                  href="/dashboard"
+                  className={cn("dashboard-site-topbar-brand flex min-w-0 items-center gap-2.5", !collapsed && "md:hidden")}
+                >
+                </Link>
+                <div className="dashboard-site-crumbs hidden min-w-0 md:block">
+                  <Breadcrumb />
+                </div>
+                <DesktopStatusStrip className="dashboard-site-status hidden xl:flex" />
+                <div className={cn("dashboard-site-actions flex items-center", desktopMode && "desktop-topbar-actions")}>
+                  <LocaleToggle className="dashboard-site-pill-control" />
+                  <ThemeToggle />
+                  <div className="h-6 w-px bg-[var(--line)] hidden sm:block" />
+                  <div className="dashboard-site-control">
+                    <NotificationBell />
+                  </div>
+                  <TeamSwitcher compact className="dashboard-site-team-control" />
+                  <div className="dashboard-site-control">
+                    <CreditsButton />
+                  </div>
+                  <div className="h-7 w-px bg-[var(--line)] hidden sm:block" />
+                  <div className="relative" ref={profileRef}>
+                    <button
+                      onClick={() => setProfileOpen(!profileOpen)}
+                      className="dashboard-site-profile-trigger flex items-center gap-2 rounded-full px-3 py-2"
+                    >
+                      <UserAvatar user={user} size="md" />
+                      {user && (
+                        <div className="hidden text-left sm:block">
+                          <p className="text-base font-medium leading-none text-[var(--text)]">{user.name || user.email}</p>
+                          <p className="text-sm text-[var(--text-4)]">
+                            {team.isTeamMember
+                              ? `${team.teamName || t("dash.team")} · ${formatTeamRoleLabel(team.teamRole)}`
+                              : user.is_admin
+                                ? (user.role && user.role !== "admin" ? `Admin · ${user.role}` : "Admin")
+                                : user.role || "user"}
+                          </p>
+                        </div>
+                      )}
+                      <ChevronDown className={cn("hidden h-4 w-4 text-[var(--text-4)] transition-transform sm:block", profileOpen && "rotate-180")} />
+                    </button>
+                    <AnimatePresence>
+                      {profileOpen && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -4 }}
+                          transition={{ duration: 0.15 }}
+                          className="dashboard-site-header-dropdown dashboard-site-popout absolute right-0 top-full mt-2 w-56 overflow-hidden rounded-[22px]"
+                        >
+                          <div className="dashboard-site-popout-section flex items-center gap-3 border-b px-3 py-3">
+                            <UserAvatar user={user} size="sm" />
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-[var(--text)]">{user?.name || user?.email}</p>
+                              <p className="truncate text-xs text-[var(--text-4)]">{user?.email}</p>
+                            </div>
+                          </div>
+                          <div className="py-1">
+                            <Link
+                              href="/dashboard/settings"
+                              className="dashboard-site-popout-link flex items-center gap-2.5 px-3 py-2 text-sm"
+                              onClick={() => setProfileOpen(false)}
+                            >
+                              <Settings className="h-4 w-4" />
+                              {t("dash.settings")}
+                            </Link>
+                            <Link
+                              href="/dashboard/settings#team"
+                              className="dashboard-site-popout-link flex items-center gap-2.5 px-3 py-2 text-sm"
+                              onClick={() => setProfileOpen(false)}
+                            >
+                              <Users className="h-4 w-4" />
+                              {t("dash.team") || "Team"}
+                            </Link>
+                            <Link
+                              href="/dashboard/settings#api-keys"
+                              className="dashboard-site-popout-link flex items-center gap-2.5 px-3 py-2 text-sm"
+                              onClick={() => setProfileOpen(false)}
+                            >
+                              <Key className="h-4 w-4" />
+                              {t("dash.settings.api_keys") || "API Keys"}
+                            </Link>
+                          </div>
+                          <div className="dashboard-site-popout-section border-t py-1">
+                            <button
+                              onClick={() => { setProfileOpen(false); void logout(); }}
+                              className="dashboard-site-popout-link flex w-full items-center gap-2.5 px-3 py-2 text-sm hover:text-[var(--coral)]"
+                            >
+                              <LogOut className="h-4 w-4" />
+                              {t("dash.sign_out")}
+                            </button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </div>
+              </div>
+            </header>
 
-            <div className="dashboard-site-ai-rail hidden w-16 shrink-0 flex-col items-center justify-end py-3 md:flex">
-              <button
-                onClick={toggleAiPanel}
+            <div className="dashboard-site-workspace flex min-h-0 flex-1 overflow-hidden">
+              <main
+                aria-label={t("dash.main_label")}
                 className={cn(
-                  "dashboard-site-ai-toggle flex h-[64px] w-[64px] items-center justify-center rounded-[22px] p-0 transition-all duration-200",
-                  aiPanelOpen && "dashboard-site-ai-toggle-active text-white",
+                  "dashboard-site-main min-h-0 flex-1",
+                  pathname === "/dashboard/ai" ? "overflow-hidden" : "overflow-y-auto",
+                  desktopMode && "desktop-main-surface",
                 )}
-                title={aiPanelOpen ? t("ai.close_panel") : t("ai.open_panel")}
               >
-                <AiSparkIcon className={cn("h-11 w-11 transition-transform duration-200", aiPanelOpen && "rotate-12")} />
-              </button>
+                <div
+                  className={cn(
+                    "dashboard-site-main-inner",
+                    pathname === "/dashboard/ai" && "flex h-full min-h-0 flex-col",
+                  )}
+                >
+                  {children}
+                </div>
+              </main>
             </div>
+          </div>
+
+          <AnimatePresence>
+            {aiPanelOpen && (
+              <motion.aside
+                initial={{ width: 0, opacity: 0 }}
+                animate={{ width: 384, opacity: 1 }}
+                exit={{ width: 0, opacity: 0 }}
+                transition={AI_PANEL_SPRING}
+                className="dashboard-site-ai-panel ai-panel-border hidden shrink-0 overflow-hidden md:flex md:flex-col"
+              >
+                <AiPanel onClose={closeAiPanel} />
+              </motion.aside>
+            )}
+          </AnimatePresence>
+
+          <div className="dashboard-site-ai-rail hidden w-16 shrink-0 flex-col items-center justify-end py-3 md:flex">
+            <button
+              onClick={toggleAiPanel}
+              className={cn(
+                "dashboard-site-ai-toggle flex h-[64px] w-[64px] items-center justify-center rounded-[22px] p-0 transition-all duration-200",
+                aiPanelOpen && "dashboard-site-ai-toggle-active text-white",
+              )}
+              title={aiPanelOpen ? t("ai.close_panel") : t("ai.open_panel")}
+            >
+              <AiSparkIcon className={cn("h-11 w-11 transition-transform duration-200", aiPanelOpen && "rotate-12")} />
+            </button>
           </div>
         </div>
 

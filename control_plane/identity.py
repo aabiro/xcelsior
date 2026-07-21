@@ -132,20 +132,32 @@ def resolve_gateway_identity(
     )
 
 
+def _is_explicitly_admitted(value: Any) -> bool:
+    """True only for an explicit affirmative admission flag (fail closed)."""
+    if value is True or value == 1:
+        return True
+    if isinstance(value, str) and value.strip().lower() in ("true", "1", "yes"):
+        return True
+    return False
+
+
 def require_admitted_host(
     host_row: Mapping[str, Any] | None,
     *,
     host_id: str,
 ) -> AdmittedWorkerIdentity:
-    """Fail closed unless the host is registered and admitted."""
+    """Fail closed unless the host is registered and *explicitly* admitted.
+
+    Missing/None/empty ``admitted`` is treated as not admitted — production
+    never fail-opens on an absent flag (Phase 10 / skeptic gate).
+    """
     if host_row is None:
         raise IdentityAdmissionError(
             "unknown_host",
             f"Host {host_id!r} is not registered",
             http_status=403,
         )
-    admitted = host_row.get("admitted")
-    if admitted is False or admitted == 0 or str(admitted).lower() in ("false", "0", "no"):
+    if not _is_explicitly_admitted(host_row.get("admitted")):
         raise IdentityAdmissionError(
             "host_not_admitted",
             f"Host {host_id!r} is not admitted",

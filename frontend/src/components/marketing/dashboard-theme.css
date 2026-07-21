@@ -1,9 +1,13 @@
 .dashboard-shell {
   /* Shared layout tokens: heavy content rails sit on light grid verticals.
-     pad 28 + n*76 half-span → content max = 2*(n*76 + 28). n=8 → 1272. */
+     When content is maxed: half-span = max/2 - pad must be k * step.
+     n=8 → max = 2*(8*76 + 28) = 1272; rail offset from center = 608 = 8*76.
+     Light lines use mid-tile strokes so center-aligned pattern places lines
+     at center ± k*step (not center-38 + k*step). */
   --dashboard-grid-step: 76px;
   --dashboard-content-pad: 28px;
   --dashboard-content-max: 1272px;
+  --dashboard-ai-rail-width: 64px;
   position: relative;
   isolation: isolate;
   min-height: 100vh;
@@ -31,17 +35,17 @@
   pointer-events: none;
 }
 
+/* Ambient mesh only on the full shell — the aligned square grid lives on
+   .dashboard-site-content-column so its origin matches topbar/main rails. */
 .dashboard-shell::before {
   inset: 0;
-  opacity: 0.95;
+  opacity: 0.35;
   background-image:
     linear-gradient(var(--grid) 1px, transparent 1px),
     linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-  /* Same step as before — perfect squares; origin centered so verticals
-     coincide with heavy rails on the main column content box. */
   background-size: var(--dashboard-grid-step) var(--dashboard-grid-step);
   background-position: center top;
-  mask-image: radial-gradient(circle at 38% 14%, #000 18%, transparent 78%);
+  mask-image: radial-gradient(circle at 38% 14%, #000 12%, transparent 70%);
 }
 
 .dashboard-shell::after {
@@ -477,6 +481,47 @@
     radial-gradient(circle at top left, rgba(56, 219, 255, 0.1), transparent 34%),
     var(--panel);
   backdrop-filter: blur(26px);
+}
+
+/* Shared content column: topbar + main share width (AI rail is outside). */
+.dashboard-site-main-row {
+  position: relative;
+  z-index: 1;
+}
+
+.dashboard-site-content-column {
+  position: relative;
+  z-index: 1;
+  isolation: isolate;
+}
+
+/* Primary square grid — mid-tile lines + center origin so verticals land at
+   column-center ± k*step, matching heavy rails at ± (max/2 - pad) when maxed. */
+.dashboard-site-content-column::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.95;
+  /* Line sits in the middle of each 76px tile (not the leading edge). */
+  background-image:
+    linear-gradient(
+      to bottom,
+      transparent calc(50% - 0.5px),
+      var(--grid) calc(50% - 0.5px),
+      var(--grid) calc(50% + 0.5px),
+      transparent calc(50% + 0.5px)
+    ),
+    linear-gradient(
+      to right,
+      transparent calc(50% - 0.5px),
+      var(--grid) calc(50% - 0.5px),
+      var(--grid) calc(50% + 0.5px),
+      transparent calc(50% + 0.5px)
+    );
+  background-size: var(--dashboard-grid-step) var(--dashboard-grid-step);
+  background-position: center top;
 }
 
 .dashboard-site-topbar {
