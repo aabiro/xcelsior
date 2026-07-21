@@ -61,6 +61,29 @@ def test_require_admitted_host_rejects_not_admitted():
     assert ei.value.code == "host_not_admitted"
 
 
+@pytest.mark.parametrize("admitted", [None, "", "false", 0, "0", "no", False])
+def test_require_admitted_host_rejects_missing_or_false_admitted(admitted):
+    """Missing/None admitted must fail closed — never treat as admitted."""
+    row = {"host_id": "h1"}
+    if admitted is not None or "admitted" in row:
+        row["admitted"] = admitted
+    # Explicit missing key
+    if admitted is None and "force_missing" not in row:
+        row.pop("admitted", None)
+        # also test explicit None
+        row2 = {"host_id": "h1", "admitted": None}
+        with pytest.raises(IdentityAdmissionError) as ei2:
+            require_admitted_host(row2, host_id="h1")
+        assert ei2.value.code == "host_not_admitted"
+        with pytest.raises(IdentityAdmissionError) as ei:
+            require_admitted_host({"host_id": "h1"}, host_id="h1")
+        assert ei.value.code == "host_not_admitted"
+        return
+    with pytest.raises(IdentityAdmissionError) as ei:
+        require_admitted_host({"host_id": "h1", "admitted": admitted}, host_id="h1")
+    assert ei.value.code == "host_not_admitted"
+
+
 def test_require_admitted_host_accepts_admitted():
     ident = require_admitted_host(
         {"host_id": "h1", "admitted": True, "owner": "p1"},
@@ -69,6 +92,10 @@ def test_require_admitted_host_accepts_admitted():
     assert ident.host_id == "h1"
     assert ident.source == "bearer_host"
     assert ident.spiffe_id and ident.spiffe_id.startswith("spiffe://")
+    # string/int affirmative forms
+    for val in (1, "true", "1", "yes"):
+        ok = require_admitted_host({"host_id": "h1", "admitted": val}, host_id="h1")
+        assert ok.host_id == "h1"
 
 
 def test_gateway_identity_required_when_enabled(monkeypatch):
