@@ -94,16 +94,22 @@ def _trigger_reinject_for_user(user: dict) -> int:
         return 0
 
     try:
+        from control_plane.job_targets import classify_job_target
+
         pool = _get_pg_pool()
         with pool.connection() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT job_id, host_id, payload->>'container_name' AS container_name
-                  FROM jobs
-                 WHERE status = 'running'
-                   AND host_id IS NOT NULL
-                   AND payload->>'owner' = ANY(%s)
-                   AND (payload->>'interactive')::boolean = true
+                SELECT j.job_id, j.host_id, j.status, j.active_attempt_id,
+                       j.payload->>'container_name' AS container_name,
+                       EXISTS (
+                           SELECT 1 FROM job_attempts a WHERE a.job_id = j.job_id
+                       ) AS has_fenced_history
+                  FROM jobs j
+                 WHERE j.status = 'running'
+                   AND j.host_id IS NOT NULL
+                   AND j.payload->>'owner' = ANY(%s)
+                   AND (j.payload->>'interactive')::boolean = true
                 """,
                 (candidates,),
             )
@@ -116,12 +122,31 @@ def _trigger_reinject_for_user(user: dict) -> int:
     for row in rows:
         job_id = row[0]
         host_id = row[1]
-        container_name = row[2] or f"xcl-{job_id}"
+        status = row[2] or "running"
+        active_attempt_id = row[3]
+        payload_cname = row[4]
+        has_fenced = bool(row[5])
+        target = classify_job_target(
+            job_id=job_id,
+            host_id=host_id,
+            status=status,
+            active_attempt_id=active_attempt_id,
+            has_fenced_history=has_fenced,
+            payload_container_name=payload_cname,
+        )
+        # Fenced-history without live attempt: do not guess legacy xcl-{job}.
+        if not target.allows_unfenced_container_command:
+            log.info(
+                "reinject trigger: skip job=%s class=%s (no live residual target)",
+                job_id,
+                target.class_,
+            )
+            continue
         try:
             enqueue_agent_command(
                 host_id,
                 "reinject_shell",
-                {"job_id": job_id, "container_name": container_name},
+                {"job_id": job_id, "container_name": target.container_name},
                 created_by=f"ssh-key-change:{email}",
                 ttl_sec=600,
             )

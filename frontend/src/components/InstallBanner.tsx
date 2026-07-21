@@ -129,7 +129,7 @@ export function InstallBanner() {
   if (variant === "desktop") {
     return (
       <div className={`fixed ${isDashboard ? "bottom-4" : "bottom-24"} right-4 z-40 hidden md:block ${motionClasses} max-w-sm`}>
-        <div className="flex items-center gap-3 rounded-xl border border-border bg-surface-elevated p-4 shadow-lg backdrop-blur-sm">
+        <div className="flex items-center gap-3 rounded-xl border border-border bg-surface-overlay p-4 shadow-lg backdrop-blur-sm">
           <img
             src={BRAND_PNG_ASSETS.appGradientRounded512}
             alt="Xcelsior"
@@ -180,7 +180,7 @@ export function InstallBanner() {
 
   return (
     <div className={`fixed bottom-4 left-4 right-4 z-50 md:hidden ${motionClasses}`}>
-      <div className="flex items-center gap-3 rounded-xl border border-border bg-surface-elevated p-4 shadow-lg backdrop-blur-sm">
+      <div className="flex items-center gap-3 rounded-xl border border-border bg-surface-overlay p-4 shadow-lg backdrop-blur-sm">
         <img
           src={BRAND_PNG_ASSETS.appGradientRounded512}
           alt="Xcelsior"

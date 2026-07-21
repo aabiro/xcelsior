@@ -1552,3 +1552,272 @@ def api_admin_agent_rollout(request: Request, body: dict):
         "candidates": len(targets),
         "enqueued": enqueued,
     }
+
+
+@router.get("/api/admin/reconciler/findings", tags=["Admin"])
+def api_admin_reconciler_findings(request: Request, status: str = "open"):
+    """Get reconciler findings, filtered by status ('open', 'resolved', 'all')."""
+    _require_admin(request)
+    from db import _get_pg_pool
+    from psycopg.rows import dict_row
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        conn.row_factory = dict_row
+        if status == "open":
+            rows = conn.execute(
+                "SELECT * FROM reconciliation_findings WHERE resolved_at IS NULL ORDER BY created_at DESC"
+            ).fetchall()
+        elif status == "resolved":
+            rows = conn.execute(
+                "SELECT * FROM reconciliation_findings WHERE resolved_at IS NOT NULL ORDER BY resolved_at DESC"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM reconciliation_findings ORDER BY created_at DESC"
+            ).fetchall()
+            
+        findings = []
+        for r in rows:
+            findings.append({
+                "finding_id": str(r["finding_id"]),
+                "resource_type": r["resource_type"],
+                "resource_id": r["resource_id"],
+                "tenant_id": r["tenant_id"],
+                "finding_type": r["finding_type"],
+                "severity": r["severity"],
+                "summary": r["summary"],
+                "desired": r["desired"],
+                "observed": r["observed"],
+                "action_taken": r["action_taken"],
+                "action_result": r["action_result"],
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                "resolved_at": r["resolved_at"].isoformat() if r["resolved_at"] else None,
+            })
+        return {"ok": True, "findings": findings}
+
+
+@router.post("/api/admin/reconciler/findings/{finding_id}/enforce", tags=["Admin"])
+def api_admin_reconciler_enforce(finding_id: str, request: Request):
+    """Manually enforce remediation for a specific finding."""
+    _require_admin(request)
+    from db import _get_pg_pool
+    from psycopg.types.json import Jsonb
+    from psycopg.rows import dict_row
+    from control_plane.reconcile import (
+        _enqueue_stop_container,
+        _expedite_lease_expiry,
+        _release_orphaned_allocations,
+    )
+    
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        conn.row_factory = dict_row
+        finding = conn.execute(
+            "SELECT * FROM reconciliation_findings WHERE finding_id = %s", (finding_id,)
+        ).fetchone()
+        if not finding:
+            raise HTTPException(status_code=404, detail="Finding not found")
+            
+        if finding["resolved_at"] is not None:
+            raise HTTPException(status_code=400, detail="Finding is already resolved")
+            
+        finding_type = finding["finding_type"]
+        resource_id = finding["resource_id"]
+        observed = finding["observed"] or {}
+        desired = finding["desired"] or {}
+        
+        action_taken = None
+        action_result = {}
+        
+        if finding_type == "attempt_container_missing":
+            # Expedite lease expiry on the attempt
+            attempt_id = observed.get("attempt_id") or desired.get("attempt_id")
+            if not attempt_id:
+                raise HTTPException(status_code=400, detail="Could not identify attempt_id for enforcement")
+            action_taken = "expire_lease"
+            action_result = _expedite_lease_expiry(conn, attempt_id=attempt_id)
+            
+        elif finding_type == "stale_fence_container":
+            # Stop the stale container
+            container_name = observed.get("container_name")
+            if not container_name:
+                raise HTTPException(status_code=400, detail="Could not identify container_name for enforcement")
+            action_taken = "stop_container"
+            action_result = _enqueue_stop_container(
+                conn,
+                host_id=resource_id,
+                container_name=str(container_name),
+                reason="Manually enforced remediation for stale fence container",
+            )
+            
+        elif finding_type == "orphaned_allocation":
+            # Release orphaned allocations
+            orphans = observed.get("orphans", [])
+            allocation_ids = [o["allocation_id"] for o in orphans if "allocation_id" in o]
+            if not allocation_ids:
+                raise HTTPException(status_code=400, detail="No allocation_ids found to release")
+            action_taken = "release_allocation"
+            action_result = _release_orphaned_allocations(conn, allocation_ids)
+            
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No manual enforcement defined for finding type '{finding_type}'"
+            )
+            
+        conn.execute(
+            """
+            UPDATE reconciliation_findings
+               SET action_taken = %s,
+                   action_result = %s,
+                   resolved_at = clock_timestamp()
+             WHERE finding_id = %s
+            """,
+            (action_taken, Jsonb(action_result), finding_id),
+        )
+        
+        return {
+            "ok": True,
+            "finding_id": finding_id,
+            "action_taken": action_taken,
+            "action_result": action_result,
+        }
+
+
+@router.post("/api/admin/reconciler/findings/{finding_id}/dismiss", tags=["Admin"])
+def api_admin_reconciler_dismiss(finding_id: str, request: Request):
+    """Manually dismiss/resolve a finding without enforcing remediation."""
+    _require_admin(request)
+    from db import _get_pg_pool
+    from psycopg.rows import dict_row
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        conn.row_factory = dict_row
+        conn.execute(
+            """
+            UPDATE reconciliation_findings
+               SET resolved_at = clock_timestamp()
+             WHERE finding_id = %s AND resolved_at IS NULL
+            """,
+            (finding_id,),
+        )
+        return {"ok": True, "finding_id": finding_id}
+
+
+@router.post("/api/admin/reconciler/reconcile-host/{host_id}", tags=["Admin"])
+def api_admin_reconcile_host(host_id: str, request: Request):
+    """Manually trigger a reconciliation pass on a specific host."""
+    _require_admin(request)
+    from db import _get_pg_pool
+    from control_plane.reconcile import reconcile_host
+    
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        report = reconcile_host(conn, host_id)
+        return {
+            "ok": True,
+            "host_id": host_id,
+            "report": {
+                "host_id": report.host_id,
+                "findings_opened": report.findings_opened,
+                "findings_resolved": report.findings_resolved,
+                "actions_taken": report.actions_taken,
+            }
+        }
+
+
+@router.get("/api/admin/control-plane/jobs", tags=["Admin"])
+def api_admin_control_plane_jobs(request: Request):
+    """List jobs with their transactional active attempts, lease states, and fencing tokens."""
+    _require_admin(request)
+    from db import _get_pg_pool
+    from psycopg.rows import dict_row
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        conn.row_factory = dict_row
+        # Get all jobs
+        jobs_rows = conn.execute(
+            "SELECT job_id, status, active_attempt_id, submitted_at, payload FROM jobs ORDER BY submitted_at DESC LIMIT 100"
+        ).fetchall()
+        
+        jobs = []
+        for r in jobs_rows:
+            jid = r["job_id"]
+            # Fetch all attempts for this job
+            attempts_rows = conn.execute(
+                """
+                SELECT a.attempt_id, a.host_id, a.status, a.fencing_token,
+                       a.lease_claimed_at, l.expires_at AS lease_expires_at,
+                       a.reserved_at AS created_at, a.ended_at AS finished_at
+                  FROM job_attempts a
+                  LEFT JOIN placement_leases l ON a.attempt_id = l.attempt_id AND l.status IN ('offered', 'active')
+                 WHERE a.job_id = %s
+                 ORDER BY a.reserved_at DESC
+                """,
+                (jid,),
+            ).fetchall()
+            
+            attempts = []
+            for ar in attempts_rows:
+                attempts.append({
+                    "attempt_id": str(ar["attempt_id"]),
+                    "host_id": ar["host_id"],
+                    "status": ar["status"],
+                    "fencing_token": ar["fencing_token"],
+                    "lease_claimed_at": ar["lease_claimed_at"].isoformat() if ar["lease_claimed_at"] else None,
+                    "lease_expires_at": ar["lease_expires_at"].isoformat() if ar["lease_expires_at"] else None,
+                    "created_at": ar["created_at"].isoformat() if ar["created_at"] else None,
+                    "finished_at": ar["finished_at"].isoformat() if ar["finished_at"] else None,
+                })
+                
+            payload = r["payload"] or {}
+            # If payload is a string (legacy/unparsed), load it or default to empty dict
+            if isinstance(payload, str):
+                import json
+                try:
+                    payload = json.loads(payload)
+                except Exception:
+                    payload = {}
+                    
+            jobs.append({
+                "job_id": jid,
+                "status": r["status"],
+                "active_attempt_id": str(r["active_attempt_id"]) if r["active_attempt_id"] else None,
+                "queue_reason": payload.get("queue_reason"),
+                "queue_reason_detail": payload.get("queue_reason_detail"),
+                "submitted_at": r["submitted_at"],
+                "attempts": attempts,
+            })
+            
+        return {"ok": True, "jobs": jobs}
+
+
+@router.get("/api/admin/control-plane/scheduled-tasks", tags=["Admin"])
+def api_admin_control_plane_scheduled_tasks(request: Request):
+    """List durable scheduled tasks from database."""
+    _require_admin(request)
+    from db import _get_pg_pool
+    from psycopg.rows import dict_row
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        conn.row_factory = dict_row
+        rows = conn.execute(
+            "SELECT * FROM scheduled_tasks ORDER BY task_name LIMIT 100"
+        ).fetchall()
+        
+        tasks = []
+        for r in rows:
+            tasks.append({
+                "task_name": r["task_name"],
+                "enabled": r["enabled"],
+                "interval_seconds": r["interval_seconds"],
+                "next_run_at": r["next_run_at"].isoformat() if r["next_run_at"] else None,
+                "last_run_at": r["last_run_at"].isoformat() if r["last_run_at"] else None,
+                "last_status": r["last_status"],
+                "last_error": r["last_error"],
+                "claim_owner": r["claim_owner"],
+                "claim_expires_at": r["claim_expires_at"].isoformat() if r["claim_expires_at"] else None,
+                "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
+            })
+        return {"ok": True, "tasks": tasks}
+

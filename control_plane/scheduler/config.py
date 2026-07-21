@@ -8,7 +8,7 @@ Phase 4 cutover. ``XCELSIOR_SCHEDULER_MODE`` is the master switch:
 - ``shadow``  — run the new pipeline read-only against snapshots and
   persist would-be decisions for comparison (this phase).
 - ``canary``  — new pipeline owns placement for a scoped canary pool
-  (Phase 4; not implemented yet).
+  (Phase 4; exclusive vs legacy walkers).
 - ``active``  — new pipeline owns all standard placement (Phase 4).
 
 Unknown mode strings resolve to ``paused`` and log, never crash: a typo

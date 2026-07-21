@@ -170,7 +170,9 @@ def test_providers_paypal_status(provider_user):
     assert body["paypal"]["provider_id"] == pid
 
 
-def test_providers_paypal_onboard_unconfigured(provider_user):
+def test_providers_paypal_onboard_unconfigured(provider_user, monkeypatch):
+    import paypal_connect
+    monkeypatch.setattr(paypal_connect, "PAYPAL_ENABLED", False)
     pid = provider_user["provider_id"]
     r = client.post(
         f"/api/providers/{pid}/paypal/onboard",
@@ -178,6 +180,7 @@ def test_providers_paypal_onboard_unconfigured(provider_user):
     )
     assert r.status_code in (400, 502)
     assert r.status_code != 500
+
 
 
 def test_providers_paypal_refresh(provider_user):

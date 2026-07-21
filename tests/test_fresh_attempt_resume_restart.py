@@ -1,4 +1,4 @@
-"""P5.5 — fresh-attempt resume/restart for fenced (v2) jobs.
+"""Fresh-attempt resume/restart for fenced (v2) jobs.
 
 Drives BillingEngine.start_instance / restart_instance against real
 control-plane rows. Asserts requeue projection and absence of unfenced

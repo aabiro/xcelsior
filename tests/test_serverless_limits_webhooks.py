@@ -44,16 +44,27 @@ def _error_code(response) -> str | None:
     return None
 
 
-@pytest.fixture(autouse=True)
-def persistent_auth(monkeypatch):
+@pytest.fixture(scope="module", autouse=True)
+def persistent_auth_module():
     import api as api_mod
     import routes._deps as deps
     import routes.auth as auth
 
-    monkeypatch.setattr(deps, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(auth, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(api_mod, "_USE_PERSISTENT_AUTH", True)
+    old_deps = deps._USE_PERSISTENT_AUTH
+    old_auth = auth._USE_PERSISTENT_AUTH
+    old_api = getattr(api_mod, "_USE_PERSISTENT_AUTH", None)
+
+    deps._USE_PERSISTENT_AUTH = True
+    auth._USE_PERSISTENT_AUTH = True
+    api_mod._USE_PERSISTENT_AUTH = True
     api_mod._RATE_BUCKETS.clear()
+
+    yield
+
+    deps._USE_PERSISTENT_AUTH = old_deps
+    auth._USE_PERSISTENT_AUTH = old_auth
+    if old_api is not None:
+        api_mod._USE_PERSISTENT_AUTH = old_api
 
 
 def _register_and_fund() -> dict:

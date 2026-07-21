@@ -100,27 +100,22 @@ def _mark_stopping_with_intent(
     )
 
 
-def request_fenced_stop_remove(
+def _request_fenced_stop_attempt(
     *,
     job_id: str,
     intent: LifecycleIntent,
     created_by: str,
-    container_name: str | None = None,
-    reason_tag: str | None = None,
+    container_name: str | None,
+    reason_tag: str | None,
+    preserve: bool,
+    allowed_intents: frozenset[str],
 ) -> FencedLifecycleResult:
-    """Record terminate/cancel intent and enqueue fenced ``stop_attempt``.
+    """Shared path: atomic lifecycle_intent + fenced stop_attempt enqueue.
 
-    Intent projection and command insert commit together. If the job has no
-    active fenced authority, the transaction rolls back and the job row is
-    left unchanged (not ``stopping`` with zero commands).
-
-    ``preserve=False`` so the worker stops and removes the attempt container.
-    Idempotent on the same attempt via command idempotency key
-    ``{intent}:{attempt_id}``.
+    Projection and command commit together. Refuse leaves the job row
+    unchanged (no ``stopping`` without a durable command).
     """
-    # User stop (preserve=True) stays on BillingEngine.stop_instance.
-    # resume is requeue-only (see request_fresh_attempt_resume).
-    if intent not in ("cancel", "terminate", "restart"):
+    if intent not in allowed_intents:
         return FencedLifecycleResult(
             ok=False,
             job_id=job_id,
@@ -134,6 +129,7 @@ def request_fenced_stop_remove(
         "terminate": "user_terminated",
         "cancel": "user_cancelled",
         "restart": "user_restart",
+        "stop": "user",
     }.get(intent, intent)
 
     def _txn(conn: Any) -> FencedLifecycleResult:
@@ -159,7 +155,6 @@ def request_fenced_stop_remove(
                 status="",
                 reason="already_terminal_or_not_found",
             )
-        # Support both dict_row and tuple_row pool connections.
         if isinstance(job, dict):
             active_attempt_id = job.get("active_attempt_id")
             job_status = str(job.get("status") or "")
@@ -178,6 +173,16 @@ def request_fenced_stop_remove(
                 reason="not_attempt_owned",
             )
 
+        # User stop is only valid from running (or already stopping).
+        if intent == "stop" and job_status not in ("running", "stopping"):
+            return FencedLifecycleResult(
+                ok=False,
+                job_id=job_id,
+                intent=intent,
+                status=job_status,
+                reason="not_running",
+            )
+
         attempt_id = str(active_attempt_id)
         cname = container_name or cname_from_job or f"xcl-{job_id}"
         idemp_key = f"{intent}:{attempt_id}"
@@ -193,23 +198,19 @@ def request_fenced_stop_remove(
         ).fetchone()
         command_created = prior is None
 
-        # Authority check + command insert first; failure raises and rolls
-        # back any subsequent mark (and we mark after so refuse leaves job
-        # untouched even if mark ran — still order enqueue before mark).
         enqueued: EnqueuedAttemptCommand = enqueue_current_attempt_command(
             conn,
             job_id=job_id,
             command="stop_attempt",
             args={
                 "container_name": cname,
-                "preserve": False,
+                "preserve": bool(preserve),
                 "intent": intent,
             },
             created_by=created_by,
             idempotency_key=idemp_key,
         )
 
-        # Intermediate projection — never terminal before worker proof.
         _mark_stopping_with_intent(
             conn,
             job_id=job_id,
@@ -236,7 +237,6 @@ def request_fenced_stop_remove(
         log.warning(
             "fenced %s enqueue refused for %s: %s", intent, job_id, exc
         )
-        # No durable write — job projection unchanged.
         return FencedLifecycleResult(
             ok=False,
             job_id=job_id,
@@ -256,15 +256,69 @@ def request_fenced_stop_remove(
 
     if result.ok:
         log.info(
-            "fenced %s queued job=%s attempt=%s fence=%s cmd=%s created=%s",
+            "fenced %s queued job=%s attempt=%s fence=%s cmd=%s created=%s preserve=%s",
             intent,
             job_id,
             (result.attempt_id or "")[:8],
             result.fencing_token,
             (result.command_id or "")[:8],
             result.command_created,
+            preserve,
         )
     return result
+
+
+def request_fenced_stop(
+    *,
+    job_id: str,
+    created_by: str,
+    container_name: str | None = None,
+    reason_tag: str | None = None,
+) -> FencedLifecycleResult:
+    """User/billing stop for attempt-owned work: preserve container.
+
+    Atomic ``lifecycle_intent=stop`` + fenced ``stop_attempt`` with
+    ``preserve=True``. Worker ACK projects to ``stopped`` (container kept
+    for later resume/restart). No pre-commit raw status dual-write.
+    """
+    return _request_fenced_stop_attempt(
+        job_id=job_id,
+        intent="stop",
+        created_by=created_by,
+        container_name=container_name,
+        reason_tag=reason_tag or "user",
+        preserve=True,
+        allowed_intents=frozenset({"stop"}),
+    )
+
+
+def request_fenced_stop_remove(
+    *,
+    job_id: str,
+    intent: LifecycleIntent,
+    created_by: str,
+    container_name: str | None = None,
+    reason_tag: str | None = None,
+) -> FencedLifecycleResult:
+    """Record terminate/cancel/restart intent and enqueue fenced stop_attempt.
+
+    Intent projection and command insert commit together. If the job has no
+    active fenced authority, the transaction rolls back and the job row is
+    left unchanged (not ``stopping`` with zero commands).
+
+    ``preserve=False`` so the worker stops and removes the attempt container.
+    Idempotent on the same attempt via command idempotency key
+    ``{intent}:{attempt_id}``.
+    """
+    return _request_fenced_stop_attempt(
+        job_id=job_id,
+        intent=intent,
+        created_by=created_by,
+        container_name=container_name,
+        reason_tag=reason_tag,
+        preserve=False,
+        allowed_intents=frozenset({"cancel", "terminate", "restart"}),
+    )
 
 
 def request_fresh_attempt_resume(

@@ -682,21 +682,27 @@ class TestVolumeEventTypes:
 
 
 class TestVolumeSchema:
-    """Verify volumes and volume_attachments tables defined in _ensure_pg_tables."""
+    """Volumes schema is Alembic-owned (005); ensure is seed-only after Alembic cutover."""
 
-    def test_volumes_table_in_ensure(self):
+    def test_volumes_table_in_alembic_not_runtime_ensure(self):
+        from pathlib import Path
         import inspect
         from db import _ensure_pg_tables
 
-        source = inspect.getsource(_ensure_pg_tables)
-        assert "CREATE TABLE IF NOT EXISTS volumes" in source
+        mig_005 = Path("migrations/versions/005_payment_infrastructure.py")
+        source = mig_005.read_text(encoding="utf-8")
+        assert '"volumes"' in source or "volumes" in source
+        assert "volume_attachments" in source
+        # Runtime ensure must not CREATE tables.
+        ensure_src = inspect.getsource(_ensure_pg_tables)
+        assert "CREATE TABLE" not in ensure_src
 
-    def test_volume_attachments_table_in_ensure(self):
-        import inspect
-        from db import _ensure_pg_tables
+    def test_volume_attachments_table_in_alembic(self):
+        from pathlib import Path
 
-        source = inspect.getsource(_ensure_pg_tables)
-        assert "CREATE TABLE IF NOT EXISTS volume_attachments" in source
+        mig_005 = Path("migrations/versions/005_payment_infrastructure.py")
+        source = mig_005.read_text(encoding="utf-8")
+        assert "volume_attachments" in source
 
 
 # ── Billing constant DRY ──────────────────────────────────────────────

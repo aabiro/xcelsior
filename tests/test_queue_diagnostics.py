@@ -315,13 +315,21 @@ class TestNotifyRenterQueueBlock:
 
 
 class TestProcessQueueEmitsJobError:
-    """Integration test: skipped jobs get job_error events with diagnostic info."""
+    """Integration test: skipped jobs get durable job_error / queue-block fan-out."""
 
     def test_emits_job_error_for_skipped_job(self):
-        """Submit a job with no available hosts → process_queue → job_error emitted."""
+        """Submit a job with no available hosts → durable queue_blocked outbox.
+
+        Multi-replica path: process_queue_binpack persists queue_reason and
+        appends ``job.v1.queue_blocked`` (SSE ``job_error``). Process-local
+        ``emit_event`` is skipped when the outbox intent is durable.
+        """
         from unittest.mock import patch
 
+        from db import _get_pg_pool
+
         job = scheduler.submit_job("stuck-job", 8, priority=1)
+        job_id = job["job_id"]
 
         emitted = []
         original_emit = scheduler.emit_event
@@ -333,10 +341,30 @@ class TestProcessQueueEmitsJobError:
         with patch.object(scheduler, "emit_event", side_effect=capture_emit):
             scheduler.process_queue_binpack()
 
-        errors = [e for e in emitted if e["type"] == "job_error"]
-        assert len(errors) >= 1
-        assert errors[0]["data"]["job_id"] == job["job_id"]
-        assert errors[0]["data"]["error"] == "no_hosts_online"
+        # Prefer durable outbox (production multi-replica path).
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            rows = conn.execute(
+                """SELECT event_type, payload FROM outbox_events
+                    WHERE aggregate_id=%s AND event_type='job.v1.queue_blocked'
+                    ORDER BY created_at""",
+                (job_id,),
+            ).fetchall()
+        if rows:
+            payload = rows[-1][1] if not isinstance(rows[-1], dict) else rows[-1]["payload"]
+            if isinstance(payload, str):
+                import json as _json
+
+                payload = _json.loads(payload)
+            assert payload.get("error") == "no_hosts_online"
+            # Dual fan-out must not fire when outbox won.
+            assert [e for e in emitted if e["type"] == "job_error"] == []
+        else:
+            # Fallback only when outbox is unavailable (non-Postgres / schema).
+            errors = [e for e in emitted if e["type"] == "job_error"]
+            assert len(errors) >= 1
+            assert errors[0]["data"]["job_id"] == job_id
+            assert errors[0]["data"]["error"] == "no_hosts_online"
 
     def test_persists_queue_reason_after_process_queue(self):
         """After process_queue, skipped jobs should have queue_reason in payload."""

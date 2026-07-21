@@ -134,6 +134,9 @@ class UsageMeter:
     job_id: str = ""
     host_id: str = ""
     owner: str = ""
+    # Placement attempt that owned the billed period (fenced work). NULL
+    # for pure-legacy jobs that never had a job_attempts row.
+    attempt_id: str | None = None
 
     # Time
     started_at: float = 0.0
@@ -166,6 +169,120 @@ class UsageMeter:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+def resolve_meter_attempt_id(job: dict) -> str | None:
+    """Resolve the placement attempt that owns this meter close.
+
+    Preference order:
+    1. Explicit attempt keys on the job dict (caller already knows authority)
+    2. ``jobs.active_attempt_id`` when still bound
+    3. Latest ``job_attempts`` row for the job (fenced history after clear)
+
+    Returns None for pure-legacy jobs with no attempt history.
+    """
+    for key in ("attempt_id", "active_attempt_id", "_attempt_id"):
+        raw = job.get(key)
+        if raw is not None and str(raw).strip():
+            return str(raw).strip()
+
+    job_id = str(job.get("job_id") or "").strip()
+    if not job_id:
+        return None
+
+    try:
+        from db import _get_pg_pool
+
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            # Prefer live authority when present.
+            row = conn.execute(
+                "SELECT active_attempt_id FROM jobs WHERE job_id = %s",
+                (job_id,),
+            ).fetchone()
+            if row is not None:
+                active = row[0] if not isinstance(row, dict) else row.get("active_attempt_id")
+                if active is not None and str(active).strip():
+                    return str(active).strip()
+
+            # Fenced history after active_attempt_id cleared (terminal settle).
+            hist = conn.execute(
+                """
+                SELECT attempt_id FROM job_attempts
+                 WHERE job_id = %s
+                 ORDER BY attempt_number DESC NULLS LAST,
+                          fencing_token DESC NULLS LAST
+                 LIMIT 1
+                """,
+                (job_id,),
+            ).fetchone()
+            if hist is not None:
+                aid = hist[0] if not isinstance(hist, dict) else hist.get("attempt_id")
+                if aid is not None and str(aid).strip():
+                    return str(aid).strip()
+    except Exception as exc:
+        log.debug("resolve_meter_attempt_id failed job=%s: %s", job_id, exc)
+    return None
+
+
+def _usage_meter_from_row(row: Any) -> UsageMeter:
+    """Hydrate UsageMeter from a usage_meters DB row (dict preferred)."""
+    if not isinstance(row, dict):
+        # Best-effort sequence mapping for non-dict_row connections.
+        keys = (
+            "meter_id",
+            "job_id",
+            "host_id",
+            "owner",
+            "started_at",
+            "completed_at",
+            "duration_sec",
+            "gpu_seconds",
+            "gpu_model",
+            "vram_gb",
+            "gpu_utilization_pct",
+            "xcu_score",
+            "country",
+            "province",
+            "is_canadian_compute",
+            "trust_tier",
+            "base_rate_per_hour",
+            "tier_multiplier",
+            "spot_discount",
+            "total_cost_cad",
+            "created_at",
+            "pricing_mode",
+            "attempt_id",
+        )
+        row = {keys[i]: row[i] for i in range(min(len(keys), len(row)))}
+
+    attempt = row.get("attempt_id")
+    if attempt is not None:
+        attempt = str(attempt).strip() or None
+    return UsageMeter(
+        meter_id=str(row.get("meter_id") or ""),
+        job_id=str(row.get("job_id") or ""),
+        host_id=str(row.get("host_id") or ""),
+        owner=str(row.get("owner") or ""),
+        attempt_id=attempt,
+        started_at=float(row.get("started_at") or 0),
+        completed_at=float(row.get("completed_at") or 0),
+        duration_sec=float(row.get("duration_sec") or 0),
+        gpu_seconds=float(row.get("gpu_seconds") or 0),
+        gpu_model=str(row.get("gpu_model") or ""),
+        vram_gb=float(row.get("vram_gb") or 0),
+        gpu_utilization_pct=float(row.get("gpu_utilization_pct") or 0),
+        xcu_score=float(row.get("xcu_score") or 0),
+        country=str(row.get("country") or ""),
+        province=str(row.get("province") or ""),
+        is_canadian_compute=bool(int(row.get("is_canadian_compute") or 0)),
+        trust_tier=str(row.get("trust_tier") or "community"),
+        base_rate_per_hour=float(row.get("base_rate_per_hour") or 0),
+        tier_multiplier=float(row.get("tier_multiplier") or 1.0),
+        spot_discount=float(row.get("spot_discount") or 0),
+        pricing_mode=str(row.get("pricing_mode") or "on_demand"),
+        total_cost_cad=float(row.get("total_cost_cad") or 0),
+    )
 
 
 # ── Invoice ──────────────────────────────────────────────────────────
@@ -314,6 +431,10 @@ class BillingEngine:
         This is the source of truth for billing. Every completed job
         gets a usage meter that records exactly what resources were
         consumed, where they ran, and at what tier.
+
+        Attempt-owned work stamps ``attempt_id`` and is idempotent under
+        re-call for the same attempt (partial unique on attempt_id).
+        Pure-legacy jobs meter by job/meter_id as before.
         """
         from jurisdiction import TRUST_TIER_REQUIREMENTS, TrustTier
 
@@ -342,10 +463,13 @@ class BillingEngine:
         duration_hr = duration / 3600
         cost = round(duration_hr * base_rate * multiplier, 4)
 
+        attempt_id = resolve_meter_attempt_id(job)
+
         meter = UsageMeter(
             job_id=job.get("job_id", ""),
             host_id=host.get("host_id", ""),
             owner=job.get("owner", ""),
+            attempt_id=attempt_id,
             started_at=started,
             completed_at=completed,
             duration_sec=round(duration, 2),
@@ -364,51 +488,97 @@ class BillingEngine:
             total_cost_cad=cost,
         )
 
-        # Persist
+        # Persist — attempt-owned closes collapse on attempt_id uniqueness.
         with self._conn() as conn:
-            conn.execute(
-                """INSERT INTO usage_meters
-                   (meter_id, job_id, host_id, owner, started_at, completed_at,
-                    duration_sec, gpu_seconds, gpu_model, vram_gb,
-                    gpu_utilization_pct, xcu_score, country, province,
-                    is_canadian_compute, trust_tier, base_rate_per_hour,
-                    tier_multiplier, spot_discount, pricing_mode, total_cost_cad, created_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                   ON CONFLICT (meter_id) DO UPDATE SET
-                     job_id = EXCLUDED.job_id, host_id = EXCLUDED.host_id, owner = EXCLUDED.owner,
-                     started_at = EXCLUDED.started_at, completed_at = EXCLUDED.completed_at,
-                     duration_sec = EXCLUDED.duration_sec, gpu_seconds = EXCLUDED.gpu_seconds,
-                     total_cost_cad = EXCLUDED.total_cost_cad, pricing_mode = EXCLUDED.pricing_mode,
-                     created_at = EXCLUDED.created_at""",
-                (
-                    meter.meter_id,
-                    meter.job_id,
-                    meter.host_id,
-                    meter.owner,
-                    meter.started_at,
-                    meter.completed_at,
-                    meter.duration_sec,
-                    meter.gpu_seconds,
-                    meter.gpu_model,
-                    meter.vram_gb,
-                    meter.gpu_utilization_pct,
-                    meter.xcu_score,
-                    meter.country,
-                    meter.province,
-                    1 if meter.is_canadian_compute else 0,
-                    meter.trust_tier,
-                    meter.base_rate_per_hour,
-                    meter.tier_multiplier,
-                    meter.spot_discount,
-                    meter.pricing_mode,
-                    meter.total_cost_cad,
-                    time.time(),
-                ),
-            )
+            if attempt_id:
+                existing = conn.execute(
+                    "SELECT * FROM usage_meters WHERE attempt_id = %s LIMIT 1",
+                    (attempt_id,),
+                ).fetchone()
+                if existing is not None:
+                    prior = _usage_meter_from_row(existing)
+                    log.info(
+                        "METERED job=%s attempt=%s idempotent_replay meter=%s cost=$%.4f",
+                        prior.job_id,
+                        attempt_id[:8],
+                        prior.meter_id,
+                        prior.total_cost_cad,
+                    )
+                    return prior
+
+            try:
+                conn.execute(
+                    """INSERT INTO usage_meters
+                       (meter_id, job_id, host_id, owner, started_at, completed_at,
+                        duration_sec, gpu_seconds, gpu_model, vram_gb,
+                        gpu_utilization_pct, xcu_score, country, province,
+                        is_canadian_compute, trust_tier, base_rate_per_hour,
+                        tier_multiplier, spot_discount, pricing_mode, total_cost_cad,
+                        created_at, attempt_id)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                               %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       ON CONFLICT (meter_id) DO UPDATE SET
+                         job_id = EXCLUDED.job_id, host_id = EXCLUDED.host_id,
+                         owner = EXCLUDED.owner,
+                         started_at = EXCLUDED.started_at,
+                         completed_at = EXCLUDED.completed_at,
+                         duration_sec = EXCLUDED.duration_sec,
+                         gpu_seconds = EXCLUDED.gpu_seconds,
+                         total_cost_cad = EXCLUDED.total_cost_cad,
+                         pricing_mode = EXCLUDED.pricing_mode,
+                         attempt_id = COALESCE(usage_meters.attempt_id, EXCLUDED.attempt_id),
+                         created_at = EXCLUDED.created_at""",
+                    (
+                        meter.meter_id,
+                        meter.job_id,
+                        meter.host_id,
+                        meter.owner,
+                        meter.started_at,
+                        meter.completed_at,
+                        meter.duration_sec,
+                        meter.gpu_seconds,
+                        meter.gpu_model,
+                        meter.vram_gb,
+                        meter.gpu_utilization_pct,
+                        meter.xcu_score,
+                        meter.country,
+                        meter.province,
+                        1 if meter.is_canadian_compute else 0,
+                        meter.trust_tier,
+                        meter.base_rate_per_hour,
+                        meter.tier_multiplier,
+                        meter.spot_discount,
+                        meter.pricing_mode,
+                        meter.total_cost_cad,
+                        time.time(),
+                        attempt_id,
+                    ),
+                )
+            except Exception as exc:
+                # Race: two concurrent closes for the same attempt — unique
+                # index wins; return the durable row already written.
+                sqlstate = getattr(exc, "sqlstate", None)
+                if attempt_id and sqlstate == "23505":
+                    conn.rollback()
+                    existing = conn.execute(
+                        "SELECT * FROM usage_meters WHERE attempt_id = %s LIMIT 1",
+                        (attempt_id,),
+                    ).fetchone()
+                    if existing is not None:
+                        prior = _usage_meter_from_row(existing)
+                        log.info(
+                            "METERED job=%s attempt=%s race_idempotent meter=%s",
+                            prior.job_id,
+                            attempt_id[:8],
+                            prior.meter_id,
+                        )
+                        return prior
+                raise
 
         log.info(
-            "METERED job=%s cost=$%.4f CAD mode=%s tier=%s canadian=%s",
+            "METERED job=%s attempt=%s cost=$%.4f CAD mode=%s tier=%s canadian=%s",
             meter.job_id,
+            (attempt_id or "")[:8] or "—",
             meter.total_cost_cad,
             pricing_mode,
             trust_tier,
@@ -916,35 +1086,487 @@ class BillingEngine:
         pass  # Tables managed by Alembic migrations
 
     def get_wallet(self, customer_id: str) -> dict:
-        """Get or create a customer wallet."""
+        """Get or create a customer wallet.
+
+        Includes ``held_cad`` and ``available_cad`` (ledger − active holds)
+        when the ``wallet_holds`` table is present.
+        """
         self._ensure_wallet_table()
         with self._conn() as conn:
             row = conn.execute(
                 "SELECT * FROM wallets WHERE customer_id = %s",
                 (customer_id,),
             ).fetchone()
-            if row:
-                return dict(row)
+            if not row:
+                # Create new wallet
+                now = time.time()
+                conn.execute(
+                    """INSERT INTO wallets
+                       (customer_id, balance_cad, total_deposited_cad,
+                        total_spent_cad, total_refunded_cad,
+                        grace_until, status, created_at, updated_at)
+                       VALUES (%s, 0, 0, 0, 0, 0, 'active', %s, %s)""",
+                    (customer_id, now, now),
+                )
+                row = {
+                    "customer_id": customer_id,
+                    "balance_cad": 0.0,
+                    "total_deposited_cad": 0.0,
+                    "total_spent_cad": 0.0,
+                    "total_refunded_cad": 0.0,
+                    "grace_until": 0.0,
+                    "status": "active",
+                }
+            else:
+                row = dict(row)
 
-            # Create new wallet
-            now = time.time()
+            balance = float(row.get("balance_cad") or 0)
+            held = self._active_holds_total(conn, customer_id)
+            row["held_cad"] = held
+            row["available_cad"] = round(max(0.0, balance - held), 4)
+            return row
+
+    def _active_holds_total(self, conn: Any, customer_id: str, *, now: float | None = None) -> float:
+        """Sum of non-expired held amount for a customer (expires stale holds)."""
+        now = time.time() if now is None else now
+        try:
             conn.execute(
-                """INSERT INTO wallets
-                   (customer_id, balance_cad, total_deposited_cad,
-                    total_spent_cad, total_refunded_cad,
-                    grace_until, status, created_at, updated_at)
-                   VALUES (%s, 0, 0, 0, 0, 0, 'active', %s, %s)""",
-                (customer_id, now, now),
+                """
+                UPDATE wallet_holds
+                   SET status = 'expired',
+                       updated_at = %s,
+                       released_at = COALESCE(released_at, %s)
+                 WHERE customer_id = %s
+                   AND status = 'held'
+                   AND expires_at <= %s
+                """,
+                (now, now, customer_id, now),
             )
+            row = conn.execute(
+                """
+                SELECT COALESCE(SUM(amount_cad), 0) AS held
+                  FROM wallet_holds
+                 WHERE customer_id = %s
+                   AND status = 'held'
+                   AND expires_at > %s
+                """,
+                (customer_id, now),
+            ).fetchone()
+        except Exception as exc:
+            # Table missing mid-rollout: treat as zero holds.
+            log.debug("wallet_holds sum skipped: %s", exc)
+            return 0.0
+        if row is None:
+            return 0.0
+        return float(row["held"] if isinstance(row, dict) else row[0] or 0)
+
+    def available_balance_cad(self, customer_id: str) -> float:
+        """Ledger balance minus durable active holds."""
+        wallet = self.get_wallet(customer_id)
+        return float(wallet.get("available_cad", wallet.get("balance_cad", 0)) or 0)
+
+    def expire_stale_wallet_holds(self, *, limit: int = 500) -> int:
+        """CAS held→expired for past-due holds. Idempotent; multi-replica safe.
+
+        Returns the number of rows transitioned. Expired holds no longer
+        reduce available balance. Safe to call from a durable scheduled
+        task and from lazy balance reads (via ``_active_holds_total``).
+        """
+        now = time.time()
+        try:
+            with self._conn() as conn:
+                rows = conn.execute(
+                    """
+                    UPDATE wallet_holds
+                       SET status = 'expired',
+                           updated_at = %s,
+                           released_at = COALESCE(released_at, %s)
+                     WHERE hold_id IN (
+                         SELECT hold_id FROM wallet_holds
+                          WHERE status = 'held'
+                            AND expires_at <= %s
+                          ORDER BY expires_at ASC
+                          LIMIT %s
+                          FOR UPDATE SKIP LOCKED
+                     )
+                     RETURNING hold_id
+                    """,
+                    (now, now, now, max(1, int(limit))),
+                ).fetchall()
+            n = len(rows or [])
+            if n:
+                log.info("WALLET HOLD EXPIRE count=%d", n)
+            return n
+        except Exception as exc:
+            log.debug("expire_stale_wallet_holds skipped: %s", exc)
+            return 0
+
+    def wallet_has_available_funds(self, customer_id: str) -> dict:
+        """Fund gate for start/restart: available_cad > 0 and not suspended.
+
+        Returns ``{ok, reason?, available_cad, balance_cad, held_cad, status}``.
+        """
+        wallet = self.get_wallet(customer_id)
+        status = wallet.get("status") or "active"
+        balance = float(wallet.get("balance_cad") or 0)
+        available = float(wallet.get("available_cad", balance) or 0)
+        held = float(wallet.get("held_cad") or 0)
+        if status == "suspended":
             return {
-                "customer_id": customer_id,
-                "balance_cad": 0.0,
-                "total_deposited_cad": 0.0,
-                "total_spent_cad": 0.0,
-                "total_refunded_cad": 0.0,
-                "grace_until": 0.0,
-                "status": "active",
+                "ok": False,
+                "reason": "wallet_suspended",
+                "available_cad": available,
+                "balance_cad": balance,
+                "held_cad": held,
+                "status": status,
             }
+        if available <= 0:
+            return {
+                "ok": False,
+                "reason": "insufficient_available",
+                "available_cad": available,
+                "balance_cad": balance,
+                "held_cad": held,
+                "status": status,
+            }
+        return {
+            "ok": True,
+            "available_cad": available,
+            "balance_cad": balance,
+            "held_cad": held,
+            "status": status,
+        }
+
+    def estimate_launch_hold_cad(
+        self,
+        *,
+        pricing_mode: str = "on_demand",
+        gpu_model: str | None = None,
+        num_gpus: int = 1,
+        host: dict | None = None,
+    ) -> float:
+        """CAD amount to reserve for one launch (≈ one hour of compute)."""
+        n = max(1, int(num_gpus or 1))
+        mode = (pricing_mode or "on_demand").strip().lower()
+        if mode == "spot":
+            model = (gpu_model or "").strip() or "RTX 4090"
+            try:
+                from spot_pricing import compute_live_spot_quote
+
+                return round(max(0.01, compute_live_spot_quote(model).rate_cad * n), 4)
+            except Exception:
+                return round(max(0.01, 0.20 * n), 4)
+        # On-demand: prefer host rate, else a conservative default per GPU.
+        if host and host.get("cost_per_hour") is not None:
+            return round(max(0.01, float(host["cost_per_hour"]) * n), 4)
+        return round(max(0.01, 0.20 * n), 4)
+
+    def create_wallet_hold(
+        self,
+        customer_id: str,
+        amount_cad: float,
+        *,
+        idempotency_key: str | None = None,
+        job_id: str | None = None,
+        expires_in_sec: int = 3600,
+        reason: str = "launch",
+    ) -> dict:
+        """Create a durable fund hold if available balance is sufficient.
+
+        Locks the wallet row so concurrent creates see each other's holds.
+        Returns ``{held, hold_id, amount_cad, available_cad, reason?}``.
+        """
+        amount = round(float(amount_cad), 4)
+        if amount <= 0:
+            return {
+                "held": False,
+                "reason": "invalid_amount",
+                "available_cad": self.available_balance_cad(customer_id),
+            }
+
+        self._ensure_wallet_table()
+        # Ensure wallet row exists before locking.
+        self.get_wallet(customer_id)
+        now = time.time()
+        expires_at = now + max(60, int(expires_in_sec))
+        hold_id = str(uuid.uuid4())
+        idemp = (idempotency_key or "").strip() or None
+
+        with self._conn() as conn:
+            if idemp:
+                prior = conn.execute(
+                    """
+                    SELECT hold_id, status, amount_cad, expires_at
+                      FROM wallet_holds
+                     WHERE customer_id = %s AND idempotency_key = %s
+                     LIMIT 1
+                    """,
+                    (customer_id, idemp),
+                ).fetchone()
+                if prior is not None:
+                    st = prior["status"] if isinstance(prior, dict) else prior[1]
+                    hid = str(prior["hold_id"] if isinstance(prior, dict) else prior[0])
+                    if st == "held":
+                        return {
+                            "held": True,
+                            "hold_id": hid,
+                            "amount_cad": float(
+                                prior["amount_cad"]
+                                if isinstance(prior, dict)
+                                else prior[2]
+                            ),
+                            "available_cad": self._available_locked(
+                                conn, customer_id, now=now
+                            ),
+                            "idempotent_replay": True,
+                        }
+                    # Terminal prior (released/consumed/expired): free the
+                    # idempotency key so a new attempt can reserve again.
+                    conn.execute(
+                        """
+                        UPDATE wallet_holds
+                           SET idempotency_key = NULL,
+                               updated_at = %s
+                         WHERE hold_id = %s::uuid
+                           AND status <> 'held'
+                        """,
+                        (now, hid),
+                    )
+
+            wallet = conn.execute(
+                """
+                SELECT balance_cad, status FROM wallets
+                 WHERE customer_id = %s
+                 FOR UPDATE
+                """,
+                (customer_id,),
+            ).fetchone()
+            if wallet is None:
+                return {"held": False, "reason": "wallet_missing", "available_cad": 0.0}
+            wstatus = wallet["status"] if isinstance(wallet, dict) else wallet[1]
+            if wstatus == "suspended":
+                return {
+                    "held": False,
+                    "reason": "wallet_suspended",
+                    "available_cad": 0.0,
+                }
+
+            available = self._available_locked(conn, customer_id, now=now)
+            if available + 1e-9 < amount:
+                return {
+                    "held": False,
+                    "reason": "insufficient_available",
+                    "available_cad": available,
+                    "required_cad": amount,
+                }
+
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO wallet_holds
+                        (hold_id, customer_id, amount_cad, status, job_id,
+                         idempotency_key, created_at, expires_at, updated_at)
+                    VALUES (%s, %s, %s, 'held', %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        hold_id,
+                        customer_id,
+                        amount,
+                        job_id,
+                        idemp,
+                        now,
+                        expires_at,
+                        now,
+                    ),
+                )
+            except Exception as exc:
+                # Concurrent create with same key: replay the winner.
+                if idemp and getattr(exc, "sqlstate", None) == "23505":
+                    conn.rollback()
+                    winner = conn.execute(
+                        """
+                        SELECT hold_id, status, amount_cad
+                          FROM wallet_holds
+                         WHERE customer_id = %s AND idempotency_key = %s
+                         LIMIT 1
+                        """,
+                        (customer_id, idemp),
+                    ).fetchone()
+                    if winner is not None:
+                        st = winner["status"] if isinstance(winner, dict) else winner[1]
+                        if st == "held":
+                            whid = str(
+                                winner["hold_id"]
+                                if isinstance(winner, dict)
+                                else winner[0]
+                            )
+                            return {
+                                "held": True,
+                                "hold_id": whid,
+                                "amount_cad": float(
+                                    winner["amount_cad"]
+                                    if isinstance(winner, dict)
+                                    else winner[2]
+                                ),
+                                "available_cad": self._available_locked(
+                                    conn, customer_id, now=time.time()
+                                ),
+                                "idempotent_replay": True,
+                            }
+                raise
+            remaining = round(available - amount, 4)
+
+        log.info(
+            "WALLET HOLD %s hold=%s amount=$%.4f reason=%s available_after=$%.4f",
+            customer_id,
+            hold_id[:8],
+            amount,
+            reason,
+            remaining,
+        )
+        return {
+            "held": True,
+            "hold_id": hold_id,
+            "amount_cad": amount,
+            "available_cad": remaining,
+            "expires_at": expires_at,
+        }
+
+    def _available_locked(self, conn: Any, customer_id: str, *, now: float) -> float:
+        row = conn.execute(
+            "SELECT balance_cad FROM wallets WHERE customer_id = %s",
+            (customer_id,),
+        ).fetchone()
+        balance = float(
+            (row["balance_cad"] if isinstance(row, dict) else row[0]) if row else 0
+        )
+        held = self._active_holds_total(conn, customer_id, now=now)
+        return round(max(0.0, balance - held), 4)
+
+    def link_wallet_hold_to_job(self, hold_id: str, job_id: str) -> bool:
+        """Stamp job.wallet_hold_id and hold.job_id (best-effort durable link)."""
+        if not hold_id or not job_id:
+            return False
+        now = time.time()
+        try:
+            with self._conn() as conn:
+                row = conn.execute(
+                    """
+                    UPDATE wallet_holds
+                       SET job_id = %s, updated_at = %s
+                     WHERE hold_id = %s::uuid
+                       AND status = 'held'
+                     RETURNING hold_id
+                    """,
+                    (job_id, now, hold_id),
+                ).fetchone()
+                if row is None:
+                    return False
+                conn.execute(
+                    """
+                    UPDATE jobs
+                       SET wallet_hold_id = %s::uuid
+                     WHERE job_id = %s
+                    """,
+                    (hold_id, job_id),
+                )
+            return True
+        except Exception as exc:
+            log.warning(
+                "link_wallet_hold_to_job failed hold=%s job=%s: %s",
+                hold_id[:8],
+                job_id,
+                exc,
+            )
+            return False
+
+    def release_wallet_hold(self, hold_id: str, *, reason: str = "release") -> dict:
+        """Release a held amount once (idempotent if already terminal)."""
+        if not hold_id:
+            return {"released": False, "reason": "missing_hold_id"}
+        now = time.time()
+        with self._conn() as conn:
+            row = conn.execute(
+                """
+                UPDATE wallet_holds
+                   SET status = 'released',
+                       released_at = %s,
+                       updated_at = %s
+                 WHERE hold_id = %s::uuid
+                   AND status = 'held'
+                 RETURNING hold_id, customer_id, amount_cad, job_id
+                """,
+                (now, now, hold_id),
+            ).fetchone()
+            if row is None:
+                existing = conn.execute(
+                    "SELECT status FROM wallet_holds WHERE hold_id = %s::uuid",
+                    (hold_id,),
+                ).fetchone()
+                if existing is None:
+                    return {"released": False, "reason": "not_found"}
+                st = existing["status"] if isinstance(existing, dict) else existing[0]
+                return {
+                    "released": True,
+                    "already_terminal": True,
+                    "status": st,
+                    "hold_id": hold_id,
+                }
+            # Clear job pointer when present (does not fail release).
+            jid = row["job_id"] if isinstance(row, dict) else row[3]
+            if jid:
+                conn.execute(
+                    """
+                    UPDATE jobs
+                       SET wallet_hold_id = NULL
+                     WHERE job_id = %s
+                       AND wallet_hold_id = %s::uuid
+                    """,
+                    (jid, hold_id),
+                )
+        log.info("WALLET HOLD RELEASE hold=%s reason=%s", hold_id[:8], reason)
+        return {"released": True, "hold_id": hold_id, "reason": reason}
+
+    def release_wallet_hold_for_job(self, job_id: str, *, reason: str = "job_terminal") -> dict:
+        """Release the hold linked to a job (by jobs.wallet_hold_id or hold.job_id).
+
+        Idempotent: if the hold was already released/consumed/expired, still
+        returns ``released=True`` with ``already_terminal``.
+        """
+        if not job_id:
+            return {"released": False, "reason": "missing_job_id"}
+        try:
+            with self._conn() as conn:
+                row = conn.execute(
+                    "SELECT wallet_hold_id FROM jobs WHERE job_id = %s",
+                    (job_id,),
+                ).fetchone()
+                hold_id = None
+                if row is not None:
+                    hold_id = row["wallet_hold_id"] if isinstance(row, dict) else row[0]
+                if not hold_id:
+                    alt = conn.execute(
+                        """
+                        SELECT hold_id FROM wallet_holds
+                         WHERE job_id = %s
+                         ORDER BY
+                           CASE status
+                             WHEN 'held' THEN 0
+                             ELSE 1
+                           END,
+                           created_at DESC
+                         LIMIT 1
+                        """,
+                        (job_id,),
+                    ).fetchone()
+                    if alt is not None:
+                        hold_id = alt["hold_id"] if isinstance(alt, dict) else alt[0]
+            if not hold_id:
+                return {"released": False, "reason": "no_hold"}
+            return self.release_wallet_hold(str(hold_id), reason=reason)
+        except Exception as exc:
+            log.debug("release_wallet_hold_for_job %s: %s", job_id, exc)
+            return {"released": False, "reason": "error"}
 
     def deposit(
         self,
@@ -1237,9 +1859,9 @@ class BillingEngine:
     def stop_instance(self, job_id: str, reason: str = "user_stopped") -> dict:
         """Gracefully stop a running instance. Container is preserved for restart.
 
-        Stops billing for compute; storage billing begins in auto_billing_cycle.
-        The container is sent SIGTERM (docker stop -t 10) so the process can
-        flush state before exiting. Volumes are NOT removed.
+        Attempt-owned: atomic fenced lifecycle (``request_fenced_stop``) —
+        no pre-mark raw SQL dual-write. Worker ACK projects to ``stopped``.
+        Legacy: guarded ``update_job_status`` + pause_container agent queue.
         """
         if reason not in self._VALID_STOP_REASONS:
             return {
@@ -1271,130 +1893,136 @@ class BillingEngine:
             if not job:
                 return {"stopped": False, "reason": "not_running"}
 
-            # Mark transitional state
-            conn.execute(
-                """UPDATE jobs SET status = 'stopping',
-                   payload = jsonb_set(
-                       jsonb_set(
-                           jsonb_set(payload, '{stopping_at}', to_jsonb(%s::float)),
-                           '{status}', '"stopping"'::jsonb
-                       ),
-                       '{stop_reason}', %s::jsonb
-                   )
-                   WHERE job_id = %s""",
-                (now, json.dumps(stop_reason_tag), job_id),
-            )
+            owner = job.get("owner") or ""
+            host_id = job.get("host_id") or ""
+            active_attempt_id = job.get("active_attempt_id")
+            container_name = job.get("container_name") or f"xcl-{job_id}"
+            # Release lock before fenced controller / agent enqueue.
             conn.commit()
 
-        owner = job.get("owner") or ""
-        host_id = job.get("host_id") or ""
-        active_attempt_id = job.get("active_attempt_id")
-        container_name = job.get("container_name") or f"xcl-{job_id}"
+        # ── Attempt-owned: single fenced domain path (no dual raw SQL) ──
+        if active_attempt_id:
+            from control_plane.lifecycle import request_fenced_stop
 
-        # P3 post-C — enqueue pause_container via agent queue (CGNAT-safe).
-        # NOTE: we use pause_container (docker stop only) instead of
-        # stop_container (docker stop + rm) because the state machine allows
-        # STOPPED → RESTARTING → RUNNING, which requires the container to
-        # still exist so `docker start` can resume it. The previous use of
-        # stop_container destroyed the container and left restart broken
-        # ("enqueue_failed" on the user side, but really: nothing to start).
-        # Wallet-suspension and grace-expired sweepers call this same lifecycle
-        # service. They stop compute and billing but preserve the instance so a
-        # later top-up can resume it through the normal start controller.
+            fenced = request_fenced_stop(
+                job_id=job_id,
+                created_by="billing_stop",
+                container_name=container_name,
+                reason_tag=stop_reason_tag,
+            )
+            if not fenced.ok:
+                return {
+                    "stopped": False,
+                    "reason": fenced.reason or "enqueue_failed",
+                    "job_id": job_id,
+                    "status": fenced.status or None,
+                }
+            if fenced.command_created:
+                cycle_id = f"BC-stop-{int(now)}-{os.urandom(3).hex()}"
+                with pool.connection() as conn:
+                    conn.execute(
+                        """INSERT INTO billing_cycles
+                           (cycle_id, job_id, customer_id, host_id, resource_type,
+                            period_start, period_end, duration_seconds, rate_per_hour,
+                            gpu_model, tier, tier_multiplier, amount_cad, status,
+                            created_at)
+                           VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0,
+                                   0, 'stopped', %s)""",
+                        (cycle_id, job_id, owner, host_id, now, now, now),
+                    )
+                    conn.commit()
+            try:
+                from db import NotificationStore
+
+                NotificationStore.create(
+                    user_email=owner,
+                    notif_type="instance_stopped",
+                    title=f"Instance stopped: {job.get('name', job_id)}",
+                    body=(
+                        "Your instance has been stopped. Storage continues to be billed. "
+                        "Start it again anytime."
+                    ),
+                    data={"job_id": job_id},
+                )
+            except Exception:
+                pass
+            log.info(
+                "STOP fenced job=%s reason=%s owner=%s attempt=%s",
+                job_id,
+                reason,
+                owner,
+                (fenced.attempt_id or "")[:8],
+            )
+            # Keep response shape stable for API/clients; extras are optional.
+            out = {"stopped": True, "job_id": job_id, "status": "stopping"}
+            if fenced.attempt_id:
+                out["attempt_id"] = fenced.attempt_id
+            if fenced.command_id:
+                out["command_id"] = fenced.command_id
+            return out
+
+        # ── Legacy (no active attempt): guarded status + pause_container ──
+        from scheduler import update_job_status
+
+        marked = update_job_status(
+            job_id,
+            "stopping",
+            expected_status="running",
+            stop_reason=stop_reason_tag,
+            stopping_at=now,
+        )
+        if marked is None:
+            return {"stopped": False, "reason": "not_running"}
+
         stop_queued = False
-        fenced_stop_queued = False
         if host_id:
             try:
+                from routes.agent import enqueue_agent_command
                 from scheduler import _validate_name
 
                 _validate_name(container_name, "container name")
-                if active_attempt_id:
-                    # Attempt-owned workloads must never fall back to the v1
-                    # destructive drain. Bind the stop to the current
-                    # host/attempt/fence and let /agent/v2 claim + ACK it.
-                    from control_plane.commands import enqueue_current_attempt_command
-                    from control_plane.db import run_transaction
-
-                    enqueued = run_transaction(
-                        lambda conn: enqueue_current_attempt_command(
-                            conn,
-                            job_id=job_id,
-                            command="stop_attempt",
-                            args={"container_name": container_name, "preserve": True},
-                            created_by="billing_stop",
-                        ),
-                        what="enqueue_stop_attempt",
-                    )
-                    log.info(
-                        "STOP fenced stop_attempt queued: %s attempt=%s fence=%s",
-                        container_name,
-                        enqueued.attempt_id[:8],
-                        enqueued.fencing_token,
-                    )
-                    fenced_stop_queued = True
-                else:
-                    from routes.agent import enqueue_agent_command
-
-                    enqueue_agent_command(
-                        host_id,
-                        "pause_container",
-                        {"container_name": container_name, "job_id": job_id},
-                        created_by="billing_stop",
-                    )
-                    log.info("STOP pause_container queued: %s on %s", container_name, host_id)
+                enqueue_agent_command(
+                    host_id,
+                    "pause_container",
+                    {"container_name": container_name, "job_id": job_id},
+                    created_by="billing_stop",
+                )
+                log.info("STOP pause_container queued: %s on %s", container_name, host_id)
                 stop_queued = True
             except Exception as e:
                 log.warning("STOP container stop enqueue failed for %s: %s", job_id, e)
 
-        # Legacy commands have no ACK path, so retain their existing
-        # optimistic projection. Attempt-owned jobs stay ``stopping`` until
-        # the worker's fenced terminal report atomically releases the lease
-        # and allocation and projects the job to ``stopped``. Reporting the
-        # stop before that proof would make control-plane truth outrun Docker.
-        final_status = (
-            "stopping" if fenced_stop_queued else "stopped" if stop_queued else "running"
-        )
-        with pool.connection() as conn:
-            conn.row_factory = dict_row
-            if not fenced_stop_queued:
-                conn.execute(
-                    """UPDATE jobs SET status = %s,
-                       payload = jsonb_set(
-                           jsonb_set(
-                               jsonb_set(payload, '{stopped_at}', to_jsonb(%s::float)),
-                               '{status}', %s::jsonb
-                           ),
-                           '{stop_reason}', %s::jsonb
-                       )
-                       WHERE job_id = %s
-                         AND status = 'stopping'
-                         AND (%s::uuid IS NULL OR active_attempt_id = %s::uuid)""",
-                    (
-                        final_status,
-                        now,
-                        json.dumps(final_status),
-                        json.dumps(stop_reason_tag),
-                        job_id,
-                        active_attempt_id,
-                        active_attempt_id,
-                    ),
-                )
-            # Billing anchor: closes the current compute billing period.
-            if stop_queued:
-                owner_id = owner
+        # Legacy commands have no ACK path — optimistic projection to stopped.
+        final_status = "stopped" if stop_queued else "running"
+        if stop_queued:
+            update_job_status(
+                job_id,
+                "stopped",
+                expected_status="stopping",
+                stop_reason=stop_reason_tag,
+                stopped_at=now,
+            )
+            with pool.connection() as conn:
                 cycle_id = f"BC-stop-{int(now)}-{os.urandom(3).hex()}"
                 conn.execute(
                     """INSERT INTO billing_cycles
-                       (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
-                        duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
-                        amount_cad, status, created_at)
-                       VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0, 0, 'stopped', %s)""",
-                    (cycle_id, job_id, owner_id, host_id, now, now, now),
+                       (cycle_id, job_id, customer_id, host_id, resource_type,
+                        period_start, period_end, duration_seconds, rate_per_hour,
+                        gpu_model, tier, tier_multiplier, amount_cad, status,
+                        created_at)
+                       VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0,
+                               0, 'stopped', %s)""",
+                    (cycle_id, job_id, owner, host_id, now, now, now),
                 )
-            conn.commit()
-
-        if not stop_queued:
-            log.error("STOP failed for job=%s — could not enqueue stop_container", job_id)
+                conn.commit()
+        else:
+            # Roll intermediate projection back so UI is not stuck on stopping.
+            update_job_status(
+                job_id,
+                "running",
+                expected_status="stopping",
+            )
+            log.error("STOP failed for job=%s — could not enqueue pause_container", job_id)
             return {"stopped": False, "reason": "enqueue_failed", "job_id": job_id}
 
         try:
@@ -1404,7 +2032,10 @@ class BillingEngine:
                 user_email=owner,
                 notif_type="instance_stopped",
                 title=f"Instance stopped: {job.get('name', job_id)}",
-                body="Your instance has been stopped. Storage continues to be billed. Start it again anytime.",
+                body=(
+                    "Your instance has been stopped. Storage continues to be billed. "
+                    "Start it again anytime."
+                ),
                 data={"job_id": job_id},
             )
         except Exception:
@@ -1446,9 +2077,18 @@ class BillingEngine:
                 return {"started": False, "reason": "not_stopped"}
 
             owner = job.get("owner") or ""
-            wallet = self.get_wallet(owner)
-            if wallet["balance_cad"] <= 0:
-                return {"started": False, "reason": "insufficient_balance"}
+            fund = self.wallet_has_available_funds(owner)
+            if not fund.get("ok"):
+                return {
+                    "started": False,
+                    "reason": (
+                        "wallet_suspended"
+                        if fund.get("reason") == "wallet_suspended"
+                        else "insufficient_balance"
+                    ),
+                    "available_cad": fund.get("available_cad"),
+                    "held_cad": fund.get("held_cad"),
+                }
 
             # Fenced history: fresh-attempt resume (requeue), not container revive.
             if job.get("has_fenced_history"):
@@ -1478,22 +2118,22 @@ class BillingEngine:
             if job.get("status") != "stopped":
                 return {"started": False, "reason": "not_stopped"}
 
-            # Mark transitional state (legacy path)
-            conn.execute(
-                """UPDATE jobs SET status = 'restarting',
-                   payload = jsonb_set(
-                       jsonb_set(payload, '{restarting_at}', to_jsonb(%s::float)),
-                       '{status}', '"restarting"'::jsonb
-                   )
-                   WHERE job_id = %s""",
-                (now, job_id),
-            )
+            host_id = job.get("host_id") or ""
+            container_name = job.get("container_name") or f"xcl-{job_id}"
             conn.commit()
 
-        host_id = job.get("host_id") or ""
-        container_name = job.get("container_name") or f"xcl-{job_id}"
+        # Legacy: guarded status transitions (CAS + outbox) — no bare SQL.
+        from scheduler import update_job_status
 
-        # P3 post-C — enqueue start_container via agent queue (CGNAT-safe).
+        marked = update_job_status(
+            job_id,
+            "restarting",
+            expected_status="stopped",
+            restarting_at=now,
+        )
+        if marked is None:
+            return {"started": False, "reason": "not_stopped"}
+
         start_queued = False
         if host_id:
             try:
@@ -1512,37 +2152,36 @@ class BillingEngine:
             except Exception as e:
                 log.warning("START container start enqueue failed for %s: %s", job_id, e)
 
-        final_status = "running" if start_queued else "stopped"
-        with pool.connection() as conn:
-            conn.row_factory = dict_row
-            conn.execute(
-                """UPDATE jobs SET status = %s,
-                   payload = jsonb_set(
-                       jsonb_set(
-                           jsonb_set(payload, '{started_at}', to_jsonb(%s::float)),
-                           '{stopped_at}', '0'::jsonb
-                       ),
-                       '{status}', %s::jsonb
-                   )
-                   WHERE job_id = %s""",
-                (final_status, now, json.dumps(final_status), job_id),
-            )
-            if start_queued:
-                # Billing anchor: compute billing resumes from now
-                cycle_id = f"BC-start-{int(now)}-{os.urandom(3).hex()}"
-                conn.execute(
-                    """INSERT INTO billing_cycles
-                       (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
-                        duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
-                        amount_cad, status, created_at)
-                       VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0, 0, 'started', %s)""",
-                    (cycle_id, job_id, owner, host_id, now, now, now),
-                )
-            conn.commit()
-
         if not start_queued:
+            update_job_status(
+                job_id,
+                "stopped",
+                expected_status="restarting",
+            )
             log.error("START failed for job=%s — could not enqueue start_container", job_id)
             return {"started": False, "reason": "enqueue_failed", "job_id": job_id}
+
+        projected = update_job_status(
+            job_id,
+            "running",
+            expected_status="restarting",
+            started_at=now,
+            stopped_at=0,
+        )
+        if projected is None:
+            return {"started": False, "reason": "status_race", "job_id": job_id}
+
+        with pool.connection() as conn:
+            cycle_id = f"BC-start-{int(now)}-{os.urandom(3).hex()}"
+            conn.execute(
+                """INSERT INTO billing_cycles
+                   (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
+                    duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
+                    amount_cad, status, created_at)
+                   VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0, 0, 'started', %s)""",
+                (cycle_id, job_id, owner, host_id, now, now, now),
+            )
+            conn.commit()
 
         try:
             from db import NotificationStore
@@ -1595,9 +2234,18 @@ class BillingEngine:
                 return {"restarted": False, "reason": "not_restartable"}
 
             owner = job.get("owner") or ""
-            wallet = self.get_wallet(owner)
-            if wallet["balance_cad"] <= 0:
-                return {"restarted": False, "reason": "insufficient_balance"}
+            fund = self.wallet_has_available_funds(owner)
+            if not fund.get("ok"):
+                return {
+                    "restarted": False,
+                    "reason": (
+                        "wallet_suspended"
+                        if fund.get("reason") == "wallet_suspended"
+                        else "insufficient_balance"
+                    ),
+                    "available_cad": fund.get("available_cad"),
+                    "held_cad": fund.get("held_cad"),
+                }
 
             has_fenced = bool(job.get("has_fenced_history") or job.get("active_attempt_id"))
             if has_fenced:
@@ -1662,22 +2310,23 @@ class BillingEngine:
                 return {"restarted": False, "reason": "not_restartable"}
 
             was_running = job["status"] == "running"
-
-            conn.execute(
-                """UPDATE jobs SET status = 'restarting',
-                   payload = jsonb_set(
-                       jsonb_set(payload, '{restarting_at}', to_jsonb(%s::float)),
-                       '{status}', '"restarting"'::jsonb
-                   )
-                   WHERE job_id = %s""",
-                (now, job_id),
-            )
+            prior_status = job["status"]
+            host_id = job.get("host_id") or ""
+            container_name = job.get("container_name") or f"xcl-{job_id}"
             conn.commit()
 
-        host_id = job.get("host_id") or ""
-        container_name = job.get("container_name") or f"xcl-{job_id}"
+        # Legacy: guarded status transitions (CAS + outbox) — no bare SQL.
+        from scheduler import update_job_status
 
-        # Legacy: restart via agent queue (CGNAT-safe).
+        marked = update_job_status(
+            job_id,
+            "restarting",
+            expected_status=prior_status,
+            restarting_at=now,
+        )
+        if marked is None:
+            return {"restarted": False, "reason": "not_restartable"}
+
         restart_queued = False
         enqueue_error: str | None = None
         if not host_id:
@@ -1716,21 +2365,13 @@ class BillingEngine:
                 enqueue_error = type(e).__name__
                 log.warning("RESTART enqueue failed for %s: %s: %s", job_id, enqueue_error, e)
 
-        final_status = "running" if restart_queued else "stopped"
-        with pool.connection() as conn:
-            conn.row_factory = dict_row
-            conn.execute(
-                """UPDATE jobs SET status = %s,
-                   payload = jsonb_set(
-                       jsonb_set(payload, '{restarted_at}', to_jsonb(%s::float)),
-                       '{status}', %s::jsonb
-                   )
-                   WHERE job_id = %s""",
-                (final_status, now, json.dumps(final_status), job_id),
-            )
-            conn.commit()
-
         if not restart_queued:
+            # Project to stopped so UI is not stuck on restarting.
+            update_job_status(
+                job_id,
+                "stopped",
+                expected_status="restarting",
+            )
             log.error(
                 "RESTART failed for job=%s — marking stopped (reason=%s)",
                 job_id,
@@ -1739,6 +2380,19 @@ class BillingEngine:
             return {
                 "restarted": False,
                 "reason": enqueue_error or "enqueue_failed",
+                "job_id": job_id,
+            }
+
+        projected = update_job_status(
+            job_id,
+            "running",
+            expected_status="restarting",
+            restarted_at=now,
+        )
+        if projected is None:
+            return {
+                "restarted": False,
+                "reason": "status_race",
                 "job_id": job_id,
             }
 
@@ -1846,17 +2500,19 @@ class BillingEngine:
                 "command_id": fenced.command_id,
             }
 
-        # Legacy (non-attempt-owned): mark terminal, detach, direct kill.
+        # Legacy (non-attempt-owned): guarded status path, detach, direct kill.
+        from scheduler import update_job_status
+
+        prior_status = job.get("status")
+        terminated = update_job_status(
+            job_id,
+            "terminated",
+            expected_status=prior_status,
+            terminated_at=now,
+        )
+        if terminated is None:
+            return {"terminated": False, "reason": "already_terminal_or_not_found"}
         with pool.connection() as conn:
-            conn.execute(
-                """UPDATE jobs SET status = 'terminated',
-                   payload = jsonb_set(
-                       jsonb_set(payload, '{terminated_at}', to_jsonb(%s::float)),
-                       '{status}', '"terminated"'::jsonb
-                   )
-                   WHERE job_id = %s""",
-                (now, job_id),
-            )
             cycle_id = f"BC-term-{int(now)}-{os.urandom(3).hex()}"
             conn.execute(
                 """INSERT INTO billing_cycles

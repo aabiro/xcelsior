@@ -3,13 +3,25 @@
 import { useEffect, useRef } from "react";
 import { useTheme } from "@/lib/theme";
 
-const SPRITES = [
+/** Soft additive glow sprites — read well on dark backgrounds. */
+const SPRITES_DARK = [
   "/particles/particle-cyan.svg",
   "/particles/particle-purple.svg",
   "/particles/particle-emerald.svg",
 ] as const;
 
-const WEIGHTS = [0.42, 0.42, 0.16] as const;
+/**
+ * Saturated light-theme sprites — colored cores (not white) and stronger
+ * bloom so cyan / purple / emerald all punch against pale page backgrounds.
+ */
+const SPRITES_LIGHT = [
+  "/particles/particle-cyan-light.svg",
+  "/particles/particle-purple-light.svg",
+  "/particles/particle-emerald-light.svg",
+] as const;
+
+/** Balanced mix so all three brand colors remain visible in both themes. */
+const WEIGHTS = [0.36, 0.36, 0.28] as const;
 
 type Particle = {
   x: number;
@@ -40,10 +52,23 @@ function pickSprite() {
   return 0;
 }
 
-function makeParticles(count: number, width: number, height: number): Particle[] {
+function makeParticles(
+  count: number,
+  width: number,
+  height: number,
+  isLight: boolean,
+): Particle[] {
+  // Light backgrounds need denser, larger, more opaque particles — the dark
+  // sprites rely on additive glow that disappears on white/lavender.
+  const sizeScale = isLight ? 1.22 : 1;
+  const opacityMin = isLight ? 0.55 : 0.25;
+  const opacityMax = isLight ? 0.98 : 0.9;
+  const opacityDepth = isLight ? 0.55 : 0.45;
+  const opacityDepthGain = isLight ? 0.5 : 0.6;
+
   return Array.from({ length: count }, () => {
     const depth = Math.random();
-    const size = randomBetween(8, 34) * (0.5 + depth);
+    const size = randomBetween(8, 34) * (0.5 + depth) * sizeScale;
 
     return {
       x: Math.random() * width,
@@ -53,7 +78,7 @@ function makeParticles(count: number, width: number, height: number): Particle[]
       size,
       depth,
       image: pickSprite(),
-      opacity: randomBetween(0.25, 0.9) * (0.45 + depth * 0.6),
+      opacity: randomBetween(opacityMin, opacityMax) * (opacityDepth + depth * opacityDepthGain),
       phase: Math.random() * Math.PI * 2,
       pulseSpeed: randomBetween(0.0006, 0.0016),
     };
@@ -68,8 +93,9 @@ type PixelFieldProps = {
 
 /**
  * Canvas particle field based directly on the site-assets particle demo.
- * Particle depth drives size, velocity, opacity, and eased pointer parallax;
- * the SVG sprites are composited additively to retain their original glow.
+ * Particle depth drives size, velocity, opacity, and eased pointer parallax.
+ * Dark theme composites additively; light theme uses saturated sprites +
+ * source-over so cyan / purple / emerald remain visible on pale surfaces.
  */
 export function PixelField({ count, className, position = "absolute" }: PixelFieldProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -82,7 +108,9 @@ export function PixelField({ count, className, position = "absolute" }: PixelFie
     const context = canvas.getContext("2d");
     if (!context) return;
 
-    const images = SPRITES.map((source) => {
+    const isLight = theme === "light";
+    const spriteSources = isLight ? SPRITES_LIGHT : SPRITES_DARK;
+    const images = spriteSources.map((source) => {
       const image = new Image();
       image.src = source;
       return image;
@@ -111,8 +139,10 @@ export function PixelField({ count, className, position = "absolute" }: PixelFie
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       if (particles.length === 0 && width > 0 && height > 0) {
-        const particleCount = count ?? Math.round(Math.min(65, Math.max(32, (width * height) / 26000)));
-        particles = makeParticles(particleCount, width, height);
+        // Slightly denser field in light theme so color presence matches dark glow.
+        const base = Math.round(Math.min(65, Math.max(32, (width * height) / 26000)));
+        const particleCount = count ?? (isLight ? Math.round(base * 1.15) : base);
+        particles = makeParticles(particleCount, width, height, isLight);
       }
     };
 
@@ -121,7 +151,7 @@ export function PixelField({ count, className, position = "absolute" }: PixelFie
       pointerX += (targetPointerX - pointerX) * 0.05;
       pointerY += (targetPointerY - pointerY) * 0.05;
 
-      const isLight = theme === "light";
+      // Additive glow only works on dark; light uses source-over with saturated sprites.
       context.globalCompositeOperation = isLight ? "source-over" : "lighter";
 
       for (const particle of particles) {
@@ -143,7 +173,9 @@ export function PixelField({ count, className, position = "absolute" }: PixelFie
         const image = images[particle.image];
 
         if (image.complete && image.naturalWidth) {
-          const opacityMultiplier = isLight ? 1.65 : 1.0;
+          // Light sprites already carry higher stop opacities; a modest
+          // multiplier keeps pulse lively without washing the page.
+          const opacityMultiplier = isLight ? 1.15 : 1.0;
           context.globalAlpha = Math.min(1, particle.opacity * pulse * opacityMultiplier);
           const size = particle.size * (0.9 + 0.1 * pulse);
           context.drawImage(image, x - size / 2, y - size / 2, size, size);

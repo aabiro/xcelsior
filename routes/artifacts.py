@@ -1,6 +1,7 @@
 """Routes: artifacts."""
 
 import time
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -8,7 +9,7 @@ from pydantic import BaseModel
 from routes._deps import (
     log,
 )
-from artifacts import get_artifact_manager
+from artifacts import get_artifact_manager, ArtifactType, ResidencyPolicy
 
 router = APIRouter()
 
@@ -67,7 +68,6 @@ def _entry_from_object(obj: dict) -> dict:
 @router.post("/api/artifacts/upload", tags=["Artifacts"])
 def api_request_upload(req: UploadRequest, request: Request):
     """Get a presigned upload URL for an artifact."""
-    from artifacts import ArtifactType, ResidencyPolicy
     from routes._deps import _get_current_user, _require_scope
 
     user = _get_current_user(request)
@@ -82,23 +82,27 @@ def api_request_upload(req: UploadRequest, request: Request):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     mgr = get_artifact_manager()
-    result = mgr.request_upload(atype, job_id, req.filename, residency=rpolicy)
+    result = mgr.request_upload(
+        atype,
+        job_id,
+        req.filename,
+        residency=rpolicy,
+        owner_user_id=user.get("user_id"),
+    )
     return {"ok": True, **result}
 
 
-# ── Model: DownloadRequest ──
+# ── Model: FinalizeRequest ──
 
 
-class DownloadRequest(BaseModel):
-    job_id: str
-    filename: str
-    artifact_type: str = "job_output"
+class FinalizeRequest(BaseModel):
+    upload_session_id: str
+    checksum: Optional[str] = None
 
 
-@router.post("/api/artifacts/download", tags=["Artifacts"])
-def api_request_download(req: DownloadRequest, request: Request):
-    """Get a presigned download URL for an artifact."""
-    from artifacts import ArtifactType
+@router.post("/api/artifacts/finalize", tags=["Artifacts"])
+def api_finalize_upload(req: FinalizeRequest, request: Request):
+    """Finalize an upload session, performing validation and transitioning status."""
     from routes._deps import _get_current_user, _require_scope
 
     user = _get_current_user(request)
@@ -106,12 +110,58 @@ def api_request_download(req: DownloadRequest, request: Request):
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "artifacts:write")
 
+    mgr = get_artifact_manager()
+    try:
+        result = mgr.finalize_upload(req.upload_session_id, req.checksum)
+        return {"ok": True, **result}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        log.error("finalize_upload failed: %s", e)
+        raise HTTPException(500, f"Failed to finalize upload: {e}")
+
+
+# ── Model: DownloadRequest ──
+
+
+class DownloadRequest(BaseModel):
+    job_id: Optional[str] = None
+    filename: Optional[str] = None
+    artifact_id: Optional[str] = None
+    artifact_type: str = "job_output"
+
+
+@router.post("/api/artifacts/download", tags=["Artifacts"])
+def api_request_download(req: DownloadRequest, request: Request):
+    """Get a presigned download URL for an artifact."""
+    from routes._deps import _get_current_user, _require_scope
+
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "artifacts:write")
+
+    mgr = get_artifact_manager()
+
+    if req.artifact_id:
+        try:
+            result = mgr.request_download_by_id(req.artifact_id)
+            return {"ok": True, **result}
+        except KeyError as e:
+            raise HTTPException(404, str(e))
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        except Exception as e:
+            raise HTTPException(500, f"Failed to get download URL: {e}")
+
+    if not req.job_id or not req.filename:
+        raise HTTPException(400, "Must specify artifact_id, or job_id and filename")
+
     job_id = _resolve_artifact_job_id(user, req.job_id)
     try:
         atype = ArtifactType(req.artifact_type)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    mgr = get_artifact_manager()
     result = mgr.download_url_for(atype, job_id, req.filename)
     return {"ok": True, **result}
 
@@ -119,40 +169,75 @@ def api_request_download(req: DownloadRequest, request: Request):
 @router.get("/api/artifacts", tags=["Artifacts"])
 def api_list_all_artifacts(request: Request):
     """List artifacts visible to the caller: their jobs' outputs plus standalone uploads."""
-    from artifacts import ArtifactType
     from routes._deps import (
-        _filter_jobs_for_user,
         _get_current_user,
         _is_platform_admin,
         _require_scope,
+        _user_team_id,
+        _filter_jobs_for_user,
     )
+    from artifacts import StorageUnavailable
+    from control_plane.db import control_plane_transaction
 
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "artifacts:read")
 
-    from artifacts import StorageUnavailable
+    mgr = get_artifact_manager()
 
     try:
-        mgr = get_artifact_manager()
-        objects: list[dict] = []
-        if _is_platform_admin(user):
-            for atype in ArtifactType:
-                objects.extend(mgr.primary.list_objects(f"{atype.value}/"))
-        else:
-            from scheduler import list_jobs
+        if not mgr._is_db_active():
+            # Fallback for non-postgres or non-active DB environments
+            objects: list[dict] = []
+            if _is_platform_admin(user):
+                for atype in ArtifactType:
+                    objects.extend(mgr.primary.list_objects(f"{atype.value}/"))
+            else:
+                from scheduler import list_jobs
+                jobs = _filter_jobs_for_user(list_jobs(), user)
+                slots = {j.get("job_id", "") for j in jobs}
+                slots.discard("")
+                slots.add(_user_upload_slot(user))
+                for slot in slots:
+                    objects.extend(mgr.get_job_artifacts(slot))
+            return {"ok": True, "artifacts": [_entry_from_object(o) for o in objects]}
 
-            jobs = _filter_jobs_for_user(list_jobs(), user)
-            slots = {j.get("job_id", "") for j in jobs}
-            slots.discard("")
-            slots.add(_user_upload_slot(user))
-            for slot in slots:
-                objects.extend(mgr.get_job_artifacts(slot))
-        return {"ok": True, "artifacts": [_entry_from_object(o) for o in objects]}
+        # Query storage.artifacts table directly for sub-millisecond, low-egress listing
+        with control_plane_transaction() as conn:
+            if _is_platform_admin(user):
+                rows = conn.execute(
+                    """SELECT artifact_id, object_key, logical_name, job_id, tenant_id, artifact_type, size_bytes, created_at
+                       FROM storage.artifacts
+                       WHERE state = 'available'
+                       ORDER BY created_at DESC"""
+                ).fetchall()
+            else:
+                active_team = _user_team_id(user) or _user_upload_slot(user)
+                rows = conn.execute(
+                    """SELECT artifact_id, object_key, logical_name, job_id, tenant_id, artifact_type, size_bytes, created_at
+                       FROM storage.artifacts
+                       WHERE tenant_id = %s AND state = 'available'
+                       ORDER BY created_at DESC""",
+                    (active_team,),
+                ).fetchall()
+
+        artifacts = []
+        for r in rows:
+            artifacts.append({
+                "artifact_id": str(r[0]),
+                "key": r[1],
+                "filename": r[2],
+                "job_id": r[3] or "",
+                "tenant_id": r[4],
+                "artifact_type": r[5],
+                "size_bytes": r[6],
+                "created_at": r[7].timestamp() if r[7] else time.time(),
+            })
+
+        return {"ok": True, "artifacts": artifacts}
+
     except StorageUnavailable as e:
-        # A storage outage is NOT "no artifacts" — surface it as 503 so the
-        # UI shows an error instead of a silently-empty list (companion §6.6).
         log.error("artifacts.list_all storage unavailable user=%s: %s",
                   user.get("user_id"), e)
         raise HTTPException(
@@ -205,7 +290,7 @@ def api_artifact_expiry(job_id: str, request: Request):
     try:
         am = get_artifact_manager()
         arts = am.get_job_artifacts(job_id)
-    except Exception as e:
+    except Exception:
         arts = []
 
     # Default retention: 90 days for job_output, 180 for model_checkpoint, 30 for logs
@@ -218,7 +303,7 @@ def api_artifact_expiry(job_id: str, request: Request):
     result = []
     for a in arts:
         art_type = a.get("artifact_type", "job_output")
-        created = a.get("created_at", time.time())
+        created = a.get("last_modified", time.time())
         ttl_days = retention_days.get(art_type, 90)
         expiry = created + ttl_days * 86400
         result.append(

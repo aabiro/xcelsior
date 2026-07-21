@@ -27,6 +27,143 @@ except Exception:  # pragma: no cover
 _stop = threading.Event()
 WORKER_ID = f"bg-worker-{uuid.uuid4().hex[:8]}"
 
+
+def is_fenced_history_job(
+    *,
+    active_attempt_id: object | None = None,
+    has_fenced_history: bool = False,
+) -> bool:
+    """True when stop/command authority is the fenced lifecycle path.
+
+    Matches billing/lifecycle classification: active attempt ownership
+    *or* any ``job_attempts`` history means unfenced ``stop_container``
+    redelivery must not dual-command the host.
+    """
+    if active_attempt_id is not None:
+        return True
+    return bool(has_fenced_history)
+
+
+def reconcile_paused_stopped_jobs() -> int:
+    """Re-enqueue unfenced stop for pure-legacy stale ``stopped`` jobs.
+
+    Attempt-owned and fenced-history jobs are excluded at SQL and again
+    in Python (defense in depth). Legacy jobs keep throttle, max-attempt,
+    and pending-command dedupe.
+
+    Returns the number of stop directives enqueued.
+    """
+    from db import _get_pg_pool
+    from psycopg.rows import dict_row
+    from routes.agent import enqueue_agent_command
+
+    now = time.time()
+    stale_cutoff = now - 120.0
+    retry_sec = max(int(os.environ.get("XCELSIOR_RECONCILE_RETRY_SEC", "3600")), 60)
+    max_attempts = max(int(os.environ.get("XCELSIOR_RECONCILE_MAX_ATTEMPTS", "3")), 1)
+    pool = _get_pg_pool()
+    enqueued = 0
+    with pool.connection() as conn:
+        conn.row_factory = dict_row
+        rows = conn.execute(
+            """
+            SELECT j.job_id, j.status, j.host_id, j.active_attempt_id,
+                   j.payload->>'container_name' AS container_name,
+                   COALESCE(
+                       (j.payload->>'paused_at')::float,
+                       (j.payload->>'completed_at')::float,
+                       j.submitted_at
+                   ) AS state_age_ts,
+                   COALESCE((j.payload->>'last_reconcile_stop_at')::float, 0)
+                       AS last_reconcile_stop_at,
+                   COALESCE((j.payload->>'reconcile_stop_count')::int, 0)
+                       AS reconcile_stop_count,
+                   EXISTS (
+                       SELECT 1 FROM job_attempts a WHERE a.job_id = j.job_id
+                   ) AS has_fenced_history
+              FROM jobs j
+             WHERE j.status = 'stopped'
+               AND j.host_id IS NOT NULL AND j.host_id <> ''
+               AND j.active_attempt_id IS NULL
+               AND NOT EXISTS (
+                   SELECT 1 FROM job_attempts a WHERE a.job_id = j.job_id
+               )
+             ORDER BY j.submitted_at DESC
+             LIMIT 200
+            """
+        ).fetchall()
+        for row in rows:
+            # Defense in depth: never unfenced-stop fenced-history jobs even
+            # if a future query change reintroduces them into the result set.
+            if is_fenced_history_job(
+                active_attempt_id=row.get("active_attempt_id"),
+                has_fenced_history=bool(row.get("has_fenced_history")),
+            ):
+                continue
+            state_ts = row.get("state_age_ts") or 0.0
+            if state_ts > stale_cutoff:
+                continue
+            last_reconcile_at = float(row.get("last_reconcile_stop_at") or 0.0)
+            reconcile_count = int(row.get("reconcile_stop_count") or 0)
+            if reconcile_count >= max_attempts:
+                continue
+            if last_reconcile_at and last_reconcile_at > now - retry_sec:
+                continue
+            host_id = row["host_id"]
+            job_id = row["job_id"]
+            cname = row.get("container_name") or f"xcl-{job_id}"
+
+            pending = conn.execute(
+                """
+                SELECT 1 FROM agent_commands
+                 WHERE host_id = %s
+                   AND status = 'pending'
+                   AND command IN ('stop_container','pause_container')
+                   AND args->>'job_id' = %s
+                 LIMIT 1
+                """,
+                (host_id, job_id),
+            ).fetchone()
+            if pending:
+                continue
+
+            try:
+                enqueue_agent_command(
+                    host_id,
+                    "stop_container",
+                    {"container_name": cname, "job_id": job_id},
+                    created_by="reconcile_sweep",
+                    ttl_sec=600,
+                )
+                conn.execute(
+                    """
+                    UPDATE jobs
+                       SET payload = jsonb_set(
+                           jsonb_set(
+                               COALESCE(payload, '{}'::jsonb),
+                               '{last_reconcile_stop_at}',
+                               to_jsonb(%s::float),
+                               true
+                           ),
+                           '{reconcile_stop_count}',
+                           to_jsonb(%s::int),
+                           true
+                       )
+                     WHERE job_id = %s
+                    """,
+                    (now, reconcile_count + 1, job_id),
+                )
+                enqueued += 1
+            except Exception as e:
+                log.warning("reconcile enqueue failed job=%s: %s", job_id, e)
+            if enqueued >= 50:
+                break
+        conn.commit()
+    if enqueued:
+        log.info("Reconcile sweep: re-enqueued %d stop/pause directives", enqueued)
+    return enqueued
+
+
 def main():
     log.info("bg-worker starting — loading tasks…")
 
@@ -41,6 +178,14 @@ def main():
         be.check_low_balance_and_topup()
         be.stop_jobs_for_suspended_wallets()
     register_task("billing_cycle", _billing_cycle, 300)
+
+    # 1b. Expire past-due wallet launch holds (frees available balance)
+    def _wallet_hold_expiry():
+        from billing import get_billing_engine
+        n = get_billing_engine().expire_stale_wallet_holds(limit=500)
+        if n:
+            log.info("wallet_hold_expiry: expired %d hold(s)", n)
+    register_task("wallet_hold_expiry", _wallet_hold_expiry, 60)
 
     # 2. Stripe webhook event processor (every 30 seconds)
     def _webhook_processor():
@@ -142,93 +287,9 @@ def main():
             log.info("Notification cleanup: purged %d notifications and %d revoked push subs", deleted_notifications, deleted_revoked)
     register_task("notification_cleanup", _notification_cleanup, 21600)
 
-    # 14. Reconcile paused/stopped jobs
+    # 14. Reconcile paused/stopped jobs (legacy unfenced stop redelivery only)
     def _reconcile_paused_stopped():
-        from db import _get_pg_pool
-        from psycopg.rows import dict_row
-        from routes.agent import enqueue_agent_command
-
-        now = time.time()
-        stale_cutoff = now - 120.0
-        retry_sec = max(int(os.environ.get("XCELSIOR_RECONCILE_RETRY_SEC", "3600")), 60)
-        max_attempts = max(int(os.environ.get("XCELSIOR_RECONCILE_MAX_ATTEMPTS", "3")), 1)
-        pool = _get_pg_pool()
-        with pool.connection() as conn:
-            conn.row_factory = dict_row
-            rows = conn.execute("""
-                SELECT j.job_id, j.status, j.host_id,
-                       j.payload->>'container_name' AS container_name,
-                       COALESCE(
-                           (j.payload->>'paused_at')::float,
-                           (j.payload->>'completed_at')::float,
-                           j.submitted_at
-                       ) AS state_age_ts,
-                       COALESCE((j.payload->>'last_reconcile_stop_at')::float, 0) AS last_reconcile_stop_at,
-                       COALESCE((j.payload->>'reconcile_stop_count')::int, 0) AS reconcile_stop_count
-                  FROM jobs j
-                 WHERE j.status = 'stopped'
-                   AND j.host_id IS NOT NULL AND j.host_id <> ''
-                 ORDER BY j.submitted_at DESC
-                 LIMIT 200
-                """).fetchall()
-            enqueued = 0
-            for row in rows:
-                state_ts = row.get("state_age_ts") or 0.0
-                if state_ts > stale_cutoff: continue
-                last_reconcile_at = float(row.get("last_reconcile_stop_at") or 0.0)
-                reconcile_count = int(row.get("reconcile_stop_count") or 0)
-                if reconcile_count >= max_attempts: continue
-                if last_reconcile_at and last_reconcile_at > now - retry_sec: continue
-                host_id = row["host_id"]
-                job_id = row["job_id"]
-                cname = row.get("container_name") or f"xcl-{job_id}"
-
-                pending = conn.execute(
-                    """
-                    SELECT 1 FROM agent_commands
-                     WHERE host_id = %s
-                       AND status = 'pending'
-                       AND command IN ('stop_container','pause_container')
-                       AND args->>'job_id' = %s
-                     LIMIT 1
-                    """,
-                    (host_id, job_id),
-                ).fetchone()
-                if pending: continue
-
-                try:
-                    enqueue_agent_command(
-                        host_id,
-                        "stop_container",
-                        {"container_name": cname, "job_id": job_id},
-                        created_by="reconcile_sweep",
-                        ttl_sec=600,
-                    )
-                    conn.execute(
-                        """
-                        UPDATE jobs
-                           SET payload = jsonb_set(
-                               jsonb_set(
-                                   COALESCE(payload, '{}'::jsonb),
-                                   '{last_reconcile_stop_at}',
-                                   to_jsonb(%s::float),
-                                   true
-                               ),
-                               '{reconcile_stop_count}',
-                               to_jsonb(%s::int),
-                               true
-                           )
-                         WHERE job_id = %s
-                        """,
-                        (now, reconcile_count + 1, job_id),
-                    )
-                    enqueued += 1
-                except Exception as e:
-                    log.warning("reconcile enqueue failed job=%s: %s", job_id, e)
-                if enqueued >= 50: break
-            conn.commit()
-        if enqueued:
-            log.info("Reconcile sweep: re-enqueued %d stop/pause directives", enqueued)
+        reconcile_paused_stopped_jobs()
     register_task("reconcile_paused_stopped", _reconcile_paused_stopped, 60)
 
     # 15. user_images pending sweeper
@@ -281,6 +342,7 @@ def main():
     # 18. retry snapshots queued during registry outage
     def _retry_queued_snapshots():
         import registry_health
+        from control_plane.job_targets import resolve_job_command_target
         from db import _get_pg_pool
         from routes.agent import enqueue_agent_command
 
@@ -298,20 +360,61 @@ def main():
                     conn.execute("UPDATE user_images SET status='failed', error='host_missing' WHERE image_id=%s", (image_id,))
                     conn.commit()
                 continue
+            # Resolve residual container identity: attempt-owned must use
+            # xcl-{job}-{attempt_prefix}, never bare xcl-{job}.
+            target = resolve_job_command_target(str(job_id)) if job_id else None
+            if target is not None and not target.allows_unfenced_container_command:
+                log.warning(
+                    "snapshot registry-retry skip image_id=%s job=%s: "
+                    "fenced history without live authority",
+                    image_id,
+                    job_id,
+                )
+                with pool.connection() as conn:
+                    conn.execute(
+                        "UPDATE user_images SET status='failed', error='fenced_no_live_authority' "
+                        "WHERE image_id=%s AND status='queued_registry_down'",
+                        (image_id,),
+                    )
+                    conn.commit()
+                continue
+            container_name = (
+                target.container_name
+                if target is not None
+                else f"xcl-{job_id}"
+            )
+            use_host = (target.host_id if target and target.host_id else host_id)
             try:
                 enqueue_agent_command(
-                    host_id,
+                    use_host,
                     "snapshot_container",
-                    {"job_id": job_id, "image_id": image_id, "owner_id": owner_id, "image_ref": image_ref, "name": name, "tag": tag, "description": description or ""},
-                    created_by="bg_worker_e8_retry",
+                    {
+                        "job_id": job_id,
+                        "image_id": image_id,
+                        "owner_id": owner_id,
+                        "image_ref": image_ref,
+                        "name": name,
+                        "tag": tag,
+                        "description": description or "",
+                        "container_name": container_name,
+                    },
+                    created_by="bg_worker_snapshot_registry_retry",
                 )
                 with pool.connection() as conn:
                     conn.execute("UPDATE user_images SET status='pending' WHERE image_id=%s AND status='queued_registry_down'", (image_id,))
                     conn.commit()
                 promoted += 1
             except Exception as e:
-                log.warning("E8 retry enqueue failed image_id=%s err=%s", image_id, type(e).__name__)
-        if promoted: log.info("E8 retry: promoted %d queued snapshots to pending", promoted)
+                log.warning(
+                    "snapshot registry-retry enqueue failed image_id=%s err=%s",
+                    image_id,
+                    type(e).__name__,
+                )
+        if promoted:
+            log.info(
+                "snapshot registry-retry: promoted %d queued snapshots to pending",
+                promoted,
+            )
     register_task("snapshot_queue_retry", _retry_queued_snapshots, 60)
 
     # 19. agent upgrade rollout watchdog
@@ -386,6 +489,13 @@ def main():
             log.info("Lightning deposit watcher registered")
     except Exception as e:
         log.warning("Lightning watcher startup failed: %s", e)
+
+    # 22. Artifact catalog janitor / cleanup
+    def _artifact_catalog_janitor():
+        from artifacts import get_artifact_manager
+        mgr = get_artifact_manager()
+        mgr.cleanup_expired()
+    register_task("artifact_catalog_janitor", _artifact_catalog_janitor, 60)
 
     # ── Launch executor thread ───────────────────────────────────────
     def _executor_loop():

@@ -525,6 +525,22 @@ def ensure_default_oauth_clients() -> None:
             return
         now = time.time()
         base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca").rstrip("/")
+
+        # Dynamically hash secrets for custom seeded confidential clients
+        # Real client secrets should never be hardcoded in the repository.
+        # Fall back to secure random values if they are not present in the environment.
+        pe_id = "WGRKZUkyS2plUHNiRkhBRkZjcm46MTpjaQ"
+        pe_sec = os.environ.get("PIXELENHANCE_LABS_CLIENT_SECRET") or secrets.token_hex(32)
+        pe_hash, pe_salt = hash_secret(pe_sec)
+        pe_preview = f"{pe_sec[:4]}...{pe_sec[-4:]}"
+
+        xc_id = "QVl2LV96OXh1eVlSaExJTkRDbU06MTpjaQ"
+        xc_sec = os.environ.get("XCELSIOR_CLIENT_SECRET") or secrets.token_hex(32)
+        xc_hash, xc_salt = hash_secret(xc_sec)
+        xc_preview = f"{xc_sec[:4]}...{xc_sec[-4:]}"
+
+        ps_id = "VXVWd0V0cWVYY3FmQjJzUE1wVUQ6MTpjaQ"
+
         defaults = [
             {
                 "client_id": "xcelsior-web",
@@ -552,6 +568,48 @@ def ensure_default_oauth_clients() -> None:
                     "refresh_token",
                 ],
                 "scopes": ["profile", "email", "offline_access"],
+                "created_by_email": None,
+                "is_first_party": 1,
+                "created_at": now,
+                "updated_at": now,
+            },
+            {
+                "client_id": pe_id,
+                "client_name": "PixelEnhance Labs",
+                "client_type": "confidential",
+                "redirect_uris": ["https://pixelenhancelabs.ai/login/oauth/callback"],
+                "grant_types": ["authorization_code", "refresh_token"],
+                "scopes": ["profile", "email", "offline_access"],
+                "client_secret_hash": pe_hash,
+                "client_secret_salt": pe_salt,
+                "client_secret_preview": pe_preview,
+                "created_by_email": None,
+                "is_first_party": 1,
+                "created_at": now,
+                "updated_at": now,
+            },
+            {
+                "client_id": xc_id,
+                "client_name": "Xcelsior App",
+                "client_type": "confidential",
+                "redirect_uris": ["https://xcelsior.ca/login/oauth/callback"],
+                "grant_types": ["authorization_code", "refresh_token"],
+                "scopes": ["profile", "email", "offline_access"],
+                "client_secret_hash": xc_hash,
+                "client_secret_salt": xc_salt,
+                "client_secret_preview": xc_preview,
+                "created_by_email": None,
+                "is_first_party": 1,
+                "created_at": now,
+                "updated_at": now,
+            },
+            {
+                "client_id": ps_id,
+                "client_name": "PixelSpark",
+                "client_type": "public",
+                "redirect_uris": ["https://pixelspark.pixelenhancelabs.ai/login/oauth/callback"],
+                "grant_types": ["authorization_code"],
+                "scopes": ["profile", "email"],
                 "created_by_email": None,
                 "is_first_party": 1,
                 "created_at": now,

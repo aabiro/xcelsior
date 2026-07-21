@@ -1777,8 +1777,8 @@ def drain_agent_commands() -> int:
                             pass
                         registry_url = os.environ.get("XCELSIOR_REGISTRY_URL", "").strip()
                         if not registry_url:
-                            # Phase E/E2 — no fallback. API-side now refuses
-                            # new snapshots when registry is unset, but a
+                            # No host-local fallback. API refuses new
+                            # snapshots when registry is unset, but a
                             # stale queued command could still arrive here.
                             # Clean up the local commit + report failure.
                             err_msg = "registry_not_configured"
@@ -1823,10 +1823,10 @@ def drain_agent_commands() -> int:
                             else:
                                 status = "ready"
                         else:
-                            # Phase E/E2 — image_ref doesn't match registry
-                            # prefix. Shouldn't happen (API builds the ref
-                            # from the same env), but fail loudly rather
-                            # than silently keeping an unpushable tag.
+                            # image_ref doesn't match registry prefix.
+                            # Shouldn't happen (API builds the ref from the
+                            # same env), but fail loudly rather than silently
+                            # keeping an unpushable tag.
                             err_msg = (
                                 f"image_ref {image_ref!r} does not match "
                                 f"registry {registry_url!r}"

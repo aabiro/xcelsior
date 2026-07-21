@@ -172,10 +172,13 @@ def _clear_module_test_client_cookies():
     import sys
 
     yield
-    for mod in sys.modules.values():
-        client = getattr(mod, "client", None)
-        if client is not None and hasattr(client, "cookies"):
-            try:
+    for name, mod in list(sys.modules.items()):
+        if not (name == "__main__" or name.startswith("tests") or name.startswith("xcelsior")):
+            continue
+        try:
+            client = getattr(mod, "client", None)
+            if client is not None and hasattr(client, "cookies"):
                 client.cookies.clear()
-            except Exception:
-                pass
+        except Exception:
+            pass
+

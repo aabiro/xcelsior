@@ -1065,7 +1065,7 @@ def metrics_prometheus():
     try:
         from prometheus_client import generate_latest, REGISTRY
 
-        # Phase E/E7 — refresh registry-health gauges from the shared
+        # Refresh registry-health gauges from the shared
         # DB cache before serialising. The bg_worker process runs the
         # actual probes; without this refresh the API process's gauges
         # would stay at 0 because each process has its own in-module

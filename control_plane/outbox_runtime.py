@@ -92,7 +92,183 @@ def sse_payload_for(event: OutboxEvent) -> dict | None:
                 "reason": p.get("reason"),
             },
         }
+    # Legacy update_job_status path (queued→assigned→running→…).
+    if event.event_type == "job.v1.legacy_status_changed":
+        status = p.get("status")
+        if not status:
+            return None
+        data = {
+            "job_id": event.aggregate_id,
+            "status": status,
+            "host_id": p.get("host_id"),
+        }
+        if p.get("previous_status") is not None:
+            data["previous_status"] = p.get("previous_status")
+        return {"type": "job_status", "data": data}
+    # Host / job lifecycle residual producers (multi-replica durable SSE).
+    if event.event_type == "host.v1.status_changed":
+        data = dict(p)
+        data["host_id"] = event.aggregate_id
+        return {"type": "host_update", "data": data}
+    if event.event_type == "host.v1.removed":
+        return {
+            "type": "host_removed",
+            "data": {"host_id": event.aggregate_id, **dict(p)},
+        }
+    if event.event_type == "job.v1.submitted":
+        data = dict(p)
+        data["job_id"] = event.aggregate_id
+        return {"type": "job_submitted", "data": data}
+    if event.event_type == "job.v1.preempted":
+        data = dict(p)
+        data["job_id"] = event.aggregate_id
+        return {"type": "job_preempted", "data": data}
+    # Queue-block diagnostics + spot price refresh residual producers.
+    if event.event_type == "job.v1.queue_blocked":
+        return {
+            "type": "job_error",
+            "data": {
+                "job_id": event.aggregate_id,
+                "error": p.get("error"),
+                "message": p.get("message"),
+            },
+        }
+    if event.event_type == "pricing.v1.spot_prices_updated":
+        # Match emit_event("spot_prices", prices): data *is* the price map.
+        prices = p.get("prices") if isinstance(p.get("prices"), dict) else p
+        if not isinstance(prices, dict):
+            return None
+        return {"type": "spot_prices", "data": prices}
+    # Request-path instance lifecycle SSE (multi-replica durable fan-out).
+    # Projections preserve the dashboard vocabulary historically spoken by
+    # process-local ``broadcast_sse`` on stop/start/restart/terminate/cancel.
+    if event.event_type == "job.v1.instance_stopped":
+        data = dict(p)
+        data["job_id"] = event.aggregate_id
+        return {"type": "instance_stopped", "data": data}
+    if event.event_type == "job.v1.instance_started":
+        data = dict(p)
+        data["job_id"] = event.aggregate_id
+        return {"type": "instance_started", "data": data}
+    if event.event_type == "job.v1.instance_restarted":
+        data = dict(p)
+        data["job_id"] = event.aggregate_id
+        return {"type": "instance_restarted", "data": data}
+    if event.event_type == "job.v1.instance_terminated":
+        data = dict(p)
+        data["job_id"] = event.aggregate_id
+        return {"type": "instance_terminated", "data": data}
+    if event.event_type == "job.v1.cancelled":
+        data = dict(p)
+        data["job_id"] = event.aggregate_id
+        return {"type": "job_cancelled", "data": data}
     return None
+
+
+def try_append_lifecycle_outbox(
+    conn: Connection,
+    *,
+    aggregate_type: str,
+    aggregate_id: str,
+    event_type: str,
+    payload: dict | None = None,
+    idempotency_key: str,
+    savepoint: str = "lifecycle_sse_outbox",
+) -> bool:
+    """Append a durable SSE intent under SAVEPOINT; never poison the caller txn.
+
+    Returns True when the outbox row is durable (insert or idempotent conflict
+    already present). Returns False on missing schema / append failure so the
+    caller can fall back to process-local ``emit_event`` only then.
+    """
+    from control_plane.outbox import append_event
+
+    try:
+        conn.execute(f"SAVEPOINT {savepoint}")
+    except Exception as e:
+        log.warning(
+            "lifecycle outbox SAVEPOINT create failed %s/%s: %s",
+            aggregate_type,
+            aggregate_id,
+            e,
+        )
+        return False
+    try:
+        append_event(
+            conn,
+            aggregate_type=aggregate_type,
+            aggregate_id=str(aggregate_id),
+            event_type=event_type,
+            payload=payload or {},
+            destination_class="default",
+            idempotency_key=idempotency_key,
+        )
+        conn.execute(f"RELEASE SAVEPOINT {savepoint}")
+        return True
+    except Exception as e:
+        try:
+            conn.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+        except Exception as rb_err:
+            log.error(
+                "lifecycle outbox SAVEPOINT rollback failed %s/%s: %s (original: %s)",
+                aggregate_type,
+                aggregate_id,
+                rb_err,
+                e,
+            )
+            raise e from rb_err
+        log.warning(
+            "lifecycle outbox append failed %s/%s type=%s: %s "
+            "(SAVEPOINT restored; process-local emit fallback)",
+            aggregate_type,
+            aggregate_id,
+            event_type,
+            e,
+        )
+        return False
+
+
+def enqueue_lifecycle_sse_outbox(
+    *,
+    aggregate_type: str,
+    aggregate_id: str,
+    event_type: str,
+    payload: dict | None = None,
+    idempotency_key: str,
+) -> bool:
+    """Request-path durable SSE intent in a short transaction (no open conn).
+
+    Used by API routes that historically called process-local
+    ``broadcast_sse`` after a successful mutation. When this returns True
+    the outbox row is committed and multi-replica delivery is owned by the
+    dispatcher (LISTEN → ``broadcast_sse`` on every API replica). Callers
+    must skip process-local fan-out when True and fall back only when False
+    (schema missing, pool failure, append failure).
+    """
+    try:
+        return bool(
+            run_transaction(
+                lambda conn: try_append_lifecycle_outbox(
+                    conn,
+                    aggregate_type=aggregate_type,
+                    aggregate_id=str(aggregate_id),
+                    event_type=event_type,
+                    payload=payload or {},
+                    idempotency_key=idempotency_key,
+                ),
+                what="request_path_sse_outbox",
+            )
+        )
+    except Exception as e:
+        log.warning(
+            "request-path SSE outbox enqueue failed %s/%s type=%s: %s "
+            "(process-local broadcast fallback)",
+            aggregate_type,
+            aggregate_id,
+            event_type,
+            e,
+        )
+        return False
 
 
 def handle_default(event: OutboxEvent) -> None:

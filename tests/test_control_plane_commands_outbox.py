@@ -207,7 +207,7 @@ def aggregate_id():
         conn.commit()
 
 
-def _append(aggregate_id, *, event_type="job.v1.test", key=None, dest="default"):
+def _append(aggregate_id, *, event_type="job.v1.test", key=None, dest="isolated-outbox"):
     return run_transaction(
         lambda conn: append_event(
             conn,
@@ -233,6 +233,7 @@ class TestOutboxAppend:
                 append_event(
                     conn, aggregate_type="job", aggregate_id=aggregate_id,
                     event_type="job.v1.rolled_back",
+                    destination_class="isolated-outbox",
                 )
                 raise RuntimeError("state mutation failed")
             run_transaction(fn)
@@ -248,18 +249,18 @@ class TestOutboxDispatch:
     def test_claim_publish_lifecycle(self, aggregate_id):
         eid = _append(aggregate_id)
         events = run_transaction(
-            lambda conn: claim_batch(conn, dispatcher_id="d1", limit=100)
+            lambda conn: claim_batch(conn, dispatcher_id="d1", destination_class="isolated-outbox", limit=100)
         )
         mine = [e for e in events if e.event_id == eid]
         assert len(mine) == 1
         # A rival dispatcher gets nothing for the claimed event.
         rival = run_transaction(
-            lambda conn: claim_batch(conn, dispatcher_id="d2", limit=100)
+            lambda conn: claim_batch(conn, dispatcher_id="d2", destination_class="isolated-outbox", limit=100)
         )
         assert eid not in [e.event_id for e in rival]
         run_transaction(lambda conn: mark_published(conn, [eid]))
         again = run_transaction(
-            lambda conn: claim_batch(conn, dispatcher_id="d2", limit=100)
+            lambda conn: claim_batch(conn, dispatcher_id="d2", destination_class="isolated-outbox", limit=100)
         )
         assert eid not in [e.event_id for e in again]
 
@@ -272,7 +273,7 @@ class TestOutboxDispatch:
             conn.commit()
         for expected in ("retry_scheduled", "dead_letter"):
             events = run_transaction(
-                lambda conn: claim_batch(conn, dispatcher_id="d1", limit=100)
+                lambda conn: claim_batch(conn, dispatcher_id="d1", destination_class="isolated-outbox", limit=100)
             )
             if expected == "retry_scheduled":
                 assert eid in [e.event_id for e in events]
@@ -286,7 +287,7 @@ class TestOutboxDispatch:
                     )
                     conn.commit()
                 events = run_transaction(
-                    lambda conn: claim_batch(conn, dispatcher_id="d1", limit=100)
+                    lambda conn: claim_batch(conn, dispatcher_id="d1", destination_class="isolated-outbox", limit=100)
                 )
                 assert eid in [e.event_id for e in events]
             outcome = run_transaction(
@@ -302,7 +303,7 @@ class TestOutboxDispatch:
             )
             conn.commit()
         events = run_transaction(
-            lambda conn: claim_batch(conn, dispatcher_id="d1", limit=100)
+            lambda conn: claim_batch(conn, dispatcher_id="d1", destination_class="isolated-outbox", limit=100)
         )
         assert eid not in [e.event_id for e in events]
 
@@ -316,7 +317,7 @@ class TestOutboxDispatch:
                 raise ConnectionError("sink down")
             seen.append(event.event_id)
 
-        dispatcher = OutboxDispatcher("d-test", {"default": handler}, batch_size=500)
+        dispatcher = OutboxDispatcher("d-test", {"isolated-outbox": handler}, batch_size=500)
         stats = dispatcher.run_once()
         assert stats["claimed"] >= 2
         assert eid_ok in seen

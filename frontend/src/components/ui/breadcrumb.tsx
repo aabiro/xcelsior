@@ -32,6 +32,7 @@ const ROUTE_LABELS: Record<string, string> = {
   // explicit casing for acronyms / multi-word labels).
   "ai-insights": "AI Insights",
   "unit-economics": "Unit Economics",
+  mcp: "MCP",
 };
 
 /** Title-case an unknown path segment ("unit-economics" → "Unit Economics"). */

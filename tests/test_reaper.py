@@ -49,12 +49,12 @@ def _reset_jobs():
 
 
 class TestReaper:
-    def test_reaper_sql_syncs_payload_status(self):
+    def test_reaper_routes_through_domain_fail(self):
         import inspect
 
         source = inspect.getsource(reaper_tick)
-        assert "'{status}'" in source
-        assert '"failed"' in source
+        assert "fail_stuck_legacy_job" in source
+        assert "UPDATE jobs SET status = 'failed'" not in source
 
     def test_requeue_resets_submitted_at(self):
         _reset_jobs()

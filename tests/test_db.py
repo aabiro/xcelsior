@@ -204,9 +204,11 @@ class TestJobCRUD:
 
     def test_empty_job_id_skipped(self):
         with sqlite_transaction() as conn:
-            DatabaseOps.upsert_job(conn, {"job_id": "", "status": "queued"})
+            with pytest.raises(ValueError):
+                DatabaseOps.upsert_job(conn, {"job_id": "", "status": "queued"})
         with sqlite_connection() as conn:
             assert DatabaseOps.load_jobs(conn) == []
+
 
 
 # ── DatabaseOps: Host CRUD ────────────────────────────────────────────

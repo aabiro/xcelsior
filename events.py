@@ -10,9 +10,9 @@
 # Every state transition is recorded as an immutable event. Billing, SLA,
 # reputation, and dispute resolution all derive from events — not heuristics.
 #
-# TAMPER-EVIDENT: Each event includes a SHA-256 hash of the previous event,
-# forming a hash chain. Verifiers can replay the chain to detect tampering.
-# Per REPORT_FEATURE_2.md Phase C §1: "store with SHA256 hashes."
+# TAMPER-EVIDENT: Each event includes a SHA-256 prev_hash link within its
+# entity stream (entity_type + entity_id). Verifiers replay each stream
+# to detect tampering. Cross-stream appends do not take a global table lock.
 
 import hashlib
 import json
@@ -254,11 +254,25 @@ class Lease:
 # Append-only event log. SQLite for dev, Postgres JSONB for production.
 
 
+def event_stream_id(entity_type: str, entity_id: str) -> str:
+    """Stable stream identity for per-entity tamper-evident chains.
+
+    Chains are scoped to ``(entity_type, entity_id)`` so concurrent appends
+    for unrelated entities never contend on a global table exclusive lock
+    and cannot forge each other's prev_hash links.
+    """
+    return f"{entity_type or ''}\x1f{entity_id or ''}"
+
+
 class EventStore:
     """Append-only event store backed by PostgreSQL.
 
     Events are immutable. They are the sole source of truth for auditing,
     billing, SLA enforcement, and dispute resolution.
+
+    Hash chains are **per stream** (``entity_type`` + ``entity_id``). Same-
+    stream concurrent appends serialize via a transaction-scoped advisory
+    lock; cross-stream appends do not take a full-table exclusive lock.
     """
 
     def __init__(self, db_path: Optional[str] = None):
@@ -280,24 +294,52 @@ class EventStore:
                 raise
 
     def append(self, event: Event) -> Event:
-        """Append an event with tamper-evident hash chaining.
+        """Append an event with per-stream tamper-evident hash chaining.
 
-        Each event's prev_hash is set to the event_hash of the most recent
-        event in the store. This forms a verifiable chain — any modification
-        to a past event breaks every subsequent hash.
+        ``prev_hash`` links to the latest event_hash on the same
+        ``(entity_type, entity_id)`` stream. Concurrent appends on the
+        same stream are serialized with ``pg_advisory_xact_lock``; other
+        streams are not blocked by a table-wide exclusive lock.
+
+        Causal ordering: under the stream lock we assign ``timestamp``
+        strictly after the current stream head. Pre-lock timestamps on the
+        Event object are ignored so concurrent appends cannot invert
+        wall-clock order relative to lock/link order (which would fork the
+        chain under ``ORDER BY timestamp`` head selection and verify).
         """
         from psycopg.types.json import Jsonb
 
+        from control_plane.db import stable_advisory_key
+
+        stream = event_stream_id(event.entity_type, event.entity_id)
+        lock_key = stable_advisory_key("events_stream", stream)
+
         with self._conn() as conn:
-            # Lock to prevent concurrent forks of the hash chain
-            conn.execute("LOCK TABLE events IN EXCLUSIVE MODE")
-            # Get the hash of the most recent event (chain link)
+            # Per-stream serialization only (transaction-scoped; pool-safe).
+            conn.execute("SELECT pg_advisory_xact_lock(%s)", (lock_key,))
             row = conn.execute(
-                "SELECT event_hash FROM events ORDER BY timestamp DESC, event_id DESC LIMIT 1"
+                """
+                SELECT event_hash, timestamp FROM events
+                 WHERE entity_type = %s AND entity_id = %s
+                 ORDER BY timestamp DESC, event_id DESC
+                 LIMIT 1
+                """,
+                (event.entity_type, event.entity_id),
             ).fetchone()
             event.prev_hash = row["event_hash"] if row and row["event_hash"] else ""
 
-            # Compute this event's hash
+            # Assign causal time under the lock so stream head (timestamp
+            # DESC) matches prev_hash link order for concurrent writers.
+            now = time.time()
+            if row is not None and row.get("timestamp") is not None:
+                try:
+                    head_ts = float(row["timestamp"])
+                except (TypeError, ValueError):
+                    head_ts = now
+                if now <= head_ts:
+                    now = head_ts + 1e-6
+            event.timestamp = now
+
             event.event_hash = event.compute_hash()
 
             conn.execute(
@@ -320,24 +362,61 @@ class EventStore:
             )
         return event
 
-    def verify_chain(self, limit: int = 0) -> dict:
-        """Verify the tamper-evident hash chain.
+    def verify_chain(
+        self,
+        limit: int = 0,
+        *,
+        entity_type: Optional[str] = None,
+        entity_id: Optional[str] = None,
+    ) -> dict:
+        """Verify per-stream tamper-evident hash chains.
 
-        Returns {"valid": bool, "events_checked": int, "broken_at": event_id or None}.
+        When ``entity_type`` / ``entity_id`` are set, only that stream is
+        checked. Otherwise every stream present in the filtered row set is
+        verified independently (cross-stream links are not required).
+
+        Returns ``{"valid": bool, "events_checked": int, "broken_at": …}``.
         """
+        clauses: list[str] = []
+        params: list = []
+        if entity_type is not None:
+            clauses.append("entity_type = %s")
+            params.append(entity_type)
+        if entity_id is not None:
+            clauses.append("entity_id = %s")
+            params.append(entity_id)
+        where = " AND ".join(clauses) if clauses else "TRUE"
+
         with self._conn() as conn:
             if limit > 0:
                 rows = conn.execute(
-                    "SELECT * FROM events ORDER BY timestamp ASC LIMIT %s", (limit,)
+                    f"""SELECT * FROM events WHERE {where}
+                        ORDER BY entity_type ASC, entity_id ASC,
+                                 timestamp ASC, event_id ASC
+                        LIMIT %s""",
+                    (*params, limit),
                 ).fetchall()
             else:
-                rows = conn.execute("SELECT * FROM events ORDER BY timestamp ASC").fetchall()
+                rows = conn.execute(
+                    f"""SELECT * FROM events WHERE {where}
+                        ORDER BY entity_type ASC, entity_id ASC,
+                                 timestamp ASC, event_id ASC""",
+                    params,
+                ).fetchall()
 
         if not rows:
             return {"valid": True, "events_checked": 0, "broken_at": None}
 
+        checked = 0
         prev_hash = ""
-        for i, row in enumerate(rows):
+        prev_stream: tuple[str, str] | None = None
+
+        for row in rows:
+            stream = (str(row["entity_type"] or ""), str(row["entity_id"] or ""))
+            if stream != prev_stream:
+                prev_hash = ""
+                prev_stream = stream
+
             event_hash = row["event_hash"] or ""
             stored_prev = row["prev_hash"] or ""
 
@@ -346,16 +425,18 @@ class EventStore:
                 prev_hash = ""
                 continue
 
-            # Check chain link
+            checked += 1
             if stored_prev != prev_hash:
                 return {
                     "valid": False,
-                    "events_checked": i + 1,
+                    "events_checked": checked,
                     "broken_at": row["event_id"],
-                    "reason": f"prev_hash mismatch at event {row['event_id']}",
+                    "reason": (
+                        f"prev_hash mismatch at event {row['event_id']} "
+                        f"stream={stream[0]!r}/{stream[1]!r}"
+                    ),
                 }
 
-            # Recompute and verify event hash
             evt = Event(
                 event_id=row["event_id"],
                 event_type=row["event_type"],
@@ -375,14 +456,14 @@ class EventStore:
             if recomputed != event_hash:
                 return {
                     "valid": False,
-                    "events_checked": i + 1,
+                    "events_checked": checked,
                     "broken_at": row["event_id"],
                     "reason": f"event_hash tampered at event {row['event_id']}",
                 }
 
             prev_hash = event_hash
 
-        return {"valid": True, "events_checked": len(rows), "broken_at": None}
+        return {"valid": True, "events_checked": checked, "broken_at": None}
 
     def get_events(
         self,

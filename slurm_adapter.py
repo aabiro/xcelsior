@@ -504,6 +504,24 @@ def cancel_slurm_job(slurm_job_id):
 from db import pg_transaction, pg_connection
 import time
 
+_slurm_job_map = {}
+SLURM_MAP_FILE = "/tmp/slurm_map.json"
+
+def _load_slurm_map():
+    """Load the mapping between Xcelsior and Slurm job IDs from the database."""
+    global _slurm_job_map
+    _slurm_job_map.clear()
+    try:
+        with pg_connection() as conn:
+            rows = conn.execute(
+                "SELECT xcelsior_job_id, slurm_job_id FROM slurm_job_mappings"
+            ).fetchall()
+            for row in rows:
+                _slurm_job_map[row[0]] = row[1]
+    except Exception as e:
+        log.error("Failed to load slurm map from DB: %s", e)
+    return _slurm_job_map
+
 def register_slurm_job(xcelsior_job_id, slurm_job_id):
     """Register a mapping between Xcelsior and Slurm job IDs."""
     with pg_transaction() as conn:

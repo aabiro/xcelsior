@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 
 const adminNav = [
   { href: "/dashboard/admin", label: "Overview", icon: LayoutDashboard, exact: true },
+  { href: "/dashboard/admin/control-plane", label: "Control Plane", icon: ShieldCheck },
   { href: "/dashboard/admin/unit-economics", label: "Unit Economics", icon: Scale },
   { href: "/dashboard/admin/users", label: "Users", icon: Users },
   { href: "/dashboard/admin/revenue", label: "Revenue", icon: DollarSign },

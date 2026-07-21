@@ -373,10 +373,26 @@ def set_host_draining(host_id, draining=True):
             host["status"] = "active" if host.get("admitted", False) else "pending"
 
         _upsert_host_row(conn, host)
+        outbox_enqueued = False
+        if _active_backend() == "postgres":
+            from control_plane.outbox_runtime import try_append_lifecycle_outbox
+
+            outbox_enqueued = try_append_lifecycle_outbox(
+                conn,
+                aggregate_type="host",
+                aggregate_id=str(host_id),
+                event_type="host.v1.status_changed",
+                payload={"status": host["status"]},
+                idempotency_key=(
+                    f"host_status:{host_id}:{host['status']}:"
+                    f"{host.get('draining_since') or host.get('status')}:{time.time()}"
+                ),
+            )
 
     engine = get_engine()
     engine.mirror_to_secondary(DatabaseOps.upsert_host, host)
-    emit_event("host_update", {"host_id": host_id, "status": host["status"]})
+    if not outbox_enqueued:
+        emit_event("host_update", {"host_id": host_id, "status": host["status"]})
     return host
 
 
@@ -1034,18 +1050,21 @@ def process_queue_binpack(canada_only=None, province=None):
         job = next((j for j in jobs if j.get("job_id") == jid), None)
         reason, detail = _diagnose_queue_block(job, hosts)
 
-        emit_event(
-            "job_error",
-            {
-                "job_id": jid,
-                "error": reason,
-                "message": detail,
-            },
-        )
-
-        # Persist queue_reason on the job so frontend can display it
+        # Durable queue_reason first; multi-replica SSE rides the same
+        # transaction. Process-local emit only when outbox is not durable
+        # (or there is no job row to attach authority to).
+        outbox_enqueued = False
         if job:
-            _persist_queue_reason(job, reason, detail)
+            outbox_enqueued = _persist_queue_reason(job, reason, detail)
+        if not outbox_enqueued:
+            emit_event(
+                "job_error",
+                {
+                    "job_id": jid,
+                    "error": reason,
+                    "message": detail,
+                },
+            )
 
         # In-app notification to renter (once per 15 min per job)
         _notify_renter_queue_block(jid, job, reason, detail, now)
@@ -1159,8 +1178,13 @@ def _diagnose_queue_block(job: dict | None, hosts: list[dict]) -> tuple[str, str
     )
 
 
-def _persist_queue_reason(job: dict, reason: str, detail: str):
-    """Write queue_reason into the job payload so the frontend can display it."""
+def _persist_queue_reason(job: dict, reason: str, detail: str) -> bool:
+    """Write queue_reason into the job payload so the frontend can display it.
+
+    On Postgres, also appends a durable ``job.v1.queue_blocked`` outbox
+    intent in the same transaction (multi-replica SSE). Returns True when
+    that intent is durable so callers skip process-local ``emit_event``.
+    """
     try:
         job["queue_reason"] = reason
         job["queue_reason_detail"] = detail
@@ -1168,10 +1192,27 @@ def _persist_queue_reason(job: dict, reason: str, detail: str):
         # count hours spent behind an active job against submitted_at.
         if reason == "gpu_busy" and job.get("status") == "queued":
             job["submitted_at"] = time.time()
+        outbox_enqueued = False
         with _atomic_mutation() as conn:
             _upsert_job_row(conn, job)
+            if _active_backend() == "postgres":
+                from control_plane.outbox_runtime import try_append_lifecycle_outbox
+
+                job_id = str(job.get("job_id") or "")
+                # Align idempotency with the 300s process-local notify throttle.
+                window = int(time.time() // 300)
+                outbox_enqueued = try_append_lifecycle_outbox(
+                    conn,
+                    aggregate_type="job",
+                    aggregate_id=job_id,
+                    event_type="job.v1.queue_blocked",
+                    payload={"error": reason, "message": detail},
+                    idempotency_key=f"queue_blocked:{job_id}:{reason}:{window}",
+                )
+        return outbox_enqueued
     except Exception:
         log.debug("Failed to persist queue_reason for job %s", job.get("job_id"))
+        return False
 
 
 def _notify_renter_queue_block(job_id: str, job: dict | None, reason: str, detail: str, now: float):
@@ -1316,13 +1357,28 @@ def register_host(
 
             entry = enrich_host_for_api(entry)
         _upsert_host_row(conn, entry)
+        outbox_enqueued = False
+        if _active_backend() == "postgres":
+            from control_plane.outbox_runtime import try_append_lifecycle_outbox
+
+            outbox_enqueued = try_append_lifecycle_outbox(
+                conn,
+                aggregate_type="host",
+                aggregate_id=str(host_id),
+                event_type="host.v1.status_changed",
+                payload={"status": entry.get("status") or "active"},
+                idempotency_key=(
+                    f"host_status:{host_id}:{entry.get('status') or 'active'}:"
+                    f"{entry.get('last_seen') or entry.get('registered_at') or time.time()}"
+                ),
+            )
 
     # Mirror to secondary DB in dual-write mode
     engine = get_engine()
     engine.mirror_to_secondary(DatabaseOps.upsert_host, entry)
 
-    # Emit SSE event
-    emit_event("host_update", {"host_id": host_id, "status": "active"})
+    if not outbox_enqueued:
+        emit_event("host_update", {"host_id": host_id, "status": "active"})
 
     if existing:
         log.info("HOST UPDATED %s | %s | %s | %sGB", host_id, ip, gpu_model, total_vram_gb)
@@ -1362,6 +1418,25 @@ def update_host_spot_settings(
             host["spot_min_cents"] = max(0, int(spot_min_cents))
 
         _upsert_host_row(conn, host)
+        outbox_enqueued = False
+        if _active_backend() == "postgres":
+            from control_plane.outbox_runtime import try_append_lifecycle_outbox
+
+            outbox_enqueued = try_append_lifecycle_outbox(
+                conn,
+                aggregate_type="host",
+                aggregate_id=str(host_id),
+                event_type="host.v1.status_changed",
+                payload={
+                    "status": host.get("status"),
+                    "spot_enabled": host.get("spot_enabled"),
+                },
+                idempotency_key=(
+                    f"host_spot:{host_id}:{host.get('spot_enabled')}:"
+                    f"{host.get('spot_gpu_slots')}:{host.get('spot_min_cents')}:"
+                    f"{time.time()}"
+                ),
+            )
 
     try:
         from host_metadata import normalize_host_region
@@ -1384,19 +1459,36 @@ def update_host_spot_settings(
     except Exception as exc:
         log.debug("Spot settings marketplace sync skipped for %s: %s", host_id, exc)
 
-    emit_event("host_update", {"host_id": host_id, "spot_enabled": host.get("spot_enabled")})
+    if not outbox_enqueued:
+        emit_event(
+            "host_update",
+            {"host_id": host_id, "spot_enabled": host.get("spot_enabled")},
+        )
     return host
 
 
 def remove_host(host_id):
     """Host is dead. Remove it. No funeral."""
+    outbox_enqueued = False
     with _atomic_mutation() as conn:
         _migrate_hosts_if_needed(conn)
         DatabaseOps.delete_host(conn, host_id, backend=_active_backend())
+        if _active_backend() == "postgres":
+            from control_plane.outbox_runtime import try_append_lifecycle_outbox
+
+            outbox_enqueued = try_append_lifecycle_outbox(
+                conn,
+                aggregate_type="host",
+                aggregate_id=str(host_id),
+                event_type="host.v1.removed",
+                payload={},
+                idempotency_key=f"host_removed:{host_id}:{time.time()}",
+            )
 
     engine = get_engine()
     engine.mirror_to_secondary(DatabaseOps.delete_host, host_id)
-    emit_event("host_removed", {"host_id": host_id})
+    if not outbox_enqueued:
+        emit_event("host_removed", {"host_id": host_id})
     log.warning("HOST REMOVED %s", host_id)
 
 
@@ -1766,16 +1858,31 @@ def submit_job(
         job["preemptible"] = True
         job["pricing_mode"] = "spot"
 
+    outbox_enqueued = False
     with _atomic_mutation() as conn:
         _migrate_jobs_if_needed(conn)
         _upsert_job_row(conn, job)
+        if _active_backend() == "postgres":
+            from control_plane.outbox_runtime import try_append_lifecycle_outbox
+
+            outbox_enqueued = try_append_lifecycle_outbox(
+                conn,
+                aggregate_type="job",
+                aggregate_id=str(job["job_id"]),
+                event_type="job.v1.submitted",
+                payload={"name": name, "tier": tier},
+                idempotency_key=f"job_submitted:{job['job_id']}",
+            )
 
     # Mirror to secondary DB
     engine = get_engine()
     engine.mirror_to_secondary(DatabaseOps.upsert_job, job)
 
-    # Emit SSE event
-    emit_event("job_submitted", {"job_id": job["job_id"], "name": name, "tier": tier})
+    if not outbox_enqueued:
+        emit_event(
+            "job_submitted",
+            {"job_id": job["job_id"], "name": name, "tier": tier},
+        )
 
     log.info(
         "JOB SUBMITTED %s | %s | %sGB VRAM | tier=%s (priority %s)",
@@ -1846,13 +1953,19 @@ def _release_host_vram(conn, host_id, amount_gb):
 def reconcile_host_vram():
     """Periodic VRAM reconciliation: recompute free_vram_gb from ground truth.
 
-    For each host, sums the vram_reserved_gb (or vram_needed_gb) of all
-    jobs in running/assigned/leased status, then corrects free_vram_gb if
-    it has drifted.  This catches VRAM leaks that bypass the normal
-    reserve/release path.
+    Sole free-capacity repair path for host ``free_vram_gb``. Pure policy
+    lives in :mod:`control_plane.capacity` — this function only reads hosts/
+    jobs and writes host free capacity when drift exceeds tolerance. It does
+    not place, fail, requeue, or touch attempt/lease/allocation rows.
 
     Returns dict of {host_id: correction_amount} for hosts that were corrected.
     """
+    from control_plane.capacity import (
+        expected_free_vram_gb,
+        free_vram_correction,
+        vram_used_by_host,
+    )
+
     corrections = {}
 
     with _atomic_mutation() as conn:
@@ -1861,18 +1974,7 @@ def reconcile_host_vram():
 
         hosts = _load_hosts_from_conn(conn, active_only=False)
         jobs = _load_jobs_from_conn(conn)
-
-        # Sum VRAM usage per host from jobs that have actually reserved VRAM.
-        # Only "running" jobs have VRAM reserved in the DB (done by update_job_status).
-        # Assigned/leased jobs have vram_reserved_gb=0 — counting their vram_needed_gb
-        # would over-count and deflate free_vram_gb, blocking legitimate assignments.
-        host_vram_used: dict[str, float] = {}
-        for j in jobs:
-            if j.get("status") == "running":
-                hid = j.get("host_id")
-                reserved = float(j.get("vram_reserved_gb", 0) or 0)
-                if hid and reserved > 0:
-                    host_vram_used[hid] = host_vram_used.get(hid, 0.0) + reserved
+        host_vram_used = vram_used_by_host(jobs)
 
         for host in hosts:
             hid = host.get("host_id")
@@ -1880,22 +1982,22 @@ def reconcile_host_vram():
                 continue
             total = float(host.get("total_vram_gb", 0) or 0)
             current_free = float(host.get("free_vram_gb", 0) or 0)
-            used = host_vram_used.get(hid, 0.0)
-            expected_free = round(max(0.0, min(total, total - used)), 4)
-
-            drift = abs(current_free - expected_free)
-            if drift > 0.01:  # Correct if drift exceeds 10MB
-                log.warning(
-                    "VRAM RECONCILE host=%s total=%.2f current_free=%.2f expected_free=%.2f drift=%.2f",
-                    hid,
-                    total,
-                    current_free,
-                    expected_free,
-                    drift,
-                )
-                host["free_vram_gb"] = expected_free
-                _upsert_host_row(conn, host)
-                corrections[hid] = round(expected_free - current_free, 4)
+            used = host_vram_used.get(str(hid), 0.0)
+            expected_free = expected_free_vram_gb(total, used)
+            delta = free_vram_correction(current_free, expected_free)
+            if delta is None:
+                continue
+            log.warning(
+                "VRAM RECONCILE host=%s total=%.2f current_free=%.2f expected_free=%.2f drift=%.2f",
+                hid,
+                total,
+                current_free,
+                expected_free,
+                abs(delta),
+            )
+            host["free_vram_gb"] = expected_free
+            _upsert_host_row(conn, host)
+            corrections[str(hid)] = delta
 
     if corrections:
         log.info("VRAM RECONCILE corrected %d hosts: %s", len(corrections), corrections)
@@ -1915,6 +2017,7 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
         )
     alert_failed = None
     alert_completed = None
+    outbox_enqueued = False
     validated_attempt_id = kwargs.pop("_attempt_id", None)
     validated_fencing_token = kwargs.pop("_fencing_token", None)
     validated_host_id = kwargs.pop("_authority_host_id", None)
@@ -1922,13 +2025,15 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
     with _atomic_mutation() as conn:
         _migrate_jobs_if_needed(conn)
         _migrate_hosts_if_needed(conn)
-        j = _get_job_by_id_conn(conn, job_id)
-        if not j:
-            return None
 
+        # Postgres: lock the job row first, then load status under that lock.
+        # CAS (expected_status) must not use a pre-lock snapshot — concurrent
+        # assigned→running would otherwise be force-failed (regresses the old
+        # reaper SQL ``WHERE status = expected`` under row lock).
+        locked_col_status = None
         if _active_backend() == "postgres":
             authority = conn.execute(
-                """SELECT j.active_attempt_id, j.host_id, a.fencing_token
+                """SELECT j.active_attempt_id, j.host_id, a.fencing_token, j.status
                      FROM jobs j
                      LEFT JOIN job_attempts a
                        ON a.attempt_id = j.active_attempt_id
@@ -1936,20 +2041,27 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
                       FOR UPDATE OF j""",
                 (job_id,),
             ).fetchone()
+            if authority is None:
+                return None
             active_attempt_id = (
                 authority.get("active_attempt_id")
                 if isinstance(authority, dict)
-                else authority[0] if authority else None
+                else authority[0]
             )
             authority_host_id = (
                 authority.get("host_id")
                 if isinstance(authority, dict)
-                else authority[1] if authority else None
+                else authority[1]
             )
             authority_fence = (
                 authority.get("fencing_token")
                 if isinstance(authority, dict)
-                else authority[2] if authority else None
+                else authority[2]
+            )
+            locked_col_status = (
+                authority.get("status")
+                if isinstance(authority, dict)
+                else authority[3]
             )
             tuple_matches = (
                 active_attempt_id is not None
@@ -1968,8 +2080,24 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
                     "raw lifecycle mutation is fenced out"
                 )
 
+        # Full payload load under the same transaction (after FOR UPDATE on PG).
+        j = _get_job_by_id_conn(conn, job_id)
+        if not j:
+            return None
+
+        # Column status from the locked row is CAS authority; keep payload in sync.
+        if locked_col_status is not None:
+            j["status"] = locked_col_status
         old_status = j.get("status")
         old_host_id = j.get("host_id")
+
+        # Optional CAS: callers (stuck-job reaper) race workers that advance
+        # status between candidate SELECT and this mutation. If the row is
+        # no longer in the expected state, return None without writing —
+        # do not force-fail a job that already left the stuck state.
+        expected_status = kwargs.pop("expected_status", None)
+        if expected_status is not None and old_status != expected_status:
+            return None
 
         # Validate state transition against the state machine
         from events import VALID_TRANSITIONS, JobState
@@ -2037,6 +2165,69 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
 
         _upsert_job_row(conn, j)
 
+        # Durable side-effect intent for multi-replica SSE.
+        # Append inside the same transaction as the status mutation so a
+        # crash after commit cannot lose the event (dispatcher redelivers).
+        # Postgres only; sqlite keeps emit_event below.
+        #
+        # SAVEPOINT is mandatory: a failed INSERT aborts the open PG
+        # transaction (INERROR). Without ROLLBACK TO SAVEPOINT the later
+        # commit discards the job upsert while we still return the
+        # in-memory new status (split-brain). Isolate append failures so
+        # the status write always commits; fall back to emit_event.
+        if _active_backend() == "postgres":
+            from control_plane.outbox import append_event
+
+            try:
+                conn.execute("SAVEPOINT legacy_status_outbox_append")
+            except Exception as e:
+                log.warning(
+                    "outbox SAVEPOINT create failed job=%s: %s "
+                    "(falling back to emit_event)",
+                    job_id,
+                    e,
+                )
+            else:
+                try:
+                    append_event(
+                        conn,
+                        aggregate_type="job",
+                        aggregate_id=str(job_id),
+                        event_type="job.v1.legacy_status_changed",
+                        payload={
+                            "status": status,
+                            "previous_status": old_status,
+                            "host_id": host_id or j.get("host_id") or old_host_id,
+                        },
+                        destination_class="default",
+                        idempotency_key=(
+                            f"legacy_status:{job_id}:{old_status}:{status}:"
+                            f"{j.get('updated_at')}"
+                        ),
+                    )
+                    conn.execute("RELEASE SAVEPOINT legacy_status_outbox_append")
+                    outbox_enqueued = True
+                except Exception as e:
+                    try:
+                        conn.execute("ROLLBACK TO SAVEPOINT legacy_status_outbox_append")
+                    except Exception as rb_err:
+                        # Outer transaction is doomed — do not return success
+                        # with an in-memory status the DB will not keep.
+                        log.error(
+                            "outbox SAVEPOINT rollback failed job=%s: %s "
+                            "(original: %s)",
+                            job_id,
+                            rb_err,
+                            e,
+                        )
+                        raise e from rb_err
+                    log.warning(
+                        "outbox append failed for job_status job=%s: %s "
+                        "(SAVEPOINT restored; falling back to emit_event)",
+                        job_id,
+                        e,
+                    )
+
         if status == "failed":
             alert_failed = (job_id, j.get("name", "?"), j.get("host_id"))
         elif status == "completed":
@@ -2059,9 +2250,14 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
     # Mirror to secondary DB + emit SSE event
     engine = get_engine()
     engine.mirror_to_secondary(DatabaseOps.upsert_job, j)
-    emit_event(
-        "job_status", {"job_id": job_id, "status": status, "host_id": host_id or old_host_id}
-    )
+    # Primary production path for multi-replica correctness is the outbox
+    # (dispatcher → pg_notify on xcelsior_events). Avoid dual fan-out when
+    # the intent is already durable — clients would see duplicate SSE.
+    if not outbox_enqueued:
+        emit_event(
+            "job_status",
+            {"job_id": job_id, "status": status, "host_id": host_id or old_host_id},
+        )
 
     # Detach volumes when instance reaches terminal state
     if status in ("completed", "failed", "cancelled", "terminated"):
@@ -2071,6 +2267,15 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
             get_volume_engine().detach_all_for_instance(job_id)
         except Exception as e:
             log.warning("Volume detach on %s failed for %s: %s", status, job_id, e)
+        # Release launch fund hold once (idempotent).
+        try:
+            from billing import get_billing_engine
+
+            get_billing_engine().release_wallet_hold_for_job(
+                job_id, reason=f"job_{status}"
+            )
+        except Exception as e:
+            log.debug("wallet hold release on %s for %s: %s", status, job_id, e)
 
     # ── v2.1: Record event + trigger billing/reputation ──
     try:
@@ -2248,6 +2453,14 @@ def process_assigned():
     # agent start command (claim → lease → container); the legacy SSH
     # path starting them too would double-start the workload.
     attempt_owned = _attempt_owned_job_ids()
+    if attempt_owned is None:
+        # Fail-closed: never SSH-start when we cannot prove a job is
+        # not attempt-owned (agent-v2 fence).
+        log.error(
+            "RUNNER: attempt-owned lookup failed — skipping all assigned "
+            "starts (fail-closed; durable command path remains authority)"
+        )
+        return []
 
     hosts = list_hosts(active_only=False)
     host_map = {h["host_id"]: h for h in hosts}
@@ -2342,6 +2555,17 @@ def _control_plane_owns_job(job: dict) -> bool:
     return cfg.owns_job(job)
 
 
+def legacy_inline_placement_allowed(job: dict) -> bool:
+    """May API/serverless paths assign + SSH-start this job inline?
+
+    When the transactional scheduler owns the job (canary partition
+    or active), only the claim→reserve path may create assigned state and
+    the durable start command. Host-pin / marketplace direct launch and
+    legacy queue walkers must refuse placement side effects for owned work.
+    """
+    return not _control_plane_owns_job(job)
+
+
 def _control_plane_tick():
     """Track A Phase 4: one transactional-scheduler tick (canary/active).
 
@@ -2362,10 +2586,16 @@ def _control_plane_tick():
     return _cp_service.tick()
 
 
-def _attempt_owned_job_ids() -> set:
+def _attempt_owned_job_ids():
     """Assigned jobs bound by the transactional scheduler (have an active
     attempt). Their containers start via the durable agent start command,
-    never via the legacy SSH path — process_assigned must skip them."""
+    never via the legacy SSH path — process_assigned must skip them.
+
+    Returns:
+      set[str]: job_ids that are attempt-owned.
+      None: lookup failed — callers MUST fail-closed (do not start anything
+        via SSH) rather than race the fenced /agent/v2 path.
+    """
     if _active_backend() != "postgres":
         return set()
     try:
@@ -2380,8 +2610,8 @@ def _attempt_owned_job_ids() -> set:
             str(r["job_id"] if isinstance(r, dict) else r[0]) for r in rows
         }
     except Exception as e:
-        log.error("attempt-owned job lookup failed: %s", e)
-        return set()
+        log.error("attempt-owned job lookup failed (fail-closed): %s", e)
+        return None
 
 
 def start_shadow_runner():
@@ -4820,7 +5050,39 @@ def update_spot_prices():
     from spot_pricing import update_all_spot_prices
 
     spot_prices = update_all_spot_prices()
-    emit_event("spot_prices", spot_prices)
+    # Durable SSE after history persistence (update_all_spot_prices records
+    # spot_price_history). Process-local emit only when outbox is not durable.
+    outbox_enqueued = False
+    if _active_backend() == "postgres" and spot_prices:
+        try:
+            from control_plane.outbox_runtime import try_append_lifecycle_outbox
+
+            # Bounded price map for NOTIFY — same shape clients already consume.
+            # Cap to model→rate pairs (floats); drop oversized maps to summary.
+            prices_payload = dict(spot_prices)
+            raw = json.dumps(prices_payload)
+            if len(raw) > 7000:
+                prices_payload = {
+                    "_truncated": True,
+                    "models": sorted(spot_prices.keys())[:32],
+                    "count": len(spot_prices),
+                }
+            with _atomic_mutation() as conn:
+                outbox_enqueued = try_append_lifecycle_outbox(
+                    conn,
+                    aggregate_type="pricing",
+                    aggregate_id="spot",
+                    event_type="pricing.v1.spot_prices_updated",
+                    payload={"prices": prices_payload},
+                    # One durable fan-out per minute epoch (refresh interval
+                    # is typically longer); within-minute repeats collapse.
+                    idempotency_key=f"spot_prices:{int(time.time() // 60)}",
+                )
+        except Exception as exc:
+            log.warning("spot_prices outbox append failed: %s", exc)
+            outbox_enqueued = False
+    if not outbox_enqueued:
+        emit_event("spot_prices", spot_prices)
     log.info(
         "spot.price_updated prices=%s models=%d",
         json.dumps(spot_prices),
@@ -4880,6 +5142,7 @@ def preempt_job(job_id):
     """
     preempted_job = None
     worker_host_id = None
+    outbox_enqueued = False
     with _atomic_mutation() as conn:
         _migrate_jobs_if_needed(conn)
         j = _get_job_by_id_conn(conn, job_id)
@@ -4903,6 +5166,24 @@ def preempt_job(job_id):
         j["retries"] = j.get("retries", 0)  # Don't count preemption as retry
         _upsert_job_row(conn, j)
         preempted_job = dict(j)
+        if _active_backend() == "postgres":
+            from control_plane.outbox_runtime import try_append_lifecycle_outbox
+
+            outbox_enqueued = try_append_lifecycle_outbox(
+                conn,
+                aggregate_type="job",
+                aggregate_id=str(job_id),
+                event_type="job.v1.preempted",
+                payload={
+                    "name": preempted_job.get("name"),
+                    "preemption_count": preempted_job.get("preemption_count"),
+                    "previous_host_id": worker_host_id,
+                },
+                idempotency_key=(
+                    f"job_preempted:{job_id}:"
+                    f"{preempted_job.get('preemption_count')}"
+                ),
+            )
 
     if worker_host_id:
         try:
@@ -4912,7 +5193,11 @@ def preempt_job(job_id):
         except Exception as exc:
             log.debug("Agent preemption schedule skipped for %s: %s", job_id, exc)
 
-    emit_event("job_preempted", {"job_id": job_id, "name": preempted_job.get("name")})
+    if not outbox_enqueued:
+        emit_event(
+            "job_preempted",
+            {"job_id": job_id, "name": preempted_job.get("name")},
+        )
     log.warning(
         "spot.preempted job_id=%s name=%s host_id=%s preemption_count=%s",
         job_id,

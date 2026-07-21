@@ -6,15 +6,13 @@ import { SITE_ASSETS, siteIcon } from "@/lib/brand-assets";
 import { useLocale } from "@/lib/locale";
 
 const values = [
-  { icon: "leaf", title: "about.val_green_title", desc: "about.val_green_desc" },
+  { icon: "server", title: "about.val_tech_title", desc: "about.val_tech_desc" },
+  { icon: "bolt", title: "about.val_infra_title", desc: "about.val_infra_desc" },
+  { icon: "globe", title: "about.val_price_title", desc: "about.val_price_desc" },
   { icon: "users", title: "about.val_community_title", desc: "about.val_community_desc" },
-  { icon: "bolt", title: "about.val_access_title", desc: "about.val_access_desc" },
-  { icon: "sparkle", title: "about.val_canada_title", desc: "about.val_canada_desc" },
-  { icon: "globe", title: "about.val_local_title", desc: "about.val_local_desc" },
 ] as const;
 
 const milestoneGroups = [
-  { year: "about.journey_2024_title", events: ["about.journey_2024_p1", "about.journey_2024_p2"] },
   { year: "about.journey_2025_title", events: ["about.journey_2025_p1", "about.journey_2025_p2", "about.journey_2025_p3"] },
   { year: "about.journey_2026_title", events: ["about.journey_2026_p1"] },
 ];
