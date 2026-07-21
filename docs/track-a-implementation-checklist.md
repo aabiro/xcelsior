@@ -671,11 +671,22 @@ trusts client-settable `X-Xcelsior-Agent-Gateway` alone — requires
 `/host`; API strips untrusted identity headers unless the gateway secret
 authenticates. Gate: `tests/test_phase10_identity_privilege.py`.
 
-**Phase 10 residuals (not claimed — code review vs blueprint §19/§31):**
-live SPIRE node attestation; Envoy SDS; volume-provisioner cutover (API
-still mounts `/exports`); API non-root/read-only image; rotating off
-shared fleet `api-token` bearer; MCP Redis-backed rate limit (process-local
-Map today multiplies under replicas); full public cutover off `/agent/`
-to agent.xcelsior.ca only; separate DB roles per service.
+**Phase 10 residual closeout (2026-07-21, proven in-repo):**
+- [x] API/bg-worker/scheduler: no `/exports` mount; `XCELSIOR_VOLUME_PRIVILEGE=host_ssh`
+  default forces LUKS over host-SSH; optional `volume-provisioner` profile owns
+  `/exports` + SYS_ADMIN. Gate: `tests/test_phase10_residuals.py`.
+- [x] Shared fleet bearer: production host mutations reject `api-token` unless
+  `XCELSIOR_AGENT_SHARED_BEARER_MIGRATION=1` (+ optional host CSV). Gate: identity
+  helpers + `_require_agent_auth` route test.
+- [x] MCP Redis-backed rate limit (`mcp/src/rate-limit.ts`): multi-replica INCR;
+  fail-closed 503 when backend required/unavailable (never unlimited). Gate:
+  `mcp/src/rate-limit.test.ts` (vitest).
+- [x] Public nginx strips forgeable gateway headers; agent conf injects secret
+  after mTLS (prior + residual tests).
+
+**Still residual (not claimed):** live SPIRE multi-node attestation; Envoy SDS
+production; API non-root/read-only image; full public cutover off `/agent/` to
+agent.xcelsior.ca only (bearer migration path remains stripped of identity
+headers); separate DB roles per service; field-wide bearer rotation (flag defaults off).
 
 

@@ -208,10 +208,12 @@ x-api-environment: &api-env
   XCELSIOR_SERVERLESS_CACHE_REPLICATE_REGIONS: ${XCELSIOR_SERVERLESS_CACHE_REPLICATE_REGIONS:-}
 
 # ── Shared API volumes ───────────────────────────────────────────────
+# Phase 10: API/bg-worker do NOT mount host /exports (no privileged volume
+# surface). LUKS/NFS device work is host-SSH (volumes.py) or the optional
+# volume-provisioner profile.
 x-api-volumes: &api-volumes
   - xcelsior-data:/data
   - ${HOME}/.ssh/xcelsior:/run/secrets/ssh_key:ro
-  - /exports:/exports
 
 services:
   api:
@@ -341,7 +343,7 @@ services:
       - xcelsior-data:/data
       - ${HOME}/.ssh/xcelsior:/run/secrets/ssh_key:ro
       - ${HOME}/.ssh/known_hosts:/root/.ssh/known_hosts:ro
-      - /exports:/exports
+      # No /exports — scheduler uses host-SSH for privileged volume ops.
     restart: unless-stopped
     # This image's Dockerfile HEALTHCHECK probes the API's HTTP /healthz,
     # which a headless worker doesn't serve — that gave a permanent false
@@ -465,6 +467,26 @@ services:
       timeout: 5s
       start_period: 20s
       retries: 3
+
+  # ── Volume provisioner (Phase 10 privilege split) ──────────────────
+  # Optional: only hosts that still need local loop/cryptsetup on /exports.
+  # Default production path is host-SSH from API without this profile.
+  volume-provisioner:
+    build:
+      context: ./infra/volume-provisioner
+    profiles: ["volume-provisioner"]
+    network_mode: host
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+    volumes:
+      - /exports:/exports
+      - xcelsior-data:/data
+    environment:
+      XCELSIOR_NFS_EXPORT_BASE: ${XCELSIOR_NFS_EXPORT_BASE:-/exports/volumes}
+      XCELSIOR_VOLUME_PRIVILEGE: local
+    restart: unless-stopped
 
   # ── Observability: Jaeger (OpenTelemetry traces) ───────────────────
   jaeger:

@@ -4,8 +4,12 @@
   "description": "Hosted Model Context Protocol server for Xcelsior GPU platform",
   "type": "module",
   "main": "dist/index.js",
-  "files": ["dist"],
-  "engines": { "node": ">=18" },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
@@ -15,6 +19,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.0",
+    "redis": "^4.7.1",
     "zod": "^3.24.0"
   },
   "devDependencies": {

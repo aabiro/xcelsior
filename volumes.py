@@ -139,7 +139,20 @@ class VolumeEngine:
         return NFS_SSH_USER
 
     def _luks_force_ssh(self) -> bool:
-        """LUKS needs the host kernel (device-mapper); always SSH from Docker."""
+        """LUKS needs the host kernel (device-mapper).
+
+        Phase 10: production API/bg-worker never mount ``/exports`` and must
+        not run cryptsetup in-process. Default privilege mode is ``host_ssh``
+        (always force SSH). Only the optional volume-provisioner profile sets
+        ``XCELSIOR_VOLUME_PRIVILEGE=local`` when it has the export mount.
+        """
+        mode = (os.environ.get("XCELSIOR_VOLUME_PRIVILEGE") or "host_ssh").strip().lower()
+        if mode in ("host_ssh", "ssh", "remote"):
+            return True
+        if mode == "local":
+            # Explicit local provisioner: only when export base is present.
+            return not os.path.isdir(NFS_EXPORT_BASE)
+        # Unknown mode → fail closed toward SSH (never invent local privilege).
         if not self._nfs_is_local_host(NFS_SSH_HOST):
             return True
         if self._in_docker():

@@ -3,23 +3,9 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { loadConfig } from "./config.js";
 import { createMcpServer } from "./server.js";
 import { createApiClient, extractBearer, validateBearer } from "./auth/bearer.js";
+import { checkRateLimit } from "./rate-limit.js";
 
 const config = loadConfig();
-
-/** Per-client rate limit buckets */
-const rateBuckets = new Map<string, { count: number; resetAt: number }>();
-
-function checkRateLimit(key: string): boolean {
-  const now = Date.now();
-  const windowMs = 60_000;
-  let bucket = rateBuckets.get(key);
-  if (!bucket || now >= bucket.resetAt) {
-    bucket = { count: 0, resetAt: now + windowMs };
-    rateBuckets.set(key, bucket);
-  }
-  bucket.count += 1;
-  return bucket.count <= config.rateLimitPerMinute;
-}
 
 function readBody(req: http.IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
@@ -58,8 +44,9 @@ async function handleMcp(
   }
 
   const rateKey = bearer.slice(0, 16);
-  if (!checkRateLimit(rateKey)) {
-    json(res, 429, { error: "rate_limit_exceeded", message: "Too many MCP requests; retry in 60s." });
+  const rate = await checkRateLimit(rateKey, config.rateLimit);
+  if (!rate.ok) {
+    json(res, rate.status, { error: rate.code, message: rate.message });
     return;
   }
 
