@@ -219,11 +219,20 @@ def allow_shared_bearer_for_host(
     host_id: str,
     host_owner: str | None,
 ) -> tuple[bool, str]:
-    """Decide whether a shared fleet bearer may mutate ``host_id``.
+    """Decide whether a principal may mutate ``host_id`` under production rules.
 
-    Returns ``(allowed, reason_code)``. Owner match always allows (not shared
-    impersonation). Shared bearer requires migration flag (+ optional host
-    allowlist).
+    Returns ``(allowed, reason_code)``.
+
+    Order is intentional (Phase 10 skeptic fix):
+      1. Owner match always allows.
+      2. Shared fleet bearer (``api-admin`` / ``api-token`` master token shape
+         from ``_get_current_user`` — often ``is_admin=True``) is **never**
+         treated as a generic human admin. It requires the migration flag
+         (+ optional host allowlist). Checking ``is_admin`` first made the
+         gate dead for the real master token principal.
+      3. Human platform admins (``is_admin`` and *not* shared fleet bearer)
+         may act.
+      4. Otherwise deny.
     """
     if not principal:
         return False, "no_principal"
@@ -232,15 +241,16 @@ def allow_shared_bearer_for_host(
     owner = (host_owner or "").strip()
     if owner and (owner == uid or owner == email):
         return True, "owner"
-    if principal.get("is_admin"):
+    # Shared fleet bearer BEFORE is_admin — master token sets is_admin=True.
+    if is_shared_fleet_bearer(principal):
+        if not shared_bearer_migration_enabled():
+            return False, "shared_bearer_migration_disabled"
+        if not shared_bearer_host_allowlisted(host_id):
+            return False, "shared_bearer_host_not_allowlisted"
+        return True, "shared_bearer_migration"
+    if principal.get("is_admin") or str(principal.get("role") or "") == "admin":
         return True, "admin"
-    if not is_shared_fleet_bearer(principal):
-        return False, "not_owner"
-    if not shared_bearer_migration_enabled():
-        return False, "shared_bearer_migration_disabled"
-    if not shared_bearer_host_allowlisted(host_id):
-        return False, "shared_bearer_host_not_allowlisted"
-    return True, "shared_bearer_migration"
+    return False, "not_owner"
 
 
 def _is_explicitly_admitted(value: Any) -> bool:
