@@ -110,6 +110,28 @@ def _submit_job(name="llama3", vram=16, **extra):
     return client.post("/instance", json=data)
 
 
+def _place_queue():
+    """Run the scheduler's claim/place step once.
+
+    B2.6 removed the inline queue walk from POST /instance — the scheduler owns
+    placement, as it does in production. Tests that assert a job lands on a host
+    trigger placement explicitly here (the same `process_queue` the tick runs),
+    instead of relying on the request handler to schedule inline.
+    """
+    from scheduler import process_queue
+
+    return process_queue()
+
+
+def _submit_and_place(name="llama3", vram=16, **extra):
+    """Submit a job, run placement, and return the refreshed instance dict."""
+    r = _submit_job(name, vram, **extra)
+    assert r.status_code == 200, r.text
+    job_id = r.json()["instance"]["job_id"]
+    _place_queue()
+    return client.get(f"/instance/{job_id}").json()["instance"]
+
+
 def _register_user(
     email: str,
     password: str = "testpass123",
@@ -291,10 +313,8 @@ class TestHostRegistrationFlow:
     def test_admitted_host_receives_work(self):
         """Only admitted hosts get job assignments."""
         _register_host("h1", versions=GOOD_VERSIONS)
-        r = _submit_job("llama3", 16)
-        assert r.status_code == 200
-        instance = r.json()["instance"]
-        # Job should be assigned or running (auto queue processing)
+        instance = _submit_and_place("llama3", 16)
+        # The scheduler claims the queued job and places it on the admitted host.
         assert instance["status"] in ("assigned", "running")
         assert instance["host_id"] == "h1"
 
@@ -327,9 +347,7 @@ class TestHostRegistrationFlow:
         _register_host("h2", ip="10.0.0.2", versions=GOOD_VERSIONS)
         assert client.post("/host/h1/drain").status_code == 200
 
-        r = _submit_job("llama3", 16)
-        assert r.status_code == 200
-        instance = r.json()["instance"]
+        instance = _submit_and_place("llama3", 16)
         assert instance["host_id"] == "h2"
 
     def test_direct_launch_rejects_draining_host(self):
@@ -345,9 +363,8 @@ class TestHostRegistrationFlow:
         """Maintenance summary should expose active interactive instances."""
         _register_host("h1", versions=GOOD_VERSIONS)
 
-        r = _submit_job("llama3", 16)
-        assert r.status_code == 200
-        assert r.json()["instance"]["host_id"] == "h1"
+        instance = _submit_and_place("llama3", 16)
+        assert instance["host_id"] == "h1"
 
         assert client.post("/host/h1/drain").status_code == 200
 
@@ -630,13 +647,15 @@ class TestJobEndpoints:
 
     def test_process_queue(self):
         _register_host("h1", versions=GOOD_VERSIONS)
-        # submit now auto-processes the queue so the job is assigned immediately
+        # B2.6: submit only enqueues; placement is the scheduler's job.
         r = _submit_job("llama3", 16)
         assert r.status_code == 200
-        inst = r.json()["instance"]
-        assert inst["status"] in ("assigned", "running")
-        assert inst["host_id"] == "h1"
-        # calling process again should have nothing left to assign
+        assert r.json()["instance"]["status"] == "queued"
+        # First pass claims and assigns the queued job …
+        r1 = client.post("/queue/process")
+        assert r1.status_code == 200
+        assert len(r1.json()["assigned"]) == 1
+        # … a second pass has nothing left to assign.
         r2 = client.post("/queue/process")
         assert r2.status_code == 200
         assert len(r2.json()["assigned"]) == 0
