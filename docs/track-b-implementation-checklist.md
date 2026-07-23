@@ -458,12 +458,22 @@ migration 056) exist from Track A and are the substrate this builds on.
   drain/evict require **distinct** scopes (AST-pinned), unknown host is
   problem+json 404, stale `expected_version` is 409. Pyright clean; host-coverage
   16 green.
-  **Residual (read endpoints + contract test + legacy reconcile):** still to
-  build — the read/mutation v1 routes `/instances/{id}/control-plane`,
-  `/attempts`, `/timeline`, `/placement-explanation`; `/instances/{id}/retry`
-  and `/reconcile`; `/control-plane/health`, `/queue`,
-  `/reconciliation-findings`; `/hosts/{id}/capacity`, `/observations` (each
-  wraps existing Track A data — reconciler findings, scheduler `explain`, host
+  **Also landed (2026-07-23): the customer/operator read endpoints** —
+  `GET /api/v1/instances/{id}/control-plane` (phase / desired-state / current
+  attempt), `GET /api/v1/instances/{id}/timeline` (per-attempt reserve → command
+  → lease → start → end from `job_attempts`), and
+  `GET /api/v1/control-plane/reconciliation-findings` (wraps the existing
+  `reconciliation_findings` authority). All tenant-scoped: a cross-tenant
+  instance id returns **not-found** problem+json, never a 403 permission hint
+  (§B5.6 no existence leak); findings need admin or `control_plane:read`. Gate:
+  `tests/test_control_plane_v1_drain_evict.py` (+3, now 8) — control-plane +
+  timeline shape, cross-tenant not-found (no leak), findings admin-gated with
+  invalid-status 422.
+  **Residual (mutations + aggregates + contract test + legacy reconcile):**
+  still to build — the v1 routes `/instances/{id}/attempts`,
+  `/placement-explanation`; `/instances/{id}/retry` and `/reconcile`;
+  `/control-plane/health`, `/queue`; `/hosts/{id}/capacity`, `/observations`
+  (each wraps existing Track A data — scheduler `explain`, host
   capacity/telemetry — behind the framework above); the schemathesis contract
   run over the v1 OpenAPI; and reconciling the **legacy** `/host/{id}/drain`
   preempt-on-drain behaviour (a behaviour change with drain-test blast radius,
