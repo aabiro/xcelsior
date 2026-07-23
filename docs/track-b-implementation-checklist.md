@@ -555,11 +555,20 @@ Track A.
   injected crash between attempt-running and meter-start converges to
   exactly one meter; an injected duplicate delivery creates no second
   charge.
-- [ ] **B3.4 Price-change reapproval end to end** (§15.4). The tolerance
-  bound recorded in B2.1 is enforced at B2.5 execute and surfaced in the
-  UI (B6) and MCP (B5) as `quote_changed` with a replacement plan.
-  Gate: a pricing-snapshot bump beyond tolerance blocks execute and
-  produces a new plan; within tolerance it proceeds unchanged.
+- [~] **B3.4 Price-change reapproval — server enforcement done** (2026-07-23,
+  §15.4). The tolerance bound recorded on the plan (B2.1) is enforced at execute
+  (B2.5): a re-quote beyond tolerance returns `quote_changed` with a fresh
+  replacement plan and charges nothing. Gate: `tests/test_price_reapproval.py`
+  (2) drives the **real** pricing authority — it monkeypatches
+  `BillingEngine.estimate_launch_hold_cad` to move the live rate *after*
+  approval, then executes: a doubled rate blocks execute (`quote_changed`, a
+  replacement quoted at the new rate, no hold, original left `approved`), and a
+  +1% move (inside the 500 bps tolerance) proceeds unchanged. This is a faithful
+  pricing-snapshot bump, not a stored-estimate tamper.
+  **Residual:** surfacing `quote_changed` in the **UI** (B6) and **MCP** (B5) —
+  both depend on those phases being built; the API contract they consume (409
+  `quote_changed` problem+json with the replacement plan as an RFC 9457
+  extension member) already ships from B2.5/B2.8.
 
 ---
 
