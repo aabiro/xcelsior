@@ -270,3 +270,91 @@ def test_reconciliation_findings_requires_admin():
     bad = client.get("/api/v1/control-plane/reconciliation-findings?status=bogus", headers=admin)
     assert bad.status_code == 422
     assert bad.json()["code"] == "invalid_status"
+
+
+# ── Operator aggregate reads + instance attempts/retry (B2.8 tail) ──────
+
+
+def test_control_plane_queue_lists_queued_and_is_operator_gated():
+    admin = _admin_headers(f"q-admin-{uuid.uuid4().hex[:6]}@xcelsior.ca")
+    # Submit without any admitted host → the job stays queued.
+    sub = client.post("/instance", json={"name": f"q-{uuid.uuid4().hex[:6]}", "vram_needed_gb": 8}, headers=admin)
+    assert sub.status_code == 200, sub.text
+    job_id = sub.json()["instance"]["job_id"]
+    _OWNED["jobs"].add(job_id)
+
+    plain = _plain_user_headers(f"q-user-{uuid.uuid4().hex[:6]}@xcelsior.ca")
+    assert client.get("/api/v1/control-plane/queue", headers=plain).status_code == 403
+
+    q = client.get("/api/v1/control-plane/queue", headers=admin)
+    assert q.status_code == 200, q.text
+    body = q.json()
+    assert body["depth"] >= 1
+    assert any(e["job_id"] == job_id for e in body["queue"])
+
+
+def test_control_plane_health_reports_live_counts():
+    admin = _admin_headers(f"h-admin-{uuid.uuid4().hex[:6]}@xcelsior.ca")
+    assert client.get("/api/v1/control-plane/health", headers=_plain_user_headers(f"h-u-{uuid.uuid4().hex[:6]}@x.ca")).status_code == 403
+    h = client.get("/api/v1/control-plane/health", headers=admin)
+    assert h.status_code == 200, h.text
+    body = h.json()
+    assert body["status"] in ("healthy", "degraded")
+    assert "pending" in body["outbox"] and "dead_lettered" in body["outbox"]
+    assert "open_findings" in body["reconciliation"]
+    assert isinstance(body["scheduled_tasks"], list)
+
+
+def test_host_capacity_and_observations_operator_reads():
+    admin = _admin_headers(f"cap-admin-{uuid.uuid4().hex[:6]}@xcelsior.ca")
+    host_id = f"cpv1-cap-{uuid.uuid4().hex[:6]}"
+    _register_host(host_id)
+
+    cap = client.get(f"/api/v1/hosts/{host_id}/capacity", headers=admin)
+    assert cap.status_code == 200, cap.text
+    body = cap.json()
+    assert body["total_vram_gb"] == 24.0
+    assert body["allocated_vram_gb"] == 0.0
+    assert body["gpu_model"] == "RTX 4090"
+
+    obs = client.get(f"/api/v1/hosts/{host_id}/observations", headers=admin)
+    assert obs.status_code == 200
+    assert isinstance(obs.json()["observations"], list)
+
+    # Unknown host is a problem+json 404.
+    nf = client.get(f"/api/v1/hosts/none-{uuid.uuid4().hex}/capacity", headers=admin)
+    assert nf.status_code == 404 and nf.json()["code"] == "host_not_found"
+
+
+def test_instance_attempts_and_placement_explanation_tenant_scoped():
+    owner = _admin_headers(f"att-owner-{uuid.uuid4().hex[:6]}@xcelsior.ca")
+    host_id = f"cpv1-att-{uuid.uuid4().hex[:6]}"
+    _register_host(host_id)
+    job_id = _running_job_on(host_id, owner)
+
+    a = client.get(f"/api/v1/instances/{job_id}/attempts", headers=owner)
+    assert a.status_code == 200
+    assert isinstance(a.json()["attempts"], list)
+
+    pe = client.get(f"/api/v1/instances/{job_id}/placement-explanation", headers=owner)
+    assert pe.status_code == 200
+    assert "explained" in pe.json()
+
+    intruder = _plain_user_headers(f"att-b-{uuid.uuid4().hex[:6]}@xcelsior.ca")
+    for path in (f"/api/v1/instances/{job_id}/attempts", f"/api/v1/instances/{job_id}/placement-explanation"):
+        r = client.get(path, headers=intruder)
+        assert r.status_code == 404 and r.json()["code"] == "instance_not_found"
+
+
+def test_instance_retry_requeues_a_running_job():
+    owner = _admin_headers(f"retry-owner-{uuid.uuid4().hex[:6]}@xcelsior.ca")
+    host_id = f"cpv1-retry-{uuid.uuid4().hex[:6]}"
+    _register_host(host_id)
+    job_id = _running_job_on(host_id, owner)
+
+    r = client.post(f"/api/v1/instances/{job_id}/retry", headers=owner)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "queued"
+    # Retrying an already-queued instance is a typed 409.
+    again = client.post(f"/api/v1/instances/{job_id}/retry", headers=owner)
+    assert again.status_code == 409 and again.json()["code"] == "already_queued"
