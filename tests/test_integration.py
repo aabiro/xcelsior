@@ -92,8 +92,12 @@ def test_job_lifecycle_and_billing_via_api():
     )
     inst = create.json()["instance"]
     job_id = inst["job_id"]
-    # auto queue processing assigns during submit
-    assert inst["status"] in ("assigned", "running")
+    # B2.6: submit enqueues; the scheduler places it (production flow).
+    scheduler.process_queue()
+    assert client.get(f"/instance/{job_id}").json()["instance"]["status"] in (
+        "assigned",
+        "running",
+    )
 
     client.patch(
         f"/instance/{job_id}",
@@ -171,8 +175,12 @@ class TestFullJobLifecycle:
             },
         ).json()["instance"]
         job_id = job["job_id"]
-        # auto queue processing assigns during submit
-        assert job["status"] in ("assigned", "running")
+        # B2.6: submit enqueues; the scheduler places it (production flow).
+        scheduler.process_queue()
+        assert client.get(f"/instance/{job_id}").json()["instance"]["status"] in (
+            "assigned",
+            "running",
+        )
 
         # Run and complete
         client.patch(
@@ -245,9 +253,12 @@ class TestSovereignRouting:
                 "tier": "sovereign",
             },
         ).json()["instance"]
+        job_id = job["job_id"]
 
-        # auto queue processing assigns during submit
-        assert job.get("host_id") is not None
+        # B2.6: submit enqueues; the scheduler places it on the CA host.
+        scheduler.process_queue()
+        placed = client.get(f"/instance/{job_id}").json()["instance"]
+        assert placed.get("host_id") is not None
 
     def test_canada_only_flag_blocks_foreign_hosts(self):
         """XCELSIOR_CANADA_ONLY=true should only schedule on CA hosts."""
@@ -549,9 +560,14 @@ class TestSecurityAdmission:
                 "vram_needed_gb": 16,
             },
         ).json()["instance"]
+        job_id = job["job_id"]
 
-        # auto queue processing assigns during submit
-        assert job["status"] in ("assigned", "running")
+        # B2.6: submit enqueues; the scheduler places it on the admitted host.
+        scheduler.process_queue()
+        assert client.get(f"/instance/{job_id}").json()["instance"]["status"] in (
+            "assigned",
+            "running",
+        )
 
     def test_version_report_via_api(self):
         """POST /agent/versions reports node versions and gets admission result."""

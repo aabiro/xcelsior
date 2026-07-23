@@ -380,14 +380,31 @@ migration 056) exist from Track A and are the substrate this builds on.
   deferred it; the idempotency design above makes the interim crash-safe.
   Rolling hourly/daily spend counters at execute are B5.9; the static policy
   ceiling was bound at approve (B2.4).
-- [ ] **B2.6 `/instance` becomes a compatibility adapter** (§14.4). It
-  calls the launch service; it does not keep an independent
-  implementation; it does not call `process_queue()` inline. Track A P4.4b
-  already made the host-pin path defer instead of launching inline — this
-  completes the removal for the general path. Gate: a structural test
-  asserting no request handler in `routes/` calls `process_queue`, plus an
-  equivalence test proving `/instance` and `/api/v1/launch-plans` produce
-  byte-identical canonical specs for the same input.
+- [x] **B2.6 `/instance` no longer schedules inline; specs are equivalent**
+  (2026-07-23, §14.4). The general `/instance` path's inline `process_queue()`
+  call is removed — the job is enqueued durably and the scheduler claims and
+  places it (§10.1), completing the deferral Track A P4.4b began for the
+  host-pin path. `/instance` and `/api/v1/launch-plans` share the one
+  canonicalizer, so the same input yields the byte-identical canonical spec on
+  both surfaces. Gate: `tests/test_launch_instance_adapter.py` (8 tests) — an
+  **AST structural test** proving `api_submit_instance` (and every other route
+  handler except the four explicitly-named admin queue-runner endpoints) never
+  calls `process_queue*`, so a new handler that inline-schedules fails CI; plus
+  an **equivalence test** proving a `JobIn` canonicalizes identically however
+  the two surfaces reach it (interactive→`vram=0`, ports as a merged set,
+  order/whitespace-invariant hash) and that the launch-plan preview persists
+  exactly `canonicalize(JobIn)`.
+  **Blast radius closed (B0.1 rule 6):** 11 tests across `test_api`, `test_e2e`,
+  and `test_integration` had relied on `/instance` assigning inline (BG tasks
+  are off under pytest). Each now triggers the scheduler explicitly via the real
+  `process_queue` — the production flow — and asserts placement, rather than
+  asserting the request handler did the scheduler's job. Full runs green
+  (398 passed across the launch/scheduler/e2e suites).
+  **Residual (→ B2.7):** `/instance` still owns its submission body (host-pin,
+  template resolution, volume validation, wallet preflight, `submit_job`); it
+  shares the *canonical spec* with the service but does not yet delegate that
+  body to `service.execute`. Collapsing every writer onto the service is B2.7,
+  which is where the "one implementation" inventory gate lives.
 - [ ] **B2.7 Route every surface through it.** Dashboard launch modals,
   REST/SDK clients, training workflows, and serverless worker
   provisioning create desired state only through the launch service where
