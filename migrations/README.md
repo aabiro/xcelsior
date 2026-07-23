@@ -70,7 +70,9 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `069_action_plans_mcp_policy_audit.py`.**
+**Repository head: `070_serverless_worker_attempt_binding.py`.**
+(`069_action_plans_mcp_policy_audit.py` was head through Track B B2.1; B3.1
+added `070`, binding `serverless_workers` to their fenced attempt.)
 
 | Document says | Document intended | This repository actually has | Resolution |
 |---|---|---|---|
