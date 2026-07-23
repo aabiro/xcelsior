@@ -446,3 +446,24 @@ def api_v1_control_plane_health(request: Request):
         "scheduled_tasks": tasks,
         "failed_tasks": failed_tasks,
     }
+
+
+@router.get("/api/v1/openapi.json")
+def api_v1_openapi(request: Request):
+    """The versioned OpenAPI schema for the `/api/v1` surface (§18.1).
+
+    The app serves a *curated* public spec at `/openapi.json`; the generated MCP
+    and dashboard clients (B5.2, B6.1) instead pin this — the live FastAPI schema
+    filtered to `/api/v1/*` — so a client is always in lockstep with the routes
+    actually mounted.
+    """
+    from fastapi.openapi.utils import get_openapi
+
+    full = get_openapi(
+        title="Xcelsior Control-Plane API v1",
+        version="1.0.0",
+        description="Versioned control-plane surface (§18). Errors are RFC 9457 problem+json.",
+        routes=request.app.routes,
+    )
+    full["paths"] = {p: v for p, v in full.get("paths", {}).items() if p.startswith("/api/v1/")}
+    return full
