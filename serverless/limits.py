@@ -105,7 +105,17 @@ def validate_rate_limit_policy() -> None:
 
 
 def _bucket_key(key_id: str) -> str:
-    return f"serverless:key:{key_id}"
+    """Key for the process-local dev/test bucket.
+
+    This one never reaches Redis, but it goes through the same contract
+    helper anyway: `key_id` can be a `dashboard-test:{owner_id}` composite
+    and owner ids are frequently email addresses, and having exactly one
+    way to build a cache key means there is no exception to remember if
+    this store is ever swapped for a shared one.
+    """
+    from cache_keys import cache_key
+
+    return cache_key("ratelimit", "serverless_local", secret=str(key_id))
 
 
 def _local_deque_check(key_id: str, rpm: int) -> RateLimitInfo:

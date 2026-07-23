@@ -113,6 +113,10 @@ CONTROL_TABLES = frozenset(
         "benchmarks",
         "cloud_burst_instances",
         "slurm_job_mappings",
+        # Unified launch service (Track B B2): the launch/action-plan spine
+        # is control-plane state the API writer owns.
+        "action_plans",
+        "mcp_client_policies",
     }
 )
 
@@ -162,6 +166,8 @@ AUDIT_TABLES = frozenset(
         "event_snapshots",
         "outbox_events",
         "alembic_version",
+        # One redacted record per MCP tool call (Track B B2.1, §17.10).
+        "mcp_tool_audit",
     }
 )
 

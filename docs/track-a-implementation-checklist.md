@@ -21,6 +21,21 @@ of the last edit to this file.
 - [`site-audit-report-2026-07-18-track-a-rollout.md`](./site-audit-report-2026-07-18-track-a-rollout.md)
   — live production verification of this rollout (shadow sign-off, v2
   fenced worker, rollback drill).
+- [`track-b-implementation-checklist.md`](./track-b-implementation-checklist.md)
+  — **the successor and current source of truth for all remaining work.**
+  Track A closed the transactional-authority core (§2, §8–§13, §19,
+  Phases 1/3/4/5/6, and the Phase 7/10/11 items recorded below). Track B
+  owns everything else both governing documents specify: the unified
+  launch/action-plan service (§14, §18), MCP production v2 (§17), audit v2
+  and event contracts (§13.6, §16.2–§16.3), the operator/customer UI (§20),
+  observability and SLOs (§25), deployment/edge/database operations
+  (§21–§23, §27), runbooks (§32), contract cleanup (§13.7), and the
+  companion's data plane — Redis discipline, artifact catalog completion,
+  shared-state contract, pgvector retrieval, semantic cache v2, BigQuery,
+  and the deletion workflow. **Track B also carries forward the engineering
+  rules this checklist was executed under**, and records the authoritative
+  migration renumbering: the numbers §13.5–§13.7 and the companion's
+  §14 table assign are now spent on other content in this repository.
 
 ## A1 — Schema evolution (expand phase)
 
@@ -36,6 +51,14 @@ of the last edit to this file.
     `SKIP LOCKED` backfill with hard verification (abort on unmapped rows).
   - Queue/claim-expiry/tenant/admission indexes.
   - Gate: fresh + production-like DB migrate to head; up→down→up cycle clean. ✔
+  - **Correction (2026-07-22, Track B B1.2):** the "abort on unmapped rows"
+    verification was unreachable. The jobs backfill selected
+    `WHERE phase IS NULL` and wrote `phase = CASE … ELSE NULL`, so a row
+    with an unknown legacy status was re-selected forever and
+    `alembic upgrade` hung holding locks rather than reaching
+    `_verify_backfill()`. The batch predicate now also requires
+    `(<phase case>) IS NOT NULL`. The gate above could not have caught this:
+    a from-empty upgrade has no rows to backfill. See Track B §B1.
 - [x] **A1.2 Migration 055** — `migrations/versions/055_attempts_allocations_fenced_leases.py`
   - `placement_fencing_token_seq` (global monotonic fence authority).
   - `job_attempts` (+ `uq_job_one_active_attempt` partial unique).
