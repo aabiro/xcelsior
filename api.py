@@ -1070,3 +1070,9 @@ from routes import ALL_ROUTERS
 
 for router in ALL_ROUTERS:
     app.include_router(router)
+
+# RFC 9457 problem+json for the versioned /api/v1 surface (§18.5, B2.8). Scoped
+# to typed control-plane errors, so the legacy error shape is unchanged.
+from routes.problem import register_problem_handlers
+
+register_problem_handlers(app)

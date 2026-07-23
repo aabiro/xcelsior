@@ -11,12 +11,11 @@ already-resolved :class:`Principal` and never touches request headers.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 
 from pydantic import BaseModel
 
 from control_plane.launch.service import (
-    LaunchPlanError,
     Principal,
     approve,
     execute,
@@ -31,6 +30,7 @@ from routes._deps import (
     _user_team_id,
 )
 from routes.instances import JobIn
+from routes.problem import problem_response
 
 router = APIRouter(tags=["Launch plans"])
 
@@ -38,10 +38,6 @@ router = APIRouter(tags=["Launch plans"])
 def _is_human(user: dict) -> bool:
     """Interactive humans only — a machine client is never a human approver."""
     return str(user.get("auth_type", "")) != "client_credentials"
-
-
-def _map_plan_error(exc: LaunchPlanError) -> HTTPException:
-    return HTTPException(status_code=exc.status, detail={"code": exc.code, "detail": exc.detail})
 
 
 def _resolve_principal(request: Request) -> tuple[dict, Principal]:
@@ -62,6 +58,36 @@ def _resolve_principal(request: Request) -> tuple[dict, Principal]:
     return user, principal
 
 
+@router.post("/api/v1/placements/simulate")
+def api_simulate_placement(j: JobIn, request: Request):
+    """§18 placement feasibility for a spec — read-only.
+
+    Reuses the launch service's snapshot + Stage-C filter simulation: it creates
+    no plan, no attempt, no allocation, and no lease. Answers "could this be
+    placed right now, and if not, why".
+    """
+    from control_plane.launch.canonicalize import canonicalize, spec_hash
+    from control_plane.launch.service import simulate_placement
+    from control_plane.launch.validation import validate_canonical_spec
+
+    user, _ = _resolve_principal(request)
+    _require_scope(user, "instances:read")
+    spec = canonicalize(j.model_dump())
+    problems = validate_canonical_spec(spec)
+    if problems:
+        return problem_response(
+            status=422,
+            code="invalid_spec",
+            detail="the launch spec failed validation",
+            errors=[p.as_dict() for p in problems],
+        )
+    return {
+        "ok": True,
+        "spec_hash": spec_hash(spec),
+        "availability": simulate_placement(spec),
+    }
+
+
 @router.post("/api/v1/launch-plans")
 def api_create_launch_plan(j: JobIn, request: Request):
     """§14.1 preview. Creates an action plan; no attempt/allocation/lease/hold/job.
@@ -74,8 +100,14 @@ def api_create_launch_plan(j: JobIn, request: Request):
     _require_scope(user, "instances:write")
     result = preview(j.model_dump(), principal=principal)
     if not result.get("ok"):
-        # Structurally invalid spec — surface every problem at once.
-        raise HTTPException(status_code=422, detail={"problems": result.get("problems")})
+        # Structurally invalid spec — surface every problem at once as RFC 9457
+        # field errors, and persist no plan.
+        return problem_response(
+            status=422,
+            code="invalid_spec",
+            detail="the launch spec failed validation",
+            errors=result.get("problems"),
+        )
     return result
 
 
@@ -90,10 +122,8 @@ def api_approve_launch_plan(plan_id: str, request: Request, body: _ApproveIn | N
     """§14.2 approval. Standing policy self-approves inside limits; else a human."""
     user, principal = _resolve_principal(request)
     _require_scope(user, "instances:write")
-    try:
-        return approve(plan_id, principal=principal, is_human=_is_human(user))
-    except LaunchPlanError as exc:
-        raise _map_plan_error(exc) from exc
+    # LaunchPlanError propagates to the app-level RFC 9457 handler (B2.8).
+    return approve(plan_id, principal=principal, is_human=_is_human(user))
 
 
 class _RevokeIn(BaseModel):
@@ -105,10 +135,7 @@ def api_revoke_launch_plan(plan_id: str, request: Request, body: _RevokeIn | Non
     """§14.2 revoke — idempotent; a consumed or terminal plan cannot be revoked."""
     user, principal = _resolve_principal(request)
     _require_scope(user, "instances:write")
-    try:
-        return revoke(plan_id, principal=principal, reason=(body.reason if body else ""))
-    except LaunchPlanError as exc:
-        raise _map_plan_error(exc) from exc
+    return revoke(plan_id, principal=principal, reason=(body.reason if body else ""))
 
 
 class _ExecuteIn(BaseModel):
@@ -122,12 +149,16 @@ def api_execute_launch_plan(plan_id: str, request: Request, body: _ExecuteIn | N
     """§14.3 execute. Exactly-once; a price move beyond tolerance is 409 quote_changed."""
     user, principal = _resolve_principal(request)
     _require_scope(user, "instances:write")
-    try:
-        result = execute(plan_id, principal=principal)
-    except LaunchPlanError as exc:
-        raise _map_plan_error(exc) from exc
+    # LaunchPlanError propagates to the app-level RFC 9457 handler (B2.8).
+    result = execute(plan_id, principal=principal)
     if not result.get("ok") and result.get("code") == "quote_changed":
         # The approved price no longer holds; the caller must approve the
-        # replacement plan (§15.4). Never a silent charge at the new price.
-        raise HTTPException(status_code=409, detail=result)
+        # replacement plan (§15.4). Never a silent charge at the new price —
+        # the replacement is carried as an RFC 9457 extension member.
+        return problem_response(
+            status=409,
+            code="quote_changed",
+            detail=result.get("detail", "the price moved beyond the approved tolerance"),
+            extra={"replacement_plan": result.get("replacement_plan")},
+        )
     return result
