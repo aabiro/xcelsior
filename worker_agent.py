@@ -2501,6 +2501,27 @@ def _v2_stop_container(
 # §11.3 local idempotency journal: authority records persisted across
 # agent restarts so running containers can be re-adopted instead of
 # orphaned (renewals stop → lease expires → attempt fenced → killed).
+#
+# NODE-LOCAL RECOVERY STATE — NOT CONTROL-PLANE AUTHORITY.
+# Companion §10.2 permits exactly one kind of local durable state on a
+# worker: "a host worker's local command/execution journal ... scoped to
+# one host and can be rebuilt or reconciled with PostgreSQL". This file is
+# that, and nothing more. It records the last command, fencing token,
+# local container identity, ACK state, and cleanup status so the agent can
+# recover after a restart.
+#
+# It holds no allocation authority. It cannot grant a lease, extend a
+# fence, or make an attempt current — every one of those decisions is a
+# PostgreSQL row, and adoption still requires the API to confirm the exact
+# attempt/fence is current (§11.6). If this file is lost, corrupt, or
+# stale, the correct outcome is that running work is re-adopted or fenced
+# and killed by the control plane — never that the worker acts on it
+# unilaterally.
+#
+# Implementation is an atomically-replaced JSON document rather than
+# SQLite. §10.2 allows SQLite here; it does not require it, and a
+# single-writer snapshot rewritten via os.replace() has the durability
+# this needs without adding a database to the agent bundle.
 _V2_JOURNAL_PATH = os.environ.get(
     "XCELSIOR_V2_JOURNAL_PATH", "/var/lib/xcelsior/v2_attempts.json"
 )
@@ -2871,6 +2892,19 @@ def _v2_on_job_status(
     return outcome
 
 
+def compute_spec_hash(spec: dict) -> str:
+    """Worker-side canonical spec hash — the tamper check at start_attempt.
+
+    Kept as an *independent* implementation of the control-plane's
+    ``canonical_spec_hash`` (the worker deliberately recomputes rather than
+    trusting the control plane), but extracted into a function so a drift
+    guard (Track B B2.2) can assert the two agree byte-for-byte. Any change
+    to either side without the other fails that test.
+    """
+    canonical = json.dumps(spec, sort_keys=True, separators=(",", ":"), default=str)
+    return "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()
+
+
 def handle_start_attempt(cmd: dict) -> None:
     """Execute one fenced start_attempt command (thread body).
 
@@ -2905,10 +2939,7 @@ def handle_start_attempt(cmd: dict) -> None:
             retryable=False,
         )
         return
-    canonical_spec = json.dumps(
-        spec, sort_keys=True, separators=(",", ":"), default=str
-    )
-    actual_spec_hash = "sha256:" + hashlib.sha256(canonical_spec.encode()).hexdigest()
+    actual_spec_hash = compute_spec_hash(spec)
     if not secrets.compare_digest(actual_spec_hash, expected_spec_hash):
         v2_nack_command(
             command_id,

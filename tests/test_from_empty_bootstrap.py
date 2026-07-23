@@ -38,7 +38,7 @@ REQUIRED_AT_HEAD = (
     "oauth_refresh_tokens",
     "team_invites",
 )
-EXPECTED_HEAD = "065"
+EXPECTED_HEAD = "069"
 
 
 

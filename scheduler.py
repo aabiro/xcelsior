@@ -1783,7 +1783,12 @@ def submit_job(
     job_type=None,
     pricing_mode="on_demand",
     region="",
+    job_id=None,
 ):
+    # A caller may supply a deterministic ``job_id`` so a retried submission
+    # upserts the same row instead of creating a duplicate — the launch
+    # service (Track B B2.5) derives one from the action plan so a replayed
+    # execute is exactly-once. Omitted: a fresh random id as before.
     """
     Submit a job to the queue.
     Each job has: model name, VRAM needed, priority, tier.
@@ -1844,7 +1849,7 @@ def submit_job(
             pass
 
     job = {
-        "job_id": str(uuid.uuid4())[:8],
+        "job_id": str(job_id).strip() if job_id else str(uuid.uuid4())[:8],
         "name": name,
         "owner": owner,
         "vram_needed_gb": vram_needed_gb,

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from cache_keys import cache_key
 from db import OAuthStore, UserStore
 
 try:
@@ -69,7 +70,10 @@ AUTH_CACHE_BACKEND = os.environ.get(
     "memory" if os.environ.get("XCELSIOR_ENV", "dev").lower() == "test" else "redis",
 ).lower()
 AUTH_REDIS_URL = os.environ.get("XCELSIOR_AUTH_REDIS_URL", "redis://localhost:6379/0")
-AUTH_CACHE_PREFIX = os.environ.get("XCELSIOR_AUTH_CACHE_PREFIX", "xcelsior:oauth")
+# NOTE: XCELSIOR_AUTH_CACHE_PREFIX is retired. The key namespace is now
+# owned by `cache_keys.cache_key` so environment, version, and secret
+# hashing are applied uniformly (companion §5.4); a per-deployment prefix
+# override would defeat that.
 OAUTH_ISSUER = os.environ.get(
     "XCELSIOR_OAUTH_ISSUER",
     os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca").rstrip("/"),
@@ -217,18 +221,44 @@ class RedisAuthCache:
         return value
 
     def incr(self, key: str, ttl: int) -> int:
+        """Increment a counter, setting its TTL in the same round trip.
+
+        Companion §5.4: "Set a TTL in the same atomic operation that
+        creates every ephemeral key." The previous form issued `INCR` and
+        then a conditional `EXPIRE`; a crash or connection loss between
+        the two left an immortal key, and for an abuse counter that means
+        a principal stays locked out until someone deletes it by hand.
+
+        `EXPIRE ... NX` only sets a TTL when the key has none, so a
+        long-running window is not extended by later increments.
+        """
         try:
-            raw = self._client.incr(key)
-            value = int(raw) if isinstance(raw, int) else int(str(raw))
-            if value == 1:
-                self._client.expire(key, max(1, ttl))
-            return value
+            pipe = self._client.pipeline(transaction=True)
+            pipe.incr(key)
+            pipe.expire(key, max(1, ttl), nx=True)
+            raw, _ = pipe.execute()
+            return int(raw) if isinstance(raw, int) else int(str(raw))
         except Exception as exc:
             raise AuthCacheUnavailableError(str(exc)) from exc
 
 
 def _cache_key(kind: str, identifier: str) -> str:
-    return f"{AUTH_CACHE_PREFIX}:{kind}:{identifier}"
+    """Namespaced, hashed auth-cache key (companion §5.4).
+
+    The identifier is the *credential itself* for most kinds — an
+    authorization code, an opaque access token, a device code. It used to
+    be interpolated into the key name verbatim, which published live
+    bearer credentials to `SCAN`, `MONITOR`, the slowlog, RDB/AOF files,
+    and any keyspace tooling pointed at the instance. It is now hashed.
+
+    Key-format change, not a data migration: keys written under the old
+    format are unreachable and simply expire. See Track B §B9.1a for the
+    operator note — in-flight authorization/device codes must be
+    re-requested and opaque access tokens re-issued, both bounded by their
+    short TTLs, and refresh tokens (which live in PostgreSQL) recover
+    automatically.
+    """
+    return cache_key("oauth", kind, secret=identifier)
 
 
 def _json_dumps(value: Any) -> str:
@@ -484,6 +514,14 @@ def validate_client_credentials_jwt(token: str) -> dict[str, Any] | None:
     except Exception:
         pass
 
+    # Carry the machine client's workspace context through to the principal.
+    # Dropping it here (as this did before Track B B2.1) let a
+    # client-credentials token authorize a launch with no tenant, defeating
+    # the workspace constraint the token was issued under. The launch service
+    # treats `tenant_id` as the workspace authority; for a machine client that
+    # is its `workspace_customer_id` (migration 069 makes that column
+    # mandatory for machine clients).
+    workspace_customer_id = client.get("workspace_customer_id")
     return {
         "auth_type": "client_credentials",
         "grant_type": "client_credentials",
@@ -494,6 +532,9 @@ def validate_client_credentials_jwt(token: str) -> dict[str, Any] | None:
         "name": client.get("client_name", client["client_id"]),
         "scopes": [scope for scope in str(payload.get("scope", "")).split() if scope],
         "is_admin": False,
+        "workspace_customer_id": workspace_customer_id,
+        "team_id": client.get("team_id"),
+        "tenant_id": workspace_customer_id,
     }
 
 

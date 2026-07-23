@@ -495,13 +495,37 @@ def main():
             def _ln_credit_callback(customer_id, amount_cad, deposit_id):
                 from billing import get_billing_engine
                 be = get_billing_engine()
-                be.deposit(customer_id, amount_cad, f"Lightning deposit {deposit_id}")
+                # The idempotency key is mandatory: process_ln_deposits
+                # retries any deposit whose mark_credited did not land, so
+                # without it a failed mark re-credits the wallet on every
+                # 5-second sweep.
+                return be.deposit(
+                    customer_id,
+                    amount_cad,
+                    f"Lightning deposit {deposit_id}",
+                    idempotency_key=_ln.credit_idempotency_key(deposit_id),
+                )
             # Do NOT use _ln.start_ln_watcher thread here.
             # Instead run it as a regular scheduled task since we migrated to pg!
             def _ln_watcher_task():
                 _ln.process_ln_deposits(credit_callback=_ln_credit_callback)
             register_task("lightning_watcher", _ln_watcher_task, 5)
             log.info("Lightning deposit watcher registered")
+
+            # Companion §10.1 reconciliation. Report-only: it records
+            # discrepancies between deposits and the wallet ledger and
+            # never moves money itself (Track B B9.3b-3). Runs whether or
+            # not the watcher is healthy — a stalled watcher is precisely
+            # the condition it exists to surface.
+            def _ln_reconcile_task():
+                from control_plane.billing_reconcile import (
+                    reconcile_ln_deposits_task,
+                )
+
+                reconcile_ln_deposits_task()
+
+            register_task("lightning_reconcile", _ln_reconcile_task, 300)
+            log.info("Lightning deposit reconciler registered")
     except Exception as e:
         log.warning("Lightning watcher startup failed: %s", e)
 
@@ -511,6 +535,16 @@ def main():
         mgr = get_artifact_manager()
         mgr.cleanup_expired()
     register_task("artifact_catalog_janitor", _artifact_catalog_janitor, 60)
+
+    # 22b. Artifact inventory reconciliation (Track B B9.2d, companion §6.6).
+    # Report-only: flags `available` rows whose bytes have vanished (a 404
+    # waiting to happen) without touching state or bytes. Off the request
+    # path by construction — HEAD-per-row is too slow for a request, and a
+    # 10-minute cadence catches drift long before a retention window.
+    def _artifact_inventory_reconcile():
+        from artifacts import get_artifact_manager
+        get_artifact_manager().reconcile_inventory()
+    register_task("artifact_inventory_reconcile", _artifact_inventory_reconcile, 600)
 
     # ── Launch executor thread ───────────────────────────────────────
     def _executor_loop():

@@ -7,8 +7,10 @@ import json
 import logging
 import os
 import ssl
+from decimal import Decimal
 from psycopg.rows import dict_row
 from db import pg_transaction, pg_connection
+from money import cad_to_minor, minor_to_cad
 import time
 import urllib.error
 import urllib.request
@@ -22,14 +24,49 @@ LN_ENABLED = os.environ.get("XCELSIOR_LN_ENABLED", "false").lower() == "true"
 LN_CLNREST_URL = os.environ.get("XCELSIOR_LN_CLNREST_URL", "https://127.0.0.1:3010")
 LN_RUNE = os.environ.get("XCELSIOR_LN_RUNE", "")
 LN_INVOICE_EXPIRY = int(os.environ.get("XCELSIOR_LN_INVOICE_EXPIRY", "600"))  # 10 min
-LN_DB_PATH = os.environ.get("XCELSIOR_LN_DB_PATH", "xcelsior_ln.db")
 LN_MIN_CAD = float(os.environ.get("XCELSIOR_LN_MIN_CAD", "1"))
 LN_MAX_CAD = float(os.environ.get("XCELSIOR_LN_MAX_CAD", "1000"))
 
-# SSL context for clnrest
+# Idempotency namespace for wallet credits. One deposit credits a wallet
+# exactly once, no matter how many times the watcher re-observes it
+# (companion §10.1: "provider polling/webhook events idempotent under
+# duplicates and reordering").
+LN_CREDIT_IDEMPOTENCY_PREFIX = "ln-deposit:"
+
+
+def credit_idempotency_key(deposit_id: str) -> str:
+    """Ledger idempotency key for one deposit's wallet credit.
+
+    Every caller of ``process_ln_deposits`` must route its credit through
+    this key. ``BillingEngine.deposit`` deduplicates on it, so a retry
+    after a failed ``mark_credited`` re-posts nothing.
+    """
+    return f"{LN_CREDIT_IDEMPOTENCY_PREFIX}{deposit_id}"
+
+
+# SSL context for clnrest. `create_default_context()` verifies the
+# certificate chain and hostname by default; do not replace it with an
+# unverified context (companion §2.7 — a database transaction cannot
+# compensate for an unauthenticated payment endpoint).
 _ssl_ctx = ssl.create_default_context()
 if os.environ.get("XCELSIOR_LN_CA_CERT"):
     _ssl_ctx.load_verify_locations(os.environ.get("XCELSIOR_LN_CA_CERT"))
+
+
+# ── Row helpers ───────────────────────────────────────────────────────
+# The shared pool hands out `tuple_row` connections, and mutating
+# `conn.row_factory` leaks dict rows to the next pool borrower. A cursor
+# scoped to `dict_row` keeps the mapping local to one query.
+
+
+def _fetch_one(conn, sql: str, params: tuple = ()) -> dict | None:
+    with conn.cursor(row_factory=dict_row) as cur:
+        return cur.execute(sql, params).fetchone()
+
+
+def _fetch_all(conn, sql: str, params: tuple = ()) -> list[dict]:
+    with conn.cursor(row_factory=dict_row) as cur:
+        return list(cur.execute(sql, params).fetchall())
 
 
 # ── CLN clnrest HTTP API ──────────────────────────────────────────────
@@ -235,15 +272,29 @@ def create_deposit(customer_id: str, amount_cad: float) -> dict:
 
     invoice = create_invoice(amount_msat, label, description)
 
+    # Exact ledger values. The legacy float columns are written alongside
+    # only so an un-upgraded replica can still read the row; they are
+    # dropped at contract phase (Track B B16.2) and nothing derives money
+    # from them.
+    amount_cad_minor = cad_to_minor(amount_cad)
+    rate_exact = Decimal(str(rate))
+
     with pg_transaction() as conn:
         conn.execute(
             """INSERT INTO ln_deposits
-               (deposit_id, customer_id, label, bolt11, payment_hash,
+               (deposit_id, customer_id, tenant_id, currency,
+                label, bolt11, payment_hash,
                 amount_msat, amount_sats, amount_btc, amount_cad, btc_cad_rate,
-                status, created_at, expires_at)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s, %s)""",
+                amount_cad_minor, btc_cad_rate_exact,
+                status, created_at, expires_at, created_at_ts, expires_at_ts)
+               VALUES (%s, %s, %s, 'CAD', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                       'pending', %s, %s, to_timestamp(%s), to_timestamp(%s))""",
             (
                 deposit_id,
+                customer_id,
+                # Transitional single-user tenancy, matching migration 054's
+                # rule for jobs: billing already treats the paying customer
+                # as the tenant until real workspaces land.
                 customer_id,
                 label,
                 invoice["bolt11"],
@@ -253,6 +304,10 @@ def create_deposit(customer_id: str, amount_cad: float) -> dict:
                 amount_btc,
                 amount_cad,
                 rate,
+                amount_cad_minor,
+                rate_exact,
+                now,
+                invoice["expires_at"],
                 now,
                 invoice["expires_at"],
             ),
@@ -283,12 +338,11 @@ def check_deposit(deposit_id: str) -> dict | None:
     """Check status of a Lightning deposit. Updates DB if newly paid."""
 
     with pg_transaction() as conn:
-        row = conn.execute(
-            "SELECT * FROM ln_deposits WHERE deposit_id = ?", (deposit_id,)
-        ).fetchone()
-        if not row:
+        dep = _fetch_one(
+            conn, "SELECT * FROM ln_deposits WHERE deposit_id = %s", (deposit_id,)
+        )
+        if not dep:
             return None
-        dep = dict(row)
 
     # Already terminal
     if dep["status"] in ("credited", "expired"):
@@ -308,9 +362,15 @@ def check_deposit(deposit_id: str) -> dict | None:
                 """UPDATE ln_deposits
                    SET status = 'paid',
                        payment_preimage = %s,
-                       paid_at = %s
+                       paid_at = %s,
+                       paid_at_ts = to_timestamp(%s)
                    WHERE deposit_id = %s AND status IN ('pending')""",
-                (inv.get("payment_preimage", ""), inv.get("paid_at", now), deposit_id),
+                (
+                    inv.get("payment_preimage", ""),
+                    inv.get("paid_at", now),
+                    inv.get("paid_at", now),
+                    deposit_id,
+                ),
             )
         dep["status"] = "paid"
         dep["payment_preimage"] = inv.get("payment_preimage", "")
@@ -328,14 +388,27 @@ def check_deposit(deposit_id: str) -> dict | None:
     return dep
 
 
-def mark_credited(deposit_id: str) -> bool:
-    """Mark a paid deposit as credited (wallet balance updated)."""
+def mark_credited(deposit_id: str, wallet_ledger_entry_id: str | None = None) -> bool:
+    """Mark a paid deposit as credited (wallet balance updated).
+
+    Compare-and-swap on ``status = 'paid'`` so only one caller can make
+    the transition; a duplicate call returns False rather than re-marking.
+
+    ``wallet_ledger_entry_id`` links the deposit to the exact ledger row
+    that credited it (companion §10.1). With it, "credited but no ledger
+    entry" and "ledger entry with no deposit" are both single queries
+    rather than a manual audit.
+    """
     with pg_transaction() as conn:
+        now = time.time()
         result = conn.execute(
             """UPDATE ln_deposits
-               SET status = 'credited', credited_at = ?
-               WHERE deposit_id = ? AND status = 'paid'""",
-            (time.time(), deposit_id),
+               SET status = 'credited',
+                   credited_at = %s,
+                   credited_at_ts = to_timestamp(%s),
+                   wallet_ledger_entry_id = COALESCE(%s, wallet_ledger_entry_id)
+               WHERE deposit_id = %s AND status = 'paid'""",
+            (now, now, wallet_ledger_entry_id, deposit_id),
         )
         return result.rowcount > 0
 
@@ -343,25 +416,24 @@ def mark_credited(deposit_id: str) -> bool:
 def get_pending_deposits() -> list[dict]:
     """Get all pending (unpaid) Lightning deposits for confirmation checking."""
     with pg_transaction() as conn:
-        rows = conn.execute("SELECT * FROM ln_deposits WHERE status = 'pending'").fetchall()
-        return [dict(r) for r in rows]
+        return _fetch_all(conn, "SELECT * FROM ln_deposits WHERE status = 'pending'")
 
 
 def get_paid_uncredited() -> list[dict]:
     """Get all paid but not yet credited deposits."""
     with pg_transaction() as conn:
-        rows = conn.execute("SELECT * FROM ln_deposits WHERE status = 'paid'").fetchall()
-        return [dict(r) for r in rows]
+        return _fetch_all(conn, "SELECT * FROM ln_deposits WHERE status = 'paid'")
 
 
 def get_customer_deposits(customer_id: str, limit: int = 20) -> list[dict]:
     """Get recent Lightning deposits for a customer."""
     with pg_transaction() as conn:
-        rows = conn.execute(
-            "SELECT * FROM ln_deposits WHERE customer_id = ? ORDER BY created_at DESC LIMIT ?",
+        return _fetch_all(
+            conn,
+            "SELECT * FROM ln_deposits WHERE customer_id = %s "
+            "ORDER BY created_at DESC LIMIT %s",
             (customer_id, limit),
-        ).fetchall()
-        return [dict(r) for r in rows]
+        )
 
 
 # ── Background Watcher ────────────────────────────────────────────────
@@ -371,32 +443,74 @@ def process_ln_deposits(credit_callback=None):
     """Check all pending deposits and credit paid ones.
 
     Args:
-        credit_callback: Optional fn(customer_id, amount_cad, deposit_id) to credit wallet.
+        credit_callback: fn(customer_id, amount_cad, deposit_id) that credits
+            the wallet. It **must** deduplicate on
+            ``credit_idempotency_key(deposit_id)`` — see the ordering note
+            below.
+
+    Ordering and safety: credit first, then mark credited. The reverse
+    order would lose a customer's money if the credit failed after the
+    mark. Because the credit is idempotent on the deposit id and
+    ``mark_credited`` is a compare-and-swap on ``status = 'paid'``, a crash
+    or failure anywhere in this sequence replays safely: the retry re-posts
+    nothing and completes the mark.
+
+    Each deposit is isolated. A single malformed row must not stop the
+    sweep for every other customer — that is how the pre-2026-07-22 version
+    failed closed on the whole fleet.
     """
     if not LN_ENABLED:
         return
 
     # Check pending invoices for payment
-    for dep in get_pending_deposits():
+    try:
+        pending = get_pending_deposits()
+    except Exception as e:
+        log.error("LN pending-deposit query failed: %s", e)
+        pending = []
+    for dep in pending:
         try:
             check_deposit(dep["deposit_id"])
         except Exception as e:
-            log.debug("LN deposit check failed for %s: %s", dep["deposit_id"], e)
+            log.debug("LN deposit check failed for %s: %s", dep.get("deposit_id"), e)
 
     # Credit paid deposits
-    for dep in get_paid_uncredited():
+    try:
+        paid = get_paid_uncredited()
+    except Exception as e:
+        log.error("LN paid-uncredited query failed: %s", e)
+        return
+    for dep in paid:
+        deposit_id = str(dep.get("deposit_id") or "")
+        if not deposit_id:
+            log.error("LN paid deposit row has no deposit_id; skipping: %r", dep)
+            continue
+        # Credit from the exact integer-cent column, never the legacy
+        # float: a stored 25.0 can be 24.999999999999996, and that error
+        # would be posted to the wallet ledger verbatim.
+        minor = dep.get("amount_cad_minor")
+        amount_cad = (
+            minor_to_cad(minor) if minor is not None else float(dep["amount_cad"])
+        )
         try:
+            ledger_entry_id = None
             if credit_callback:
-                credit_callback(dep["customer_id"], dep["amount_cad"], dep["deposit_id"])
-            mark_credited(dep["deposit_id"])
-            log.info(
-                "LN WALLET CREDITED: %s +$%.2f CAD (%s)",
-                dep["customer_id"],
-                dep["amount_cad"],
-                dep["deposit_id"],
-            )
+                # A callback that returns the ledger row it wrote lets the
+                # deposit point at it; one that returns None still works.
+                result = credit_callback(dep["customer_id"], amount_cad, deposit_id)
+                if isinstance(result, dict):
+                    ledger_entry_id = result.get("tx_id")
+            if mark_credited(deposit_id, wallet_ledger_entry_id=ledger_entry_id):
+                log.info(
+                    "LN WALLET CREDITED: %s +$%.2f CAD (%s)",
+                    dep["customer_id"],
+                    amount_cad,
+                    deposit_id,
+                )
         except Exception as e:
-            log.error("LN credit failed for %s: %s", dep["deposit_id"], e)
+            # Left as 'paid' on purpose: the next sweep retries, and the
+            # idempotency key stops the retry from crediting twice.
+            log.error("LN credit failed for %s: %s", deposit_id, e)
 
 
 def start_ln_watcher(interval: int = 5, credit_callback=None):

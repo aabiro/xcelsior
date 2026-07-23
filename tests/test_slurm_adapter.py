@@ -2,6 +2,7 @@
 
 import json
 import os
+import uuid
 import subprocess
 import tempfile
 
@@ -342,18 +343,31 @@ class TestSlurmCLI:
 
 
 class TestSlurmJobMap:
-    def test_register_and_load(self, tmp_path, monkeypatch):
+    def test_register_and_load(self, monkeypatch):
+        """Mappings round-trip through PostgreSQL, not a JSON file.
+
+        This test used to monkeypatch `SLURM_MAP_FILE` — a leftover from
+        the file-backed era that migration 060 replaced. The constant is
+        gone (companion §10.1: "A JSON file cannot safely coordinate
+        several processes"), so the assertion now drives the real table.
+        """
         import slurm_adapter
+        from db import pg_transaction
 
-        map_file = str(tmp_path / "slurm_map.json")
-        monkeypatch.setattr(slurm_adapter, "SLURM_MAP_FILE", map_file)
+        job_id = f"xcelsior-{uuid.uuid4().hex[:8]}"
         monkeypatch.setattr(slurm_adapter, "_slurm_job_map", {})
+        try:
+            register_slurm_job(job_id, "12345")
 
-        register_slurm_job("xcelsior-1", "12345")
-
-        slurm_adapter._slurm_job_map = {}  # Clear in-memory
-        slurm_adapter._load_slurm_map()
-        assert slurm_adapter._slurm_job_map["xcelsior-1"] == "12345"
+            slurm_adapter._slurm_job_map = {}  # prove it reloads from the DB
+            slurm_adapter._load_slurm_map()
+            assert slurm_adapter._slurm_job_map[job_id] == "12345"
+        finally:
+            with pg_transaction() as conn:
+                conn.execute(
+                    "DELETE FROM slurm_job_mappings WHERE xcelsior_job_id = %s",
+                    (job_id,),
+                )
 
 
 # ── is_slurm_available ───────────────────────────────────────────────

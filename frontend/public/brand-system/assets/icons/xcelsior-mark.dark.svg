@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <defs>
+    <linearGradient id="xcelsior-fill" x1="28" y1="10" x2="100" y2="86" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38dbff"></stop>
+      <stop offset=".58" stop-color="#9b6dff"></stop>
+      <stop offset="1" stop-color="#34d399"></stop>
+    </linearGradient>
+    <linearGradient id="xcelsior-rail" x1="18" y1="96" x2="110" y2="96" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38dbff" stop-opacity=".05"></stop>
+      <stop offset=".5" stop-color="#38dbff"></stop>
+      <stop offset="1" stop-color="#9b6dff" stop-opacity=".08"></stop>
+    </linearGradient>
+    <filter id="xcelsior-glow" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#38dbff" flood-opacity=".72"></feDropShadow>
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#9b6dff" flood-opacity=".38"></feDropShadow>
+    </filter>
+  </defs>
+
+  <!-- Telemetry Rail & Base Ticks -->
+  <path d="M18 96h26l10-10h20l9 10h27" stroke="url(#xcelsior-rail)" stroke-width="3" stroke-linecap="round"></path>
+  <path d="M27 106h74" stroke="#38dbff" stroke-opacity=".24" stroke-width="2" stroke-linecap="round"></path>
+  <g stroke="#38dbff" stroke-opacity=".34" stroke-width="2" stroke-linecap="round">
+    <path d="M42 99v12M64 99v17M86 99v12"></path>
+    <circle cx="42" cy="115" r="2.5" fill="#38dbff" fill-opacity=".5" stroke="none"></circle>
+    <circle cx="64" cy="120" r="2.5" fill="#9b6dff" fill-opacity=".55" stroke="none"></circle>
+    <circle cx="86" cy="115" r="2.5" fill="#34d399" fill-opacity=".5" stroke="none"></circle>
+  </g>
+
+  <!-- Hero X-Mark: Main Energetic Polygon -->
+  <path d="M26 22 38 10h16l10 18 10-18h16l12 12-16 26 16 26-12 12H74L64 68 54 86H38L26 74l16-26L26 22Z" fill="url(#xcelsior-fill)" filter="url(#xcelsior-glow)"></path>
+
+  <!-- Precise Chiseled Edges / Outer Highlight -->
+  <path d="M26 22 38 10h16l10 18 10-18h16l12 12-16 26 16 26-12 12H74L64 68 54 86H38L26 74l16-26L26 22Z" stroke="#ecfeff" stroke-opacity=".68" stroke-width="2.4" stroke-linejoin="round"></path>
+
+  <!-- Pale Inner Highlight Facet -->
+  <path d="M38 10h16l10 18 10-18h16l-13 21-13-11-12 11-14-21Z" fill="#ecfeff" fill-opacity=".22"></path>
+  <path d="M42 48 26 22l12-12 16 26-12 14Z" fill="#ecfeff" fill-opacity=".12"></path>
+</svg>
