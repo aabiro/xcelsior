@@ -214,3 +214,59 @@ def test_stale_expected_version_is_refused():
     assert resp.status_code == 409
     assert resp.headers["content-type"].startswith(PROBLEM_MEDIA_TYPE)
     assert resp.json()["code"] == "version_conflict"
+
+
+# ── v1 read endpoints (control-plane / timeline / findings) ─────────────
+
+
+def _plain_user_headers(email: str) -> dict:
+    reg = client.post(
+        "/api/auth/register", json={"email": email, "password": "Str0ngPass!abc"}
+    ).json()
+    return {"Authorization": f"Bearer {reg['access_token']}"}
+
+
+def test_instance_control_plane_and_timeline_are_tenant_scoped():
+    owner = _admin_headers(f"cp-owner-{uuid.uuid4().hex[:6]}@xcelsior.ca")
+    host_id = f"cpv1-read-{uuid.uuid4().hex[:6]}"
+    _register_host(host_id)
+    job_id = _running_job_on(host_id, owner)
+
+    cp = client.get(f"/api/v1/instances/{job_id}/control-plane", headers=owner)
+    assert cp.status_code == 200, cp.text
+    body = cp.json()
+    assert body["job_id"] == job_id
+    assert "status" in body and "phase" in body and "desired_state" in body
+    assert isinstance(body["attempt_count"], int)
+
+    tl = client.get(f"/api/v1/instances/{job_id}/timeline", headers=owner)
+    assert tl.status_code == 200
+    assert isinstance(tl.json()["attempts"], list)
+
+
+def test_cross_tenant_instance_is_not_found_no_leak():
+    owner = _admin_headers(f"cp-a-{uuid.uuid4().hex[:6]}@xcelsior.ca")
+    host_id = f"cpv1-leak-{uuid.uuid4().hex[:6]}"
+    _register_host(host_id)
+    job_id = _running_job_on(host_id, owner)
+
+    intruder = _plain_user_headers(f"cp-b-{uuid.uuid4().hex[:6]}@xcelsior.ca")
+    for path in (f"/api/v1/instances/{job_id}/control-plane", f"/api/v1/instances/{job_id}/timeline"):
+        resp = client.get(path, headers=intruder)
+        assert resp.status_code == 404, (path, resp.text)
+        assert resp.headers["content-type"].startswith(PROBLEM_MEDIA_TYPE)
+        assert resp.json()["code"] == "instance_not_found"  # not a 403 permission hint
+
+
+def test_reconciliation_findings_requires_admin():
+    plain = _plain_user_headers(f"rf-user-{uuid.uuid4().hex[:6]}@xcelsior.ca")
+    denied = client.get("/api/v1/control-plane/reconciliation-findings", headers=plain)
+    assert denied.status_code == 403
+
+    admin = _admin_headers(f"rf-admin-{uuid.uuid4().hex[:6]}@xcelsior.ca")
+    ok = client.get("/api/v1/control-plane/reconciliation-findings", headers=admin)
+    assert ok.status_code == 200
+    assert isinstance(ok.json()["findings"], list)
+    bad = client.get("/api/v1/control-plane/reconciliation-findings?status=bogus", headers=admin)
+    assert bad.status_code == 422
+    assert bad.json()["code"] == "invalid_status"
