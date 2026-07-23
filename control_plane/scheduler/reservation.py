@@ -308,6 +308,26 @@ def reserve_and_bind(
             (attempt_id, job_id, host_id, device_id, requested_vram_mb),
         )
 
+    # ── Step 10b: bind a serverless worker to its fenced attempt (B3.1) ─
+    # A serverless_worker job carries its worker id in the payload. Stamping it
+    # here — in the same transaction that created the attempt and its
+    # allocations — makes serverless capacity attempt-scoped: one worker, one
+    # fenced attempt, one allocation set, closed once when the attempt is fenced.
+    serverless_worker_id = payload.get("serverless_worker_id") if isinstance(payload, dict) else None
+    if serverless_worker_id:
+        # serverless_workers keeps epoch-float timestamps (not timestamptz), so
+        # updated_at takes EXTRACT(EPOCH …), matching that table's convention.
+        conn.execute(
+            """
+            UPDATE serverless_workers
+               SET attempt_id = %s,
+                   host_id = %s,
+                   updated_at = EXTRACT(EPOCH FROM clock_timestamp())
+             WHERE worker_id = %s
+            """,
+            (attempt_id, host_id, str(serverless_worker_id)),
+        )
+
     # ── Step 11: lease offer bound to attempt/host/fence ─────────────
     lease_id_row = (
         conn.execute(

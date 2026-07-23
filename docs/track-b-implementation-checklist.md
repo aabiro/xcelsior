@@ -537,22 +537,29 @@ handler schedules inline.
 Blueprint §15.3, §15.4, §12.4 billing controller. §15.1 and §15.2 are
 Track A.
 
-- [ ] **B3.1 Serverless workers bind to attempts.** `serverless_workers`
-  rows link to a fenced `job_attempts` row and its `gpu_device_allocations`
-  (§15.3, §5.6). Warm-time accounting is attempt-scoped like compute
-  metering already is. Gate: a serverless scale-up produces exactly one
-  attempt, one allocation set, and one warm-time meter; a fenced stop
-  closes it once.
-  **Current state (verified 2026-07-23):** `serverless_workers` links only to
-  `scheduler_job_id` (+ `host_id`, `warm_expires_at`, `billing_exempt`); it has
-  **no `attempt_id` / allocation FK**, and `serverless/service.py`
-  `provision_worker` does not create or bind a fenced `job_attempts` row. So
-  B3.1 needs: an expand-contract migration adding `attempt_id` (FK →
-  `job_attempts`) and the allocation link to `serverless_workers`;
-  `provision_worker` extended to reserve/bind a fenced attempt + allocation
-  through the one attempt authority; warm-time metering keyed to the attempt;
-  and the scale-up/fenced-stop gate. Safety-sensitive (fencing) — a dedicated
-  pass, not a tail-of-session add.
+- [~] **B3.1 Serverless workers bind to a fenced attempt** (2026-07-23,
+  §15.3/§5.6). **Landed:** migration `070_serverless_worker_attempt_binding`
+  adds `serverless_workers.attempt_id` (FK → `job_attempts`, `ON DELETE SET
+  NULL`, `NOT VALID` → `VALIDATE`, partial index) — expand-only, up→down→up
+  clean. The reservation authority `reserve_and_bind` now stamps the worker's
+  `attempt_id` + `host_id` **in the same transaction that creates the fenced
+  attempt and its `gpu_device_allocations`** (guarded by the job payload's
+  `serverless_worker_id`), so serverless capacity is attempt-scoped: one worker
+  → one fenced attempt → one allocation set. Gate:
+  `tests/test_serverless_worker_attempt_binding.py` (2, real PostgreSQL, drives
+  claim → `reserve_and_bind`) — a scale-up binds the worker to **exactly one**
+  attempt with its allocation, and a plain (non-serverless) reservation leaves
+  `serverless_workers` untouched. Regressions green: reservation/lease/claim/
+  fenced-lifecycle 100, serverless service/repo/billing 92, migration-ledger +
+  from-empty + production-snapshot 35; pyright clean.
+  **Drift closed by executing (B0.1 rule 3):** the first run failed with a
+  `DatatypeMismatch` — `serverless_workers.updated_at` is `double precision`
+  (epoch float), not `timestamptz`, so the binding now writes
+  `EXTRACT(EPOCH FROM clock_timestamp())`, matching that table's convention.
+  **Residual:** **warm-time metering keyed to the attempt** — there is no
+  serverless warm-time meter today (only `warm_expires_at` / `billing_exempt`
+  flags), so the gate's "one warm-time meter … a fenced stop closes it once" is
+  a new, billing-sensitive accounting subsystem to build on top of this binding.
 - [ ] **B3.2 Endpoint and client budgets replace per-request approval**
   (§4.2, §15.3). Server-side enforcement; an inference call never requires
   a human approval click. Gate: budget exhaustion denies with a typed
