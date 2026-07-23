@@ -358,3 +358,38 @@ def test_instance_retry_requeues_a_running_job():
     # Retrying an already-queued instance is a typed 409.
     again = client.post(f"/api/v1/instances/{job_id}/retry", headers=owner)
     assert again.status_code == 409 and again.json()["code"] == "already_queued"
+
+
+def test_instance_reconcile_enqueues_never_repairs():
+    owner = _admin_headers(f"rec-owner-{uuid.uuid4().hex[:6]}@xcelsior.ca")
+    host_id = f"cpv1-rec-{uuid.uuid4().hex[:6]}"
+    _register_host(host_id)
+    job_id = _running_job_on(host_id, owner)
+    try:
+        r = client.post(f"/api/v1/instances/{job_id}/reconcile", headers=owner)
+        assert r.status_code == 200, r.text
+        assert r.json()["enqueued"] is True
+        # A durable request was enqueued (coalesced to one per instance) — the
+        # endpoint did NOT repair anything itself; the job status is unchanged.
+        from db import _get_pg_pool
+
+        def _queue_count() -> int:
+            with _get_pg_pool().connection() as conn:
+                return conn.execute(
+                    "SELECT count(*) FROM reconciliation_queue WHERE resource_type='job' AND resource_id=%s",
+                    (job_id,),
+                ).fetchone()[0]
+
+        assert _queue_count() == 1
+        # Idempotent: a second request coalesces (still one row).
+        client.post(f"/api/v1/instances/{job_id}/reconcile", headers=owner)
+        assert _queue_count() == 1
+        # Cross-tenant reconcile is not-found (no existence leak).
+        intruder = _plain_user_headers(f"rec-b-{uuid.uuid4().hex[:6]}@xcelsior.ca")
+        assert client.post(f"/api/v1/instances/{job_id}/reconcile", headers=intruder).status_code == 404
+    finally:
+        from db import _get_pg_pool
+
+        with _get_pg_pool().connection() as conn:
+            conn.execute("DELETE FROM reconciliation_queue WHERE resource_id=%s", (job_id,))
+            conn.commit()

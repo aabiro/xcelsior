@@ -467,3 +467,37 @@ def api_v1_openapi(request: Request):
     )
     full["paths"] = {p: v for p, v in full.get("paths", {}).items() if p.startswith("/api/v1/")}
     return full
+
+
+@router.post("/api/v1/instances/{job_id}/reconcile")
+def api_v1_instance_reconcile(job_id: str, request: Request):
+    """§3.3/§18 reconcile — **enqueue** a reconcile for this instance.
+
+    It never performs direct repair (§3.3): it inserts a durable request into
+    `reconciliation_queue`, coalesced to one pending entry per instance, and the
+    reconciler claims and processes it out-of-band. Tenant-scoped.
+    """
+    from db import _get_pg_pool
+
+    user = _require_auth(request)
+    _job_for_caller(request, job_id)  # tenant-scope / not-found guard
+    requested_by = str(user.get("email") or user.get("customer_id") or user.get("user_id") or "api")
+    with _get_pg_pool().connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO reconciliation_queue (resource_type, resource_id, reason, requested_by)
+            VALUES ('job', %s, 'manual_reconcile', %s)
+            ON CONFLICT (resource_type, resource_id) DO UPDATE
+               SET due_at = LEAST(reconciliation_queue.due_at, clock_timestamp()),
+                   reason = EXCLUDED.reason,
+                   updated_at = clock_timestamp()
+            """,
+            (job_id, requested_by),
+        )
+        conn.commit()
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "enqueued": True,
+        "note": "reconcile requested; the reconciler processes it out-of-band (never repaired inline)",
+    }
