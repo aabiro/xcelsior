@@ -481,16 +481,28 @@ migration 056) exist from Track A and are the substrate this builds on.
   authority; never inline-schedules; already-queued/completed → typed 409).
   Operator reads need admin or `control_plane:read`; instance reads/writes are
   tenant-scoped (cross-tenant → not-found, no existence leak). Gate:
-  `tests/test_control_plane_v1_drain_evict.py` (now **13**). So B2.8 has shipped
-  **13 v1 endpoints** + the RFC 9457 framework, all gated and pyright-clean.
-  **Residual (the small tail):** (1) `POST /api/v1/instances/{id}/reconcile` —
-  needs an *instance-reconcile enqueue* primitive (the reconciler currently
-  scans; there is no "enqueue this instance" entry point yet), and per §3.3 it
-  must only enqueue, never repair directly; (2) the **schemathesis** contract run
-  over the generated v1 OpenAPI; (3) reconciling the **legacy**
-  `/host/{id}/drain` preempt-on-drain behaviour (a behaviour change with
-  drain-test blast radius, to be retired behind a flag once the UI moves to v1
-  drain+evict). The v1 `/evictions` uses the existing preempt/requeue path;
+  `tests/test_control_plane_v1_drain_evict.py`.
+  **Also landed (2026-07-23): reconcile + the served v1 OpenAPI + a contract
+  gate.** `POST /api/v1/instances/{id}/reconcile` inserts a durable, coalesced
+  request into `reconciliation_queue` and returns — it performs **no** direct
+  repair (§3.3 / B5.7); the reconciler claims it out-of-band (`process_due`
+  already has a safe no-controller-yet branch for the `job` type). The app's
+  `/openapi.json` is a curated public spec that omitted v1, so a dedicated
+  `GET /api/v1/openapi.json` (the live FastAPI schema filtered to `/api/v1/*`)
+  is served for the generated MCP/dashboard clients (B5.2 / B6.1). Gate:
+  `tests/test_v1_openapi_contract.py` (2, a dependency-free schemathesis
+  substitute) — every registered v1 route is in the v1 OpenAPI (no non-v1
+  leakage), and representative v1 error paths (404/403/422) all emit RFC 9457
+  problem+json. **So B2.8 has shipped 15 v1 endpoints + the RFC 9457 framework +
+  a served v1 OpenAPI + a contract gate, all gated and pyright-clean.**
+  **Residual (the small tail):** (1) giving the reconciler a **job-type
+  controller** in `process_due` (the endpoint enqueues correctly; the reconciler
+  consuming a `job` reconcile is a Track-A-coupled follow-up); (2) full
+  **schemathesis** property-fuzzing (the deterministic contract gate above
+  covers the shape; fuzzing would add a frozen-deps change); (3) reconciling the
+  **legacy** `/host/{id}/drain` preempt-on-drain behaviour (a behaviour change
+  with drain-test blast radius, to be retired behind a flag once the UI moves to
+  v1 drain+evict). The v1 `/evictions` uses the existing preempt/requeue path;
   strengthening it to a fully fence-token-invalidating primitive is tracked with
   Track A's fenced lifecycle.
 
