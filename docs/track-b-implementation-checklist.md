@@ -426,20 +426,32 @@ migration 056) exist from Track A and are the substrate this builds on.
   `service.execute` directly (so they share not just the canonical spec but the
   whole preview→hold→consume machine) proceeds surface-by-surface as their
   semantics are reconciled, without ever adding an unclassified writer.
-- [ ] **B2.8 Versioned API surface and RFC 9457 errors** (§18.1–§18.3,
-  §18.5). Add `/api/v1/instances/{job_id}/control-plane`, `/attempts`,
-  `/timeline`, `/placement-explanation`; `POST /api/v1/placements/simulate`;
-  `POST /api/v1/instances/{job_id}/retry` and `/reconcile`;
-  `GET /api/v1/control-plane/health`, `/queue`, `/reconciliation-findings`;
-  `GET /api/v1/hosts/{id}/capacity`, `/observations`; `POST /api/v1/hosts/
-  {id}/drain`, `/undrain`, `/evictions`. All errors are
-  `application/problem+json` with `type`, `title`, `status`, `detail`,
-  `code`, `retryable`, `retry_after_ms`, `trace_id`, `errors`. `drain` and
-  `evictions` are separately authorized and separately audited — draining
-  never evicts (§3.3). No broad `except Exception` converts a programming
-  error into a degraded success. Gate: schemathesis contract run over the
-  v1 OpenAPI; a test asserting every v1 error path emits problem+json; a
-  test asserting `drain` leaves running workloads running.
+- [~] **B2.8 Versioned API surface and RFC 9457 errors** (§18.1–§18.3,
+  §18.5). **Landed (2026-07-23):** the RFC 9457 error framework —
+  `routes/problem.py` emits `application/problem+json` with the full field set
+  (`type`, `title`, `status`, `detail`, `code`, `retryable`, `retry_after_ms`,
+  `trace_id`, `errors`), sets `Retry-After` from `retry_after_ms`, carries a
+  W3C `trace_id`, and supports RFC 9457 extension members (the `quote_changed`
+  replacement plan). It is **scoped to the typed control-plane error**
+  (`LaunchPlanError` / `ProblemException`), so the legacy
+  `{"ok": false, "error": {…}}` shape is unchanged — a companion test pins that.
+  The whole v1 launch-plan surface (preview / approve / revoke / execute) now
+  returns problem+json, and `POST /api/v1/placements/simulate` is added
+  (read-only feasibility, reuses the launch service snapshot + Stage-C filter;
+  creates no plan/attempt/lease). Gate: `tests/test_v1_problem_json.py` (6) —
+  every required field present, retryable codes + `Retry-After`, HTTP 404/409
+  problem+json, and legacy shape unchanged; `tests/test_placement_simulate.py`
+  (1) — read-only, no rows written. Pyright clean; api 157 + launch suites green.
+  **Residual (the endpoint surface + contract test):** the remaining §18 v1
+  routes — `/instances/{id}/control-plane`, `/attempts`, `/timeline`,
+  `/placement-explanation`; `/instances/{id}/retry` and `/reconcile`;
+  `/control-plane/health`, `/queue`, `/reconciliation-findings`;
+  `/hosts/{id}/capacity`, `/observations`; and `/hosts/{id}/drain`,
+  `/undrain`, `/evictions` with the §3.3 drain-vs-evict separation, separate
+  authz + audit, and the "drain leaves running workloads running" gate — plus
+  the schemathesis contract run over the v1 OpenAPI, are not yet built. They
+  wrap existing Track A data (reconciler findings, scheduler `explain`, host
+  drains, telemetry) behind the framework above.
 
 **Drift found and closed in the same pass (2026-07-23, B0.1 rule 6):**
 
