@@ -204,8 +204,11 @@ class TestAddHostViaAPI:
         assert job_resp.status_code == 200
         inst = job_resp.json()["instance"]
         job_id = inst["job_id"]
-        # auto queue processing assigns during submit
-        assert inst["status"] in ("assigned", "running")
+        # B2.6: submit only enqueues; the scheduler places it (as in production).
+        assert inst["status"] == "queued"
+        from scheduler import process_queue
+
+        process_queue()
 
         job_detail = client.get(f"/instance/{job_id}")
         assert job_detail.json()["instance"]["status"] in ("assigned", "running")
@@ -362,7 +365,15 @@ class TestFullJobLifecycleE2E:
         assert job_resp.status_code == 200
         inst = job_resp.json()["instance"]
         job_id = inst["job_id"]
-        assert inst["status"] in ("assigned", "running")
+        # B2.6: submit enqueues; the scheduler places it before the run/complete
+        # lifecycle continues.
+        from scheduler import process_queue
+
+        process_queue()
+        assert client.get(f"/instance/{job_id}").json()["instance"]["status"] in (
+            "assigned",
+            "running",
+        )
 
         # Run → Complete
         wh = _platform_headers()
@@ -418,9 +429,13 @@ class TestFullJobLifecycleE2E:
         inst = job_resp.json()["instance"]
         job_id = inst["job_id"]
         assert inst["vram_needed_gb"] == 40
-        # auto queue processing assigns during submit
-        assert inst["status"] in ("assigned", "running")
-        assert inst.get("host_id") in ("mh-2", "mh-3")
+        # B2.6: submit enqueues; the scheduler picks the best of mh-2 / mh-3.
+        from scheduler import process_queue
+
+        process_queue()
+        placed = client.get(f"/instance/{job_id}").json()["instance"]
+        assert placed["status"] in ("assigned", "running")
+        assert placed.get("host_id") in ("mh-2", "mh-3")
 
     def test_no_admitted_hosts_job_stays_queued(self):
         """If no hosts are admitted, job remains queued."""

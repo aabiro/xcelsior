@@ -977,14 +977,11 @@ def api_submit_instance(j: JobIn, request: Request):
                 num_gpus=j.num_gpus,
             )
         else:
-            # Auto-process queue to try to assign immediately (legacy walker
-            # already skips control-plane-owned jobs).
-            try:
-                process_queue()
-                # Refresh job status after queue processing
-                job = _refresh_job(job["job_id"]) or job
-            except Exception as e:
-                log.warning("Queue processing after submit failed: %s", e)
+            # §10.1 / B2.6: the job is enqueued durably and the scheduler claims
+            # and places it. A request handler never runs the queue walker inline
+            # (Track A P4.4b deferred the host-pin path; this completes the
+            # general path). Reflect the just-submitted queued state in the reply.
+            job = _refresh_job(job["job_id"]) or job
 
         append_user_audit_event(
             "user.instance.launched",
