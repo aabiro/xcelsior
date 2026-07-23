@@ -47,6 +47,53 @@ class StorageUnavailable(RuntimeError):
     production backend must fail loudly, never masquerade as healthy."""
 
 
+def _provider_error_code(exc: Exception) -> str:
+    """The provider's error code for a boto/S3 exception, or ''.
+
+    Companion §6.6: "Every provider method distinguishes not-found,
+    precondition-failed, permission-denied, throttled, and unavailable."
+    One helper so every method classifies identically instead of each
+    reimplementing the `response['Error']['Code']` lookup (and drifting).
+    """
+    response = getattr(exc, "response", None)
+    if isinstance(response, dict):
+        code = response.get("Error", {}).get("Code")
+        if code:
+            return str(code)
+        http = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        if http:
+            return str(http)
+    return ""
+
+
+_NOT_FOUND_CODES = frozenset({"404", "NoSuchKey", "NotFound"})
+
+
+class _FinalizeRejected(Exception):
+    """Internal: a finalize verification failed.
+
+    Carries the state the artifact should end in so the wrapper can write
+    it *outside* the transaction that is about to roll back.
+    """
+
+    def __init__(
+        self,
+        artifact_id,
+        state: str | None,
+        message: str,
+        *,
+        error_type: type[Exception] = RuntimeError,
+    ):
+        super().__init__(message)
+        self.artifact_id = artifact_id
+        self.state = state
+        self.message = message
+        self.error_type = error_type
+
+    def as_error(self) -> Exception:
+        return self.error_type(self.message)
+
+
 class ArtifactType(str, Enum):
     MODEL_WEIGHTS = "model_weights"
     JOB_OUTPUT = "job_output"
@@ -299,8 +346,20 @@ class StorageClient:
                 "last_modified": response.get("LastModified"),
                 "etag": response.get("ETag", "").strip('"'),
             }
-        except Exception:
-            return None
+        except Exception as exc:
+            # Distinguish "definitely absent" from "could not tell".
+            #
+            # Returning None for both let a transient 429/503 be read as
+            # "the object is not there", and `finalize_upload` marks an
+            # artifact `abandoned` on a None — so a throttle during
+            # finalize discarded a perfectly good upload. DA§6.6: "Every
+            # provider method distinguishes not-found, precondition-failed,
+            # permission-denied, throttled, and unavailable."
+            if _provider_error_code(exc) in _NOT_FOUND_CODES:
+                return None
+            raise StorageUnavailable(
+                f"HEAD {key} failed on {self.config.backend}: {exc}"
+            ) from exc
 
     def put_object(
         self,
@@ -338,8 +397,20 @@ class StorageClient:
             )
             return True
         except Exception as e:
+            # A genuine delete failure must RAISE, not return False.
+            # The deletion worker does not check this return value — it
+            # relies on an exception to mark the job `delete_failed` for
+            # retry. Returning False let a failed delete be recorded as a
+            # completed one, so the catalog said `deleted` while the bytes
+            # remained: an orphan the inventory scan would later have to
+            # find (companion §6.6, §12.4).
+            #
+            # An already-absent object is idempotent success: DELETE's
+            # desired end state (the object is gone) already holds.
+            if _provider_error_code(e) in _NOT_FOUND_CODES:
+                return True
             log.error("Failed to delete %s: %s", key, e)
-            return False
+            raise StorageUnavailable(f"delete_object failed for {key}: {e}") from e
 
     def list_objects(self, prefix: str = "", max_keys: int = 1000) -> list[dict]:
         """List objects with a prefix."""
@@ -481,6 +552,91 @@ class ArtifactManager:
         except ImportError:
             return False
 
+    def reconcile_inventory(self, scan_limit: int = 500) -> dict:
+        """Compare the catalog against provider reality, report-only.
+
+        Two drift classes matter (companion §6.6, §12.4):
+
+        - **missing bytes** — a row is `available` but the object is gone.
+          A user downloading it gets a 404 while the catalog insists the
+          artifact exists. This is the correctness case.
+        - **orphan bytes** — an object exists with no catalog row (or one
+          that is not live). Cost, not correctness; a cleanup candidate
+          only after a safety window, never deleted from a request path.
+
+        Findings are recorded, never auto-remediated (B0.3 rule 17): a
+        reconciler deleting bytes or flipping states off an untrusted
+        scan is how a transient provider blip becomes data loss. This runs
+        as a durable scheduled task, off the request path (§6.6: "Orphan
+        scanning ... is not in the request path").
+
+        Only the `missing bytes` scan runs against a remote provider that
+        can HEAD. Orphan detection needs a provider inventory export and is
+        left to the operator tooling until the adapter split (B9.2a) lands
+        a paginated lister.
+        """
+        if not self._is_db_active():
+            return {"scanned": 0, "missing_bytes": 0, "skipped": "catalog inactive"}
+
+        from control_plane.db import control_plane_transaction
+        from psycopg.types.json import Jsonb
+
+        missing = 0
+        scanned = 0
+        with control_plane_transaction() as conn:
+            rows = conn.execute(
+                """SELECT artifact_id, object_key, primary_provider, tenant_id
+                     FROM storage.artifacts
+                    WHERE state IN ('available', 'expiring')
+                      AND legal_hold = false
+                    ORDER BY available_at NULLS FIRST
+                    LIMIT %s""",
+                (max(1, scan_limit),),
+            ).fetchall()
+
+            for artifact_id, object_key, provider, tenant_id in rows:
+                scanned += 1
+                client = self.cache if provider == "r2" and self.cache else self.primary
+                try:
+                    meta = client.head_object(object_key)
+                except StorageUnavailable:
+                    # Ambiguous — do not accuse the catalog of drift on a
+                    # provider we could not reach.
+                    continue
+                if meta is not None:
+                    continue
+
+                # Object is definitively absent while the row says available.
+                existing = conn.execute(
+                    """SELECT 1 FROM reconciliation_findings
+                        WHERE resource_type = 'artifact'
+                          AND resource_id = %s
+                          AND finding_type = 'missing_bytes'
+                          AND resolved_at IS NULL LIMIT 1""",
+                    (str(artifact_id),),
+                ).fetchone()
+                if existing is None:
+                    conn.execute(
+                        """INSERT INTO reconciliation_findings
+                               (resource_type, resource_id, tenant_id,
+                                finding_type, severity, summary, desired,
+                                observed, action_taken)
+                           VALUES ('artifact', %s, %s, 'missing_bytes',
+                                   'error', %s, %s, %s, 'report_only')""",
+                        (
+                            str(artifact_id), tenant_id,
+                            f"artifact {artifact_id} is 'available' but its "
+                            f"object {object_key} is missing from the provider",
+                            Jsonb({"state": "available"}),
+                            Jsonb({"object_present": False}),
+                        ),
+                    )
+                    missing += 1
+
+        if missing:
+            log.warning("artifact inventory: %d available rows with missing bytes", missing)
+        return {"scanned": scanned, "missing_bytes": missing}
+
     def _make_key(
         self,
         artifact_type: str,
@@ -621,6 +777,41 @@ class ArtifactManager:
         return result
 
     def finalize_upload(self, session_id: str, checksum: Optional[str] = None) -> dict:
+        """Finalize an upload session: HEAD, verify, then mark available.
+
+        Rejections are applied in their own transaction. The verification
+        work runs inside ``control_plane_transaction``, and raising from
+        there rolls the whole block back — so a state write made just
+        before the raise was silently discarded. That is why the
+        pre-existing "mark abandoned when the object is missing" never
+        persisted: the UPDATE and the RuntimeError were in the same
+        transaction, and the error message said one thing while the
+        database kept saying `requested`.
+        """
+        try:
+            return self._finalize_upload_txn(session_id, checksum)
+        except _FinalizeRejected as rejection:
+            if rejection.state:
+                self._mark_artifact_state(rejection.artifact_id, rejection.state)
+            raise rejection.as_error()
+
+    def _mark_artifact_state(self, artifact_id, state: str) -> None:
+        """Record a terminal verification outcome in its own transaction."""
+        from control_plane.db import control_plane_transaction
+
+        try:
+            with control_plane_transaction() as conn:
+                conn.execute(
+                    "UPDATE storage.artifacts SET state = %s, version = version + 1 "
+                    "WHERE artifact_id = %s",
+                    (state, artifact_id),
+                )
+        except Exception as exc:
+            log.error(
+                "failed to record artifact %s state=%s: %s", artifact_id, state, exc
+            )
+
+    def _finalize_upload_txn(self, session_id: str, checksum: Optional[str] = None) -> dict:
         """Finalize an upload session, perform HEAD check, and atomically update state to available."""
         from control_plane.db import control_plane_transaction
         import uuid
@@ -633,7 +824,8 @@ class ArtifactManager:
         with control_plane_transaction() as conn:
             # 1. Look up the upload session
             sess = conn.execute(
-                """SELECT artifact_id, tenant_id, principal_id, expires_at, completed_at
+                """SELECT artifact_id, tenant_id, principal_id, expires_at,
+                          completed_at, expected_size_bytes, expected_sha256
                    FROM storage.artifact_upload_sessions
                    WHERE upload_session_id = %s FOR UPDATE""",
                 (sess_uuid,),
@@ -641,7 +833,10 @@ class ArtifactManager:
             if not sess:
                 raise ValueError(f"Upload session {session_id} not found")
 
-            artifact_id, tenant_id, principal_id, expires_at, completed_at = sess
+            (
+                artifact_id, tenant_id, principal_id, expires_at,
+                completed_at, expected_size, expected_sha256,
+            ) = sess
             if completed_at:
                 # Already finalized, return current state
                 art = conn.execute(
@@ -681,16 +876,59 @@ class ArtifactManager:
             # 3. Perform provider HEAD check
             meta = client.head_object(key)
             if not meta:
-                # Update artifact state to abandoned
-                conn.execute(
-                    "UPDATE storage.artifacts SET state = 'abandoned' WHERE artifact_id = %s",
-                    (artifact_id,),
-                )
-                raise RuntimeError(
-                    f"Object {key} not found on provider {provider} bucket {bucket}"
+                raise _FinalizeRejected(
+                    artifact_id,
+                    "abandoned",
+                    f"Object {key} not found on provider {provider} bucket {bucket}",
                 )
 
             size_bytes = meta.get("size_bytes", 0)
+
+            # 3b. Verify the object against what the session declared.
+            #
+            # `expected_size_bytes` and `expected_sha256` were recorded when
+            # the upload was authorized and, before this, were never read
+            # again — so a truncated, substituted, or corrupt object became
+            # `available` unchallenged. DA§6.2: "The finalize operation
+            # performs a provider HEAD, checks generation/version, expected
+            # size, content type, and checksum, then transitions the
+            # PostgreSQL row atomically."
+            #
+            # A mismatch is `corrupt`, not `abandoned`: the bytes exist and
+            # are wrong, which is a different operational question from an
+            # upload that never arrived.
+
+            if expected_size is not None and int(size_bytes) != int(expected_size):
+                raise _FinalizeRejected(
+                    artifact_id,
+                    "corrupt",
+                    f"Artifact {artifact_id} size mismatch: session declared "
+                    f"{expected_size} bytes, provider reports {size_bytes}",
+                )
+
+            supplied = (checksum or "").strip().lower() or None
+            expected = (expected_sha256 or "").strip().lower() or None
+            if expected and supplied and supplied != expected:
+                raise _FinalizeRejected(
+                    artifact_id,
+                    "corrupt",
+                    f"Artifact {artifact_id} checksum mismatch: session "
+                    f"declared {expected}, upload reported {supplied}",
+                )
+            if expected and not supplied:
+                raise _FinalizeRejected(
+                    artifact_id,
+                    None,
+                    f"Artifact {artifact_id} requires a checksum at finalize: "
+                    f"the upload session declared an expected sha256",
+                    error_type=ValueError,
+                )
+
+            # Only a real content hash goes in `sha256`. A provider ETag is
+            # not one — for a multipart upload it is not a hash of the
+            # content at all — so storing it here would make the column
+            # unverifiable.
+            content_sha256 = supplied or expected
 
             # 4. Atomically transition state to 'available'
             now_row = conn.execute("SELECT clock_timestamp()").fetchone()
@@ -701,10 +939,12 @@ class ArtifactManager:
                    SET state = 'available',
                        size_bytes = %s,
                        sha256 = COALESCE(sha256, %s),
+                       object_generation = COALESCE(object_generation, %s),
                        available_at = %s,
                        version = version + 1
                    WHERE artifact_id = %s""",
-                (size_bytes, checksum or meta.get("etag"), now, artifact_id),
+                (size_bytes, content_sha256, meta.get("etag") or None,
+                 now, artifact_id),
             )
 
             # Mark session complete
@@ -905,9 +1145,61 @@ class ArtifactManager:
 
                     try:
                         art = conn.execute(
-                            "SELECT object_key, primary_provider, primary_bucket FROM storage.artifacts WHERE artifact_id = %s",
+                            "SELECT object_key, primary_provider, primary_bucket, "
+                            "legal_hold, retain_until FROM storage.artifacts "
+                            "WHERE artifact_id = %s",
                             (art_id,)
                         ).fetchone()
+
+                        # Legal hold overrides lifecycle deletion (DA§6.5,
+                        # §8.8). This is a terminal refusal, not a retry:
+                        # backing off would re-attempt the delete every
+                        # cycle for the life of the hold and bury the
+                        # signal that someone asked for it.
+                        if art and art[3]:
+                            conn.execute(
+                                """UPDATE storage.artifact_deletion_jobs
+                                      SET state = 'delete_failed',
+                                          last_error = %s,
+                                          next_attempt_at =
+                                              clock_timestamp() + interval '1 day'
+                                    WHERE deletion_id = %s""",
+                                (
+                                    "refused: artifact is under legal hold",
+                                    del_id,
+                                ),
+                            )
+                            log.warning(
+                                "CLEANUP DB: refusing deletion of artifact %s "
+                                "— legal hold is in force",
+                                art_id,
+                            )
+                            continue
+
+                        # Retention floor: the catalog, not the object's
+                        # age, decides when bytes may go.
+                        if art and art[4] is not None:
+                            still_retained = conn.execute(
+                                "SELECT %s > clock_timestamp()", (art[4],)
+                            ).fetchone()
+                            if still_retained and still_retained[0]:
+                                conn.execute(
+                                    """UPDATE storage.artifact_deletion_jobs
+                                          SET state = 'delete_failed',
+                                              last_error = %s,
+                                              next_attempt_at = %s
+                                        WHERE deletion_id = %s""",
+                                    (
+                                        "deferred: retain_until has not passed",
+                                        art[4],
+                                        del_id,
+                                    ),
+                                )
+                                log.info(
+                                    "CLEANUP DB: deferring deletion of %s until %s",
+                                    art_id, art[4],
+                                )
+                                continue
 
                         if art:
                             key = art[0]
@@ -936,7 +1228,24 @@ class ArtifactManager:
                         )
                         log.error("CLEANUP DB: deletion job %s failed: %s", del_id, e)
 
-        # 2. Legacy filesystem/S3-level cleanup fallback
+            # The catalog is the deletion authority once it is active. The
+            # object-listing sweep below must not also run: it deletes by
+            # object age with no catalog lookup, so it would remove bytes
+            # for an artifact that is `available`, under legal hold, or
+            # inside its retention window — and leave the catalog row
+            # claiming the object still exists.
+            #
+            # DA§6.5: "Provider lifecycle rules are a safety net and cost
+            # mechanism, not the only business workflow. PostgreSQL
+            # determines eligibility."
+            return abandoned_count
+
+        # 2. Legacy object-age sweep — development/pre-catalog only.
+        #
+        # Reached only when the storage catalog is inactive, i.e. there is
+        # no PostgreSQL row to consult. Deleting by prefix listing cannot
+        # honour legal hold, retention, or artifact state, which is why it
+        # is not allowed to run alongside the catalog.
         cutoff = time.time() - older_than_sec
         deleted = 0
         for atype in ArtifactType:
@@ -946,7 +1255,7 @@ class ArtifactManager:
                     if obj["last_modified"] < cutoff:
                         if self.primary.delete_object(obj["key"]):
                             deleted += 1
-        log.info("CLEANUP: deleted %d expired artifacts", deleted)
+        log.info("CLEANUP: deleted %d expired artifacts (no catalog)", deleted)
         return deleted
 
 

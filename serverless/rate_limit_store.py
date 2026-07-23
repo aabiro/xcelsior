@@ -6,6 +6,8 @@ import logging
 import os
 import time
 
+from cache_keys import cache_key
+
 from serverless.limits import RateLimitExceeded, RateLimitInfo
 
 log = logging.getLogger("xcelsior.serverless.rate_limit")
@@ -80,7 +82,11 @@ def check_key_rate_limit_redis(key_id: str, rpm: int) -> RateLimitInfo | None:
         return None
     limit = max(1, int(rpm))
     now = time.time()
-    bucket_key = f"serverless:rpm:{key_id}"
+    # `key_id` is an API key id or a `dashboard-test:{owner_id}` composite,
+    # and owner ids are frequently email addresses — companion §5.4 forbids
+    # those in key names, so it is hashed. The zadd/expire pair below runs
+    # in one MULTI, so the TTL is set with the key (§5.4 again).
+    bucket_key = cache_key("ratelimit", "serverless", secret=str(key_id))
     window_start = now - 60.0
     pipe = client.pipeline()
     pipe.zremrangebyscore(bucket_key, 0, window_start)

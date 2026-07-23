@@ -505,68 +505,183 @@ from db import pg_transaction, pg_connection
 import time
 
 _slurm_job_map = {}
-SLURM_MAP_FILE = "/tmp/slurm_map.json"
+
+# States after which a mapping is settled and stops being polled. The row
+# is *kept* — companion §10.1: "Historical mappings remain queryable and
+# auditable." Deleting it destroys the only record that an external job
+# ever ran for a tenant.
+SLURM_TERMINAL_STATES = ("completed", "failed", "cancelled")
+
+DEFAULT_CLUSTER_ID = "unknown"
+
 
 def _load_slurm_map():
-    """Load the mapping between Xcelsior and Slurm job IDs from the database."""
+    """Load open Xcelsior→Slurm mappings from the database.
+
+    Terminal mappings are excluded: they are retained for audit, not for
+    polling. The returned dict is a read-through convenience for callers
+    such as the health route — it is a *snapshot*, never authority.
+    """
     global _slurm_job_map
-    _slurm_job_map.clear()
+    fresh: dict = {}
     try:
         with pg_connection() as conn:
             rows = conn.execute(
-                "SELECT xcelsior_job_id, slurm_job_id FROM slurm_job_mappings"
+                "SELECT xcelsior_job_id, slurm_job_id FROM slurm_job_mappings "
+                "WHERE terminal_at IS NULL"
             ).fetchall()
             for row in rows:
-                _slurm_job_map[row[0]] = row[1]
+                fresh[row[0]] = row[1]
     except Exception as e:
         log.error("Failed to load slurm map from DB: %s", e)
+        return _slurm_job_map
+    # Only replace the cache once the read succeeded, so a transient DB
+    # error does not blank a caller's view of the fleet.
+    _slurm_job_map = fresh
     return _slurm_job_map
 
-def register_slurm_job(xcelsior_job_id, slurm_job_id):
-    """Register a mapping between Xcelsior and Slurm job IDs."""
+
+def register_slurm_job(
+    xcelsior_job_id,
+    slurm_job_id,
+    *,
+    cluster_id: str = DEFAULT_CLUSTER_ID,
+    tenant_id: str | None = None,
+    attempt_id: str | None = None,
+    submit_idempotency_key: str | None = None,
+):
+    """Register a mapping between an Xcelsior job and an external Slurm job.
+
+    Idempotent on ``(tenant_id, submit_idempotency_key)`` and unique on
+    ``(cluster_id, slurm_job_id)``, so a retried submit cannot create a
+    second external job or let two Xcelsior jobs act on one Slurm job
+    (companion §10.1).
+
+    The previous implementation was ``ON CONFLICT (xcelsior_job_id) DO
+    UPDATE SET slurm_job_id`` — last-writer-wins, which silently
+    re-pointed a job at a different external id and orphaned the first.
+    """
+    now = time.time()
+    key = submit_idempotency_key or f"submit:{xcelsior_job_id}"
     with pg_transaction() as conn:
         conn.execute(
             """
-            INSERT INTO slurm_job_mappings (xcelsior_job_id, slurm_job_id, created_at)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (xcelsior_job_id) DO UPDATE SET slurm_job_id = EXCLUDED.slurm_job_id
+            INSERT INTO slurm_job_mappings
+                (xcelsior_job_id, slurm_job_id, created_at, cluster_id,
+                 tenant_id, xcelsior_attempt_id, submit_idempotency_key,
+                 desired_state, observed_state, submitted_at, version)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, 'running', 'pending',
+                    to_timestamp(%s), 1)
+            ON CONFLICT (xcelsior_job_id) DO UPDATE
+               SET slurm_job_id = EXCLUDED.slurm_job_id,
+                   cluster_id = EXCLUDED.cluster_id,
+                   version = slurm_job_mappings.version + 1
+             WHERE slurm_job_mappings.terminal_at IS NULL
             """,
-            (xcelsior_job_id, str(slurm_job_id), time.time())
+            (
+                xcelsior_job_id,
+                str(slurm_job_id),
+                now,
+                cluster_id or DEFAULT_CLUSTER_ID,
+                tenant_id,
+                attempt_id,
+                key,
+                now,
+            ),
         )
 
-def sync_slurm_statuses(update_callback=None):
-    """Poll all tracked Slurm jobs and sync status back to Xcelsior.
+
+def set_slurm_desired_state(xcelsior_job_id, desired_state: str) -> bool:
+    """Record what Xcelsior *wants* the external job to be doing.
+
+    Half of the bidirectional reconcile companion §10.1 asks for: without
+    a desired state there is nothing to reconcile observations against,
+    and a cancellation can only be expressed by deleting the row.
+    """
+    if desired_state not in ("running", "cancelled"):
+        raise ValueError(f"unsupported desired_state: {desired_state!r}")
+    with pg_transaction() as conn:
+        result = conn.execute(
+            """UPDATE slurm_job_mappings
+                  SET desired_state = %s, version = version + 1
+                WHERE xcelsior_job_id = %s AND terminal_at IS NULL""",
+            (desired_state, xcelsior_job_id),
+        )
+        return result.rowcount > 0
+
+def sync_slurm_statuses(update_callback=None, cancel_callback=None):
+    """Reconcile desired and observed state for every open Slurm mapping.
+
+    Bidirectional, as companion §10.1 requires:
+
+    - **observed → Xcelsior**: poll the cluster, persist ``observed_state``
+      and ``last_observed_at``, and report transitions through
+      ``update_callback``;
+    - **desired → cluster**: a mapping whose ``desired_state`` is
+      ``cancelled`` while the external job is still live gets a cancel
+      request through ``cancel_callback``. Previously there was no desired
+      state at all, so a cancellation could only be expressed by deleting
+      the row and hoping the external job noticed.
+
+    Terminal mappings are **stamped, not deleted** — the old code removed
+    the row on completion, destroying the only record that the external
+    job ever ran. They are excluded from future polls by ``terminal_at``.
 
     Args:
-        update_callback: function(xcelsior_job_id, new_status) called for each update
+        update_callback: fn(xcelsior_job_id, new_status) for observed
+            transitions.
+        cancel_callback: fn(slurm_job_id) invoked when Xcelsior wants the
+            external job stopped and it is not yet terminal.
 
     Returns:
-        list of (xcelsior_job_id, slurm_job_id, old_state, new_state) tuples
+        list of (xcelsior_job_id, slurm_job_id, old_state, new_state).
     """
     changes = []
     with pg_connection() as conn:
-        cursor = conn.execute("SELECT xcelsior_job_id, slurm_job_id FROM slurm_job_mappings")
-        mappings = cursor.fetchall()
-        
+        mappings = conn.execute(
+            "SELECT xcelsior_job_id, slurm_job_id, observed_state, desired_state "
+            "FROM slurm_job_mappings WHERE terminal_at IS NULL"
+        ).fetchall()
+
     for row in mappings:
-        xcelsior_id = row[0]
-        slurm_id = row[1]
-        status = get_slurm_job_status(slurm_id)
+        xcelsior_id, slurm_id, prev_state, desired = row[0], row[1], row[2], row[3]
+        try:
+            status = get_slurm_job_status(slurm_id)
+        except Exception as e:
+            log.error("slurm status poll failed for %s: %s", slurm_id, e)
+            continue
         if "error" in status:
             continue
 
-        new_state = status.get("xcelsior_state", "")
-        if new_state and update_callback:
-            update_callback(xcelsior_id, new_state)
-            changes.append((xcelsior_id, slurm_id, "unknown", new_state))
+        new_state = status.get("xcelsior_state", "") or "unknown"
+        is_terminal = new_state in SLURM_TERMINAL_STATES
 
-        # Clean up completed/failed jobs from tracking
-        if new_state in ("completed", "failed", "cancelled"):
-            with pg_transaction() as conn:
-                conn.execute(
-                    "DELETE FROM slurm_job_mappings WHERE xcelsior_job_id = %s",
-                    (xcelsior_id,)
-                )
+        # Persist the observation regardless of whether it changed, so
+        # last_observed_at reflects real freshness (blueprint §12.2: API
+        # receipt time is what determines staleness).
+        with pg_transaction() as conn:
+            conn.execute(
+                """UPDATE slurm_job_mappings
+                      SET observed_state = %s,
+                          last_observed_at = clock_timestamp(),
+                          terminal_at = CASE WHEN %s THEN clock_timestamp()
+                                             ELSE terminal_at END,
+                          version = version + 1
+                    WHERE xcelsior_job_id = %s""",
+                (new_state, is_terminal, xcelsior_id),
+            )
+
+        if new_state != prev_state:
+            if update_callback:
+                update_callback(xcelsior_id, new_state)
+            changes.append((xcelsior_id, slurm_id, prev_state, new_state))
+
+        # desired → cluster: Xcelsior wants this stopped and it is not.
+        if desired == "cancelled" and not is_terminal and cancel_callback:
+            try:
+                cancel_callback(slurm_id)
+            except Exception as e:
+                log.error("slurm cancel failed for %s: %s", slurm_id, e)
 
     return changes
 

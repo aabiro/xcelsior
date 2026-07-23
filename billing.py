@@ -11,6 +11,8 @@ import json
 import logging
 import os
 import time
+
+from money import cad_to_micros, micros_to_cad
 import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
@@ -1607,16 +1609,26 @@ class BillingEngine:
         with self._conn() as conn:
             # Atomic: increment balance and get new value in one statement
             row = conn.execute(
+                # Integer minor units: the arithmetic itself must be exact
+                # (companion §4.4 rule 6). The migration-068 trigger derives
+                # balance_cad from balance_micros, so legacy readers still see
+                # a float without that float ever being the accumulator.
                 """UPDATE wallets
-                   SET balance_cad = balance_cad + %s,
-                       total_deposited_cad = total_deposited_cad + %s,
+                   SET balance_micros = balance_micros + %s,
+                       total_deposited_micros = total_deposited_micros + %s,
                        updated_at = %s
                    WHERE customer_id = %s
-                   RETURNING balance_cad""",
-                (amount_cad, amount_cad, time.time(), customer_id),
+                   RETURNING balance_micros, balance_cad""",
+                (cad_to_micros(amount_cad), cad_to_micros(amount_cad),
+                 time.time(), customer_id),
             ).fetchone()
+            # Read the derived float for the legacy response shape; the
+            # authoritative value is balance_micros, which the trigger just
+            # projected into balance_cad.
             new_balance = (
-                row["balance_cad"] if row else round(wallet["balance_cad"] + amount_cad, 4)
+                micros_to_cad(row["balance_micros"])
+                if row and row.get("balance_micros") is not None
+                else round(wallet["balance_cad"] + amount_cad, 4)
             )
             conn.execute(
                 """INSERT INTO wallet_transactions
@@ -1728,15 +1740,20 @@ class BillingEngine:
             # Atomic: decrement balance with a floor check to prevent races
             row = conn.execute(
                 """UPDATE wallets
-                   SET balance_cad = balance_cad - %s,
-                       total_spent_cad = total_spent_cad + %s,
+                   SET balance_micros = balance_micros - %s,
+                       total_spent_micros = total_spent_micros + %s,
                        grace_until = 0,
                        updated_at = %s
                    WHERE customer_id = %s
-                   RETURNING balance_cad""",
-                (amount_cad, amount_cad, time.time(), customer_id),
+                   RETURNING balance_micros, balance_cad""",
+                (cad_to_micros(amount_cad), cad_to_micros(amount_cad),
+                 time.time(), customer_id),
             ).fetchone()
-            new_balance = row["balance_cad"] if row else new_balance
+            new_balance = (
+                micros_to_cad(row["balance_micros"])
+                if row and row.get("balance_micros") is not None
+                else new_balance
+            )
             conn.execute(
                 """INSERT INTO wallet_transactions
                    (tx_id, customer_id, tx_type, amount_cad,
@@ -1764,14 +1781,19 @@ class BillingEngine:
         with self._conn() as conn:
             row = conn.execute(
                 """UPDATE wallets
-                   SET balance_cad = balance_cad + %s,
-                       total_refunded_cad = total_refunded_cad + %s,
+                   SET balance_micros = balance_micros + %s,
+                       total_refunded_micros = total_refunded_micros + %s,
                        updated_at = %s
                    WHERE customer_id = %s
-                   RETURNING balance_cad""",
-                (amount_cad, amount_cad, time.time(), customer_id),
+                   RETURNING balance_micros, balance_cad""",
+                (cad_to_micros(amount_cad), cad_to_micros(amount_cad),
+                 time.time(), customer_id),
             ).fetchone()
-            new_balance = row["balance_cad"] if row else amount_cad
+            new_balance = (
+                micros_to_cad(row["balance_micros"])
+                if row and row.get("balance_micros") is not None
+                else amount_cad
+            )
             conn.execute(
                 """INSERT INTO wallet_transactions
                    (tx_id, customer_id, tx_type, amount_cad,

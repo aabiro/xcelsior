@@ -261,9 +261,26 @@ def _backfill_jobs() -> None:
     live scheduler during an expand deploy) never blocks the migration
     and vice versa; rows updated underneath us are re-selected on the
     next pass because the predicate re-checks ``phase IS NULL``.
+
+    Termination invariant: the batch predicate selects only rows the
+    status mapping can actually project (``phase CASE`` is not NULL), so
+    every claimed row leaves the candidate set and the loop drains. A row
+    with an unknown legacy status is deliberately *never* claimed — it
+    falls through to ``_verify_backfill``, which aborts the migration and
+    names the offending status.
+
+    Without that ``IS NOT NULL`` guard this loop does not terminate: the
+    ``ELSE NULL`` branch writes NULL back into the column the predicate
+    filters on, so an unmappable row is re-selected forever and
+    ``alembic upgrade`` hangs holding its locks instead of failing
+    cleanly. Found by ``tests/test_migration_from_production_snapshot.py``
+    (Track B B1.2); a from-empty upgrade cannot reach this path.
     """
     bind = op.get_bind()
-    while True:
+    # Defence in depth: the predicate above makes a stall impossible, but a
+    # migration that hangs is a far worse failure than one that raises.
+    max_passes = 1_000_000
+    for _ in range(max_passes):
         result = bind.execute(
             sa.text(
                 f"""
@@ -271,6 +288,7 @@ def _backfill_jobs() -> None:
                     SELECT job_id
                       FROM jobs
                      WHERE phase IS NULL
+                       AND ({_PHASE_CASE_SQL}) IS NOT NULL
                      LIMIT :batch_size
                        FOR UPDATE SKIP LOCKED
                 )
@@ -298,7 +316,12 @@ def _backfill_jobs() -> None:
             {"batch_size": BACKFILL_BATCH_SIZE},
         )
         if result.rowcount == 0:
-            break
+            return
+    raise RuntimeError(
+        f"migration 054 jobs backfill did not converge after {max_passes} "
+        f"passes; the batch predicate is no longer draining the candidate "
+        f"set. Refusing to loop indefinitely."
+    )
 
 
 def _backfill_hosts() -> None:

@@ -369,10 +369,15 @@ def _start_background_tasks():
                 from billing import get_billing_engine
 
                 be = get_billing_engine()
-                be.deposit(
+                # The idempotency key is mandatory: process_ln_deposits
+                # retries any deposit whose mark_credited did not land, so
+                # without it a failed mark re-credits the wallet on every
+                # 5-second sweep.
+                return be.deposit(
                     customer_id,
                     amount_cad,
                     f"Lightning deposit {deposit_id}",
+                    idempotency_key=_ln.credit_idempotency_key(deposit_id),
                 )
 
             _ln.start_ln_watcher(interval=5, credit_callback=_ln_credit_callback)

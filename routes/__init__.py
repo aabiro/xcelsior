@@ -1,5 +1,6 @@
 """Route modules for Xcelsior API."""
 
+from routes.action_plans import router as action_plans_router
 from routes.admin import router as admin_router
 from routes.agent import router as agent_router
 from routes.agent_v2 import router as agent_v2_router
@@ -37,6 +38,7 @@ from routes.static import router as static_router
 from routes.volumes import router as volumes_router
 
 ALL_ROUTERS = [
+    action_plans_router,
     admin_router,
     agent_router,
     agent_v2_router,
