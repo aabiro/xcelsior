@@ -22,12 +22,55 @@ from routes._deps import (
     _is_platform_admin,
     _require_auth,
     _require_scope,
+    _user_owns_job,
     append_user_audit_event,
 )
 from routes.hosts import _resolve_host_id
 from routes.problem import ProblemException
 
 router = APIRouter(tags=["Control plane v1"])
+
+
+def _iso(value) -> str | None:
+    return value.isoformat() if hasattr(value, "isoformat") else (value if value is None else str(value))
+
+
+def _job_for_caller(request: Request, job_id: str) -> dict:
+    """Fetch a job the caller may see, else a not-found problem.
+
+    Cross-tenant access returns **not-found**, not a permission hint (§B5.6 —
+    no existence leak): a customer cannot probe which job ids exist.
+    """
+    from scheduler import get_job
+
+    user = _require_auth(request)
+    job = get_job(job_id)
+    if not job or (not _is_platform_admin(user) and not _user_owns_job(user, job)):
+        raise ProblemException(status=404, code="instance_not_found", detail=f"instance {job_id} not found")
+    return job
+
+
+def _attempts_for_job(job_id: str) -> list[dict]:
+    from db import _get_pg_pool
+
+    cols = [
+        "attempt_id", "attempt_number", "status", "host_id", "spec_hash",
+        "placement_score", "placement_explanation", "failure_code", "failure_details",
+        "reserved_at", "command_created_at", "lease_claimed_at", "started_at",
+        "ended_at", "trace_id",
+    ]
+    with _get_pg_pool().connection() as conn:
+        rows = conn.execute(
+            f"SELECT {', '.join(cols)} FROM job_attempts WHERE job_id = %s ORDER BY attempt_number ASC",
+            (job_id,),
+        ).fetchall()
+    out = []
+    for row in rows:
+        rec = dict(zip(cols, row))
+        for ts in ("reserved_at", "command_created_at", "lease_claimed_at", "started_at", "ended_at"):
+            rec[ts] = _iso(rec[ts])
+        out.append(rec)
+    return out
 
 
 def _require_host_operator(request: Request, scope: str) -> dict:
@@ -155,3 +198,67 @@ def api_v1_evict_host_workloads(host_id: str, request: Request, body: _OpIn | No
         "host.workloads_evicted", "host", resolved, user, data={"evicted": evicted_ids}
     )
     return {"ok": True, "host_id": resolved, "evicted": evicted_ids}
+
+
+@router.get("/api/v1/instances/{job_id}/control-plane")
+def api_v1_instance_control_plane(job_id: str, request: Request):
+    """§18/§20.3 — a job's control-plane state: phase, desired state, current
+    attempt. Tenant-scoped; a cross-tenant id is not-found (no existence leak)."""
+    job = _job_for_caller(request, job_id)
+    attempts = _attempts_for_job(job_id)
+    current = attempts[-1] if attempts else None
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "status": job.get("status"),
+        "phase": job.get("phase"),
+        "desired_state": job.get("desired_state"),
+        "host_id": job.get("host_id"),
+        "attempt_count": len(attempts),
+        "current_attempt": current,
+    }
+
+
+@router.get("/api/v1/instances/{job_id}/timeline")
+def api_v1_instance_timeline(job_id: str, request: Request):
+    """§20.3 — the attempt timeline for a job (reserve → command → lease →
+    start → end per attempt). Tenant-scoped; cross-tenant is not-found."""
+    _job_for_caller(request, job_id)
+    return {"ok": True, "job_id": job_id, "attempts": _attempts_for_job(job_id)}
+
+
+@router.get("/api/v1/control-plane/reconciliation-findings")
+def api_v1_reconciliation_findings(request: Request, status: str = "open"):
+    """§18/§20.2 — reconciler findings feed (operator surface).
+
+    Admin, or a machine principal with `control_plane:read`. Wraps the existing
+    `reconciliation_findings` authority; read-only.
+    """
+    from db import _get_pg_pool
+
+    user = _require_auth(request)
+    if str(user.get("grant_type", "")) == "client_credentials":
+        _require_scope(user, "control_plane:read")
+    elif not _is_platform_admin(user):
+        raise ProblemException(status=403, code="forbidden", detail="admin or control_plane:read required")
+
+    if status == "open":
+        where, order = "WHERE resolved_at IS NULL", "created_at DESC"
+    elif status == "resolved":
+        where, order = "WHERE resolved_at IS NOT NULL", "resolved_at DESC"
+    elif status == "all":
+        where, order = "", "created_at DESC"
+    else:
+        raise ProblemException(status=422, code="invalid_status", detail="status must be open|resolved|all")
+
+    with _get_pg_pool().connection() as conn:
+        cur = conn.execute(f"SELECT * FROM reconciliation_findings {where} ORDER BY {order} LIMIT 500")
+        names = [c.name for c in cur.description]
+        rows = cur.fetchall()
+    findings = []
+    for row in rows:
+        rec = dict(zip(names, row))
+        for k, v in list(rec.items()):
+            rec[k] = _iso(v) if hasattr(v, "isoformat") else v
+        findings.append(rec)
+    return {"ok": True, "status": status, "findings": findings}
