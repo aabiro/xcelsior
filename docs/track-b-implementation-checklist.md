@@ -469,18 +469,30 @@ migration 056) exist from Track A and are the substrate this builds on.
   `tests/test_control_plane_v1_drain_evict.py` (+3, now 8) — control-plane +
   timeline shape, cross-tenant not-found (no leak), findings admin-gated with
   invalid-status 422.
-  **Residual (mutations + aggregates + contract test + legacy reconcile):**
-  still to build — the v1 routes `/instances/{id}/attempts`,
-  `/placement-explanation`; `/instances/{id}/retry` and `/reconcile`;
-  `/control-plane/health`, `/queue`; `/hosts/{id}/capacity`, `/observations`
-  (each wraps existing Track A data — scheduler `explain`, host
-  capacity/telemetry — behind the framework above); the schemathesis contract
-  run over the v1 OpenAPI; and reconciling the **legacy** `/host/{id}/drain`
-  preempt-on-drain behaviour (a behaviour change with drain-test blast radius,
-  to be retired behind a flag once the UI moves to v1 drain+evict). The v1
-  `/evictions` uses the existing preempt/requeue path; strengthening it to a
-  fully fence-token-invalidating primitive is tracked with Track A's fenced
-  lifecycle.
+  **Also landed (2026-07-23): the operator aggregates + instance
+  attempts/retry** — `GET /api/v1/control-plane/queue` (queued instances +
+  reasons), `GET /api/v1/control-plane/health` (outbox / findings /
+  scheduled-task **live counts**, so a broken-pipeline 0 stays distinguishable
+  from a genuine 0 — DA§17), `GET /api/v1/hosts/{id}/capacity`,
+  `GET /api/v1/hosts/{id}/observations`, `GET /api/v1/instances/{id}/attempts`,
+  `GET /api/v1/instances/{id}/placement-explanation` (the *persisted* scheduler
+  explanation — no LLM invents a reason), and
+  `POST /api/v1/instances/{id}/retry` (re-enqueues via the one requeue
+  authority; never inline-schedules; already-queued/completed → typed 409).
+  Operator reads need admin or `control_plane:read`; instance reads/writes are
+  tenant-scoped (cross-tenant → not-found, no existence leak). Gate:
+  `tests/test_control_plane_v1_drain_evict.py` (now **13**). So B2.8 has shipped
+  **13 v1 endpoints** + the RFC 9457 framework, all gated and pyright-clean.
+  **Residual (the small tail):** (1) `POST /api/v1/instances/{id}/reconcile` —
+  needs an *instance-reconcile enqueue* primitive (the reconciler currently
+  scans; there is no "enqueue this instance" entry point yet), and per §3.3 it
+  must only enqueue, never repair directly; (2) the **schemathesis** contract run
+  over the generated v1 OpenAPI; (3) reconciling the **legacy**
+  `/host/{id}/drain` preempt-on-drain behaviour (a behaviour change with
+  drain-test blast radius, to be retired behind a flag once the UI moves to v1
+  drain+evict). The v1 `/evictions` uses the existing preempt/requeue path;
+  strengthening it to a fully fence-token-invalidating primitive is tracked with
+  Track A's fenced lifecycle.
 
 **Drift found and closed in the same pass (2026-07-23, B0.1 rule 6):**
 
