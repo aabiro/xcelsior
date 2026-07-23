@@ -405,12 +405,27 @@ migration 056) exist from Track A and are the substrate this builds on.
   shares the *canonical spec* with the service but does not yet delegate that
   body to `service.execute`. Collapsing every writer onto the service is B2.7,
   which is where the "one implementation" inventory gate lives.
-- [ ] **B2.7 Route every surface through it.** Dashboard launch modals,
-  REST/SDK clients, training workflows, and serverless worker
-  provisioning create desired state only through the launch service where
-  semantics match. Gate: an inventory test enumerating every writer of a
-  new `jobs` row and asserting each is either the launch service or an
-  explicitly listed, justified exception.
+- [x] **B2.7 Inventory of every job-row writer** (2026-07-23). `submit_job` is
+  the single job-creation authority (B0.2 rule 11) — the only path that inserts
+  a `jobs` row (`_upsert_job_row` → `DatabaseOps.upsert_job`). Gate:
+  `tests/test_job_writer_inventory.py` (2 tests, static AST) enumerates every
+  module that calls `submit_job` and asserts the set is **exactly** the launch
+  service plus an explicitly-justified allowlist — a new, unclassified writer
+  fails CI, and a stale entry that no longer writes also fails (the list cannot
+  rot into a rubber stamp). The second test pins the raw `INSERT INTO jobs` /
+  `upsert_job` call to the persistence authority (`scheduler.py`/`db.py`) so no
+  module grows a second row writer. Current classification: the unified launch
+  service is the sanctioned authority; `routes/instances.py` (REST /instance,
+  canonical-spec-aligned via B2.6), `serverless/service.py` (distinct
+  worker-provisioning lifecycle — B3.1 attempt-binds it), `inference.py` /
+  `routes/inference.py` (request/response inference, not an interactive
+  instance), `ai_assistant.py` (thin wrapper over the REST launch), and `cli.py`
+  (local operator tool) are the justified exceptions. ✔
+  **Residual (ongoing consolidation):** the guard *pins* the writer set today;
+  collapsing `/instance`'s and serverless' submission bodies to call
+  `service.execute` directly (so they share not just the canonical spec but the
+  whole preview→hold→consume machine) proceeds surface-by-surface as their
+  semantics are reconciled, without ever adding an unclassified writer.
 - [ ] **B2.8 Versioned API surface and RFC 9457 errors** (§18.1–§18.3,
   §18.5). Add `/api/v1/instances/{job_id}/control-plane`, `/attempts`,
   `/timeline`, `/placement-explanation`; `POST /api/v1/placements/simulate`;
