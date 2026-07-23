@@ -442,29 +442,35 @@ migration 056) exist from Track A and are the substrate this builds on.
   every required field present, retryable codes + `Retry-After`, HTTP 404/409
   problem+json, and legacy shape unchanged; `tests/test_placement_simulate.py`
   (1) — read-only, no rows written. Pyright clean; api 157 + launch suites green.
-  **Residual (the endpoint surface + contract test):** the remaining §18 v1
-  routes — `/instances/{id}/control-plane`, `/attempts`, `/timeline`,
-  `/placement-explanation`; `/instances/{id}/retry` and `/reconcile`;
-  `/control-plane/health`, `/queue`, `/reconciliation-findings`;
-  `/hosts/{id}/capacity`, `/observations`; and `/hosts/{id}/drain`,
-  `/undrain`, `/evictions` with the §3.3 drain-vs-evict separation, separate
-  authz + audit, and the "drain leaves running workloads running" gate — plus
-  the schemathesis contract run over the v1 OpenAPI, are not yet built. Most
-  wrap existing Track A data (reconciler findings, scheduler `explain`, host
-  capacity/telemetry) behind the framework above, but two need real work:
-  **(a) §3.3 drain/evict gap found (2026-07-23, B0.1 rule 6, not yet fixed):**
-  the existing `POST /host/{id}/drain` calls
-  `scheduler.run_drain_preemptions`, whose docstring is "*Preempt all workloads
-  on a draining host (spot first, then on-demand)*" — i.e. today's drain
-  **evicts every workload**, the exact opposite of §3.3's "draining never
-  evicts". The v1 split must make `drain` stop new placements only (no
-  preemption) and move eviction to a separately-authorized, separately-audited
-  `/evictions` endpoint that definitively **fences** a strict workload before
-  reassignment; the legacy endpoint's preempt-on-drain behaviour must be
-  reconciled (behaviour change with drain-test blast radius), so this is
-  deliberately deferred rather than rushed. **(b) no eviction primitive exists**
-  — `run_drain_preemptions`/`preempt_job` preempt, but a fenced, audited
-  single-host workload-eviction primitive for `/evictions` must be built.
+  **Also landed (2026-07-23): the §3.3 drain-vs-evict split** —
+  `routes/control_plane_v1.py` adds `POST /api/v1/hosts/{id}/drain` (stop new
+  placements only — **never** preempts; leaves running workloads running),
+  `/undrain`, and `/evictions` (a *separate* action requiring the distinct
+  `hosts:evict` scope, gated on the host already being drained so drain→evict is
+  an explicit two-step operator flow, separately audited as
+  `host.workloads_evicted`). Optimistic concurrency via the host `version`
+  (`expected_version` mismatch → 409 `version_conflict`); domain errors are
+  problem+json. This corrects the §3.3 gap found in the legacy
+  `/host/{id}/drain` (which calls `run_drain_preemptions` — "*preempts all
+  workloads on a draining host*"): the v1 `drain` does not preempt. Gate:
+  `tests/test_control_plane_v1_drain_evict.py` (5) — **drain leaves a running
+  workload running**, evict-before-drain refused, drain→evict removes it,
+  drain/evict require **distinct** scopes (AST-pinned), unknown host is
+  problem+json 404, stale `expected_version` is 409. Pyright clean; host-coverage
+  16 green.
+  **Residual (read endpoints + contract test + legacy reconcile):** still to
+  build — the read/mutation v1 routes `/instances/{id}/control-plane`,
+  `/attempts`, `/timeline`, `/placement-explanation`; `/instances/{id}/retry`
+  and `/reconcile`; `/control-plane/health`, `/queue`,
+  `/reconciliation-findings`; `/hosts/{id}/capacity`, `/observations` (each
+  wraps existing Track A data — reconciler findings, scheduler `explain`, host
+  capacity/telemetry — behind the framework above); the schemathesis contract
+  run over the v1 OpenAPI; and reconciling the **legacy** `/host/{id}/drain`
+  preempt-on-drain behaviour (a behaviour change with drain-test blast radius,
+  to be retired behind a flag once the UI moves to v1 drain+evict). The v1
+  `/evictions` uses the existing preempt/requeue path; strengthening it to a
+  fully fence-token-invalidating primitive is tracked with Track A's fenced
+  lifecycle.
 
 **Drift found and closed in the same pass (2026-07-23, B0.1 rule 6):**
 
