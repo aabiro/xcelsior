@@ -543,6 +543,16 @@ Track A.
   metering already is. Gate: a serverless scale-up produces exactly one
   attempt, one allocation set, and one warm-time meter; a fenced stop
   closes it once.
+  **Current state (verified 2026-07-23):** `serverless_workers` links only to
+  `scheduler_job_id` (+ `host_id`, `warm_expires_at`, `billing_exempt`); it has
+  **no `attempt_id` / allocation FK**, and `serverless/service.py`
+  `provision_worker` does not create or bind a fenced `job_attempts` row. So
+  B3.1 needs: an expand-contract migration adding `attempt_id` (FK →
+  `job_attempts`) and the allocation link to `serverless_workers`;
+  `provision_worker` extended to reserve/bind a fenced attempt + allocation
+  through the one attempt authority; warm-time metering keyed to the attempt;
+  and the scale-up/fenced-stop gate. Safety-sensitive (fencing) — a dedicated
+  pass, not a tail-of-session add.
 - [ ] **B3.2 Endpoint and client budgets replace per-request approval**
   (§4.2, §15.3). Server-side enforcement; an inference call never requires
   a human approval click. Gate: budget exhaustion denies with a typed
