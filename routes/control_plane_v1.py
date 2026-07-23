@@ -35,6 +35,16 @@ def _iso(value) -> str | None:
     return value.isoformat() if hasattr(value, "isoformat") else (value if value is None else str(value))
 
 
+def _require_control_plane_read(request: Request) -> dict:
+    """Operator read access: interactive admin, or `control_plane:read` machine."""
+    user = _require_auth(request)
+    if str(user.get("grant_type", "")) == "client_credentials":
+        _require_scope(user, "control_plane:read")
+    elif not _is_platform_admin(user):
+        raise ProblemException(status=403, code="forbidden", detail="admin or control_plane:read required")
+    return user
+
+
 def _job_for_caller(request: Request, job_id: str) -> dict:
     """Fetch a job the caller may see, else a not-found problem.
 
@@ -262,3 +272,177 @@ def api_v1_reconciliation_findings(request: Request, status: str = "open"):
             rec[k] = _iso(v) if hasattr(v, "isoformat") else v
         findings.append(rec)
     return {"ok": True, "status": status, "findings": findings}
+
+
+@router.get("/api/v1/instances/{job_id}/attempts")
+def api_v1_instance_attempts(job_id: str, request: Request):
+    """§18 — the raw attempt records for a job. Tenant-scoped."""
+    _job_for_caller(request, job_id)
+    return {"ok": True, "job_id": job_id, "attempts": _attempts_for_job(job_id)}
+
+
+@router.get("/api/v1/instances/{job_id}/placement-explanation")
+def api_v1_instance_placement_explanation(job_id: str, request: Request):
+    """§3.2/§18 — the persisted placement explanation for the current attempt.
+
+    Returns the bounded, pre-computed explanation the scheduler stored (no LLM
+    invents a reason). Tenant-scoped; not-found for a cross-tenant id.
+    """
+    _job_for_caller(request, job_id)
+    attempts = _attempts_for_job(job_id)
+    current = attempts[-1] if attempts else None
+    explanation = current.get("placement_explanation") if current else None
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "attempt_id": current.get("attempt_id") if current else None,
+        "placement_score": current.get("placement_score") if current else None,
+        "explanation": explanation,
+        "explained": explanation is not None,
+    }
+
+
+@router.post("/api/v1/instances/{job_id}/retry")
+def api_v1_instance_retry(job_id: str, request: Request):
+    """§18 — re-enqueue a failed/stuck instance (does not run the queue inline).
+
+    Tenant-scoped write. Delegates to the one requeue authority; the scheduler
+    then claims and places it.
+    """
+    from scheduler import requeue_job
+
+    job = _job_for_caller(request, job_id)
+    status = str(job.get("status") or "")
+    if status == "completed":
+        raise ProblemException(status=409, code="already_completed", detail="a completed instance cannot be retried")
+    if status == "queued":
+        raise ProblemException(status=409, code="already_queued", detail="instance is already queued")
+    result = requeue_job(job_id, user_initiated=True)
+    if not result:
+        raise ProblemException(status=409, code="retry_failed", detail="instance could not be requeued")
+    return {"ok": True, "job_id": job_id, "status": "queued"}
+
+
+@router.get("/api/v1/hosts/{host_id}/capacity")
+def api_v1_host_capacity(host_id: str, request: Request):
+    """§18/§20.4 — a host's GPU capacity snapshot. Operator read."""
+    _require_control_plane_read(request)
+    resolved, host = _host_or_problem(host_id)
+
+    def _num(v, default=0.0):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return default
+
+    total = _num(host.get("total_vram_gb"))
+    free = _num(host.get("free_vram_gb"))
+    return {
+        "ok": True,
+        "host_id": resolved,
+        "gpu_model": host.get("gpu_model"),
+        "num_gpus": host.get("num_gpus"),
+        "status": host.get("status"),
+        "draining": host.get("status") == "draining",
+        "total_vram_gb": total,
+        "free_vram_gb": free,
+        "allocated_vram_gb": round(max(0.0, total - free), 3),
+    }
+
+
+@router.get("/api/v1/hosts/{host_id}/observations")
+def api_v1_host_observations(host_id: str, request: Request, limit: int = 20):
+    """§18/§20.4 — recent worker-reported observations for a host. Operator read."""
+    from db import _get_pg_pool
+
+    _require_control_plane_read(request)
+    resolved, _ = _host_or_problem(host_id)
+    limit = max(1, min(int(limit), 200))
+    cols = [
+        "observation_id", "session_id", "inventory_generation", "agent_version",
+        "capabilities", "conditions", "gpu_inventory", "observed_workload_count",
+        "command_journal_watermark", "worker_reported_at", "received_at",
+    ]
+    with _get_pg_pool().connection() as conn:
+        rows = conn.execute(
+            f"SELECT {', '.join(cols)} FROM host_observations WHERE host_id = %s "
+            "ORDER BY received_at DESC LIMIT %s",
+            (resolved, limit),
+        ).fetchall()
+    out = []
+    for row in rows:
+        rec = dict(zip(cols, row))
+        rec["worker_reported_at"] = _iso(rec["worker_reported_at"])
+        rec["received_at"] = _iso(rec["received_at"])
+        out.append(rec)
+    return {"ok": True, "host_id": resolved, "observations": out}
+
+
+@router.get("/api/v1/control-plane/queue")
+def api_v1_control_plane_queue(request: Request):
+    """§18/§20.2 — the queued instances awaiting placement, with reasons. Operator read."""
+    from scheduler import list_jobs
+
+    _require_control_plane_read(request)
+    queued = list_jobs("queued")
+    entries = [
+        {
+            "job_id": j.get("job_id"),
+            "priority": j.get("priority"),
+            "queue_reason": j.get("queue_reason") or j.get("queue_reason_code"),
+            "queue_reason_detail": j.get("queue_reason_detail"),
+            "gpu_model": j.get("gpu_model"),
+            "num_gpus": j.get("num_gpus"),
+            "vram_needed_gb": j.get("vram_needed_gb"),
+            "submitted_at": _iso(j.get("submitted_at")),
+            "scheduling_attempts": j.get("scheduling_attempts"),
+        }
+        for j in queued
+    ]
+    return {"ok": True, "depth": len(entries), "queue": entries}
+
+
+@router.get("/api/v1/control-plane/health")
+def api_v1_control_plane_health(request: Request):
+    """§18/§20.2 — control-plane health aggregate: outbox, findings, tasks.
+
+    A dashboard "0" from a broken pipeline must be distinguishable from a
+    genuine zero (DA§17), so this reports live counts, not a single flag.
+    Operator read.
+    """
+    from db import _get_pg_pool
+
+    _require_control_plane_read(request)
+    with _get_pg_pool().connection() as conn:
+        outbox_pending = conn.execute(
+            "SELECT count(*) FROM outbox_events WHERE published_at IS NULL AND dead_lettered_at IS NULL"
+        ).fetchone()[0]
+        outbox_dead = conn.execute(
+            "SELECT count(*) FROM outbox_events WHERE dead_lettered_at IS NOT NULL"
+        ).fetchone()[0]
+        findings_open = conn.execute(
+            "SELECT count(*) FROM reconciliation_findings WHERE resolved_at IS NULL"
+        ).fetchone()[0]
+        task_rows = conn.execute(
+            "SELECT task_name, enabled, last_status, last_run_at, next_run_at FROM scheduled_tasks"
+        ).fetchall()
+    tasks = [
+        {
+            "task_name": r[0],
+            "enabled": r[1],
+            "last_status": r[2],
+            "last_run_at": _iso(r[3]),
+            "next_run_at": _iso(r[4]),
+        }
+        for r in task_rows
+    ]
+    failed_tasks = [t["task_name"] for t in tasks if t["last_status"] == "error"]
+    degraded = bool(outbox_dead or failed_tasks)
+    return {
+        "ok": True,
+        "status": "degraded" if degraded else "healthy",
+        "outbox": {"pending": outbox_pending, "dead_lettered": outbox_dead},
+        "reconciliation": {"open_findings": findings_open},
+        "scheduled_tasks": tasks,
+        "failed_tasks": failed_tasks,
+    }
