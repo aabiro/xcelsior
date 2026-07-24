@@ -564,14 +564,29 @@ Track A.
   (§4.2, §15.3). Server-side enforcement; an inference call never requires
   a human approval click. Gate: budget exhaustion denies with a typed
   problem, not a silent success or an unbounded spend.
-- [ ] **B3.3 Billing controller** (§12.4). Ensure exactly one meter per
-  accepted running attempt; close orphaned meters after attempt terminal;
-  repair missing outbox delivery idempotently; **surface** ledger invariant
-  violations rather than concealing them. Runs as a reconciler controller
-  under Track A's report-only-then-enforce rule (B0.3 rule 17). Gate:
-  injected crash between attempt-running and meter-start converges to
-  exactly one meter; an injected duplicate delivery creates no second
-  charge.
+- [~] **B3.3 Billing controller** (2026-07-23, §12.4). `control_plane/
+  billing_controller.py` — a reconciler that reads the ledger and **surfaces**
+  the meter invariants rather than concealing them: (1) an attempt that ran to a
+  billable terminal state with **no** `usage_meter` (a billing leak), and (2) a
+  `usage_meter` left **open** after its attempt is terminal. Findings land in
+  `reconciliation_findings`, deduped one-per-(attempt,type). **Report-only by
+  default** (B0.3 rule 17); only `billing_missing_meter` is in `_ENFORCEABLE`
+  (its remediation is `billing.meter_job`, idempotent per attempt via the
+  `attempt_id` unique index, so it can never double-charge), opted in with
+  `XCELSIOR_RECONCILE_ACTION_BILLING_MISSING_METER=enforce`. Registered as the
+  `billing_meter_reconcile` scheduled task in `bg_worker`. Gate:
+  `tests/test_billing_controller.py` (4, real PostgreSQL) — a missing meter
+  opens exactly one finding (report-only) and is idempotent across sweeps;
+  **enforce converges to exactly one meter** and stays one on re-run; an
+  orphaned open meter is surfaced (never auto-mutated); a **duplicate delivery
+  (double `meter_job`) creates no second charge**. Found + fixed by executing:
+  `usage_meters.attempt_id` is `text` vs `job_attempts.attempt_id` `uuid` (JOIN
+  cast), `jobs.owner` lives in the payload, `severity ∈ info|warning|error|
+  critical`. Pyright clean; reconciler/billing suites 93 green + bg_worker green.
+  **Residual:** **auto-closing** orphaned meters (currently surfaced report-only
+  — closing recomputes cost, so it stays a human/settlement decision until a
+  safe close primitive is added) and **outbox-delivery repair** (a separate
+  mechanism from meters, tracked with B4.4's per-sink delivery).
 - [~] **B3.4 Price-change reapproval — server enforcement done** (2026-07-23,
   §15.4). The tolerance bound recorded on the plan (B2.1) is enforced at execute
   (B2.5): a re-quote beyond tolerance returns `quote_changed` with a fresh
