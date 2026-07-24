@@ -556,10 +556,23 @@ Track A.
   `DatatypeMismatch` — `serverless_workers.updated_at` is `double precision`
   (epoch float), not `timestamptz`, so the binding now writes
   `EXTRACT(EPOCH FROM clock_timestamp())`, matching that table's convention.
-  **Residual:** **warm-time metering keyed to the attempt** — there is no
-  serverless warm-time meter today (only `warm_expires_at` / `billing_exempt`
-  flags), so the gate's "one warm-time meter … a fenced stop closes it once" is
-  a new, billing-sensitive accounting subsystem to build on top of this binding.
+  **Warm-time accounting — where it now stands (2026-07-23):** a serverless
+  worker's fenced attempt spans its whole allocated GPU lifetime (placement →
+  fenced stop), and the attempt's **compute meter** (`billing.meter_job`,
+  attempt-scoped, one per attempt) already covers that span — so with this
+  binding plus **B3.3**'s "exactly one meter per attempt that ran" controller,
+  serverless GPU time *is* attempt-scoped and metered once, closed on the fenced
+  stop (the "one attempt, one allocation set, one meter" the gate asks for).
+  Gated end to end by `test_serverless_worker_metered_once_on_fenced_stop` — a
+  scale-up binds one attempt + allocation to the worker, and on the fenced stop
+  the billing controller closes **exactly one** meter for that attempt (and a
+  re-run does not double-meter).
+  **Residual:** a **distinct warm-vs-active rate** — today the attempt meter
+  bills the full duration at the compute rate; billing idle "warm" time at a
+  separate (lower) warm rate is a pricing-model refinement that needs the rate
+  defined first (`warm_expires_at`/`billing_exempt` exist as the substrate). It
+  is a deliberate pricing decision, not a bug, so it is left explicit rather
+  than guessed.
 - [~] **B3.2 Endpoint spend budget replaces per-request approval** (2026-07-23,
   §4.2/§15.3). Migration `071_serverless_endpoint_spend_limit` adds
   `serverless_endpoints.spend_limit_cad` (nullable = uncapped, `CHECK >= 0`,
