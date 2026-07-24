@@ -179,6 +179,16 @@ def main():
         be.stop_jobs_for_suspended_wallets()
     register_task("billing_cycle", _billing_cycle, 300)
 
+    # 1a-ii. Billing controller (§12.4, Track B B3.3): surface meter invariants
+    # — a ran attempt with no meter (billing leak) or an orphaned open meter.
+    # Report-only by default; enforcing billing_missing_meter is opt-in via
+    # XCELSIOR_RECONCILE_ACTION_BILLING_MISSING_METER=enforce.
+    def _billing_meter_reconcile():
+        from control_plane.billing_controller import reconcile_billing_meters_task
+
+        reconcile_billing_meters_task()
+    register_task("billing_meter_reconcile", _billing_meter_reconcile, 300)
+
     # 1b. Expire past-due wallet launch holds (frees available balance)
     def _wallet_hold_expiry():
         from billing import get_billing_engine

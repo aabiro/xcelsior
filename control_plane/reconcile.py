@@ -85,8 +85,18 @@ class ActionPolicy(str, enum.Enum):
 #   partial settlement). Remediation releases the allocation so the device
 #   is schedulable again — idempotent and safe (the attempt is already
 #   done, so nothing is using the device).
+# - `billing_missing_meter`: an attempt that ran to a billable terminal state
+#   but was never metered (a billing leak — GPU used, never charged, §12.4).
+#   Remediation calls the one metering authority (`billing.meter_job`), which is
+#   idempotent per attempt (partial unique on `attempt_id`), so enforcing it can
+#   never create a second charge — see control_plane/billing_controller.py.
 _ENFORCEABLE: frozenset[str] = frozenset(
-    {"stale_fence_container", "attempt_container_missing", "orphaned_allocation"}
+    {
+        "stale_fence_container",
+        "attempt_container_missing",
+        "orphaned_allocation",
+        "billing_missing_meter",
+    }
 )
 
 
