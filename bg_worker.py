@@ -273,6 +273,17 @@ def main():
         sm.snapshot_all_jobs(get_event_store())
     register_task("event_snapshots", _event_snapshots, 900)
 
+    # 7b. Event archive / retention (DA§2.2 / §16.1, Track B B4.2): move events
+    # older than the retention window to cold storage, preserving chain hashes.
+    # Previously dead (queried columns the live `events` table lacks) and never
+    # scheduled; now corrected and run daily.
+    def _events_archive():
+        from events import get_snapshot_manager
+        n = get_snapshot_manager().archive_old_events()
+        if n:
+            log.info("events_archive: moved %d events to cold storage", n)
+    register_task("events_archive", _events_archive, 86_400)
+
     # 8. Data retention / privacy purge (every 6 hours)
     def _privacy_purge():
         from privacy import get_lifecycle_manager, get_consent_manager
