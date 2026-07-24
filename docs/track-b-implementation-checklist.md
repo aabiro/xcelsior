@@ -646,17 +646,34 @@ snapshots, never the archive. There is no partitioned audit table, no
 signed checkpoint, no event-contract registry, no per-sink delivery state,
 and no `Last-Event-ID` cursor on SSE.
 
-- [ ] **B4.1 Migration — partitioned `audit_events_v2`** (§13.6 at the live
-  head). New partitioned table, not a rewrite of live `events`: tenant,
-  stream type/id, stream sequence, aggregate version, event type,
-  actor/client/request/trace ids, redacted immutable payload, per-stream
-  `prev_hash`/`event_hash`, `created_at` partition key, unique
-  `(stream_id, stream_sequence)` and unique event id. Monthly partitions
-  created ahead of time by a `scheduled_tasks` entry (reuse Track A's
-  `telemetry_partition_maintenance` pattern), plus a DEFAULT safety
-  partition with an alert before it receives rows (`DA§4.5`). Gate:
-  up→down→up clean; a test that fills the month boundary and asserts no
-  ad-hoc partition creation happens in a request handler.
+- [x] **B4.1 Migration — partitioned `audit_events_v2`** (2026-07-24, §13.6 at
+  the live head). Migration `072_audit_events_v2` creates the new partitioned,
+  append-only audit stream (not a rewrite of live `events`): tenant, stream
+  type/id + per-stream sequence, aggregate version, event type,
+  actor/client/request/trace ids, classification, redacted payload, per-stream
+  `prev_hash`/`event_hash`, `created_at` RANGE partition key, three initial
+  monthly partitions + a `DEFAULT` safety partition. **Partition maintenance is
+  ahead-of-time, never inline:** `control_plane/audit_partitions.py`
+  `ensure_audit_partitions` (idempotent `CREATE … IF NOT EXISTS … PARTITION OF`)
+  runs as the daily `audit_partition_maintenance` `bg_worker` task, so a write
+  never creates a partition in a request handler; a write beyond the window
+  lands in `DEFAULT` (safety net + partition-lag alert) rather than failing.
+  **WORM:** a `BEFORE UPDATE OR DELETE` trigger rejects row mutation (retention
+  drops whole partitions — DDL — which the row trigger does not block).
+  `audit_events_v2` is claimed by the **audit** domain in `db_roles`; its
+  partitions inherit it. Gate: `tests/test_audit_events_v2.py` (5, real
+  PostgreSQL) — WORM rejects UPDATE/DELETE and the row survives; maintenance
+  pre-creates months and a write lands in its own partition; a write beyond the
+  window lands in `DEFAULT`; a static guard fails if any `routes/` handler
+  creates a partition inline. Migration rehearsed up→down→up; head 071→072 in
+  the ledger + bootstrap gates and README; from-empty reaches head; pyright
+  clean; schema/roles/no-runtime-ddl suites green.
+  **PostgreSQL note (honest):** a unique on a partitioned table must include the
+  partition key, so the DB backstops are `PRIMARY KEY (event_id, created_at)` and
+  `UNIQUE (stream_id, stream_sequence, created_at)`. Global uniqueness rests on
+  UUID `event_id` generation and the append path's per-stream advisory-lock
+  sequence (the same discipline the existing `events` hash chain uses); the DB
+  constraints are the in-partition backstop.
 - [ ] **B4.2 Fix or retire the archive path** (`DA§2.2`, `DA§16.1`). Either
   correct `archive_old_events()` to the live column names and schedule it
   as a durable task, or delete it and replace it with the object-export
