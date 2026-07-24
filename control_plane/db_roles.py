@@ -174,6 +174,9 @@ AUDIT_TABLES = frozenset(
         "audit_events_v2",
         # Event contract registry (Track B B4.3, §12.1/§13.4).
         "event_contracts",
+        # Per-sink projection delivery + checkpoints (Track B B4.4, §12.1).
+        "projection_deliveries",
+        "projection_checkpoints",
     }
 )
 
