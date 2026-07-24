@@ -728,8 +728,30 @@ and no `Last-Event-ID` cursor on SSE.
   Gate: a CI contract test that rejects a schema containing a
   `credential_secret`-classified field name or type, and rejects a sink
   mapping with no classification (`DA§13.4`).
-- [ ] **B4.4 Per-sink delivery and checkpoints** (`DA§12.1` at the live
-  head). Extend Track A's `outbox_events` with `event_version`,
+- [x] **B4.4 Per-sink delivery and checkpoints** (2026-07-24, `DA§12.1` at the
+  live head). Migration `074_projection_delivery` **extends** the one outbox
+  authority (never a second) with `event_version`, `tenant_id`, `occurred_at`,
+  `classification`, `payload_sha256`, `correlation_id`, `causation_id`,
+  `trace_id`, `fanout_prepared_at`, `fanout_attempts`, and adds
+  `projection_deliveries` (PK `(event_id, sink)` → idempotent prepare; partial
+  unique `(sink, external_id)` → idempotent success) and
+  `projection_checkpoints` (per-sink active flag + `backfilled_from`). Both
+  claimed by the audit domain in `db_roles`. `control_plane/projection_delivery.py`
+  implements the **two durable stages**: `prepare_fanout` claims un-prepared
+  outbox rows and materializes one delivery obligation per active sink then
+  stamps `fanout_prepared_at` in one short transaction (prepared ≠ delivered);
+  `deliver_pending` claims pending rows (leased, `SKIP LOCKED`), does the
+  external I/O **outside** the transaction, then records success by the sink's
+  stable external id. A late-added sink gets nothing until an explicit
+  `backfill_sink(frm, to)` range. Gate: `tests/test_projection_delivery.py` (4,
+  real PostgreSQL) — prepare materializes one-per-sink idempotently; a crash
+  between prepare and deliver yields **exactly one** logical delivery per sink,
+  and a replay is a no-op (external-id idempotency); a failing delivery backs off
+  then dead-letters; a new sink receives nothing until an explicit backfill.
+  Head 073→074; from-empty reaches head; up→down→up clean; pyright clean; the
+  outbox/roles/ledger suites (125) green.
+  <!-- original spec text retained below -->
+  Extend Track A's `outbox_events` with `event_version`,
   `tenant_id`, `occurred_at`, `classification`, `payload_sha256`,
   `correlation_id`, `causation_id`, `trace_id`, `fanout_prepared_at`,
   `fanout_attempts`; add `audit.projection_deliveries` and
