@@ -674,14 +674,20 @@ and no `Last-Event-ID` cursor on SSE.
   UUID `event_id` generation and the append path's per-stream advisory-lock
   sequence (the same discipline the existing `events` hash chain uses); the DB
   constraints are the in-partition backstop.
-- [ ] **B4.2 Fix or retire the archive path** (`DA§2.2`, `DA§16.1`). Either
-  correct `archive_old_events()` to the live column names and schedule it
-  as a durable task, or delete it and replace it with the object-export
-  path in B4.4. Do not leave dead code that reads columns which do not
-  exist. Gate: a test that runs the retention path against a real
-  PostgreSQL and asserts rows move; a static test that fails if any query
-  in `events.py` references a column absent from the migration-defined
-  schema.
+- [x] **B4.2 Fix or retire the archive path** (2026-07-24, `DA§2.2`,
+  `DA§16.1`) — **fixed**, not deleted. `EventSnapshotManager.archive_old_events`
+  read `created_at` / `chain_hash` from the live `events` table, which has
+  `timestamp` / `event_hash` — so it errored on every run and was scheduled
+  nowhere (dead code). Now it selects the real columns (`timestamp` as the age
+  filter, `event_hash` preserved as the archive's `chain_hash`), and deletes
+  **exactly** the rows it archived (by `event_id`, not a second timestamp scan,
+  so a concurrent late write can never be dropped unarchived). Scheduled as the
+  daily `events_archive` `bg_worker` task alongside the existing snapshot task.
+  Gate: `tests/test_events_archive.py` (2, real PostgreSQL) — a >90-day event
+  moves to `events_archive` with its chain hash preserved while a fresh event is
+  untouched; a **static guard** parses `archive_old_events` and fails if it ever
+  reads a column the live `events` table lacks (the `created_at`/`chain_hash`
+  regression cannot silently return). Pyright clean; 57 event/bg tests green.
 - [ ] **B4.3 Event contract registry** (`DA§12.1`, `DA§13.4`).
   `audit.event_contracts` (event type, version, schema JSON, schema
   sha256, classification, compatibility mode, active, timestamps) and
