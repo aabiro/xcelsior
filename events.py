@@ -902,24 +902,30 @@ class EventSnapshotManager:
         archived = 0
 
         with self._conn() as conn:
-            # Copy old events to archive
+            # Copy old events to archive. The live `events` table uses `timestamp`
+            # (float epoch) and `event_hash` (the chain hash) — NOT `created_at` /
+            # `chain_hash` (which live only on `events_archive`). Preserve the
+            # chain hash so audit integrity survives compaction (DA§2.2).
             rows = conn.execute(
                 """INSERT INTO events_archive
                        (event_id, entity_type, entity_id, event_type, data, actor, chain_hash, created_at, archived_at)
                    SELECT event_id, entity_type, entity_id, event_type, data, actor,
-                          COALESCE(chain_hash, ''), created_at, %s
+                          COALESCE(event_hash, ''), timestamp, %s
                    FROM events
-                   WHERE created_at < %s
-                   RETURNING id""",
+                   WHERE timestamp < %s
+                   RETURNING event_id""",
                 (now, cutoff),
             ).fetchall()
             archived = len(rows)
 
             if archived > 0:
-                # Delete archived events from hot table
+                # Delete exactly the rows just archived (by id, not by a second
+                # timestamp scan) so a concurrent late write can never be dropped
+                # unarchived.
+                archived_ids = [r["event_id"] if isinstance(r, dict) else r[0] for r in rows]
                 conn.execute(
-                    "DELETE FROM events WHERE created_at < %s",
-                    (cutoff,),
+                    "DELETE FROM events WHERE event_id = ANY(%s)",
+                    (archived_ids,),
                 )
 
         if archived:
