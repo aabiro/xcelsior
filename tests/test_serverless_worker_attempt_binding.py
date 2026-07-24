@@ -206,3 +206,62 @@ def test_non_serverless_job_leaves_workers_untouched(scratch):
             (str(reservation.attempt_id),),
         ).fetchone()[0]
     assert n == 0
+
+
+def test_serverless_worker_metered_once_on_fenced_stop(scratch, monkeypatch):
+    """End to end: scale-up → one bound attempt + allocation → on the fenced stop
+    the attempt is metered exactly once (attempt-scoped warm/GPU time)."""
+    from control_plane.billing_controller import reconcile_billing_meters
+
+    repo = ServerlessRepo()
+    ep = repo.create_endpoint(
+        EndpointCreate(owner_id=f"own-{uuid.uuid4().hex[:8]}", name="b31m", mode="preset", model_ref="m", min_workers=0)
+    )
+    scratch["endpoints"].append(ep["endpoint_id"])
+    worker = repo.create_worker(ep["endpoint_id"], gpu_count=1)
+    scratch["workers"].append(worker["worker_id"])
+    job_id = _mk_serverless_job(scratch, worker["worker_id"], num_gpus=1)
+    host_id = _mkhost(scratch, gpus=1)
+
+    with _pool.connection() as conn:
+        claimed = claim_next_job(conn, replica_id="b31m", scope_gpu_models=[job_id])
+        conn.commit()
+    reservation = run_transaction(
+        lambda conn: reserve_and_bind(
+            conn, job_id=job_id, claim_token=claimed.claim_token,
+            replica_id="b31m", host_id=host_id, num_gpus=1,
+        )
+    )
+    attempt_id = str(reservation.attempt_id)
+
+    # Fenced stop: the attempt runs and reaches a terminal state.
+    with _pool.connection() as conn:
+        conn.execute(
+            "UPDATE job_attempts SET status='succeeded', "
+            "started_at = clock_timestamp() - interval '30 min', ended_at = clock_timestamp() "
+            "WHERE attempt_id = %s",
+            (attempt_id,),
+        )
+        conn.commit()
+
+    # The billing controller (enforce) closes exactly one meter for the attempt.
+    monkeypatch.setenv("XCELSIOR_RECONCILE_ACTION_BILLING_MISSING_METER", "enforce")
+    with _pool.connection() as conn:
+        reconcile_billing_meters(conn)
+        conn.commit()
+
+    with _pool.connection() as conn:
+        n_attempts = conn.execute("SELECT count(*) FROM job_attempts WHERE job_id=%s", (job_id,)).fetchone()[0]
+        n_allocs = conn.execute("SELECT count(*) FROM gpu_device_allocations WHERE attempt_id=%s", (attempt_id,)).fetchone()[0]
+        n_meters = conn.execute("SELECT count(*) FROM usage_meters WHERE attempt_id=%s", (attempt_id,)).fetchone()[0]
+        bound = conn.execute("SELECT attempt_id FROM serverless_workers WHERE worker_id=%s", (worker["worker_id"],)).fetchone()[0]
+    assert n_attempts == 1
+    assert n_allocs == 1
+    assert n_meters == 1  # metered exactly once on the fenced stop
+    assert str(bound) == attempt_id
+    # Re-run must not double-meter.
+    with _pool.connection() as conn:
+        reconcile_billing_meters(conn)
+        conn.commit()
+    with _pool.connection() as conn:
+        assert conn.execute("SELECT count(*) FROM usage_meters WHERE attempt_id=%s", (attempt_id,)).fetchone()[0] == 1
