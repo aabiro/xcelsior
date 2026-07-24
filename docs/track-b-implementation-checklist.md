@@ -560,10 +560,24 @@ Track A.
   serverless warm-time meter today (only `warm_expires_at` / `billing_exempt`
   flags), so the gate's "one warm-time meter … a fenced stop closes it once" is
   a new, billing-sensitive accounting subsystem to build on top of this binding.
-- [ ] **B3.2 Endpoint and client budgets replace per-request approval**
-  (§4.2, §15.3). Server-side enforcement; an inference call never requires
-  a human approval click. Gate: budget exhaustion denies with a typed
-  problem, not a silent success or an unbounded spend.
+- [~] **B3.2 Endpoint spend budget replaces per-request approval** (2026-07-23,
+  §4.2/§15.3). Migration `071_serverless_endpoint_spend_limit` adds
+  `serverless_endpoints.spend_limit_cad` (nullable = uncapped, `CHECK >= 0`,
+  `NOT VALID` → `VALIDATE`), up→down→up clean. `_check_endpoint_budget` in the
+  invocation path (`_enqueue_serverless_job`, before the queue write) denies
+  with a typed **402 `budget_exhausted`** problem when accrued cost
+  (`total_cost_cad + unbilled_token_cost_cad`) reaches the ceiling — **no human
+  approval click, never an unbounded bill**. Gate:
+  `tests/test_serverless_endpoint_budget.py` (6, real PostgreSQL) — over/at/under
+  budget and null-uncapped at the unit level, and the invocation path refuses
+  over-budget with **no job enqueued** (queue depth unchanged) while a
+  within-budget call proceeds. Head 070→071 in the ledger + bootstrap gates and
+  README. Pyright clean.
+  **Residual:** (1) exposing `spend_limit_cad` in the create/patch endpoint API
+  + dashboard (today it is set operationally); (2) wiring the **client** budgets
+  (`mcp_client_policies` hourly/daily spend, which already exist) onto the
+  serverless invocation path — the endpoint cap lands here; the per-client cap is
+  enforced for MCP tool calls under B5.9's distributed spend counters.
 - [~] **B3.3 Billing controller** (2026-07-23, §12.4). `control_plane/
   billing_controller.py` — a reconciler that reads the ledger and **surfaces**
   the meter invariants rather than concealing them: (1) an attempt that ran to a

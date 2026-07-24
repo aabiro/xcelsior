@@ -70,9 +70,10 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `070_serverless_worker_attempt_binding.py`.**
+**Repository head: `071_serverless_endpoint_spend_limit.py`.**
 (`069_action_plans_mcp_policy_audit.py` was head through Track B B2.1; B3.1
-added `070`, binding `serverless_workers` to their fenced attempt.)
+added `070`, binding `serverless_workers` to their fenced attempt; B3.2 added
+`071`, the per-endpoint spend ceiling.)
 
 | Document says | Document intended | This repository actually has | Resolution |
 |---|---|---|---|

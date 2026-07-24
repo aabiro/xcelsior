@@ -311,6 +311,38 @@ def _check_payload_size(payload: dict[str, Any], ep: dict) -> None:
         )
 
 
+def _check_endpoint_budget(ep: dict) -> None:
+    """Server-side spend ceiling (§4.2/§15.3, B3.2) — no per-request approval.
+
+    When the endpoint's accrued cost (settled + unbilled) reaches its
+    ``spend_limit_cad``, invocations are denied with a typed problem instead of
+    a human approval click or an unbounded bill. NULL limit = uncapped.
+    """
+    limit = ep.get("spend_limit_cad")
+    if limit is None:
+        return
+    try:
+        limit_f = float(limit)
+    except (TypeError, ValueError):
+        return
+    accrued = float(ep.get("total_cost_cad") or 0.0) + float(ep.get("unbilled_token_cost_cad") or 0.0)
+    if accrued >= limit_f:
+        raise HTTPException(
+            402,
+            detail={
+                "error": {
+                    "code": "budget_exhausted",
+                    "message": (
+                        f"Endpoint spend limit reached: accrued ${accrued:.2f} of "
+                        f"${limit_f:.2f} CAD. Raise the endpoint budget to resume."
+                    ),
+                    "accrued_cad": round(accrued, 4),
+                    "spend_limit_cad": round(limit_f, 4),
+                }
+            },
+        )
+
+
 def _enqueue_serverless_job(
     *,
     endpoint_id: str,
@@ -322,6 +354,7 @@ def _enqueue_serverless_job(
     billing_exempt: bool = False,
 ) -> tuple[dict, dict[str, str]]:
     _check_payload_size(payload, ep)
+    _check_endpoint_budget(ep)
     check_queue_capacity(_repo(), endpoint_id, ep)
     job = _repo().enqueue_job(
         endpoint_id,
