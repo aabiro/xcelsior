@@ -189,6 +189,15 @@ def main():
         reconcile_billing_meters_task()
     register_task("billing_meter_reconcile", _billing_meter_reconcile, 300)
 
+    # 1a-iii. Audit partition maintenance (§13.6/§4.5, Track B B4.1): keep the
+    # audit_events_v2 monthly partition window full so a write never creates a
+    # partition inline in a request handler. Daily; idempotent.
+    def _audit_partition_maintenance():
+        from control_plane.audit_partitions import audit_partition_maintenance_task
+
+        audit_partition_maintenance_task()
+    register_task("audit_partition_maintenance", _audit_partition_maintenance, 86_400)
+
     # 1b. Expire past-due wallet launch holds (frees available balance)
     def _wallet_hold_expiry():
         from billing import get_billing_engine

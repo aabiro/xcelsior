@@ -168,6 +168,10 @@ AUDIT_TABLES = frozenset(
         "alembic_version",
         # One redacted record per MCP tool call (Track B B2.1, §17.10).
         "mcp_tool_audit",
+        # Partitioned, append-only audit stream (Track B B4.1, §13.6). Its
+        # monthly partitions (audit_events_v2_YYYYMM / _default) inherit this
+        # domain via the partition-prefix rule in domain_of().
+        "audit_events_v2",
     }
 )
 
