@@ -70,11 +70,12 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `072_audit_events_v2.py`.**
+**Repository head: `073_event_contracts.py`.**
 (`069_action_plans_mcp_policy_audit.py` was head through Track B B2.1; B3.1
 added `070`, binding `serverless_workers` to their fenced attempt; B3.2 added
 `071`, the per-endpoint spend ceiling; B4.1 added `072`, the partitioned
-append-only `audit_events_v2` audit stream.)
+append-only `audit_events_v2` audit stream; B4.3 added `073`, the
+`event_contracts` registry.)
 
 | Document says | Document intended | This repository actually has | Resolution |
 |---|---|---|---|

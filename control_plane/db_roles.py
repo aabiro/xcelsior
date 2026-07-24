@@ -172,6 +172,8 @@ AUDIT_TABLES = frozenset(
         # monthly partitions (audit_events_v2_YYYYMM / _default) inherit this
         # domain via the partition-prefix rule in domain_of().
         "audit_events_v2",
+        # Event contract registry (Track B B4.3, §12.1/§13.4).
+        "event_contracts",
     }
 )
 

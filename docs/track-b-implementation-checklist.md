@@ -688,7 +688,29 @@ and no `Last-Event-ID` cursor on SSE.
   untouched; a **static guard** parses `archive_old_events` and fails if it ever
   reads a column the live `events` table lacks (the `created_at`/`chain_hash`
   regression cannot silently return). Pyright clean; 57 event/bg tests green.
-- [ ] **B4.3 Event contract registry** (`DA§12.1`, `DA§13.4`).
+- [x] **B4.3 Event contract registry** (2026-07-24, `DA§12.1`, `DA§13.4`).
+  Migration `073_event_contracts` creates `event_contracts` (event type,
+  version, schema JSONB, schema sha256, classification with a CHECK over the
+  §13.4 vocabulary `public|internal|pii|financial|credential_secret`,
+  compatibility mode, active, timestamps; PK `(event_type, version)`), in
+  `public` and claimed by the **audit** domain in `db_roles` (the companion's
+  illustrative `audit.` schema is adapted to repo reality, per the B4.4 note).
+  `analytics/contracts.py` holds the registry: the canonical §16.2/DA§8.3 names
+  **and** every name Track A already emits (`job.v1.submitted`,
+  `job.v1.legacy_status_changed`, `host.v1.status_changed`,
+  `pricing.v1.spot_prices_updated`, …) registered **as-is, not renamed**. Two
+  §13.4 invariants enforced: `validate_contract` rejects any field classified
+  `credential_secret` (a secret may never enter an audit event) or with an
+  unknown classification, and `validate_sink_mapping` rejects a sink mapping with
+  no/unknown classification or an unknown sink; `register_all` validates before
+  upserting (an invalid contract is a deploy failure, never a silently-registered
+  secret). Gate: `tests/test_event_contracts.py` (8) — credential_secret /
+  unknown-classification / unclassified-sink / unknown-sink all rejected, every
+  registered contract is valid + secret-free, the Track-A names are present, and
+  `register_all` round-trips into `event_contracts` idempotently with non-empty
+  schema hashes. Head 072→073; from-empty reaches head; pyright clean; roles
+  green.
+  <!-- superseded registry detail follows; kept for the versioned-name list -->
   `audit.event_contracts` (event type, version, schema JSON, schema
   sha256, classification, compatibility mode, active, timestamps) and
   `analytics/contracts.py` with the versioned domain-event names from
