@@ -38,7 +38,7 @@ LEDGER_README = PROJECT_ROOT / "migrations" / "README.md"
 BOOTSTRAP_TEST = PROJECT_ROOT / "tests" / "test_from_empty_bootstrap.py"
 
 # Current Alembic head. Update in the same commit as a new migration.
-EXPECTED_HEAD = "074"
+EXPECTED_HEAD = "075"
 
 # Rule 2 of migrations/README.md is enforced from this filename prefix on.
 # Everything below it predates the rule and is grandfathered.

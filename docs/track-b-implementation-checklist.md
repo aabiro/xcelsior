@@ -765,15 +765,28 @@ and no `Last-Event-ID` cursor on SSE.
   never that a sink succeeded. Gate: kill the dispatcher at every step and
   show eventual single logical delivery per sink after restart; adding a
   sink later requires an explicit backfill range, proven by test.
-- [ ] **B4.5 Signed immutable checkpoints** (§13.6, `DA§12.2`). Periodic
-  Merkle root over event ids/hashes, signed with a managed key, stored as
-  a manifest in versioned/WORM-capable object storage: sorted event
-  ids/hashes, previous manifest hash, schema versions, object generation,
-  signing key version, row count, time interval. Verification runs on a
-  schedule and during restore drills; signing keys are administratively
-  separate from bucket administration. Gate: a tampered or missing object
-  fails verification; key rotation preserves verifiability of older
-  manifests.
+- [x] **B4.5 Signed immutable checkpoints** (2026-07-24, §13.6, `DA§12.2`).
+  Migration `075_audit_checkpoints` creates the WORM `audit_checkpoints` manifest
+  table (interval, Merkle root, row count, first/last event id, previous manifest
+  hash — chaining the checkpoints themselves — schema versions, signing key
+  version, signature; `BEFORE UPDATE OR DELETE` trigger; claimed by the audit
+  domain). `control_plane/audit_checkpoints.py` computes the SHA-256 Merkle root
+  over the interval's `(event_id, event_hash)` leaves, signs the canonical
+  manifest hash with a **versioned keyring** (mirrors the OAuth JWT keyring;
+  older versions retained for verification, meant to be admin-separate from the
+  bucket), and `verify_checkpoint` **recomputes** the root from the WORM
+  `audit_events_v2` rows + checks the signature with the manifest's recorded key
+  version. Registered as the daily `audit_checkpoint` `bg_worker` task, which
+  seals the previous interval and self-verifies. Gate:
+  `tests/test_audit_checkpoints.py` (5, real PostgreSQL) — create→verify
+  round-trips; **a change to a sealed interval is detected** (`merkle_root_
+  mismatch`); a **missing** manifest fails; **key rotation preserves** an older
+  manifest's verifiability, and removing its key version makes it honestly
+  unverifiable; checkpoints chain via `prev_manifest_hash`. Head 074→075;
+  up→down→up clean; from-empty reaches head; pyright clean; roles/ledger green.
+  **Residual:** uploading the manifest to versioned/WORM object storage as a
+  second copy (the WORM DB table is the authoritative record today) and wiring
+  verification into the restore-drill runbook.
 - [ ] **B4.6 Persistent user event streams** (§16.3). SSE reads a persisted
   cursor and tails outbox/audit projections; a client reconnects with
   `Last-Event-ID` without losing transitions. Track A's process-local
