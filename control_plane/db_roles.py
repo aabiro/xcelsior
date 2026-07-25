@@ -177,6 +177,8 @@ AUDIT_TABLES = frozenset(
         # Per-sink projection delivery + checkpoints (Track B B4.4, §12.1).
         "projection_deliveries",
         "projection_checkpoints",
+        # Signed Merkle checkpoints over the audit stream (Track B B4.5, §12.2).
+        "audit_checkpoints",
     }
 )
 
