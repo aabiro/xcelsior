@@ -558,14 +558,37 @@ def api_generate_dockerfile(
 # ── Helper: _sse_generator ──
 
 
-async def _sse_generator(request: Request):
-    """Async generator that yields SSE events until the client disconnects."""
+async def _sse_generator(request: Request, last_event_id: str | None = None):
+    """Async generator that yields SSE events until the client disconnects.
+
+    On reconnect (a `Last-Event-ID` cursor is present) it first replays the
+    durable outbox projection strictly after that cursor — so a client that lost
+    its connection to a dying replica receives every missed transition, exactly
+    once, in order (§16.3, B4.6) — then tails the process-local `broadcast_sse`
+    fan-out as a latency optimization behind that persistence.
+    """
     queue: asyncio.Queue = asyncio.Queue(maxsize=256)
     with _sse_lock:
         _sse_subscribers.append(queue)
     try:
         yield "retry: 3000\n\n"
         yield f"event: connected\ndata: {json.dumps({'status': 'connected'})}\n\n"
+
+        # Durable gap replay — only when resuming (a fresh connect starts live).
+        if last_event_id:
+            try:
+                from control_plane.event_stream import resume_after
+                from db import _get_pg_pool
+
+                with _get_pg_pool().connection() as conn:
+                    replay = resume_after(conn, last_event_id, limit=1000)
+                for ev in replay:
+                    yield (
+                        f"id: {ev.cursor}\nevent: {ev.event_type}\n"
+                        f"data: {json.dumps(ev.payload)}\n\n"
+                    )
+            except Exception as exc:  # degrade to live-only if the store is down
+                log.warning("SSE durable replay failed (live-only): %s", exc)
 
         while True:
             if await request.is_disconnected():
@@ -585,9 +608,15 @@ async def _sse_generator(request: Request):
 
 @router.get("/api/stream", tags=["Infrastructure"])
 async def sse_stream(request: Request):
-    """Server-Sent Events stream for real-time dashboard updates."""
+    """Server-Sent Events stream for real-time dashboard updates.
+
+    A reconnecting client sends the standard `Last-Event-ID` header (or a
+    `last_event_id` query param); the generator replays the durable gap before
+    tailing live (B4.6, §16.3).
+    """
+    last_event_id = request.headers.get("last-event-id") or request.query_params.get("last_event_id")
     return StreamingResponse(
-        _sse_generator(request),
+        _sse_generator(request, last_event_id=last_event_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
