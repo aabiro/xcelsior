@@ -781,14 +781,22 @@ and no `Last-Event-ID` cursor on SSE.
   persistence, and only where the durable path already fires. Gate: kill
   an API replica mid-stream; the client reconnects and receives every
   transition exactly once in order.
-- [ ] **B4.7 Close the residual process-local emitters.** Track A left
-  these explicitly unclaimed: hosts dual-emit residual, volumes, teams,
-  billing wallet UI, agent telemetry, user images, lock/reset, `job_log`,
-  and webhook bulk intents. Route each through
-  `try_append_lifecycle_outbox` with the same dual-fan-out avoidance, or
-  document why it is legitimately process-local. Gate: a structural
-  inventory test listing every `broadcast_sse` / `emit_event` call site
-  and its classification, failing on an unclassified new one.
+- [~] **B4.7 Emitter inventory + classification** (2026-07-24). The structural
+  gate is in place: `tests/test_emitter_inventory.py` AST-discovers **every**
+  non-test `broadcast_sse` / `emit_event` call site (by file) and asserts each is
+  classified — `durable` (writes the outbox; SSE is a latency mirror),
+  `process_local` (UI-facing, latency-only, the transition persisted elsewhere),
+  or `primitive` (defines the emitter). A **new, unclassified** emitter fails CI,
+  and a stale entry that no longer emits also fails (the list can't rot into a
+  rubber stamp). Confirmed by execution: `volumes.py` already writes the durable
+  `EventStore` (not a process-local emitter), and `db.py`/`routes/_deps.py`/
+  `outbox_runtime.py` only *define*/reference the primitives — so the inventory
+  reflects real call sites, not grep noise.
+  **Residual (ongoing consolidation, like B2.7):** routing the classified
+  `process_local` emitters (host / volume / team / billing-wallet / agent-
+  telemetry / provider / verification UI SSE) through `try_append_lifecycle_
+  outbox` so their transitions are durable, surface by surface — the guard keeps
+  the set pinned meanwhile so no new unclassified emitter slips in.
 
 ---
 
