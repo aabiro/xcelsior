@@ -198,6 +198,14 @@ def main():
         audit_partition_maintenance_task()
     register_task("audit_partition_maintenance", _audit_partition_maintenance, 86_400)
 
+    # 1a-iv. Signed audit checkpoints (§13.6/§12.2, Track B B4.5): daily, seal
+    # the previous interval into a signed Merkle manifest and self-verify it.
+    def _audit_checkpoint():
+        from control_plane.audit_checkpoints import audit_checkpoint_task
+
+        audit_checkpoint_task()
+    register_task("audit_checkpoint", _audit_checkpoint, 86_400)
+
     # 1b. Expire past-due wallet launch holds (frees available balance)
     def _wallet_hold_expiry():
         from billing import get_billing_engine
