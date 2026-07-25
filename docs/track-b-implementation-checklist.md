@@ -787,13 +787,27 @@ and no `Last-Event-ID` cursor on SSE.
   **Residual:** uploading the manifest to versioned/WORM object storage as a
   second copy (the WORM DB table is the authoritative record today) and wiring
   verification into the restore-drill runbook.
-- [ ] **B4.6 Persistent user event streams** (§16.3). SSE reads a persisted
-  cursor and tails outbox/audit projections; a client reconnects with
-  `Last-Event-ID` without losing transitions. Track A's process-local
-  `broadcast_sse` remains only as a latency optimization behind
-  persistence, and only where the durable path already fires. Gate: kill
-  an API replica mid-stream; the client reconnects and receives every
-  transition exactly once in order.
+- [~] **B4.6 Persistent user event streams** (2026-07-24, §16.3).
+  `control_plane/event_stream.py` gives the SSE stream a **durable, totally-
+  ordered cursor** — the outbox row's `(created_at, event_id)` (the UUID
+  tiebreaks equal timestamps) — and `resume_after(cursor)` returns the events
+  strictly after it, in order. `/api/stream` now reads the standard
+  `Last-Event-ID` header (or `last_event_id` param): on a **reconnect** it
+  replays the durable gap from the outbox projection (each event tagged with its
+  `id:` cursor) before tailing the process-local `broadcast_sse` fan-out — which
+  now serves only as a latency optimization behind persistence; a fresh connect
+  starts live (no history replay), and the durable store being down degrades to
+  live-only rather than failing the stream. Gate:
+  `tests/test_event_stream_resume.py` (3, real PostgreSQL) — cursor
+  encode/decode round-trips; a client that saw through a cursor replays **exactly
+  the gap, once, in order** (never what it already saw, nothing once caught up);
+  the total order is stable across equal timestamps via the UUID tiebreak.
+  Pyright clean; health/SSE suites (36) green.
+  **Residual:** tagging **live-tailed** events with their outbox cursor too (so
+  the live→reconnect boundary is exactly-once rather than at-least-once — today
+  the reconnect replay is exactly-once from the last *replayed* cursor, and a
+  client that reconnects re-reads any events it only saw on the live tail). This
+  needs `broadcast_sse` to carry the cursor, a small follow-on.
 - [~] **B4.7 Emitter inventory + classification** (2026-07-24). The structural
   gate is in place: `tests/test_emitter_inventory.py` AST-discovers **every**
   non-test `broadcast_sse` / `emit_event` call site (by file) and asserts each is
