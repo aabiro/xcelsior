@@ -180,6 +180,26 @@ def main():
 
     register_task("billing_cycle", _billing_cycle, 300)
 
+    # 1a-i. Stripe Billing Meters dual-write drain (observability only).
+    def _stripe_meter_outbox():
+        from stripe_meters import drain_meter_outbox
+
+        drain_meter_outbox(limit=200)
+
+    register_task("stripe_meter_outbox", _stripe_meter_outbox, 30)
+
+    # 1a-i2. Daily provider settlement (queued Transfers when float available).
+    # Interval 86400s; also safe to trigger manually via payout API (instant path).
+    def _provider_settlement_daily():
+        from stripe_connect import get_stripe_manager
+
+        result = get_stripe_manager().settle_queued_payouts(limit=200)
+        log = __import__("logging").getLogger("xcelsior.bg_worker")
+        if result.get("settled") or result.get("failed"):
+            log.info("provider settlement daily: %s", result)
+
+    register_task("provider_settlement_daily", _provider_settlement_daily, 86_400)
+
     # 1a-ii. Billing controller (§12.4, Track B B3.3): surface meter invariants
     # — a ran attempt with no meter (billing leak) or an orphaned open meter.
     # Report-only by default; enforcing billing_missing_meter is opt-in via
