@@ -587,7 +587,9 @@ def api_image_templates():
 def _refresh_job(job_id: str):
     """Re-read a job from the DB to get updated status/host/container fields."""
     for j in list_jobs():
-        if j["job_id"] == job_id:
+        # Legacy/imported rows can be incomplete; one malformed historical
+        # record must not make every new launch return 500.
+        if j.get("job_id") == job_id:
             return j
     return None
 

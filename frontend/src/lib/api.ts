@@ -110,6 +110,41 @@ export class ApiError extends Error {
   }
 }
 
+export interface LaunchPlanApprovalView {
+  ok: boolean;
+  plan: {
+    plan_id: string;
+    status: string;
+    action_type: string;
+    approval_mode: string;
+    approval_method?: string | null;
+    estimate_micros: number;
+    expires_at: string;
+    version: number;
+    required_scopes: string[];
+    canonical_spec: Record<string, unknown>;
+    job_id?: string | null;
+  };
+}
+
+export function fetchLaunchPlan(planId: string): Promise<LaunchPlanApprovalView> {
+  return apiFetch(`/api/v1/launch-plans/${encodeURIComponent(planId)}`);
+}
+
+export function approveLaunchPlan(
+  planId: string,
+  expectedVersion: number,
+): Promise<LaunchPlanApprovalView> {
+  return apiFetch(`/api/v1/launch-plans/${encodeURIComponent(planId)}/approve`, {
+    method: "POST",
+    headers: { "Idempotency-Key": crypto.randomUUID() },
+    body: JSON.stringify({
+      expected_version: expectedVersion,
+      confirmation: "approve",
+    }),
+  });
+}
+
 interface BrowserOAuthState {
   state: string;
   verifier: string;

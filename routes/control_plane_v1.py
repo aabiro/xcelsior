@@ -16,7 +16,11 @@ operator request is refused rather than racing.
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from uuid import UUID
+import hashlib
+import json
+import base64
 
 from routes._deps import (
     _is_platform_admin,
@@ -31,17 +35,135 @@ from routes.problem import ProblemException
 router = APIRouter(tags=["Control plane v1"])
 
 
+class _McpAuditIn(BaseModel):
+    tool_name: str = Field(min_length=1, max_length=128)
+    tool_version: str = Field(max_length=32)
+    transport: str = Field(max_length=32)
+    client_id: str | None = Field(default=None, max_length=200)
+    principal_id: str | None = Field(default=None, max_length=200)
+    tenant_id: str | None = Field(default=None, max_length=200)
+    team_id: str | None = Field(default=None, max_length=200)
+    scopes_evaluated: list[str] = Field(default_factory=list, max_length=64)
+    redacted_args_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    action_plan_id: UUID | None = None
+    idempotency_key: str | None = Field(default=None, max_length=200)
+    api_route: str | None = Field(default=None, max_length=300)
+    api_status: int | None = None
+    problem_type: str | None = Field(default=None, max_length=300)
+    resource_id: str | None = Field(default=None, max_length=200)
+    latency_ms: int = Field(ge=0)
+    trace_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    approval_method: str | None = Field(default=None, max_length=64)
+    outcome: str = Field(max_length=32)
+
+
+@router.post("/api/v1/mcp/tool-audit", status_code=202)
+def api_v1_mcp_tool_audit(body: _McpAuditIn, request: Request):
+    """Persist a redacted MCP audit and its delivery intent atomically."""
+    from control_plane.outbox import append_event
+    from db import _get_pg_pool
+
+    user = _require_auth(request)
+    caller_tenant = str(
+        user.get("customer_id")
+        or user.get("workspace_id")
+        or user.get("workspace_customer_id")
+        or user.get("tenant_id")
+        or ""
+    )
+    if not caller_tenant or body.tenant_id != caller_tenant:
+        raise ProblemException(status=404, code="tenant_not_found", detail="tenant not found")
+    values = body.model_dump()
+    values["action_plan_id"] = str(body.action_plan_id) if body.action_plan_id else None
+    with _get_pg_pool().connection() as conn:
+        row = conn.execute(
+            """
+            INSERT INTO mcp_tool_audit (
+                tool_name, tool_version, transport, client_id, principal_id,
+                tenant_id, team_id, scopes_evaluated, redacted_args_hash,
+                action_plan_id, idempotency_key, api_route, api_status,
+                problem_type, resource_id, latency_ms, trace_id,
+                approval_method, outcome
+            ) VALUES (
+                %(tool_name)s, %(tool_version)s, %(transport)s, %(client_id)s,
+                %(principal_id)s, %(tenant_id)s, %(team_id)s,
+                %(scopes_evaluated)s, %(redacted_args_hash)s,
+                %(action_plan_id)s, %(idempotency_key)s, %(api_route)s,
+                %(api_status)s, %(problem_type)s, %(resource_id)s,
+                %(latency_ms)s, %(trace_id)s, %(approval_method)s, %(outcome)s
+            ) RETURNING audit_id
+            """,
+            values,
+        ).fetchone()
+        audit_id = str(row[0])
+        append_event(
+            conn,
+            aggregate_type="mcp_tool_audit",
+            aggregate_id=audit_id,
+            event_type="mcp.v1.tool_completed",
+            payload={"audit_id": audit_id, "tool_name": body.tool_name, "outcome": body.outcome},
+            headers={"trace_id": body.trace_id, "tenant_id": body.tenant_id},
+            # Track A destination classes settle the immediate side effect.
+            # Per-sink audit delivery is independently materialized by B4.4
+            # from this same row; inventing an "audit" destination here leaves
+            # the original dispatcher with no handler.
+            destination_class="default",
+            idempotency_key=f"mcp-audit:{audit_id}",
+        )
+        conn.commit()
+    return {"ok": True, "audit_id": audit_id}
+
+
 def _iso(value) -> str | None:
     return value.isoformat() if hasattr(value, "isoformat") else (value if value is None else str(value))
+
+
+@router.get("/api/v1/instances/{job_id}")
+def api_v1_instance(job_id: str, request: Request):
+    """Tenant-safe instance detail; cross-tenant identifiers are not-found."""
+    job = dict(_job_for_caller(request, job_id))
+    for field in (
+        "init_script",
+        "environment",
+        "env",
+        "registry_password",
+        "ssh_private_key",
+        "nfs_server",
+        "nfs_path",
+    ):
+        job.pop(field, None)
+    payload = job.get("payload")
+    if isinstance(payload, dict):
+        job["payload"] = {
+            key: value
+            for key, value in payload.items()
+            if key
+            not in {
+                "init_script",
+                "environment",
+                "env",
+                "registry_password",
+                "ssh_private_key",
+                "nfs_server",
+                "nfs_path",
+            }
+        }
+    return {"ok": True, "instance": job}
 
 
 def _require_control_plane_read(request: Request) -> dict:
     """Operator read access: interactive admin, or `control_plane:read` machine."""
     user = _require_auth(request)
-    if str(user.get("grant_type", "")) == "client_credentials":
-        _require_scope(user, "control_plane:read")
-    elif not _is_platform_admin(user):
-        raise ProblemException(status=403, code="forbidden", detail="admin or control_plane:read required")
+    scopes = set(user.get("scopes") or ())
+    global_access = _is_platform_admin(user) or (
+        str(user.get("grant_type", "")) == "client_credentials"
+        and "control_plane:read" in scopes
+    )
+    if not global_access:
+        raise ProblemException(
+            status=403, code="forbidden",
+            detail="platform admin or control_plane:read is required",
+        )
     return user
 
 
@@ -134,6 +256,95 @@ def _check_version(host_id: str, expected: int | None) -> None:
 
 class _OpIn(BaseModel):
     expected_version: int | None = None
+
+
+class _EvictionPlanIn(BaseModel):
+    expected_version: int
+    reason: str = Field(min_length=1, max_length=500)
+
+
+def _operator_plan_principal(user: dict):
+    from control_plane.launch.service import Principal
+    from routes._deps import _canonical_owner_id, _effective_billing_customer_id, _user_team_id
+    return Principal(
+        principal_id=_canonical_owner_id(user),
+        tenant_id=_effective_billing_customer_id(user),
+        client_id=user.get("client_id"),
+        team_id=_user_team_id(user),
+        scopes=tuple(user.get("scopes") or ()),
+    )
+
+
+@router.post("/api/v1/hosts/{host_id}/eviction-plans")
+def api_v1_create_eviction_plan(host_id: str, request: Request, body: _EvictionPlanIn):
+    """Create a human-approved plan; this never evicts workloads."""
+    from control_plane.db import control_plane_transaction
+    from control_plane.launch import action_plans as plans_repo
+    from control_plane.launch.service import DEFAULT_TOLERANCE_BPS, plan_ttl_sec
+    from routes.action_plans import _request_trace_id
+
+    user = _require_host_operator(request, "hosts:evict")
+    resolved, host = _host_or_problem(host_id)
+    if host.get("status") != "draining":
+        raise ProblemException(status=409, code="host_not_draining", detail="drain the host first")
+    _check_version(resolved, body.expected_version)
+    principal = _operator_plan_principal(user)
+    canonical = {"host_id": resolved, "expected_version": body.expected_version, "reason": body.reason}
+    digest = hashlib.sha256(json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    with control_plane_transaction() as conn:
+        plan = plans_repo.create_quoted_plan(
+            conn, action_type="evict_host_workloads",
+            principal_id=principal.principal_id, client_id=principal.client_id,
+            tenant_id=principal.tenant_id, team_id=principal.team_id,
+            canonical_args=canonical, canonical_args_hash=digest, spec_hash=digest,
+            quote_id=f"eviction:{digest[:20]}", pricing_version="not-applicable",
+            estimate_micros=0, currency="CAD",
+            price_tolerance_bps=DEFAULT_TOLERANCE_BPS,
+            required_scopes=["hosts:evict"], approval_mode="human", ttl_sec=plan_ttl_sec(),
+            trace_id=_request_trace_id(request),
+        )
+    pid = str(plan["plan_id"])
+    return {
+        "ok": True, "preview": True, "plan_id": pid,
+        "approval_state": plan["status"], "impact": "running workloads will be fenced and evicted",
+        "approval_url": f"/dashboard/launch-plans/{pid}",
+        "expires_at": _iso(plan["expires_at"]),
+    }
+
+
+@router.post("/api/v1/hosts/{host_id}/eviction-plans/{plan_id}/execute")
+def api_v1_execute_eviction_plan(host_id: str, plan_id: UUID, request: Request):
+    from control_plane.db import control_plane_transaction
+    from control_plane.launch import action_plans as plans_repo
+    from control_plane.launch.service import PlanConflict, PlanNotFound
+    from scheduler import run_drain_preemptions
+
+    user = _require_host_operator(request, "hosts:evict")
+    principal = _operator_plan_principal(user)
+    with control_plane_transaction() as conn:
+        plan = plans_repo.get_plan_for_update(conn, str(plan_id))
+        if not plan or str(plan["tenant_id"]) != principal.tenant_id:
+            raise PlanNotFound()
+        if plan["action_type"] != "evict_host_workloads":
+            raise PlanConflict("wrong_action_type", "the plan is not an eviction")
+        if plan["status"] == "succeeded":
+            return {**dict(plan["idempotent_response"]), "idempotent": True}
+        if plan["status"] != "approved":
+            raise PlanConflict("approval_required", "approve the eviction plan before execution")
+        canonical = dict(plan["canonical_args"])
+        if canonical["host_id"] != host_id:
+            raise PlanConflict("resource_mismatch", "plan belongs to a different host")
+        _check_version(host_id, int(canonical["expected_version"]))
+        plans_repo.mark_executing(conn, str(plan_id))
+
+    evicted = run_drain_preemptions(host_id)
+    response = {"ok": True, "host_id": host_id, "evicted": [j["job_id"] for j in evicted], "plan_id": str(plan_id)}
+    with control_plane_transaction() as conn:
+        plans_repo.mark_consumed(
+            conn, str(plan_id), job_id=host_id, wallet_hold_id=None,
+            idempotent_response=response, idempotency_key=f"eviction-plan:{plan_id}",
+        )
+    return response
 
 
 @router.post("/api/v1/hosts/{host_id}/drain")
@@ -237,8 +448,32 @@ def api_v1_instance_timeline(job_id: str, request: Request):
     return {"ok": True, "job_id": job_id, "attempts": _attempts_for_job(job_id)}
 
 
+@router.get("/api/v1/instances/{job_id}/events")
+def api_v1_instance_events(
+    job_id: str, request: Request, cursor: str | None = None, limit: int = 100
+):
+    """Durable, opaque-cursor event page for resumable MCP watches."""
+    from control_plane.event_stream import resume_aggregate_after
+    from db import _get_pg_pool
+
+    _job_for_caller(request, job_id)
+    with _get_pg_pool().connection() as conn:
+        events = resume_aggregate_after(conn, "job", job_id, cursor, limit=limit)
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "events": [
+            {"cursor": event.cursor, "event_type": event.event_type, "payload": event.payload}
+            for event in events
+        ],
+        "next_cursor": events[-1].cursor if events else cursor,
+    }
+
+
 @router.get("/api/v1/control-plane/reconciliation-findings")
-def api_v1_reconciliation_findings(request: Request, status: str = "open"):
+def api_v1_reconciliation_findings(
+    request: Request, status: str = "open", cursor: str | None = None, limit: int = 100
+):
     """§18/§20.2 — reconciler findings feed (operator surface).
 
     Admin, or a machine principal with `control_plane:read`. Wraps the existing
@@ -247,22 +482,56 @@ def api_v1_reconciliation_findings(request: Request, status: str = "open"):
     from db import _get_pg_pool
 
     user = _require_auth(request)
-    if str(user.get("grant_type", "")) == "client_credentials":
-        _require_scope(user, "control_plane:read")
-    elif not _is_platform_admin(user):
-        raise ProblemException(status=403, code="forbidden", detail="admin or control_plane:read required")
+    scopes = set(user.get("scopes") or ())
+    machine = str(user.get("grant_type", "")) == "client_credentials"
+    global_access = _is_platform_admin(user) or (
+        machine and "control_plane:read" in scopes
+    )
+    if not global_access:
+        if not machine:
+            raise ProblemException(
+                status=403,
+                code="forbidden",
+                detail="platform admin or a scoped machine principal is required",
+            )
+        _require_scope(user, "instances:read")
 
     if status == "open":
-        where, order = "WHERE resolved_at IS NULL", "created_at DESC"
+        query = (
+            "SELECT * FROM reconciliation_findings "
+            "WHERE resolved_at IS NULL ORDER BY created_at DESC "
+            "LIMIT %s OFFSET %s"
+        )
     elif status == "resolved":
-        where, order = "WHERE resolved_at IS NOT NULL", "resolved_at DESC"
+        query = (
+            "SELECT * FROM reconciliation_findings "
+            "WHERE resolved_at IS NOT NULL ORDER BY resolved_at DESC "
+            "LIMIT %s OFFSET %s"
+        )
     elif status == "all":
-        where, order = "", "created_at DESC"
+        query = (
+            "SELECT * FROM reconciliation_findings "
+            "ORDER BY created_at DESC LIMIT %s OFFSET %s"
+        )
     else:
-        raise ProblemException(status=422, code="invalid_status", detail="status must be open|resolved|all")
+        raise ProblemException(
+            status=422,
+            code="invalid_status",
+            detail="status must be open|resolved|all",
+        )
 
+    try:
+        raw_cursor = cursor or "MA"
+        offset = int(
+            base64.urlsafe_b64decode(
+                raw_cursor + "=" * ((4 - len(raw_cursor) % 4) % 4)
+            ).decode()
+        )
+    except (ValueError, TypeError):
+        raise ProblemException(status=422, code="invalid_cursor", detail="cursor is invalid")
+    limit = max(1, min(int(limit), 200))
     with _get_pg_pool().connection() as conn:
-        cur = conn.execute(f"SELECT * FROM reconciliation_findings {where} ORDER BY {order} LIMIT 500")
+        cur = conn.execute(query, (limit, offset))
         names = [c.name for c in cur.description]
         rows = cur.fetchall()
     findings = []
@@ -271,7 +540,23 @@ def api_v1_reconciliation_findings(request: Request, status: str = "open"):
         for k, v in list(rec.items()):
             rec[k] = _iso(v) if hasattr(v, "isoformat") else v
         findings.append(rec)
-    return {"ok": True, "status": status, "findings": findings}
+    if not global_access:
+        from scheduler import get_job
+        findings = [
+            finding
+            for finding in findings
+            if finding.get("resource_type") == "job"
+            and (job := get_job(str(finding.get("resource_id") or "")))
+            and _user_owns_job(user, job)
+        ]
+    return {
+        "ok": True, "status": status, "scope": "global" if global_access else "tenant",
+        "findings": findings,
+        "next_cursor": (
+            base64.urlsafe_b64encode(str(offset + limit).encode()).decode().rstrip("=")
+            if len(rows) == limit else None
+        ),
+    }
 
 
 @router.get("/api/v1/instances/{job_id}/attempts")
@@ -279,6 +564,37 @@ def api_v1_instance_attempts(job_id: str, request: Request):
     """§18 — the raw attempt records for a job. Tenant-scoped."""
     _job_for_caller(request, job_id)
     return {"ok": True, "job_id": job_id, "attempts": _attempts_for_job(job_id)}
+
+
+@router.get("/api/v1/instances/{job_id}/active-lease")
+def api_v1_instance_active_lease(job_id: str, request: Request):
+    """Current lease health with a tenant-safe host alias and no credentials."""
+    from db import _get_pg_pool
+
+    _job_for_caller(request, job_id)
+    with _get_pg_pool().connection() as conn:
+        row = conn.execute(
+            """
+            SELECT lease_id, attempt_id, host_id, status, offered_at,
+                   claim_deadline, claimed_at, last_renewed_at, expires_at
+              FROM placement_leases
+             WHERE job_id=%s AND status IN ('offered','active')
+             ORDER BY offered_at DESC LIMIT 1
+            """,
+            (job_id,),
+        ).fetchone()
+    if not row:
+        return {"ok": True, "job_id": job_id, "lease": None}
+    keys = [
+        "lease_id", "attempt_id", "host_id", "status", "offered_at",
+        "claim_deadline", "claimed_at", "last_renewed_at", "expires_at",
+    ]
+    lease = dict(zip(keys, row))
+    host_id = str(lease.pop("host_id"))
+    lease["host_alias"] = f"host-{hashlib.sha256(host_id.encode()).hexdigest()[:10]}"
+    for key, value in list(lease.items()):
+        lease[key] = _iso(value) if hasattr(value, "isoformat") else str(value) if isinstance(value, UUID) else value
+    return {"ok": True, "job_id": job_id, "lease": lease}
 
 
 @router.get("/api/v1/instances/{job_id}/placement-explanation")
@@ -303,7 +619,7 @@ def api_v1_instance_placement_explanation(job_id: str, request: Request):
 
 
 @router.post("/api/v1/instances/{job_id}/retry")
-def api_v1_instance_retry(job_id: str, request: Request):
+def api_v1_instance_retry(job_id: str, request: Request, body: _OpIn | None = None):
     """§18 — re-enqueue a failed/stuck instance (does not run the queue inline).
 
     Tenant-scoped write. Delegates to the one requeue authority; the scheduler
@@ -312,12 +628,19 @@ def api_v1_instance_retry(job_id: str, request: Request):
     from scheduler import requeue_job
 
     job = _job_for_caller(request, job_id)
+    expected_version = body.expected_version if body else None
+    if expected_version is not None and int(job.get("version") or 0) != expected_version:
+        raise ProblemException(
+            status=409, code="version_conflict",
+            detail="instance changed; re-read before retrying",
+            extra={"current_version": int(job.get("version") or 0)},
+        )
     status = str(job.get("status") or "")
     if status == "completed":
         raise ProblemException(status=409, code="already_completed", detail="a completed instance cannot be retried")
     if status == "queued":
         raise ProblemException(status=409, code="already_queued", detail="instance is already queued")
-    result = requeue_job(job_id, user_initiated=True)
+    result = requeue_job(job_id, user_initiated=True, expected_version=expected_version)
     if not result:
         raise ProblemException(status=409, code="retry_failed", detail="instance could not be requeued")
     return {"ok": True, "job_id": job_id, "status": "queued"}
@@ -410,6 +733,7 @@ def api_v1_control_plane_health(request: Request):
     genuine zero (DA§17), so this reports live counts, not a single flag.
     Operator read.
     """
+    from control_plane.projection_delivery import health_snapshot
     from db import _get_pg_pool
 
     _require_control_plane_read(request)
@@ -426,6 +750,17 @@ def api_v1_control_plane_health(request: Request):
         task_rows = conn.execute(
             "SELECT task_name, enabled, last_status, last_run_at, next_run_at FROM scheduled_tasks"
         ).fetchall()
+        try:
+            projection = {"available": True, **health_snapshot(conn)}
+        except Exception as exc:
+            conn.rollback()
+            projection = {
+                "available": False,
+                "error": type(exc).__name__,
+                "unprepared": None,
+                "orphaned": None,
+                "sinks": [],
+            }
     tasks = [
         {
             "task_name": r[0],
@@ -436,12 +771,22 @@ def api_v1_control_plane_health(request: Request):
         }
         for r in task_rows
     ]
-    failed_tasks = [t["task_name"] for t in tasks if t["last_status"] == "error"]
-    degraded = bool(outbox_dead or failed_tasks)
+    failed_tasks = [t["task_name"] for t in tasks if t["last_status"] == "failed"]
+    projection_dead = sum(
+        int(sink.get("dead_lettered") or 0) for sink in projection["sinks"]
+    )
+    degraded = bool(
+        outbox_dead
+        or failed_tasks
+        or not projection["available"]
+        or projection_dead
+        or projection.get("orphaned")
+    )
     return {
         "ok": True,
         "status": "degraded" if degraded else "healthy",
         "outbox": {"pending": outbox_pending, "dead_lettered": outbox_dead},
+        "projections": projection,
         "reconciliation": {"open_findings": findings_open},
         "scheduled_tasks": tasks,
         "failed_tasks": failed_tasks,
@@ -470,7 +815,7 @@ def api_v1_openapi(request: Request):
 
 
 @router.post("/api/v1/instances/{job_id}/reconcile")
-def api_v1_instance_reconcile(job_id: str, request: Request):
+def api_v1_instance_reconcile(job_id: str, request: Request, body: _OpIn | None = None):
     """§3.3/§18 reconcile — **enqueue** a reconcile for this instance.
 
     It never performs direct repair (§3.3): it inserts a durable request into
@@ -480,7 +825,9 @@ def api_v1_instance_reconcile(job_id: str, request: Request):
     from db import _get_pg_pool
 
     user = _require_auth(request)
-    _job_for_caller(request, job_id)  # tenant-scope / not-found guard
+    job = _job_for_caller(request, job_id)  # tenant-scope / not-found guard
+    if body and body.expected_version is not None and int(job.get("version") or 0) != body.expected_version:
+        raise ProblemException(status=409, code="version_conflict", detail="instance changed; re-read first")
     requested_by = str(user.get("email") or user.get("customer_id") or user.get("user_id") or "api")
     with _get_pg_pool().connection() as conn:
         conn.execute(
@@ -500,4 +847,43 @@ def api_v1_instance_reconcile(job_id: str, request: Request):
         "job_id": job_id,
         "enqueued": True,
         "note": "reconcile requested; the reconciler processes it out-of-band (never repaired inline)",
+    }
+
+
+@router.post("/api/v1/control-plane/commands/{command_id}/retry")
+def api_v1_retry_agent_command(command_id: UUID, request: Request, body: _OpIn):
+    """Redeliver only failed/dead-letter commands without changing identity."""
+    from db import _get_pg_pool
+
+    _require_host_operator(request, "control_plane:operate")
+    with _get_pg_pool().connection() as conn:
+        row = conn.execute(
+            "SELECT status, attempt_count, idempotency_key FROM agent_commands "
+            "WHERE command_id = %s FOR UPDATE",
+            (str(command_id),),
+        ).fetchone()
+        if not row:
+            raise ProblemException(status=404, code="command_not_found", detail="command not found")
+        status, attempts, idempotency_key = row
+        if int(attempts or 0) != body.expected_version:
+            raise ProblemException(status=409, code="version_conflict", detail="command changed; re-read first")
+        if status not in {"failed", "dead_letter"}:
+            raise ProblemException(
+                status=409, code="command_not_retryable",
+                detail="only failed or dead-letter commands can be retried",
+            )
+        conn.execute(
+            """
+            UPDATE agent_commands
+               SET status='pending', claim_owner=NULL, claim_session=NULL,
+                   claim_expires_at=NULL, next_attempt_at=clock_timestamp(),
+                   error_code=NULL, error_details=NULL
+             WHERE command_id=%s
+            """,
+            (str(command_id),),
+        )
+        conn.commit()
+    return {
+        "ok": True, "command_id": str(command_id), "status": "pending",
+        "idempotency_key": idempotency_key, "audit_preserved": True,
     }

@@ -20,6 +20,7 @@ logging.basicConfig(
 # P3/C3 — scrub PII from bg-worker logs too.
 try:
     from log_pii_filter import install as _install_pii_scrub
+
     _install_pii_scrub()
 except Exception:  # pragma: no cover
     pass
@@ -65,8 +66,7 @@ def reconcile_paused_stopped_jobs() -> int:
     enqueued = 0
     with pool.connection() as conn:
         conn.row_factory = dict_row
-        rows = conn.execute(
-            """
+        rows = conn.execute("""
             SELECT j.job_id, j.status, j.host_id, j.active_attempt_id,
                    j.payload->>'container_name' AS container_name,
                    COALESCE(
@@ -90,8 +90,7 @@ def reconcile_paused_stopped_jobs() -> int:
                )
              ORDER BY j.submitted_at DESC
              LIMIT 200
-            """
-        ).fetchall()
+            """).fetchall()
         for row in rows:
             # Defense in depth: never unfenced-stop fenced-history jobs even
             # if a future query change reintroduces them into the result set.
@@ -173,10 +172,12 @@ def main():
     # 1. Auto-billing cycle (every 5 minutes)
     def _billing_cycle():
         from billing import get_billing_engine
+
         be = get_billing_engine()
         be.auto_billing_cycle()
         be.check_low_balance_and_topup()
         be.stop_jobs_for_suspended_wallets()
+
     register_task("billing_cycle", _billing_cycle, 300)
 
     # 1a-ii. Billing controller (§12.4, Track B B3.3): surface meter invariants
@@ -187,6 +188,7 @@ def main():
         from control_plane.billing_controller import reconcile_billing_meters_task
 
         reconcile_billing_meters_task()
+
     register_task("billing_meter_reconcile", _billing_meter_reconcile, 300)
 
     # 1a-iii. Audit partition maintenance (§13.6/§4.5, Track B B4.1): keep the
@@ -196,6 +198,7 @@ def main():
         from control_plane.audit_partitions import audit_partition_maintenance_task
 
         audit_partition_maintenance_task()
+
     register_task("audit_partition_maintenance", _audit_partition_maintenance, 86_400)
 
     # 1a-iv. Signed audit checkpoints (§13.6/§12.2, Track B B4.5): daily, seal
@@ -204,14 +207,42 @@ def main():
         from control_plane.audit_checkpoints import audit_checkpoint_task
 
         audit_checkpoint_task()
+
     register_task("audit_checkpoint", _audit_checkpoint, 86_400)
+
+    # 1a-v. Projection dispatcher (Track B B4.4 / DA§12.1). Stage one
+    # materializes per-sink obligations; stage two delivers the audit_log sink.
+    # They are separate durable tasks so a crash at either boundary resumes from
+    # PostgreSQL state. Warehouse delivery remains deferred to B11.
+    def _projection_fanout_prepare():
+        from control_plane.projection_runtime import prepare_projection_fanout_task
+
+        prepare_projection_fanout_task()
+
+    register_task("projection_fanout_prepare", _projection_fanout_prepare, 5)
+
+    def _projection_deliver_audit_log():
+        from control_plane.projection_runtime import deliver_audit_log_task
+
+        deliver_audit_log_task()
+
+    register_task("projection_deliver_audit_log", _projection_deliver_audit_log, 5)
+
+    def _projection_retention():
+        from control_plane.projection_runtime import projection_retention_task
+
+        projection_retention_task()
+
+    register_task("projection_delivery_retention", _projection_retention, 86_400)
 
     # 1b. Expire past-due wallet launch holds (frees available balance)
     def _wallet_hold_expiry():
         from billing import get_billing_engine
+
         n = get_billing_engine().expire_stale_wallet_holds(limit=500)
         if n:
             log.info("wallet_hold_expiry: expired %d hold(s)", n)
+
     register_task("wallet_hold_expiry", _wallet_hold_expiry, 60)
 
     # 1c. Expire past-deadline per-host agent tokens (blueprint §19.2).
@@ -227,58 +258,73 @@ def main():
         )
         if n:
             log.info("host_agent_token_expiry: expired %d token(s)", n)
+
     register_task("host_agent_token_expiry", _host_agent_token_expiry, 300)
 
     # 2. Stripe webhook event processor (every 30 seconds)
     def _webhook_processor():
         from stripe_connect import get_stripe_manager
+
         sm = get_stripe_manager()
         sm.process_pending_events()
+
     register_task("webhook_processor", _webhook_processor, 30)
 
     # 3. Spot price updater (every 10 minutes)
     def _spot_updater():
         from marketplace import get_marketplace_engine
         from spot_pricing import update_all_spot_prices
+
         update_all_spot_prices()
         me = get_marketplace_engine()
         me.expire_reservations()
+
     register_task("spot_updater", _spot_updater, 600)
 
     # 4. Serverless reconcile (autoscaler + dispatch)
     def _serverless_reconcile():
         from serverless.service import get_serverless_service
+
         get_serverless_service().reconcile_all()
+
     register_task("serverless_reconcile", _serverless_reconcile, 45)
 
     def _serverless_webhook_retry():
         from serverless.repo import ServerlessRepo
         from serverless.webhooks import retry_pending_webhooks
+
         retry_pending_webhooks(ServerlessRepo())
+
     register_task("serverless_webhook_retry", _serverless_webhook_retry, 30)
 
     # 5. Cloud burst evaluator (every 2 minutes)
     def _burst_evaluator():
         from cloudburst import get_burst_engine
+
         cbe = get_burst_engine()
         cbe.evaluate_burst_need()
         cbe.drain_idle_instances()
         cbe.update_burst_spending()
+
     register_task("burst_evaluator", _burst_evaluator, 120)
 
     # 6. SLA credit issuance (every hour)
     def _sla_credits():
         import datetime
         from sla import get_sla_engine
+
         se = get_sla_engine()
         se.auto_issue_credits(datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m"))
+
     register_task("sla_credits", _sla_credits, 3600)
 
     # 7. Event snapshotting (every 15 minutes)
     def _event_snapshots():
         from events import get_snapshot_manager, get_event_store
+
         sm = get_snapshot_manager()
         sm.snapshot_all_jobs(get_event_store())
+
     register_task("event_snapshots", _event_snapshots, 900)
 
     # 7b. Event archive / retention (DA§2.2 / §16.1, Track B B4.2): move events
@@ -287,38 +333,47 @@ def main():
     # scheduled; now corrected and run daily.
     def _events_archive():
         from events import get_snapshot_manager
+
         n = get_snapshot_manager().archive_old_events()
         if n:
             log.info("events_archive: moved %d events to cold storage", n)
+
     register_task("events_archive", _events_archive, 86_400)
 
     # 8. Data retention / privacy purge (every 6 hours)
     def _privacy_purge():
         from privacy import get_lifecycle_manager, get_consent_manager
+
         lm = get_lifecycle_manager()
         lm.purge_expired()
         cm = get_consent_manager()
         cm.expire_implied_consents()
+
     register_task("privacy_purge", _privacy_purge, 21600)
 
     # 9. Session cleanup (every hour)
     def _session_cleanup():
         from db import UserStore
+
         count = UserStore.cleanup_expired_sessions()
         if count:
             log.info("Session cleanup: purged %d expired sessions", count)
+
     register_task("session_cleanup", _session_cleanup, 3600)
 
     # 10. FINTRAC compliance check (every hour)
     def _fintrac_check():
         from billing import get_billing_engine
+
         be = get_billing_engine()
         be.fintrac_check_transaction(customer_id="__periodic_scan__", amount_cad=0)
+
     register_task("fintrac_check", _fintrac_check, 3600)
 
     # 11. Job log cleanup (daily)
     def _job_log_cleanup():
         from db import _get_pg_pool
+
         cutoff = time.time() - (7 * 86400)
         pool = _get_pg_pool()
         with pool.connection() as conn:
@@ -327,68 +382,96 @@ def main():
             conn.commit()
         if deleted:
             log.info("Job log cleanup: purged %d old log rows", deleted)
+
     register_task("job_log_cleanup", _job_log_cleanup, 86400)
 
     # 12. Notification + push retention cleanup (every 6 hours)
     def _notification_cleanup():
         from db import NotificationStore, WebPushSubscriptionStore
-        notification_retention_days = max(int(os.environ.get("XCELSIOR_NOTIFICATION_RETENTION_DAYS", "30")), 1)
-        revoked_retention_days = max(int(os.environ.get("XCELSIOR_WEB_PUSH_REVOKED_RETENTION_DAYS", "30")), 1)
+
+        notification_retention_days = max(
+            int(os.environ.get("XCELSIOR_NOTIFICATION_RETENTION_DAYS", "30")), 1
+        )
+        revoked_retention_days = max(
+            int(os.environ.get("XCELSIOR_WEB_PUSH_REVOKED_RETENTION_DAYS", "30")), 1
+        )
         deleted_notifications = NotificationStore.delete_old(notification_retention_days)
         deleted_revoked = WebPushSubscriptionStore.delete_revoked_older_than(revoked_retention_days)
         if deleted_notifications or deleted_revoked:
-            log.info("Notification cleanup: purged %d notifications and %d revoked push subs", deleted_notifications, deleted_revoked)
+            log.info(
+                "Notification cleanup: purged %d notifications and %d revoked push subs",
+                deleted_notifications,
+                deleted_revoked,
+            )
+
     register_task("notification_cleanup", _notification_cleanup, 21600)
 
     # 14. Reconcile paused/stopped jobs (legacy unfenced stop redelivery only)
     def _reconcile_paused_stopped():
         reconcile_paused_stopped_jobs()
+
     register_task("reconcile_paused_stopped", _reconcile_paused_stopped, 60)
 
     # 15. user_images pending sweeper
     def _user_images_pending_sweeper():
         from db import _get_pg_pool
+
         cutoff = time.time() - 3600.0
         stale_queued_cutoff = time.time() - 86400.0
         pool = _get_pg_pool()
         with pool.connection() as conn:
             cur = conn.execute(
                 "UPDATE user_images SET status = 'failed' WHERE status = 'pending' AND deleted_at = 0 AND created_at < %s",
-                (cutoff,)
+                (cutoff,),
             )
             marked = cur.rowcount
             cur2 = conn.execute(
                 "UPDATE user_images SET status = 'failed', error = 'registry_down_24h' WHERE status = 'queued_registry_down' AND deleted_at = 0 AND created_at < %s",
-                (stale_queued_cutoff,)
+                (stale_queued_cutoff,),
             )
             stale_queued = cur2.rowcount
             conn.commit()
-        if marked: log.info("user_images sweeper: marked %d pending→failed (>1h old)", marked)
-        if stale_queued: log.info("user_images sweeper: marked %d queued_registry_down→failed (>24h old)", stale_queued)
+        if marked:
+            log.info("user_images sweeper: marked %d pending→failed (>1h old)", marked)
+        if stale_queued:
+            log.info(
+                "user_images sweeper: marked %d queued_registry_down→failed (>24h old)",
+                stale_queued,
+            )
+
     register_task("user_images_pending_sweeper", _user_images_pending_sweeper, 300)
 
     # 16. user_images hard-delete GC
     def _user_images_hard_delete_gc():
         import os as _os
         from db import _get_pg_pool
+
         retention_days = int(_os.environ.get("XCELSIOR_USER_IMAGES_GC_DAYS", "30"))
-        if retention_days <= 0: return
+        if retention_days <= 0:
+            return
         cutoff = time.time() - (retention_days * 86400.0)
         pool = _get_pg_pool()
         with pool.connection() as conn:
             cur = conn.execute(
-                "DELETE FROM user_images WHERE deleted_at > 0 AND deleted_at < %s",
-                (cutoff,)
+                "DELETE FROM user_images WHERE deleted_at > 0 AND deleted_at < %s", (cutoff,)
             )
             purged = cur.rowcount
             conn.commit()
-        if purged: log.info("user_images GC: hard-deleted %d rows (deleted_at < %d days ago)", purged, retention_days)
+        if purged:
+            log.info(
+                "user_images GC: hard-deleted %d rows (deleted_at < %d days ago)",
+                purged,
+                retention_days,
+            )
+
     register_task("user_images_hard_delete_gc", _user_images_hard_delete_gc, 86400)
 
     # 17. registry health probe
     def _registry_health_probe():
         import registry_health
+
         registry_health.probe_registry()
+
     probe_int = __import__("registry_health").PROBE_INTERVAL_SEC
     register_task("registry_health_probe", _registry_health_probe, probe_int)
 
@@ -399,7 +482,8 @@ def main():
         from db import _get_pg_pool
         from routes.agent import enqueue_agent_command
 
-        if not registry_health.is_registry_healthy(): return
+        if not registry_health.is_registry_healthy():
+            return
         pool = _get_pg_pool()
         with pool.connection() as conn:
             rows = conn.execute(
@@ -410,7 +494,10 @@ def main():
         for image_id, owner_id, job_id, host_id, name, tag, image_ref, description in rows:
             if not host_id:
                 with pool.connection() as conn:
-                    conn.execute("UPDATE user_images SET status='failed', error='host_missing' WHERE image_id=%s", (image_id,))
+                    conn.execute(
+                        "UPDATE user_images SET status='failed', error='host_missing' WHERE image_id=%s",
+                        (image_id,),
+                    )
                     conn.commit()
                 continue
             # Resolve residual container identity: attempt-owned must use
@@ -431,12 +518,8 @@ def main():
                     )
                     conn.commit()
                 continue
-            container_name = (
-                target.container_name
-                if target is not None
-                else f"xcl-{job_id}"
-            )
-            use_host = (target.host_id if target and target.host_id else host_id)
+            container_name = target.container_name if target is not None else f"xcl-{job_id}"
+            use_host = target.host_id if target and target.host_id else host_id
             try:
                 enqueue_agent_command(
                     use_host,
@@ -454,7 +537,10 @@ def main():
                     created_by="bg_worker_snapshot_registry_retry",
                 )
                 with pool.connection() as conn:
-                    conn.execute("UPDATE user_images SET status='pending' WHERE image_id=%s AND status='queued_registry_down'", (image_id,))
+                    conn.execute(
+                        "UPDATE user_images SET status='pending' WHERE image_id=%s AND status='queued_registry_down'",
+                        (image_id,),
+                    )
                     conn.commit()
                 promoted += 1
             except Exception as e:
@@ -468,12 +554,14 @@ def main():
                 "snapshot registry-retry: promoted %d queued snapshots to pending",
                 promoted,
             )
+
     register_task("snapshot_queue_retry", _retry_queued_snapshots, 60)
 
     # 19. agent upgrade rollout watchdog
     def _agent_rollout_watchdog():
         from db import _get_pg_pool
         from routes.agent import enqueue_agent_command
+
         ROLLBACK_GRACE_SEC = 300
         MARK_COMPLETE_MIN_AGE_SEC = 45
 
@@ -497,31 +585,46 @@ def main():
             age = float(age_sec or 0)
             if current_sha == target_sha and age >= MARK_COMPLETE_MIN_AGE_SEC:
                 with pool.connection() as conn:
-                    conn.execute("UPDATE agent_rollouts SET status='completed', completed_at=EXTRACT(EPOCH FROM NOW()), last_check_at=EXTRACT(EPOCH FROM NOW()) WHERE id=%s AND status='pending'", (rid,))
+                    conn.execute(
+                        "UPDATE agent_rollouts SET status='completed', completed_at=EXTRACT(EPOCH FROM NOW()), last_check_at=EXTRACT(EPOCH FROM NOW()) WHERE id=%s AND status='pending'",
+                        (rid,),
+                    )
                     conn.commit()
                 completed += 1
                 continue
             if age >= ROLLBACK_GRACE_SEC:
                 try:
                     enqueue_agent_command(
-                        host_id, "rollback_agent", {"reason": "upgrade_timeout", "target_sha": target_sha}, created_by="bg_rollout_watchdog"
+                        host_id,
+                        "rollback_agent",
+                        {"reason": "upgrade_timeout", "target_sha": target_sha},
+                        created_by="bg_rollout_watchdog",
                     )
                     with pool.connection() as conn:
-                        conn.execute("UPDATE agent_rollouts SET status='rolled_back', completed_at=EXTRACT(EPOCH FROM NOW()), last_check_at=EXTRACT(EPOCH FROM NOW()), error='heartbeat_stale_or_old_sha' WHERE id=%s AND status='pending'", (rid,))
+                        conn.execute(
+                            "UPDATE agent_rollouts SET status='rolled_back', completed_at=EXTRACT(EPOCH FROM NOW()), last_check_at=EXTRACT(EPOCH FROM NOW()), error='heartbeat_stale_or_old_sha' WHERE id=%s AND status='pending'",
+                            (rid,),
+                        )
                         conn.commit()
                     rolled_back += 1
                 except Exception as e:
                     log.warning("rollout watchdog: enqueue rollback failed host=%s: %s", host_id, e)
                 continue
             with pool.connection() as conn:
-                conn.execute("UPDATE agent_rollouts SET last_check_at=EXTRACT(EPOCH FROM NOW()) WHERE id=%s", (rid,))
+                conn.execute(
+                    "UPDATE agent_rollouts SET last_check_at=EXTRACT(EPOCH FROM NOW()) WHERE id=%s",
+                    (rid,),
+                )
                 conn.commit()
-        if completed or rolled_back: log.info("rollout watchdog: completed=%d rolled_back=%d", completed, rolled_back)
+        if completed or rolled_back:
+            log.info("rollout watchdog: completed=%d rolled_back=%d", completed, rolled_back)
+
     register_task("agent_rollout_watchdog", _agent_rollout_watchdog, 30)
 
     # 20. Stuck-job reaper
     try:
         from reaper import reaper_tick
+
         register_task("reaper_tick", reaper_tick, 60)
     except Exception as e:
         log.warning("reaper_tick not registered: %s", e)
@@ -529,9 +632,12 @@ def main():
     # 21. Lightning Network deposit watcher
     try:
         import lightning as _ln
+
         if _ln.LN_ENABLED:
+
             def _ln_credit_callback(customer_id, amount_cad, deposit_id):
                 from billing import get_billing_engine
+
                 be = get_billing_engine()
                 # The idempotency key is mandatory: process_ln_deposits
                 # retries any deposit whose mark_credited did not land, so
@@ -543,10 +649,12 @@ def main():
                     f"Lightning deposit {deposit_id}",
                     idempotency_key=_ln.credit_idempotency_key(deposit_id),
                 )
+
             # Do NOT use _ln.start_ln_watcher thread here.
             # Instead run it as a regular scheduled task since we migrated to pg!
             def _ln_watcher_task():
                 _ln.process_ln_deposits(credit_callback=_ln_credit_callback)
+
             register_task("lightning_watcher", _ln_watcher_task, 5)
             log.info("Lightning deposit watcher registered")
 
@@ -570,8 +678,10 @@ def main():
     # 22. Artifact catalog janitor / cleanup
     def _artifact_catalog_janitor():
         from artifacts import get_artifact_manager
+
         mgr = get_artifact_manager()
         mgr.cleanup_expired()
+
     register_task("artifact_catalog_janitor", _artifact_catalog_janitor, 60)
 
     # 22b. Artifact inventory reconciliation (Track B B9.2d, companion §6.6).
@@ -581,7 +691,9 @@ def main():
     # 10-minute cadence catches drift long before a retention window.
     def _artifact_inventory_reconcile():
         from artifacts import get_artifact_manager
+
         get_artifact_manager().reconcile_inventory()
+
     register_task("artifact_inventory_reconcile", _artifact_inventory_reconcile, 600)
 
     # ── Launch executor thread ───────────────────────────────────────
@@ -612,6 +724,7 @@ def main():
     _stop.wait()
     t.join(timeout=5)
     log.info("bg-worker stopped")
+
 
 if __name__ == "__main__":
     main()

@@ -66,6 +66,8 @@ from routes.teams import _send_team_email
 from oauth_service import (
     ACCESS_TOKEN_TTL_SEC,
     DEVICE_CODE_INTERVAL_SEC,
+    MCP_RESOURCE_AUDIENCE,
+    OAUTH_AUDIENCE,
     REFRESH_COOKIE_NAME,
     REFRESH_TOKEN_TTL_SEC,
     OAuthGrantError,
@@ -88,6 +90,13 @@ from oauth_service import (
 )
 
 router = APIRouter()
+
+
+def _validated_resource_indicator(body: dict) -> str:
+    resource = str(body.get("resource", "")).strip()
+    if resource and resource != MCP_RESOURCE_AUDIENCE:
+        raise OAuthGrantError("invalid_target", "Unsupported resource indicator")
+    return resource or OAUTH_AUDIENCE
 
 # OAuth configuration
 VALID_KEY_SCOPES = {"full-access", "read-only"}
@@ -336,6 +345,9 @@ async def _oauth_token_grant_response(
             redirect_uri = str(body.get("redirect_uri", "")).strip()
             code = str(body.get("code", "")).strip()
             code_verifier = str(body.get("code_verifier", "")).strip()
+            resource = str(body.get("resource", "")).strip() or None
+            if resource and resource != MCP_RESOURCE_AUDIENCE:
+                raise OAuthGrantError("invalid_target", "Unsupported resource indicator")
             if not redirect_uri or not code or not code_verifier:
                 raise OAuthGrantError(
                     "invalid_request", "code, redirect_uri, and code_verifier are required"
@@ -346,6 +358,7 @@ async def _oauth_token_grant_response(
                 redirect_uri=redirect_uri,
                 code_verifier=code_verifier,
                 request=request,
+                resource=resource,
             )
         elif grant_type == "refresh_token":
             refresh_token = str(body.get("refresh_token", "")).strip()
@@ -358,10 +371,13 @@ async def _oauth_token_grant_response(
                     "unauthorized_client", "Client is not allowed to use device_code"
                 )
             device_code = str(body.get("device_code", "")).strip()
+            resource = str(body.get("resource", "")).strip() or None
+            if resource and resource != MCP_RESOURCE_AUDIENCE:
+                raise OAuthGrantError("invalid_target", "Unsupported resource indicator")
             if not device_code:
                 raise OAuthGrantError("invalid_request", "device_code is required")
             token_bundle = exchange_device_code(
-                client=client, device_code=device_code, request=request
+                client=client, device_code=device_code, request=request, resource=resource
             )
         elif grant_type == "client_credentials":
             if client.get("client_type") != "confidential":
@@ -373,9 +389,13 @@ async def _oauth_token_grant_response(
                     "unauthorized_client", "Client is not allowed to use client_credentials"
                 )
             scopes = str(body.get("scope", "")).strip()
+            resource = str(body.get("resource", "")).strip() or None
+            if resource and resource != MCP_RESOURCE_AUDIENCE:
+                raise OAuthGrantError("invalid_target", "Unsupported resource indicator")
             token_bundle = issue_client_credentials_jwt(
                 client,
                 [scope for scope in scopes.split() if scope] or list(client.get("scopes") or []),
+                audience=resource,
             )
         else:
             raise OAuthGrantError("unsupported_grant_type", "Unsupported grant_type")
@@ -482,17 +502,33 @@ def oauth_authorization_server_metadata(request: Request):
             "offline_access",
             "instances:read",
             "instances:write",
+            "instances:operate",
             "billing:read",
             "billing:write",
             "hosts:read",
             "hosts:write",
+            "hosts:operate",
+            "hosts:evict",
+            "control_plane:read",
+            "control_plane:operate",
+            "mcp_actions:approve",
             "gpu:read",
             "marketplace:read",
             "events:read",
+            "inference:read",
+            "inference:write",
             "api",
         ],
         "service_documentation": f"{_OAUTH_BASE_URL.rstrip('/')}/docs",
+        "jwks_uri": f"{base_url}/.well-known/jwks.json",
+        "resource_indicators_supported": True,
     }
+
+
+@router.get("/.well-known/jwks.json", tags=["Auth"])
+def oauth_jwks_document():
+    from oauth_service import oauth_jwks
+    return oauth_jwks()
 
 
 def _oauth_error_page(title: str, detail: str, status: int) -> str:
@@ -627,6 +663,12 @@ def oauth_authorize(request: Request):
             "Update the client's allowed redirect URIs in Settings → AI Agents.",
         )
     scopes = str(request.query_params.get("scope", "")).strip().split()
+    resource = str(request.query_params.get("resource", "")).strip() or None
+    if resource and resource != MCP_RESOURCE_AUDIENCE:
+        return _oauth_browser_error(
+            request, 400, "Unsupported resource",
+            "This authorization request targets an unsupported protected resource.",
+        )
     try:
         code = issue_authorization_code(
             client=client,
@@ -635,6 +677,7 @@ def oauth_authorize(request: Request):
             code_challenge=code_challenge,
             code_challenge_method=code_challenge_method,
             scopes=scopes or list(client.get("scopes") or []),
+            audience=resource or OAUTH_AUDIENCE,
         )
     except OAuthGrantError as exc:
         raise HTTPException(exc.status_code, exc.description) from exc
@@ -665,6 +708,7 @@ async def oauth_device_authorize(request: Request):
             client=client,
             scopes=str(body.get("scope", "")).strip().split(),
             base_url=str(request.base_url).rstrip("/"),
+            audience=_validated_resource_indicator(body),
         )
     except OAuthGrantError as exc:
         return _oauth_error_response(exc)
@@ -681,6 +725,7 @@ async def oauth_device_authorize_compat(request: Request):
             client=client,
             scopes=str(body.get("scope", "")).strip().split(),
             base_url=str(request.base_url).rstrip("/"),
+            audience=_validated_resource_indicator(body),
         )
     except OAuthGrantError as exc:
         return _oauth_error_response(exc, deprecated_surface="/api/auth/device")
@@ -825,7 +870,12 @@ def api_mcp_quick_connect(request: Request, regenerate: bool = False):
         team_id=_oauth_workspace_team_id(user),
         regenerate=regenerate,
     )
-    token_bundle = issue_client_credentials_jwt(client, list(client.get("scopes") or MCP_QUICK_CONNECT_SCOPES))
+    from oauth_service import MCP_RESOURCE_AUDIENCE
+    token_bundle = issue_client_credentials_jwt(
+        client,
+        list(client.get("scopes") or MCP_QUICK_CONNECT_SCOPES),
+        audience=MCP_RESOURCE_AUDIENCE,
+    )
     mcp_base = os.environ.get("XCELSIOR_PUBLIC_URL", "https://xcelsior.ca")
     return {
         "ok": True,
@@ -1621,6 +1671,12 @@ def api_auth_introspect(request: Request):
         "user_id": user.get("user_id"),
         "customer_id": user.get("customer_id"),
         "scopes": list(user.get("scopes") or []),
+        "workspace_id": user.get("tenant_id") or user.get("workspace_customer_id") or user.get("customer_id"),
+        "team_id": user.get("team_id"),
+        "subject": user.get("user_id") or user.get("client_id"),
+        "audience": user.get("audience"),
+        "jti": user.get("jti"),
+        "grant_type": user.get("grant_type"),
     }
 
 

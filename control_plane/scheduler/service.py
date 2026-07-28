@@ -181,6 +181,7 @@ class SchedulerService:
                         placement_explanation=expl,
                         lease_claim_ttl_sec=cfg.lease_claim_ttl_sec,
                         lease_renewal_ttl_sec=cfg.lease_renewal_ttl_sec,
+                        trace_id=str(job.get("trace_id") or "") or None,
                     ),
                     what="sched_reserve",
                 )

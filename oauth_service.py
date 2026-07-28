@@ -17,6 +17,8 @@ from typing import Any
 
 from cache_keys import cache_key
 from db import OAuthStore, UserStore
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 try:
     from prometheus_client import Counter
@@ -79,6 +81,9 @@ OAUTH_ISSUER = os.environ.get(
     os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca").rstrip("/"),
 )
 OAUTH_AUDIENCE = os.environ.get("XCELSIOR_OAUTH_AUDIENCE", "xcelsior-api")
+MCP_RESOURCE_AUDIENCE = os.environ.get(
+    "XCELSIOR_MCP_RESOURCE_AUDIENCE", "https://mcp.xcelsior.ca"
+)
 REFRESH_COOKIE_NAME = "xcelsior_refresh"
 API_KEY_SUNSET_DATE = os.environ.get("XCELSIOR_API_KEY_SUNSET_DATE", "2026-07-07")
 
@@ -395,12 +400,12 @@ def _base64url_decode(raw: str) -> bytes:
     return base64.urlsafe_b64decode(raw + padding)
 
 
-def _get_jwt_signing_keys() -> tuple[str, dict[str, str]]:
+def _get_jwt_signing_keys() -> tuple[str, dict[str, dict[str, str]]]:
     raw = os.environ.get("XCELSIOR_OAUTH_JWT_KEYS_JSON", "").strip()
     if raw:
         data = json.loads(raw)
         active_kid = str(data["active_kid"])
-        keys = {str(item["kid"]): str(item["secret"]) for item in data.get("keys", [])}
+        keys = {str(item["kid"]): dict(item) for item in data.get("keys", [])}
         if active_kid not in keys:
             raise OAuthGrantError(
                 "server_error", "Active JWT signing key is missing", status_code=500
@@ -419,20 +424,51 @@ def _get_jwt_signing_keys() -> tuple[str, dict[str, str]]:
                 "OAuth JWT signing secret is not configured",
                 status_code=500,
             )
-    return active_kid, {active_kid: secret}
+    return active_kid, {active_kid: {"kid": active_kid, "secret": secret}}
 
 
-def issue_client_credentials_jwt(client: dict, scopes: list[str]) -> dict[str, Any]:
+def oauth_jwks() -> dict[str, Any]:
+    """Public asymmetric verification keys; symmetric dev keys are never exposed."""
+    _, keys = _get_jwt_signing_keys()
+    result = []
+    for kid, item in keys.items():
+        public_pem = item.get("public_key_pem")
+        if not public_pem and item.get("private_key_pem"):
+            private = serialization.load_pem_private_key(item["private_key_pem"].encode(), password=None)
+            public_pem = private.public_key().public_bytes(
+                serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
+            ).decode()
+        if not public_pem:
+            continue
+        public = serialization.load_pem_public_key(public_pem.encode())
+        if not isinstance(public, rsa.RSAPublicKey):
+            continue
+        numbers = public.public_numbers()
+        result.append({
+            "kty": "RSA", "use": "sig", "alg": "RS256", "kid": kid,
+            "n": _base64url_encode(numbers.n.to_bytes((numbers.n.bit_length() + 7) // 8, "big")),
+            "e": _base64url_encode(numbers.e.to_bytes((numbers.e.bit_length() + 7) // 8, "big")),
+        })
+    return {"keys": result}
+
+
+def issue_client_credentials_jwt(
+    client: dict, scopes: list[str], *, audience: str | None = None
+) -> dict[str, Any]:
     active_kid, keys = _get_jwt_signing_keys()
     now = int(time.time())
     secret_fingerprint = hashlib.sha256(
         f"{client['client_id']}:{client.get('client_secret_salt') or ''}".encode()
     ).hexdigest()
-    header = {"alg": "HS256", "typ": "JWT", "kid": active_kid}
+    key = keys[active_kid]
+    asymmetric = bool(key.get("private_key_pem"))
+    if not asymmetric and os.environ.get("XCELSIOR_ENV", "dev").lower() not in {"test", "dev", "development"}:
+        raise OAuthGrantError("server_error", "Production OAuth signing must use an asymmetric key", status_code=500)
+    header = {"alg": "RS256" if asymmetric else "HS256", "typ": "JWT", "kid": active_kid}
     payload = {
         "iss": OAUTH_ISSUER,
         "sub": client["client_id"],
-        "aud": OAUTH_AUDIENCE,
+        "aud": audience or OAUTH_AUDIENCE,
         "iat": now,
         "exp": now + CLIENT_CREDENTIALS_TTL_SEC,
         "scope": " ".join(scopes),
@@ -447,11 +483,17 @@ def issue_client_credentials_jwt(client: dict, scopes: list[str]) -> dict[str, A
             _base64url_encode(_json_dumps(payload).encode()),
         ]
     )
-    signature = hmac.new(
-        keys[active_kid].encode(),
-        signing_input.encode(),
-        hashlib.sha256,
-    ).digest()
+    if asymmetric:
+        private = serialization.load_pem_private_key(key["private_key_pem"].encode(), password=None)
+        if not isinstance(private, rsa.RSAPrivateKey):
+            raise OAuthGrantError(
+                "server_error",
+                "The active OAuth signing key is not an RSA private key",
+                status_code=500,
+            )
+        signature = private.sign(signing_input.encode(), padding.PKCS1v15(), hashes.SHA256())
+    else:
+        signature = hmac.new(key["secret"].encode(), signing_input.encode(), hashlib.sha256).digest()
     access_token = f"{signing_input}.{_base64url_encode(signature)}"
     _oauth_tokens_issued.labels("client_credentials").inc()
     return {
@@ -472,7 +514,7 @@ def validate_client_credentials_jwt(token: str) -> dict[str, Any] | None:
 
     kid = str(header.get("kid", ""))
     alg = str(header.get("alg", ""))
-    if alg != "HS256" or not kid:
+    if alg not in {"RS256", "HS256"} or not kid:
         return None
 
     try:
@@ -480,13 +522,32 @@ def validate_client_credentials_jwt(token: str) -> dict[str, Any] | None:
     except OAuthGrantError:
         return None
 
-    secret = keys.get(kid)
-    if not secret:
+    key = keys.get(kid)
+    if not key:
         return None
 
     signing_input = f"{header_b64}.{payload_b64}"
-    expected_sig = hmac.new(secret.encode(), signing_input.encode(), hashlib.sha256).digest()
-    if not hmac.compare_digest(expected_sig, _base64url_decode(signature_b64)):
+    signature = _base64url_decode(signature_b64)
+    try:
+        if alg == "RS256":
+            public_pem = key.get("public_key_pem")
+            if not public_pem and key.get("private_key_pem"):
+                private = serialization.load_pem_private_key(key["private_key_pem"].encode(), password=None)
+                public = private.public_key()
+            elif public_pem:
+                public = serialization.load_pem_public_key(public_pem.encode())
+            else:
+                return None
+            if not isinstance(public, rsa.RSAPublicKey):
+                return None
+            public.verify(signature, signing_input.encode(), padding.PKCS1v15(), hashes.SHA256())
+        else:
+            if os.environ.get("XCELSIOR_ENV", "dev").lower() not in {"test", "dev", "development"}:
+                return None
+            expected_sig = hmac.new(key["secret"].encode(), signing_input.encode(), hashlib.sha256).digest()
+            if not hmac.compare_digest(expected_sig, signature):
+                return None
+    except Exception:
         return None
 
     now = int(time.time())
@@ -494,7 +555,7 @@ def validate_client_credentials_jwt(token: str) -> dict[str, Any] | None:
         return None
     if payload.get("iss") != OAUTH_ISSUER:
         return None
-    if payload.get("aud") != OAUTH_AUDIENCE:
+    if payload.get("aud") not in {OAUTH_AUDIENCE, MCP_RESOURCE_AUDIENCE}:
         return None
 
     client = OAuthStore.get_client(str(payload.get("client_id", "")))
@@ -533,8 +594,13 @@ def validate_client_credentials_jwt(token: str) -> dict[str, Any] | None:
         "scopes": [scope for scope in str(payload.get("scope", "")).split() if scope],
         "is_admin": False,
         "workspace_customer_id": workspace_customer_id,
+        "workspace_id": workspace_customer_id,
+        "customer_id": workspace_customer_id,
         "team_id": client.get("team_id"),
         "tenant_id": workspace_customer_id,
+        "audience": payload.get("aud"),
+        "subject": payload.get("sub"),
+        "jti": payload.get("jti"),
     }
 
 
@@ -739,9 +805,13 @@ def create_oauth_client(
 MCP_QUICK_CONNECT_SCOPES = [
     "instances:read",
     "instances:write",
+    "instances:operate",
     "billing:read",
     "gpu:read",
     "marketplace:read",
+    "inference:read",
+    "inference:write",
+    "events:read",
 ]
 MCP_QUICK_CONNECT_CLIENT_NAME = "mcp-quick-connect"
 
@@ -815,6 +885,7 @@ def issue_authorization_code(
     code_challenge: str,
     code_challenge_method: str,
     scopes: list[str],
+    audience: str | None = None,
 ) -> str:
     if code_challenge_method != "S256":
         raise OAuthGrantError("invalid_request", "Only S256 PKCE is supported")
@@ -825,6 +896,7 @@ def issue_authorization_code(
         "code_challenge": code_challenge,
         "code_challenge_method": code_challenge_method,
         "scopes": scopes,
+        "audience": audience or OAUTH_AUDIENCE,
         "email": user.get("email"),
         "user_id": user.get("user_id"),
         "role": user.get("role", "submitter"),
@@ -870,6 +942,7 @@ def _issue_opaque_access_token(
     scopes: list[str],
     session_token: str,
     session_type: str,
+    audience: str = OAUTH_AUDIENCE,
 ) -> dict[str, Any]:
     token = f"{ACCESS_TOKEN_PREFIX}{secrets.token_urlsafe(32)}"
     now = time.time()
@@ -891,6 +964,7 @@ def _issue_opaque_access_token(
         "scopes": list(scopes),
         "session_token": session_token,
         "session_type": session_type,
+        "audience": audience,
         "issued_at": now,
         "expires_at": now + ttl,
     }
@@ -914,6 +988,7 @@ def _create_refresh_token_record(
     client_id: str,
     scopes: list[str],
     session_type: str,
+    audience: str = OAUTH_AUDIENCE,
     family_id: str | None = None,
     parent_token_id: str | None = None,
     created_at: float | None = None,
@@ -942,6 +1017,7 @@ def _create_refresh_token_record(
         "user_id": user.get("user_id"),
         "session_type": session_type,
         "scopes": list(scopes),
+        "audience": audience,
         "created_at": created_at,
         "expires_at": created_at + REFRESH_TOKEN_TTL_SEC,
     }
@@ -955,6 +1031,7 @@ def issue_user_tokens(
     client_id: str = "xcelsior-web",
     scopes: list[str] | None = None,
     session_type: str = "browser",
+    audience: str = OAUTH_AUDIENCE,
 ) -> dict[str, Any]:
     client = get_client(client_id)
     if not client:
@@ -967,6 +1044,7 @@ def issue_user_tokens(
         client_id=client_id,
         scopes=scopes,
         session_type=session_type,
+        audience=audience,
     )
     UserStore.create_session(session)
     OAuthStore.create_refresh_token(refresh_record)
@@ -976,6 +1054,7 @@ def issue_user_tokens(
         scopes=scopes,
         session_token=refresh_token,
         session_type=session_type,
+        audience=audience,
     )
     _oauth_tokens_issued.labels(session_type).inc()
     return {
@@ -987,6 +1066,7 @@ def issue_user_tokens(
         "scope": " ".join(scopes),
         "session_token": refresh_token,
         "session_type": session_type,
+        "resource": audience,
     }
 
 
@@ -997,6 +1077,7 @@ def exchange_authorization_code(
     redirect_uri: str,
     code_verifier: str,
     request,
+    resource: str | None = None,
 ) -> dict[str, Any]:
     payload = _cache_getdel_json("authorization_code", code)
     if not payload:
@@ -1009,6 +1090,9 @@ def exchange_authorization_code(
         raise OAuthGrantError("invalid_grant", "Unsupported PKCE method")
     if _pkce_challenge(code_verifier) != payload.get("code_challenge"):
         raise OAuthGrantError("invalid_grant", "PKCE verification failed")
+    audience = str(payload.get("audience") or OAUTH_AUDIENCE)
+    if resource and resource != audience:
+        raise OAuthGrantError("invalid_target", "Authorization resource mismatch")
     user = {
         "email": payload.get("email"),
         "user_id": payload.get("user_id"),
@@ -1025,6 +1109,7 @@ def exchange_authorization_code(
         client_id=client["client_id"],
         scopes=list(payload.get("scopes") or []),
         session_type="browser",
+        audience=audience,
     )
 
 
@@ -1036,7 +1121,11 @@ def _lookup_user(user_code: str) -> dict[str, Any] | None:
 
 
 def issue_device_authorization(
-    *, client: dict, scopes: list[str] | None = None, base_url: str
+    *,
+    client: dict,
+    scopes: list[str] | None = None,
+    base_url: str,
+    audience: str = OAUTH_AUDIENCE,
 ) -> dict[str, Any]:
     scopes = _normalize_scopes(
         scopes, list(client.get("scopes") or ["profile", "email", "offline_access"])
@@ -1049,6 +1138,7 @@ def issue_device_authorization(
         "device_code": device_code,
         "user_code": user_code,
         "scopes": scopes,
+        "audience": audience,
         "status": "pending",
         "created_at": now,
         "expires_at": now + DEVICE_CODE_TTL_SEC,
@@ -1099,12 +1189,17 @@ def approve_device_code(*, user: dict, user_code: str) -> dict[str, Any]:
     return {"ok": True, "user_code": user_code}
 
 
-def exchange_device_code(*, client: dict, device_code: str, request) -> dict[str, Any]:
+def exchange_device_code(
+    *, client: dict, device_code: str, request, resource: str | None = None
+) -> dict[str, Any]:
     payload = _cache_get_json("device_code", device_code)
     if not payload:
         raise OAuthGrantError("expired_token", "Device code is invalid or expired", status_code=410)
     if payload.get("client_id") != client["client_id"]:
         raise OAuthGrantError("invalid_grant", "Device code does not match client")
+    audience = str(payload.get("audience") or OAUTH_AUDIENCE)
+    if resource and resource != audience:
+        raise OAuthGrantError("invalid_target", "Device authorization resource mismatch")
 
     ip = request.client.host if request and request.client else "unknown"
     poll_count = _cache_incr("device_poll", f"{device_code}:{ip}", DEVICE_CODE_INTERVAL_SEC)
@@ -1151,6 +1246,7 @@ def exchange_device_code(*, client: dict, device_code: str, request) -> dict[str
         client_id=client["client_id"],
         scopes=list(payload.get("scopes") or []),
         session_type="device",
+        audience=audience,
     )
 
 
@@ -1207,6 +1303,7 @@ def rotate_refresh_token(refresh_token: str, request) -> dict[str, Any]:
             "is_admin": False,
         }
         scopes = list(current.get("scopes") or [])
+        audience = str(current.get("audience") or OAUTH_AUDIENCE)
         family_id = str(current["family_id"])
         session_type = str(current.get("session_type") or "browser")
         client_id = str(current.get("client_id") or "xcelsior-web")
@@ -1218,6 +1315,7 @@ def rotate_refresh_token(refresh_token: str, request) -> dict[str, Any]:
             client_id=client_id,
             scopes=scopes,
             session_type=session_type,
+            audience=audience,
             family_id=family_id,
             parent_token_id=str(current["token_id"]),
             created_at=created_at,
@@ -1233,6 +1331,7 @@ def rotate_refresh_token(refresh_token: str, request) -> dict[str, Any]:
             scopes=scopes,
             session_token=new_refresh_token,
             session_type=session_type,
+            audience=audience,
         )
         _oauth_refresh_events.labels("rotated").inc()
         return {
@@ -1243,6 +1342,7 @@ def rotate_refresh_token(refresh_token: str, request) -> dict[str, Any]:
             "refresh_expires_in": REFRESH_TOKEN_TTL_SEC,
             "scope": " ".join(scopes),
             "session_type": session_type,
+            "resource": audience,
         }
     finally:
         _cache_delete("refresh_lock", lock_key)

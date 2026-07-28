@@ -48,6 +48,7 @@ def create_quoted_plan(
     required_scopes: list[str],
     approval_mode: str,
     ttl_sec: int,
+    trace_id: str | None = None,
 ) -> dict[str, Any]:
     """Insert a fresh ``quoted`` plan and return it. No side effects beyond it."""
     plan_id = str(uuid.uuid4())
@@ -57,13 +58,13 @@ def create_quoted_plan(
             plan_id, action_type, principal_id, client_id, tenant_id, team_id,
             canonical_args, canonical_args_hash, spec_hash, quote_id,
             pricing_version, estimate_micros, currency, price_tolerance_bps,
-            required_scopes, approval_mode, status, expires_at
+            required_scopes, approval_mode, status, expires_at, trace_id
         ) VALUES (
             %s, %s, %s, %s, %s, %s,
             %s, %s, %s, %s,
             %s, %s, %s, %s,
             %s, %s, 'quoted',
-            clock_timestamp() + make_interval(secs => %s)
+            clock_timestamp() + make_interval(secs => %s), %s
         )
         RETURNING *
         """,
@@ -85,6 +86,7 @@ def create_quoted_plan(
             list(required_scopes),
             approval_mode,
             int(ttl_sec),
+            trace_id,
         ),
     )
     plan = _row_to_dict(cur)
@@ -206,6 +208,23 @@ def mark_consumed(
     plan = _row_to_dict(cur)
     if plan is None:  # pragma: no cover
         raise RuntimeError("plan vanished during consume")
+    return plan
+
+
+def mark_executing(conn: Connection, plan_id: str) -> dict[str, Any]:
+    """Claim an approved plan for one executor."""
+    cur = conn.execute(
+        """
+        UPDATE action_plans
+           SET status='executing', consumed_at=clock_timestamp(), version=version+1
+         WHERE plan_id=%s AND status='approved'
+        RETURNING *
+        """,
+        (plan_id,),
+    )
+    plan = _row_to_dict(cur)
+    if plan is None:
+        raise RuntimeError("plan was not approved when execution was claimed")
     return plan
 
 

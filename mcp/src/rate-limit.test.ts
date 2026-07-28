@@ -1,11 +1,38 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
+  acquireWatchSlot,
   checkRateLimit,
+  checkToolLimit,
   loadRateLimitConfig,
   resetRateLimitStateForTests,
   setRedisClientForTests,
   type RedisLike,
 } from "./rate-limit.js";
+
+describe("tool policy classes", () => {
+  it("enforces launch, invocation, and watch limits across shared replicas", async () => {
+    const counts = new Map<string, number>();
+    setRedisClientForTests({
+      async incr(key) { const value = (counts.get(key) ?? 0) + 1; counts.set(key, value); return value; },
+      async pExpire() { return 1; },
+      async decr(key) { const value = Math.max(0, (counts.get(key) ?? 0) - 1); counts.set(key, value); return value; },
+    });
+    const cfg = {
+      backend: "redis" as const, redisUrl: "redis://test", perMinute: 100,
+      launchPerHour: 1, serverlessPerMinute: 1, maxWatchesPerPrincipal: 1,
+      failClosed: true,
+    };
+    expect((await checkToolLimit("p", "c", "create_instance", cfg)).ok).toBe(true);
+    expect((await checkToolLimit("p", "c", "create_instance", cfg)).ok).toBe(false);
+    expect((await checkToolLimit("p", "c", "run_serverless_job", cfg)).ok).toBe(true);
+    expect((await checkToolLimit("p", "c", "run_serverless_job", cfg)).ok).toBe(false);
+    const first = await acquireWatchSlot("p", cfg);
+    expect(first.decision.ok).toBe(true);
+    expect((await acquireWatchSlot("p", cfg)).decision.ok).toBe(false);
+    await first.release();
+    expect((await acquireWatchSlot("p", cfg)).decision.ok).toBe(true);
+  });
+});
 
 beforeEach(() => {
   resetRateLimitStateForTests();
@@ -55,6 +82,25 @@ describe("checkRateLimit memory", () => {
 });
 
 describe("checkRateLimit redis", () => {
+  it("uses one Lua operation to create the counter and TTL", async () => {
+    let calls = 0;
+    setRedisClientForTests({
+      async incr() { throw new Error("non-atomic path used"); },
+      async pExpire() { throw new Error("non-atomic path used"); },
+      async eval(_script, options) {
+        calls += 1;
+        expect(options.keys).toEqual(["mcp:rl:atomic"]);
+        expect(options.arguments).toEqual(["60000"]);
+        return 1;
+      },
+    });
+    const decision = await checkRateLimit("atomic", {
+      backend: "redis", redisUrl: "redis://test", perMinute: 2, failClosed: true,
+    });
+    expect(decision.ok).toBe(true);
+    expect(calls).toBe(1);
+  });
+
   it("uses redis incr and 429s over limit", async () => {
     let n = 0;
     const fake: RedisLike = {

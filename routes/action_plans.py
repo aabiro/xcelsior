@@ -13,12 +13,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from control_plane.launch.service import (
     Principal,
     approve,
     execute,
+    get_owned_plan,
     preview,
     revoke,
 )
@@ -33,6 +34,18 @@ from routes.instances import JobIn
 from routes.problem import problem_response
 
 router = APIRouter(tags=["Launch plans"])
+
+
+def _request_trace_id(request: Request) -> str | None:
+    """Return a valid non-zero W3C trace id from the inbound request."""
+    parts = request.headers.get("traceparent", "").split("-")
+    if len(parts) != 4 or len(parts[1]) != 32:
+        return None
+    try:
+        int(parts[1], 16)
+    except ValueError:
+        return None
+    return parts[1].lower() if parts[1] != "0" * 32 else None
 
 
 def _is_human(user: dict) -> bool:
@@ -98,7 +111,11 @@ def api_create_launch_plan(j: JobIn, request: Request):
     """
     user, principal = _resolve_principal(request)
     _require_scope(user, "instances:write")
-    result = preview(j.model_dump(), principal=principal)
+    result = preview(
+        j.model_dump(),
+        principal=principal,
+        trace_id=_request_trace_id(request),
+    )
     if not result.get("ok"):
         # Structurally invalid spec — surface every problem at once as RFC 9457
         # field errors, and persist no plan.
@@ -111,19 +128,47 @@ def api_create_launch_plan(j: JobIn, request: Request):
     return result
 
 
+@router.get("/api/v1/launch-plans/{plan_id}")
+def api_get_launch_plan(plan_id: str, request: Request):
+    """Return action status only to its tenant; foreign ids remain not-found."""
+    user, principal = _resolve_principal(request)
+    result = get_owned_plan(plan_id, principal=principal)
+    if str(user.get("grant_type", "")) == "client_credentials":
+        held = set(user.get("scopes") or ())
+        required = set(result["plan"].get("required_scopes") or ())
+        read_equivalents = {
+            "instances:operate": "instances:read",
+            "inference:write": "inference:read",
+            "hosts:evict": "hosts:read",
+        }
+        accepted = required | {read_equivalents[s] for s in required if s in read_equivalents}
+        if "api" not in held and not held.intersection(accepted):
+            _require_scope(user, next(iter(accepted), "instances:read"))
+    return result
+
+
 class _ApproveIn(BaseModel):
     # `confirm` is intent only and never constitutes approval (§14.2); it is
     # accepted for client symmetry and deliberately ignored here.
     confirm: bool = False
+    expected_version: int | None = Field(default=None, ge=1)
+    confirmation: str | None = Field(default=None, max_length=32)
 
 
 @router.post("/api/v1/launch-plans/{plan_id}/approve")
 def api_approve_launch_plan(plan_id: str, request: Request, body: _ApproveIn | None = None):
     """§14.2 approval. Standing policy self-approves inside limits; else a human."""
     user, principal = _resolve_principal(request)
-    _require_scope(user, "instances:write")
+    plan_view = get_owned_plan(plan_id, principal=principal)["plan"]
+    required_scopes = list(plan_view.get("required_scopes") or ["instances:write"])
+    _require_scope(user, *required_scopes)
     # LaunchPlanError propagates to the app-level RFC 9457 handler (B2.8).
-    return approve(plan_id, principal=principal, is_human=_is_human(user))
+    return approve(
+        plan_id,
+        principal=principal,
+        is_human=_is_human(user),
+        expected_version=body.expected_version if body else None,
+    )
 
 
 class _RevokeIn(BaseModel):
@@ -134,7 +179,8 @@ class _RevokeIn(BaseModel):
 def api_revoke_launch_plan(plan_id: str, request: Request, body: _RevokeIn | None = None):
     """§14.2 revoke — idempotent; a consumed or terminal plan cannot be revoked."""
     user, principal = _resolve_principal(request)
-    _require_scope(user, "instances:write")
+    plan_view = get_owned_plan(plan_id, principal=principal)["plan"]
+    _require_scope(user, *list(plan_view.get("required_scopes") or ["instances:write"]))
     return revoke(plan_id, principal=principal, reason=(body.reason if body else ""))
 
 

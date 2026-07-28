@@ -71,11 +71,14 @@ def validate_contract(contract: EventContract) -> None:
             f"{contract.event_type} v{contract.version}: unknown classification "
             f"{contract.classification!r}"
         )
+    if contract.classification in FORBIDDEN_IN_EVENTS:
+        raise ContractViolation(
+            f"{contract.event_type} v{contract.version} is classified "
+            f"{contract.classification!r}; a secret event may never be persisted"
+        )
     for name, cls in contract.fields.items():
         if cls not in CLASSIFICATIONS:
-            raise ContractViolation(
-                f"{contract.event_type}.{name}: unknown classification {cls!r}"
-            )
+            raise ContractViolation(f"{contract.event_type}.{name}: unknown classification {cls!r}")
         if cls in FORBIDDEN_IN_EVENTS:
             raise ContractViolation(
                 f"{contract.event_type}.{name} is classified {cls!r}; a secret may "
@@ -92,9 +95,7 @@ def validate_sink_mapping(event_type: str, sink: str, classification: str | None
             f"{event_type} → {sink}: sink mapping has no classification (§13.4)"
         )
     if classification not in CLASSIFICATIONS:
-        raise ContractViolation(
-            f"{event_type} → {sink}: unknown classification {classification!r}"
-        )
+        raise ContractViolation(f"{event_type} → {sink}: unknown classification {classification!r}")
 
 
 # ── The registry ──────────────────────────────────────────────────────
@@ -112,17 +113,59 @@ CONTRACTS: tuple[EventContract, ...] = (
     _job("job.v1.running_observed"),
     _job("job.v1.terminal"),
     EventContract("host.v1.condition_changed", 1, "internal", {"host_id": "internal"}),
-    EventContract("command.v1.dead_lettered", 1, "internal", {"command_id": "internal", "host_id": "internal"}),
-    EventContract("billing.v1.meter_started", 1, "financial", {"attempt_id": "internal", "owner": "pii"}),
-    EventContract("billing.v1.usage_interval_closed", 1, "financial", {"attempt_id": "internal", "cost_cad": "financial"}),
-    EventContract("billing.v1.wallet_ledger_posted", 1, "financial", {"customer_id": "pii", "amount_micros": "financial"}),
-    EventContract("billing.v1.invoice_finalized", 1, "financial", {"invoice_id": "internal", "total_cad": "financial"}),
-    EventContract("billing.v1.provider_payout_posted", 1, "financial", {"provider_id": "pii", "amount_cad": "financial"}),
-    EventContract("serverless.v1.request_completed", 1, "internal", {"endpoint_id": "internal", "job_id": "internal"}),
-    EventContract("artifact.v1.available", 1, "internal", {"artifact_id": "internal", "job_id": "internal"}),
+    EventContract(
+        "command.v1.dead_lettered", 1, "internal", {"command_id": "internal", "host_id": "internal"}
+    ),
+    EventContract(
+        "billing.v1.meter_started", 1, "financial", {"attempt_id": "internal", "owner": "pii"}
+    ),
+    EventContract(
+        "billing.v1.usage_interval_closed",
+        1,
+        "financial",
+        {"attempt_id": "internal", "cost_cad": "financial"},
+    ),
+    EventContract(
+        "billing.v1.wallet_ledger_posted",
+        1,
+        "financial",
+        {"customer_id": "pii", "amount_micros": "financial"},
+    ),
+    EventContract(
+        "billing.v1.invoice_finalized",
+        1,
+        "financial",
+        {"invoice_id": "internal", "total_cad": "financial"},
+    ),
+    EventContract(
+        "billing.v1.provider_payout_posted",
+        1,
+        "financial",
+        {"provider_id": "pii", "amount_cad": "financial"},
+    ),
+    EventContract(
+        "serverless.v1.request_completed",
+        1,
+        "internal",
+        {"endpoint_id": "internal", "job_id": "internal"},
+    ),
+    EventContract(
+        "artifact.v1.available", 1, "internal", {"artifact_id": "internal", "job_id": "internal"}
+    ),
     EventContract("artifact.v1.deleted", 1, "internal", {"artifact_id": "internal"}),
-    EventContract("mcp.v1.action_approved", 1, "internal", {"plan_id": "internal", "client_id": "internal"}),
-    EventContract("mcp.v1.tool_completed", 1, "internal", {"tool": "internal", "client_id": "internal"}),
+    EventContract(
+        "mcp.v1.action_approved", 1, "internal", {"plan_id": "internal", "client_id": "internal"}
+    ),
+    EventContract(
+        "mcp.v1.tool_completed",
+        1,
+        "internal",
+        {
+            "audit_id": "internal",
+            "tool_name": "internal",
+            "outcome": "internal",
+        },
+    ),
     # Names Track A already emits — registered as-is, never renamed.
     _job("job.v1.submitted"),
     _job("job.v1.legacy_status_changed"),
@@ -139,7 +182,6 @@ CONTRACTS: tuple[EventContract, ...] = (
     EventContract("host.v1.removed", 1, "internal", {"host_id": "internal"}),
     EventContract("pricing.v1.spot_prices_updated", 1, "public", {"gpu_model": "public"}),
 )
-
 
 def register_all(conn: Any) -> int:
     """Upsert every contract into `event_contracts`. Validates first — an invalid
@@ -162,8 +204,12 @@ def register_all(conn: Any) -> int:
                    updated_at = clock_timestamp()
             """,
             (
-                c.event_type, c.version, json.dumps(c.schema()), c.schema_sha256(),
-                c.classification, c.compatibility_mode,
+                c.event_type,
+                c.version,
+                json.dumps(c.schema()),
+                c.schema_sha256(),
+                c.classification,
+                c.compatibility_mode,
             ),
         )
         n += 1

@@ -16,7 +16,7 @@ def main():
 
     try:
         token = os.environ.get("VERTEX_OAUTH_TOKEN")
-        project = os.environ.get("GOOGLE_CLOUD_PROJECT", "xcelsior-502014")
+        project = os.environ.get("GOOGLE_CLOUD_PROJECT", "xcelsior-gpu")
 
         if not token:
             print("Error: VERTEX_OAUTH_TOKEN not found in environment or .env!", file=sys.stderr)
@@ -29,7 +29,7 @@ def main():
             print("[Dry Run] Skipping Vertex Client initialization and model listing.")
             return
 
-        # Instantiate Credentials with quota_project_id set to 'xcelsior-502014'
+        # Instantiate Credentials with quota_project_id set to 'xcelsior-gpu'
         creds = Credentials(token, quota_project_id=project)
         print(f"Loaded explicit OAuth Credentials with quota project: {project}")
         

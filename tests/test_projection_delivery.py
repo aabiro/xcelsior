@@ -159,9 +159,13 @@ def test_failed_delivery_backs_off_then_dead_letters(scratch):
 
 def test_late_sink_gets_nothing_until_explicit_backfill(scratch):
     old = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(minutes=5)
+    with _pool.connection() as conn:
+        # Warehouse explicitly owns this historical range; the later SSE sink
+        # does not inherit it merely by being registered.
+        ensure_sink(conn, "warehouse", backfill_from=old - _dt.timedelta(minutes=1))
+        conn.commit()
     eid = _append(scratch, created_at=old)
     with _pool.connection() as conn:
-        ensure_sink(conn, "warehouse")
         prepare_fanout(conn, only_event_ids=[eid])  # warehouse gets E1; E1 is now prepared
         conn.commit()
     assert _deliveries(eid, "warehouse")  # warehouse has it
@@ -180,5 +184,41 @@ def test_late_sink_gets_nothing_until_explicit_backfill(scratch):
             conn, "sse", frm=old - _dt.timedelta(minutes=1), to=old + _dt.timedelta(minutes=1)
         )
         conn.commit()
-    assert made == 1
+    # The shared test database can contain unrelated outbox rows inside the
+    # explicit time window; the target obligation must be among those created.
+    assert made >= 1
     assert _deliveries(eid, "sse")
+
+
+def test_new_sink_defaults_to_registration_time_not_unbounded_backlog(scratch):
+    """A NULL boundary used to make a newly enabled sink consume old backlog."""
+    old = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=1)
+    eid = _append(scratch, created_at=old)
+    with _pool.connection() as conn:
+        ensure_sink(conn, "webhook")
+        checkpoint = conn.execute(
+            "SELECT backfilled_from FROM projection_checkpoints WHERE sink='webhook'"
+        ).fetchone()[0]
+        assert checkpoint is not None
+        assert checkpoint > old
+        # The event is safely stamped as considered, but no obligation is
+        # invented for a sink that did not exist when it was created.
+        assert prepare_fanout(conn, only_event_ids=[eid]) == 1
+        conn.commit()
+    assert _deliveries(eid, "webhook") == []
+
+
+def test_backfill_rejects_invalid_range_and_unregistered_sink(scratch):
+    now = _dt.datetime.now(_dt.timezone.utc)
+    with _pool.connection() as conn:
+        with pytest.raises(ValueError, match="not registered"):
+            backfill_sink(
+                conn,
+                "typo-sink",
+                frm=now - _dt.timedelta(minutes=1),
+                to=now,
+            )
+        ensure_sink(conn, "warehouse")
+        with pytest.raises(ValueError, match="frm < to"):
+            backfill_sink(conn, "warehouse", frm=now, to=now)
+        conn.rollback()

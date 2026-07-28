@@ -3,6 +3,21 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 export function registerPlaybooks(server: McpServer): void {
   server.registerPrompt(
+    "diagnose-queued-instance",
+    {
+      title: "Diagnose a queued instance",
+      description: "Use persisted scheduler facts to explain why an instance is queued.",
+      argsSchema: { job_id: z.string().min(1).max(160) },
+    },
+    async ({ job_id }) => ({
+      messages: [{ role: "user", content: { type: "text", text: [
+        `Diagnose queued instance ${job_id}.`,
+        "Call get_instance_timeline and explain_instance_placement.",
+        "If authorized, call get_scheduler_health. Report persisted reasons only; do not invent a placement explanation.",
+      ].join("\n") } }],
+    }),
+  );
+  server.registerPrompt(
     "cheapest-gpu-now",
     {
       title: "Find cheapest available GPU",

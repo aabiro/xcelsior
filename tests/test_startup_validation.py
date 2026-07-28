@@ -104,7 +104,7 @@ def test_rejects_empty_oauth_signing_configuration(clean_env):
     assert "oauth_signing" in _codes(sv.collect_findings())
 
     clean_env.setenv("XCELSIOR_OAUTH_JWT_KEYS_JSON", '{"keys":[]}')
-    assert "oauth_signing" not in _codes(sv.collect_findings())
+    assert "oauth_signing" in _codes(sv.collect_findings())
 
 
 def test_rejects_unauthenticated_agent_mode(clean_env):

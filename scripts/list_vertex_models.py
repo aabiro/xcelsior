@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 dotenv_path = Path(__file__).resolve().parent.parent / '.env'
 load_dotenv(dotenv_path=dotenv_path)
 
-PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "xcelsior-502014")
+PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "xcelsior-gpu")
 REGION = "us-central1"
 # Enterprise / Agent Platform key
 AGENT_KEY = os.environ.get("AGENT_PLATFORM_API_KEY") or os.environ.get("AGENT_API_KEY")

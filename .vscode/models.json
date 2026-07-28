@@ -1,0 +1,391 @@
+{
+  "candidateModels": [
+    {
+      "id": "claude-opus-4-8",
+      "vendor": "anthropic",
+      "displayName": "Claude Opus 4.8",
+      "family": "claude",
+      "version": "claude-opus-4-8",
+      "maxInputTokens": 1000000,
+      "maxOutputTokens": 128000,
+      "capabilities": {
+        "imageInput": true,
+        "toolCalling": true
+      },
+      "pricing": {
+        "input": 5,
+        "output": 25,
+        "cache_read": 0.5,
+        "cache_create": 6.25
+      }
+    },
+    {
+      "id": "claude-fable-5",
+      "vendor": "anthropic",
+      "displayName": "Claude Fable 5",
+      "family": "claude",
+      "version": "claude-fable-5",
+      "maxInputTokens": 1000000,
+      "maxOutputTokens": 128000,
+      "capabilities": {
+        "imageInput": true,
+        "toolCalling": true
+      },
+      "pricing": {
+        "input": 10,
+        "output": 50,
+        "cache_read": 1,
+        "cache_create": 12.5
+      }
+    },
+    {
+      "id": "claude-sonnet-5",
+      "vendor": "anthropic",
+      "displayName": "Claude Sonnet 5",
+      "family": "claude",
+      "version": "claude-sonnet-5",
+      "maxInputTokens": 1000000,
+      "maxOutputTokens": 128000,
+      "capabilities": {
+        "imageInput": true,
+        "toolCalling": true
+      },
+      "pricing": {
+        "input": 3,
+        "output": 15,
+        "cache_read": 0.3,
+        "cache_create": 3.75
+      }
+    },
+    {
+      "id": "claude-sonnet-4-6",
+      "vendor": "anthropic",
+      "displayName": "Claude Sonnet 4.6",
+      "family": "claude",
+      "version": "claude-sonnet-4-6",
+      "maxInputTokens": 1000000,
+      "maxOutputTokens": 128000,
+      "capabilities": {
+        "imageInput": true,
+        "toolCalling": true
+      },
+      "pricing": {
+        "input": 3,
+        "output": 15,
+        "cache_read": 0.3,
+        "cache_create": 3.75
+      }
+    },
+    {
+      "id": "claude-haiku-4-5",
+      "vendor": "anthropic",
+      "displayName": "Claude Haiku 4.5",
+      "family": "claude",
+      "version": "claude-haiku-4-5",
+      "maxInputTokens": 200000,
+      "maxOutputTokens": 64000,
+      "capabilities": {
+        "imageInput": true,
+        "toolCalling": true
+      },
+      "pricing": {
+        "input": 1,
+        "output": 5,
+        "cache_read": 0.1,
+        "cache_create": 1.25
+      }
+    },
+    {
+      "id": "gemini-3.6-flash",
+      "vendor": "google",
+      "displayName": "Gemini 3.6 Flash",
+      "family": "gemini",
+      "version": "gemini-3.6-flash",
+      "maxInputTokens": 1048576,
+      "maxOutputTokens": 65536,
+      "capabilities": {
+        "imageInput": true,
+        "toolCalling": true
+      },
+      "pricing": {
+        "input": 1.5,
+        "output": 7,
+        "cache_read": 0.15,
+        "cache_create": 0
+      }
+    },
+    {
+      "id": "gemini-3.5-flash",
+      "vendor": "google",
+      "displayName": "Gemini 3.5 Flash",
+      "family": "gemini",
+      "version": "gemini-3.5-flash",
+      "maxInputTokens": 1048576,
+      "maxOutputTokens": 65536,
+      "capabilities": {
+        "imageInput": true,
+        "toolCalling": true
+      },
+      "pricing": {
+        "input": 1.5,
+        "output": 9,
+        "cache_read": 0.15,
+        "cache_create": 0
+      }
+    },
+    {
+      "id": "gemini-3.5-flash-high",
+      "vendor": "google",
+      "displayName": "Gemini 3.5 Flash (High)",
+      "family": "gemini",
+      "version": "gemini-3.5-flash-high",
+      "maxInputTokens": 1048576,
+      "maxOutputTokens": 65536,
+      "capabilities": {
+        "imageInput": true,
+        "toolCalling": true
+      },
+      "pricing": {
+        "input": 1.5,
+        "output": 9,
+        "cache_read": 0.15,
+        "cache_create": 0
+      }
+    },
+    {
+      "id": "gemini-3-flash-preview",
+      "vendor": "google",
+      "displayName": "Gemini 3 Flash",
+      "family": "gemini",
+      "version": "gemini-3-flash-preview",
+      "maxInputTokens": 1048576,
+      "maxOutputTokens": 65536,
+      "capabilities": {
+        "imageInput": true,
+        "toolCalling": true
+      },
+      "pricing": {
+        "input": 0.5,
+        "output": 3,
+        "cache_read": 0.05,
+        "cache_create": 0
+      }
+    },
+    {
+      "id": "gemini-3-flash-preview-high",
+      "vendor": "google",
+      "displayName": "Gemini 3 Flash (High)",
+      "family": "gemini",
+      "version": "gemini-3-flash-preview-high",
+      "maxInputTokens": 1048576,
+      "maxOutputTokens": 65536,
+      "capabilities": {
+        "imageInput": true,
+        "toolCalling": true
+      },
+      "pricing": {
+        "input": 0.5,
+        "output": 3,
+        "cache_read": 0.05,
+        "cache_create": 0
+      }
+    },
+    {
+      "id": "gemini-3.1-pro-preview-high",
+      "vendor": "google",
+      "displayName": "Gemini 3.1 Pro (High)",
+      "family": "gemini",
+      "version": "gemini-3.1-pro-preview-high",
+      "maxInputTokens": 1048576,
+      "maxOutputTokens": 65536,
+      "capabilities": {
+        "imageInput": true,
+        "toolCalling": true
+      },
+      "pricing": {
+        "input": 3,
+        "output": 15,
+        "cache_read": 0.3,
+        "cache_create": 0
+      }
+    },
+    {
+      "id": "gemini-3.1-pro-preview",
+      "vendor": "google",
+      "displayName": "Gemini 3.1 Pro",
+      "family": "gemini",
+      "version": "gemini-3.1-pro-preview",
+      "maxInputTokens": 1048576,
+      "maxOutputTokens": 65536,
+      "capabilities": {
+        "imageInput": true,
+        "toolCalling": true
+      },
+      "pricing": {
+        "input": 3,
+        "output": 15,
+        "cache_read": 0.3,
+        "cache_create": 0
+      }
+    },
+    {
+      "id": "qwen3-coder-480b",
+      "vendor": "maas",
+      "displayName": "Qwen3 Coder 480B",
+      "family": "qwen",
+      "version": "qwen/qwen3-coder-480b-a35b-instruct-maas",
+      "maxInputTokens": 262144,
+      "maxOutputTokens": 65536,
+      "capabilities": {
+        "imageInput": false,
+        "toolCalling": true
+      },
+      "pricing": {
+        "input": 0.22,
+        "output": 1.8,
+        "cache_read": 0.022,
+        "cache_create": 0
+      }
+    },
+    {
+      "id": "deepseek-v3.2",
+      "vendor": "maas",
+      "displayName": "DeepSeek V3.2",
+      "family": "deepseek",
+      "version": "deepseek-ai/deepseek-v3.2-maas",
+      "maxInputTokens": 131072,
+      "maxOutputTokens": 65536,
+      "capabilities": {
+        "imageInput": false,
+        "toolCalling": true
+      },
+      "pricing": {
+        "input": 0.56,
+        "output": 1.68,
+        "cache_read": 0.056,
+        "cache_create": 0
+      }
+    },
+    {
+      "id": "kimi-k2-thinking",
+      "vendor": "maas",
+      "displayName": "Kimi K2 Thinking",
+      "family": "kimi",
+      "version": "moonshotai/kimi-k2-thinking-maas",
+      "maxInputTokens": 262144,
+      "maxOutputTokens": 262144,
+      "capabilities": {
+        "imageInput": false,
+        "toolCalling": true
+      },
+      "pricing": {
+        "input": 0.6,
+        "output": 2.5,
+        "cache_read": 0.06,
+        "cache_create": 0
+      }
+    },
+    {
+      "id": "grok-4.2-reasoning",
+      "vendor": "maas",
+      "displayName": "Grok 4.2 Reasoning (4.20)",
+      "family": "grok",
+      "version": "xai/grok-4.20-reasoning",
+      "maxInputTokens": 131072,
+      "maxOutputTokens": 65536,
+      "capabilities": {
+        "imageInput": false,
+        "toolCalling": true
+      },
+      "pricing": {
+        "input": 1.25,
+        "output": 2.5,
+        "cache_read": 0.2,
+        "cache_create": 0
+      }
+    },
+    {
+      "id": "grok-4.20-non-reasoning",
+      "vendor": "maas",
+      "displayName": "Grok 4.20 (Non-Reasoning)",
+      "family": "grok",
+      "version": "xai/grok-4.20-non-reasoning",
+      "maxInputTokens": 131072,
+      "maxOutputTokens": 65536,
+      "capabilities": {
+        "imageInput": false,
+        "toolCalling": true
+      },
+      "pricing": {
+        "input": 1.25,
+        "output": 2.5,
+        "cache_read": 0.2,
+        "cache_create": 0
+      }
+    },
+    {
+      "id": "grok-4.1-fast-non-reasoning",
+      "vendor": "maas",
+      "displayName": "Grok 4.1 Fast",
+      "family": "grok",
+      "version": "xai/grok-4.1-fast-non-reasoning",
+      "maxInputTokens": 131072,
+      "maxOutputTokens": 65536,
+      "capabilities": {
+        "imageInput": false,
+        "toolCalling": true
+      },
+      "pricing": {
+        "input": 1.25,
+        "output": 2.5,
+        "cache_read": 0.2,
+        "cache_create": 0
+      }
+    },
+    {
+      "id": "grok-4.1-fast-reasoning",
+      "vendor": "maas",
+      "displayName": "Grok 4.1 Fast Reasoning",
+      "family": "grok",
+      "version": "xai/grok-4.1-fast-reasoning",
+      "maxInputTokens": 131072,
+      "maxOutputTokens": 65536,
+      "capabilities": {
+        "imageInput": false,
+        "toolCalling": true
+      },
+      "pricing": {
+        "input": 1.25,
+        "output": 2.5,
+        "cache_read": 0.2,
+        "cache_create": 0
+      }
+    },
+    {
+      "id": "grok-4.3",
+      "vendor": "maas",
+      "displayName": "Grok 4.3",
+      "family": "grok",
+      "version": "xai/grok-4.3",
+      "maxInputTokens": 131072,
+      "maxOutputTokens": 65536,
+      "capabilities": {
+        "imageInput": false,
+        "toolCalling": true
+      },
+      "pricing": {
+        "input": 1.25,
+        "output": 2.5,
+        "cache_read": 0.2,
+        "cache_create": 0
+      }
+    }
+  ],
+  "regionPriority": [
+    "global",
+    "us-east5",
+    "europe-west1",
+    "us-central1",
+    "asia-southeast1"
+  ]
+}

@@ -36,6 +36,8 @@ KNOWN_SAFE = {
     "ai_assistant.py",
     # Dev-only migration script — reads table names from a hardcoded TABLES list.
     "scripts/migrate_sqlite_to_pg.py",
+    # Applied migration — every identifier comes from the immutable WALLET_MONEY tuple.
+    "migrations/versions/068_wallet_ledger_micro_units.py",
 }
 
 # SQL keywords must be UPPERCASE — this is the codebase convention for all real
