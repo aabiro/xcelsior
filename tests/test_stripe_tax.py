@@ -107,8 +107,11 @@ def test_create_credit_deposit_links_tax_calc_and_stores_pretax():
     assert result["credit_amount_cad"] == 25.0
     assert result["tax_amount_cad"] == 3.25
     assert result["charge_amount_cad"] == 28.25
+    assert "Compute credits" in (result.get("description") or "")
     pi_kwargs = mock_stripe.PaymentIntent.create.call_args.kwargs
     assert pi_kwargs["amount"] == 2825
+    assert pi_kwargs["customer"] == "cus_1"
+    assert "Compute credits" in pi_kwargs["description"]
     assert pi_kwargs["hooks"]["inputs"]["tax"]["calculation"] == "taxcalc_1"
     # Local row stores pretax credit cents
     insert_args = mock_conn.execute.call_args[0][1]
