@@ -129,8 +129,8 @@ checkpoints/
 .agents/
 .augment/
 .bob/
-.claude/skills/
-.claude/._*
+.claude/
+.gemini/
 .codebuddy/
 .codex
 .commandcode/
@@ -160,6 +160,29 @@ checkpoints/
 .zencoder/
 skills/
 skills-lock.json
+
+# ── Generated media (Veo / Imagine / Kling / demos) ──────────────────────
+# Video dumps and local AI generation outputs — never commit these.
+*.mp4
+*.webm
+*.mov
+*.mkv
+*.m4v
+*.avi
+/frames/
+/videos/
+/images/
+veo/
+veo-*/
+*-veo*/
+*_veo_*
+*_frames/
+*_frames_*/
+**/veo-output/
+**/veo_frames/
+**/generated-frames/
+**/generated_videos/
+**/generated-videos/
 
 # ── macOS resource forks ─────────────────────────────────────────────────
 ._*
