@@ -172,19 +172,67 @@ class PaymentIntentRequest(BaseModel):
     description: str = Field(default="Compute credits", max_length=500)
 
 
+def _client_ip(request: Request) -> str:
+    """Best-effort client IP for Stripe Tax IP estimation fallback."""
+    xff = (request.headers.get("x-forwarded-for") or "").strip()
+    if xff:
+        return xff.split(",")[0].strip()
+    xri = (request.headers.get("x-real-ip") or "").strip()
+    if xri:
+        return xri
+    if request.client and request.client.host:
+        return str(request.client.host)
+    return ""
+
+
+def _account_tax_address(user: dict) -> dict:
+    """Tax location from the user account (country/province), like provider profiles."""
+    country = str(user.get("country") or "").strip()
+    province = str(user.get("province") or "").strip()
+    # Prefer full user row from DB when auth payload is thin.
+    if not country or not province:
+        try:
+            from db import UserStore
+
+            email = str(user.get("email") or "").strip()
+            if email:
+                full = UserStore.get_user(email) or {}
+                country = country or str(full.get("country") or "").strip()
+                province = province or str(full.get("province") or "").strip()
+        except Exception:
+            pass
+    out: dict = {}
+    if country:
+        out["country"] = country
+    if province:
+        out["province"] = province
+        out["state"] = province
+    return out
+
+
 @router.post("/api/billing/payment-intent", tags=["Billing"])
 def api_create_payment_intent(req: PaymentIntentRequest, request: Request):
     """Create a Stripe PaymentIntent for depositing compute credits.
 
-    Returns client_secret for front-end Stripe Elements confirmation.
-    On payment_intent.succeeded webhook the wallet is credited automatically.
+    ``amount_cad`` is pretax wallet credit. Stripe Tax uses the **account**
+    country/province (settings/profile) — no deposit province picker. IP is a
+    fallback when the account has no location. Wallet is credited pretax only.
     """
     user = _require_customer_access(request, req.customer_id, billing_write=True)
     _require_scope(user, "billing:write")
     _check_billing_payment_rate_limit(req.customer_id, "payment-intent")
     _validate_topup_amount(req.amount_cad, user)
     mgr = get_stripe_manager()
-    result = mgr.create_credit_deposit(req.customer_id, req.amount_cad, req.description)
+    addr = _account_tax_address(user)
+    email = str(user.get("email") or "")
+    result = mgr.create_credit_deposit(
+        req.customer_id,
+        req.amount_cad,
+        req.description,
+        address=addr or None,
+        ip_address=_client_ip(request),
+        email=email,
+    )
     return {"ok": True, "intent": result}
 
 

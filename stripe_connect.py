@@ -759,27 +759,54 @@ class StripeConnectManager:
     # ── Payment Processing ────────────────────────────────────────────
 
     def create_credit_deposit(
-        self, customer_id: str, amount_cad: float, description: str = "Compute credits"
+        self,
+        customer_id: str,
+        amount_cad: float,
+        description: str = "Compute credits",
+        *,
+        address: dict | None = None,
+        ip_address: str = "",
+        email: str = "",
     ) -> dict:
         """Create a payment intent for depositing compute credits.
 
-        Per Report #1.B: "Credit-first model where users deposit CAD
-        into an account. As compute services are delivered, providers
-        withdraw funds."
+        Per Report #1.B: credit-first model. Amount is pretax wallet credits (CAD).
+        When Stripe Tax is enabled, tax is calculated exclusively on top and the
+        PaymentIntent charges amount_total; the wallet is credited pretax only
+        (stored as payment_intents.amount_cents).
         """
         import secrets
 
         intent_id = f"pi_{secrets.token_hex(12)}"
-        amount_cents = int(amount_cad * 100)
+        credit_cents = int(round(float(amount_cad) * 100))
         stripe_intent_id = ""
         client_secret = ""
+        tax_info: dict[str, Any] = {
+            "tax_calculation_id": "",
+            "amount_total": credit_cents,
+            "tax_amount_cents": 0,
+            "credit_amount_cents": credit_cents,
+            "tax_enabled": False,
+            "breakdown": [],
+        }
 
         if STRIPE_ENABLED and stripe:
             try:
-                # Dynamic payment methods (Dashboard-configured). Do not hardcode
-                # payment_method_types — enables Link/wallets where eligible.
+                from stripe_tax import calculate_wallet_deposit_tax
+
+                tax_info = calculate_wallet_deposit_tax(
+                    amount_cents=credit_cents,
+                    address=address,
+                    ip_address=ip_address,
+                    currency="cad",
+                    reference=f"wallet:{customer_id}:{intent_id}",
+                    stripe_mod=stripe,
+                )
+                charge_cents = int(tax_info.get("amount_total") or credit_cents)
+
+                # Dynamic payment methods (Dashboard-configured).
                 pi_kwargs: dict[str, Any] = {
-                    "amount": amount_cents,
+                    "amount": charge_cents,
                     "currency": "cad",
                     "automatic_payment_methods": {"enabled": True},
                     "metadata": {
@@ -787,10 +814,19 @@ class StripeConnectManager:
                         "xcelsior_intent_id": intent_id,
                         "product_type": "wallet_deposit",
                         "xcelsior_sku": "xcelsior-compute-credits",
+                        "credit_amount_cents": str(credit_cents),
+                        "tax_amount_cents": str(int(tax_info.get("tax_amount_cents") or 0)),
+                        "tax_calculation_id": str(tax_info.get("tax_calculation_id") or ""),
                     },
                     "description": description,
                     "statement_descriptor_suffix": "CREDITS",
                 }
+                # Simplified Stripe Tax: link calculation so Stripe records tax
+                # transactions automatically on success / refunds.
+                calc_id = tax_info.get("tax_calculation_id") or ""
+                if calc_id and tax_info.get("tax_enabled"):
+                    pi_kwargs["hooks"] = {"inputs": {"tax": {"calculation": calc_id}}}
+
                 try:
                     from stripe_catalog import load_manifest
 
@@ -799,11 +835,25 @@ class StripeConnectManager:
                         pi_kwargs["metadata"]["stripe_product_id"] = wallet["product_id"]
                 except Exception:
                     pass
+
+                # Attach Stripe Customer when possible (address helps future calcs).
+                try:
+                    from billing import get_billing_engine
+
+                    cust_id = get_billing_engine().ensure_stripe_customer(
+                        customer_id, email=email or customer_id
+                    )
+                    if cust_id:
+                        pi_kwargs["customer"] = cust_id
+                except Exception as cust_exc:
+                    log.debug("ensure_stripe_customer skipped: %s", cust_exc)
+
                 pi = stripe.PaymentIntent.create(**pi_kwargs)
                 stripe_intent_id = pi.id
                 client_secret = pi.client_secret
             except Exception as e:
                 log.error("Stripe PaymentIntent failed: %s", e)
+                raise RuntimeError(f"Failed to create payment intent: {e}") from e
         else:
             raise RuntimeError(
                 "Stripe is not configured. Set XCELSIOR_STRIPE_SECRET_KEY "
@@ -811,18 +861,33 @@ class StripeConnectManager:
             )
 
         with self._conn() as conn:
+            # amount_cents = pretax credits to deposit into wallet
             conn.execute(
                 """INSERT INTO payment_intents
                    (intent_id, customer_id, amount_cents, currency, status,
                     stripe_intent_id, description, created_at)
                    VALUES (%s, %s, %s, 'cad', 'created', %s, %s, %s)""",
-                (intent_id, customer_id, amount_cents, stripe_intent_id, description, time.time()),
+                (
+                    intent_id,
+                    customer_id,
+                    credit_cents,
+                    stripe_intent_id,
+                    description,
+                    time.time(),
+                ),
             )
 
         return {
             "intent_id": intent_id,
             "stripe_intent_id": stripe_intent_id,
             "amount_cad": amount_cad,
+            "credit_amount_cad": round(credit_cents / 100.0, 2),
+            "tax_amount_cad": round(int(tax_info.get("tax_amount_cents") or 0) / 100.0, 2),
+            "charge_amount_cad": round(int(tax_info.get("amount_total") or credit_cents) / 100.0, 2),
+            "tax_calculation_id": tax_info.get("tax_calculation_id") or "",
+            "tax_breakdown": tax_info.get("breakdown") or [],
+            "tax_enabled": bool(tax_info.get("tax_enabled")),
+            "tax_location_source": tax_info.get("location_source") or "",
             "client_secret": client_secret,
         }
 
