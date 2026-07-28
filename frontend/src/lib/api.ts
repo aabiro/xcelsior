@@ -750,21 +750,47 @@ export async function checkFreeCreditsStatus(customerId: string) {
   );
 }
 
-export async function createPaymentIntent(customerId: string, amountCad: number, description?: string) {
+export type TaxBreakdownLine = {
+  amount: number;
+  percentage: number;
+  tax_type?: string;
+  state?: string;
+  country?: string;
+  taxability_reason?: string;
+};
+
+/** Create wallet top-up PI. Tax uses account country/province (settings), not a deposit form. */
+export async function createPaymentIntent(
+  customerId: string,
+  amountCad: number,
+  description?: string,
+) {
   return apiFetch<{
     ok: boolean;
     intent: {
       intent_id: string;
-      customer_id: string;
-      amount_cents: number;
-      currency: string;
-      status: string;
+      customer_id?: string;
+      amount_cents?: number;
+      amount_cad?: number;
+      credit_amount_cad?: number;
+      tax_amount_cad?: number;
+      charge_amount_cad?: number;
+      tax_calculation_id?: string;
+      tax_breakdown?: TaxBreakdownLine[];
+      tax_enabled?: boolean;
+      tax_location_source?: string;
+      currency?: string;
+      status?: string;
       stripe_intent_id: string;
       client_secret?: string;
     };
   }>("/api/billing/payment-intent", {
     method: "POST",
-    body: JSON.stringify({ customer_id: customerId, amount_cad: amountCad, description }),
+    body: JSON.stringify({
+      customer_id: customerId,
+      amount_cad: amountCad,
+      description,
+    }),
   });
 }
 

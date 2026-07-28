@@ -308,12 +308,18 @@ function PayPalOnlyDepositForm({ customerId, onClose, onSuccess }: DepositModalP
 function DepositPaymentStep({
   customerId,
   numericAmount,
+  chargeAmount,
+  taxAmount,
+  taxEnabled,
   onBack,
   onSuccess,
   paypalAvailable,
 }: {
   customerId: string;
   numericAmount: number;
+  chargeAmount: number;
+  taxAmount: number;
+  taxEnabled: boolean;
   onBack: () => void;
   onSuccess: (balance: number) => void;
   paypalAvailable: boolean;
@@ -322,6 +328,7 @@ function DepositPaymentStep({
   const elements = useElements();
   const [submitting, setSubmitting] = useState(false);
   const [paymentReady, setPaymentReady] = useState(false);
+  const payTotal = chargeAmount > 0 ? chargeAmount : numericAmount;
 
   const handlePayment = useCallback(async () => {
     if (!stripe || !elements || submitting) return;
@@ -339,8 +346,9 @@ function DepositPaymentStep({
         return;
       }
       if (paymentIntent?.status === "succeeded") {
+        // Wallet is credited pretax credit amount, not charged total.
         const newBalance = await pollWalletBalance(customerId, previousBalance, numericAmount);
-        toast.success(`$${numericAmount.toFixed(2)} CAD added to wallet`);
+        toast.success(`$${numericAmount.toFixed(2)} CAD credits added to wallet`);
         onSuccess(newBalance);
       }
     } catch (err) {
@@ -352,13 +360,31 @@ function DepositPaymentStep({
 
   return (
     <>
-      <div className="mb-4 rounded-xl border border-border/80 bg-background/80 p-3.5 flex items-center justify-between">
-        <span className="text-sm text-text-secondary">Deposit amount</span>
-        <div className="flex items-center gap-2">
-          <span className="text-lg font-bold font-mono">${numericAmount.toFixed(2)}</span>
-          <span className="text-xs text-text-muted">CAD</span>
-          <button onClick={onBack} className="text-xs text-accent-cyan hover:underline ml-1">Change</button>
+      <div className="mb-4 space-y-2 rounded-xl border border-border/80 bg-background/80 p-3.5">
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-text-secondary">Credits</span>
+          <span className="font-mono font-medium">${numericAmount.toFixed(2)} CAD</span>
         </div>
+        {taxEnabled && taxAmount > 0 && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-text-secondary">Tax (from account location)</span>
+            <span className="font-mono font-medium">${taxAmount.toFixed(2)} CAD</span>
+          </div>
+        )}
+        <div className="flex items-center justify-between border-t border-border/60 pt-2 text-sm">
+          <span className="font-medium text-text-primary">You pay</span>
+          <div className="flex items-center gap-2">
+            <span className="text-lg font-bold font-mono">${payTotal.toFixed(2)}</span>
+            <span className="text-xs text-text-muted">CAD</span>
+            <button type="button" onClick={onBack} className="text-xs text-accent-cyan hover:underline ml-1">
+              Change
+            </button>
+          </div>
+        </div>
+        <p className="text-[11px] text-text-muted leading-relaxed">
+          Tax uses your account country/province (Settings → profile). Wallet receives credits only;
+          tax is remitted via Stripe Tax.
+        </p>
       </div>
 
       <div className="mb-4 rounded-xl border border-border bg-background/60 p-4">
@@ -387,6 +413,9 @@ function DepositPaymentStep({
             <div className="h-px flex-1 bg-border" />
           </div>
           <PayPalButton customerId={customerId} amountCad={numericAmount} onSuccess={onSuccess} disabled={submitting} />
+          <p className="mt-2 text-[11px] text-text-muted">
+            PayPal tops up credits only (tax not applied on this path yet).
+          </p>
         </div>
       )}
 
@@ -396,7 +425,7 @@ function DepositPaymentStep({
           {submitting ? (
             <><Loader2 className="h-4 w-4 animate-spin" /> Processing…</>
           ) : (
-            <>Pay ${numericAmount.toFixed(2)} CAD</>
+            <>Pay ${payTotal.toFixed(2)} CAD</>
           )}
         </Button>
       </div>
@@ -410,6 +439,9 @@ function DepositForm({ customerId, onClose, onSuccess }: DepositModalProps) {
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [intentLoading, setIntentLoading] = useState(false);
   const [paypalAvailable, setPaypalAvailable] = useState(false);
+  const [taxAmount, setTaxAmount] = useState(0);
+  const [chargeAmount, setChargeAmount] = useState(0);
+  const [taxEnabled, setTaxEnabled] = useState(false);
 
   const numericAmount = parseFloat(amount);
   const isValid = !isNaN(numericAmount) && numericAmount >= 5 && numericAmount <= 10000;
@@ -422,12 +454,16 @@ function DepositForm({ customerId, onClose, onSuccess }: DepositModalProps) {
     if (!isValid || intentLoading) return;
     setIntentLoading(true);
     try {
+      // Tax location comes from account profile (country/province) server-side.
       const { intent } = await createPaymentIntent(customerId, numericAmount);
       if (!intent.client_secret) {
         toast.error("Card payments are temporarily unavailable on the server.");
         return;
       }
       setClientSecret(intent.client_secret);
+      setTaxAmount(Number(intent.tax_amount_cad || 0));
+      setChargeAmount(Number(intent.charge_amount_cad || numericAmount));
+      setTaxEnabled(Boolean(intent.tax_enabled));
       setStep("pay");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not start checkout");
@@ -468,6 +504,9 @@ function DepositForm({ customerId, onClose, onSuccess }: DepositModalProps) {
           <DepositPaymentStep
             customerId={customerId}
             numericAmount={numericAmount}
+            chargeAmount={chargeAmount}
+            taxAmount={taxAmount}
+            taxEnabled={taxEnabled}
             onBack={() => {
               setStep("amount");
               setClientSecret(null);
