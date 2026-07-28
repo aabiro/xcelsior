@@ -400,6 +400,14 @@ export default function EarningsPage() {
                         </div>
                       </div>
                     </div>
+                    {/* Requirements banner + payout management stay embedded for active accounts */}
+                    {(providerId || customerId) && (
+                      <StripeConnectEmbedded
+                        providerId={providerId || customerId}
+                        active
+                        mode="manage"
+                      />
+                    )}
                     <ConfirmDialog
                       open={confirmStripeDisconnect}
                       title={t("dash.earnings.stripe_disconnect_title")}
@@ -415,7 +423,8 @@ export default function EarningsPage() {
                     {(providerId || customerId) && (
                       <StripeConnectEmbedded
                         providerId={providerId || customerId}
-                        active={provider.status !== "active"}
+                        active
+                        mode="setup"
                       />
                     )}
                     <div className="flex items-center justify-between">
@@ -429,25 +438,25 @@ export default function EarningsPage() {
                         </p>
                         <p className="text-xs text-text-muted">
                           {provider.status === "abandoned"
-                            ? "You left Stripe setup before finishing. Click Resume to pick up where you left off."
-                            : "Complete your Stripe Connect setup to start receiving payouts from GPU jobs"}
+                            ? "You left Stripe setup before finishing. Use the embedded form above or Resume for hosted setup."
+                            : "Complete Stripe Connect in the embedded form above, or open hosted setup as a fallback."}
                         </p>
                       </div>
                       <Badge className={`${statusColor[provider.status] || "text-text-muted"} border-current/20 bg-current/5`}>
                         {provider.status === "abandoned" ? "Incomplete" : provider.status.charAt(0).toUpperCase() + provider.status.slice(1)}
                       </Badge>
                     </div>
-                    <Button variant="gold" size="sm" className="w-full" onClick={handleStripeConnect} disabled={onboarding || pollingStatus}>
+                    <Button variant="outline" size="sm" className="w-full" onClick={handleStripeConnect} disabled={onboarding || pollingStatus}>
                       {onboarding ? (
                         <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Redirecting to Stripe…</>
                       ) : pollingStatus ? (
                         <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Verifying Stripe status…</>
                       ) : provider.status === "abandoned" ? (
-                        <><ExternalLink className="h-3.5 w-3.5" /> Resume Stripe Setup</>
+                        <><ExternalLink className="h-3.5 w-3.5" /> Hosted setup fallback</>
                       ) : provider.status === "pending" ? (
-                        <><LinkIcon className="h-3.5 w-3.5" /> Set Up Stripe Payouts</>
+                        <><ExternalLink className="h-3.5 w-3.5" /> Hosted setup fallback</>
                       ) : (
-                        <><ExternalLink className="h-3.5 w-3.5" /> Continue Stripe Setup</>
+                        <><ExternalLink className="h-3.5 w-3.5" /> Hosted setup fallback</>
                       )}
                     </Button>
                     {stripeError && (
