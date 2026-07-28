@@ -32,6 +32,34 @@ class TestWalletHardStopShippedPath:
         assert after["balance_cad"] == pytest.approx(before, abs=0.001)
         assert after["balance_cad"] >= 0
         assert after.get("hard_stop") is True or after["balance_cad"] <= 0
+        # Race-loss / insufficient path must report the actual ledger balance
+        assert result["balance_cad"] == pytest.approx(after["balance_cad"], abs=0.001)
+
+    def test_charge_race_loss_returns_actual_balance(self):
+        """When atomic UPDATE loses the race, response uses re-fetched balance."""
+        from billing import get_billing_engine
+        from money import cad_to_micros
+
+        eng = get_billing_engine()
+        cid = f"plan-race-{__import__('uuid').uuid4().hex[:10]}"
+        eng.deposit(cid, 5.0, description="seed", idempotency_key=f"seed-{cid}")
+
+        # Simulate concurrent winner: first charge succeeds for full balance.
+        win = eng.charge(cid, 5.0, job_id="winner", description="GPU")
+        assert win["charged"] is True
+
+        # Loser sees pre-check balance might have been stale in old code; now
+        # re-fetch must report ~0 and hard_stop.
+        lose = eng.charge(cid, 3.0, job_id="loser", description="GPU")
+        wallet = eng.get_wallet(cid)
+        assert lose["charged"] is False
+        assert lose["balance_cad"] == pytest.approx(wallet["balance_cad"], abs=0.001)
+        assert lose["balance_cad"] == pytest.approx(0.0, abs=0.001)
+        assert lose.get("hard_stop") is True or lose.get("action") in (
+            "hard_stop",
+            "account_suspended",
+        )
+        assert wallet["balance_cad"] >= 0
 
     def test_charge_zero_balance_hard_stops(self):
         from billing import get_billing_engine
@@ -120,27 +148,73 @@ class TestMeterDualWrite:
             stripe_meters.set_outbox_backend(None)
 
     def test_drain_failure_does_not_reverse_wallet(self):
+        """Drive real drain_meter_outbox; only Stripe MeterEvent I/O is faked."""
         from billing import get_billing_engine
         import stripe_meters
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
 
         eng = get_billing_engine()
         cid = f"plan-drain-{__import__('uuid').uuid4().hex[:10]}"
         eng.deposit(cid, 10.0, description="seed", idempotency_key=f"seed-{cid}")
+        # Attach a stripe customer id so drain reaches MeterEvent.create
+        with eng._conn() as conn:
+            conn.execute(
+                "UPDATE wallets SET stripe_customer_id=%s WHERE customer_id=%s",
+                (f"cus_test_{cid[:12]}", cid),
+            )
+
+        # Ensure outbox table exists (migration 079 may not be applied in CI).
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS stripe_meter_event_outbox (
+                    event_id TEXT PRIMARY KEY,
+                    customer_id TEXT NOT NULL,
+                    event_name TEXT NOT NULL,
+                    value DOUBLE PRECISION NOT NULL DEFAULT 1,
+                    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    idempotency_key TEXT NOT NULL UNIQUE,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    last_error TEXT NOT NULL DEFAULT '',
+                    created_at DOUBLE PRECISION NOT NULL,
+                    updated_at DOUBLE PRECISION NOT NULL,
+                    sent_at DOUBLE PRECISION
+                )
+                """
+            )
+            conn.commit()
+
+        stripe_meters.set_outbox_backend(None)  # real Postgres path
+        enq = stripe_meters.enqueue_meter_event(
+            customer_id=cid,
+            event_name=stripe_meters.EVENT_GPU_HOUR,
+            value=2.0,
+            idempotency_key=f"drain-test-{cid}",
+            payload={"job_id": "j-d1"},
+        )
+        assert enq.get("enqueued") is True, enq
+
+        # Charge after enqueue so we have a known wallet balance to protect.
         eng.charge(cid, 1.0, job_id="j-d1", description="GPU")
         bal_after_charge = eng.get_wallet(cid)["balance_cad"]
 
-        def backend(op, **kwargs):
-            if op == "drain":
-                return {"sent": 0, "failed": 3, "skipped": 0}
-            return {"enqueued": True}
+        mock_stripe = MagicMock()
+        mock_stripe.billing.MeterEvent.create.side_effect = RuntimeError("stripe down")
 
-        stripe_meters.set_outbox_backend(backend)
-        try:
-            stats = stripe_meters.drain_meter_outbox(limit=10)
-            assert stats["failed"] == 3
-            assert eng.get_wallet(cid)["balance_cad"] == pytest.approx(bal_after_charge, abs=0.001)
-        finally:
-            stripe_meters.set_outbox_backend(None)
+        with (
+            patch("stripe_meters.meters_enabled", return_value=True),
+            patch("stripe_connect.STRIPE_ENABLED", True),
+            patch("stripe_connect.stripe", mock_stripe),
+        ):
+            stats = stripe_meters.drain_meter_outbox(limit=50, stripe_mod=mock_stripe)
+
+        assert stats["failed"] >= 1
+        assert mock_stripe.billing.MeterEvent.create.called
+        # Wallet must be unchanged by drain failure
+        assert eng.get_wallet(cid)["balance_cad"] == pytest.approx(bal_after_charge, abs=0.001)
 
     def test_infer_event_gpu_hours(self):
         from stripe_meters import EVENT_GPU_HOUR, _infer_event
@@ -348,13 +422,47 @@ class TestConnectContracts:
         assert kwargs["components"]["notification_banner"]["enabled"] is True
 
     def test_create_provider_account_accepts_non_ca_country(self):
+        """Call shipped create_provider_account(country='US') and assert Account.create."""
         from stripe_connect import StripeConnectManager
 
-        src = inspect.getsource(StripeConnectManager.create_provider_account)
-        assert "country_code" in src
-        assert 'country=country_code' in src or "country=country_code" in src
-        # Must not hardcode only country="CA" on Account.create
-        assert 'country="CA"' not in src or "country_code" in src
+        class _Acct:
+            """Stripe Account stand-in; code does json.loads(str(acct))."""
+
+            def __str__(self) -> str:
+                return '{"charges_enabled": false, "payouts_enabled": false}'
+
+        mgr = StripeConnectManager.__new__(StripeConnectManager)
+        mock_stripe = MagicMock()
+        mock_stripe.Account.create.return_value = SimpleNamespace(id="acct_us_1")
+        mock_stripe.Account.retrieve.return_value = _Acct()
+        mock_stripe.AccountLink.create.return_value = SimpleNamespace(
+            url="https://connect.stripe.com/setup/us"
+        )
+
+        mock_conn = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        # SELECT returns no existing provider → creates a new Account
+        mock_conn.execute.return_value = MagicMock(fetchone=MagicMock(return_value=None))
+
+        with (
+            patch("stripe_connect.STRIPE_ENABLED", True),
+            patch("stripe_connect.stripe", mock_stripe),
+            patch.object(StripeConnectManager, "_conn", return_value=mock_conn),
+        ):
+            result = mgr.create_provider_account(
+                provider_id="prov-us-1",
+                email="provider@example.com",
+                country="US",
+                province="CA",
+            )
+
+        assert result["stripe_account_id"] == "acct_us_1"
+        assert mock_stripe.Account.create.called
+        create_kwargs = mock_stripe.Account.create.call_args.kwargs
+        assert create_kwargs["country"] == "US"
+        assert create_kwargs["type"] == "express"
+        assert create_kwargs["email"] == "provider@example.com"
 
     def test_account_session_route_registered(self):
         from routes.providers import router

@@ -1813,18 +1813,35 @@ class BillingEngine:
                 (amount_micros, amount_micros, now, customer_id, amount_micros),
             ).fetchone()
             if not row:
+                # Concurrent winner already debited — re-read actual balance.
                 log.warning(
                     "WALLET %s hard-stop race ($%.4f needed) job=%s",
                     customer_id,
                     amount_cad,
                     job_id,
                 )
+                fresh = self.get_wallet(customer_id)
+                actual = float(fresh.get("balance_cad") or 0)
+                suspended = (fresh.get("status") or "") == "suspended" or actual <= 0
+                if actual <= 0 and (fresh.get("status") or "") != "suspended":
+                    try:
+                        with self._conn() as conn2:
+                            conn2.execute(
+                                "UPDATE wallets SET status = 'suspended', updated_at = %s "
+                                "WHERE customer_id = %s AND balance_micros <= 0",
+                                (time.time(), customer_id),
+                            )
+                    except Exception:
+                        pass
+                    suspended = True
                 return {
                     "charged": False,
                     "reason": "insufficient_balance",
-                    "balance_cad": balance,
+                    "balance_cad": actual,
                     "required_cad": amount_cad,
-                    "action": "hard_stop",
+                    "action": "account_suspended" if suspended else "hard_stop",
+                    "hard_stop": suspended or actual <= 0,
+                    "low_balance": actual <= self.low_balance_threshold_cad(customer_id),
                 }
             new_balance = (
                 micros_to_cad(row["balance_micros"])
