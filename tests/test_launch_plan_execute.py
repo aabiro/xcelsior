@@ -128,6 +128,30 @@ def test_execute_creates_one_job_and_one_hold(scratch):
 
     assert out["plan"]["status"] == "succeeded"
     assert _count_jobs(job_id) == 1
+
+
+def test_execute_carries_plan_trace_into_queued_job(scratch):
+    p = _funded_principal(scratch)
+    trace_id = uuid.uuid4().hex
+    result = preview(
+        {"name": "trace-e2e", "num_gpus": 1, "interactive": True},
+        principal=p,
+        trace_id=trace_id,
+    )
+    pid = result["plan_id"]
+    scratch["plans"].append(pid)
+    approve(pid, principal=p, is_human=True)
+    out = execute(pid, principal=p)
+    job_id = out["job"]["job_id"]
+    scratch["jobs"].append(job_id)
+    with _pool.connection() as conn:
+        row = conn.execute(
+            "SELECT action_plans.trace_id, jobs.payload->>'trace_id' FROM action_plans "
+            "JOIN jobs ON jobs.job_id=action_plans.job_id WHERE plan_id=%s",
+            (pid,),
+        ).fetchone()
+    assert row[0] == trace_id
+    assert row[1] == trace_id
     assert _count_holds(p.tenant_id, pid) == 1
 
 

@@ -41,6 +41,11 @@ def test_rejects_credential_secret_field():
     assert "credential_secret" in str(ei.value)
 
 
+def test_rejects_credential_secret_event_classification():
+    with pytest.raises(ContractViolation, match="credential_secret"):
+        validate_contract(EventContract("evil.v1.secret_event", 1, "credential_secret"))
+
+
 def test_rejects_unknown_field_classification():
     with pytest.raises(ContractViolation):
         validate_contract(EventContract("x.v1.y", 1, "internal", {"f": "top_secret"}))

@@ -8,6 +8,8 @@ import { registerGuardrailTools } from "./guardrails.js";
 import { registerWorkflowTools } from "./workflows.js";
 import { registerServerlessTools } from "./serverless.js";
 import { registerMonitoringTools } from "./monitoring.js";
+import { registerDiagnosticTools } from "./diagnostics.js";
+import { registerOperatorTools } from "./operator.js";
 
 export function registerAllTools(
   server: McpServer,
@@ -21,4 +23,6 @@ export function registerAllTools(
   registerWorkflowTools(server, client, user);
   registerServerlessTools(server, client, user);
   registerMonitoringTools(server, client, user);
+  registerDiagnosticTools(server, client, user);
+  registerOperatorTools(server, client, user);
 }

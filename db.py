@@ -19,6 +19,7 @@ import os
 import sqlite3
 import threading
 import time
+from collections.abc import Mapping
 from contextlib import contextmanager
 from typing import Any, cast
 
@@ -426,13 +427,18 @@ def _pg_schema_is_migrated(conn) -> bool:
     try:
         cur.execute("SELECT to_regclass('public.alembic_version')")
         reg = cur.fetchone()
-        if reg is None or reg[0] is None:
+        reg_value = (
+            next(iter(reg.values()), None)
+            if isinstance(reg, Mapping)
+            else (reg[0] if reg is not None else None)
+        )
+        if reg_value is None:
             return False
         cur.execute("SELECT version_num FROM alembic_version LIMIT 1")
         row = cur.fetchone()
         if row is None:
             return False
-        version = row[0] if not isinstance(row, dict) else row.get("version_num")
+        version = row.get("version_num") if isinstance(row, Mapping) else row[0]
         return bool(version)
     except Exception:
         return False
@@ -1937,13 +1943,14 @@ def emit_event(event_type, data):
     event_bus.notify(event_type, data)
 
 
-def start_pg_listen(callback, channel="xcelsior_events"):
+def start_pg_listen(callback, channel="xcelsior_events", *, stop_event=None):
     """Start a background thread that LISTENs on a Postgres channel.
 
     When a NOTIFY arrives, `callback(event_type, data)` is called.
     This bridges PgEventBus → SSE delivery in multi-process deployments.
 
     Only starts if DB_BACKEND is 'postgres' or 'dual'.
+    A supplied ``stop_event`` makes the listener lifecycle-owned and joinable.
     Returns the thread (or None if not applicable).
     """
     if DB_BACKEND not in ("postgres", "dual"):
@@ -1958,7 +1965,7 @@ def start_pg_listen(callback, channel="xcelsior_events"):
     def _listen_loop():
         import select
 
-        while True:
+        while stop_event is None or not stop_event.is_set():
             try:
                 # Dedicated connection for LISTEN (not from pool)
                 import psycopg
@@ -1971,11 +1978,14 @@ def start_pg_listen(callback, channel="xcelsior_events"):
                 conn.execute(sql.SQL("LISTEN {}").format(sql.Identifier(channel)))
                 log.info("PgEventBus: LISTEN started on channel '%s'", channel)
 
-                while True:
+                while stop_event is None or not stop_event.is_set():
                     # Use select() to wait for notifications without busy-polling
-                    if select.select([conn.fileno()], [], [], 30.0) == ([], [], []):
+                    poll_timeout = 1.0 if stop_event is not None else 30.0
+                    ready = select.select([conn.fileno()], [], [], poll_timeout)
+                    if ready == ([], [], []):
                         # Timeout — send a keepalive query
-                        conn.execute("SELECT 1")
+                        if stop_event is None or not stop_event.is_set():
+                            conn.execute("SELECT 1")
                         continue
 
                     # Process all pending notifications
@@ -1991,8 +2001,13 @@ def start_pg_listen(callback, channel="xcelsior_events"):
                             pass
                         break  # One notification per select cycle; re-check
             except Exception as e:
+                if stop_event is not None and stop_event.is_set():
+                    break
                 log.warning("PgEventBus LISTEN error: %s — reconnecting in 5s", e)
-                time.sleep(5)
+                if stop_event is None:
+                    time.sleep(5)
+                elif stop_event.wait(5):
+                    break
 
     t = threading.Thread(target=_listen_loop, daemon=True, name="pg-listen")
     t.start()
@@ -2528,6 +2543,7 @@ class OAuthStore:
                     user_id,
                     session_type,
                     scopes,
+                    audience,
                     created_at,
                     expires_at,
                     consumed_at,
@@ -2535,7 +2551,7 @@ class OAuthStore:
                     replaced_by_token_id,
                     reuse_detected_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     token_data["token_id"],
@@ -2548,6 +2564,7 @@ class OAuthStore:
                     token_data.get("user_id"),
                     token_data.get("session_type", "browser"),
                     Jsonb(list(token_data.get("scopes") or [])),
+                    token_data.get("audience", "xcelsior-api"),
                     token_data.get("created_at", time.time()),
                     token_data["expires_at"],
                     token_data.get("consumed_at"),

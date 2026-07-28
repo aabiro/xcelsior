@@ -1784,6 +1784,7 @@ def submit_job(
     pricing_mode="on_demand",
     region="",
     job_id=None,
+    trace_id=None,
 ):
     # A caller may supply a deterministic ``job_id`` so a retried submission
     # upserts the same row instead of creating a duplicate — the launch
@@ -1882,6 +1883,7 @@ def submit_job(
         "job_type": (job_type or "").strip(),
         "pricing_mode": pricing_mode,
         "region": normalized_region,
+        "trace_id": trace_id,
     }
 
     # Spot jobs are preemptible interruptible instances (no bidding).
@@ -3557,7 +3559,7 @@ def alert_job_completed(job_id, job_name, duration_sec=None):
 # ── Phase 14: Failover ────────────────────────────────────────────────
 
 
-def requeue_job(job_id, *, user_initiated: bool = False):
+def requeue_job(job_id, *, user_initiated: bool = False, expected_version: int | None = None):
     """
     Reset a failed/running/leased/assigned job back to queued.
     Increment retry counter (failover only). Clear host assignment. Release VRAM.
@@ -3571,6 +3573,8 @@ def requeue_job(job_id, *, user_initiated: bool = False):
         _migrate_hosts_if_needed(conn)
         j = _get_job_by_id_conn(conn, job_id)
         if not j:
+            return None
+        if expected_version is not None and int(j.get("version") or 0) != int(expected_version):
             return None
 
         # Phase 4 boundary: a job bound by the transactional scheduler

@@ -4,10 +4,24 @@ on:
   push:
     paths:
       - "mcp/**"
+      - "control_plane/**"
+      - "routes/**"
+      - "oauth_service.py"
+      - "scheduler.py"
+      - "db.py"
+      - "migrations/**"
+      - "scripts/mcp_e2e_fixture.py"
       - ".github/workflows/mcp.yml"
   pull_request:
     paths:
       - "mcp/**"
+      - "control_plane/**"
+      - "routes/**"
+      - "oauth_service.py"
+      - "scheduler.py"
+      - "db.py"
+      - "migrations/**"
+      - "scripts/mcp_e2e_fixture.py"
       - ".github/workflows/mcp.yml"
 
 jobs:
@@ -25,7 +39,9 @@ jobs:
           cache-dependency-path: mcp/package-lock.json
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run check:api
       - run: npm test
+      - run: npm audit --audit-level=moderate
       - run: npm run build
       - run: test -f dist/stdio.js
 
@@ -36,3 +52,67 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t xcelsior-mcp:ci ./mcp
+
+  real-stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: xcelsior_test
+          POSTGRES_USER: xcelsior
+          POSTGRES_PASSWORD: test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U xcelsior"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      XCELSIOR_ENV: test
+      XCELSIOR_DB_BACKEND: postgres
+      XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:test@127.0.0.1:5432/xcelsior_test
+      XCELSIOR_PG_DSN: postgresql://xcelsior:test@127.0.0.1:5432/xcelsior_test
+      XCELSIOR_API_TOKEN: test-token-not-for-production
+      XCELSIOR_AUTH_CACHE_BACKEND: memory
+      XCELSIOR_BG_TASKS: "false"
+      XCELSIOR_ALLOW_UNAUTH_AGENT: "0"
+      XCELSIOR_MCP_REAL_STACK_E2E: "1"
+      XCELSIOR_MCP_E2E_API_URL: http://127.0.0.1:18980
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: mcp/package-lock.json
+      - name: Install API and MCP dependencies
+        run: |
+          uv sync --frozen
+          npm ci --prefix mcp
+          sudo apt-get update
+          sudo apt-get install -y redis-server
+      - name: Bootstrap real PostgreSQL and API
+        run: |
+          uv run alembic upgrade head
+          uv run uvicorn api:app --host 127.0.0.1 --port 18980 > /tmp/xcelsior-mcp-api.log 2>&1 &
+          echo $! > /tmp/xcelsior-mcp-api.pid
+          for attempt in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:18980/healthz >/dev/null && exit 0
+            sleep 1
+          done
+          cat /tmp/xcelsior-mcp-api.log
+          exit 1
+      - name: Thirteen-step SDK production journey
+        working-directory: mcp
+        run: npm test -- --run tests/e2e/real-stack.test.ts
+      - name: API logs on failure
+        if: failure()
+        run: cat /tmp/xcelsior-mcp-api.log

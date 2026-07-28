@@ -77,11 +77,12 @@ def _mk_host(fleet, host_id, *, gpu_model, gpu_count=2, total_vram_gb=48.0,
 
 
 def _mk_job(fleet, job_id, *, gpu_model, num_gpus=1, vram_needed_gb=8.0,
-            priority=0, status="queued", scheduler=None):
+            priority=0, status="queued", scheduler=None, trace_id=None):
     payload = {
         "job_id": job_id, "name": job_id, "gpu_model": gpu_model,
         "num_gpus": num_gpus, "vram_needed_gb": vram_needed_gb,
         "priority": priority, "status": status,
+        "trace_id": trace_id,
     }
     if scheduler:
         payload["scheduler"] = scheduler
@@ -307,6 +308,29 @@ class TestSchedulerServiceTick:
         assert (lease[0] if not isinstance(lease, dict) else lease["status"]) == "offered"
         assert (command[0] if not isinstance(command, dict) else command["status"]) == "pending"
         assert (allocs[0] if not isinstance(allocs, dict) else allocs["count"]) == 1
+
+    def test_tick_carries_launch_trace_into_attempt_and_command(self, fleet):
+        marker = uuid.uuid4().hex[:8]
+        model = f"RTX-{marker}"
+        host_id = f"h-{marker}-trace"
+        job_id = f"j-{marker}-trace"
+        trace_id = uuid.uuid4().hex
+        _mk_host(fleet, host_id, gpu_model=model)
+        _mk_job(fleet, job_id, gpu_model=model, trace_id=trace_id)
+
+        report = SchedulerService(self._cfg(marker, [host_id])).tick()
+        reservation = report.placements[0]
+        with _pool.connection() as conn:
+            attempt = conn.execute(
+                "SELECT trace_id FROM job_attempts WHERE attempt_id=%s",
+                (reservation.attempt_id,),
+            ).fetchone()
+            command = conn.execute(
+                "SELECT trace_id FROM agent_commands WHERE command_id=%s",
+                (reservation.command_id,),
+            ).fetchone()
+        assert attempt[0] == trace_id
+        assert command[0] == trace_id
 
         # The legacy SSH starter must skip this attempt-owned job.
         import scheduler as legacy_scheduler

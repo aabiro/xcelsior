@@ -135,6 +135,19 @@ def test_approval_is_idempotent(scratch):
     assert second["plan"]["version"] == first["plan"]["version"]
 
 
+def test_stale_expected_version_is_refused(scratch):
+    owner = Principal(principal_id="u1", tenant_id=_tenant())
+    result = _preview(owner, scratch)
+    with pytest.raises(PlanConflict) as exc:
+        approve(
+            result["plan_id"],
+            principal=owner,
+            is_human=True,
+            expected_version=999,
+        )
+    assert exc.value.code == "stale_plan_version"
+
+
 # ── Standing policy ──────────────────────────────────────────────────
 
 

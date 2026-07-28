@@ -1,0 +1,6294 @@
+{
+  "components": {
+    "schemas": {
+      "AddTeamMemberRequest": {
+        "properties": {
+          "email": {
+            "maxLength": 254,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          },
+          "role": {
+            "default": "member",
+            "pattern": "^(admin|member|viewer)$",
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "AddTeamMemberRequest",
+        "type": "object"
+      },
+      "AgentDegradedReport": {
+        "properties": {
+          "context": {
+            "default": "",
+            "title": "Context",
+            "type": "string"
+          },
+          "host_id": {
+            "title": "Host Id",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "host_id",
+          "reason"
+        ],
+        "title": "AgentDegradedReport",
+        "type": "object"
+      },
+      "AiChatRequest": {
+        "properties": {
+          "conversation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
+          },
+          "message": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          },
+          "page_context": {
+            "default": "",
+            "title": "Page Context",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "AiChatRequest",
+        "type": "object"
+      },
+      "AiConfirmRequest": {
+        "properties": {
+          "approved": {
+            "title": "Approved",
+            "type": "boolean"
+          },
+          "confirmation_id": {
+            "title": "Confirmation Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirmation_id",
+          "approved"
+        ],
+        "title": "AiConfirmRequest",
+        "type": "object"
+      },
+      "AlertConfig": {
+        "properties": {
+          "email_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email Enabled"
+          },
+          "email_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email From"
+          },
+          "email_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email To"
+          },
+          "smtp_host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Smtp Host"
+          },
+          "smtp_pass": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Smtp Pass"
+          },
+          "smtp_port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Smtp Port"
+          },
+          "smtp_user": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Smtp User"
+          },
+          "telegram_bot_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Telegram Bot Token"
+          },
+          "telegram_chat_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Telegram Chat Id"
+          },
+          "telegram_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Telegram Enabled"
+          }
+        },
+        "title": "AlertConfig",
+        "type": "object"
+      },
+      "AllocateGPURequest": {
+        "properties": {
+          "gpu_count": {
+            "default": 1,
+            "title": "Gpu Count",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "offer_id": {
+            "title": "Offer Id",
+            "type": "string"
+          },
+          "spot": {
+            "default": false,
+            "title": "Spot",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "offer_id",
+          "job_id"
+        ],
+        "title": "AllocateGPURequest",
+        "type": "object"
+      },
+      "AnalyticsAiRequest": {
+        "properties": {
+          "analytics_summary": {
+            "default": "",
+            "title": "Analytics Summary",
+            "type": "string"
+          },
+          "chart_context": {
+            "default": "",
+            "title": "Chart Context",
+            "type": "string"
+          },
+          "conversation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
+          },
+          "message": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "AnalyticsAiRequest",
+        "type": "object"
+      },
+      "ApiKeyCreateRequest": {
+        "properties": {
+          "name": {
+            "default": "default",
+            "title": "Name",
+            "type": "string"
+          },
+          "rate_limit_rpm": {
+            "default": 60,
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Rate Limit Rpm",
+            "type": "integer"
+          },
+          "scopes": {
+            "default": "inference:write",
+            "title": "Scopes",
+            "type": "string"
+          }
+        },
+        "title": "ApiKeyCreateRequest",
+        "type": "object"
+      },
+      "AttemptStatusRequest": {
+        "properties": {
+          "attempt_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
+          "fencing_token": {
+            "minimum": 1.0,
+            "title": "Fencing Token",
+            "type": "integer"
+          },
+          "host_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Host Id",
+            "type": "string"
+          },
+          "job_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Job Id",
+            "type": "string"
+          },
+          "status": {
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "attempt_id",
+          "host_id",
+          "fencing_token",
+          "status"
+        ],
+        "title": "AttemptStatusRequest",
+        "type": "object"
+      },
+      "AutoTopupConfig": {
+        "properties": {
+          "amount_cad": {
+            "default": 25.0,
+            "title": "Amount Cad",
+            "type": "number"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "stripe_payment_method_id": {
+            "default": "",
+            "title": "Stripe Payment Method Id",
+            "type": "string"
+          },
+          "threshold_cad": {
+            "default": 5.0,
+            "title": "Threshold Cad",
+            "type": "number"
+          }
+        },
+        "title": "AutoTopupConfig",
+        "type": "object"
+      },
+      "BatchCreateRequest": {
+        "properties": {
+          "completion_window": {
+            "default": "24h",
+            "maxLength": 16,
+            "title": "Completion Window",
+            "type": "string"
+          },
+          "requests": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Requests",
+            "type": "array"
+          }
+        },
+        "required": [
+          "requests"
+        ],
+        "title": "BatchCreateRequest",
+        "type": "object"
+      },
+      "BenchmarkReport": {
+        "properties": {
+          "details": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "gpu_model": {
+            "maxLength": 64,
+            "title": "Gpu Model",
+            "type": "string"
+          },
+          "host_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Host Id",
+            "type": "string"
+          },
+          "score": {
+            "minimum": 0.0,
+            "title": "Score",
+            "type": "number"
+          },
+          "tflops": {
+            "minimum": 0.0,
+            "title": "Tflops",
+            "type": "number"
+          }
+        },
+        "required": [
+          "host_id",
+          "gpu_model",
+          "score",
+          "tflops"
+        ],
+        "title": "BenchmarkReport",
+        "type": "object"
+      },
+      "Body_api_auth_upload_avatar_api_auth_me_avatar_post": {
+        "properties": {
+          "file": {
+            "format": "binary",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_api_auth_upload_avatar_api_auth_me_avatar_post",
+        "type": "object"
+      },
+      "BuildIn": {
+        "properties": {
+          "base_image": {
+            "default": "python:3.11-slim",
+            "title": "Base Image",
+            "type": "string"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "push": {
+            "default": false,
+            "title": "Push",
+            "type": "boolean"
+          },
+          "quantize": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantize"
+          }
+        },
+        "required": [
+          "model"
+        ],
+        "title": "BuildIn",
+        "type": "object"
+      },
+      "CanadaToggle": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "CanadaToggle",
+        "type": "object"
+      },
+      "ChangePasswordRequest": {
+        "properties": {
+          "current_password": {
+            "title": "Current Password",
+            "type": "string"
+          },
+          "new_password": {
+            "title": "New Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "title": "ChangePasswordRequest",
+        "type": "object"
+      },
+      "ChatCompletionRequest": {
+        "properties": {
+          "max_tokens": {
+            "default": 512,
+            "maximum": 32768.0,
+            "minimum": 1.0,
+            "title": "Max Tokens",
+            "type": "integer"
+          },
+          "messages": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "stream": {
+            "default": false,
+            "title": "Stream",
+            "type": "boolean"
+          },
+          "temperature": {
+            "default": 1.0,
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Temperature",
+            "type": "number"
+          }
+        },
+        "required": [
+          "model"
+        ],
+        "title": "ChatCompletionRequest",
+        "type": "object"
+      },
+      "ChatFeedbackRequest": {
+        "properties": {
+          "message_id": {
+            "title": "Message Id",
+            "type": "string"
+          },
+          "vote": {
+            "title": "Vote",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message_id",
+          "vote"
+        ],
+        "title": "ChatFeedbackRequest",
+        "type": "object"
+      },
+      "ChatRequest": {
+        "properties": {
+          "conversation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
+          },
+          "message": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "ChatRequest",
+        "type": "object"
+      },
+      "CheckoutRequest": {
+        "description": "Body for POST /api/connect/checkout.",
+        "properties": {
+          "product_id": {
+            "title": "Product Id",
+            "type": "string"
+          },
+          "quantity": {
+            "default": 1,
+            "title": "Quantity",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "product_id"
+        ],
+        "title": "CheckoutRequest",
+        "type": "object"
+      },
+      "CommandAckRequest": {
+        "properties": {
+          "host_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Host Id",
+            "type": "string"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          }
+        },
+        "required": [
+          "host_id"
+        ],
+        "title": "CommandAckRequest",
+        "type": "object"
+      },
+      "CommandClaimRequest": {
+        "properties": {
+          "host_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Host Id",
+            "type": "string"
+          },
+          "limit": {
+            "default": 10,
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "worker_session_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Worker Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "host_id",
+          "worker_session_id"
+        ],
+        "title": "CommandClaimRequest",
+        "type": "object"
+      },
+      "CommandNackRequest": {
+        "properties": {
+          "error_code": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Error Code",
+            "type": "string"
+          },
+          "error_details": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Details"
+          },
+          "host_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Host Id",
+            "type": "string"
+          },
+          "retryable": {
+            "default": true,
+            "title": "Retryable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "host_id",
+          "error_code"
+        ],
+        "title": "CommandNackRequest",
+        "type": "object"
+      },
+      "CreateAccountRequest": {
+        "description": "Body for POST /api/connect/accounts.",
+        "properties": {
+          "contact_email": {
+            "title": "Contact Email",
+            "type": "string"
+          },
+          "country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name",
+          "contact_email"
+        ],
+        "title": "CreateAccountRequest",
+        "type": "object"
+      },
+      "CreateProductRequest": {
+        "description": "Body for POST /api/connect/products.",
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "currency": {
+            "default": "usd",
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "price_cents": {
+            "title": "Price Cents",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "price_cents",
+          "account_id"
+        ],
+        "title": "CreateProductRequest",
+        "type": "object"
+      },
+      "CreateTeamRequest": {
+        "properties": {
+          "name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "plan": {
+            "default": "free",
+            "pattern": "^(free|pro|enterprise)$",
+            "title": "Plan",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "CreateTeamRequest",
+        "type": "object"
+      },
+      "CryptoDepositRequest": {
+        "properties": {
+          "amount_cad": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 10000.0,
+            "title": "Amount Cad",
+            "type": "number"
+          },
+          "customer_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Customer Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "amount_cad"
+        ],
+        "title": "CryptoDepositRequest",
+        "type": "object"
+      },
+      "DepositRequest": {
+        "properties": {
+          "amount_cad": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 10000.0,
+            "title": "Amount Cad",
+            "type": "number"
+          },
+          "description": {
+            "default": "Credit deposit",
+            "maxLength": 500,
+            "title": "Description",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount_cad"
+        ],
+        "title": "DepositRequest",
+        "type": "object"
+      },
+      "DeviceTokenRequest": {
+        "properties": {
+          "device_code": {
+            "title": "Device Code",
+            "type": "string"
+          },
+          "grant_type": {
+            "default": "urn:ietf:params:oauth:grant-type:device_code",
+            "title": "Grant Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_code"
+        ],
+        "title": "DeviceTokenRequest",
+        "type": "object"
+      },
+      "DeviceVerificationRequest": {
+        "properties": {
+          "user_code": {
+            "maxLength": 32,
+            "minLength": 8,
+            "title": "User Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_code"
+        ],
+        "title": "DeviceVerificationRequest",
+        "type": "object"
+      },
+      "DeviceVerifyRequest": {
+        "properties": {
+          "user_code": {
+            "title": "User Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_code"
+        ],
+        "title": "DeviceVerifyRequest",
+        "type": "object"
+      },
+      "DownloadRequest": {
+        "properties": {
+          "artifact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Id"
+          },
+          "artifact_type": {
+            "default": "job_output",
+            "title": "Artifact Type",
+            "type": "string"
+          },
+          "filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filename"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          }
+        },
+        "title": "DownloadRequest",
+        "type": "object"
+      },
+      "EmailChangeConfirmRequest": {
+        "properties": {
+          "token": {
+            "maxLength": 128,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "EmailChangeConfirmRequest",
+        "type": "object"
+      },
+      "EmailChangeRequest": {
+        "properties": {
+          "new_email": {
+            "maxLength": 254,
+            "title": "New Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "new_email"
+        ],
+        "title": "EmailChangeRequest",
+        "type": "object"
+      },
+      "EmbeddingRequest": {
+        "properties": {
+          "encoding_format": {
+            "default": "float",
+            "title": "Encoding Format",
+            "type": "string"
+          },
+          "input": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            ],
+            "default": "",
+            "title": "Input"
+          },
+          "model": {
+            "default": "",
+            "title": "Model",
+            "type": "string"
+          }
+        },
+        "title": "EmbeddingRequest",
+        "type": "object"
+      },
+      "EstimateRequest": {
+        "properties": {
+          "duration_hours": {
+            "default": 1.0,
+            "maximum": 8760.0,
+            "minimum": 0.0,
+            "title": "Duration Hours",
+            "type": "number"
+          },
+          "gpu_model": {
+            "default": "RTX 4090",
+            "maxLength": 64,
+            "title": "Gpu Model",
+            "type": "string"
+          },
+          "is_canadian": {
+            "default": true,
+            "title": "Is Canadian",
+            "type": "boolean"
+          },
+          "sovereignty": {
+            "default": false,
+            "title": "Sovereignty",
+            "type": "boolean"
+          },
+          "spot": {
+            "default": false,
+            "title": "Spot",
+            "type": "boolean"
+          }
+        },
+        "title": "EstimateRequest",
+        "type": "object"
+      },
+      "FinalizeRequest": {
+        "properties": {
+          "checksum": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checksum"
+          },
+          "upload_session_id": {
+            "title": "Upload Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload_session_id"
+        ],
+        "title": "FinalizeRequest",
+        "type": "object"
+      },
+      "GPUOfferCreate": {
+        "properties": {
+          "ask_cents_per_hour": {
+            "default": 20,
+            "maximum": 1000000.0,
+            "minimum": 1.0,
+            "title": "Ask Cents Per Hour",
+            "type": "integer"
+          },
+          "gpu_count_total": {
+            "default": 1,
+            "maximum": 64.0,
+            "minimum": 1.0,
+            "title": "Gpu Count Total",
+            "type": "integer"
+          },
+          "gpu_model": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Gpu Model",
+            "type": "string"
+          },
+          "host_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Host Id",
+            "type": "string"
+          },
+          "region": {
+            "default": "ca-east",
+            "maxLength": 32,
+            "title": "Region",
+            "type": "string"
+          },
+          "spot_enabled": {
+            "default": true,
+            "title": "Spot Enabled",
+            "type": "boolean"
+          },
+          "spot_min_cents": {
+            "default": 10,
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Spot Min Cents",
+            "type": "integer"
+          },
+          "vram_gb": {
+            "default": 0,
+            "maximum": 1024.0,
+            "minimum": 0.0,
+            "title": "Vram Gb",
+            "type": "number"
+          }
+        },
+        "required": [
+          "host_id",
+          "gpu_model"
+        ],
+        "title": "GPUOfferCreate",
+        "type": "object"
+      },
+      "GitHubResolveRequest": {
+        "properties": {
+          "source_ref": {
+            "title": "Source Ref",
+            "type": "string"
+          },
+          "source_ref_branch": {
+            "default": "main",
+            "title": "Source Ref Branch",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_ref"
+        ],
+        "title": "GitHubResolveRequest",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HostIn": {
+        "properties": {
+          "agent_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$|^$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Sha256"
+          },
+          "agent_version": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Version"
+          },
+          "attestation": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attestation"
+          },
+          "business_number": {
+            "default": "",
+            "maxLength": 64,
+            "title": "Business Number",
+            "type": "string"
+          },
+          "capabilities": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capabilities"
+          },
+          "checkpoint_class": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint Class"
+          },
+          "corporation_name": {
+            "default": "",
+            "maxLength": 256,
+            "title": "Corporation Name",
+            "type": "string"
+          },
+          "cost_per_hour": {
+            "default": 0.2,
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Cost Per Hour",
+            "type": "number"
+          },
+          "country": {
+            "default": "CA",
+            "maxLength": 2,
+            "minLength": 2,
+            "title": "Country",
+            "type": "string"
+          },
+          "cpu_count": {
+            "anyOf": [
+              {
+                "maximum": 512.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cpu Count"
+          },
+          "cuda_driver_version": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cuda Driver Version"
+          },
+          "free_vram_gb": {
+            "maximum": 1024.0,
+            "minimum": 0.0,
+            "title": "Free Vram Gb",
+            "type": "number"
+          },
+          "gpu_model": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Gpu Model",
+            "type": "string"
+          },
+          "gst_hst_number": {
+            "default": "",
+            "maxLength": 64,
+            "title": "Gst Hst Number",
+            "type": "string"
+          },
+          "host_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Host Id",
+            "type": "string"
+          },
+          "ip": {
+            "maxLength": 45,
+            "minLength": 7,
+            "title": "Ip",
+            "type": "string"
+          },
+          "legal_name": {
+            "default": "",
+            "maxLength": 256,
+            "title": "Legal Name",
+            "type": "string"
+          },
+          "province": {
+            "default": "",
+            "maxLength": 10,
+            "title": "Province",
+            "type": "string"
+          },
+          "region": {
+            "default": "",
+            "maxLength": 32,
+            "title": "Region",
+            "type": "string"
+          },
+          "spot_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spot Enabled"
+          },
+          "spot_gpu_slots": {
+            "anyOf": [
+              {
+                "maximum": 64.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spot Gpu Slots"
+          },
+          "spot_min_cents": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spot Min Cents"
+          },
+          "ssh_user": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "pattern": "^[A-Za-z0-9_.-]{1,64}$|^$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ssh User"
+          },
+          "total_vram_gb": {
+            "maximum": 1024.0,
+            "minimum": 0.0,
+            "title": "Total Vram Gb",
+            "type": "number"
+          },
+          "versions": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Versions"
+          }
+        },
+        "required": [
+          "host_id",
+          "ip",
+          "gpu_model",
+          "total_vram_gb",
+          "free_vram_gb"
+        ],
+        "title": "HostIn",
+        "type": "object"
+      },
+      "HostSpotSettingsUpdate": {
+        "properties": {
+          "spot_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spot Enabled"
+          },
+          "spot_gpu_slots": {
+            "anyOf": [
+              {
+                "maximum": 64.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spot Gpu Slots"
+          },
+          "spot_min_cents": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spot Min Cents"
+          }
+        },
+        "title": "HostSpotSettingsUpdate",
+        "type": "object"
+      },
+      "IncorporationUploadRequest": {
+        "properties": {
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_id"
+        ],
+        "title": "IncorporationUploadRequest",
+        "type": "object"
+      },
+      "InferenceRequest": {
+        "properties": {
+          "gpu_model": {
+            "default": "any",
+            "description": "Preferred GPU model or 'any'",
+            "title": "Gpu Model",
+            "type": "string"
+          },
+          "inputs": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "Text input(s) for inference",
+            "title": "Inputs"
+          },
+          "max_tokens": {
+            "default": 512,
+            "maximum": 8192.0,
+            "minimum": 1.0,
+            "title": "Max Tokens",
+            "type": "integer"
+          },
+          "model": {
+            "description": "Model name or HuggingFace repo (e.g. 'distilbert-base-uncased-finetuned-sst-2-english')",
+            "title": "Model",
+            "type": "string"
+          },
+          "temperature": {
+            "default": 1.0,
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Temperature",
+            "type": "number"
+          },
+          "timeout_sec": {
+            "default": 300,
+            "maximum": 3600.0,
+            "minimum": 10.0,
+            "title": "Timeout Sec",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "model",
+          "inputs"
+        ],
+        "title": "InferenceRequest",
+        "type": "object"
+      },
+      "InferenceResultCallback": {
+        "properties": {
+          "latency_ms": {
+            "default": 0,
+            "title": "Latency Ms",
+            "type": "number"
+          },
+          "model": {
+            "default": "",
+            "title": "Model",
+            "type": "string"
+          },
+          "outputs": {
+            "items": {},
+            "title": "Outputs",
+            "type": "array"
+          }
+        },
+        "title": "InferenceResultCallback",
+        "type": "object"
+      },
+      "InstanceRenamePayload": {
+        "properties": {
+          "name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "InstanceRenamePayload",
+        "type": "object"
+      },
+      "JobCompleteBody": {
+        "properties": {
+          "cached_tokens": {
+            "default": 0,
+            "title": "Cached Tokens",
+            "type": "integer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "input_tokens": {
+            "default": 0,
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "output": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output"
+          },
+          "output_tokens": {
+            "default": 0,
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "ttft_ms": {
+            "default": 0,
+            "title": "Ttft Ms",
+            "type": "integer"
+          }
+        },
+        "title": "JobCompleteBody",
+        "type": "object"
+      },
+      "JobEventBody": {
+        "properties": {
+          "event_type": {
+            "default": "progress",
+            "title": "Event Type",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          }
+        },
+        "title": "JobEventBody",
+        "type": "object"
+      },
+      "JobIn": {
+        "properties": {
+          "auto_launch": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 4,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Launch"
+          },
+          "command": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Command"
+          },
+          "encrypted_workspace": {
+            "default": false,
+            "title": "Encrypted Workspace",
+            "type": "boolean"
+          },
+          "exposed_ports": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "maxItems": 8,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exposed Ports"
+          },
+          "git_repo": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Git Repo"
+          },
+          "gpu_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Model"
+          },
+          "host_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host Id"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image"
+          },
+          "init_script": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Init Script"
+          },
+          "interactive": {
+            "default": true,
+            "title": "Interactive",
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "nfs_mount_point": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nfs Mount Point"
+          },
+          "nfs_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nfs Path"
+          },
+          "nfs_server": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nfs Server"
+          },
+          "num_gpus": {
+            "default": 1,
+            "maximum": 64.0,
+            "minimum": 1.0,
+            "title": "Num Gpus",
+            "type": "integer"
+          },
+          "pricing_mode": {
+            "default": "on_demand",
+            "enum": [
+              "on_demand",
+              "spot"
+            ],
+            "title": "Pricing Mode",
+            "type": "string"
+          },
+          "priority": {
+            "default": 0,
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Priority",
+            "type": "integer"
+          },
+          "ssh_port": {
+            "default": 22,
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Ssh Port",
+            "type": "integer"
+          },
+          "template_image_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template Image Id"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier"
+          },
+          "volume_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 16,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volume Ids"
+          },
+          "vram_needed_gb": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Vram Needed Gb",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "JobIn",
+        "type": "object"
+      },
+      "JurisdictionFilterRequest": {
+        "properties": {
+          "canada_only": {
+            "default": true,
+            "title": "Canada Only",
+            "type": "boolean"
+          },
+          "province": {
+            "title": "Province",
+            "type": "string"
+          },
+          "trust_tier": {
+            "title": "Trust Tier",
+            "type": "string"
+          }
+        },
+        "title": "JurisdictionFilterRequest",
+        "type": "object"
+      },
+      "LeaseAuthorityRequest": {
+        "properties": {
+          "attempt_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "fencing_token": {
+            "minimum": 1.0,
+            "title": "Fencing Token",
+            "type": "integer"
+          },
+          "host_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Host Id",
+            "type": "string"
+          },
+          "job_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Job Id",
+            "type": "string"
+          },
+          "lease_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Lease Id",
+            "type": "string"
+          },
+          "worker_session_id": {
+            "default": "",
+            "maxLength": 128,
+            "title": "Worker Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lease_id",
+          "job_id",
+          "attempt_id",
+          "host_id",
+          "fencing_token"
+        ],
+        "title": "LeaseAuthorityRequest",
+        "type": "object"
+      },
+      "LeaseClaimRequest": {
+        "properties": {
+          "host_id": {
+            "title": "Host Id",
+            "type": "string"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "host_id",
+          "job_id"
+        ],
+        "title": "LeaseClaimRequest",
+        "type": "object"
+      },
+      "LeaseReleaseRequest": {
+        "properties": {
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "reason": {
+            "default": "completed",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "title": "LeaseReleaseRequest",
+        "type": "object"
+      },
+      "LeaseRenewRequest": {
+        "properties": {
+          "host_id": {
+            "title": "Host Id",
+            "type": "string"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "host_id",
+          "job_id"
+        ],
+        "title": "LeaseRenewRequest",
+        "type": "object"
+      },
+      "LegalRequestRecord": {
+        "properties": {
+          "authority": {
+            "default": "",
+            "title": "Authority",
+            "type": "string"
+          },
+          "jurisdiction": {
+            "default": "CA",
+            "title": "Jurisdiction",
+            "type": "string"
+          },
+          "notes": {
+            "default": "",
+            "title": "Notes",
+            "type": "string"
+          },
+          "request_type": {
+            "default": "subpoena",
+            "title": "Request Type",
+            "type": "string"
+          },
+          "scope": {
+            "default": "",
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "title": "LegalRequestRecord",
+        "type": "object"
+      },
+      "LnDepositRequest": {
+        "properties": {
+          "amount_cad": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 10000.0,
+            "title": "Amount Cad",
+            "type": "number"
+          },
+          "customer_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Customer Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "amount_cad"
+        ],
+        "title": "LnDepositRequest",
+        "type": "object"
+      },
+      "LoginRequest": {
+        "properties": {
+          "email": {
+            "maxLength": 128,
+            "minLength": 5,
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "type": "object"
+      },
+      "MarketplaceSearchParams": {
+        "properties": {
+          "canada_only": {
+            "default": false,
+            "title": "Canada Only",
+            "type": "boolean"
+          },
+          "gpu_model": {
+            "default": "",
+            "maxLength": 64,
+            "title": "Gpu Model",
+            "type": "string"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "max_price_cents": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Max Price Cents",
+            "type": "integer"
+          },
+          "min_vram_gb": {
+            "default": 0,
+            "maximum": 1024.0,
+            "minimum": 0.0,
+            "title": "Min Vram Gb",
+            "type": "number"
+          },
+          "region": {
+            "default": "",
+            "maxLength": 32,
+            "title": "Region",
+            "type": "string"
+          },
+          "sort_by": {
+            "default": "price",
+            "pattern": "^(price|reputation|region|vram)$",
+            "title": "Sort By",
+            "type": "string"
+          },
+          "spot_available": {
+            "default": false,
+            "title": "Spot Available",
+            "type": "boolean"
+          }
+        },
+        "title": "MarketplaceSearchParams",
+        "type": "object"
+      },
+      "MfaSendSmsRequest": {
+        "properties": {
+          "challenge_id": {
+            "title": "Challenge Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "challenge_id"
+        ],
+        "title": "MfaSendSmsRequest",
+        "type": "object"
+      },
+      "MfaVerifyLogin": {
+        "properties": {
+          "challenge_id": {
+            "title": "Challenge Id",
+            "type": "string"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          }
+        },
+        "required": [
+          "challenge_id",
+          "method",
+          "code"
+        ],
+        "title": "MfaVerifyLogin",
+        "type": "object"
+      },
+      "MiningAlert": {
+        "properties": {
+          "confidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "gpu_index": {
+            "maximum": 64.0,
+            "minimum": 0.0,
+            "title": "Gpu Index",
+            "type": "integer"
+          },
+          "host_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Host Id",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 500,
+            "title": "Reason",
+            "type": "string"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timestamp"
+          }
+        },
+        "required": [
+          "host_id",
+          "gpu_index",
+          "confidence",
+          "reason"
+        ],
+        "title": "MiningAlert",
+        "type": "object"
+      },
+      "OAuthClientCreateRequest": {
+        "properties": {
+          "client_name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Client Name",
+            "type": "string"
+          },
+          "client_type": {
+            "default": "confidential",
+            "pattern": "^(confidential|public)$",
+            "title": "Client Type",
+            "type": "string"
+          },
+          "grant_types": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Grant Types",
+            "type": "array"
+          },
+          "is_first_party": {
+            "default": false,
+            "title": "Is First Party",
+            "type": "boolean"
+          },
+          "redirect_uris": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Redirect Uris",
+            "type": "array"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Scopes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "client_name"
+        ],
+        "title": "OAuthClientCreateRequest",
+        "type": "object"
+      },
+      "OAuthClientUpdateRequest": {
+        "properties": {
+          "client_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Name"
+          },
+          "grant_types": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grant Types"
+          },
+          "redirect_uris": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Redirect Uris"
+          },
+          "scopes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scopes"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "pattern": "^(active|disabled)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "title": "OAuthClientUpdateRequest",
+        "type": "object"
+      },
+      "ObservationReport": {
+        "properties": {
+          "agent_version": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Version"
+          },
+          "host_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Host Id",
+            "type": "string"
+          },
+          "observation_generation": {
+            "minimum": 0.0,
+            "title": "Observation Generation",
+            "type": "integer"
+          },
+          "worker_reported_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Reported At"
+          },
+          "worker_session_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Worker Session Id",
+            "type": "string"
+          },
+          "workloads": {
+            "items": {
+              "$ref": "#/components/schemas/ObservedWorkload"
+            },
+            "maxItems": 256,
+            "title": "Workloads",
+            "type": "array"
+          }
+        },
+        "required": [
+          "host_id",
+          "worker_session_id",
+          "observation_generation"
+        ],
+        "title": "ObservationReport",
+        "type": "object"
+      },
+      "ObservedWorkload": {
+        "properties": {
+          "attempt_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempt Id"
+          },
+          "container_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Container Id"
+          },
+          "container_name": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Container Name"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "fencing_token": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fencing Token"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "spec_hash": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spec Hash"
+          },
+          "state": {
+            "default": "unknown",
+            "maxLength": 32,
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "ObservedWorkload",
+        "type": "object"
+      },
+      "PIACheckRequest": {
+        "properties": {
+          "data_contains_pi": {
+            "default": false,
+            "title": "Data Contains Pi",
+            "type": "boolean"
+          },
+          "data_origin_province": {
+            "default": "QC",
+            "title": "Data Origin Province",
+            "type": "string"
+          },
+          "processing_province": {
+            "default": "ON",
+            "title": "Processing Province",
+            "type": "string"
+          }
+        },
+        "title": "PIACheckRequest",
+        "type": "object"
+      },
+      "PasskeyAuthenticateCompleteRequest": {
+        "properties": {
+          "credential": {
+            "additionalProperties": true,
+            "title": "Credential",
+            "type": "object"
+          },
+          "state_id": {
+            "title": "State Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state_id",
+          "credential"
+        ],
+        "title": "PasskeyAuthenticateCompleteRequest",
+        "type": "object"
+      },
+      "PasskeyAuthenticateOptionsRequest": {
+        "properties": {
+          "challenge_id": {
+            "title": "Challenge Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "challenge_id"
+        ],
+        "title": "PasskeyAuthenticateOptionsRequest",
+        "type": "object"
+      },
+      "PasskeyDeleteRequest": {
+        "properties": {
+          "method_id": {
+            "title": "Method Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "method_id"
+        ],
+        "title": "PasskeyDeleteRequest",
+        "type": "object"
+      },
+      "PasskeyRegisterCompleteRequest": {
+        "properties": {
+          "credential": {
+            "additionalProperties": true,
+            "title": "Credential",
+            "type": "object"
+          },
+          "state_id": {
+            "title": "State Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state_id",
+          "credential"
+        ],
+        "title": "PasskeyRegisterCompleteRequest",
+        "type": "object"
+      },
+      "PasskeyRegisterRequest": {
+        "properties": {
+          "device_name": {
+            "default": "Security Key",
+            "title": "Device Name",
+            "type": "string"
+          }
+        },
+        "title": "PasskeyRegisterRequest",
+        "type": "object"
+      },
+      "PasswordResetConfirm": {
+        "properties": {
+          "new_password": {
+            "title": "New Password",
+            "type": "string"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "new_password"
+        ],
+        "title": "PasswordResetConfirm",
+        "type": "object"
+      },
+      "PasswordResetRequest": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "PasswordResetRequest",
+        "type": "object"
+      },
+      "PayPalCaptureRequest": {
+        "properties": {
+          "customer_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Customer Id",
+            "type": "string"
+          },
+          "order_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Order Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "order_id"
+        ],
+        "title": "PayPalCaptureRequest",
+        "type": "object"
+      },
+      "PayPalCreateOrderRequest": {
+        "properties": {
+          "amount_cad": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 10000.0,
+            "title": "Amount Cad",
+            "type": "number"
+          },
+          "customer_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Customer Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "amount_cad"
+        ],
+        "title": "PayPalCreateOrderRequest",
+        "type": "object"
+      },
+      "PayPalMarketplaceCaptureRequest": {
+        "properties": {
+          "customer_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Customer Id",
+            "type": "string"
+          },
+          "order_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Order Id",
+            "type": "string"
+          },
+          "provider_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Provider Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "provider_id",
+          "order_id"
+        ],
+        "title": "PayPalMarketplaceCaptureRequest",
+        "type": "object"
+      },
+      "PayPalMarketplaceCreateRequest": {
+        "properties": {
+          "amount_cad": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 10000.0,
+            "title": "Amount Cad",
+            "type": "number"
+          },
+          "customer_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Customer Id",
+            "type": "string"
+          },
+          "job_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Job Id",
+            "type": "string"
+          },
+          "provider_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Provider Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "provider_id",
+          "job_id",
+          "amount_cad"
+        ],
+        "title": "PayPalMarketplaceCreateRequest",
+        "type": "object"
+      },
+      "PaymentIntentRequest": {
+        "properties": {
+          "amount_cad": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 10000.0,
+            "title": "Amount Cad",
+            "type": "number"
+          },
+          "customer_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Customer Id",
+            "type": "string"
+          },
+          "description": {
+            "default": "Compute credits",
+            "maxLength": 500,
+            "title": "Description",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "amount_cad"
+        ],
+        "title": "PaymentIntentRequest",
+        "type": "object"
+      },
+      "PoolHost": {
+        "properties": {
+          "cost_per_hour": {
+            "default": 0.2,
+            "title": "Cost Per Hour",
+            "type": "number"
+          },
+          "country": {
+            "default": "CA",
+            "title": "Country",
+            "type": "string"
+          },
+          "gpu_model": {
+            "title": "Gpu Model",
+            "type": "string"
+          },
+          "host_id": {
+            "title": "Host Id",
+            "type": "string"
+          },
+          "ip": {
+            "title": "Ip",
+            "type": "string"
+          },
+          "vram_gb": {
+            "title": "Vram Gb",
+            "type": "number"
+          }
+        },
+        "required": [
+          "host_id",
+          "ip",
+          "gpu_model",
+          "vram_gb"
+        ],
+        "title": "PoolHost",
+        "type": "object"
+      },
+      "PrivacyConfigRequest": {
+        "properties": {
+          "enable_identification": {
+            "default": false,
+            "title": "Enable Identification",
+            "type": "boolean"
+          },
+          "enable_location_tracking": {
+            "default": false,
+            "title": "Enable Location Tracking",
+            "type": "boolean"
+          },
+          "enable_profiling": {
+            "default": false,
+            "title": "Enable Profiling",
+            "type": "boolean"
+          },
+          "log_retention_days": {
+            "title": "Log Retention Days",
+            "type": "integer"
+          },
+          "org_id": {
+            "title": "Org Id",
+            "type": "string"
+          },
+          "privacy_level": {
+            "default": "strict",
+            "title": "Privacy Level",
+            "type": "string"
+          },
+          "privacy_officer_email": {
+            "default": "",
+            "title": "Privacy Officer Email",
+            "type": "string"
+          },
+          "privacy_officer_name": {
+            "default": "",
+            "title": "Privacy Officer Name",
+            "type": "string"
+          },
+          "redact_env_vars": {
+            "default": true,
+            "title": "Redact Env Vars",
+            "type": "boolean"
+          },
+          "redact_ip_addresses": {
+            "default": true,
+            "title": "Redact Ip Addresses",
+            "type": "boolean"
+          },
+          "redact_pii_in_logs": {
+            "default": true,
+            "title": "Redact Pii In Logs",
+            "type": "boolean"
+          },
+          "telemetry_retention_days": {
+            "title": "Telemetry Retention Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "org_id"
+        ],
+        "title": "PrivacyConfigRequest",
+        "type": "object"
+      },
+      "ProfileUpdateRequest": {
+        "properties": {
+          "country": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "province": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Province"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          }
+        },
+        "title": "ProfileUpdateRequest",
+        "type": "object"
+      },
+      "ProviderRegisterRequest": {
+        "properties": {
+          "business_number": {
+            "default": "",
+            "title": "Business Number",
+            "type": "string"
+          },
+          "corporation_name": {
+            "default": "",
+            "title": "Corporation Name",
+            "type": "string"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "gst_hst_number": {
+            "default": "",
+            "title": "Gst Hst Number",
+            "type": "string"
+          },
+          "legal_name": {
+            "default": "",
+            "title": "Legal Name",
+            "type": "string"
+          },
+          "provider_id": {
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "provider_type": {
+            "default": "individual",
+            "title": "Provider Type",
+            "type": "string"
+          },
+          "province": {
+            "default": "",
+            "title": "Province",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider_id",
+          "email"
+        ],
+        "title": "ProviderRegisterRequest",
+        "type": "object"
+      },
+      "RefundRequest": {
+        "properties": {
+          "exit_code": {
+            "maximum": 255.0,
+            "minimum": 0.0,
+            "title": "Exit Code",
+            "type": "integer"
+          },
+          "failure_reason": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Failure Reason",
+            "type": "string"
+          },
+          "job_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Job Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "exit_code"
+        ],
+        "title": "RefundRequest",
+        "type": "object"
+      },
+      "RegisterHostRequest": {
+        "description": "Human-facing host registration from the dashboard UI.\n\nSeparate from HostIn which is the machine-to-machine agent schema.\nFields that the agent reports (host_id, ip, free_vram_gb) are\nauto-generated or derived here.",
+        "properties": {
+          "cost_per_hour": {
+            "default": 0.2,
+            "maximum": 100.0,
+            "minimum": 0.01,
+            "title": "Cost Per Hour",
+            "type": "number"
+          },
+          "country": {
+            "default": "CA",
+            "maxLength": 2,
+            "minLength": 2,
+            "title": "Country",
+            "type": "string"
+          },
+          "gpu_model": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Gpu Model",
+            "type": "string"
+          },
+          "hostname": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[\\w .\\-]+$",
+            "title": "Hostname",
+            "type": "string"
+          },
+          "notes": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Notes",
+            "type": "string"
+          },
+          "province": {
+            "default": "",
+            "maxLength": 4,
+            "title": "Province",
+            "type": "string"
+          },
+          "region": {
+            "default": "",
+            "maxLength": 32,
+            "title": "Region",
+            "type": "string"
+          },
+          "spot_enabled": {
+            "default": true,
+            "title": "Spot Enabled",
+            "type": "boolean"
+          },
+          "spot_gpu_slots": {
+            "anyOf": [
+              {
+                "maximum": 64.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spot Gpu Slots"
+          },
+          "spot_min_cents": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spot Min Cents"
+          },
+          "vram_gb": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 192.0,
+            "title": "Vram Gb",
+            "type": "number"
+          }
+        },
+        "required": [
+          "hostname",
+          "gpu_model",
+          "vram_gb"
+        ],
+        "title": "RegisterHostRequest",
+        "type": "object"
+      },
+      "RegisterRequest": {
+        "properties": {
+          "email": {
+            "maxLength": 128,
+            "minLength": 5,
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "default": "",
+            "maxLength": 64,
+            "title": "Name",
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "Password",
+            "type": "string"
+          },
+          "role": {
+            "default": "submitter",
+            "maxLength": 32,
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "RegisterRequest",
+        "type": "object"
+      },
+      "ResendVerificationRequest": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "ResendVerificationRequest",
+        "type": "object"
+      },
+      "ReservationCreate": {
+        "properties": {
+          "gpu_count": {
+            "default": 1,
+            "title": "Gpu Count",
+            "type": "integer"
+          },
+          "gpu_model": {
+            "title": "Gpu Model",
+            "type": "string"
+          },
+          "period_months": {
+            "default": 1,
+            "title": "Period Months",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "gpu_model"
+        ],
+        "title": "ReservationCreate",
+        "type": "object"
+      },
+      "ReservedCommitmentRequest": {
+        "properties": {
+          "commitment_type": {
+            "default": "1_month",
+            "pattern": "^(1_month|3_month|1_year)$",
+            "title": "Commitment Type",
+            "type": "string"
+          },
+          "customer_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Customer Id",
+            "type": "string"
+          },
+          "gpu_model": {
+            "default": "RTX 4090",
+            "maxLength": 64,
+            "title": "Gpu Model",
+            "type": "string"
+          },
+          "province": {
+            "default": "ON",
+            "maxLength": 10,
+            "title": "Province",
+            "type": "string"
+          },
+          "quantity": {
+            "default": 1,
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Quantity",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "title": "ReservedCommitmentRequest",
+        "type": "object"
+      },
+      "RigListing": {
+        "properties": {
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "gpu_model": {
+            "title": "Gpu Model",
+            "type": "string"
+          },
+          "host_id": {
+            "title": "Host Id",
+            "type": "string"
+          },
+          "owner": {
+            "default": "anonymous",
+            "title": "Owner",
+            "type": "string"
+          },
+          "price_per_hour": {
+            "title": "Price Per Hour",
+            "type": "number"
+          },
+          "province": {
+            "default": "",
+            "title": "Province",
+            "type": "string"
+          },
+          "region": {
+            "default": "",
+            "title": "Region",
+            "type": "string"
+          },
+          "vram_gb": {
+            "title": "Vram Gb",
+            "type": "number"
+          }
+        },
+        "required": [
+          "host_id",
+          "gpu_model",
+          "vram_gb",
+          "price_per_hour"
+        ],
+        "title": "RigListing",
+        "type": "object"
+      },
+      "RunJobRequest": {
+        "properties": {
+          "input": {
+            "additionalProperties": true,
+            "title": "Input",
+            "type": "object"
+          },
+          "webhook": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook"
+          }
+        },
+        "title": "RunJobRequest",
+        "type": "object"
+      },
+      "SLAEnforceRequest": {
+        "properties": {
+          "host_id": {
+            "title": "Host Id",
+            "type": "string"
+          },
+          "month": {
+            "title": "Month",
+            "type": "string"
+          },
+          "monthly_spend_cad": {
+            "default": 0.0,
+            "title": "Monthly Spend Cad",
+            "type": "number"
+          },
+          "tier": {
+            "default": "community",
+            "title": "Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "host_id",
+          "month"
+        ],
+        "title": "SLAEnforceRequest",
+        "type": "object"
+      },
+      "ServerlessEndpointCreate": {
+        "properties": {
+          "cuda_version": {
+            "default": "12.4",
+            "title": "Cuda Version",
+            "type": "string"
+          },
+          "docker_image": {
+            "default": "",
+            "title": "Docker Image",
+            "type": "string"
+          },
+          "env": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Env",
+            "type": "object"
+          },
+          "execution_mode": {
+            "default": "sync",
+            "title": "Execution Mode",
+            "type": "string"
+          },
+          "gpu_count": {
+            "default": 1,
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "Gpu Count",
+            "type": "integer"
+          },
+          "gpu_tier": {
+            "default": "",
+            "title": "Gpu Tier",
+            "type": "string"
+          },
+          "gpu_type": {
+            "default": "",
+            "title": "Gpu Type",
+            "type": "string"
+          },
+          "health_check_path": {
+            "default": "/health",
+            "title": "Health Check Path",
+            "type": "string"
+          },
+          "health_endpoint": {
+            "default": "",
+            "title": "Health Endpoint",
+            "type": "string"
+          },
+          "http_port": {
+            "default": 8080,
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Http Port",
+            "type": "integer"
+          },
+          "idle_timeout_sec": {
+            "default": 60,
+            "maximum": 86400.0,
+            "minimum": 60.0,
+            "title": "Idle Timeout Sec",
+            "type": "integer"
+          },
+          "image_ref": {
+            "default": "",
+            "title": "Image Ref",
+            "type": "string"
+          },
+          "lora_adapters": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Lora Adapters",
+            "type": "array"
+          },
+          "managed_engine": {
+            "default": "vllm",
+            "title": "Managed Engine",
+            "type": "string"
+          },
+          "max_concurrency": {
+            "default": 1,
+            "maximum": 256.0,
+            "minimum": 1.0,
+            "title": "Max Concurrency",
+            "type": "integer"
+          },
+          "max_request_bytes": {
+            "default": 10485760,
+            "maximum": 52428800.0,
+            "minimum": 1024.0,
+            "title": "Max Request Bytes",
+            "type": "integer"
+          },
+          "max_workers": {
+            "default": 3,
+            "maximum": 32.0,
+            "minimum": 1.0,
+            "title": "Max Workers",
+            "type": "integer"
+          },
+          "min_workers": {
+            "default": 1,
+            "maximum": 32.0,
+            "minimum": 0.0,
+            "title": "Min Workers",
+            "type": "integer"
+          },
+          "mode": {
+            "default": "preset",
+            "title": "Mode",
+            "type": "string"
+          },
+          "model_name": {
+            "default": "",
+            "title": "Model Name",
+            "type": "string"
+          },
+          "model_ref": {
+            "default": "",
+            "title": "Model Ref",
+            "type": "string"
+          },
+          "name": {
+            "default": "",
+            "title": "Name",
+            "type": "string"
+          },
+          "queue_timeout_sec": {
+            "default": 120,
+            "maximum": 3600.0,
+            "minimum": 1.0,
+            "title": "Queue Timeout Sec",
+            "type": "integer"
+          },
+          "region": {
+            "default": "ca-east",
+            "title": "Region",
+            "type": "string"
+          },
+          "request_timeout_sec": {
+            "default": 120,
+            "maximum": 3600.0,
+            "minimum": 10.0,
+            "title": "Request Timeout Sec",
+            "type": "integer"
+          },
+          "scaledown_window_sec": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scaledown Window Sec"
+          },
+          "scaling_policy_type": {
+            "default": "queue_request_count",
+            "title": "Scaling Policy Type",
+            "type": "string"
+          },
+          "scaling_policy_value": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Scaling Policy Value",
+            "type": "integer"
+          },
+          "source_ref": {
+            "default": "",
+            "title": "Source Ref",
+            "type": "string"
+          },
+          "source_ref_branch": {
+            "default": "main",
+            "title": "Source Ref Branch",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "startup_command": {
+            "default": "",
+            "title": "Startup Command",
+            "type": "string"
+          }
+        },
+        "title": "ServerlessEndpointCreate",
+        "type": "object"
+      },
+      "ServerlessEndpointPatch": {
+        "properties": {
+          "execution_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Mode"
+          },
+          "idle_timeout_sec": {
+            "anyOf": [
+              {
+                "maximum": 86400.0,
+                "minimum": 60.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idle Timeout Sec"
+          },
+          "keep_warm": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keep Warm"
+          },
+          "max_concurrency": {
+            "anyOf": [
+              {
+                "maximum": 256.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Concurrency"
+          },
+          "max_queue_size": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Queue Size"
+          },
+          "max_workers": {
+            "anyOf": [
+              {
+                "maximum": 32.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Workers"
+          },
+          "min_workers": {
+            "anyOf": [
+              {
+                "maximum": 32.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Workers"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "queue_timeout_sec": {
+            "anyOf": [
+              {
+                "maximum": 3600.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue Timeout Sec"
+          },
+          "request_timeout_sec": {
+            "anyOf": [
+              {
+                "maximum": 3600.0,
+                "minimum": 10.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Timeout Sec"
+          },
+          "scaling_policy_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scaling Policy Type"
+          },
+          "scaling_policy_value": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scaling Policy Value"
+          }
+        },
+        "title": "ServerlessEndpointPatch",
+        "type": "object"
+      },
+      "SetActiveTeamRequest": {
+        "properties": {
+          "team_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          }
+        },
+        "title": "SetActiveTeamRequest",
+        "type": "object"
+      },
+      "ShouldIRunPelRequest": {
+        "properties": {
+          "duration_hours": {
+            "default": 0.1,
+            "maximum": 168.0,
+            "minimum": 0.0,
+            "title": "Duration Hours",
+            "type": "number"
+          },
+          "endpoint_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endpoint Id"
+          },
+          "estimated_input_tokens": {
+            "default": 1000,
+            "maximum": 10000000.0,
+            "minimum": 0.0,
+            "title": "Estimated Input Tokens",
+            "type": "integer"
+          },
+          "estimated_output_tokens": {
+            "default": 500,
+            "maximum": 10000000.0,
+            "minimum": 0.0,
+            "title": "Estimated Output Tokens",
+            "type": "integer"
+          },
+          "gpu_tier": {
+            "default": "RTX 4090",
+            "maxLength": 64,
+            "title": "Gpu Tier",
+            "type": "string"
+          },
+          "model_ref": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Ref"
+          }
+        },
+        "title": "ShouldIRunPelRequest",
+        "type": "object"
+      },
+      "SlurmSubmitIn": {
+        "properties": {
+          "dry_run": {
+            "default": false,
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "image": {
+            "default": "",
+            "title": "Image",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "num_gpus": {
+            "default": 1,
+            "title": "Num Gpus",
+            "type": "integer"
+          },
+          "priority": {
+            "default": 0,
+            "title": "Priority",
+            "type": "integer"
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier"
+          },
+          "vram_needed_gb": {
+            "exclusiveMinimum": 0.0,
+            "title": "Vram Needed Gb",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "vram_needed_gb"
+        ],
+        "title": "SlurmSubmitIn",
+        "type": "object"
+      },
+      "SmsSetupRequest": {
+        "properties": {
+          "phone_number": {
+            "title": "Phone Number",
+            "type": "string"
+          }
+        },
+        "required": [
+          "phone_number"
+        ],
+        "title": "SmsSetupRequest",
+        "type": "object"
+      },
+      "SmsVerifyRequest": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "SmsVerifyRequest",
+        "type": "object"
+      },
+      "SnapshotCreate": {
+        "properties": {
+          "label": {
+            "default": "",
+            "maxLength": 128,
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "title": "SnapshotCreate",
+        "type": "object"
+      },
+      "SnapshotIn": {
+        "properties": {
+          "description": {
+            "default": "",
+            "maxLength": 512,
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 63,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "tag": {
+            "default": "latest",
+            "maxLength": 63,
+            "title": "Tag",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "SnapshotIn",
+        "type": "object"
+      },
+      "SocialOAuthInitBody": {
+        "properties": {
+          "redirect": {
+            "default": "/dashboard",
+            "title": "Redirect",
+            "type": "string"
+          }
+        },
+        "title": "SocialOAuthInitBody",
+        "type": "object"
+      },
+      "SovereignQueueRequest": {
+        "properties": {
+          "canada_only": {
+            "default": true,
+            "title": "Canada Only",
+            "type": "boolean"
+          },
+          "province": {
+            "title": "Province",
+            "type": "string"
+          },
+          "trust_tier": {
+            "title": "Trust Tier",
+            "type": "string"
+          }
+        },
+        "title": "SovereignQueueRequest",
+        "type": "object"
+      },
+      "StatusUpdate": {
+        "properties": {
+          "attempt_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempt Id"
+          },
+          "container_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Container Id"
+          },
+          "container_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Container Name"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "fencing_token": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fencing Token"
+          },
+          "host_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host Id"
+          },
+          "interactive": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interactive"
+          },
+          "resumable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resumable"
+          },
+          "resume_from": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resume From"
+          },
+          "ssh_port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ssh Port"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "StatusUpdate",
+        "type": "object"
+      },
+      "TelemetryPayload": {
+        "properties": {
+          "host_id": {
+            "title": "Host Id",
+            "type": "string"
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "default": {},
+            "title": "Metrics",
+            "type": "object"
+          },
+          "timestamp": {
+            "default": 0,
+            "title": "Timestamp",
+            "type": "number"
+          }
+        },
+        "required": [
+          "host_id"
+        ],
+        "title": "TelemetryPayload",
+        "type": "object"
+      },
+      "TerminalTicketIn": {
+        "properties": {
+          "instance_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Instance Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "instance_id"
+        ],
+        "title": "TerminalTicketIn",
+        "type": "object"
+      },
+      "TotpVerifyRequest": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "method_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Method Id"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "TotpVerifyRequest",
+        "type": "object"
+      },
+      "UpdateTeamMemberRoleRequest": {
+        "properties": {
+          "role": {
+            "pattern": "^(admin|member|viewer)$",
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "title": "UpdateTeamMemberRoleRequest",
+        "type": "object"
+      },
+      "UploadRequest": {
+        "properties": {
+          "artifact_type": {
+            "default": "job_output",
+            "title": "Artifact Type",
+            "type": "string"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "residency_policy": {
+            "default": "canada_only",
+            "title": "Residency Policy",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "filename"
+        ],
+        "title": "UploadRequest",
+        "type": "object"
+      },
+      "V1InferenceRequest": {
+        "description": "OpenAI-compatible inference request for /v1/inference.",
+        "properties": {
+          "inputs": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "Text input(s) for inference",
+            "title": "Inputs"
+          },
+          "max_tokens": {
+            "default": 512,
+            "maximum": 8192.0,
+            "minimum": 1.0,
+            "title": "Max Tokens",
+            "type": "integer"
+          },
+          "model": {
+            "description": "Model name or HuggingFace repo",
+            "title": "Model",
+            "type": "string"
+          },
+          "stream": {
+            "default": false,
+            "description": "Stream response via SSE",
+            "title": "Stream",
+            "type": "boolean"
+          },
+          "temperature": {
+            "default": 1.0,
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Temperature",
+            "type": "number"
+          }
+        },
+        "required": [
+          "model",
+          "inputs"
+        ],
+        "title": "V1InferenceRequest",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "VerificationGrant": {
+        "properties": {
+          "entity_id": {
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "verification_type": {
+            "title": "Verification Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entity_id",
+          "verification_type"
+        ],
+        "title": "VerificationGrant",
+        "type": "object"
+      },
+      "VerificationReportPayload": {
+        "properties": {
+          "host_id": {
+            "title": "Host Id",
+            "type": "string"
+          },
+          "report": {
+            "additionalProperties": true,
+            "title": "Report",
+            "type": "object"
+          }
+        },
+        "required": [
+          "host_id",
+          "report"
+        ],
+        "title": "VerificationReportPayload",
+        "type": "object"
+      },
+      "VerifyEmailRequest": {
+        "properties": {
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "VerifyEmailRequest",
+        "type": "object"
+      },
+      "VerifyHostRequest": {
+        "properties": {
+          "gpu_info": {
+            "additionalProperties": true,
+            "title": "Gpu Info",
+            "type": "object"
+          },
+          "network_info": {
+            "additionalProperties": true,
+            "title": "Network Info",
+            "type": "object"
+          }
+        },
+        "title": "VerifyHostRequest",
+        "type": "object"
+      },
+      "VersionReport": {
+        "properties": {
+          "host_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Host Id",
+            "type": "string"
+          },
+          "versions": {
+            "additionalProperties": true,
+            "title": "Versions",
+            "type": "object"
+          }
+        },
+        "required": [
+          "host_id",
+          "versions"
+        ],
+        "title": "VersionReport",
+        "type": "object"
+      },
+      "VolumeAttachRequest": {
+        "properties": {
+          "instance_id": {
+            "title": "Instance Id",
+            "type": "string"
+          },
+          "mode": {
+            "default": "rw",
+            "enum": [
+              "rw",
+              "ro"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "mount_path": {
+            "default": "/workspace",
+            "pattern": "^/(workspace|mnt/[a-zA-Z0-9._-]+|data)$",
+            "title": "Mount Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "instance_id"
+        ],
+        "title": "VolumeAttachRequest",
+        "type": "object"
+      },
+      "VolumeCreate": {
+        "properties": {
+          "encrypted": {
+            "default": true,
+            "title": "Encrypted",
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "region": {
+            "default": "ca-east",
+            "title": "Region",
+            "type": "string"
+          },
+          "size_gb": {
+            "default": 50,
+            "maximum": 2000.0,
+            "minimum": 1.0,
+            "title": "Size Gb",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "VolumeCreate",
+        "type": "object"
+      },
+      "VolumeRename": {
+        "properties": {
+          "name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "VolumeRename",
+        "type": "object"
+      },
+      "WebPushKeys": {
+        "properties": {
+          "auth": {
+            "minLength": 1,
+            "title": "Auth",
+            "type": "string"
+          },
+          "p256dh": {
+            "minLength": 1,
+            "title": "P256Dh",
+            "type": "string"
+          }
+        },
+        "required": [
+          "p256dh",
+          "auth"
+        ],
+        "title": "WebPushKeys",
+        "type": "object"
+      },
+      "WebPushSubscriptionDeletePayload": {
+        "properties": {
+          "endpoint": {
+            "minLength": 1,
+            "title": "Endpoint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "endpoint"
+        ],
+        "title": "WebPushSubscriptionDeletePayload",
+        "type": "object"
+      },
+      "WebPushSubscriptionPayload": {
+        "properties": {
+          "endpoint": {
+            "minLength": 1,
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "expirationTime": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expirationtime"
+          },
+          "keys": {
+            "$ref": "#/components/schemas/WebPushKeys"
+          }
+        },
+        "required": [
+          "endpoint",
+          "keys"
+        ],
+        "title": "WebPushSubscriptionPayload",
+        "type": "object"
+      },
+      "WorkerExitedBody": {
+        "properties": {
+          "error_message": {
+            "default": "",
+            "title": "Error Message",
+            "type": "string"
+          },
+          "exit_code": {
+            "default": 0,
+            "title": "Exit Code",
+            "type": "integer"
+          }
+        },
+        "title": "WorkerExitedBody",
+        "type": "object"
+      },
+      "WorkerReadyBody": {
+        "properties": {
+          "host_id": {
+            "default": "",
+            "title": "Host Id",
+            "type": "string"
+          }
+        },
+        "title": "WorkerReadyBody",
+        "type": "object"
+      },
+      "_ApproveIn": {
+        "properties": {
+          "confirm": {
+            "default": false,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "confirmation": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmation"
+          },
+          "expected_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Version"
+          }
+        },
+        "title": "_ApproveIn",
+        "type": "object"
+      },
+      "_AutoLaunchReport": {
+        "properties": {
+          "host_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Host Id",
+            "type": "string"
+          },
+          "ports": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Ports",
+            "type": "object"
+          },
+          "token": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token"
+          },
+          "token_sha": {
+            "default": "",
+            "maxLength": 16,
+            "title": "Token Sha",
+            "type": "string"
+          }
+        },
+        "required": [
+          "host_id"
+        ],
+        "title": "_AutoLaunchReport",
+        "type": "object"
+      },
+      "_EvictionPlanIn": {
+        "properties": {
+          "expected_version": {
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_version",
+          "reason"
+        ],
+        "title": "_EvictionPlanIn",
+        "type": "object"
+      },
+      "_ExecuteIn": {
+        "properties": {
+          "confirm": {
+            "default": false,
+            "title": "Confirm",
+            "type": "boolean"
+          }
+        },
+        "title": "_ExecuteIn",
+        "type": "object"
+      },
+      "_ExposeIn": {
+        "properties": {
+          "container_port": {
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Container Port",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "container_port"
+        ],
+        "title": "_ExposeIn",
+        "type": "object"
+      },
+      "_HttpPortsReport": {
+        "properties": {
+          "host_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Host Id",
+            "type": "string"
+          },
+          "ports": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Ports",
+            "type": "object"
+          }
+        },
+        "required": [
+          "host_id"
+        ],
+        "title": "_HttpPortsReport",
+        "type": "object"
+      },
+      "_McpAuditIn": {
+        "properties": {
+          "action_plan_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action Plan Id"
+          },
+          "api_route": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Route"
+          },
+          "api_status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Status"
+          },
+          "approval_method": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Method"
+          },
+          "client_id": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotency Key"
+          },
+          "latency_ms": {
+            "minimum": 0.0,
+            "title": "Latency Ms",
+            "type": "integer"
+          },
+          "outcome": {
+            "maxLength": 32,
+            "title": "Outcome",
+            "type": "string"
+          },
+          "principal_id": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Principal Id"
+          },
+          "problem_type": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem Type"
+          },
+          "redacted_args_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Redacted Args Hash",
+            "type": "string"
+          },
+          "resource_id": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resource Id"
+          },
+          "scopes_evaluated": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Scopes Evaluated",
+            "type": "array"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          },
+          "tool_name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Tool Name",
+            "type": "string"
+          },
+          "tool_version": {
+            "maxLength": 32,
+            "title": "Tool Version",
+            "type": "string"
+          },
+          "trace_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Trace Id",
+            "type": "string"
+          },
+          "transport": {
+            "maxLength": 32,
+            "title": "Transport",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool_name",
+          "tool_version",
+          "transport",
+          "redacted_args_hash",
+          "latency_ms",
+          "trace_id",
+          "outcome"
+        ],
+        "title": "_McpAuditIn",
+        "type": "object"
+      },
+      "_OpIn": {
+        "properties": {
+          "expected_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Version"
+          }
+        },
+        "title": "_OpIn",
+        "type": "object"
+      },
+      "_RevokeIn": {
+        "properties": {
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "_RevokeIn",
+        "type": "object"
+      },
+      "_UserImageCompleteIn": {
+        "properties": {
+          "error": {
+            "default": "",
+            "title": "Error",
+            "type": "string"
+          },
+          "size_bytes": {
+            "default": 0,
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "_UserImageCompleteIn",
+        "type": "object"
+      },
+      "_UserImagePatchIn": {
+        "description": "Phase D \u2014 partial update for a template's UI-facing metadata.\n\nEvery field is optional; only provided fields are updated. Image\ndata itself (``image_ref``, ``size_bytes``, ``status``) is NEVER\npatched via this endpoint \u2014 those are managed by the worker.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "is_public": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Public"
+          },
+          "labels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Labels"
+          },
+          "starred": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starred"
+          }
+        },
+        "title": "_UserImagePatchIn",
+        "type": "object"
+      },
+      "routes__privacy__ConsentRequest__1": {
+        "properties": {
+          "consent_type": {
+            "title": "Consent Type",
+            "type": "string"
+          },
+          "details": {
+            "additionalProperties": true,
+            "title": "Details",
+            "type": "object"
+          },
+          "entity_id": {
+            "title": "Entity Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entity_id",
+          "consent_type"
+        ],
+        "title": "ConsentRequest",
+        "type": "object"
+      },
+      "routes__privacy__ConsentRequest__2": {
+        "properties": {
+          "consent_type": {
+            "default": "express",
+            "title": "Consent Type",
+            "type": "string"
+          },
+          "purpose": {
+            "title": "Purpose",
+            "type": "string"
+          }
+        },
+        "required": [
+          "purpose"
+        ],
+        "title": "ConsentRequest",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Xcelsior Control-Plane API v1",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/control-plane/commands/{command_id}/retry": {
+      "post": {
+        "description": "Redeliver only failed/dead-letter commands without changing identity.",
+        "operationId": "api_v1_retry_agent_command_api_v1_control_plane_commands__command_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Command Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/_OpIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api V1 Retry Agent Command",
+        "tags": [
+          "Control plane v1"
+        ]
+      }
+    },
+    "/api/v1/control-plane/health": {
+      "get": {
+        "description": "\u00a718/\u00a720.2 \u2014 control-plane health aggregate: outbox, findings, tasks.\n\nA dashboard \"0\" from a broken pipeline must be distinguishable from a\ngenuine zero (DA\u00a717), so this reports live counts, not a single flag.\nOperator read.",
+        "operationId": "api_v1_control_plane_health_api_v1_control_plane_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Api V1 Control Plane Health",
+        "tags": [
+          "Control plane v1"
+        ]
+      }
+    },
+    "/api/v1/control-plane/queue": {
+      "get": {
+        "description": "\u00a718/\u00a720.2 \u2014 the queued instances awaiting placement, with reasons. Operator read.",
+        "operationId": "api_v1_control_plane_queue_api_v1_control_plane_queue_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Api V1 Control Plane Queue",
+        "tags": [
+          "Control plane v1"
+        ]
+      }
+    },
+    "/api/v1/control-plane/reconciliation-findings": {
+      "get": {
+        "description": "\u00a718/\u00a720.2 \u2014 reconciler findings feed (operator surface).\n\nAdmin, or a machine principal with `control_plane:read`. Wraps the existing\n`reconciliation_findings` authority; read-only.",
+        "operationId": "api_v1_reconciliation_findings_api_v1_control_plane_reconciliation_findings_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "default": "open",
+              "title": "Status",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api V1 Reconciliation Findings",
+        "tags": [
+          "Control plane v1"
+        ]
+      }
+    },
+    "/api/v1/hosts/{host_id}/capacity": {
+      "get": {
+        "description": "\u00a718/\u00a720.4 \u2014 a host's GPU capacity snapshot. Operator read.",
+        "operationId": "api_v1_host_capacity_api_v1_hosts__host_id__capacity_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host_id",
+            "required": true,
+            "schema": {
+              "title": "Host Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api V1 Host Capacity",
+        "tags": [
+          "Control plane v1"
+        ]
+      }
+    },
+    "/api/v1/hosts/{host_id}/drain": {
+      "post": {
+        "description": "\u00a73.3 drain \u2014 stop **new** placements only. Running workloads keep running.\n\nUnlike the legacy endpoint, this does NOT preempt. To remove workloads, call\n`/evictions` (a separate scope + audit trail).",
+        "operationId": "api_v1_drain_host_api_v1_hosts__host_id__drain_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host_id",
+            "required": true,
+            "schema": {
+              "title": "Host Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/_OpIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api V1 Drain Host",
+        "tags": [
+          "Control plane v1"
+        ]
+      }
+    },
+    "/api/v1/hosts/{host_id}/eviction-plans": {
+      "post": {
+        "description": "Create a human-approved plan; this never evicts workloads.",
+        "operationId": "api_v1_create_eviction_plan_api_v1_hosts__host_id__eviction_plans_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host_id",
+            "required": true,
+            "schema": {
+              "title": "Host Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/_EvictionPlanIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api V1 Create Eviction Plan",
+        "tags": [
+          "Control plane v1"
+        ]
+      }
+    },
+    "/api/v1/hosts/{host_id}/eviction-plans/{plan_id}/execute": {
+      "post": {
+        "operationId": "api_v1_execute_eviction_plan_api_v1_hosts__host_id__eviction_plans__plan_id__execute_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host_id",
+            "required": true,
+            "schema": {
+              "title": "Host Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Plan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api V1 Execute Eviction Plan",
+        "tags": [
+          "Control plane v1"
+        ]
+      }
+    },
+    "/api/v1/hosts/{host_id}/evictions": {
+      "post": {
+        "description": "\u00a73.3 evict \u2014 remove running workloads from a host, distinct from drain.\n\nRequires the `hosts:evict` scope (a principal cleared only to drain cannot\nevict). Each workload is preempted (running \u2192 preempted \u2192 requeued), which\nabandons its placement so a fresh, fenced attempt is scheduled elsewhere.\nRecords a separate `host.workloads_evicted` audit event.",
+        "operationId": "api_v1_evict_host_workloads_api_v1_hosts__host_id__evictions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host_id",
+            "required": true,
+            "schema": {
+              "title": "Host Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/_OpIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api V1 Evict Host Workloads",
+        "tags": [
+          "Control plane v1"
+        ]
+      }
+    },
+    "/api/v1/hosts/{host_id}/observations": {
+      "get": {
+        "description": "\u00a718/\u00a720.4 \u2014 recent worker-reported observations for a host. Operator read.",
+        "operationId": "api_v1_host_observations_api_v1_hosts__host_id__observations_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host_id",
+            "required": true,
+            "schema": {
+              "title": "Host Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api V1 Host Observations",
+        "tags": [
+          "Control plane v1"
+        ]
+      }
+    },
+    "/api/v1/hosts/{host_id}/undrain": {
+      "post": {
+        "description": "\u00a73.3 undrain \u2014 return a drained host to service.",
+        "operationId": "api_v1_undrain_host_api_v1_hosts__host_id__undrain_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host_id",
+            "required": true,
+            "schema": {
+              "title": "Host Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/_OpIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api V1 Undrain Host",
+        "tags": [
+          "Control plane v1"
+        ]
+      }
+    },
+    "/api/v1/instances/{job_id}": {
+      "get": {
+        "description": "Tenant-safe instance detail; cross-tenant identifiers are not-found.",
+        "operationId": "api_v1_instance_api_v1_instances__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api V1 Instance",
+        "tags": [
+          "Control plane v1"
+        ]
+      }
+    },
+    "/api/v1/instances/{job_id}/active-lease": {
+      "get": {
+        "description": "Current lease health with a tenant-safe host alias and no credentials.",
+        "operationId": "api_v1_instance_active_lease_api_v1_instances__job_id__active_lease_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api V1 Instance Active Lease",
+        "tags": [
+          "Control plane v1"
+        ]
+      }
+    },
+    "/api/v1/instances/{job_id}/attempts": {
+      "get": {
+        "description": "\u00a718 \u2014 the raw attempt records for a job. Tenant-scoped.",
+        "operationId": "api_v1_instance_attempts_api_v1_instances__job_id__attempts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api V1 Instance Attempts",
+        "tags": [
+          "Control plane v1"
+        ]
+      }
+    },
+    "/api/v1/instances/{job_id}/control-plane": {
+      "get": {
+        "description": "\u00a718/\u00a720.3 \u2014 a job's control-plane state: phase, desired state, current\nattempt. Tenant-scoped; a cross-tenant id is not-found (no existence leak).",
+        "operationId": "api_v1_instance_control_plane_api_v1_instances__job_id__control_plane_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api V1 Instance Control Plane",
+        "tags": [
+          "Control plane v1"
+        ]
+      }
+    },
+    "/api/v1/instances/{job_id}/events": {
+      "get": {
+        "description": "Durable, opaque-cursor event page for resumable MCP watches.",
+        "operationId": "api_v1_instance_events_api_v1_instances__job_id__events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api V1 Instance Events",
+        "tags": [
+          "Control plane v1"
+        ]
+      }
+    },
+    "/api/v1/instances/{job_id}/placement-explanation": {
+      "get": {
+        "description": "\u00a73.2/\u00a718 \u2014 the persisted placement explanation for the current attempt.\n\nReturns the bounded, pre-computed explanation the scheduler stored (no LLM\ninvents a reason). Tenant-scoped; not-found for a cross-tenant id.",
+        "operationId": "api_v1_instance_placement_explanation_api_v1_instances__job_id__placement_explanation_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api V1 Instance Placement Explanation",
+        "tags": [
+          "Control plane v1"
+        ]
+      }
+    },
+    "/api/v1/instances/{job_id}/reconcile": {
+      "post": {
+        "description": "\u00a73.3/\u00a718 reconcile \u2014 **enqueue** a reconcile for this instance.\n\nIt never performs direct repair (\u00a73.3): it inserts a durable request into\n`reconciliation_queue`, coalesced to one pending entry per instance, and the\nreconciler claims and processes it out-of-band. Tenant-scoped.",
+        "operationId": "api_v1_instance_reconcile_api_v1_instances__job_id__reconcile_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/_OpIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api V1 Instance Reconcile",
+        "tags": [
+          "Control plane v1"
+        ]
+      }
+    },
+    "/api/v1/instances/{job_id}/retry": {
+      "post": {
+        "description": "\u00a718 \u2014 re-enqueue a failed/stuck instance (does not run the queue inline).\n\nTenant-scoped write. Delegates to the one requeue authority; the scheduler\nthen claims and places it.",
+        "operationId": "api_v1_instance_retry_api_v1_instances__job_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/_OpIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api V1 Instance Retry",
+        "tags": [
+          "Control plane v1"
+        ]
+      }
+    },
+    "/api/v1/instances/{job_id}/timeline": {
+      "get": {
+        "description": "\u00a720.3 \u2014 the attempt timeline for a job (reserve \u2192 command \u2192 lease \u2192\nstart \u2192 end per attempt). Tenant-scoped; cross-tenant is not-found.",
+        "operationId": "api_v1_instance_timeline_api_v1_instances__job_id__timeline_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api V1 Instance Timeline",
+        "tags": [
+          "Control plane v1"
+        ]
+      }
+    },
+    "/api/v1/launch-plans": {
+      "post": {
+        "description": "\u00a714.1 preview. Creates an action plan; no attempt/allocation/lease/hold/job.\n\nReturns the plan id, versioned estimate, current placement availability,\nexpiry, approval mode, and the next action. A confirmed launch happens\nonly after approval, through the execute endpoint (B2.5).",
+        "operationId": "api_create_launch_plan_api_v1_launch_plans_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Create Launch Plan",
+        "tags": [
+          "Launch plans"
+        ]
+      }
+    },
+    "/api/v1/launch-plans/{plan_id}": {
+      "get": {
+        "description": "Return action status only to its tenant; foreign ids remain not-found.",
+        "operationId": "api_get_launch_plan_api_v1_launch_plans__plan_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "title": "Plan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Get Launch Plan",
+        "tags": [
+          "Launch plans"
+        ]
+      }
+    },
+    "/api/v1/launch-plans/{plan_id}/approve": {
+      "post": {
+        "description": "\u00a714.2 approval. Standing policy self-approves inside limits; else a human.",
+        "operationId": "api_approve_launch_plan_api_v1_launch_plans__plan_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "title": "Plan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/_ApproveIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Approve Launch Plan",
+        "tags": [
+          "Launch plans"
+        ]
+      }
+    },
+    "/api/v1/launch-plans/{plan_id}/execute": {
+      "post": {
+        "description": "\u00a714.3 execute. Exactly-once; a price move beyond tolerance is 409 quote_changed.",
+        "operationId": "api_execute_launch_plan_api_v1_launch_plans__plan_id__execute_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "title": "Plan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/_ExecuteIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Execute Launch Plan",
+        "tags": [
+          "Launch plans"
+        ]
+      }
+    },
+    "/api/v1/launch-plans/{plan_id}/revoke": {
+      "post": {
+        "description": "\u00a714.2 revoke \u2014 idempotent; a consumed or terminal plan cannot be revoked.",
+        "operationId": "api_revoke_launch_plan_api_v1_launch_plans__plan_id__revoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "title": "Plan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/_RevokeIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Revoke Launch Plan",
+        "tags": [
+          "Launch plans"
+        ]
+      }
+    },
+    "/api/v1/mcp/tool-audit": {
+      "post": {
+        "description": "Persist a redacted MCP audit and its delivery intent atomically.",
+        "operationId": "api_v1_mcp_tool_audit_api_v1_mcp_tool_audit_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/_McpAuditIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api V1 Mcp Tool Audit",
+        "tags": [
+          "Control plane v1"
+        ]
+      }
+    },
+    "/api/v1/openapi.json": {
+      "get": {
+        "description": "The versioned OpenAPI schema for the `/api/v1` surface (\u00a718.1).\n\nThe app serves a *curated* public spec at `/openapi.json`; the generated MCP\nand dashboard clients (B5.2, B6.1) instead pin this \u2014 the live FastAPI schema\nfiltered to `/api/v1/*` \u2014 so a client is always in lockstep with the routes\nactually mounted.",
+        "operationId": "api_v1_openapi_api_v1_openapi_json_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Api V1 Openapi",
+        "tags": [
+          "Control plane v1"
+        ]
+      }
+    },
+    "/api/v1/placements/simulate": {
+      "post": {
+        "description": "\u00a718 placement feasibility for a spec \u2014 read-only.\n\nReuses the launch service's snapshot + Stage-C filter simulation: it creates\nno plan, no attempt, no allocation, and no lease. Answers \"could this be\nplaced right now, and if not, why\".",
+        "operationId": "api_simulate_placement_api_v1_placements_simulate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Simulate Placement",
+        "tags": [
+          "Launch plans"
+        ]
+      }
+    },
+    "/api/v1/serverless/endpoint-plans": {
+      "post": {
+        "description": "Persist an encrypted, server-bound approval plan for endpoint spend.",
+        "operationId": "api_v1_serverless_endpoint_plan_api_v1_serverless_endpoint_plans_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServerlessEndpointCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api V1 Serverless Endpoint Plan",
+        "tags": [
+          "Serverless"
+        ]
+      }
+    },
+    "/api/v1/serverless/endpoint-plans/{plan_id}/execute": {
+      "post": {
+        "description": "Idempotently create one endpoint for one approved plan.",
+        "operationId": "api_v1_execute_serverless_endpoint_plan_api_v1_serverless_endpoint_plans__plan_id__execute_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "title": "Plan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api V1 Execute Serverless Endpoint Plan",
+        "tags": [
+          "Serverless"
+        ]
+      }
+    }
+  }
+}
