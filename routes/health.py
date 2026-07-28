@@ -614,7 +614,9 @@ async def sse_stream(request: Request):
     `last_event_id` query param); the generator replays the durable gap before
     tailing live (B4.6, §16.3).
     """
-    last_event_id = request.headers.get("last-event-id") or request.query_params.get("last_event_id")
+    last_event_id = request.headers.get("last-event-id") or request.query_params.get(
+        "last_event_id"
+    )
     return StreamingResponse(
         _sse_generator(request, last_event_id=last_event_id),
         media_type="text/event-stream",
@@ -671,15 +673,11 @@ def readyz():
             with _get_pg_pool().connection() as conn:
                 schema = assert_schema_compatible(conn)
         except SchemaIncompatibleError as exc:
-            raise HTTPException(
-                status_code=503, detail=f"Database schema incompatible: {exc}"
-            )
+            raise HTTPException(status_code=503, detail=f"Database schema incompatible: {exc}")
         except HTTPException:
             raise
         except Exception as exc:
-            raise HTTPException(
-                status_code=503, detail=f"Database not ready (schema check): {exc}"
-            )
+            raise HTTPException(status_code=503, detail=f"Database not ready (schema check): {exc}")
     else:
         schema = None
 
@@ -691,9 +689,7 @@ def readyz():
 
         validate_rate_limit_policy()
     except RateLimitPolicyError as exc:
-        raise HTTPException(
-            status_code=503, detail=f"Rate-limit policy misconfigured: {exc}"
-        )
+        raise HTTPException(status_code=503, detail=f"Rate-limit policy misconfigured: {exc}")
     except HTTPException:
         raise
     except Exception:
@@ -788,7 +784,12 @@ def service_status():
         with pool.connection() as conn:
             row = conn.execute("SELECT 1 AS ok").fetchone()
         ok = bool(row)
-        add("Database", "operational" if ok else "down", "connected" if ok else "query returned no rows", True)
+        add(
+            "Database",
+            "operational" if ok else "down",
+            "connected" if ok else "query returned no rows",
+            True,
+        )
     except Exception as exc:
         add("Database", "down", f"unreachable: {exc}", True)
 
@@ -850,7 +851,12 @@ def service_status():
             nfs_required,
         )
     except Exception as exc:
-        add("Volumes (NFS)", "down" if nfs_required else "degraded", f"nfs error: {exc}", nfs_required)
+        add(
+            "Volumes (NFS)",
+            "down" if nfs_required else "degraded",
+            f"nfs error: {exc}",
+            nfs_required,
+        )
 
     required_down = any(s["required"] and s["state"] == "down" for s in services)
     has_problem = any(s["state"] in ("down", "degraded") for s in services)
@@ -898,6 +904,61 @@ def metrics_prometheus():
         "# TYPE xcelsior_billing_records_total gauge",
         f'xcelsior_billing_records_total {snap.get("billing_totals", {}).get("records", 0)}',
     ]
+
+    # B4.4 projection metrics are derived from durable database state so they
+    # remain truthful when the dispatcher runs in the separate bg-worker
+    # process. Process-local counters in the API would incorrectly stay at zero.
+    try:
+        from control_plane.projection_delivery import health_snapshot
+        from db import _get_pg_pool
+
+        with _get_pg_pool().connection() as conn:
+            projection = health_snapshot(conn)
+        lines.extend(
+            [
+                "",
+                "# HELP xcelsior_projection_metrics_available 1 when projection metrics can be read",
+                "# TYPE xcelsior_projection_metrics_available gauge",
+                "xcelsior_projection_metrics_available 1",
+                "# HELP xcelsior_projection_outbox_unprepared Outbox events awaiting fan-out preparation",
+                "# TYPE xcelsior_projection_outbox_unprepared gauge",
+                f'xcelsior_projection_outbox_unprepared {projection["unprepared"]}',
+                "# HELP xcelsior_projection_orphaned_deliveries Delivery receipts missing their source outbox event",
+                "# TYPE xcelsior_projection_orphaned_deliveries gauge",
+                f'xcelsior_projection_orphaned_deliveries {projection["orphaned"]}',
+                "# HELP xcelsior_projection_deliveries Delivery receipts by sink and state",
+                "# TYPE xcelsior_projection_deliveries gauge",
+                "# HELP xcelsior_projection_oldest_pending_seconds Age of the oldest pending receipt",
+                "# TYPE xcelsior_projection_oldest_pending_seconds gauge",
+                "# HELP xcelsior_projection_delivery_latency_p95_seconds P95 delivery latency for retained successful receipts",
+                "# TYPE xcelsior_projection_delivery_latency_p95_seconds gauge",
+            ]
+        )
+        for sink in projection["sinks"]:
+            sink_label = json.dumps(str(sink["sink"]))
+            for status in ("pending", "delivered", "dead_lettered"):
+                lines.append(
+                    "xcelsior_projection_deliveries"
+                    f'{{sink={sink_label},status="{status}"}} {sink[status]}'
+                )
+            lines.append(
+                "xcelsior_projection_oldest_pending_seconds"
+                f'{{sink={sink_label}}} {sink["oldest_pending_seconds"]}'
+            )
+            lines.append(
+                "xcelsior_projection_delivery_latency_p95_seconds"
+                f'{{sink={sink_label}}} {sink["delivery_latency_p95_seconds"]}'
+            )
+    except Exception as e:
+        log.debug("projection delivery metrics failed: %s", e)
+        lines.extend(
+            [
+                "",
+                "# HELP xcelsior_projection_metrics_available 1 when projection metrics can be read",
+                "# TYPE xcelsior_projection_metrics_available gauge",
+                "xcelsior_projection_metrics_available 0",
+            ]
+        )
 
     volumes = snap.get("volumes", {})
     lines.extend(

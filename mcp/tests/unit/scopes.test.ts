@@ -14,7 +14,13 @@ describe("userHasScope", () => {
     expect(userHasScope(["instances:read"], ["billing:read"])).toBe(false);
   });
 
-  it("allows when scopes undefined (session user)", () => {
-    expect(userHasScope(undefined, ["billing:read"])).toBe(true);
+  it("denies when scopes are undefined or empty", () => {
+    expect(userHasScope(undefined, ["billing:read"])).toBe(false);
+    expect(userHasScope([], ["billing:read"])).toBe(false);
+  });
+
+  it("denies unknown and wrong scopes", () => {
+    expect(userHasScope(["unknown"], ["billing:read"])).toBe(false);
+    expect(userHasScope(["instances:read"], ["billing:read"])).toBe(false);
   });
 });

@@ -10,10 +10,12 @@ set -euo pipefail
 
 BILLING_ACCOUNT="01E88E-11F37C-ADCBD5"
 ORG_ID="812964255343"   # xcelsior org (from project parent)
+# Canonical AI/workload project is xcelsior-gpu (not legacy xcelsior-502014).
 PROJECTS=(
-  "xcelsior-502014"
+  "xcelsior-gpu"
   "pixelenhance-labs"
   "pixelspark-502414"
+  "phantom-trades-mvp"
 )
 
 # All three humans who should see billing + org name + projects

@@ -22,10 +22,16 @@ import { cn } from "@/lib/utils";
 const MCP_SCOPES = [
   "instances:read",
   "instances:write",
+  "instances:operate",
   "billing:read",
   "gpu:read",
   "marketplace:read",
+  "events:read",
+  "inference:read",
+  "inference:write",
 ] as const;
+
+const MCP_RESOURCE = "https://mcp.xcelsior.ca";
 
 const STEPS = ["create", "copy", "token", "paste"] as const;
 
@@ -46,7 +52,7 @@ function tokenCurl(clientId: string, clientSecret: string): string {
   const base = process.env.NEXT_PUBLIC_API_URL || "https://xcelsior.ca";
   return `curl -s -X POST '${base}/oauth/token' \\
   -H 'Content-Type: application/x-www-form-urlencoded' \\
-  -d 'grant_type=client_credentials&client_id=${clientId}&client_secret=${clientSecret}'`;
+  -d 'grant_type=client_credentials&resource=${encodeURIComponent(MCP_RESOURCE)}&client_id=${clientId}&client_secret=${clientSecret}'`;
 }
 
 export function McpAgentSetup({
@@ -121,6 +127,7 @@ export function McpAgentSetup({
           grant_type: "client_credentials",
           client_id: freshCredentials.clientId,
           client_secret: freshCredentials.clientSecret,
+          resource: MCP_RESOURCE,
         }).toString(),
       });
       const body = (await res.json()) as { access_token?: string };

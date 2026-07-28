@@ -15,6 +15,9 @@ actually *happen*:
 - ``agent_wake`` → no-op acknowledgement today (workers poll on
   ``POLL_INTERVAL``); a future push channel plugs in here to cut
   placement-to-start latency.
+- ``audit``      → compatibility acknowledgement for MCP audit rows written
+  before B4.4 separated destination classes from per-sink projections. The
+  event remains in the one outbox for the projection runtime to fan out.
 
 Delivery is at-least-once (claim/settle with redelivery on crash), so
 handlers are idempotent: re-notifying an SSE event is harmless — clients
@@ -281,9 +284,7 @@ def handle_default(event: OutboxEvent) -> None:
     """Publish the event's SSE projection on the shared NOTIFY channel."""
     message = sse_payload_for(event)
     if message is None:
-        log.debug(
-            "outbox %s (%s): no SSE projection", event.event_id, event.event_type
-        )
+        log.debug("outbox %s (%s): no SSE projection", event.event_id, event.event_type)
         return
     message["ts"] = time.time()
     run_transaction(
@@ -304,8 +305,22 @@ def handle_agent_wake(event: OutboxEvent) -> None:
     )
 
 
+def handle_legacy_audit(event: OutboxEvent) -> None:
+    """Settle pre-runtime ``destination_class='audit'`` rows.
+
+    Audit delivery is not performed here: B4.4 materializes the independent
+    ``audit_log`` receipt from the same outbox row. Retention will not remove
+    the source until that receipt succeeds.
+    """
+    log.debug("legacy audit destination %s handed to projection runtime", event.event_id)
+
+
 def default_handlers() -> dict:
-    return {"default": handle_default, "agent_wake": handle_agent_wake}
+    return {
+        "default": handle_default,
+        "agent_wake": handle_agent_wake,
+        "audit": handle_legacy_audit,
+    }
 
 
 def prune_settled_events(
@@ -319,22 +334,66 @@ def prune_settled_events(
     Dead-lettered rows get double the retention so operators have time to
     notice them (they also surface via logs at delivery time).
     """
-    result = conn.execute(
-        """
-        DELETE FROM outbox_events
-         WHERE event_id IN (
-             SELECT event_id FROM outbox_events
-              WHERE (published_at IS NOT NULL
-                     AND published_at < clock_timestamp()
-                                        - make_interval(days => %(days)s))
-                 OR (dead_lettered_at IS NOT NULL
-                     AND dead_lettered_at < clock_timestamp()
-                                            - make_interval(days => %(days)s * 2))
-              LIMIT %(limit)s
-         )
-        """,
-        {"days": retention_days, "limit": limit},
+    projection_tables = conn.execute("""
+        SELECT to_regclass('projection_deliveries'),
+               to_regclass('projection_checkpoints')
+        """).fetchone()
+    projection_ready = bool(
+        projection_tables and all(value is not None for value in projection_tables)
     )
+    if projection_ready:
+        # Never remove the one source row while an active projection sink still
+        # needs it. The pre-B4 retention query could prune a published event
+        # before fan-out was prepared, creating an orphaned delivery receipt.
+        result = conn.execute(
+            """
+            DELETE FROM outbox_events
+             WHERE event_id IN (
+                 SELECT event_id FROM outbox_events
+                  WHERE (
+                        (published_at IS NOT NULL
+                         AND published_at < clock_timestamp()
+                                            - make_interval(days => %(days)s))
+                     OR (dead_lettered_at IS NOT NULL
+                         AND dead_lettered_at < clock_timestamp()
+                                                - make_interval(days => %(days)s * 2))
+                  )
+                    AND (
+                        NOT EXISTS (
+                            SELECT 1 FROM projection_checkpoints WHERE active
+                        )
+                        OR (
+                            fanout_prepared_at IS NOT NULL
+                            AND NOT EXISTS (
+                                SELECT 1
+                                  FROM projection_deliveries d
+                                 WHERE d.event_id = outbox_events.event_id
+                                   AND d.status <> 'delivered'
+                            )
+                        )
+                    )
+                  LIMIT %(limit)s
+             )
+            """,
+            {"days": retention_days, "limit": limit},
+        )
+    else:
+        result = conn.execute(
+            """
+            DELETE FROM outbox_events
+             WHERE event_id IN (
+                 SELECT event_id FROM outbox_events
+                  WHERE (published_at IS NOT NULL
+                         AND published_at < clock_timestamp()
+                                            - make_interval(days => %(days)s))
+                     OR (dead_lettered_at IS NOT NULL
+                         AND dead_lettered_at < clock_timestamp()
+                                                - make_interval(days => %(days)s * 2))
+                  LIMIT %(limit)s
+             )
+            """,
+            {"days": retention_days, "limit": limit},
+        )
     return result.rowcount
 
 
@@ -361,9 +420,7 @@ def run_dispatcher_loop(
     Failures are contained per cycle — the loop must outlive transient DB
     or handler trouble.
     """
-    dispatcher = OutboxDispatcher(
-        dispatcher_id or f"outbox-{os.getpid()}", default_handlers()
-    )
+    dispatcher = OutboxDispatcher(dispatcher_id or f"outbox-{os.getpid()}", default_handlers())
     stop = stop or threading.Event()
     cycles = 0
     log.info("outbox dispatcher %s starting", dispatcher.dispatcher_id)
@@ -400,8 +457,6 @@ def start_outbox_dispatcher() -> threading.Thread | None:
     except Exception as e:
         log.error("outbox schema check failed (%s) — dispatcher not starting", e)
         return None
-    thread = threading.Thread(
-        target=run_dispatcher_loop, name="outbox-dispatcher", daemon=True
-    )
+    thread = threading.Thread(target=run_dispatcher_loop, name="outbox-dispatcher", daemon=True)
     thread.start()
     return thread

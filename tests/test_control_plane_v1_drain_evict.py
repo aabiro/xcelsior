@@ -21,7 +21,7 @@ from routes.problem import PROBLEM_MEDIA_TYPE
 
 client = TestClient(app)
 
-_OWNED = {"hosts": set(), "jobs": set()}
+_OWNED = {"hosts": set(), "jobs": set(), "plans": set()}
 
 
 @pytest.fixture(autouse=True)
@@ -44,12 +44,15 @@ def _auth_env(monkeypatch):
     import scheduler as sched
 
     with sched._atomic_mutation() as conn:
+        for pid in _OWNED["plans"]:
+            conn.execute("DELETE FROM action_plans WHERE plan_id=%s", (pid,))
         for jid in _OWNED["jobs"]:
             conn.execute("DELETE FROM jobs WHERE job_id=%s", (jid,))
         for hid in _OWNED["hosts"]:
             conn.execute("DELETE FROM hosts WHERE host_id=%s", (hid,))
     _OWNED["hosts"].clear()
     _OWNED["jobs"].clear()
+    _OWNED["plans"].clear()
 
 
 GOOD_VERSIONS = {
@@ -157,6 +160,45 @@ def test_v1_evictions_removes_running_workloads():
     # Evicted workload is no longer running on the host (preempted → requeued).
     after = client.get(f"/instance/{job_id}").json()["instance"]
     assert after["status"] != "running"
+
+
+def test_eviction_plan_preview_does_nothing_and_execute_is_idempotent():
+    from db import _get_pg_pool
+
+    admin = _admin_headers(f"evict-plan-{uuid.uuid4().hex[:6]}@xcelsior.ca")
+    host_id = f"cpv1-plan-{uuid.uuid4().hex[:6]}"
+    _register_host(host_id)
+    job_id = _running_job_on(host_id, admin)
+    assert client.post(f"/api/v1/hosts/{host_id}/drain", headers=admin, json={}).status_code == 200
+    with _get_pg_pool().connection() as conn:
+        version = int(conn.execute("SELECT version FROM hosts WHERE host_id=%s", (host_id,)).fetchone()[0])
+
+    preview = client.post(
+        f"/api/v1/hosts/{host_id}/eviction-plans",
+        headers=admin,
+        json={"expected_version": version, "reason": "planned maintenance"},
+    )
+    assert preview.status_code == 200, preview.text
+    plan_id = preview.json()["plan_id"]
+    _OWNED["plans"].add(plan_id)
+    assert client.get(f"/instance/{job_id}").json()["instance"]["status"] == "running"
+
+    approved = client.post(
+        f"/api/v1/launch-plans/{plan_id}/approve",
+        headers=admin,
+        json={"confirm": True},
+    )
+    assert approved.status_code == 200, approved.text
+    first = client.post(
+        f"/api/v1/hosts/{host_id}/eviction-plans/{plan_id}/execute", headers=admin
+    )
+    assert first.status_code == 200, first.text
+    assert job_id in first.json()["evicted"]
+    second = client.post(
+        f"/api/v1/hosts/{host_id}/eviction-plans/{plan_id}/execute", headers=admin
+    )
+    assert second.status_code == 200
+    assert second.json()["idempotent"] is True
 
 
 # ── Separation of authority (§3.3 "separately authorized") ──────────────
@@ -301,6 +343,8 @@ def test_control_plane_health_reports_live_counts():
     body = h.json()
     assert body["status"] in ("healthy", "degraded")
     assert "pending" in body["outbox"] and "dead_lettered" in body["outbox"]
+    assert "available" in body["projections"]
+    assert isinstance(body["projections"]["sinks"], list)
     assert "open_findings" in body["reconciliation"]
     assert isinstance(body["scheduled_tasks"], list)
 

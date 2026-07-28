@@ -111,6 +111,30 @@ def _event_row(agg):
     return {"published_at": row[0], "dead_lettered_at": row[1], "attempt_count": row[2]}
 
 
+def _dispatch_until_settled(agg, *, max_batches=100):
+    """Drain bounded batches until this test's event is settled.
+
+    The integration database is shared by the suite, so unrelated valid
+    outbox work may sort ahead of the event created by this test.
+    """
+    dispatcher = OutboxDispatcher(
+        f"test-{uuid.uuid4().hex[:6]}", default_handlers()
+    )
+    totals = {"published": 0, "unroutable": 0}
+    for _ in range(max_batches):
+        stats = dispatcher.run_once()
+        totals["published"] += stats["published"]
+        totals["unroutable"] += stats["unroutable"]
+        row = _event_row(agg)
+        if row is None or row["published_at"] is not None:
+            return totals
+        if stats["claimed"] == 0:
+            break
+    raise AssertionError(
+        f"outbox event for {agg} did not settle after {max_batches} batches"
+    )
+
+
 class TestSseProjection:
     def _evt(self, event_type, payload):
         return OutboxEvent(
@@ -160,9 +184,7 @@ class TestDispatcherDelivery:
             {"host_id": "h-obx", "attempt_id": "a-obx"},
         )
         with _Listener() as listener:
-            stats = OutboxDispatcher(
-                f"test-{uuid.uuid4().hex[:6]}", default_handlers()
-            ).run_once()
+            stats = _dispatch_until_settled(agg)
             messages = listener.collect()
         assert stats["published"] >= 1 and stats["unroutable"] == 0
         mine = [m for m in messages if m["data"].get("job_id") == agg]
@@ -174,9 +196,7 @@ class TestDispatcherDelivery:
     def test_unknown_type_publishes_without_notify(self, cleanup):
         agg = _mk_event(cleanup, "job.v1.mystery", {"x": 1})
         with _Listener() as listener:
-            OutboxDispatcher(
-                f"test-{uuid.uuid4().hex[:6]}", default_handlers()
-            ).run_once()
+            _dispatch_until_settled(agg)
             messages = listener.collect(max_wait=1.0)
         assert all(m["data"].get("job_id") != agg for m in messages)
         assert _event_row(agg)["published_at"] is not None  # settled, not stuck
@@ -186,7 +206,7 @@ class TestDispatcherDelivery:
             cleanup, "job.v1.placement_reserved", {"host_id": "h"},
             destination="agent_wake",
         )
-        OutboxDispatcher(f"test-{uuid.uuid4().hex[:6]}", default_handlers()).run_once()
+        _dispatch_until_settled(agg)
         assert _event_row(agg)["published_at"] is not None
 
     def test_placement_to_sse_end_to_end(self, cleanup):
@@ -231,7 +251,7 @@ class TestDispatcherDelivery:
         assert len(report.placements) == 1
 
         with _Listener() as listener:
-            OutboxDispatcher(f"test-{uuid.uuid4().hex[:6]}", default_handlers()).run_once()
+            _dispatch_until_settled(job_id)
             messages = listener.collect()
         mine = [m for m in messages if m["data"].get("job_id") == job_id]
         assert mine, f"no SSE projection delivered for {job_id}: {messages}"

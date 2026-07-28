@@ -6,6 +6,7 @@ import json
 import os
 import time
 import uuid
+import hashlib
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -14,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from routes._deps import (
     _effective_billing_customer_id,
+    _canonical_owner_id,
     _get_current_user,
     _require_auth,
     _require_scope,
@@ -48,7 +50,7 @@ from serverless.openai_proxy import (
     proxy_request,
     worker_base_url,
 )
-from serverless.env_secrets import encrypt_env_for_storage, payload_byte_size
+from serverless.env_secrets import encrypt_env_for_storage, payload_byte_size, redact_env_for_api
 from serverless.repo import (
     EndpointCreate,
     ServerlessRepo,
@@ -206,7 +208,13 @@ class ApiKeyCreateRequest(BaseModel):
     rate_limit_rpm: int = Field(60, ge=1, le=10_000)
 
 
-def _body_to_endpoint_create(body: ServerlessEndpointCreate, owner_id: str) -> EndpointCreate:
+def _body_to_endpoint_create(
+    body: ServerlessEndpointCreate,
+    owner_id: str,
+    *,
+    env_already_encrypted: bool = False,
+    action_plan_id: str | None = None,
+) -> EndpointCreate:
     from host_metadata import normalize_region
     from serverless.vanity import clean_endpoint_display_name
 
@@ -250,8 +258,9 @@ def _body_to_endpoint_create(body: ServerlessEndpointCreate, owner_id: str) -> E
         cuda_version=body.cuda_version,
         request_timeout_sec=body.request_timeout_sec,
         max_request_bytes=body.max_request_bytes,
-        env=encrypt_env_for_storage(body.env),
+        env=body.env if env_already_encrypted else encrypt_env_for_storage(body.env),
         lora_adapters=body.lora_adapters,
+        action_plan_id=action_plan_id,
     )
 
 
@@ -525,6 +534,127 @@ def api_serverless_create_endpoint(body: ServerlessEndpointCreate, request: Requ
         raise HTTPException(e.status_code, e.message)
     except ValueError as e:
         raise HTTPException(400, str(e))
+
+
+def _serverless_plan_principal(user: dict):
+    from control_plane.launch.service import Principal
+    return Principal(
+        principal_id=_canonical_owner_id(user),
+        tenant_id=_effective_billing_customer_id(user),
+        client_id=user.get("client_id"),
+        team_id=user.get("team_id"),
+        scopes=tuple(user.get("scopes") or ()),
+    )
+
+
+@router.post("/api/v1/serverless/endpoint-plans", tags=["Serverless"])
+def api_v1_serverless_endpoint_plan(body: ServerlessEndpointCreate, request: Request):
+    """Persist an encrypted, server-bound approval plan for endpoint spend."""
+    from control_plane.db import control_plane_transaction
+    from control_plane.launch import action_plans as plans_repo, spend_policy
+    from control_plane.launch.service import DEFAULT_TOLERANCE_BPS, plan_ttl_sec
+    from serverless.metering import pricing_for_endpoint
+
+    user = _require_auth(request)
+    _require_serverless_feature(user=user)
+    _require_scope(user, "inference:write")
+    _require_team_instance_write(user)
+    principal = _serverless_plan_principal(user)
+
+    canonical = body.model_dump()
+    canonical["env"] = encrypt_env_for_storage(body.env)
+    canonical_json = json.dumps(canonical, sort_keys=True, separators=(",", ":"), default=str)
+    canonical_hash = hashlib.sha256(canonical_json.encode()).hexdigest()
+    pricing = pricing_for_endpoint(canonical)
+    hourly = float(pricing.get("rate_per_hour_cad") or 0) * max(1, int(body.gpu_count))
+    # The approved maximum is one hour at max workers; actual metering remains
+    # worker-seconds and durable wallet enforcement remains PostgreSQL-owned.
+    estimate_micros = int(round(hourly * max(1, int(body.max_workers)) * 1_000_000))
+    policy_spec = {
+        "gpu_model": body.gpu_tier or body.gpu_type,
+        "region": body.region,
+        "runtime_seconds": 3600,
+        "security_mode": "serverless",
+    }
+    with control_plane_transaction() as conn:
+        policy = plans_repo.load_client_policy(
+            conn, client_id=principal.client_id, tenant_id=principal.tenant_id
+        )
+        decision = spend_policy.evaluate(policy_spec, estimate_micros=estimate_micros, policy=policy)
+        plan = plans_repo.create_quoted_plan(
+            conn,
+            action_type="create_serverless_endpoint",
+            principal_id=principal.principal_id,
+            client_id=principal.client_id,
+            tenant_id=principal.tenant_id,
+            team_id=principal.team_id,
+            canonical_args=canonical,
+            canonical_args_hash=canonical_hash,
+            spec_hash=canonical_hash,
+            quote_id=f"serverless:{canonical_hash[:20]}",
+            pricing_version=str(pricing.get("pricing_version") or "serverless-v1"),
+            estimate_micros=estimate_micros,
+            currency="CAD",
+            price_tolerance_bps=DEFAULT_TOLERANCE_BPS,
+            required_scopes=["inference:write"],
+            approval_mode=decision.approval_mode,
+            ttl_sec=plan_ttl_sec(),
+        )
+    plan_id = str(plan["plan_id"])
+    return {
+        "ok": True, "preview": True, "plan_id": plan_id,
+        "approval_state": plan["status"], "canonical_spec": {**canonical, "env": redact_env_for_api(canonical["env"])},
+        "estimate": {**pricing, "approved_max_micros": estimate_micros, "currency": "CAD"},
+        "availability": {"policy_valid": True},
+        "approval_url": f"/dashboard/launch-plans/{plan_id}",
+        "expires_at": plan["expires_at"].isoformat(),
+    }
+
+
+@router.post("/api/v1/serverless/endpoint-plans/{plan_id}/execute", tags=["Serverless"])
+def api_v1_execute_serverless_endpoint_plan(plan_id: str, request: Request):
+    """Idempotently create one endpoint for one approved plan."""
+    from control_plane.db import control_plane_transaction
+    from control_plane.launch import action_plans as plans_repo
+    from control_plane.launch.service import PlanConflict, PlanNotFound
+
+    user = _require_auth(request)
+    _require_serverless_feature(user=user)
+    _require_scope(user, "inference:write")
+    principal = _serverless_plan_principal(user)
+    with control_plane_transaction() as conn:
+        plan = plans_repo.get_plan_for_update(conn, plan_id)
+        if not plan or str(plan["tenant_id"]) != principal.tenant_id:
+            raise PlanNotFound()
+        if plan["action_type"] != "create_serverless_endpoint":
+            raise PlanConflict("wrong_action_type", "the plan is not for a serverless endpoint")
+        if plan["status"] == "succeeded":
+            return {**dict(plan["idempotent_response"]), "idempotent": True}
+        if plan["status"] != "approved":
+            raise PlanConflict("approval_required", "approve the endpoint plan before execution")
+        canonical = dict(plan["canonical_args"])
+        digest = hashlib.sha256(
+            json.dumps(canonical, sort_keys=True, separators=(",", ":"), default=str).encode()
+        ).hexdigest()
+        if digest != plan["canonical_args_hash"]:
+            raise PlanConflict("argument_hash_mismatch", "the approved endpoint plan was altered")
+
+    body = ServerlessEndpointCreate.model_validate(canonical)
+    spec = _body_to_endpoint_create(
+        body, _serverless_scope_owner_id(user),
+        env_already_encrypted=True, action_plan_id=plan_id,
+    )
+    ep = _svc().create_endpoint(spec)
+    response = {"ok": True, "endpoint": _serialize_endpoint(ep), "plan_id": plan_id}
+    with control_plane_transaction() as conn:
+        locked = plans_repo.get_plan_for_update(conn, plan_id)
+        if locked and locked["status"] == "succeeded":
+            return {**dict(locked["idempotent_response"]), "idempotent": True}
+        plans_repo.mark_consumed(
+            conn, plan_id, job_id=str(ep["endpoint_id"]), wallet_hold_id=None,
+            idempotent_response=response, idempotency_key=f"serverless-plan:{plan_id}",
+        )
+    return response
 
 
 @router.get("/api/v2/serverless/endpoints", tags=["Serverless"])

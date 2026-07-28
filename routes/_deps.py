@@ -1093,6 +1093,7 @@ def _get_current_user(request: Request) -> dict | None:
             merged["client_id"] = oauth_user.get("client_id")
             merged["session_token"] = oauth_user.get("session_token")
             merged["session_type"] = oauth_user.get("session_type", "browser")
+            merged["audience"] = oauth_user.get("audience")
             return merged
 
     machine_principal = validate_client_credentials_jwt(token)

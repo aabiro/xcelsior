@@ -4,13 +4,18 @@ import type { AuthUser } from "./auth/bearer.js";
 import { registerAllTools } from "./tools/index.js";
 import { registerResources } from "./resources/index.js";
 import { registerPlaybooks } from "./prompts/playbooks.js";
+import { installToolAudit } from "./audit/context.js";
 
 const SERVER_INFO = {
   name: "xcelsior-mcp",
-  version: "0.2.0",
+  version: "2.0.0",
 };
 
-export function createMcpServer(client: XcelsiorApiClient, user?: AuthUser): McpServer {
+export function createMcpServer(
+  client: XcelsiorApiClient,
+  user?: AuthUser,
+  transport: "streamable_http" | "stdio" = "streamable_http",
+): McpServer {
   const server = new McpServer(SERVER_INFO, {
     capabilities: {
       tools: {},
@@ -25,6 +30,7 @@ export function createMcpServer(client: XcelsiorApiClient, user?: AuthUser): Mcp
       "Canadian data residency and PIPEDA compliance are supported — prefer CA regions when required.",
     ].join(" "),
   });
+  installToolAudit(server, client, user, transport);
   registerAllTools(server, client, user);
   registerResources(server, client);
   registerPlaybooks(server);

@@ -46,7 +46,7 @@ async function main(): Promise<void> {
   }
 
   const client = createApiClient(config.apiUrl, token);
-  const server = createMcpServer(client, user);
+  const server = createMcpServer(client, user, "stdio");
   await server.connect(new StdioServerTransport());
 }
 

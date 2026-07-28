@@ -42,6 +42,8 @@ DEFAULT_TOLERANCE_BPS = 500
 # without declaring one (B5.1 will drive the MCP scope check from the plan).
 ACTION_REQUIRED_SCOPES: dict[str, list[str]] = {
     "create_instance": ["instances:operate"],
+    "create_serverless_endpoint": ["inference:write"],
+    "evict_host_workloads": ["hosts:evict"],
 }
 
 
@@ -127,6 +129,7 @@ def preview(
     principal: Principal,
     action_type: str = "create_instance",
     runway_hours: float = quoting.DEFAULT_RUNWAY_HOURS,
+    trace_id: str | None = None,
 ) -> dict[str, Any]:
     """§14.1 steps 1–8. Returns a plan preview; no compute-side effects.
 
@@ -179,6 +182,7 @@ def preview(
             required_scopes=required_scopes,
             approval_mode=decision.approval_mode,
             ttl_sec=plan_ttl_sec(),
+            trace_id=trace_id,
         )
 
     plan_id = str(plan["plan_id"])
@@ -231,7 +235,43 @@ def _plan_view(plan: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def approve(plan_id: str, *, principal: Principal, is_human: bool = False) -> dict[str, Any]:
+def get_owned_plan(plan_id: str, *, principal: Principal) -> dict[str, Any]:
+    """Read a tenant-owned plan without leaking cross-tenant existence."""
+    with control_plane_transaction() as conn:
+        plan = plans_repo.get_plan(conn, plan_id)
+        if plan is None or str(plan["tenant_id"]) != principal.tenant_id:
+            raise PlanNotFound()
+        view = _plan_view(plan)
+        view.update(
+            {
+                "action_type": plan.get("action_type"),
+                "required_scopes": list(plan.get("required_scopes") or ()),
+                "resulting_resource_id": plan.get("resulting_resource_id"),
+                "canonical_spec": {
+                    key: value
+                    for key, value in dict(plan.get("canonical_args") or {}).items()
+                    if key
+                    not in {
+                        "init_script",
+                        "environment",
+                        "env",
+                        "registry_password",
+                        "token",
+                        "secret",
+                    }
+                },
+            }
+        )
+        return {"ok": True, "plan": view}
+
+
+def approve(
+    plan_id: str,
+    *,
+    principal: Principal,
+    is_human: bool = False,
+    expected_version: int | None = None,
+) -> dict[str, Any]:
     """§14.2 approval. Server-bound; ``confirm:true`` never reaches here.
 
     A standing-policy plan re-checks its policy and self-approves only inside
@@ -243,6 +283,11 @@ def approve(plan_id: str, *, principal: Principal, is_human: bool = False) -> di
     with control_plane_transaction() as conn:
         plan = _load_owned_for_update(conn, plan_id, principal)
         status = str(plan["status"])
+        if expected_version is not None and int(plan["version"]) != int(expected_version):
+            raise PlanConflict(
+                "stale_plan_version",
+                f"expected version {expected_version}, current version is {plan['version']}",
+            )
 
         if status == "approved":
             return {"ok": True, "plan": _plan_view(plan), "idempotent": True}
@@ -335,7 +380,9 @@ def _deterministic_job_id(plan_id: str) -> str:
     return "job-" + hashlib.sha256(plan_id.encode()).hexdigest()[:12]
 
 
-def _submit_from_spec(spec: dict[str, Any], *, job_id: str, owner: str):
+def _submit_from_spec(
+    spec: dict[str, Any], *, job_id: str, owner: str, trace_id: str | None = None
+):
     """Create the job through the one job-creation authority (B0.2 rule 11).
 
     Maps the canonical spec onto ``submit_job`` — the same call the REST
@@ -369,6 +416,7 @@ def _submit_from_spec(spec: dict[str, Any], *, job_id: str, owner: str):
         source_template_id=spec.get("template_image_id") or None,
         pricing_mode=spec.get("pricing_mode") or "on_demand",
         region=spec.get("region") or "",
+        trace_id=trace_id,
         job_id=job_id,
     )
 
@@ -391,6 +439,7 @@ def execute(plan_id: str, *, principal: Principal) -> dict[str, Any]:
     replacement_spec: dict[str, Any] | None = None
     result: dict[str, Any] | None = None
     deferred_expired = False
+    spend_reservation = None
 
     with control_plane_transaction() as conn:
         plan = _load_owned_for_update(conn, plan_id, principal)
@@ -439,6 +488,33 @@ def execute(plan_id: str, *, principal: Principal) -> dict[str, Any]:
             else:
                 tenant_id = str(plan["tenant_id"])
                 job_id = _deterministic_job_id(plan_id)
+                policy = plans_repo.load_client_policy(
+                    conn,
+                    client_id=plan.get("client_id"),
+                    tenant_id=tenant_id,
+                )
+                if policy:
+                    from control_plane.launch import spend_counters
+
+                    try:
+                        spend_reservation = spend_counters.reserve(
+                            plan_id=plan_id,
+                            client_id=str(plan.get("client_id") or principal.principal_id),
+                            tenant_id=tenant_id,
+                            amount_micros=int(plan["estimate_micros"] or 0),
+                            hourly_limit_micros=policy.get("hourly_spend_max_micros"),
+                            daily_limit_micros=policy.get("daily_spend_max_micros"),
+                        )
+                    except spend_counters.SpendLimitExceeded as exc:
+                        raise PlanConflict(
+                            f"{exc.window}_spend_limit_exceeded", str(exc)
+                        ) from exc
+                    except spend_counters.SpendCounterUnavailable as exc:
+                        raise LaunchPlanError(
+                            "spend_counter_unavailable",
+                            "distributed spend policy is unavailable; refusing execution",
+                            status=503,
+                        ) from exc
                 hold = get_billing_engine().create_wallet_hold(
                     tenant_id,
                     micros_to_cad(int(plan["estimate_micros"] or 0)),
@@ -447,13 +523,20 @@ def execute(plan_id: str, *, principal: Principal) -> dict[str, Any]:
                     reason="launch",
                 )
                 if not hold.get("held"):
+                    if spend_reservation is not None:
+                        spend_counters.release(spend_reservation)
                     raise LaunchPlanError(
                         "insufficient_funds",
                         "wallet balance minus active holds is below the estimate",
                         status=402,
                     )
                 try:
-                    _submit_from_spec(spec, job_id=job_id, owner=tenant_id)
+                    _submit_from_spec(
+                        spec,
+                        job_id=job_id,
+                        owner=tenant_id,
+                        trace_id=plan.get("trace_id"),
+                    )
                 except Exception:
                     # Match /instance: a failed submit releases the hold rather
                     # than stranding funds until expiry.
@@ -463,6 +546,8 @@ def execute(plan_id: str, *, principal: Principal) -> dict[str, Any]:
                         )
                     except Exception:
                         pass
+                    if spend_reservation is not None:
+                        spend_counters.release(spend_reservation)
                     raise
                 updated = plans_repo.mark_consumed(
                     conn,
@@ -482,7 +567,11 @@ def execute(plan_id: str, *, principal: Principal) -> dict[str, Any]:
     if deferred_expired:
         raise PlanConflict("plan_expired", "the quote has expired; re-preview")
     if replacement_spec is not None:
-        replacement = preview(replacement_spec, principal=principal)
+        replacement = preview(
+            replacement_spec,
+            principal=principal,
+            trace_id=plan.get("trace_id"),
+        )
         return {
             "ok": False,
             "code": "quote_changed",

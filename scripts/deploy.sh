@@ -906,6 +906,10 @@ validate_build_env() {
     # never silently skipped.
     log "Validating frontend build-time env vars..."
 
+    if ! grep -qE '^XCELSIOR_MCP_SMOKE_TOKEN=.+$' "$ENV_FILE"; then
+        error "XCELSIOR_MCP_SMOKE_TOKEN is required for the authenticated MCP promotion gate"
+    fi
+
     local missing=()
     local found=0
 
@@ -1088,6 +1092,17 @@ read_remote_ssh_colour() {
 
 store_remote_api_colour() {
     ssh_cmd "mkdir -p '$(remote_deploy_state_dir)' && printf '%s' '$1' > '$(remote_api_colour_file)'"
+}
+
+read_remote_mcp_colour() {
+    local colour
+    colour=$(ssh_cmd "cat '$(remote_deploy_state_dir)/mcp-colour' 2>/dev/null | tr -d '[:space:]'") || colour=""
+    [[ "$colour" == "blue" || "$colour" == "green" ]] || colour="green"
+    printf '%s' "$colour"
+}
+
+store_remote_mcp_colour() {
+    ssh_cmd "mkdir -p '$(remote_deploy_state_dir)' && printf '%s' '$1' > '$(remote_deploy_state_dir)/mcp-colour'"
 }
 
 store_remote_ssh_colour() {
@@ -1378,13 +1393,79 @@ wait \"\$fe_pid\"
         warn "Jaeger container not running — set OTEL_EXPORTER_OTLP_ENDPOINT after fixing"
     fi
 
-    log "Starting MCP server (agent gateway on :8770)..."
-    ssh_cmd "cd /opt/xcelsior && docker compose up -d --build mcp" || warn "MCP server failed to start — /mcp will 502 until fixed"
-    if ssh_cmd "curl -sf http://127.0.0.1:8770/health >/dev/null 2>&1"; then
-        success "MCP server running (https://xcelsior.ca/mcp)"
+    local mcp_live_colour mcp_live_service mcp_live_port mcp_standby_service mcp_standby_port
+    mcp_live_colour=$(read_remote_mcp_colour)
+    if [[ "$mcp_live_colour" == "green" ]]; then
+        mcp_live_service=mcp; mcp_live_port=8770
+        mcp_standby_service=mcp-blue; mcp_standby_port=8771
     else
-        warn "MCP health check failed on :8770 — check 'docker compose logs mcp'"
+        mcp_live_service=mcp-blue; mcp_live_port=8771
+        mcp_standby_service=mcp; mcp_standby_port=8770
     fi
+    log "MCP blue-green: live=$mcp_live_service:$mcp_live_port → standby=$mcp_standby_service:$mcp_standby_port"
+    ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --build --no-deps $mcp_standby_service" \
+        || error "Standby MCP failed to start; previous MCP remains live"
+    local mcp_standby_ok=false
+    for i in {1..30}; do
+        if ssh_cmd "curl -sf --max-time 3 http://127.0.0.1:$mcp_standby_port/readyz >/dev/null"; then
+            mcp_standby_ok=true
+            break
+        fi
+        sleep 2
+    done
+    if [[ "$mcp_standby_ok" != true ]]; then
+        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue stop $mcp_standby_service" || true
+        error "Standby MCP health failed; previous MCP remains live"
+    fi
+    # Real protocol gate: the official SDK performs bearer auth, initialize,
+    # session negotiation, and tools/list on the direct standby port. The
+    # token travels over stdin, never argv or the container environment.
+    ssh_cmd "cd /opt/xcelsior && \
+        TOKEN=\$(sed -n 's/^XCELSIOR_MCP_SMOKE_TOKEN=//p' .env | tail -1); \
+        test -n \"\$TOKEN\"; \
+        printf '%s' \"\$TOKEN\" | docker compose --profile blue exec -T \
+          $mcp_standby_service node dist/protocol-smoke.js \
+          http://127.0.0.1:$mcp_standby_port/mcp" \
+        || {
+            ssh_cmd "cd /opt/xcelsior && docker compose --profile blue stop $mcp_standby_service" || true
+            error "MCP protocol smoke failed; previous MCP remains live"
+        }
+    ssh_cmd "for f in /etc/nginx/sites-available/xcelsior /etc/nginx/sites-available/mcp-xcelsior; do \
+        [ -f \"\$f\" ] || continue; \
+        sudo cp \"\$f\" \"\$f.pre-mcp-swap\"; \
+        sudo sed -i \
+          -e '/upstream xcelsior_mcp/,/}/{s/server 127.0.0.1:${mcp_standby_port} backup;/server 127.0.0.1:${mcp_standby_port};/;s/server 127.0.0.1:${mcp_live_port};/server 127.0.0.1:${mcp_live_port} backup;/}' \
+          \"\$f\"; \
+      done; sudo nginx -t && sudo nginx -s reload" \
+        || {
+            ssh_cmd "for f in /etc/nginx/sites-available/xcelsior /etc/nginx/sites-available/mcp-xcelsior; do \
+                [ -f \"\$f.pre-mcp-swap\" ] && sudo mv \"\$f.pre-mcp-swap\" \"\$f\"; \
+              done; sudo nginx -t && sudo nginx -s reload" || true
+            ssh_cmd "cd /opt/xcelsior && docker compose --profile blue stop $mcp_standby_service" || true
+            error "MCP Nginx swap failed; previous MCP restored"
+        }
+    # Keep the old replica alive until the canonical edge proves it can reach
+    # the promoted colour. A bad route/certificate/upstream swap restores the
+    # saved configs while the previous image is still serving.
+    ssh_cmd "curl -fsS --max-time 10 \
+        https://mcp.xcelsior.ca/.well-known/oauth-protected-resource \
+        | grep -q 'resource'" \
+        || {
+            ssh_cmd "for f in /etc/nginx/sites-available/xcelsior /etc/nginx/sites-available/mcp-xcelsior; do \
+                [ -f \"\$f.pre-mcp-swap\" ] && sudo mv \"\$f.pre-mcp-swap\" \"\$f\"; \
+              done; sudo nginx -t && sudo nginx -s reload" || true
+            ssh_cmd "cd /opt/xcelsior && docker compose --profile blue stop $mcp_standby_service" || true
+            error "Canonical MCP post-swap smoke failed; previous MCP restored"
+        }
+    ssh_cmd "sudo rm -f /etc/nginx/sites-available/xcelsior.pre-mcp-swap /etc/nginx/sites-available/mcp-xcelsior.pre-mcp-swap" || true
+    ssh_cmd "cd /opt/xcelsior && docker compose --profile blue stop -t 120 $mcp_live_service" \
+        || warn "Old MCP drain returned non-zero"
+    if [[ "$mcp_live_colour" == "green" ]]; then
+        store_remote_mcp_colour blue
+    else
+        store_remote_mcp_colour green
+    fi
+    success "MCP promoted on canonical and compatibility routes"
 
     # Final health check — whichever port is now live
     final_colour=$(read_remote_api_colour)

@@ -88,3 +88,41 @@ def resume_after(conn: Any, cursor: str | None, *, limit: int = 500) -> list[Str
             )
         )
     return out
+
+
+def resume_aggregate_after(
+    conn: Any,
+    aggregate_type: str,
+    aggregate_id: str,
+    cursor: str | None,
+    *,
+    limit: int = 200,
+) -> list[StreamEvent]:
+    """Tenant-authorized callers can resume one aggregate without scanning others."""
+    decoded = decode_cursor(cursor)
+    params: list[Any] = [aggregate_type, aggregate_id]
+    after = ""
+    if decoded is not None:
+        after = "AND (created_at, event_id) > (%s, %s)"
+        params.extend(decoded)
+    params.append(max(1, min(limit, 500)))
+    rows = conn.execute(
+        f"""
+        SELECT event_id, event_type, payload, created_at
+          FROM outbox_events
+         WHERE aggregate_type = %s AND aggregate_id = %s
+           {after}
+         ORDER BY created_at, event_id
+         LIMIT %s
+        """,
+        params,
+    ).fetchall()
+    return [
+        StreamEvent(
+            cursor=encode_cursor(created_at, str(event_id)),
+            event_id=str(event_id),
+            event_type=str(event_type),
+            payload=payload if isinstance(payload, dict) else {},
+        )
+        for event_id, event_type, payload, created_at in rows
+    ]

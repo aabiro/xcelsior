@@ -277,7 +277,7 @@ class ServerlessService:
             spec.env["XCELSIOR_CACHE_REPLICA_REGIONS"] = ",".join(peer_regions)
 
         ep = self.repo.create_endpoint(spec)
-        if int(spec.min_workers) >= 1:
+        if int(spec.min_workers) >= 1 and not ep.get("_idempotent_replay"):
             self.provision_worker(str(ep["endpoint_id"]))
             ep = self.repo.get_endpoint(str(ep["endpoint_id"])) or ep
 

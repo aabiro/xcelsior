@@ -1,8 +1,8 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { XcelsiorApiClient } from "../client/api.js";
-import { formatApiError } from "../client/errors.js";
-import { jsonText } from "../lib/format.js";
+import { apiProblem, formatApiError } from "../client/errors.js";
+import { jsonText, structuredResult } from "../lib/format.js";
 import { TOOL_SCOPES, userHasScope } from "../auth/scopes.js";
 import type { AuthUser } from "../auth/bearer.js";
 
@@ -55,24 +55,39 @@ export function registerServerlessTools(
         min_workers: z.number().int().min(0).max(32).default(0),
         max_workers: z.number().int().min(1).max(32).default(2),
         confirm: z.boolean().default(false),
+        plan_id: z.string().min(1).max(160).optional(),
+        idempotency_key: z.string().uuid().optional(),
       }),
+      outputSchema: z.object({ preview: z.boolean().optional(), plan_id: z.string().optional() }).passthrough(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (args) => {
       const denied = scopeDenied("create_serverless_endpoint", user);
       if (denied) return denied;
-      const { confirm, ...payload } = args;
-      if (!confirm) {
-        return jsonText({
-          preview: true,
-          message: "Set confirm:true to create this serverless endpoint.",
-          config: payload,
-        });
+      const { confirm, plan_id, idempotency_key, ...payload } = args;
+      if (!confirm || !plan_id) {
+        try {
+          const plan = await client.post<Record<string, unknown>>(
+            "/api/v1/serverless/endpoint-plans", payload,
+            { idempotencyKey: idempotency_key, retry: idempotency_key ? "idempotent" : "none" },
+          );
+          return structuredResult({
+            ...plan,
+            approval_required: Boolean(confirm && !plan_id),
+          }, "Review and approve the serverless endpoint plan before execution.");
+        } catch (e) {
+          return structuredResult({ preview: true, ...apiProblem(e) });
+        }
       }
       try {
-        const data = await client.post("/api/v2/serverless/endpoints", payload);
-        return jsonText(data);
+        const data = await client.post<Record<string, unknown>>(
+          `/api/v1/serverless/endpoint-plans/${encodeURIComponent(plan_id)}/execute`,
+          { confirm: true },
+          { idempotencyKey: idempotency_key, retry: idempotency_key ? "idempotent" : "none" },
+        );
+        return structuredResult(data, `Serverless endpoint plan ${plan_id} executed.`);
       } catch (e) {
-        return jsonText({ error: formatApiError(e) });
+        return structuredResult({ ...apiProblem(e), plan_id });
       }
     },
   );

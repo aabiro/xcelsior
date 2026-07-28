@@ -1135,7 +1135,10 @@ async def _send_error(ws: WebSocket, message: str, code: int) -> None:
 def api_terminal_ticket(body: TerminalTicketIn, request: Request) -> dict:
     """Issue a short-lived one-time WebSocket ticket for terminal access."""
     user = _require_auth(request)
-    instance = next((j for j in list_jobs() if j["job_id"] == body.instance_id), None)
+    instance = next(
+        (j for j in list_jobs() if j.get("job_id") == body.instance_id),
+        None,
+    )
     _check_terminal_access(user, instance, instance_id=body.instance_id)
     ticket = _issue_ws_ticket(
         user,

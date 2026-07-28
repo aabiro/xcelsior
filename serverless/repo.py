@@ -69,6 +69,7 @@ class EndpointCreate:
     source_ref_branch: str = "main"
     env: dict[str, Any] = field(default_factory=dict)
     lora_adapters: list[dict[str, str]] = field(default_factory=list)
+    action_plan_id: str | None = None
 
 
 class ServerlessRepo:
@@ -106,6 +107,15 @@ class ServerlessRepo:
             else ENDPOINT_STATUS_SCALED_DOWN
         )
         with self._conn() as conn:
+            if spec.action_plan_id:
+                existing = conn.execute(
+                    "SELECT * FROM serverless_endpoints WHERE action_plan_id = %s",
+                    (spec.action_plan_id,),
+                ).fetchone()
+                if existing:
+                    replay = dict(existing)
+                    replay["_idempotent_replay"] = True
+                    return replay
             conn.execute(
                 """
                 INSERT INTO serverless_endpoints (
@@ -118,7 +128,7 @@ class ServerlessRepo:
                     execution_mode, queue_timeout_sec,
                     request_timeout_sec, max_request_bytes, max_queue_size, keep_warm,
                     cache_volume_id, region, env, status, created_at, updated_at,
-                    lora_adapters
+                    lora_adapters, action_plan_id
                 ) VALUES (
                     %s, %s, %s, %s, %s,
                     %s, %s, %s, %s,
@@ -129,7 +139,7 @@ class ServerlessRepo:
                     %s, %s,
                     %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s,
-                    %s
+                    %s, %s
                 )
                 """,
                 (
@@ -167,7 +177,7 @@ class ServerlessRepo:
                     status,
                     now,
                     now,
-                    self._jsonb(spec.lora_adapters),
+                    self._jsonb(spec.lora_adapters), spec.action_plan_id,
                 ),
             )
         row = self.get_endpoint(endpoint_id)

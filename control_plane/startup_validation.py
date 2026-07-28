@@ -131,18 +131,29 @@ def _check_database_tls() -> Finding | None:
 
 
 def _check_oauth_signing() -> Finding | None:
+    import json
+
     keys_json = (os.environ.get("XCELSIOR_OAUTH_JWT_KEYS_JSON") or "").strip()
     secret = (os.environ.get("XCELSIOR_OAUTH_JWT_SECRET") or "").strip()
-    if keys_json or secret:
+    if os.environ.get("XCELSIOR_ENV", "dev").lower() in {"test", "dev", "development"} and secret:
         return None
+    if keys_json:
+        try:
+            data = json.loads(keys_json)
+            active = str(data.get("active_kid") or "")
+            keys = {str(item.get("kid")): item for item in data.get("keys", [])}
+            if active and active in keys and keys[active].get("private_key_pem"):
+                return None
+        except (TypeError, ValueError):
+            pass
     return Finding(
         code="oauth_signing",
         severity="error",
-        message="No OAuth signing key configured (JWT keys and secret both empty)",
+        message="No valid asymmetric OAuth signing key configured",
         remediation=(
-            "Set XCELSIOR_OAUTH_JWT_KEYS_JSON (preferred — asymmetric keys "
-            "with a published JWKS) or XCELSIOR_OAUTH_JWT_SECRET. Without "
-            "one, issued tokens cannot be verified across replicas."
+            "Set XCELSIOR_OAUTH_JWT_KEYS_JSON with active_kid and a matching "
+            "RS256 private_key_pem/public_key_pem pair. Symmetric shared "
+            "secrets are forbidden in production."
         ),
     )
 

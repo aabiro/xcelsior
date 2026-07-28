@@ -750,6 +750,31 @@ and no `Last-Event-ID` cursor on SSE.
   then dead-letters; a new sink receives nothing until an explicit backfill.
   Head 073→074; from-empty reaches head; up→down→up clean; pyright clean; the
   outbox/roles/ledger suites (125) green.
+  **Runtime completion correction (2026-07-27):** the 2026-07-24 closeout
+  overstated B4.4. It shipped the tables and callable primitives, but neither
+  production task invoked `prepare_fanout`/`deliver_pending`; contracts were
+  registered only by tests; and `audit_events_v2` had no non-test writer.
+  `control_plane/projection_runtime.py` plus three durable `bg_worker` tasks now
+  provide bounded fan-out preparation, `audit_log` delivery, and successful-
+  receipt retention. The audit sink registers contracts, redacts forbidden
+  payload keys, serializes per stream with an advisory lock, appends a
+  hash-chained WORM row idempotently, and records the stable external id.
+  Source time is retained in projection metadata while the WORM row uses append
+  time, so an explicit backlog replay cannot mutate a previously signed
+  checkpoint interval. Outbox pruning is projection-aware; permanent contract/
+  privacy/source failures dead-letter, surface in health/Prometheus metrics, and
+  have a bounded retry primitive. New sinks default to registration time (the
+  old NULL boundary accidentally meant unbounded history); historical delivery
+  requires a validated explicit range.
+  **Current sink boundary:** only `audit_log` is activated here. SSE remains on
+  Track A's outbox/`NOTIFY` dispatcher; warehouse activation remains B11 after
+  governed GCS/BigQuery provisioning; no duplicate generic webhook pipeline is
+  introduced. Gate: `tests/test_projection_delivery.py` plus
+  `tests/test_projection_runtime.py` exercise real PostgreSQL from outbox append
+  through redacted audit delivery/receipt, replay idempotency, permanent
+  contract failure, retention safety, late-sink boundaries, health, and task
+  registration. Full claim classification and evidence are recorded in
+  `docs/projection-delivery-audit-2026-07-27.md`.
   <!-- original spec text retained below -->
   Extend Track A's `outbox_events` with `event_version`,
   `tenant_id`, `occurred_at`, `classification`, `payload_sha256`,
@@ -842,7 +867,7 @@ rate limiting *is* live and fail-closed (Track A Phase 10 residual
 closeout, `mcp/src/rate-limit.ts` + vitest). The `mcp/Dockerfile` is
 locked `npm ci`, non-root (Track A 10.4).
 
-- [ ] **B5.1 Default-deny scopes (P0 security).** `userHasScope` denies on
+- [x] **B5.1 Default-deny scopes (P0 security).** `userHasScope` denies on
   empty/missing scopes. Add the §17.8 scope vocabulary:
   `instances:operate`, `hosts:operate`, `hosts:evict`, `control_plane:read`,
   `control_plane:operate`, `mcp_actions:approve` alongside the existing
@@ -851,7 +876,7 @@ locked `npm ci`, non-root (Track A 10.4).
   Gate: `mcp/src/auth/scopes.test.ts` — empty, undefined, unknown, and
   wrong-scope principals all denied for every tool in the registry, driven
   from the registry so a new tool cannot be added without a scope.
-- [ ] **B5.2 Generated typed client** (§17.2). `openapi-typescript` in dev
+- [x] **B5.2 Generated typed client** (§17.2). `openapi-typescript` in dev
   generates types from the FastAPI v1 OpenAPI into `mcp/src/client/
   generated/`; `api.ts` supports all required methods, per-route
   deadlines, abort signals, connection reuse, RFC 9457 decoding,
@@ -860,14 +885,14 @@ locked `npm ci`, non-root (Track A 10.4).
   of a mutating request. Gate: a CI diff check failing when the API
   OpenAPI changes without regenerating; respx-style transport tests for
   timeout, 409, 429, and problem+json mapping.
-- [ ] **B5.3 Tool contracts** (§17.3). Every tool declares: stable name,
+- [x] **B5.3 Tool contracts** (§17.3). Every tool declares: stable name,
   semantic version in metadata and audit, Zod input schema with bounded
   strings/arrays, MCP `outputSchema`, `structuredContent` plus a concise
   text summary, read-only/destructive/idempotent/open-world annotations,
   required scopes and tenant class, idempotency behaviour, timeout and
   retry policy, redaction policy, and typed API problem mapping. Gate: a
   registry test that fails if any registered tool omits any of these.
-- [ ] **B5.4 `create_instance` v2** (§17.4, §17.5, §4.1). Same tool name,
+- [x] **B5.4 `create_instance` v2** (§17.4, §17.5, §4.1). Same tool name,
   same original fields, plus optional `plan_id` and `idempotency_key`.
   First call returns `{preview, plan_id, approval_state, canonical_spec,
   estimate, availability, approval_url, expires_at}`. After standing-policy
@@ -877,14 +902,14 @@ locked `npm ci`, non-root (Track A 10.4).
   opaque failure. Publish the change in MCP resources, docs, and UI. No
   indefinite hidden legacy-confirmation branch. Gate: the §26.4 sequence,
   end to end.
-- [ ] **B5.5 Serverless MCP behaviour** (§17.6, §4.2).
+- [x] **B5.5 Serverless MCP behaviour** (§17.6, §4.2).
   `create_serverless_endpoint` uses an action plan (it creates persistent
   spend and capacity policy); `run_serverless_job` stays low friction under
   endpoint/client budgets; `should_i_run_pel_job` stays read-only and
   incorporates current endpoint cost and queue limits; streaming stays on
   the established serverless stream endpoint with trace correlation.
   Gate: no approval prompt on the invocation path; budget denial is typed.
-- [ ] **B5.6 Diagnostic tools** (§3.2). `explain_instance_placement`,
+- [x] **B5.6 Diagnostic tools** (§3.2). `explain_instance_placement`,
   `simulate_instance_placement`, `get_instance_timeline`,
   `get_active_lease`, `get_scheduler_health`, `get_host_capacity`,
   `list_reconciliation_findings`, `get_mcp_action_status`. Each explains
@@ -895,7 +920,7 @@ locked `npm ci`, non-root (Track A 10.4).
   reason. Sensitive host fields, credentials, and private IPs are redacted.
   Gate: tenant-scoped by default; a cross-tenant id returns not-found, not
   a permission hint.
-- [ ] **B5.7 Operator mutation tools** (§3.3). `retry_instance`,
+- [x] **B5.7 Operator mutation tools** (§3.3). `retry_instance`,
   `reconcile_instance`, `drain_host`, `undrain_host`,
   `evict_host_workloads`, `retry_agent_command` — each separately scoped,
   each requiring expected version and idempotency key, each an action plan
@@ -905,7 +930,7 @@ locked `npm ci`, non-root (Track A 10.4).
   and preserves the original idempotency key and audit history. Gate:
   drain does not stop workloads; evict requires its own scope and plan; a
   stale expected version is refused.
-- [ ] **B5.8 Standards-based auth** (§17.7). OAuth protected-resource
+- [x] **B5.8 Standards-based auth** (§17.7). OAuth protected-resource
   metadata at `/.well-known/oauth-protected-resource`; authorization-server
   metadata discovery; Authorization Code + PKCE for interactive clients;
   client credentials for approved machine agents; RFC 8707 resource
@@ -917,7 +942,7 @@ locked `npm ci`, non-root (Track A 10.4).
   MCP carries workspace/customer/team/client context. Gate: a token
   missing the MCP audience is rejected; a revoked token stops working
   within the documented window; a principal with no tenant is refused.
-- [ ] **B5.9 Distributed limits and spend counters** (§17.9). Extend Track
+- [x] **B5.9 Distributed limits and spend counters** (§17.9). Extend Track
   A's Redis limiter to per-principal + per-client + per-tool rate,
   concurrent long watches, launch attempts, serverless invocation bursts,
   hourly/daily spend policy counters, and abuse lockout — all via atomic
@@ -926,7 +951,7 @@ locked `npm ci`, non-root (Track A 10.4).
   `mcp/src/rate-limit.test.ts` to multi-replica concurrency per limit
   class; a Redis outage produces the declared fail-closed behaviour for
   mutating calls, never silent unlimited (§23.2, §31).
-- [ ] **B5.10 Audit** (§17.10). Every tool call records timestamp,
+- [x] **B5.10 Audit** (§17.10). Every tool call records timestamp,
   tool+version, transport, client, actor, tenant/team, scopes evaluated,
   redacted canonical argument hash, action plan / idempotency key, API
   route/status/problem type, resource ids created or affected, latency,
@@ -935,7 +960,7 @@ locked `npm ci`, non-root (Track A 10.4).
   on the outbox-backed path (B4.4). Gate: a redaction test asserting no
   forbidden field reaches the audit row, driven from the classification
   vocabulary in `DA§13.4`.
-- [ ] **B5.11 Resources, prompts, progress, cancellation** (§17.11).
+- [x] **B5.11 Resources, prompts, progress, cancellation** (§17.11).
   Versioned read-only resources for pricing methodology, GPU/runtime
   capability definitions, scope documentation, queue-reason catalog, and
   launch policy — not mutable database internals. Resource templates only
@@ -948,7 +973,7 @@ locked `npm ci`, non-root (Track A 10.4).
   phase/timeout. Protocol and server capability versions exposed in health
   and audit. Gate: a cancelled watch leaves the instance running, proven
   by test.
-- [ ] **B5.12 MCP observability** (§17.2, §25.3). `pino` structured logs,
+- [x] **B5.12 MCP observability** (§17.2, §25.3). `pino` structured logs,
   `prom-client` metrics, OTel Node tracing that continues the W3C context
   from the client through to the API. Metrics: calls by tool and outcome,
   p50/p95/p99 latency, auth/scope/rate errors, preview→approval→execute
@@ -956,7 +981,7 @@ locked `npm ci`, non-root (Track A 10.4).
   success, active transports, watch duration. Gate: a trace initiated at
   an MCP tool call is retrievable end to end through API, outbox, and
   scheduler attempt.
-- [ ] **B5.13 Hosted E2E and blue/green** (§26.4, §27.3). Real MCP + API +
+- [x] **B5.13 Hosted E2E and blue/green** (§26.4, §27.3). Real MCP + API +
   PostgreSQL + Redis; the thirteen-step §26.4 sequence through the MCP SDK
   client. Add `mcp-blue` upstreams; start the new image; run a real
   protocol smoke against its direct port; then switch and reload Nginx;
@@ -970,6 +995,22 @@ locked `npm ci`, non-root (Track A 10.4).
 the new API with no feature loss; cross-tenant, scope, approval, and
 idempotency tests pass; MCP failure blocks deployment; two replicas pass
 load and restart tests.
+
+**Completed 2026-07-26.** The complete v2 registry now has fully contracted tools
+with default-deny authorization; the generated OpenAPI client, RFC 9457
+transport, OAuth/JWKS/resource-audience flow, Redis distributed traffic and
+spend controls, outbox-backed redacted audit, durable watches, resources,
+prompts, Pino/Prometheus/OTel telemetry, and approval UI are live in the same
+change. The real-stack SDK gate starts two MCP replicas against real
+PostgreSQL and Redis and covers preview → human approval → exactly-once
+execute, a real scheduler reservation and fenced worker protocol, durable
+watch/timeline, serverless endpoint plan plus low-friction invocation,
+cross-tenant/scope denial, expiry, Redis fail-closed/recovery, trace continuity
+through audit/outbox/attempt/command, drain-versus-evict separation, shared
+load, and survival of a replica restart. Deployment now promotes a direct-port
+authenticated SDK smoke through blue/green Nginx switching, drains the old
+replica, and treats every startup/protocol/swap failure as fatal while retaining
+the previous live colour.
 
 ---
 

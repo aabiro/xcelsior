@@ -442,6 +442,14 @@ services:
     network_mode: host
     environment:
       XCELSIOR_API_URL: ${XCELSIOR_API_URL:-http://127.0.0.1:9500}
+      XCELSIOR_MCP_API_URL: ${XCELSIOR_MCP_API_URL:-http://127.0.0.1:9500}
+      XCELSIOR_MCP_PUBLIC_URL: ${XCELSIOR_MCP_PUBLIC_URL:-https://mcp.xcelsior.ca/mcp}
+      XCELSIOR_MCP_RESOURCE_AUDIENCE: ${XCELSIOR_MCP_RESOURCE_AUDIENCE:-https://mcp.xcelsior.ca}
+      XCELSIOR_OAUTH_ISSUER: ${XCELSIOR_OAUTH_ISSUER:-https://xcelsior.ca}
+      XCELSIOR_OAUTH_JWKS_URL: ${XCELSIOR_OAUTH_JWKS_URL:-https://xcelsior.ca/.well-known/jwks.json}
+      XCELSIOR_MCP_MAX_WATCHES_PER_PRINCIPAL: ${XCELSIOR_MCP_MAX_WATCHES_PER_PRINCIPAL:-3}
+      XCELSIOR_MCP_LAUNCH_ATTEMPTS_PER_HOUR: ${XCELSIOR_MCP_LAUNCH_ATTEMPTS_PER_HOUR:-20}
+      XCELSIOR_MCP_SERVERLESS_INVOCATIONS_PER_MIN: ${XCELSIOR_MCP_SERVERLESS_INVOCATIONS_PER_MIN:-120}
       MCP_HOST: 0.0.0.0
       MCP_PORT: ${MCP_PORT:-8770}
       MCP_PATH: /mcp
@@ -449,18 +457,27 @@ services:
       # Phase 10 / §31: multi-replica rate limit — Redis required, fail-closed
       # when backend is down (never process-local unlimited under replicas).
       MCP_RATE_LIMIT_BACKEND: ${MCP_RATE_LIMIT_BACKEND:-redis}
-      MCP_REDIS_URL: ${MCP_REDIS_URL:-${XCELSIOR_AUTH_REDIS_URL:-redis://127.0.0.1:6379/0}}
+      MCP_REDIS_URL: ${XCELSIOR_MCP_REDIS_URL:-${MCP_REDIS_URL:-${XCELSIOR_AUTH_REDIS_URL:-redis://127.0.0.1:6379/0}}}
       MCP_RATE_LIMIT_REQUIRE_REDIS: ${MCP_RATE_LIMIT_REQUIRE_REDIS:-true}
       MCP_RATE_LIMIT_FAIL_CLOSED: ${MCP_RATE_LIMIT_FAIL_CLOSED:-true}
     depends_on:
       - api
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8770/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8770/readyz"]
       interval: 30s
       timeout: 5s
       start_period: 15s
       retries: 3
+
+  mcp-blue:
+    extends:
+      service: mcp
+    profiles: ["blue"]
+    environment:
+      MCP_PORT: 8771
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8771/readyz"]
 
   frontend:
     build:

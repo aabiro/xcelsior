@@ -214,3 +214,5 @@ def test_metrics_prometheus_volume_gauges(monkeypatch):
     assert "xcelsior_volumes_total 5" in body
     assert "xcelsior_volumes_error 2" in body
     assert "xcelsior_nfs_reachable 1" in body
+    assert "xcelsior_projection_metrics_available 1" in body
+    assert "# TYPE xcelsior_projection_deliveries gauge" in body

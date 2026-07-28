@@ -521,11 +521,22 @@ async def lifespan(app):
         log.warning("Region backfill skipped: %s", e)
 
     # Start PG LISTEN→SSE bridge per-worker (must be after fork)
-    _pg_listen_thread = start_pg_listen(broadcast_sse)
+    _pg_listen_stop = _bg_threading.Event()
+    _pg_listen_thread = start_pg_listen(
+        broadcast_sse,
+        stop_event=_pg_listen_stop,
+    )
 
     _start_background_tasks()
-    yield
-    _stop_background_tasks()
+    try:
+        yield
+    finally:
+        _stop_background_tasks()
+        _pg_listen_stop.set()
+        if _pg_listen_thread is not None:
+            _pg_listen_thread.join(timeout=5)
+            if _pg_listen_thread.is_alive():
+                log.warning("LIFESPAN: PostgreSQL listener did not stop within 5s")
 
 
 # ── FastAPI Application ───────────────────────────────────────────────

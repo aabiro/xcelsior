@@ -102,6 +102,56 @@ def test_serverless_list(user_headers):
     assert r.json().get("ok") is True
 
 
+def test_serverless_endpoint_action_plan_is_approved_and_exactly_once(user_headers):
+    payload = {
+        "name": f"planned-{uuid.uuid4().hex[:8]}",
+        "mode": "preset",
+        "model_ref": "meta-llama/Llama-3.2-1B-Instruct",
+        "gpu_tier": "RTX 4090",
+        "min_workers": 0,
+        "max_workers": 1,
+        "env": {"HF_TOKEN": "must-be-encrypted"},
+    }
+    preview = client.post(
+        "/api/v1/serverless/endpoint-plans", headers=user_headers, json=payload
+    )
+    assert preview.status_code == 200, preview.text[:500]
+    plan = preview.json()
+    assert plan["preview"] is True
+    assert plan["canonical_spec"]["env"]["HF_TOKEN"] in {"***", "[REDACTED]"}
+    plan_id = plan["plan_id"]
+
+    approval = client.post(
+        f"/api/v1/launch-plans/{plan_id}/approve",
+        headers=user_headers,
+        json={"confirm": True},
+    )
+    assert approval.status_code == 200, approval.text[:500]
+
+    first = client.post(
+        f"/api/v1/serverless/endpoint-plans/{plan_id}/execute",
+        headers=user_headers,
+    )
+    assert first.status_code == 200, first.text[:500]
+    endpoint_id = first.json()["endpoint"]["endpoint_id"]
+    second = client.post(
+        f"/api/v1/serverless/endpoint-plans/{plan_id}/execute",
+        headers=user_headers,
+    )
+    assert second.status_code == 200, second.text[:500]
+    assert second.json()["endpoint"]["endpoint_id"] == endpoint_id
+    assert second.json()["idempotent"] is True
+    client.delete(f"/api/v2/serverless/endpoints/{endpoint_id}", headers=user_headers)
+    from db import _get_pg_pool
+    with _get_pg_pool().connection() as conn:
+        conn.execute(
+            "UPDATE serverless_endpoints SET action_plan_id=NULL WHERE endpoint_id=%s",
+            (endpoint_id,),
+        )
+        conn.execute("DELETE FROM action_plans WHERE plan_id=%s", (plan_id,))
+        conn.commit()
+
+
 def test_serverless_get_endpoint(user_headers, endpoint_id):
     r = client.get(
         f"/api/v2/serverless/endpoints/{endpoint_id}",

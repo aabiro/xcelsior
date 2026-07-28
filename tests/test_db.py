@@ -482,6 +482,18 @@ class TestPgEventBusInMemory:
 class TestPgListenDsnSelection:
     """Verify the LISTEN thread uses the configured Postgres DSN."""
 
+    def test_pre_stopped_listener_exits_without_connecting(self, monkeypatch):
+        import threading
+
+        import db as db_mod
+
+        monkeypatch.setattr(db_mod, "DB_BACKEND", "postgres")
+        stop = threading.Event()
+        stop.set()
+        listener = db_mod.start_pg_listen(lambda *_: None, stop_event=stop)
+        listener.join(timeout=1)
+        assert not listener.is_alive()
+
     def test_start_pg_listen_uses_postgres_dsn_by_default(self, monkeypatch):
         import db as db_mod
 
