@@ -9,9 +9,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 import uuid
-from typing import Any
+from typing import Any, Callable
 
 log = logging.getLogger("xcelsior.stripe_meters")
 
@@ -19,6 +20,9 @@ log = logging.getLogger("xcelsior.stripe_meters")
 EVENT_GPU_HOUR = "xcelsior_gpu_hour"
 EVENT_SERVERLESS_SECOND = "xcelsior_serverless_worker_second"
 EVENT_STORAGE_GB_MONTH = "xcelsior_storage_gb_month"
+
+# Optional test hook: when set, enqueue/drain use this instead of Postgres.
+_OUTBOX_BACKEND: Callable[..., Any] | None = None
 
 
 def meters_enabled() -> bool:
@@ -29,25 +33,22 @@ def meters_enabled() -> bool:
     )
 
 
+def set_outbox_backend(backend: Callable[..., Any] | None) -> None:
+    """Test-only injectable outbox (must not be used for production paths)."""
+    global _OUTBOX_BACKEND
+    _OUTBOX_BACKEND = backend
+
+
 def _infer_event(description: str, job_id: str) -> tuple[str, float]:
-    """Map a wallet charge to a meter event name + numeric value.
-
-    Default: treat CAD amount as proxy GPU-hour units when duration unknown
-    (value is analytical; wallet already charged the CAD amount).
-    """
+    """Map a wallet charge to a meter event name + numeric value."""
     desc = (description or "").lower()
-    if "serverless" in desc or job_id.startswith("slvr") or "worker" in desc:
-        # Prefer seconds if embedded like "(123s @"; else 1 unit.
-        import re
-
+    jid = (job_id or "").lower()
+    if "serverless" in desc or jid.startswith("slvr") or "worker" in desc:
         m = re.search(r"\((\d+)\s*s", description or "")
         seconds = float(m.group(1)) if m else 1.0
         return EVENT_SERVERLESS_SECOND, max(1.0, seconds)
-    if "storage" in desc or "volume" in desc or "gb" in desc:
+    if "storage" in desc or "volume" in desc:
         return EVENT_STORAGE_GB_MONTH, 1.0
-    # Hosted GPU: use hours approximated from description duration if present.
-    import re
-
     m = re.search(r"(\d+(?:\.\d+)?)\s*(?:h|hr|hours)", desc)
     if m:
         return EVENT_GPU_HOUR, float(m.group(1))
@@ -72,11 +73,11 @@ def enqueue_usage_from_charge(
         customer_id=customer_id,
         event_name=event_name,
         value=value,
-        idempotency_key=tx_id or f"charge-{customer_id}-{time.time()}",
+        idempotency_key=tx_id or f"charge-{customer_id}-{uuid.uuid4().hex[:12]}",
         payload={
             "amount_cad": amount_cad,
             "job_id": job_id,
-            "description": description[:240],
+            "description": (description or "")[:240],
         },
     )
 
@@ -90,13 +91,23 @@ def enqueue_meter_event(
     payload: dict | None = None,
 ) -> dict[str, Any]:
     """Insert into stripe_meter_event_outbox (created by migration 079)."""
+    if _OUTBOX_BACKEND is not None:
+        return _OUTBOX_BACKEND(
+            "enqueue",
+            customer_id=customer_id,
+            event_name=event_name,
+            value=float(value),
+            idempotency_key=idempotency_key,
+            payload=payload or {},
+        )
+
     from db import _get_pg_pool
     from psycopg.rows import dict_row
 
     now = time.time()
     event_id = str(uuid.uuid4())
-    pool = _get_pg_pool()
     try:
+        pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
             conn.execute(
@@ -119,10 +130,10 @@ def enqueue_meter_event(
                 ),
             )
             conn.commit()
-        return {"enqueued": True, "event_id": event_id, "event_name": event_name}
+        return {"enqueued": True, "event_id": event_id, "event_name": event_name, "value": float(value)}
     except Exception as exc:
         # Table may not exist yet — never break billing.
-        log.debug("meter outbox enqueue failed: %s", exc)
+        log.warning("meter outbox enqueue failed (non-fatal): %s", exc)
         return {"enqueued": False, "reason": str(exc)[:200]}
 
 
@@ -136,20 +147,26 @@ def _stripe_customer_id(customer_id: str) -> str:
         return ""
 
 
-def drain_meter_outbox(*, limit: int = 100) -> dict[str, int]:
-    """Send pending meter events to Stripe. Free of wallet side effects."""
+def drain_meter_outbox(*, limit: int = 100, stripe_mod=None) -> dict[str, int]:
+    """Send pending meter events to Stripe. Never touches wallet balances."""
+    if _OUTBOX_BACKEND is not None:
+        result = _OUTBOX_BACKEND("drain", limit=limit, stripe_mod=stripe_mod)
+        return result if isinstance(result, dict) else {"sent": 0, "failed": 0, "skipped": 0}
+
     from db import _get_pg_pool
     from psycopg.rows import dict_row
-    from stripe_connect import STRIPE_ENABLED, stripe
+    from stripe_connect import STRIPE_ENABLED, stripe as default_stripe
 
-    if not meters_enabled() or not STRIPE_ENABLED or not stripe:
+    client = stripe_mod if stripe_mod is not None else default_stripe
+    if not meters_enabled() or not STRIPE_ENABLED or not client:
         return {"sent": 0, "failed": 0, "skipped": 0}
 
-    pool = _get_pg_pool()
     sent = failed = skipped = 0
     try:
+        pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
+            # No FOR UPDATE across connection boundary — select then process.
             rows = conn.execute(
                 """
                 SELECT event_id, customer_id, event_name, value, idempotency_key, attempts
@@ -157,12 +174,12 @@ def drain_meter_outbox(*, limit: int = 100) -> dict[str, int]:
                  WHERE status = 'pending' AND attempts < 8
                  ORDER BY created_at ASC
                  LIMIT %s
-                FOR UPDATE SKIP LOCKED
                 """,
                 (limit,),
             ).fetchall()
+            rows = [dict(r) for r in rows]
     except Exception as exc:
-        log.debug("meter outbox drain skipped: %s", exc)
+        log.warning("meter outbox drain skipped: %s", exc)
         return {"sent": 0, "failed": 0, "skipped": 0}
 
     for row in rows:
@@ -170,11 +187,10 @@ def drain_meter_outbox(*, limit: int = 100) -> dict[str, int]:
         customer_id = row["customer_id"]
         stripe_cust = _stripe_customer_id(customer_id)
         if not stripe_cust:
-            # Ensure customer exists without creating PaymentIntents.
             try:
                 from billing import get_billing_engine
 
-                stripe_cust = get_billing_engine().ensure_stripe_customer(customer_id)
+                stripe_cust = get_billing_engine().ensure_stripe_customer(customer_id) or ""
             except Exception:
                 stripe_cust = ""
         if not stripe_cust:
@@ -182,14 +198,15 @@ def drain_meter_outbox(*, limit: int = 100) -> dict[str, int]:
             _mark(event_id, status="pending", attempts=int(row["attempts"] or 0) + 1, err="no_stripe_customer")
             continue
         try:
-            # stripe.billing.MeterEvent.create — no charge to customer.
-            stripe.billing.MeterEvent.create(
+            value_int = max(1, int(round(float(row["value"]))))
+            # MeterEvent payload keys depend on meter config; use customer + value.
+            client.billing.MeterEvent.create(
                 event_name=row["event_name"],
                 payload={
                     "stripe_customer_id": stripe_cust,
-                    "value": str(int(max(1, round(float(row["value"]))))),
+                    "value": str(value_int),
                 },
-                identifier=row["idempotency_key"][:100],
+                identifier=str(row["idempotency_key"])[:100],
             )
             _mark(event_id, status="sent", attempts=int(row["attempts"] or 0) + 1, err="")
             sent += 1
@@ -208,6 +225,7 @@ def drain_meter_outbox(*, limit: int = 100) -> dict[str, int]:
 def _mark(event_id: str, *, status: str, attempts: int, err: str) -> None:
     from db import _get_pg_pool
 
+    now = time.time()
     try:
         with _get_pg_pool().connection() as conn:
             conn.execute(
@@ -217,8 +235,8 @@ def _mark(event_id: str, *, status: str, attempts: int, err: str) -> None:
                        sent_at = CASE WHEN %s = 'sent' THEN %s ELSE sent_at END
                  WHERE event_id=%s
                 """,
-                (status, attempts, err, time.time(), status, time.time(), event_id),
+                (status, attempts, err, now, status, now, event_id),
             )
             conn.commit()
     except Exception as exc:
-        log.debug("meter outbox mark failed: %s", exc)
+        log.warning("meter outbox mark failed: %s", exc)

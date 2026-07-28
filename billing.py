@@ -1795,11 +1795,12 @@ class BillingEngine:
                 "action": action,
             }
 
-        new_balance = round(balance - amount_cad, 4)
         tx_id = f"TX-{int(time.time())}-{os.urandom(3).hex()}"
+        amount_micros = cad_to_micros(amount_cad)
+        now = time.time()
 
         with self._conn() as conn:
-            # Atomic: decrement balance with a floor check to prevent races
+            # Atomic floor: refuse concurrent races that would go negative.
             row = conn.execute(
                 """UPDATE wallets
                    SET balance_micros = balance_micros - %s,
@@ -1807,21 +1808,35 @@ class BillingEngine:
                        grace_until = 0,
                        updated_at = %s
                    WHERE customer_id = %s
+                     AND balance_micros >= %s
                    RETURNING balance_micros, balance_cad""",
-                (cad_to_micros(amount_cad), cad_to_micros(amount_cad),
-                 time.time(), customer_id),
+                (amount_micros, amount_micros, now, customer_id, amount_micros),
             ).fetchone()
+            if not row:
+                log.warning(
+                    "WALLET %s hard-stop race ($%.4f needed) job=%s",
+                    customer_id,
+                    amount_cad,
+                    job_id,
+                )
+                return {
+                    "charged": False,
+                    "reason": "insufficient_balance",
+                    "balance_cad": balance,
+                    "required_cad": amount_cad,
+                    "action": "hard_stop",
+                }
             new_balance = (
                 micros_to_cad(row["balance_micros"])
-                if row and row.get("balance_micros") is not None
-                else new_balance
+                if row.get("balance_micros") is not None
+                else round(balance - amount_cad, 4)
             )
             conn.execute(
                 """INSERT INTO wallet_transactions
                    (tx_id, customer_id, tx_type, amount_cad,
                     balance_after_cad, description, job_id, created_at)
                    VALUES (%s, %s, 'charge', %s, %s, %s, %s, %s)""",
-                (tx_id, customer_id, -amount_cad, new_balance, description, job_id, time.time()),
+                (tx_id, customer_id, -amount_cad, new_balance, description, job_id, now),
             )
 
         log.info(
@@ -1843,10 +1858,27 @@ class BillingEngine:
                 tx_id=tx_id,
             )
         except Exception as exc:
-            log.debug("meter dual-write enqueue skipped: %s", exc)
+            log.warning("meter dual-write enqueue failed (charge kept): %s", exc)
         if new_balance > 0:
             self.maybe_warn_low_balance(customer_id, new_balance)
-        return {"charged": True, "tx_id": tx_id, "balance_cad": new_balance}
+        elif new_balance <= 0:
+            # Exact zero after charge → hard-stop state for UI/consumers.
+            try:
+                with self._conn() as conn:
+                    conn.execute(
+                        "UPDATE wallets SET status = 'suspended', updated_at = %s "
+                        "WHERE customer_id = %s AND balance_micros <= 0",
+                        (time.time(), customer_id),
+                    )
+            except Exception:
+                pass
+        return {
+            "charged": True,
+            "tx_id": tx_id,
+            "balance_cad": new_balance,
+            "hard_stop": new_balance <= 0,
+            "low_balance": new_balance <= self.low_balance_threshold_cad(customer_id),
+        }
 
     def _credit_wallet(
         self, customer_id: str, amount_cad: float, description: str = "Refund credit"
@@ -3535,6 +3567,7 @@ class BillingEngine:
                     continue
 
                 amount_cents = int(w["auto_topup_amount_cad"] * 100)
+                # Off-session saved PM: do not hardcode payment_method_types.
                 pi = _stripe_mod.PaymentIntent.create(
                     amount=amount_cents,
                     currency="cad",
@@ -3542,7 +3575,12 @@ class BillingEngine:
                     payment_method=w["stripe_payment_method_id"],
                     off_session=True,
                     confirm=True,
-                    metadata={"xcelsior_auto_topup": "true", "customer_id": customer_id},
+                    metadata={
+                        "xcelsior_auto_topup": "true",
+                        "customer_id": customer_id,
+                        "product_type": "wallet_deposit",
+                        "xcelsior_sku": "xcelsior-compute-credits",
+                    },
                 )
                 log.info(
                     "Auto-topup PaymentIntent created for %s: %s ($%.2f)",

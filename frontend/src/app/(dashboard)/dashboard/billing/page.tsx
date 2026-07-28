@@ -592,31 +592,57 @@ export default function BillingPage() {
       <TeamContextBanner team={team} variant="billing" />
 
       {wallet?.hard_stop && (
-        <div className="rounded-xl border border-accent-red/40 bg-accent-red/10 px-4 py-3 text-sm text-accent-red">
-          Wallet balance is empty — workloads are hard-stopped.{" "}
+        <div
+          role="alert"
+          data-testid="wallet-hard-stop-banner"
+          className="flex flex-col gap-3 rounded-xl border border-accent-red/40 bg-gradient-to-r from-accent-red/15 via-accent-red/10 to-transparent px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-accent-red">Hard stop — zero available credits</p>
+            <p className="mt-0.5 text-xs text-text-secondary">
+              Workloads are blocked until you top up. Balance is not allowed to run negative.
+            </p>
+          </div>
           {canManageBilling && (
-            <button
-              type="button"
-              className="underline font-medium"
-              onClick={() => setShowDeposit(true)}
+            <Button
+              size="sm"
+              variant="success"
+              className="shrink-0"
+              onClick={() => {
+                posthog.capture("credits_deposit_initiated", { source: "hard_stop_banner" });
+                setShowDeposit(true);
+              }}
             >
-              Top up now
-            </button>
+              <Plus className="h-3.5 w-3.5" /> Top up now
+            </Button>
           )}
         </div>
       )}
       {!wallet?.hard_stop && wallet?.low_balance && (
-        <div className="rounded-xl border border-gold/40 bg-gold/10 px-4 py-3 text-sm text-gold">
-          Low balance warning (≤ ${Number(wallet.low_balance_threshold_cad ?? 5).toFixed(2)} CAD).
-          Top up before a hard stop at $0.{" "}
+        <div
+          role="status"
+          data-testid="wallet-low-balance-banner"
+          className="flex flex-col gap-3 rounded-xl border border-gold/40 bg-gradient-to-r from-gold/15 via-gold/10 to-transparent px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-gold">Low balance warning</p>
+            <p className="mt-0.5 text-xs text-text-secondary">
+              Available credits are at or below $
+              {Number(wallet.low_balance_threshold_cad ?? 5).toFixed(2)} CAD. Top up before a hard stop at $0.
+            </p>
+          </div>
           {canManageBilling && (
-            <button
-              type="button"
-              className="underline font-medium"
-              onClick={() => setShowDeposit(true)}
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0 border-gold/40 text-gold hover:bg-gold/10"
+              onClick={() => {
+                posthog.capture("credits_deposit_initiated", { source: "low_balance_banner" });
+                setShowDeposit(true);
+              }}
             >
-              Add credits
-            </button>
+              <Plus className="h-3.5 w-3.5" /> Add credits
+            </Button>
           )}
         </div>
       )}

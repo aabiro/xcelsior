@@ -193,6 +193,46 @@ describe("BillingPage free credits flow", () => {
     expect(screen.queryByRole("button", { name: /dash\.billing\.admin_reset_action/i })).not.toBeInTheDocument();
   });
 
+  it("renders low-balance banner when wallet.low_balance is set", async () => {
+    apiMocks.fetchWallet.mockResolvedValue({
+      ok: true,
+      wallet: {
+        customer_id: "cust-1",
+        balance_cad: 3,
+        currency: "CAD",
+        low_balance: true,
+        hard_stop: false,
+        low_balance_threshold_cad: 5,
+      },
+    });
+    apiMocks.checkFreeCreditsStatus.mockResolvedValue({ ok: true, claimed: true });
+    render(<BillingPage />);
+    expect(await screen.findByTestId("wallet-low-balance-banner")).toBeInTheDocument();
+    expect(screen.getByText(/Low balance warning/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Add credits/i })).toBeInTheDocument();
+  });
+
+  it("renders hard-stop banner when wallet.hard_stop is set", async () => {
+    apiMocks.fetchWallet.mockResolvedValue({
+      ok: true,
+      wallet: {
+        customer_id: "cust-1",
+        balance_cad: 0,
+        currency: "CAD",
+        low_balance: true,
+        hard_stop: true,
+        low_balance_threshold_cad: 5,
+      },
+    });
+    apiMocks.checkFreeCreditsStatus.mockResolvedValue({ ok: true, claimed: true });
+    render(<BillingPage />);
+    expect(await screen.findByTestId("wallet-hard-stop-banner")).toBeInTheDocument();
+    expect(screen.getByText(/Hard stop/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Top up now/i })).toBeInTheDocument();
+    // Hard-stop supersedes low-balance banner
+    expect(screen.queryByTestId("wallet-low-balance-banner")).not.toBeInTheDocument();
+  });
+
   it("lets admins reset wallet testing state and restores the promo banner", async () => {
     authMocks.useAuth.mockReturnValue({
       user: { user_id: "user-1", customer_id: "cust-1", is_admin: true },

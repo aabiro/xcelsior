@@ -331,11 +331,16 @@ class TestStripeSplitPayout:
     @patch.object(__import__("stripe_connect").StripeConnectManager, "_conn")
     @patch.object(__import__("stripe_connect").StripeConnectManager, "get_provider")
     def test_split_math(self, mock_get_prov, mock_conn, mock_stripe):
+        from types import SimpleNamespace
+
         mock_get_prov.return_value = {
             "provider_id": "p1",
             "stripe_account_id": "acct_123",
             "status": "active",
         }
+        mock_stripe.Balance.retrieve.return_value = SimpleNamespace(
+            available=[{"currency": "cad", "amount": 1_000_00}]
+        )
         mock_stripe.Transfer.create.return_value = MagicMock(id="tr_123")
 
         mock_cursor = MagicMock()
@@ -353,6 +358,7 @@ class TestStripeSplitPayout:
             assert result["platform_share_cad"] == pytest.approx(15.0, abs=0.01)
             assert result["provider_share_cad"] == pytest.approx(85.0, abs=0.01)
             assert result["gst_hst_cad"] == pytest.approx(13.0, abs=0.01)
+            assert result.get("settlement_status") in ("paid", "queued")
 
 
 # ═══════════════════════════════════════════════════════════════════════

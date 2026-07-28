@@ -94,23 +94,106 @@ if STRIPE_ENABLED:
         STRIPE_ENABLED = False
 
 
-def _available_cad_cents() -> int:
+def _available_cad_cents(stripe_mod=None) -> int:
     """Platform Stripe available balance in CAD cents (read-only API)."""
-    if not (STRIPE_ENABLED and stripe):
+    client = stripe_mod if stripe_mod is not None else stripe
+    if not (STRIPE_ENABLED and client):
         return 0
     try:
-        bal = stripe.Balance.retrieve()
-        available = getattr(bal, "available", None) or (bal.get("available") if hasattr(bal, "get") else [])
+        bal = client.Balance.retrieve()
+        available = getattr(bal, "available", None)
+        if available is None and hasattr(bal, "get"):
+            available = bal.get("available")
         total = 0
         for entry in available or []:
             currency = entry.get("currency") if isinstance(entry, dict) else getattr(entry, "currency", "")
             amount = entry.get("amount") if isinstance(entry, dict) else getattr(entry, "amount", 0)
-            if currency == "cad":
+            if str(currency).lower() == "cad":
                 total += int(amount or 0)
         return total
     except Exception as exc:
         log.warning("Stripe Balance.retrieve failed: %s", exc)
         return 0
+
+
+def evaluate_settlement(
+    *,
+    provider: dict | None,
+    provider_share_cad: float,
+    available_cad_cents: int | None = None,
+    stripe_mod=None,
+) -> dict:
+    """Decide pay vs queue for a provider share (pure eligibility + float).
+
+    Returns ``{status, error, need_cents, available_cents}`` where status is
+    ``paid_eligible`` (float OK, account active) or ``queued``.
+    """
+    need = int(round(float(provider_share_cad) * 100))
+    if need <= 0:
+        return {
+            "status": "queued",
+            "error": "zero_amount",
+            "need_cents": need,
+            "available_cents": 0,
+        }
+    if not provider or not provider.get("stripe_account_id"):
+        return {
+            "status": "queued",
+            "error": "no_stripe_account",
+            "need_cents": need,
+            "available_cents": 0,
+        }
+    if (provider.get("status") or "") != "active":
+        return {
+            "status": "queued",
+            "error": "provider_not_active",
+            "need_cents": need,
+            "available_cents": 0,
+        }
+    if available_cad_cents is None:
+        available_cad_cents = _available_cad_cents(stripe_mod)
+    if available_cad_cents < need:
+        return {
+            "status": "queued",
+            "error": "insufficient_platform_balance",
+            "need_cents": need,
+            "available_cents": available_cad_cents,
+        }
+    return {
+        "status": "paid_eligible",
+        "error": "",
+        "need_cents": need,
+        "available_cents": available_cad_cents,
+    }
+
+
+def _stripe_create_transfer(
+    *,
+    amount_cents: int,
+    destination: str,
+    job_id: str,
+    provider_id: str,
+    settlement: str,
+    stripe_mod=None,
+):
+    """Create a Transfer with idempotency key (request option, not body field)."""
+    client = stripe_mod if stripe_mod is not None else stripe
+    idem = f"payout-{job_id}-{provider_id}"
+    kwargs = {
+        "amount": amount_cents,
+        "currency": "cad",
+        "destination": destination,
+        "metadata": {
+            "job_id": job_id,
+            "provider_id": provider_id,
+            "settlement": settlement,
+        },
+    }
+    # stripe-python 15: request options via second positional / options=
+    try:
+        return client.Transfer.create(**kwargs, idempotency_key=idem)
+    except TypeError:
+        return client.Transfer.create(**kwargs)
 
 
 # ── Enums and Data Models ────────────────────────────────────────────
@@ -763,67 +846,97 @@ class StripeConnectManager:
         gst_hst = round(total_cad * tax_rate, 2)
         provider_share = round(pre_tax_provider, 2)
 
-        stripe_transfer_id = ""
-        settlement_status = "pending"
-        settlement_error = ""
-        if STRIPE_ENABLED and stripe:
-            provider = self.get_provider(provider_id)
-            if provider and provider.get("stripe_account_id"):
-                if (provider.get("status") or "") != "active":
-                    settlement_status = "queued"
-                    settlement_error = "provider_not_active"
-                else:
-                    try:
-                        # Float preflight: avoid hard failures when platform balance is empty.
-                        need = int(round(provider_share * 100))
-                        available_cad_cents = _available_cad_cents()
-                        if available_cad_cents < need:
-                            settlement_status = "queued"
-                            settlement_error = "insufficient_platform_balance"
-                            log.warning(
-                                "Payout queued job=%s provider=%s need=%d available=%d",
-                                job_id,
-                                provider_id,
-                                need,
-                                available_cad_cents,
-                            )
-                        else:
-                            transfer = stripe.Transfer.create(
-                                amount=need,
-                                currency="cad",
-                                destination=provider["stripe_account_id"],
-                                metadata={
-                                    "job_id": job_id,
-                                    "provider_id": provider_id,
-                                    "settlement": "instant",
-                                },
-                                idempotency_key=f"payout-{job_id}-{provider_id}",
-                            )
-                            stripe_transfer_id = transfer.id
-                            settlement_status = "paid"
-                    except Exception as e:
-                        settlement_status = "queued"
-                        settlement_error = str(e)[:240]
-                        log.error("Stripe Transfer failed for job %s: %s", job_id, e)
-            else:
-                settlement_status = "queued"
-                settlement_error = "no_stripe_account"
-        else:
+        if not (STRIPE_ENABLED and stripe):
             raise RuntimeError(
                 "Stripe is not configured. Set XCELSIOR_STRIPE_SECRET_KEY "
                 "in .env to enable provider payouts."
             )
 
+        provider = self.get_provider(provider_id)
+        decision = evaluate_settlement(
+            provider=provider,
+            provider_share_cad=provider_share,
+            stripe_mod=stripe,
+        )
+        stripe_transfer_id = ""
+        settlement_status = "queued"
+        settlement_error = decision.get("error") or ""
+
+        if decision["status"] == "paid_eligible":
+            try:
+                transfer = _stripe_create_transfer(
+                    amount_cents=decision["need_cents"],
+                    destination=provider["stripe_account_id"],
+                    job_id=job_id,
+                    provider_id=provider_id,
+                    settlement="instant",
+                    stripe_mod=stripe,
+                )
+                stripe_transfer_id = getattr(transfer, "id", None) or transfer.get("id", "")
+                settlement_status = "paid"
+                settlement_error = ""
+            except Exception as e:
+                settlement_status = "queued"
+                settlement_error = str(e)[:240]
+                log.error("Stripe Transfer failed for job %s: %s", job_id, e)
+        else:
+            log.warning(
+                "Payout queued job=%s provider=%s reason=%s need=%s available=%s",
+                job_id,
+                provider_id,
+                settlement_error,
+                decision.get("need_cents"),
+                decision.get("available_cents"),
+            )
+
+        self._insert_payout_split(
+            job_id=job_id,
+            provider_id=provider_id,
+            total_cad=total_cad,
+            provider_share=provider_share,
+            platform_share=platform_share,
+            gst_hst=gst_hst,
+            stripe_transfer_id=stripe_transfer_id,
+            settlement_status=settlement_status,
+            settlement_error=settlement_error,
+        )
+
+        return {
+            "job_id": job_id,
+            "total_cad": total_cad,
+            "provider_share_cad": provider_share,
+            "platform_share_cad": platform_share,
+            "gst_hst_cad": gst_hst,
+            "province": province,
+            "tax_rate": tax_rate,
+            "stripe_transfer_id": stripe_transfer_id,
+            "settlement_status": settlement_status,
+            "settlement_error": settlement_error,
+        }
+
+    def _insert_payout_split(
+        self,
+        *,
+        job_id: str,
+        provider_id: str,
+        total_cad: float,
+        provider_share: float,
+        platform_share: float,
+        gst_hst: float,
+        stripe_transfer_id: str,
+        settlement_status: str,
+        settlement_error: str,
+        payment_rail: str = "stripe",
+    ) -> None:
+        """Persist payout_splits with settlement columns when available."""
         with self._conn() as conn:
-            # settlement_status / settlement_error columns added in migration 079;
-            # fall back if older DBs lack them.
             try:
                 conn.execute(
                     """INSERT INTO payout_splits
                        (job_id, provider_id, total_cad, provider_share_cad,
                         platform_share_cad, gst_hst_cad, stripe_transfer_id,
                         payment_rail, settlement_status, settlement_error)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, 'stripe', %s, %s)""",
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                     (
                         job_id,
                         provider_id,
@@ -832,11 +945,16 @@ class StripeConnectManager:
                         platform_share,
                         gst_hst,
                         stripe_transfer_id,
+                        payment_rail,
                         settlement_status,
                         settlement_error,
                     ),
                 )
-            except Exception:
+            except Exception as exc:
+                log.warning(
+                    "payout_splits settlement columns unavailable (%s); legacy insert",
+                    exc,
+                )
                 conn.execute(
                     """INSERT INTO payout_splits
                        (job_id, provider_id, total_cad, provider_share_cad,
@@ -852,19 +970,6 @@ class StripeConnectManager:
                         stripe_transfer_id,
                     ),
                 )
-
-        return {
-            "job_id": job_id,
-            "total_cad": total_cad,
-            "provider_share_cad": provider_share,
-            "platform_share_cad": platform_share,
-            "gst_hst_cad": gst_hst,
-            "province": province,
-            "tax_rate": tax_rate,
-            "stripe_transfer_id": stripe_transfer_id,
-            "settlement_status": settlement_status,
-            "settlement_error": settlement_error,
-        }
 
     def create_account_session(self, provider_id: str) -> dict:
         """Create a Connect AccountSession for embedded onboarding components.
@@ -893,13 +998,14 @@ class StripeConnectManager:
             "expires_at": getattr(session, "expires_at", None),
         }
 
-    def settle_queued_payouts(self, *, limit: int = 100) -> dict:
+    def settle_queued_payouts(self, *, limit: int = 100, stripe_mod=None) -> dict:
         """Daily settlement: attempt Transfers for queued payout_splits.
 
         Safe to run repeatedly; skips rows already paid. Does not create new
         commercial charges — only moves already-earned platform float.
         """
-        if not (STRIPE_ENABLED and stripe):
+        client = stripe_mod if stripe_mod is not None else stripe
+        if not (STRIPE_ENABLED and client):
             return {"settled": 0, "failed": 0, "skipped": 0, "reason": "stripe_disabled"}
         settled = failed = skipped = 0
         with self._conn() as conn:
@@ -914,32 +1020,34 @@ class StripeConnectManager:
                         LIMIT %s""",
                     (limit,),
                 ).fetchall()
-            except Exception:
-                # Pre-migration schema without settlement_status.
+                rows = [dict(r) for r in rows]
+            except Exception as exc:
+                log.warning("settle_queued_payouts schema unavailable: %s", exc)
                 return {"settled": 0, "failed": 0, "skipped": 0, "reason": "schema_pending"}
         for row in rows:
             job_id = row["job_id"]
             provider_id = row["provider_id"]
             amount = float(row["provider_share_cad"] or 0)
-            if amount <= 0:
-                skipped += 1
-                continue
             provider = self.get_provider(provider_id)
-            if not provider or not provider.get("stripe_account_id") or provider.get("status") != "active":
+            decision = evaluate_settlement(
+                provider=provider,
+                provider_share_cad=amount,
+                stripe_mod=client,
+            )
+            if decision["status"] != "paid_eligible":
                 skipped += 1
                 continue
             try:
-                need = int(round(amount * 100))
-                available_cad_cents = _available_cad_cents()
-                if available_cad_cents < need:
-                    skipped += 1
-                    continue
-                transfer = stripe.Transfer.create(
-                    amount=need,
-                    currency="cad",
+                transfer = _stripe_create_transfer(
+                    amount_cents=decision["need_cents"],
                     destination=provider["stripe_account_id"],
-                    metadata={"job_id": job_id, "provider_id": provider_id, "settlement": "daily"},
-                    idempotency_key=f"payout-{job_id}-{provider_id}",
+                    job_id=job_id,
+                    provider_id=provider_id,
+                    settlement="daily",
+                    stripe_mod=client,
+                )
+                tid = getattr(transfer, "id", None) or (
+                    transfer.get("id") if isinstance(transfer, dict) else ""
                 )
                 with self._conn() as conn:
                     conn.execute(
@@ -947,7 +1055,7 @@ class StripeConnectManager:
                               SET stripe_transfer_id=%s, settlement_status='paid',
                                   settlement_error=''
                             WHERE job_id=%s AND provider_id=%s""",
-                        (transfer.id, job_id, provider_id),
+                        (tid, job_id, provider_id),
                     )
                 settled += 1
             except Exception as exc:
@@ -961,8 +1069,8 @@ class StripeConnectManager:
                                 WHERE job_id=%s AND provider_id=%s""",
                             (str(exc)[:240], job_id, provider_id),
                         )
-                except Exception:
-                    pass
+                except Exception as mark_exc:
+                    log.warning("Could not mark settlement failure job=%s: %s", job_id, mark_exc)
         return {"settled": settled, "failed": failed, "skipped": skipped}
 
     def get_provider_payouts(self, provider_id: str, limit: int = 50) -> list[dict]:
