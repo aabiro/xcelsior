@@ -516,6 +516,18 @@ def _seed_gpu_catalog(stripe, dry_run: bool, manifest: dict, meter_id: str) -> t
         existing = None if dry_run else _find_product_by_sku(stripe, sku)
         if existing:
             product_id = existing.id
+            # Keep product copy + tax code in sync with seed (every GPU stored).
+            if not dry_run:
+                try:
+                    stripe.Product.modify(
+                        product_id,
+                        name=product_payload["name"],
+                        description=product_payload["description"],
+                        metadata=product_payload["metadata"],
+                        tax_code=product_payload["tax_code"],
+                    )
+                except Exception as exc:
+                    print(f"  [warn] product modify {sku}: {exc}", file=sys.stderr)
         elif dry_run:
             product_id = f"prod_DRY_{sku[:40]}"
             created_products += 1
@@ -539,15 +551,16 @@ def _seed_gpu_catalog(stripe, dry_run: bool, manifest: dict, meter_id: str) -> t
             lk = price_row["lookup_key"]
             rate = price_row["rate_cad"]
             existing_price = None if dry_run else _find_price_by_lookup(stripe, lk)
+            want_decimal = _cad_to_decimal_cents(rate)
 
             price_payload = {
                 "product": product_id,
                 "currency": "cad",
                 "nickname": price_row["nickname"],
                 "lookup_key": lk,
-                "unit_amount_decimal": _cad_to_decimal_cents(rate),
-                # Catalog price: CAD per GPU-hour. Applied dynamically as checkout line items
-                # (never a customer-facing product picker). Meter backs future usage events.
+                "unit_amount_decimal": want_decimal,
+                # Catalog price: CAD per GPU-hour (metered). Interval "month" is Stripe's
+                # usage aggregation window for metered prices — not a subscription SKU.
                 "recurring": {
                     "interval": "month",
                     "usage_type": "metered",
@@ -568,7 +581,54 @@ def _seed_gpu_catalog(stripe, dry_run: bool, manifest: dict, meter_id: str) -> t
             }
 
             if existing_price:
-                price_id = existing_price.id
+                # Stripe Prices are immutable for unit amount — reprice by creating a
+                # new Price and transferring the stable lookup_key.
+                old_decimal = str(
+                    getattr(existing_price, "unit_amount_decimal", None)
+                    or (
+                        f"{int(existing_price.unit_amount)}"
+                        if getattr(existing_price, "unit_amount", None) is not None
+                        else ""
+                    )
+                )
+                # Normalize "0.49" vs "0.4900"
+                def _norm(d: str) -> str:
+                    try:
+                        return f"{float(d):.6f}".rstrip("0").rstrip(".")
+                    except Exception:
+                        return d
+
+                if old_decimal and _norm(old_decimal) != _norm(want_decimal):
+                    if dry_run:
+                        price_id = f"price_DRY_reprice_{lk[:30]}"
+                        created_prices += 1
+                    else:
+                        try:
+                            stripe.Price.modify(existing_price.id, active=False)
+                        except Exception:
+                            pass
+                        pr = stripe.Price.create(
+                            **price_payload,
+                            transfer_lookup_key=True,
+                        )
+                        price_id = pr.id
+                        created_prices += 1
+                        time.sleep(0.05)
+                        print(
+                            f"    [reprice] {lk}: {old_decimal} → {want_decimal} ({price_id})"
+                        )
+                else:
+                    price_id = existing_price.id
+                    if not dry_run:
+                        try:
+                            stripe.Price.modify(
+                                price_id,
+                                nickname=price_row["nickname"],
+                                metadata=price_payload["metadata"],
+                                active=True,
+                            )
+                        except Exception:
+                            pass
             elif dry_run:
                 price_id = f"price_DRY_{lk[:40]}"
                 created_prices += 1

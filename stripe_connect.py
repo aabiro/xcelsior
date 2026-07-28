@@ -779,6 +779,11 @@ class StripeConnectManager:
 
         intent_id = f"pi_{secrets.token_hex(12)}"
         credit_cents = int(round(float(amount_cad) * 100))
+        credit_cad = round(credit_cents / 100.0, 2)
+        # Dashboard-facing description — keep human-readable like historical deposits.
+        pi_description = (description or "").strip() or "Compute credits"
+        if pi_description.lower() in ("compute credits", "credit deposit", "wallet deposit"):
+            pi_description = f"Compute credits — ${credit_cad:.2f} CAD"
         stripe_intent_id = ""
         client_secret = ""
         tax_info: dict[str, Any] = {
@@ -803,11 +808,25 @@ class StripeConnectManager:
                     stripe_mod=stripe,
                 )
                 charge_cents = int(tax_info.get("amount_total") or credit_cents)
+                tax_cents = int(tax_info.get("tax_amount_cents") or 0)
+                if tax_cents > 0:
+                    pi_description = (
+                        f"Compute credits — ${credit_cad:.2f} CAD"
+                        f" + tax ${tax_cents / 100.0:.2f}"
+                    )
+
+                # Always attach a Stripe Customer so Dashboard shows email/name.
+                from billing import get_billing_engine
+
+                cust_id = get_billing_engine().ensure_stripe_customer(
+                    customer_id, email=email or ""
+                )
 
                 # Dynamic payment methods (Dashboard-configured).
                 pi_kwargs: dict[str, Any] = {
                     "amount": charge_cents,
                     "currency": "cad",
+                    "customer": cust_id,
                     "automatic_payment_methods": {"enabled": True},
                     "metadata": {
                         "xcelsior_customer_id": customer_id,
@@ -815,10 +834,10 @@ class StripeConnectManager:
                         "product_type": "wallet_deposit",
                         "xcelsior_sku": "xcelsior-compute-credits",
                         "credit_amount_cents": str(credit_cents),
-                        "tax_amount_cents": str(int(tax_info.get("tax_amount_cents") or 0)),
+                        "tax_amount_cents": str(tax_cents),
                         "tax_calculation_id": str(tax_info.get("tax_calculation_id") or ""),
                     },
-                    "description": description,
+                    "description": pi_description,
                     "statement_descriptor_suffix": "CREDITS",
                 }
                 # Simplified Stripe Tax: link calculation so Stripe records tax
@@ -835,18 +854,6 @@ class StripeConnectManager:
                         pi_kwargs["metadata"]["stripe_product_id"] = wallet["product_id"]
                 except Exception:
                     pass
-
-                # Attach Stripe Customer when possible (address helps future calcs).
-                try:
-                    from billing import get_billing_engine
-
-                    cust_id = get_billing_engine().ensure_stripe_customer(
-                        customer_id, email=email or customer_id
-                    )
-                    if cust_id:
-                        pi_kwargs["customer"] = cust_id
-                except Exception as cust_exc:
-                    log.debug("ensure_stripe_customer skipped: %s", cust_exc)
 
                 pi = stripe.PaymentIntent.create(**pi_kwargs)
                 stripe_intent_id = pi.id
@@ -872,7 +879,7 @@ class StripeConnectManager:
                     customer_id,
                     credit_cents,
                     stripe_intent_id,
-                    description,
+                    pi_description,
                     time.time(),
                 ),
             )
@@ -880,14 +887,15 @@ class StripeConnectManager:
         return {
             "intent_id": intent_id,
             "stripe_intent_id": stripe_intent_id,
-            "amount_cad": amount_cad,
-            "credit_amount_cad": round(credit_cents / 100.0, 2),
+            "amount_cad": credit_cad,
+            "credit_amount_cad": credit_cad,
             "tax_amount_cad": round(int(tax_info.get("tax_amount_cents") or 0) / 100.0, 2),
             "charge_amount_cad": round(int(tax_info.get("amount_total") or credit_cents) / 100.0, 2),
             "tax_calculation_id": tax_info.get("tax_calculation_id") or "",
             "tax_breakdown": tax_info.get("breakdown") or [],
             "tax_enabled": bool(tax_info.get("tax_enabled")),
             "tax_location_source": tax_info.get("location_source") or "",
+            "description": pi_description,
             "client_secret": client_secret,
         }
 
