@@ -1004,11 +1004,23 @@ export async function fetchProviderEarnings(providerId: string) {
 export async function registerProvider(data: {
   provider_id: string; email: string; provider_type?: string;
   corporation_name?: string; business_number?: string; province?: string; legal_name?: string;
+  country?: string;
 }) {
   return apiFetch<{
     ok: boolean; provider_id: string; stripe_account_id: string;
     onboarding_url: string; status: string;
   }>("/api/providers/register", { method: "POST", body: JSON.stringify(data) });
+}
+
+/** Stripe Connect AccountSession client_secret for embedded components (no charge). */
+export async function createProviderAccountSession(providerId: string) {
+  return apiFetch<{
+    ok: boolean;
+    client_secret: string;
+    account_id: string;
+    provider_id: string;
+    expires_at?: number | null;
+  }>(`/api/providers/${encodeURIComponent(providerId)}/account-session`, { method: "POST" });
 }
 
 export async function fetchProvider(providerId: string) {
@@ -2474,6 +2486,12 @@ export interface Wallet {
   balance_cad: number;
   balance?: number;
   currency: string;
+  available_cad?: number;
+  held_cad?: number;
+  status?: string;
+  low_balance?: boolean;
+  low_balance_threshold_cad?: number;
+  hard_stop?: boolean;
 }
 
 export interface MarketplaceListing {

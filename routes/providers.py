@@ -50,8 +50,9 @@ class ProviderRegisterRequest(BaseModel):
     corporation_name: str = ""  # Required for company type
     business_number: str = ""  # CRA Business Number (BN)
     gst_hst_number: str = ""  # GST/HST registration number
-    province: str = ""  # ON, QC, BC, AB, etc.
+    province: str = ""  # ON, QC, BC, AB, etc. (or region code)
     legal_name: str = ""  # Legal name of individual or entity
+    country: str = "CA"  # ISO-3166 alpha-2; global cross-border providers supported
 
 
 # ── Model: IncorporationUploadRequest ──
@@ -96,6 +97,7 @@ def api_register_provider(req: ProviderRegisterRequest, request: Request):
             gst_hst_number=req.gst_hst_number,
             province=req.province,
             legal_name=req.legal_name,
+            country=(req.country or "CA").strip().upper()[:2] or "CA",
         )
     except RuntimeError as e:
         raise HTTPException(502, str(e)) from e
@@ -305,6 +307,22 @@ def _provider_intro_fee_status(provider_id: str, user: dict) -> dict:
         status["active"] = True
         status["days_remaining"] = int(math.ceil(remaining_days))
     return status
+
+
+@router.post("/api/providers/{provider_id}/account-session", tags=["Providers"])
+def api_provider_account_session(provider_id: str, request: Request):
+    """Create a Stripe Connect AccountSession for embedded onboarding UI.
+
+    Returns client_secret for @stripe/connect-js components (account_onboarding,
+    notification_banner, account_management, payouts). Free API — no charges.
+    """
+    user = _require_provider_access(request, provider_id)
+    _require_scope(user, "providers:write")
+    try:
+        result = get_stripe_manager().create_account_session(provider_id)
+    except RuntimeError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"ok": True, **result}
 
 
 @router.get("/api/providers/{provider_id}/paypal", tags=["Providers"])
