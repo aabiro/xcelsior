@@ -21,6 +21,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "@/lib/recharts";
 import { PayPalConnectCard, type PayPalProviderState } from "@/components/providers/paypal-connect-card";
+import { StripeConnectEmbedded } from "@/components/providers/stripe-connect-embedded";
 
 interface ProviderInfo {
   provider_id: string;
@@ -411,6 +412,12 @@ export default function EarningsPage() {
                   </div>
                 ) : provider ? (
                   <div className="space-y-3">
+                    {(providerId || customerId) && (
+                      <StripeConnectEmbedded
+                        providerId={providerId || customerId}
+                        active={provider.status !== "active"}
+                      />
+                    )}
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-sm font-medium">

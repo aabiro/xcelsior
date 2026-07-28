@@ -1126,6 +1126,13 @@ class BillingEngine:
             held = self._active_holds_total(conn, customer_id)
             row["held_cad"] = held
             row["available_cad"] = round(max(0.0, balance - held), 4)
+            # Low-balance UX signals (warning before hard stop at zero).
+            warn_at = float(row.get("auto_topup_threshold_cad") or 0) or float(
+                os.environ.get("XCELSIOR_LOW_BALANCE_WARN_CAD", "5.0")
+            )
+            row["low_balance_threshold_cad"] = warn_at
+            row["low_balance"] = row["available_cad"] <= warn_at
+            row["hard_stop"] = row["available_cad"] <= 0 or (row.get("status") == "suspended")
             return row
 
     def _active_holds_total(self, conn: Any, customer_id: str, *, now: float | None = None) -> float:
@@ -1649,6 +1656,50 @@ class BillingEngine:
         log.info("DEPOSIT %s +$%.2f CAD balance=$%.2f", customer_id, amount_cad, new_balance)
         return {"tx_id": tx_id, "balance_cad": new_balance}
 
+    def low_balance_threshold_cad(self, customer_id: str) -> float:
+        """Warn when available balance falls at or below this CAD amount.
+
+        Uses auto-topup threshold when configured; otherwise $5 CAD default.
+        """
+        wallet = self.get_wallet(customer_id)
+        threshold = float(wallet.get("auto_topup_threshold_cad") or 0)
+        if threshold > 0:
+            return threshold
+        return float(os.environ.get("XCELSIOR_LOW_BALANCE_WARN_CAD", "5.0"))
+
+    def maybe_warn_low_balance(self, customer_id: str, balance_cad: float) -> dict:
+        """Emit a low-balance warning notification (rate-limited via grace_until stamp)."""
+        threshold = self.low_balance_threshold_cad(customer_id)
+        if balance_cad > threshold:
+            return {"warned": False, "threshold_cad": threshold}
+        now = time.time()
+        wallet = self.get_wallet(customer_id)
+        # Reuse grace_until as last-warn watermark when still positive balance.
+        last = float(wallet.get("grace_until") or 0)
+        if last and now - last < 6 * 3600 and balance_cad > 0:
+            return {"warned": False, "threshold_cad": threshold, "reason": "rate_limited"}
+        try:
+            with self._conn() as conn:
+                conn.execute(
+                    "UPDATE wallets SET grace_until = %s, updated_at = %s WHERE customer_id = %s",
+                    (now, now, customer_id),
+                )
+            from db import NotificationStore
+
+            NotificationStore.create(
+                user_email=customer_id,
+                notif_type="billing_low_balance",
+                title="Low balance warning",
+                body=(
+                    f"Your wallet is ${balance_cad:.2f} CAD "
+                    f"(warning at ${threshold:.2f} CAD). Top up to avoid hard stop."
+                ),
+                data={"balance_cad": balance_cad, "threshold_cad": threshold},
+            )
+        except Exception:
+            pass
+        return {"warned": True, "threshold_cad": threshold, "balance_cad": balance_cad}
+
     def charge(
         self,
         customer_id: str,
@@ -1656,82 +1707,93 @@ class BillingEngine:
         job_id: str = "",
         description: str = "Compute charge",
     ) -> dict:
-        """Charge a customer wallet. Returns False if insufficient balance
-        (triggers grace period per REPORT_FEATURE_1.md: 72 hours).
+        """Charge a customer wallet from prepaid credits.
+
+        Hard stop: never debit more than available balance (no free-ride grace).
+        Low-balance warnings fire before zero so customers can top up.
         """
         self._ensure_wallet_table()
         wallet = self.get_wallet(customer_id)
-        balance = wallet["balance_cad"]
+        balance = float(wallet["balance_cad"] or 0)
+        status = wallet.get("status") or "active"
+        amount_cad = round(float(amount_cad), 4)
 
-        GRACE_PERIOD_SEC = 72 * 3600  # 72 hours per REPORT_FEATURE_1.md
+        if status == "suspended":
+            return {
+                "charged": False,
+                "reason": "wallet_suspended",
+                "balance_cad": balance,
+                "action": "account_suspended",
+            }
 
-        if balance < amount_cad:
-            # Check grace period
+        # Pre-zero warning while still solvent.
+        if balance > 0:
+            self.maybe_warn_low_balance(customer_id, balance)
+
+        if amount_cad <= 0:
+            return {"charged": False, "reason": "invalid_amount", "balance_cad": balance}
+
+        if balance + 1e-9 < amount_cad:
+            # Hard stop at zero / insufficient funds — never run free compute.
             now = time.time()
-            grace = wallet.get("grace_until", 0)
-
-            if grace == 0:
-                # Start grace period
-                grace_end = now + GRACE_PERIOD_SEC
-                with self._conn() as conn:
-                    conn.execute(
-                        "UPDATE wallets SET grace_until = %s, updated_at = %s WHERE customer_id = %s",
-                        (grace_end, now, customer_id),
-                    )
-                log.warning(
-                    "WALLET %s insufficient balance ($%.2f < $%.2f) " "— 72hr grace period started",
-                    customer_id,
-                    balance,
-                    amount_cad,
-                )
+            action = "hard_stop"
+            if balance <= 0:
                 try:
-                    from db import NotificationStore
-
-                    NotificationStore.create(
-                        user_email=customer_id,
-                        notif_type="billing_grace",
-                        title="Low balance — 72-hour grace period started",
-                        body=f"Your balance is ${balance:.2f} CAD. Add funds within 72 hours to avoid service interruption.",
-                        data={"balance_cad": balance, "grace_until": grace_end},
-                    )
-                except Exception:
-                    pass
-                return {
-                    "charged": False,
-                    "reason": "insufficient_balance",
-                    "balance_cad": balance,
-                    "grace_until": grace_end,
-                    "action": "grace_period_started",
-                }
-            elif now > grace:
-                # Grace expired — auto-stop instances
-                with self._conn() as conn:
-                    conn.execute(
-                        "UPDATE wallets SET status = 'suspended', updated_at = %s WHERE customer_id = %s",
-                        (now, customer_id),
-                    )
-                log.warning("WALLET %s grace period expired — account suspended", customer_id)
-                try:
+                    with self._conn() as conn:
+                        conn.execute(
+                            "UPDATE wallets SET status = 'suspended', updated_at = %s WHERE customer_id = %s",
+                            (now, customer_id),
+                        )
                     from db import NotificationStore
 
                     NotificationStore.create(
                         user_email=customer_id,
                         notif_type="billing_suspended",
-                        title="Account suspended — grace period expired",
-                        body="Your account has been suspended due to insufficient funds. All running instances will be stopped. Add funds to reactivate.",
-                        data={"balance_cad": balance},
+                        title="Account suspended — zero balance",
+                        body=(
+                            "Your wallet balance is $0.00 CAD. Running workloads will be "
+                            "stopped. Top up to reactivate."
+                        ),
+                        data={"balance_cad": balance, "job_id": job_id},
                     )
                 except Exception:
                     pass
-                return {
-                    "charged": False,
-                    "reason": "grace_expired",
-                    "balance_cad": balance,
-                    "action": "account_suspended",
-                }
+                action = "account_suspended"
             else:
-                # Still in grace period — allow charge but warn
-                log.warning("WALLET %s in grace period, allowing charge", customer_id)
+                try:
+                    from db import NotificationStore
+
+                    NotificationStore.create(
+                        user_email=customer_id,
+                        notif_type="billing_insufficient",
+                        title="Insufficient balance — charge blocked",
+                        body=(
+                            f"Charge of ${amount_cad:.2f} CAD blocked "
+                            f"(balance ${balance:.2f} CAD). Top up to continue."
+                        ),
+                        data={
+                            "balance_cad": balance,
+                            "required_cad": amount_cad,
+                            "job_id": job_id,
+                        },
+                    )
+                except Exception:
+                    pass
+            log.warning(
+                "WALLET %s hard-stop insufficient ($%.4f < $%.4f) job=%s action=%s",
+                customer_id,
+                balance,
+                amount_cad,
+                job_id,
+                action,
+            )
+            return {
+                "charged": False,
+                "reason": "insufficient_balance",
+                "balance_cad": balance,
+                "required_cad": amount_cad,
+                "action": action,
+            }
 
         new_balance = round(balance - amount_cad, 4)
         tx_id = f"TX-{int(time.time())}-{os.urandom(3).hex()}"
@@ -1769,6 +1831,21 @@ class BillingEngine:
             job_id,
             new_balance,
         )
+        # Non-blocking Stripe Billing Meter dual-write (wallet remains SoT).
+        try:
+            from stripe_meters import enqueue_usage_from_charge
+
+            enqueue_usage_from_charge(
+                customer_id=customer_id,
+                amount_cad=amount_cad,
+                job_id=job_id or "",
+                description=description or "",
+                tx_id=tx_id,
+            )
+        except Exception as exc:
+            log.debug("meter dual-write enqueue skipped: %s", exc)
+        if new_balance > 0:
+            self.maybe_warn_low_balance(customer_id, new_balance)
         return {"charged": True, "tx_id": tx_id, "balance_cad": new_balance}
 
     def _credit_wallet(
@@ -2716,7 +2793,7 @@ class BillingEngine:
         si = _stripe_mod.SetupIntent.create(
             customer=stripe_customer_id,
             usage="off_session",
-            payment_method_types=["card"],
+            automatic_payment_methods={"enabled": True},
             metadata={"xcelsior_customer_id": customer_id},
         )
         return {

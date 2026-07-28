@@ -146,13 +146,15 @@ class TestWallets:
         assert result["charged"] is True
         assert result["balance_cad"] == pytest.approx(70.0, abs=0.01)
 
-    def test_insufficient_balance_triggers_grace(self):
+    def test_insufficient_balance_hard_stops(self):
         eng = _engine()
         cid = _unique_cust("cust-grace")
         eng.get_wallet(cid)
         result = eng.charge(cid, 10.0)
         assert result["charged"] is False
-        assert "grace" in result.get("action", "")
+        assert result.get("reason") == "insufficient_balance"
+        # Zero balance → hard stop / suspend (no free-ride grace charges).
+        assert result.get("action") in ("hard_stop", "account_suspended")
 
     def test_reset_wallet_testing_state_clears_balance_and_history(self):
         eng = _engine()

@@ -70,20 +70,47 @@ DB_PATH = os.environ.get("XCELSIOR_STRIPE_DB", "xcelsior_stripe.db")
 
 # Only import stripe if API key is configured
 stripe = None
+# Pin to the recommended Dahlia API version shipped with stripe-python >= 15.3.
+STRIPE_API_VERSION = "2026-06-24.dahlia"
 if STRIPE_ENABLED:
     try:
         import stripe as _stripe
 
         _stripe.api_key = STRIPE_SECRET_KEY
+        # SDK 15.3+ defaults to 2026-06-24.dahlia; set explicitly for older installs.
+        try:
+            _stripe.api_version = STRIPE_API_VERSION
+        except Exception:
+            pass
         stripe = _stripe
         log.info(
-            "Stripe Connect ENABLED (mode=%s, key prefix: %s...)",
+            "Stripe Connect ENABLED (mode=%s, api=%s, key prefix: %s...)",
             _STRIPE_MODE,
+            getattr(stripe, "api_version", STRIPE_API_VERSION),
             STRIPE_SECRET_KEY[:7],
         )
     except ImportError:
         log.warning("stripe package not installed — pip install stripe")
         STRIPE_ENABLED = False
+
+
+def _available_cad_cents() -> int:
+    """Platform Stripe available balance in CAD cents (read-only API)."""
+    if not (STRIPE_ENABLED and stripe):
+        return 0
+    try:
+        bal = stripe.Balance.retrieve()
+        available = getattr(bal, "available", None) or (bal.get("available") if hasattr(bal, "get") else [])
+        total = 0
+        for entry in available or []:
+            currency = entry.get("currency") if isinstance(entry, dict) else getattr(entry, "currency", "")
+            amount = entry.get("amount") if isinstance(entry, dict) else getattr(entry, "amount", 0)
+            if currency == "cad":
+                total += int(amount or 0)
+        return total
+    except Exception as exc:
+        log.warning("Stripe Balance.retrieve failed: %s", exc)
+        return 0
 
 
 # ── Enums and Data Models ────────────────────────────────────────────
@@ -193,6 +220,7 @@ class StripeConnectManager:
         gst_hst_number: str = "",
         province: str = "",
         legal_name: str = "",
+        country: str = "CA",
     ) -> dict:
         """Create a Stripe Connect Express account for a provider.
 
@@ -201,10 +229,14 @@ class StripeConnectManager:
         2. Financial Enrollment (bank details)
         3. Credentialing (GPU/bandwidth thresholds)
         4. Tax Compliance (GST/HST)
+
+        ``country`` is ISO-3166 alpha-2. Cross-border providers are supported when
+        the platform Connect settings allow payouts to that country.
         """
         now = time.time()
         stripe_account_id = ""
         onboarding_url = ""
+        country_code = (country or "CA").strip().upper()[:2] or "CA"
 
         if not (STRIPE_ENABLED and stripe):
             raise RuntimeError(
@@ -363,10 +395,11 @@ class StripeConnectManager:
             }
 
         try:
-            # Create Stripe Connect Express account
+            # Express account: marketplace provider receives Transfers (not direct charges).
+            # Country is provider-supplied for global cross-border payouts.
             acct = stripe_api.Account.create(
                 type="express",
-                country="CA",
+                country=country_code,
                 email=email,
                 capabilities={
                     "card_payments": {"requested": True},
@@ -377,14 +410,16 @@ class StripeConnectManager:
                     "xcelsior_provider_id": provider_id,
                     "corporation_name": corporation_name,
                     "business_number": business_number,
+                    "country": country_code,
                 },
             )
             stripe_account_id = acct.id
             onboarding_url, status = _create_hosted_stripe_url(stripe_account_id, "onboarding")
             log.info(
-                "Stripe Connect account created: %s for provider %s",
+                "Stripe Connect account created: %s for provider %s country=%s",
                 stripe_account_id,
                 provider_id,
+                country_code,
             )
         except Exception as e:
             log.error("Stripe account creation failed for %s: %s", provider_id, e)
@@ -404,13 +439,14 @@ class StripeConnectManager:
                    (provider_id, provider_type, stripe_account_id, status,
                     corporation_name, business_number, gst_hst_number,
                     email, legal_name, country, province, created_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'CA', %s, %s)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT (provider_id) DO UPDATE SET
                      provider_type = EXCLUDED.provider_type, stripe_account_id = EXCLUDED.stripe_account_id,
                      status = EXCLUDED.status, corporation_name = EXCLUDED.corporation_name,
                      business_number = EXCLUDED.business_number, gst_hst_number = EXCLUDED.gst_hst_number,
                      email = EXCLUDED.email, legal_name = EXCLUDED.legal_name,
-                     province = EXCLUDED.province, created_at = EXCLUDED.created_at""",
+                     country = EXCLUDED.country, province = EXCLUDED.province,
+                     created_at = EXCLUDED.created_at""",
                 (
                     provider_id,
                     provider_type,
@@ -421,6 +457,7 @@ class StripeConnectManager:
                     gst_hst_number,
                     email,
                     legal_name,
+                    country_code,
                     province,
                     now,
                 ),
@@ -656,17 +693,30 @@ class StripeConnectManager:
 
         if STRIPE_ENABLED and stripe:
             try:
-                pi = stripe.PaymentIntent.create(
-                    amount=amount_cents,
-                    currency="cad",
-                    payment_method_types=["card"],
-                    metadata={
+                # Dynamic payment methods (Dashboard-configured). Do not hardcode
+                # payment_method_types — enables Link/wallets where eligible.
+                pi_kwargs: dict[str, Any] = {
+                    "amount": amount_cents,
+                    "currency": "cad",
+                    "automatic_payment_methods": {"enabled": True},
+                    "metadata": {
                         "xcelsior_customer_id": customer_id,
                         "xcelsior_intent_id": intent_id,
                         "product_type": "wallet_deposit",
+                        "xcelsior_sku": "xcelsior-compute-credits",
                     },
-                    description=description,
-                )
+                    "description": description,
+                    "statement_descriptor_suffix": "CREDITS",
+                }
+                try:
+                    from stripe_catalog import load_manifest
+
+                    wallet = (load_manifest() or {}).get("wallet_product") or {}
+                    if wallet.get("product_id"):
+                        pi_kwargs["metadata"]["stripe_product_id"] = wallet["product_id"]
+                except Exception:
+                    pass
+                pi = stripe.PaymentIntent.create(**pi_kwargs)
                 stripe_intent_id = pi.id
                 client_secret = pi.client_secret
             except Exception as e:
@@ -714,19 +764,50 @@ class StripeConnectManager:
         provider_share = round(pre_tax_provider, 2)
 
         stripe_transfer_id = ""
+        settlement_status = "pending"
+        settlement_error = ""
         if STRIPE_ENABLED and stripe:
             provider = self.get_provider(provider_id)
             if provider and provider.get("stripe_account_id"):
-                try:
-                    transfer = stripe.Transfer.create(
-                        amount=int(provider_share * 100),
-                        currency="cad",
-                        destination=provider["stripe_account_id"],
-                        metadata={"job_id": job_id, "provider_id": provider_id},
-                    )
-                    stripe_transfer_id = transfer.id
-                except Exception as e:
-                    log.error("Stripe Transfer failed for job %s: %s", job_id, e)
+                if (provider.get("status") or "") != "active":
+                    settlement_status = "queued"
+                    settlement_error = "provider_not_active"
+                else:
+                    try:
+                        # Float preflight: avoid hard failures when platform balance is empty.
+                        need = int(round(provider_share * 100))
+                        available_cad_cents = _available_cad_cents()
+                        if available_cad_cents < need:
+                            settlement_status = "queued"
+                            settlement_error = "insufficient_platform_balance"
+                            log.warning(
+                                "Payout queued job=%s provider=%s need=%d available=%d",
+                                job_id,
+                                provider_id,
+                                need,
+                                available_cad_cents,
+                            )
+                        else:
+                            transfer = stripe.Transfer.create(
+                                amount=need,
+                                currency="cad",
+                                destination=provider["stripe_account_id"],
+                                metadata={
+                                    "job_id": job_id,
+                                    "provider_id": provider_id,
+                                    "settlement": "instant",
+                                },
+                                idempotency_key=f"payout-{job_id}-{provider_id}",
+                            )
+                            stripe_transfer_id = transfer.id
+                            settlement_status = "paid"
+                    except Exception as e:
+                        settlement_status = "queued"
+                        settlement_error = str(e)[:240]
+                        log.error("Stripe Transfer failed for job %s: %s", job_id, e)
+            else:
+                settlement_status = "queued"
+                settlement_error = "no_stripe_account"
         else:
             raise RuntimeError(
                 "Stripe is not configured. Set XCELSIOR_STRIPE_SECRET_KEY "
@@ -734,21 +815,43 @@ class StripeConnectManager:
             )
 
         with self._conn() as conn:
-            conn.execute(
-                """INSERT INTO payout_splits
-                   (job_id, provider_id, total_cad, provider_share_cad,
-                    platform_share_cad, gst_hst_cad, stripe_transfer_id)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-                (
-                    job_id,
-                    provider_id,
-                    total_cad,
-                    provider_share,
-                    platform_share,
-                    gst_hst,
-                    stripe_transfer_id,
-                ),
-            )
+            # settlement_status / settlement_error columns added in migration 079;
+            # fall back if older DBs lack them.
+            try:
+                conn.execute(
+                    """INSERT INTO payout_splits
+                       (job_id, provider_id, total_cad, provider_share_cad,
+                        platform_share_cad, gst_hst_cad, stripe_transfer_id,
+                        payment_rail, settlement_status, settlement_error)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, 'stripe', %s, %s)""",
+                    (
+                        job_id,
+                        provider_id,
+                        total_cad,
+                        provider_share,
+                        platform_share,
+                        gst_hst,
+                        stripe_transfer_id,
+                        settlement_status,
+                        settlement_error,
+                    ),
+                )
+            except Exception:
+                conn.execute(
+                    """INSERT INTO payout_splits
+                       (job_id, provider_id, total_cad, provider_share_cad,
+                        platform_share_cad, gst_hst_cad, stripe_transfer_id)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                    (
+                        job_id,
+                        provider_id,
+                        total_cad,
+                        provider_share,
+                        platform_share,
+                        gst_hst,
+                        stripe_transfer_id,
+                    ),
+                )
 
         return {
             "job_id": job_id,
@@ -759,7 +862,108 @@ class StripeConnectManager:
             "province": province,
             "tax_rate": tax_rate,
             "stripe_transfer_id": stripe_transfer_id,
+            "settlement_status": settlement_status,
+            "settlement_error": settlement_error,
         }
+
+    def create_account_session(self, provider_id: str) -> dict:
+        """Create a Connect AccountSession for embedded onboarding components.
+
+        Components: account_onboarding, notification_banner, account_management, payouts.
+        """
+        if not (STRIPE_ENABLED and stripe):
+            raise RuntimeError("Stripe is not configured")
+        provider = self.get_provider(provider_id)
+        if not provider or not provider.get("stripe_account_id"):
+            raise RuntimeError("Provider has no Stripe account — start onboarding first")
+        account_id = provider["stripe_account_id"]
+        session = stripe.AccountSession.create(
+            account=account_id,
+            components={
+                "account_onboarding": {"enabled": True},
+                "notification_banner": {"enabled": True},
+                "account_management": {"enabled": True},
+                "payouts": {"enabled": True},
+            },
+        )
+        return {
+            "client_secret": session.client_secret,
+            "account_id": account_id,
+            "provider_id": provider_id,
+            "expires_at": getattr(session, "expires_at", None),
+        }
+
+    def settle_queued_payouts(self, *, limit: int = 100) -> dict:
+        """Daily settlement: attempt Transfers for queued payout_splits.
+
+        Safe to run repeatedly; skips rows already paid. Does not create new
+        commercial charges — only moves already-earned platform float.
+        """
+        if not (STRIPE_ENABLED and stripe):
+            return {"settled": 0, "failed": 0, "skipped": 0, "reason": "stripe_disabled"}
+        settled = failed = skipped = 0
+        with self._conn() as conn:
+            try:
+                rows = conn.execute(
+                    """SELECT job_id, provider_id, provider_share_cad, stripe_transfer_id
+                         FROM payout_splits
+                        WHERE COALESCE(payment_rail, 'stripe') = 'stripe'
+                          AND COALESCE(settlement_status, '') IN ('queued', 'pending', '')
+                          AND COALESCE(stripe_transfer_id, '') = ''
+                        ORDER BY created_at ASC
+                        LIMIT %s""",
+                    (limit,),
+                ).fetchall()
+            except Exception:
+                # Pre-migration schema without settlement_status.
+                return {"settled": 0, "failed": 0, "skipped": 0, "reason": "schema_pending"}
+        for row in rows:
+            job_id = row["job_id"]
+            provider_id = row["provider_id"]
+            amount = float(row["provider_share_cad"] or 0)
+            if amount <= 0:
+                skipped += 1
+                continue
+            provider = self.get_provider(provider_id)
+            if not provider or not provider.get("stripe_account_id") or provider.get("status") != "active":
+                skipped += 1
+                continue
+            try:
+                need = int(round(amount * 100))
+                available_cad_cents = _available_cad_cents()
+                if available_cad_cents < need:
+                    skipped += 1
+                    continue
+                transfer = stripe.Transfer.create(
+                    amount=need,
+                    currency="cad",
+                    destination=provider["stripe_account_id"],
+                    metadata={"job_id": job_id, "provider_id": provider_id, "settlement": "daily"},
+                    idempotency_key=f"payout-{job_id}-{provider_id}",
+                )
+                with self._conn() as conn:
+                    conn.execute(
+                        """UPDATE payout_splits
+                              SET stripe_transfer_id=%s, settlement_status='paid',
+                                  settlement_error=''
+                            WHERE job_id=%s AND provider_id=%s""",
+                        (transfer.id, job_id, provider_id),
+                    )
+                settled += 1
+            except Exception as exc:
+                failed += 1
+                log.error("Daily settlement failed job=%s: %s", job_id, exc)
+                try:
+                    with self._conn() as conn:
+                        conn.execute(
+                            """UPDATE payout_splits
+                                  SET settlement_status='queued', settlement_error=%s
+                                WHERE job_id=%s AND provider_id=%s""",
+                            (str(exc)[:240], job_id, provider_id),
+                        )
+                except Exception:
+                    pass
+        return {"settled": settled, "failed": failed, "skipped": skipped}
 
     def get_provider_payouts(self, provider_id: str, limit: int = 50) -> list[dict]:
         """Get payout history for a provider."""

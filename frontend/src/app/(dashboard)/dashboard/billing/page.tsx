@@ -591,6 +591,36 @@ export default function BillingPage() {
 
       <TeamContextBanner team={team} variant="billing" />
 
+      {wallet?.hard_stop && (
+        <div className="rounded-xl border border-accent-red/40 bg-accent-red/10 px-4 py-3 text-sm text-accent-red">
+          Wallet balance is empty — workloads are hard-stopped.{" "}
+          {canManageBilling && (
+            <button
+              type="button"
+              className="underline font-medium"
+              onClick={() => setShowDeposit(true)}
+            >
+              Top up now
+            </button>
+          )}
+        </div>
+      )}
+      {!wallet?.hard_stop && wallet?.low_balance && (
+        <div className="rounded-xl border border-gold/40 bg-gold/10 px-4 py-3 text-sm text-gold">
+          Low balance warning (≤ ${Number(wallet.low_balance_threshold_cad ?? 5).toFixed(2)} CAD).
+          Top up before a hard stop at $0.{" "}
+          {canManageBilling && (
+            <button
+              type="button"
+              className="underline font-medium"
+              onClick={() => setShowDeposit(true)}
+            >
+              Add credits
+            </button>
+          )}
+        </div>
+      )}
+
       {loading ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
           {[...Array(4)].map((_, i) => (
