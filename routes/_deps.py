@@ -116,6 +116,9 @@ PUBLIC_PATHS = {
     "/api/transparency/report",
     "/api/providers/webhook",
     "/.well-known/oauth-authorization-server",
+    # JWKS must be publicly fetchable — clients and the MCP server verify
+    # RS256 access tokens against it without presenting a token themselves.
+    "/.well-known/jwks.json",
     # GPU / pricing / hosts — non-sensitive inventory data needed by dropdowns
     "/api/v2/gpu/available",
     "/hosts",
