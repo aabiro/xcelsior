@@ -906,7 +906,9 @@ validate_build_env() {
     # never silently skipped.
     log "Validating frontend build-time env vars..."
 
-    if ! grep -qE '^XCELSIOR_MCP_SMOKE_TOKEN=.+$' "$ENV_FILE"; then
+    if [[ "${XCELSIOR_DEPLOY_SKIP_MCP:-0}" == "1" ]]; then
+        warn "XCELSIOR_DEPLOY_SKIP_MCP=1 — skipping MCP smoke-token requirement (MCP promotion will be skipped this deploy)"
+    elif ! grep -qE '^XCELSIOR_MCP_SMOKE_TOKEN=.+$' "$ENV_FILE"; then
         error "XCELSIOR_MCP_SMOKE_TOKEN is required for the authenticated MCP promotion gate"
     fi
 
@@ -1393,6 +1395,9 @@ wait \"\$fe_pid\"
         warn "Jaeger container not running — set OTEL_EXPORTER_OTLP_ENDPOINT after fixing"
     fi
 
+    if [[ "${XCELSIOR_DEPLOY_SKIP_MCP:-0}" == "1" ]]; then
+        warn "XCELSIOR_DEPLOY_SKIP_MCP=1 — skipping MCP blue-green promotion. Previous MCP replica remains live. Run a normal deploy after minting a valid XCELSIOR_MCP_SMOKE_TOKEN."
+    else
     local mcp_live_colour mcp_live_service mcp_live_port mcp_standby_service mcp_standby_port
     mcp_live_colour=$(read_remote_mcp_colour)
     if [[ "$mcp_live_colour" == "green" ]]; then
@@ -1466,6 +1471,7 @@ wait \"\$fe_pid\"
         store_remote_mcp_colour green
     fi
     success "MCP promoted on canonical and compatibility routes"
+    fi  # end XCELSIOR_DEPLOY_SKIP_MCP guard
 
     # Final health check — whichever port is now live
     final_colour=$(read_remote_api_colour)
