@@ -908,8 +908,13 @@ validate_build_env() {
 
     if [[ "${XCELSIOR_DEPLOY_SKIP_MCP:-0}" == "1" ]]; then
         warn "XCELSIOR_DEPLOY_SKIP_MCP=1 — skipping MCP smoke-token requirement (MCP promotion will be skipped this deploy)"
-    elif ! grep -qE '^XCELSIOR_MCP_SMOKE_TOKEN=.+$' "$ENV_FILE"; then
-        error "XCELSIOR_MCP_SMOKE_TOKEN is required for the authenticated MCP promotion gate"
+    elif grep -qE '^XCELSIOR_MCP_SMOKE_TOKEN=.+$' "$ENV_FILE"; then
+        : # a static smoke token is provided — used as-is
+    elif grep -qE '^XCELSIOR_MCP_CLIENT_ID=.+$' "$ENV_FILE" && grep -qE '^XCELSIOR_MCP_CLIENT_SECRET=.+$' "$ENV_FILE"; then
+        : # no static token, but client credentials exist — the smoke mints a
+          # short-lived MCP-audience token at runtime (see mint_mcp_smoke_token)
+    else
+        error "MCP promotion gate needs either XCELSIOR_MCP_SMOKE_TOKEN or XCELSIOR_MCP_CLIENT_ID + XCELSIOR_MCP_CLIENT_SECRET in $ENV_FILE"
     fi
 
     local missing=()
@@ -1407,6 +1412,11 @@ wait \"\$fe_pid\"
         mcp_live_service=mcp-blue; mcp_live_port=8771
         mcp_standby_service=mcp; mcp_standby_port=8770
     fi
+    # Live API port (post-swap) — the runtime smoke-token mint hits its
+    # /oauth/token to mint a short-lived MCP-audience bearer.
+    local live_colour_api live_port_api
+    live_colour_api=$(read_remote_api_colour)
+    if [[ "$live_colour_api" == "blue" ]]; then live_port_api=9501; else live_port_api=9500; fi
     log "MCP blue-green: live=$mcp_live_service:$mcp_live_port → standby=$mcp_standby_service:$mcp_standby_port"
     ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --build --no-deps $mcp_standby_service" \
         || error "Standby MCP failed to start; previous MCP remains live"
@@ -1425,8 +1435,27 @@ wait \"\$fe_pid\"
     # Real protocol gate: the official SDK performs bearer auth, initialize,
     # session negotiation, and tools/list on the direct standby port. The
     # token travels over stdin, never argv or the container environment.
+    #
+    # Token source (in order): a static XCELSIOR_MCP_SMOKE_TOKEN if present;
+    # otherwise mint a short-lived MCP-audience token at runtime from the
+    # MCP client credentials via the local /oauth/token endpoint. The mint
+    # keeps no persistent secret and needs no elevated token TTL.
     ssh_cmd "cd /opt/xcelsior && \
         TOKEN=\$(sed -n 's/^XCELSIOR_MCP_SMOKE_TOKEN=//p' .env | tail -1); \
+        if [ -z \"\$TOKEN\" ]; then \
+          CID=\$(sed -n 's/^XCELSIOR_MCP_CLIENT_ID=//p' .env | tail -1); \
+          CSEC=\$(sed -n 's/^XCELSIOR_MCP_CLIENT_SECRET=//p' .env | tail -1); \
+          AUD=\$(sed -n 's/^XCELSIOR_MCP_RESOURCE_AUDIENCE=//p' .env | tail -1); \
+          AUD=\${AUD:-https://mcp.xcelsior.ca}; \
+          test -n \"\$CID\" && test -n \"\$CSEC\"; \
+          TOKEN=\$(curl -sS --max-time 10 -X POST http://127.0.0.1:$live_port_api/oauth/token \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            --data-urlencode 'grant_type=client_credentials' \
+            --data-urlencode \"client_id=\$CID\" \
+            --data-urlencode \"client_secret=\$CSEC\" \
+            --data-urlencode \"resource=\$AUD\" \
+            | python3 -c 'import sys,json; print(json.load(sys.stdin).get(\"access_token\",\"\"))'); \
+        fi; \
         test -n \"\$TOKEN\"; \
         printf '%s' \"\$TOKEN\" | docker compose --profile blue exec -T \
           $mcp_standby_service node dist/protocol-smoke.js \
