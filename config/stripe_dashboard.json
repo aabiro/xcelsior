@@ -1,11 +1,11 @@
 {
-  "brand_icon_file_id": "file_1TgQ3YQ42F8F9fI30zqF49Hz",
-  "brand_logo_file_id": "file_1TgQ3YQ42F8F9fI3bI4FNXnr",
+  "brand_icon_file_id": "file_1TyE78Q42F8F9fI3jqMcYYd3",
+  "brand_logo_file_id": "file_1TyE79Q42F8F9fI3xVQpDXfO",
   "brand_colors": {
     "primary": "#00d4ff",
-    "secondary": "#060a13"
+    "secondary": "#0d1320"
   },
-  "billing_portal_configuration_id": "bpc_1TgQ3aQ42F8F9fI3YaLqZ7r4",
+  "billing_portal_configuration_id": "bpc_1TgQ27Q42F8F9fI3DF6ZRwlp",
   "customer_portal_login_url": "https://billing.stripe.com/p/login/fZucN76QI2GS4IhbBT7ok00",
   "customer_portal_activated": true,
   "customer_portal_next_gen": true,
@@ -19,5 +19,56 @@
     "head_office_country": "CA"
   },
   "stripe_mode": "live",
-  "base_url": "https://xcelsior.ca"
+  "base_url": "https://xcelsior.ca",
+  "support_phone": "+12266370072",
+  "support_phone_display": "+1 226-637-0072",
+  "support_email": "support@xcelsior.ca",
+  "invoice_memo": "Thank you for choosing Xcelsior \u2014 GPU compute for builders who ship. Credits apply to your account wallet for on-demand capacity. Questions? support@xcelsior.ca \u00b7 +1 226-637-0072",
+  "invoice_footer": "Xcelsior Compute Inc. \u00b7 240 St George St, London ON N6A 3A7, Canada\nSupport: support@xcelsior.ca \u00b7 +1 226-637-0072 \u00b7 https://xcelsior.ca\nDigital infrastructure services. Taxes calculated per customer location where applicable.",
+  "invoice_custom_fields": [
+    {
+      "name": "Support",
+      "value": "support@xcelsior.ca \u00b7 +1 226-637-0072"
+    },
+    {
+      "name": "Website",
+      "value": "https://xcelsior.ca"
+    }
+  ],
+  "payment_methods": {
+    "notes": {
+      "paypal": "Native PayPal (PAYPAL_* env / app integration) — NOT Stripe PayPal PM. Stripe PMC paypal.available=false; no paypal_payments capability on this CA account.",
+      "link": "Stripe Link — enabled on PMC + domains; surfaces via Payment Element when eligible (saved email/card).",
+      "google_pay": "Enabled on PMC; payment method domains xcelsior.ca + www.xcelsior.ca status=active.",
+      "apple_pay": "Enabled on PMC; domains status=active.",
+      "acss_debit": "OFF — Canadian PAD / bank debit via Stripe. Not a product we advertise.",
+      "afterpay_clearpay": "OFF — BNPL (Afterpay AU/US, Clearpay UK). Not offered.",
+      "klarna": "OFF — BNPL. User does not offer Klarna."
+    },
+    "stripe_enabled": [
+      "card",
+      "link",
+      "apple_pay",
+      "google_pay"
+    ],
+    "app_native": [
+      "paypal"
+    ],
+    "stripe_disabled": [
+      "klarna",
+      "afterpay_clearpay",
+      "acss_debit",
+      "affirm",
+      "alipay",
+      "bancontact",
+      "blik",
+      "eps",
+      "ideal",
+      "pix",
+      "sepa_debit",
+      "us_bank_account",
+      "customer_balance"
+    ]
+  }
 }
+

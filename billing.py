@@ -2783,9 +2783,34 @@ class BillingEngine:
         if existing:
             return existing
 
-        create_kwargs: dict = {"metadata": {"xcelsior_customer_id": customer_id}}
+        create_kwargs: dict = {
+            "metadata": {"xcelsior_customer_id": customer_id},
+            "preferred_locales": ["en-CA", "en"],
+        }
         if email:
             create_kwargs["email"] = email
+
+        # Invoice PDF/email/hosted page defaults from brand config (footer keeps
+        # support phone + address; custom fields surface contact on the header).
+        from pathlib import Path
+
+        dash_path = Path(__file__).resolve().parent / "config" / "stripe_dashboard.json"
+        if dash_path.exists():
+            try:
+                dash = json.loads(dash_path.read_text())
+                inv_settings: dict = {}
+                if dash.get("invoice_footer"):
+                    inv_settings["footer"] = dash["invoice_footer"]
+                if dash.get("invoice_custom_fields"):
+                    inv_settings["custom_fields"] = dash["invoice_custom_fields"]
+                inv_settings["rendering_options"] = {
+                    "amount_tax_display": "include_inclusive_tax",
+                }
+                if inv_settings:
+                    create_kwargs["invoice_settings"] = inv_settings
+            except Exception as exc:
+                log.debug("Could not load invoice branding defaults: %s", exc)
+
         cust = _stripe_mod.Customer.create(**create_kwargs)
 
         with self._conn() as conn:

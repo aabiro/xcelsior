@@ -47,13 +47,17 @@ export const STRIPE_APPEARANCE: Appearance = {
   },
 };
 
-/** Card-only, excludes Pix, Klarna, wallets, and other APMs from Payment Element. */
+/**
+ * Card + Link checkout UI. Stripe under the hood.
+ * Hides Apple Pay / Google Pay / BNPL tabs — PayPal stays a separate app path.
+ */
 export const STRIPE_PAYMENT_ELEMENT_OPTIONS = {
   layout: "tabs" as const,
-  paymentMethodOrder: ["card"],
+  paymentMethodOrder: ["card", "link"],
   wallets: {
     applePay: "never" as const,
     googlePay: "never" as const,
+    link: "auto" as const,
   },
 };
 
