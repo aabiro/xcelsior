@@ -31,7 +31,7 @@ export const metadata: Metadata = {
     template: "%s | Xcelsior",
   },
   description:
-    "Rent verified GPUs by the hour in CAD. Native MCP support for AI agents, real-time NVML telemetry, and dynamic spot pricing from $0.30 CAD/hr.",
+    "Rent verified GPUs by the hour in CAD from $0.30/hr. Drive the whole platform from any MCP agent or from Xcel AI in the dashboard, with real-time NVML telemetry and dynamic spot pricing.",
   keywords: [
     "GPU compute",
     "MCP",
@@ -63,7 +63,7 @@ export const metadata: Metadata = {
     ],
     title: "Xcelsior — The Agent-Native GPU Cloud",
     description:
-      "Rent verified GPUs by the hour in CAD. Native MCP support for AI agents, real-time NVML telemetry, and dynamic spot pricing from $0.30 CAD/hr.",
+      "Rent verified GPUs by the hour in CAD from $0.30/hr. Drive the whole platform from any MCP agent or from Xcel AI in the dashboard, with real-time NVML telemetry and dynamic spot pricing.",
     url: "https://xcelsior.ca",
     siteName: "Xcelsior",
     locale: "en_CA",
@@ -136,7 +136,7 @@ export default function RootLayout({
               url: "https://xcelsior.ca",
               logo: `${BRAND_ASSET_ORIGIN}${SITE_ASSETS.appGradientRounded512}`,
               description:
-                "Rent verified GPUs by the hour in CAD. Native MCP support for AI agents, real-time NVML telemetry, and dynamic spot pricing from $0.30 CAD/hr.",
+                "Rent verified GPUs by the hour in CAD from $0.30/hr. Drive the whole platform from any MCP agent or from Xcel AI in the dashboard, with real-time NVML telemetry and dynamic spot pricing.",
               foundingDate: "2024",
               address: {
                 "@type": "PostalAddress",

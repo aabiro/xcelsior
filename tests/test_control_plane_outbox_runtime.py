@@ -278,6 +278,25 @@ class TestRetention:
                 "WHERE aggregate_id=%s", (never_pub,),
             )
             conn.commit()
+        # The shared test DB may carry ACTIVE projection checkpoints registered
+        # by other modules (e.g. the audit_log sink). Under an active checkpoint
+        # the settlement rule keeps any event whose fan-out isn't fully
+        # delivered — so settle old_pub for real: prepare its fan-out and mark
+        # every delivery done. With no active checkpoints prepare_fanout is a
+        # no-op and the no-checkpoint arm applies; both arms make old_pub
+        # prunable, which is exactly the production contract.
+        from control_plane.projection_delivery import prepare_fanout
+
+        with _pool.connection() as conn:
+            old_event_id = conn.execute(
+                "SELECT event_id FROM outbox_events WHERE aggregate_id=%s", (old_pub,)
+            ).fetchone()[0]
+            prepare_fanout(conn, only_event_ids=[str(old_event_id)])
+            conn.execute(
+                "UPDATE projection_deliveries SET status='delivered' WHERE event_id=%s",
+                (str(old_event_id),),
+            )
+            conn.commit()
         deleted = run_transaction(
             lambda c: prune_settled_events(c, retention_days=7), what="test_prune"
         )

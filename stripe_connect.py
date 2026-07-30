@@ -102,7 +102,7 @@ def _available_cad_cents(stripe_mod=None) -> int:
     try:
         bal = client.Balance.retrieve()
         available = getattr(bal, "available", None)
-        if available is None and hasattr(bal, "get"):
+        if available is None and isinstance(bal, dict):
             available = bal.get("available")
         total = 0
         for entry in available or []:
@@ -178,6 +178,8 @@ def _stripe_create_transfer(
 ):
     """Create a Transfer with idempotency key (request option, not body field)."""
     client = stripe_mod if stripe_mod is not None else stripe
+    if client is None:
+        raise RuntimeError("Stripe SDK unavailable — cannot create Transfer")
     idem = f"payout-{job_id}-{provider_id}"
     kwargs = {
         "amount": amount_cents,
@@ -935,7 +937,9 @@ class StripeConnectManager:
         settlement_status = "queued"
         settlement_error = decision.get("error") or ""
 
-        if decision["status"] == "paid_eligible":
+        # provider is never None when paid_eligible (evaluate_settlement
+        # queues on a missing provider) — the extra check narrows the type.
+        if decision["status"] == "paid_eligible" and provider is not None:
             try:
                 transfer = _stripe_create_transfer(
                     amount_cents=decision["need_cents"],
@@ -945,7 +949,9 @@ class StripeConnectManager:
                     settlement="instant",
                     stripe_mod=stripe,
                 )
-                stripe_transfer_id = getattr(transfer, "id", None) or transfer.get("id", "")
+                stripe_transfer_id = getattr(transfer, "id", None) or (
+                    transfer.get("id", "") if isinstance(transfer, dict) else ""
+                )
                 settlement_status = "paid"
                 settlement_error = ""
             except Exception as e:
@@ -1107,7 +1113,7 @@ class StripeConnectManager:
                 provider_share_cad=amount,
                 stripe_mod=client,
             )
-            if decision["status"] != "paid_eligible":
+            if decision["status"] != "paid_eligible" or provider is None:
                 skipped += 1
                 continue
             try:

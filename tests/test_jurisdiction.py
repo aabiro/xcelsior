@@ -19,6 +19,7 @@ from jurisdiction import (
     TRUST_TIER_REQUIREMENTS,
     TrustTier,
     classify_host_trust_tier,
+    FUND_PROGRAM_ACTIVE,
     compute_fund_eligible_amount,
     filter_hosts_by_jurisdiction,
     generate_residency_trace,
@@ -175,36 +176,39 @@ class TestFilterHosts:
 
 
 class TestComputeFundEligibility:
-    """AI Compute Access Fund — 67% CA, 50% international."""
+    """AI Compute Access Fund — program ended, so no rebate is ever applied."""
 
-    def test_canadian_67pct(self):
+    def test_program_is_closed(self):
+        assert FUND_PROGRAM_ACTIVE is False
+
+    def test_canadian_gets_no_rebate(self):
         result = compute_fund_eligible_amount(100.0, is_canadian_compute=True)
-        assert abs(result["reimbursable_amount_cad"] - 100 * FUND_CANADIAN_RATE) < 0.01
+        assert result["fund_eligible"] is False
+        assert result["reimbursable_amount_cad"] == 0.0
+        assert result["fund_rate"] == 0.0
 
-    def test_non_canadian_50pct_before_cutoff(self):
+    def test_non_canadian_gets_no_rebate(self):
+        result = compute_fund_eligible_amount(100.0, is_canadian_compute=False)
+        assert result["fund_eligible"] is False
+        assert result["reimbursable_amount_cad"] == 0.0
+
+    def test_effective_cost_equals_real_cost(self):
+        """The whole point: quotes must not understate what the customer pays."""
+        result = compute_fund_eligible_amount(100.0, is_canadian_compute=True)
+        assert result["effective_cost_cad"] == 100.0
+
+    def test_closure_overrides_historical_timestamps(self):
+        """Even a pre-cutoff timestamp must not resurrect the rebate."""
         result = compute_fund_eligible_amount(
             100.0,
             is_canadian_compute=False,
             timestamp=FUND_NON_CANADIAN_CUTOFF - 86400,
         )
-        assert abs(result["reimbursable_amount_cad"] - 100 * FUND_NON_CANADIAN_RATE) < 0.01
-
-    def test_non_canadian_zero_after_cutoff(self):
-        result = compute_fund_eligible_amount(
-            100.0,
-            is_canadian_compute=False,
-            timestamp=FUND_NON_CANADIAN_CUTOFF + 86400,
-        )
         assert result["reimbursable_amount_cad"] == 0.0
-        assert result["fund_eligible"] is False
 
     def test_zero_amount(self):
         result = compute_fund_eligible_amount(0.0, is_canadian_compute=True)
         assert result["reimbursable_amount_cad"] == 0.0
-
-    def test_effective_cost_is_reduced(self):
-        result = compute_fund_eligible_amount(100.0, is_canadian_compute=True)
-        assert result["effective_cost_cad"] < 100.0
 
 
 # ── Residency Trace ──────────────────────────────────────────────────

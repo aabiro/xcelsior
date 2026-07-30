@@ -280,7 +280,6 @@ _CUSTOMER_SCOPED_GETS = [
     "/api/billing/wallet/{cid}/depletion",
     "/api/billing/usage/{cid}",
     "/api/billing/invoice/{cid}",
-    "/api/billing/export/caf/{cid}",
     "/api/billing/invoices/{cid}",
     "/api/billing/invoice/{cid}/download",
 ]

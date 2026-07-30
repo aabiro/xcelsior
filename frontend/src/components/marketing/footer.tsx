@@ -82,7 +82,7 @@ export function Footer() {
 
           <div className="site-footer-bottom">
             <span>{t("footer.copyright", { year: 2026 })}</span>
-            <span>{t("footer.hydro")}</span>
+            <span>{t("footer.canada")}</span>
           </div>
         </div>
       </div>

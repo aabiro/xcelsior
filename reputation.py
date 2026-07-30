@@ -1102,11 +1102,13 @@ def estimate_job_cost(
     tier: ReputationTier = ReputationTier.BRONZE,
     spot: bool = False,
     sovereignty: bool = False,
-    is_canadian: bool = True,
+    is_canadian: bool = False,
 ) -> dict:
-    """Estimate job cost with AI Compute Access Fund rebate preview.
+    """Estimate job cost in CAD.
 
-    From REPORT_FEATURE_2.md: `--estimate-rebate` / `simulate=true`
+    ``is_canadian`` only records where the compute runs. The AI Compute Access
+    Fund has ended, so no rebate is deducted regardless of its value and
+    ``effective_cost_cad`` equals ``gross_cost_cad``.
     """
     from jurisdiction import compute_fund_eligible_amount
 
@@ -1125,9 +1127,13 @@ def estimate_job_cost(
         "spot": spot,
         "sovereignty_premium": sovereignty,
         "host_tier": tier,
-        # Fund breakdown
+        # Fund breakdown. ``fund_rate`` is the numeric reimbursement rate (0.0
+        # while the program is closed); the human-readable reason lives in
+        # ``fund_label``. These were transposed before, which put a sentence in
+        # a field callers read as a number.
         "fund_eligible": fund["fund_eligible"],
-        "fund_rate": fund["fund_label"],
+        "fund_rate": fund["fund_rate"],
+        "fund_label": fund["fund_label"],
         "fund_reimbursable_cad": fund["reimbursable_amount_cad"],
         "effective_cost_cad": round(gross_cost - fund["reimbursable_amount_cad"], 2),
         "savings_pct": (

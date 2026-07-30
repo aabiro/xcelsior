@@ -1968,6 +1968,7 @@ def start_pg_listen(callback, channel="xcelsior_events", *, stop_event=None):
         import select
 
         while stop_event is None or not stop_event.is_set():
+            conn = None
             try:
                 # Dedicated connection for LISTEN (not from pool)
                 import psycopg
@@ -2010,6 +2011,18 @@ def start_pg_listen(callback, channel="xcelsior_events", *, stop_event=None):
                     time.sleep(5)
                 elif stop_event.wait(5):
                     break
+            finally:
+                # Close on EVERY exit path (stop, error, reconnect). A LISTEN
+                # connection abandoned open by an exiting thread leaves the
+                # server backend blocked in ClientWrite forever once its send
+                # buffer fills — and one such backend stalls every
+                # DROP DATABASE on the cluster at the ProcSignalBarrier
+                # (observed: 18 stuck drops behind 2 leaked worker listeners).
+                if conn is not None:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
 
     t = threading.Thread(target=_listen_loop, daemon=True, name="pg-listen")
     t.start()

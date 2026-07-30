@@ -1092,7 +1092,7 @@ export interface components {
             gpu_model: string;
             /**
              * Is Canadian
-             * @default true
+             * @default false
              */
             is_canadian: boolean;
             /**
@@ -1875,6 +1875,11 @@ export interface components {
              * @default
              */
             corporation_name: string;
+            /**
+             * Country
+             * @default CA
+             */
+            country: string;
             /** Email */
             email: string;
             /**

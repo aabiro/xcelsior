@@ -11,7 +11,7 @@ const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim() || "https://xcelsior.ca";
 
 const metadata = {
   name: "Xcelsior",
-  description: "Canada-first GPU compute marketplace with transparent pricing and CAD wallet funding for teams worldwide.",
+  description: "Agent-native GPU compute marketplace with transparent pricing and CAD wallet funding for teams worldwide.",
   url: appUrl,
   icons: [`${appUrl}${SITE_ASSETS.appGradientRounded512}`],
 };

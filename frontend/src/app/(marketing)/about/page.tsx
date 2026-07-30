@@ -14,13 +14,13 @@ export const metadata: Metadata = {
   openGraph: {
     title: "About Xcelsior",
     description:
-      "Canada-first GPU compute marketplace. Built in Canada, open to teams worldwide.",
+      "Agent-native GPU compute marketplace. Transparent CAD pricing, real telemetry, open to teams worldwide.",
     url: "https://xcelsior.ca/about",
   },
   twitter: {
     title: "About Xcelsior",
     description:
-      "Canada-first GPU compute marketplace. Built in Canada, open to teams worldwide.",
+      "Agent-native GPU compute marketplace. Transparent CAD pricing, real telemetry, open to teams worldwide.",
   },
 };
 

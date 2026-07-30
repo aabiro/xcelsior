@@ -203,3 +203,4 @@ frontend/tsconfig.tsbuildinfo
 *.tsbuildinfo
 .npmrc
 .env.local
+stripe_embed.md
