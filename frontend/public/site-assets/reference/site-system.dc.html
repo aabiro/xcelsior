@@ -111,7 +111,7 @@
               Built in Canada · $0.30 CAD/hr
             </div>
             <h1 style="font-size:clamp(34px,3.85vw,58px);line-height:1.03;font-weight:800;letter-spacing:-0.035em;margin:0 0 22px">The cheapest GPU compute in Canada.<br/><span style="background:linear-gradient(100deg,var(--cyan),var(--violet) 45%,var(--cyan) 70%,var(--violet));background-size:200% auto;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 6s linear infinite">Fully compliant.</span></h1>
-            <p style="font-size:18px;line-height:1.6;color:var(--text-3);margin:0 0 34px;max-width:520px">Rent verified GPUs by the hour, billed in Canadian dollars — with sovereignty, PIPEDA, and clean hydro power built in. Spot pricing saves up to 70%.</p>
+            <p style="font-size:18px;line-height:1.6;color:var(--text-3);margin:0 0 34px;max-width:520px">Rent verified GPUs by the hour, billed in Canadian dollars — with MCP, Xcel AI, and real-time telemetry built in. Spot pricing saves up to 70%.</p>
             <div style="display:flex;gap:12px;flex-wrap:wrap">
               <button onClick="{{ goDash }}" style="position:relative;overflow:hidden;background:linear-gradient(100deg,var(--cyan),var(--violet));color:#fff;border:none;padding:15px 28px;border-radius:11px;font-family:'Geist Mono',monospace;font-size:13px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;cursor:pointer;box-shadow:0 12px 34px rgba(155,109,255,0.34),inset 0 1px 0 rgba(255,255,255,0.4);transition:transform .2s,box-shadow .2s" style-hover="transform:translateY(-2px);box-shadow:0 18px 46px rgba(155,109,255,0.46),inset 0 1px 0 rgba(255,255,255,0.5)">Launch GPUs →</button>
               <button onClick="{{ goPricing }}" style="background:var(--surface-2);backdrop-filter:blur(10px);color:var(--text);border:1px solid var(--edge);padding:15px 28px;border-radius:11px;font-family:'Geist Mono',monospace;font-size:13px;font-weight:500;letter-spacing:0.04em;text-transform:uppercase;cursor:pointer;transition:background .2s,border-color .2s" style-hover="background:var(--surface-3);border-color:rgba(255,255,255,0.26)">Pricing</button>
@@ -139,7 +139,7 @@
               </sc-for>
               <div style="display:flex;align-items:center;justify-content:space-between;margin-top:20px;padding-top:18px;border-top:1px solid var(--edge)">
                 <div>
-                  <div style="font-family:'Geist Mono',monospace;font-size:10.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-4);margin-bottom:4px">Spot · QC Hydro</div>
+                  <div style="font-family:'Geist Mono',monospace;font-size:10.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-4);margin-bottom:4px">Spot · RTX 4090</div>
                   <div style="font-size:26px;font-weight:800;letter-spacing:-0.02em;background:linear-gradient(100deg,var(--cyan),var(--violet));-webkit-background-clip:text;background-clip:text;color:transparent">$1.89<span style="font-size:13px;color:var(--text-4);font-weight:500"> CAD/hr</span></div>
                 </div>
                 <button style="background:var(--surface-2);border:1px solid var(--edge);color:var(--text);border-radius:9px;padding:10px 15px;font-family:'Geist Mono',monospace;font-size:11px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;cursor:pointer" style-hover="background:var(--surface-3)">Deploy →</button>
@@ -435,7 +435,7 @@
             <img src="assets/wordmark-light.svg" class="wm-light" style="height:16px"/>
             <img src="assets/wordmark-dark.svg" class="wm-dark" style="height:16px"/>
           </div>
-          <p style="font-size:14px;line-height:1.6;color:var(--text-3);max-width:280px;margin:0 0 16px">Low-cost, sovereign GPU compute — billed in CAD, powered by clean hydro.</p>
+          <p style="font-size:14px;line-height:1.6;color:var(--text-3);max-width:280px;margin:0 0 16px">Low-cost GPU compute — billed in CAD. Drive it from any AI agent, or just ask Xcel.</p>
           <div style="font-family:'Geist Mono',monospace;font-size:13px;background:linear-gradient(100deg,var(--cyan),var(--violet));-webkit-background-clip:text;background-clip:text;color:transparent;font-weight:600">Ever upward.</div>
         </div>
         <sc-for list="{{ footerCols }}" as="c" hint-placeholder-count="3">
@@ -451,7 +451,7 @@
       </div>
       <div style="border-left:1px solid var(--line);border-right:1px solid var(--line);border-top:1px solid var(--line);padding:20px 52px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-5)">
         <span>© 2026 Xcelsior Compute Inc. Canadian-owned &amp; operated.</span>
-        <span>Proudly powered by Canadian hydroelectric energy</span>
+        <span>Ever upward.</span>
       </div>
     </div>
   </div>
@@ -531,7 +531,7 @@ class Component extends DCLogic {
     const heroStats = [
       { k: 'Starting Price', v: '$0.30 CAD/hr' },
       { k: 'Compliance', v: 'PIPEDA · Law 25' },
-      { k: 'Energy', v: '100% Hydro' },
+      { k: 'Assistant', v: 'Xcel AI' },
     ].map((s, i) => ({ ...s, cell: 'padding:28px 36px' + (i < 2 ? ';border-right:1px solid ' + HAIR : '') }));
 
     const values = [
@@ -547,7 +547,7 @@ class Component extends DCLogic {
       { feature: 'CAD Pricing', x: '✓', aws: 'USD', vast: 'USD', rp: 'USD' },
       { feature: 'Federal Rebate', x: '✓ 67%', aws: '50%', vast: '✕', rp: '✕' },
       { feature: 'Host Verification', x: '✓ 7 checks', aws: 'N/A', vast: 'None', rp: 'Limited' },
-      { feature: 'Green Energy', x: '✓ Hydro', aws: 'Mixed', vast: '—', rp: '—' },
+      { feature: 'In-App AI Assistant', x: '✓ Xcel AI', aws: 'Amazon Q', vast: '—', rp: '—' },
     ];
     const compareRows = cmp.map((r, i) => ({ ...r, rowStyle: 'display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr 1fr;transition:background .15s' + (i < cmp.length - 1 ? ';border-bottom:1px solid ' + HAIR : '') }));
 
@@ -567,7 +567,7 @@ class Component extends DCLogic {
       { accent: 'var(--violet-2)', cat: 'Trust', title: 'Trust & Reputation', desc: '6-tier reputation: New → Bronze → Silver → Gold → Platinum → Diamond. Hardware audits and badges.' },
       { accent: 'var(--violet-2)', cat: 'Trust', title: 'SLA Guarantees', desc: 'Community 99.0%, Secure 99.5%, Sovereign 99.9% uptime. Automatic credits for violations.' },
       { accent: 'var(--gold)', cat: 'Billing', title: 'CAD Billing & Invoicing', desc: 'All pricing in Canadian dollars — no USD conversion risk. Itemized invoices with GST/HST by province.' },
-      { accent: 'var(--gold)', cat: 'Billing', title: 'Green Compute', desc: "Powered by Canada's hydroelectric energy. $0.05-0.06/kWh in Quebec and BC. ESG-compliant." },
+      { accent: 'var(--gold)', cat: 'Agents', title: 'Xcel AI Assistant', desc: "A tool-calling assistant in the dashboard. Launch jobs, compare GPUs, pull invoices, manage keys." },
     ];
     const foundations = fnd.map((f, i) => {
       const notLastCol = (i % 3) !== 2;
@@ -629,7 +629,7 @@ class Component extends DCLogic {
 
     const rankC = ['color:var(--gold);background:rgba(255,191,94,0.16)', 'color:var(--text-2);background:var(--surface-3)', 'color:var(--coral);background:rgba(255,143,143,0.14)', 'color:var(--text-4);background:var(--surface-2)', 'color:var(--text-4);background:var(--surface-2)'];
     const lb = [
-      { name: 'quebec-hydro-labs', gpu: 'H100', tier: 'Diamond', tc: 'var(--cyan)', tbg: 'rgba(125,211,252,0.16)' },
+      { name: 'northline-labs', gpu: 'H100', tier: 'Diamond', tc: 'var(--cyan)', tbg: 'rgba(125,211,252,0.16)' },
       { name: 'yyc-compute', gpu: 'A100', tier: 'Platinum', tc: 'var(--violet-2)', tbg: 'rgba(155,109,255,0.18)' },
       { name: 'mtl-gpu-collective', gpu: 'RTX 4090', tier: 'Gold', tc: 'var(--gold)', tbg: 'rgba(255,191,94,0.16)' },
       { name: 'van-ml-nodes', gpu: 'L40S', tier: 'Silver', tc: 'var(--text-2)', tbg: 'var(--surface-3)' },

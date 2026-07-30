@@ -136,6 +136,7 @@ BILLING_TABLES = frozenset(
         "crypto_deposits",
         "ln_deposits",
         "stripe_event_inbox",
+        "stripe_meter_event_outbox",
         "storage_billing_rates",
     }
 )

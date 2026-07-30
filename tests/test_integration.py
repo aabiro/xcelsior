@@ -466,27 +466,28 @@ class TestBillingJurisdiction:
         qc_rate, qc_label = get_tax_rate_for_province("QC")
         assert qc_rate > 0.14
 
-    def test_canadian_compute_fund_eligibility(self):
-        """Canadian host job → fund eligibility calculated."""
+    def test_canadian_compute_no_fund_rebate(self):
+        """Fund has ended → Canadian host job carries no rebate."""
         from jurisdiction import compute_fund_eligible_amount
 
         result = compute_fund_eligible_amount(
             total_cost_cad=100.0,
             is_canadian_compute=True,
         )
-        assert result["fund_eligible"] is True
-        assert result["reimbursable_amount_cad"] > 0
+        assert result["fund_eligible"] is False
+        assert result["reimbursable_amount_cad"] == 0.0
+        assert result["effective_cost_cad"] == 100.0
 
-    def test_non_canadian_host_lower_fund_rate(self):
-        """Non-Canadian host → lower fund eligibility rate."""
+    def test_non_canadian_host_no_fund_rebate(self):
+        """Fund has ended → non-Canadian host job carries no rebate either."""
         from jurisdiction import compute_fund_eligible_amount
 
         result = compute_fund_eligible_amount(
             total_cost_cad=100.0,
             is_canadian_compute=False,
         )
-        # Non-Canadian hosts get lower or zero rate
-        assert result["fund_rate"] <= 0.50
+        assert result["fund_rate"] == 0.0
+        assert result["reimbursable_amount_cad"] == 0.0
 
     def test_wallet_deposit_and_balance(self):
         """Deposit → check balance → wallet has funds."""

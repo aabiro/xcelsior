@@ -976,10 +976,16 @@ export async function estimatePrice(data: {
   gpu_model: string; duration_hours: number; spot?: boolean;
   sovereignty?: boolean; is_canadian?: boolean;
 }) {
+  // Mirrors reputation.estimate_job_cost(). The AI Compute Access Fund has
+  // ended, so fund_rate / fund_reimbursable_cad / savings_pct are always 0 and
+  // effective_cost_cad always equals gross_cost_cad — read gross_cost_cad.
   return apiFetch<{
-    ok: boolean; base_cost_cad: number; spot_price_cad?: number;
-    reserved_1mo_cad?: number; reserved_1yr_cad?: number;
-    with_rebate_cad?: number; rebate_amount_cad?: number;
+    ok: boolean; gpu_model: string; duration_hours: number;
+    rate_cad_per_hour: number; gross_cost_cad: number; currency: string;
+    is_canadian_compute: boolean; spot: boolean; sovereignty_premium: boolean;
+    host_tier: string; fund_eligible: boolean; fund_rate: number;
+    fund_label: string; fund_reimbursable_cad: number;
+    effective_cost_cad: number; savings_pct: number;
   }>("/api/pricing/estimate", { method: "POST", body: JSON.stringify(data) });
 }
 
@@ -2645,7 +2651,6 @@ export interface Invoice {
   tax_cad: number;
   tax_rate: number;
   line_items: number;
-  caf_eligible_cad?: number;
   status: string;
 }
 

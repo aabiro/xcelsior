@@ -7,9 +7,13 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-# Dev Fernet key — matches security.py fallback when XCELSIOR_SECRETS_KEY is unset
-os.environ.pop("XCELSIOR_SECRETS_KEY", None)
-os.environ["XCELSIOR_ENV"] = "dev"
+# NOTE: never mutate XCELSIOR_ENV / XCELSIOR_SECRETS_KEY at import time here.
+# Collection-time env writes leak into every other module's module-scoped
+# fixtures (they run between the per-test env pins) — a previous
+# `os.environ["XCELSIOR_ENV"] = "dev"` at import broke ~150 unrelated
+# full-suite tests. Key material comes from conftest/.env.test, and the
+# roundtrip tests below only require a *consistent* Fernet key, not the
+# dev fallback specifically.
 
 from volumes import VolumeEngine
 

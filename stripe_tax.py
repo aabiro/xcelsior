@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+from typing import Any, cast
 
 log = logging.getLogger("xcelsior.stripe_tax")
 
@@ -153,7 +153,9 @@ def calculate_wallet_deposit_tax(
     try:
         calc = client.tax.Calculation.create(
             currency=currency.lower(),
-            customer_details=customer_details,
+            # stripe 15.3 types this as CalculationCreateParamsCustomerDetails;
+            # our resolver builds the same shape as a plain dict.
+            customer_details=cast(Any, customer_details),
             line_items=[
                 {
                     "amount": credit,

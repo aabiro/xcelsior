@@ -62,9 +62,23 @@ class TestSpotPricingMath:
         assert quote.rate_cad <= quote.on_demand_cad
 
     def test_provider_floor_respected(self, monkeypatch):
-        monkeypatch.setattr(sp, "_provider_floor_cents_by_gpu", lambda: {"RTX 4090": 50})
+        # Floor below the on-demand cap: the quote must be lifted to the floor.
+        on_demand_cents = int(round(
+            sp.compute_live_spot_quote("RTX 4090", supply=100, demand=0).on_demand_cad * 100
+        ))
+        floor = on_demand_cents - 5
+        assert floor > 0, "catalog on-demand rate too low to exercise the floor"
+        monkeypatch.setattr(sp, "_provider_floor_cents_by_gpu", lambda: {"RTX 4090": floor})
         quote = sp.compute_live_spot_quote("RTX 4090", supply=100, demand=0)
-        assert quote.spot_cents >= 50
+        assert quote.spot_cents >= floor
+
+    def test_provider_floor_never_exceeds_on_demand_cap(self, monkeypatch):
+        # Floor above on-demand: customers never pay more than on-demand, so
+        # the cap wins (catalog repricing can push on-demand under old floors).
+        monkeypatch.setattr(sp, "_provider_floor_cents_by_gpu", lambda: {"RTX 4090": 10_000})
+        quote = sp.compute_live_spot_quote("RTX 4090", supply=100, demand=0)
+        assert quote.rate_cad <= quote.on_demand_cad
+        assert quote.spot_cents == int(round(quote.on_demand_cad * 100))
 
     def test_marketplace_cents_helper_matches_surge(self):
         assert sp.compute_spot_price_cents(100, demand=10, supply=10) == 150

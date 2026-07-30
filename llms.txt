@@ -3,9 +3,10 @@
 # Per Report #1.B: "Standard llms.txt for AI agents"
 # See https://llmstxt.org for specification
 
-> Xcelsior is a distributed GPU orchestration platform for AI/ML workloads
-> with Canadian data sovereignty guarantees, PIPEDA compliance, and
-> Stripe Connect–powered marketplace billing.
+> Xcelsior is a distributed GPU compute marketplace for AI/ML workloads where
+> independent hosts compete on price. Rent GPUs by the hour (on-demand or spot),
+> or run serverless inference billed per token. Every capability is reachable
+> three ways: the REST API, a hosted MCP server, and an in-app AI assistant.
 
 ## Overview
 
@@ -17,8 +18,27 @@ artifact storage, and trust/reputation scoring.
 **Stack**: Python 3.12, FastAPI, PostgreSQL 16 (primary), SQLite (auxiliary),
 Headscale (mesh networking), Docker + gVisor (container isolation).
 
-**Regions**: Canada-first (PIPEDA/Law 25 compliant). Supports CA-only
-data residency with province-level filtering.
+**Pricing**: Quoted and settled in CAD. Spot capacity is materially cheaper than
+on-demand for checkpointable workloads. Serverless inference is billed per
+million tokens with no idle cost.
+
+**Regions and residency**: Placement is region-aware. Workloads with a data
+residency or jurisdiction requirement pass that constraint explicitly and the
+scheduler enforces it — including province-level filtering and PIPEDA / Quebec
+Law 25 / BC FIPPA / Ontario PHIPA constraints where those apply. Residency is a
+per-workload option, not a platform-wide restriction.
+
+## Three ways to drive the platform
+
+| Surface | Best for | Entry point |
+|---|---|---|
+| **REST API** | scripts, CI, your own backend | `https://xcelsior.ca` · `/openapi.json` |
+| **Xcelsior MCP** | external agents — Claude, Cursor, ChatGPT, any MCP client | `/mcp` |
+| **Xcel AI** | in-app, no setup — chat in the dashboard | `/dashboard/ai` |
+
+MCP and Xcel AI expose comparable capability. Use MCP when the agent lives
+outside Xcelsior; use Xcel AI when you want the same power with nothing to
+install.
 
 ## Xcelsior MCP (AI Agents)
 
@@ -32,6 +52,54 @@ Hosted Model Context Protocol server for Cursor, Claude, and other agents:
 - Resources: `xcelsior://docs/llms`, `xcelsior://pricing/reference`
 - Stdio: `npx @xcelsior-gpu/mcp` with `XCELSIOR_ACCESS_TOKEN`
 - Setup: https://xcelsior.ca/mcp
+
+## Xcel AI (In-App Assistant)
+
+Xcel is a tool-calling assistant built into the dashboard at `/dashboard/ai`. It
+drives the platform in natural language with no client, no key, and no config —
+the same class of capability as the MCP server, for users who are already signed in.
+
+**What it can do** — 34 tools across the full product surface:
+
+| Area | Tools |
+|---|---|
+| Compute | `launch_job`, `stop_job`, `list_jobs`, `get_job_details`, `get_host_status` |
+| Discovery | `recommend_gpu`, `get_gpu_availability`, `search_marketplace`, `get_benchmarks`, `get_spot_price_history` |
+| Cost | `estimate_cost`, `get_pricing`, `get_billing_summary`, `get_billing_cycles`, `get_invoices`, `get_wallet_transactions`, `get_crypto_deposits` |
+| Storage | `list_volumes`, `list_checkpoints` |
+| Serverless | `get_inference_endpoints` |
+| Credentials | `create_api_key`, `list_api_keys`, `revoke_api_key`, `add_ssh_key`, `get_ssh_keys` |
+| Provider side | `get_provider_info`, `get_payout_history`, `get_reputation`, `get_sla_status`, `get_sla_terms` |
+| Account | `get_account_info`, `get_team_info`, `get_notifications`, `search_docs` |
+
+**Write actions require explicit confirmation.** Any tool that spends money,
+launches compute, or mints a credential returns a pending confirmation rather than
+executing. The user approves it, and only then does it run. Confirmations are
+signed, single-use, bound to the requesting user, and expire.
+
+Endpoints:
+- `POST /api/ai/chat` — send a message; returns the reply plus any tool calls made
+- `POST /api/ai/confirm` — approve or reject a pending write action
+- `GET /api/ai/suggestions` — context-aware next-step prompts
+- `GET /api/ai/conversations` · `GET /api/ai/conversations/{id}` — conversation history
+- `GET /api/ai/analytics` — assistant usage stats
+
+Support chat (RAG over product documentation, separate from the tool-calling assistant):
+- `POST /api/chat` · `GET /api/chat/suggestions` · `GET /api/chat/history/{conversation_id}`
+- `GET /api/chat/conversations` · `POST /api/chat/feedback`
+
+## Onboarding Wizard (CLI)
+
+Interactive terminal wizard for host registration and SDK setup, guided by Hexara:
+
+```
+npx @xcelsior-gpu/wizard@latest
+```
+
+Requires Node.js ≥ 18. No global install. Steps: API reachability check → host
+registration → worker install → SDK detect → SDK install → credentials → verify.
+Covers both sides — bringing a GPU online as a provider, and wiring the SDK into
+your own project as a consumer.
 
 ## API Base URL
 
@@ -80,7 +148,6 @@ Public endpoints (no auth): `/`, `/docs`, `/openapi.json`, `/dashboard`,
 - `GET /api/billing/wallet/{customer_id}` — Wallet balance
 - `POST /api/billing/wallet/{customer_id}/deposit` — Add credits (CAD)
 - `GET /api/billing/invoice/{customer_id}` — Generate invoice with tax
-- `GET /api/billing/export/caf/{customer_id}` — CAF rebate CSV export
 - `POST /api/billing/refund` — Process refund (host-side failures = full refund)
 
 ### Artifacts
@@ -225,7 +292,9 @@ TypeScript SDK: `client.serverless.createEndpoint()`, `.runJob()`, `.chatComplet
 | Gold | 600-899 | Verified badge, 1.25x visibility |
 | Platinum | 900+ | Reduced platform fee, 1.5x visibility |
 
-## Canadian Tax Rates (GST/HST)
+## Sales Tax (applies to Canadian customers)
+
+Rates returned by `GET /api/compliance/tax-rates`.
 
 | Province | Rate |
 |----------|------|

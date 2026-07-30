@@ -1,11 +1,10 @@
 """Phase 7.6 — End-to-End tests.
 
 Tests the full API stack via TestClient without requiring external services.
-Covers: dashboard, SSE events, host registration via API, CAF export.
+Covers: dashboard, SSE events, host registration via API, health probes,
+and the full job lifecycle through billing.
 """
 
-import csv
-import io
 import json as _json
 import os
 import tempfile
@@ -212,98 +211,6 @@ class TestAddHostViaAPI:
 
         job_detail = client.get(f"/instance/{job_id}")
         assert job_detail.json()["instance"]["status"] in ("assigned", "running")
-
-
-# ── 7.6.4 — Export CAF CSV ──────────────────────────────────────────
-
-
-class TestExportCAFCSV:
-    """GET /api/billing/export/caf → valid CSV."""
-
-    def test_caf_json_export_returns_200(self):
-        customer_id, headers = _billing_auth()
-        resp = client.get(f"/api/billing/export/caf/{customer_id}", headers=headers)
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["ok"] is True
-        assert "summary" in data
-        assert "line_items" in data
-
-    def test_caf_csv_export_returns_csv(self):
-        customer_id, headers = _billing_auth()
-        resp = client.get(f"/api/billing/export/caf/{customer_id}?format=csv", headers=headers)
-        assert resp.status_code == 200
-        assert "text/csv" in resp.headers.get("content-type", "")
-
-        reader = csv.reader(io.StringIO(resp.text))
-        rows = list(reader)
-        # First row is header
-        assert len(rows) >= 1
-        header = rows[0]
-        assert "Job ID" in header
-        assert "Cost (CAD)" in header
-
-    def test_caf_csv_has_content_disposition(self):
-        customer_id, headers = _billing_auth()
-        resp = client.get(f"/api/billing/export/caf/{customer_id}?format=csv", headers=headers)
-        assert "content-disposition" in resp.headers
-        assert "attachment" in resp.headers["content-disposition"]
-        assert "caf" in resp.headers["content-disposition"]
-
-    def test_caf_with_billed_job(self):
-        """Bill a job then export CAF — line item should appear."""
-        _reset_state()
-        # Register and admit host
-        client.put(
-            "/host",
-            headers=_platform_headers(),
-            json={
-                "host_id": "caf-h1",
-                "ip": "10.0.0.60",
-                "gpu_model": "A100",
-                "total_vram_gb": 80,
-                "free_vram_gb": 80,
-                "cost_per_hour": 1.0,
-                "country": "CA",
-                "province": "ON",
-            },
-        )
-        _admit_host("caf-h1")
-
-        # Submit, process, run, complete, bill
-        job_resp = client.post(
-            "/instance",
-            json={
-                "name": "caf-job",
-                "vram_needed_gb": 8,
-                "tier": "premium",
-            },
-        )
-        assert job_resp.status_code == 200, job_resp.text
-        job_id = job_resp.json()["instance"]["job_id"]
-
-        worker_token = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
-        worker_headers = {"Authorization": f"Bearer {worker_token}"}
-        client.post("/queue/process")
-        client.patch(
-            f"/instance/{job_id}",
-            json={"status": "running", "host_id": "caf-h1"},
-            headers=worker_headers,
-        )
-        time.sleep(1.1)
-        client.patch(
-            f"/instance/{job_id}",
-            json={"status": "completed", "host_id": "caf-h1"},
-            headers=worker_headers,
-        )
-
-        bill_resp = client.post(f"/billing/bill/{job_id}", headers=worker_headers)
-        assert bill_resp.status_code == 200
-
-        # Export CAF (authenticated; customer may have no line items in this smoke test)
-        customer_id, headers = _billing_auth()
-        caf_resp = client.get(f"/api/billing/export/caf/{customer_id}", headers=headers)
-        assert caf_resp.status_code == 200
 
 
 # ── 7.6.5 — Health & Readiness probes ───────────────────────────────

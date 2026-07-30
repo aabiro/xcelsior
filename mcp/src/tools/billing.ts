@@ -49,20 +49,42 @@ export function registerBillingTools(
     "estimate_job_cost",
     {
       description:
-        "Estimate job cost in CAD with optional spot pricing and Canadian AI Compute rebate preview.",
+        "Estimate what a GPU job will cost, in CAD, before launching it. Returns the hourly rate and " +
+        "projected total so you can compare against the wallet balance. Price on-demand by default; set " +
+        "spot:true for interruptible capacity when the workload can checkpoint.",
       inputSchema: z.object({
         gpu_model: z.string().default("RTX 4090"),
         duration_hours: z.number().min(0).max(8760).default(1),
-        spot: z.boolean().default(false),
-        sovereignty: z.boolean().default(false),
-        is_canadian: z.boolean().default(true),
+        spot: z
+          .boolean()
+          .default(false)
+          .describe(
+            "Price as interruptible spot capacity instead of on-demand. Materially cheaper, but the " +
+              "instance can be reclaimed — only use for workloads that checkpoint.",
+          ),
+        sovereignty: z
+          .boolean()
+          .default(false)
+          .describe(
+            "Price for a sovereignty-vetted host (independently incorporated, no foreign control). " +
+              "Carries a pricing premium — set only when a contract or regulation actually requires it.",
+          ),
       }),
     },
     async (args) => {
       const denied = scopeDenied("estimate_job_cost", user);
       if (denied) return denied;
       try {
-        const data = await client.post("/api/pricing/estimate", args);
+        // The Canadian AI Compute Access Fund has ended, so no estimate should carry its rebate.
+        // EstimateRequest still defaults is_canadian to true, so pin it false explicitly —
+        // omitting it would apply a rebate that no longer exists and understate real cost.
+        const data = await client.post("/api/pricing/estimate", {
+          gpu_model: args.gpu_model,
+          duration_hours: args.duration_hours,
+          spot: args.spot,
+          sovereignty: args.sovereignty,
+          is_canadian: false,
+        });
         return jsonText(data);
       } catch (e) {
         return jsonText({ error: formatApiError(e) });

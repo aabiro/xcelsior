@@ -315,12 +315,25 @@ class TestConsentManagerDictRows:
         from db import _get_pg_pool
 
         pool = _get_pg_pool()
+        expired_at = time.time() - 100
         with pool.connection() as conn:
-            conn.execute(
+            updated = conn.execute(
                 "UPDATE casl_consent SET expires_at = %s " "WHERE user_id = %s AND purpose = %s",
-                (time.time() - 100, "user-expire-test", "expiring_purpose"),
-            )
+                (expired_at, "user-expire-test", "expiring_purpose"),
+            ).rowcount
             conn.commit()
+        # Premise probe: the direct UPDATE must have hit the recorded row and
+        # be visible on the manager's own connection path before the expiry
+        # check means anything (flaked once in a full-suite run — if this
+        # trips, the bug is in write visibility, not the expiry logic).
+        assert updated == 1, f"expected 1 casl_consent row updated, got {updated}"
+        with cm._conn() as conn:
+            row = conn.execute(
+                "SELECT expires_at, active FROM casl_consent WHERE user_id = %s AND purpose = %s",
+                ("user-expire-test", "expiring_purpose"),
+            ).fetchone()
+        assert row is not None
+        assert abs(row["expires_at"] - expired_at) < 1, row
 
         has, ctype = cm.has_consent("user-expire-test", "expiring_purpose")
         assert has is False

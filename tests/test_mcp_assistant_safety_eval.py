@@ -88,11 +88,22 @@ class TestProvisioningSafety:
 
 class TestModularizationHygiene:
     def test_no_committed_bak_files_in_repo(self):
+        import subprocess
         from pathlib import Path
 
         root = Path(__file__).resolve().parent.parent
-        baks = list(root.rglob("*.bak")) + list(root.rglob("*.bak*"))
-        assert baks == [], f"Remove backup files: {baks[:5]}"
+        # Only git-tracked files count as "committed" — a filesystem rglob also
+        # flags untracked local tooling backups (e.g. .gemini/settings.json.bak)
+        # and makes the hygiene gate machine-dependent.
+        tracked = subprocess.run(
+            ["git", "ls-files", "-z", "--", "*.bak", "*.bak.*", "*.bak[0-9]*"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        baks = [p for p in tracked.split("\0") if p]
+        assert baks == [], f"Remove committed backup files: {baks[:5]}"
 
     def test_worker_agent_uses_criu_hosts_module(self):
         from pathlib import Path

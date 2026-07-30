@@ -832,7 +832,14 @@ def test_token_expiry_is_a_durable_scheduled_task(hosts):
         )
         conn.commit()
 
-    claim_and_run_tasks("pytest-token-sweeper")
+    # The claim batch is ordered by next_run_at ASC with a small limit, and
+    # stale durable rows in the shared test DB can be duer than ours and fill
+    # the batch. Defer them (never claim them — a foreign task registered in
+    # this process would actually execute) and restore their schedules after.
+    from tests._db_helpers import foreign_scheduled_tasks_deferred
+
+    with foreign_scheduled_tasks_deferred(("host_agent_token_expiry",)):
+        claim_and_run_tasks("pytest-token-sweeper")
 
     with _pool.connection() as conn:
         status = conn.execute(

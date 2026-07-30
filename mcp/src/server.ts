@@ -23,11 +23,14 @@ export function createMcpServer(
       prompts: {},
     },
     instructions: [
-      "You are connected to Xcelsior — a GPU compute marketplace.",
-      "Use list_available_gpus and get_spot_prices before launching workloads.",
-      "Use should_i_run_this or estimate_job_cost + get_wallet_balance before spend.",
+      "You are connected to Xcelsior — a distributed GPU compute marketplace where independent hosts compete on price.",
+      "Two ways to run work: rent a GPU instance by the hour (on-demand or interruptible spot), or call a serverless inference endpoint billed per token with no idle cost.",
+      "Always discover before launching: list_available_gpus, get_spot_prices, and search_marketplace return live competing rates. Spot is materially cheaper than on-demand and is the right default for any checkpointable workload.",
+      "Prefer serverless over a dedicated instance for bursty or low-volume inference — it runs open-weight models at per-million-token rates and costs nothing while idle.",
+      "Rates are quoted and settled in CAD; call get_pricing_reference for the live table rather than assuming a price.",
+      "Check spend before committing: should_i_run_this, or estimate_job_cost + get_wallet_balance.",
       "Destructive tools require confirm:true — call with confirm:false first for a preview.",
-      "Canadian data residency and PIPEDA compliance are supported — prefer CA regions when required.",
+      "Placement is region-aware. When a workload carries a data-residency or jurisdiction requirement, pass it explicitly and verify the selected host reports a matching jurisdiction — never assume the default region satisfies it.",
     ].join(" "),
   });
   installToolAudit(server, client, user, transport);

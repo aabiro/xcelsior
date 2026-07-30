@@ -4376,7 +4376,7 @@
     },
     {
       "name": "Billing",
-      "description": "Wallet management, invoicing, CAF exports, refunds. Credit-first CAD billing."
+      "description": "Wallet management, invoicing, payments, refunds. Credit-first CAD billing."
     },
     {
       "name": "Inference"

@@ -3,7 +3,8 @@ export interface ShouldIRunInput {
   duration_hours: number;
   spot?: boolean;
   max_hourly_cad?: number;
-  require_canada?: boolean;
+  /** Region or jurisdiction code the workload must stay within. Omitted when unconstrained. */
+  require_residency?: string;
 }
 
 export interface ShouldIRunResult {
@@ -42,10 +43,15 @@ export function evaluateShouldIRunThis(
     );
   }
 
+  // Residency is a per-workload constraint, not a platform default. Report it back as an explicit
+  // instruction to verify, rather than asserting that any particular region satisfies it.
   let jurisdiction_note: string | undefined;
-  if (input.require_canada) {
+  const residency = input.require_residency?.trim();
+  if (residency) {
     jurisdiction_note =
-      "Canadian data residency is supported — prefer CA regions (e.g. ca-east) when creating instances.";
+      `This workload requires ${residency} residency. Pass that region constraint explicitly to ` +
+      `create_instance and confirm the selected host reports a matching jurisdiction before launching. ` +
+      `Do not assume the default region satisfies it.`;
   }
 
   return {

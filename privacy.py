@@ -964,14 +964,35 @@ class ConsentManager:
                 user_id TEXT NOT NULL,
                 consent_type TEXT NOT NULL CHECK (consent_type IN ('express', 'implied')),
                 purpose TEXT NOT NULL,
-                granted_at REAL NOT NULL DEFAULT (extract(epoch FROM now())),
-                expires_at REAL DEFAULT 0,
-                withdrawn_at REAL DEFAULT 0,
+                granted_at DOUBLE PRECISION NOT NULL DEFAULT (extract(epoch FROM now())),
+                expires_at DOUBLE PRECISION DEFAULT 0,
+                withdrawn_at DOUBLE PRECISION DEFAULT 0,
                 source TEXT DEFAULT '',
                 ip_address TEXT DEFAULT '',
                 active BOOLEAN DEFAULT TRUE,
                 UNIQUE(user_id, purpose)
             )
+        """)
+        # Self-heal databases created before the float8 fix: REAL (float4)
+        # quantizes epoch seconds to ~±128 s in 2026, which silently shifted
+        # consent expiries (a "100 seconds ago" expiry could land in the
+        # future). The table is ensure-only (not in the alembic chain), so
+        # widen in place, guarded to run the rewrite only once.
+        conn.execute("""
+            DO $$ BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'casl_consent'
+                      AND column_name = 'expires_at'
+                      AND data_type = 'real'
+                ) THEN
+                    ALTER TABLE casl_consent
+                        ALTER COLUMN granted_at TYPE DOUBLE PRECISION,
+                        ALTER COLUMN expires_at TYPE DOUBLE PRECISION,
+                        ALTER COLUMN withdrawn_at TYPE DOUBLE PRECISION;
+                END IF;
+            END $$;
         """)
 
     def record_consent(

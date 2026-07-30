@@ -39,15 +39,27 @@ from control_plane.projection_delivery import (
 )
 
 
+def _clear_projection_state() -> None:
+    with _pool.connection() as conn:
+        conn.execute("TRUNCATE projection_deliveries")
+        conn.execute("TRUNCATE projection_checkpoints")
+        conn.commit()
+
+
 @pytest.fixture
 def scratch():
+    # Clean at SETUP too: the test database is shared, and earlier modules
+    # (e.g. the audit projection runtime registering its 'audit_log' sink)
+    # leave active checkpoints behind. prepare_fanout() fans out to every
+    # active sink, so a foreign checkpoint changes this module's assertions.
+    if _pool is not None:
+        _clear_projection_state()
     made = {"idems": []}
     yield made
     if _pool is None:
         return
+    _clear_projection_state()
     with _pool.connection() as conn:
-        conn.execute("TRUNCATE projection_deliveries")
-        conn.execute("TRUNCATE projection_checkpoints")
         for idem in made["idems"]:
             conn.execute("DELETE FROM outbox_events WHERE idempotency_key=%s", (idem,))
         conn.commit()

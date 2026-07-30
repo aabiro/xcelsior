@@ -10,7 +10,7 @@ import {
   BadgeCheck,
   BarChart3,
   Globe,
-  Leaf,
+  Sparkles,
   DollarSign,
   ArrowRight,
   Check,
@@ -92,7 +92,7 @@ export function HomeBelowFold() {
             <FeatureCard i={2} icon={BarChart3} title={t("home.feat_telemetry_title")} description={t("home.feat_telemetry_desc")} />
             <FeatureCard i={3} icon={Globe} title={t("home.feat_jurisdiction_title")} description={t("home.feat_jurisdiction_desc")} />
             <FeatureCard i={4} icon={DollarSign} title={t("home.feat_spot_title")} description={t("home.feat_spot_desc")} />
-            <FeatureCard i={5} icon={Leaf} title={t("home.feat_green_title")} description={t("home.feat_green_desc")} />
+            <FeatureCard i={5} icon={Sparkles} title={t("home.feat_ai_title")} description={t("home.feat_ai_desc")} />
           </m.div>
         </div>
       </section>
@@ -155,7 +155,7 @@ export function HomeBelowFold() {
                 <CompRow feature={t("home.cmp_price")} xcelsior={t("home.cmp_price_x")} aws={t("home.cmp_price_aws")} vast={t("home.cmp_price_vast")} runpod={t("home.cmp_price_rp")} />
                 <CompRow feature={t("home.cmp_cad")} xcelsior={t("home.cmp_cad_x")} aws={t("home.cmp_cad_aws")} vast={t("home.cmp_cad_vast")} runpod={t("home.cmp_cad_rp")} />
                 <CompRow feature={t("home.cmp_verification")} xcelsior={t("home.cmp_verification_x")} aws={t("home.cmp_verification_aws")} vast={t("home.cmp_verification_vast")} runpod={t("home.cmp_verification_rp")} />
-                <CompRow feature={t("home.cmp_green")} xcelsior={t("home.cmp_green_x")} aws={t("home.cmp_green_aws")} vast={t("home.cmp_green_vast")} runpod={t("home.cmp_green_rp")} />
+                <CompRow feature={t("home.cmp_ai")} xcelsior={t("home.cmp_ai_x")} aws={t("home.cmp_ai_aws")} vast={t("home.cmp_ai_vast")} runpod={t("home.cmp_ai_rp")} />
               </tbody>
             </table>
           </m.div>

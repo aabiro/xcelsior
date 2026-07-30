@@ -8,7 +8,7 @@ import { useLocale } from "@/lib/locale";
 const kpis = [
   ["home.stat_price_kicker", "home.stat_price"],
   ["home.stat_pipeda_kicker", "home.stat_pipeda"],
-  ["home.stat_hydro_kicker", "home.stat_hydro"],
+  ["home.stat_ai_kicker", "home.stat_ai"],
 ] as const;
 
 const values = [
@@ -22,7 +22,7 @@ const features = [
   ["activity", "home.feat_telemetry_title", "home.feat_telemetry_desc"],
   ["bolt", "home.feat_jurisdiction_title", "home.feat_jurisdiction_desc"],
   ["dollar", "home.feat_spot_title", "home.feat_spot_desc"],
-  ["leaf", "home.feat_green_title", "home.feat_green_desc"],
+  ["sparkle", "home.feat_ai_title", "home.feat_ai_desc"],
 ] as const;
 
 const comparisonRows = [
@@ -30,7 +30,7 @@ const comparisonRows = [
   ["home.cmp_price", "home.cmp_price_x", "home.cmp_price_aws", "home.cmp_price_vast", "home.cmp_price_rp"],
   ["home.cmp_cad", "home.cmp_cad_x", "home.cmp_cad_aws", "home.cmp_cad_vast", "home.cmp_cad_rp"],
   ["home.cmp_verification", "home.cmp_verification_x", "home.cmp_verification_aws", "home.cmp_verification_vast", "home.cmp_verification_rp"],
-  ["home.cmp_green", "home.cmp_green_x", "home.cmp_green_aws", "home.cmp_green_vast", "home.cmp_green_rp"],
+  ["home.cmp_ai", "home.cmp_ai_x", "home.cmp_ai_aws", "home.cmp_ai_vast", "home.cmp_ai_rp"],
 ] as const;
 
 function ThemeIcon({ name }: { name: string }) {
@@ -121,7 +121,7 @@ export default function HomePage() {
 
                 <div className="site-telemetry-price">
                   <div className="site-telemetry-price-copy">
-                    <div className="site-telemetry-price-kicker">Spot · QC Hydro</div>
+                    <div className="site-telemetry-price-kicker">Spot · RTX 4090</div>
                     <div className="site-telemetry-price-value">
                       $0.30<span className="site-telemetry-price-unit"> CAD/hr</span>
                     </div>

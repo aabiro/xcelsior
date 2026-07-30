@@ -180,7 +180,6 @@ class TestInvoiceList:
             assert "tax_cad" in inv
             assert "tax_rate" in inv
             assert "line_items" in inv
-            assert "caf_eligible_cad" in inv
             assert "status" in inv
 
 

@@ -95,8 +95,30 @@ os.environ.setdefault("XCELSIOR_BG_TASKS", "false")
 # Exclude live E2E test scripts from pytest collection
 collect_ignore = ["test_e2e_live.py"]
 
+# Baseline DB backend intended for this run (env already loaded above). Legacy
+# modules must not be able to flip it for everyone at import time.
+_INTENDED_DB_BACKEND = os.environ.get("XCELSIOR_DB_BACKEND")
+
 
 import pytest
+
+
+def pytest_collection_finish(session):
+    """Re-assert the canonical test env after ALL test modules have imported.
+
+    Collection imports every test module in one process; legacy modules write
+    to os.environ at import time (e.g. a stray ``XCELSIOR_ENV = "dev"``).
+    The per-test ``_pin_test_auth_env`` monkeypatch undoes itself on teardown,
+    so *module/session-scoped fixtures* — which run between tests, outside the
+    per-test pins — would otherwise execute under whichever module's
+    import-time env won collection. That poisoned logins minted by
+    module-scoped fixtures and broke ~150 unrelated tests in full-suite runs.
+    """
+    for _key, _val in _TEST_ENV_FORCE.items():
+        os.environ[_key] = _val
+    os.environ["XCELSIOR_AUTH_CACHE_BACKEND"] = "memory"
+    if _INTENDED_DB_BACKEND:
+        os.environ["XCELSIOR_DB_BACKEND"] = _INTENDED_DB_BACKEND
 
 
 @pytest.fixture(autouse=True)
@@ -117,6 +139,30 @@ def _pin_test_auth_env(monkeypatch):
     # test_bitcoin.py sets sqlite at import; CI must stay on migrated Postgres.
     if os.environ.get("CI"):
         monkeypatch.setenv("XCELSIOR_DB_BACKEND", "postgres")
+
+
+@pytest.fixture(scope="module")
+def persistent_auth_module():
+    """Pin ``_USE_PERSISTENT_AUTH=True`` for module-scoped register/login fixtures.
+
+    Several modules pin persistent auth per-test with a function-scoped autouse
+    monkeypatch, but their *module-scoped* user fixtures (register + login +
+    fund) run outside that pin. They used to work only because one module
+    leaked a raw un-restored ``_USE_PERSISTENT_AUTH = True`` into the rest of
+    the run. Depend on this fixture from any module-scoped fixture that needs
+    users written to the persistent (PostgreSQL) store; it undoes itself at
+    module teardown.
+    """
+    import api as api_mod
+    import routes._deps as deps
+    import routes.auth as auth_mod
+
+    mp = pytest.MonkeyPatch()
+    mp.setattr(deps, "_USE_PERSISTENT_AUTH", True)
+    mp.setattr(auth_mod, "_USE_PERSISTENT_AUTH", True)
+    mp.setattr(api_mod, "_USE_PERSISTENT_AUTH", True)
+    yield
+    mp.undo()
 
 
 @pytest.fixture

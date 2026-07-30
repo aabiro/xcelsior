@@ -31,14 +31,6 @@ def persistent_auth(monkeypatch):
 
 
 def _register_and_fund() -> dict:
-    import api as api_mod
-    import routes._deps as deps
-    import routes.auth as auth
-
-    deps._USE_PERSISTENT_AUTH = True
-    auth._USE_PERSISTENT_AUTH = True
-    api_mod._USE_PERSISTENT_AUTH = True
-
     email = f"slvr-{uuid.uuid4().hex[:10]}@xcelsior.ca"
     reg = client.post(
         "/api/auth/register",
@@ -65,7 +57,10 @@ def _register_and_fund() -> dict:
 
 
 @pytest.fixture(scope="module")
-def user_headers():
+def user_headers(persistent_auth_module):
+    # persistent_auth_module (conftest): module-scoped fixtures run outside the
+    # function-scoped autouse pin above; a raw un-restored assignment here
+    # previously leaked _USE_PERSISTENT_AUTH=True into all later modules.
     return _register_and_fund()
 
 

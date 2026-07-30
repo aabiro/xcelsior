@@ -17,6 +17,16 @@ _OWNED_TASKS = ("test_dummy", "test_fail")
 
 @pytest.fixture
 def clean_tasks():
+    """Purge owned rows AND defer foreign due rows for the test's duration.
+
+    claim_and_run_tasks claims oldest-next_run_at first with a small batch, so
+    stale due rows in the shared DB can crowd our freshly-registered task out
+    of the batch. Deferring (not claiming!) them keeps foreign task functions
+    from executing and restores their schedules afterwards — see
+    foreign_scheduled_tasks_deferred.
+    """
+    from tests._db_helpers import foreign_scheduled_tasks_deferred
+
     def _purge():
         with pg_connection() as conn:
             conn.execute(
@@ -26,23 +36,25 @@ def clean_tasks():
             conn.commit()
 
     _purge()
-    yield
+    with foreign_scheduled_tasks_deferred(_OWNED_TASKS):
+        yield
     _purge()
+
 
 def test_task_registration_and_execution(clean_tasks):
     # Setup test task
     executed = []
     def my_task():
         executed.append(True)
-        
+
     register_task("test_dummy", my_task, 60)
-    
+
     # Run claim and execute
     count = claim_and_run_tasks("test-worker")
     assert count == 1
     assert len(executed) == 1
-    
-    # Second run should do nothing (next_run_at is in future)
+
+    # Second run must not re-execute our task (next_run_at is in future)
     count = claim_and_run_tasks("test-worker")
     assert count == 0
     assert len(executed) == 1
@@ -50,13 +62,13 @@ def test_task_registration_and_execution(clean_tasks):
 def test_task_failure_handling(clean_tasks):
     def failing_task():
         raise RuntimeError("boom")
-        
+
     register_task("test_fail", failing_task, 60)
-    
+
     # Claim will catch exception and update last_error
     count = claim_and_run_tasks("test-worker")
     assert count == 0  # 0 successful
-    
+
     with pg_connection() as conn:
         row = conn.execute("SELECT last_status, last_error FROM scheduled_tasks WHERE task_name='test_fail'").fetchone()
         assert row[0] == 'failed'

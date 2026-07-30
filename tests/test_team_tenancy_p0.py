@@ -62,7 +62,7 @@ def _fund_wallet(customer_id: str, headers: dict) -> None:
 
 
 @pytest.fixture(scope="module")
-def team_setup():
+def team_setup(persistent_auth_module):
     admin = _register_and_login("admin")
     member = _register_and_login("member")
 

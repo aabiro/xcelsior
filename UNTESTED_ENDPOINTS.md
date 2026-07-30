@@ -105,7 +105,6 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /api/billing/crypto/enabled` — `api_crypto_enabled`
 - [x] `GET /api/billing/crypto/rate` — `api_crypto_rate`  ✓ test_billing_endpoints_coverage.py
 - [x] `POST /api/billing/crypto/refresh/{deposit_id}` — `api_crypto_refresh`  ✓ test_billing_endpoints_coverage.py
-- [x] `GET /api/billing/export/caf/{customer_id}` — `api_export_caf`  ✓ test_billing_endpoints_coverage.py
 - [x] `POST /api/billing/free-credits/{customer_id}` — `api_claim_free_credits`
 - [x] `GET /api/billing/free-credits/{customer_id}/status` — `api_free_credits_status`
 - [x] `GET /api/billing/invoice/{customer_id}` — `api_generate_invoice`  ✓ test_billing_endpoints_coverage.py
