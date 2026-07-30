@@ -90,16 +90,23 @@ Support chat (RAG over product documentation, separate from the tool-calling ass
 
 ## Onboarding Wizard (CLI)
 
-Interactive terminal wizard for host registration and SDK setup, guided by Hexara:
+Interactive terminal wizard, guided by Hexara. Covers all three roles:
 
 ```
 npx @xcelsior-gpu/wizard@latest
 ```
 
-Requires Node.js ≥ 18. No global install. Steps: API reachability check → host
-registration → worker install → SDK detect → SDK install → credentials → verify.
-Covers both sides — bringing a GPU online as a provider, and wiring the SDK into
-your own project as a consumer.
+Requires Node.js ≥ 18. No global install. First prompt picks the track:
+
+- Rent GPUs — workload questions → SSH key setup → GPU preference → browse the live
+  marketplace → pick a GPU → pick an image → confirm → wallet check (top up if short)
+  → launch the instance.
+- Provide GPUs — GPU detect → driver/version check → network setup → benchmark →
+  verification → pricing → spot opt-in → host registration → admission gate → worker
+  agent installed as a background service.
+- Both — runs the provider track, then offers to launch a first instance.
+- Integrate SDK — project framework detect → install `@xcelsior-gpu/sdk` → create API
+  credentials and write `.env.local` → verify the connection → print a working snippet.
 
 ## API Base URL
 

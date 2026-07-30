@@ -1,21 +1,23 @@
 ---
 title: Introduction
-subtitle: Sovereign GPU compute for Canada. Ever upward.
+subtitle: Distributed GPU compute, driven by API, MCP, or AI. Ever upward.
 slug: introduction
 ---
 
 ## What is Xcelsior?
 
-Xcelsior is a distributed GPU orchestration platform that aggregates consumer and data-center GPUs into a managed compute marketplace. Built for **Canadian data sovereignty**, it provides PIPEDA and Quebec Law 25 compliance out of the box.
+Xcelsior is a distributed GPU orchestration platform that aggregates consumer and data-center GPUs into a managed compute marketplace where independent hosts compete on price. Rent GPUs by the hour, on-demand or spot, or run serverless inference billed per token.
+
+Every capability is reachable three ways: the REST API, a hosted MCP server, and an in-app AI assistant.
 
 ### Key Features
 
 <Cards>
   <Card title="GPU Marketplace" icon="gpu">
-    Browse and rent GPUs from providers across Canada. RTX 4090s, A100s, H100s, pay per hour in CAD.
+    Browse and rent GPUs from independent providers. RTX 4090s, A100s, H100s, billed per hour in CAD.
   </Card>
-  <Card title="Canadian Data Sovereignty" icon="shield">
-    PIPEDA and Quebec Law 25 compliant. Province-level data residency controls. CLOUD Act canary warrant.
+  <Card title="Agent-Native Control" icon="robot">
+    Drive the platform from any MCP client, or from Xcel AI in the dashboard. Same surface as the REST API, no setup.
   </Card>
   <Card title="Trust & Reputation" icon="star">
     4-tier trust system (Bronze → Platinum) with automated hardware verification and reputation scoring.
@@ -25,11 +27,43 @@ Xcelsior is a distributed GPU orchestration platform that aggregates consumer an
   </Card>
 </Cards>
 
+## Three ways to drive the platform
+
+Everything the API can do, an agent can do. Pick the surface that fits where your
+code already lives.
+
+| Surface | Best for | Entry point |
+|---------|----------|-------------|
+| **REST API** | scripts, CI, your own backend | [`/openapi.json`](https://xcelsior.ca/openapi.json) |
+| **Xcelsior MCP** | external agents, Claude, Cursor, ChatGPT, any MCP client | [`/mcp`](https://xcelsior.ca/mcp) |
+| **Xcel AI** | in-app, nothing to install, chat in the dashboard | [`/dashboard/ai`](https://xcelsior.ca/dashboard/ai) |
+
+MCP and Xcel AI expose comparable capability. Use MCP when the agent lives outside
+Xcelsior; use Xcel AI when you want the same reach with no client, key, or config.
+Both ask before any action that spends money.
+
+New to the platform? The onboarding wizard sets up any of the three roles from your
+terminal, and it finishes the job rather than printing instructions:
+
+- **Rent** — picks a GPU off the live marketplace, sets up your SSH key, checks your
+  wallet, and launches your first instance.
+- **Provide** — detects your GPU, benchmarks it, prices it, registers the host, and
+  installs the worker agent as a background service.
+- **Integrate the SDK** — detects your framework, installs the client, writes real
+  credentials to `.env.local`, verifies the connection, and hands you a working snippet.
+
+Pick one, or run both sides of the marketplace at once. Requires Node.js 18+, nothing
+to install:
+
+```bash
+npx @xcelsior-gpu/wizard@latest
+```
+
 ## How It Works
 
 1. **Providers** register GPU hosts via the worker agent. Hosts undergo automated admission gating (driver versions, security checks).
 2. **Submitters** submit AI/ML jobs specifying VRAM requirements, priority, and isolation tier.
-3. **The scheduler** matches jobs to admitted hosts based on capacity, trust tier, and data residency rules.
+3. **The scheduler** matches jobs to admitted hosts based on capacity, trust tier, and any residency constraint the workload declares.
 4. **Billing** handles CAD-native pricing with 13-province GST/HST, wallet credits, and Stripe Connect payouts.
 
 ## Stack
@@ -60,6 +94,7 @@ Xcelsior is a distributed GPU orchestration platform that aggregates consumer an
 
 ## Resources
 
-- [Pricing & AI Compute Access Fund](https://xcelsior.ca/pricing), GPU rates in CAD with startup rebates
-- [Blog](https://xcelsior.ca/blog), Guides on sovereignty, compliance, and cost optimization
-- [Canadian Compliance](/compliance), How Xcelsior protects Canadian data
+- [Pricing](https://xcelsior.ca/pricing), live GPU rates in CAD, on-demand and spot
+- [MCP Setup](https://xcelsior.ca/mcp), connect Claude, Cursor, or any MCP client in a couple of minutes
+- [Blog](https://xcelsior.ca/blog), guides on cost optimization, spot strategy, and agent workflows
+- [Compliance & Data Residency](/compliance), residency controls, privacy APIs, and the sovereignty tiers
