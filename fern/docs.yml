@@ -91,7 +91,7 @@ navigation:
             path: ./pages/billing.mdx
           - page: Trust & Reputation
             path: ./pages/trust.mdx
-          - page: Canadian Compliance
+          - page: Compliance & Residency
             path: ./pages/compliance.mdx
       - section: Infrastructure
         contents:

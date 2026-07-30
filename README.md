@@ -167,7 +167,7 @@ cli.py            Full CLI for jobs, hosts, billing, marketplace
 ai_assistant.py   Hexara AI assistant with tool-calling & onboarding wizards
 routes/           Modular API route handlers (agent, instances, admin, etc.)
 frontend/         Next.js 15 dashboard + marketing site (xcelsior.ca)
-wizard/           Interactive host‑setup wizard (TypeScript)
+wizard/           Onboarding wizard: rent, provide, or SDK setup (TypeScript)
 fern/             API documentation (docs.xcelsior.ca)
 scripts/          Deployment, install, and bootstrap scripts
 tests/            1400+ backend tests (pytest) + 17 frontend tests (vitest)
