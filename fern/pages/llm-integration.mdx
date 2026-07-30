@@ -1,12 +1,20 @@
 ---
 title: LLM Integration
-subtitle: AI agent-optimized documentation via llms.txt.
+subtitle: Drive Xcelsior from an agent, yours or ours.
 slug: llm-integration
 ---
 
 ## Overview
 
-Xcelsior provides machine-readable documentation following the [llms.txt specification](https://llmstxt.org) for seamless integration with AI agents, copilots, and LLM-powered tools.
+Xcelsior is built to be operated by software, not just by people clicking. There are
+three ways in, and they reach the same platform:
+
+- **Bring your own agent** via the hosted [MCP server](#mcp-integration), Claude,
+  Cursor, ChatGPT, or anything that speaks Model Context Protocol.
+- **Use ours** — [Xcel AI](#xcel-ai-the-in-app-assistant) is a tool-calling assistant
+  in the dashboard, no client and no config.
+- **Point any LLM at the docs** — machine-readable specs follow the
+  [llms.txt specification](https://llmstxt.org) alongside a full OpenAPI 3.1 document.
 
 ## llms.txt Endpoint
 
@@ -90,6 +98,46 @@ The public OpenAPI spec remains available for custom integrations:
 }
 ```
 
+## Xcel AI, the in-app assistant
+
+Not every user wants to wire up an MCP client. **Xcel** is a tool-calling assistant
+built into the dashboard at [`/dashboard/ai`](https://xcelsior.ca/dashboard/ai). It
+drives the platform in natural language for anyone already signed in, with no client,
+no key, and no config, and it reaches the same class of capability as the MCP server.
+
+**34 tools across the product surface:**
+
+| Area | Examples |
+|------|----------|
+| Compute | `launch_job`, `stop_job`, `list_jobs`, `get_job_details`, `get_host_status` |
+| Discovery | `recommend_gpu`, `get_gpu_availability`, `search_marketplace`, `get_benchmarks` |
+| Cost | `estimate_cost`, `get_pricing`, `get_billing_summary`, `get_invoices` |
+| Storage | `list_volumes`, `list_checkpoints` |
+| Credentials | `create_api_key`, `revoke_api_key`, `add_ssh_key` |
+| Provider side | `get_payout_history`, `get_reputation`, `get_sla_status` |
+
+**Write actions require explicit confirmation.** Any tool that spends money, launches
+compute, or mints a credential returns a *pending confirmation* instead of executing.
+The user approves it, and only then does it run. Confirmations are signed, single-use,
+bound to the requesting user, and they expire.
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /api/ai/chat` | Send a message; returns the reply plus any tool calls made |
+| `POST /api/ai/confirm` | Approve or reject a pending write action |
+| `GET /api/ai/suggestions` | Context-aware next-step prompts |
+| `GET /api/ai/conversations` | Conversation history |
+
+A separate support assistant (`POST /api/chat`) does RAG over the product docs. It
+answers questions but holds no tools and cannot change anything.
+
+### Which surface should I use?
+
+Use **MCP** when the agent lives outside Xcelsior and needs to coordinate us with
+other systems. Use **Xcel AI** when you want the same reach with nothing to install,
+which in practice is what most people try first. Use the **REST API** directly when
+you are writing the automation yourself.
+
 ## Serverless inference for agents
 
 For LLM workloads (chat completions, async jobs, streaming), use the **serverless inference** surface instead of batch `/v1/inference`:
@@ -103,7 +151,7 @@ client = OpenAI(
 )
 response = client.chat.completions.create(
     model="meta-llama/Llama-3-8B-Instruct",
-    messages=[{"role": "user", "content": "Summarize Canadian GPU scheduling."}],
+    messages=[{"role": "user", "content": "Explain spot vs on-demand GPU pricing."}],
 )
 ```
 

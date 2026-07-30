@@ -608,6 +608,29 @@ class TestSearchDocs:
         result = _TOOL_HANDLERS["search_docs"]({"query": "GPU compute"}, _user())
         assert "results" in result
         assert isinstance(result["results"], list)
+        assert "error" not in result
+
+    @patch("ai_assistant.docs_corpus_size", return_value=0)
+    @patch("ai_assistant.search_docs", return_value=[])
+    def test_empty_corpus_reports_unavailable(self, _mock_search, _mock_size):
+        # A miss against an unpopulated index must not read as "the docs
+        # don't cover this" — the model would state that as fact.
+        result = _TOOL_HANDLERS["search_docs"]({"query": "GPU compute"}, _user())
+        assert result["count"] == 0
+        assert result["error"] == "documentation_corpus_empty"
+
+    @patch("ai_assistant.docs_corpus_size", return_value=42)
+    @patch("ai_assistant.search_docs", return_value=[])
+    def test_populated_corpus_miss_is_a_real_miss(self, _mock_search, _mock_size):
+        result = _TOOL_HANDLERS["search_docs"]({"query": "GPU compute"}, _user())
+        assert result["count"] == 0
+        assert "error" not in result
+
+    @patch("ai_assistant.docs_corpus_size")
+    def test_degenerate_query_skips_corpus_probe(self, mock_size):
+        result = _TOOL_HANDLERS["search_docs"]({"query": "!@#$%^&*()"}, _user())
+        assert result["count"] == 0
+        mock_size.assert_not_called()
 
 
 class TestSlaTerms:

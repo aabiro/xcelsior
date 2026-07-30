@@ -429,6 +429,13 @@ def search_docs(query: str, limit: int = DEFAULT_DOC_SEARCH_LIMIT) -> list[dict]
         ]
 
 
+def docs_corpus_size() -> int:
+    """Number of chunks currently in the documentation corpus."""
+    with _ai_db() as conn:
+        row = conn.execute("SELECT count(*) AS n FROM ai_docs").fetchone()
+        return int(row["n"]) if row else 0
+
+
 # ── Tool Definitions ──────────────────────────────────────────────────
 
 
@@ -1097,7 +1104,29 @@ def _tool_get_reputation(_args: dict, user: dict) -> dict:
 def _tool_search_docs(args: dict, _user: dict) -> dict:
     query = args.get("query", "")
     results = search_docs(query)
-    return {"results": results, "count": len(results)}
+    if results:
+        return {"results": results, "count": len(results)}
+    # An empty result means one of two very different things: the docs don't
+    # cover this, or there are no docs. search_docs() returns [] for both, and
+    # only the first is an answer — reporting the second as "nothing found"
+    # tells the user the documentation is silent on a topic it may cover in
+    # full. Degenerate queries never reached the corpus, so don't probe for
+    # those; anything else that comes back empty gets checked.
+    if not [w for w in query.split() if w.isalnum()]:
+        return {"results": [], "count": 0}
+    if docs_corpus_size() == 0:
+        return {
+            "results": [],
+            "count": 0,
+            "error": "documentation_corpus_empty",
+            "detail": (
+                "The documentation index is unpopulated, so doc search is "
+                "unavailable — this is not a statement about the query. Say "
+                "the search is unavailable and point the user at "
+                "https://docs.xcelsior.ca; do not imply the docs lack this topic."
+            ),
+        }
+    return {"results": [], "count": 0}
 
 
 _VRAM_REQUIREMENTS = {
