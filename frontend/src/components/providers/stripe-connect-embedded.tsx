@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { loadConnectAndInitialize } from "@stripe/connect-js/pure";
 import { createProviderAccountSession } from "@/lib/api";
 import { getStripePublishableKey } from "@/lib/stripe-client";
+import { STRIPE_CONNECT_APPEARANCE } from "@/lib/stripe-appearance";
 import { Button } from "@/components/ui/button";
 import { Loader2, RefreshCw, ShieldCheck } from "lucide-react";
 
@@ -54,17 +55,9 @@ export function StripeConnectEmbedded({
           }
           return res.client_secret;
         },
-        appearance: {
-          overlays: "dialog",
-          variables: {
-            colorPrimary: "#34d399",
-            colorBackground: "#0b1220",
-            colorText: "#e2e8f0",
-            colorDanger: "#f87171",
-            borderRadius: "10px",
-            fontFamily: "ui-sans-serif, system-ui, sans-serif",
-          },
-        },
+        // Shared brand palette so the payouts portal matches the rest of the
+        // app's embedded Stripe surfaces (see lib/stripe-appearance.ts).
+        appearance: STRIPE_CONNECT_APPEARANCE,
       });
       instanceRef.current = instance;
       containerRef.current.innerHTML = "";
