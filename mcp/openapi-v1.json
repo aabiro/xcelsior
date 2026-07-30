@@ -1029,7 +1029,7 @@
             "type": "string"
           },
           "is_canadian": {
-            "default": true,
+            "default": false,
             "title": "Is Canadian",
             "type": "boolean"
           },
@@ -2886,6 +2886,11 @@
           "corporation_name": {
             "default": "",
             "title": "Corporation Name",
+            "type": "string"
+          },
+          "country": {
+            "default": "CA",
+            "title": "Country",
             "type": "string"
           },
           "email": {

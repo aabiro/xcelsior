@@ -264,17 +264,26 @@ class TestRefunds:
 # ── CAF Export ────────────────────────────────────────────────────────
 
 
-class TestCAFExport:
-    """Canadian AI Compute Access Fund export format."""
+class TestFundProgramClosed:
+    """The AI Compute Access Fund has ended.
 
-    def test_export_caf_report_structure(self):
-        eng = _engine()
-        report = eng.export_caf_report("cust-caf", 0, time.time())
-        assert report["report_type"].startswith("AI Compute Access Fund")
-        assert "summary" in report
-        assert "line_items" in report
+    The claim-form exports that existed to feed it (report / CSV / HTML / PDF)
+    were removed rather than left emitting $0.00 next to a hardcoded "67%
+    eligible" rate. This guards against them being reintroduced by a revert.
+    """
 
-    def test_export_caf_csv(self):
+    def test_caf_export_methods_are_gone(self):
         eng = _engine()
-        csv_str = eng.export_caf_csv("cust-csv", 0, time.time())
-        assert "Job ID" in csv_str  # Header present
+        for name in (
+            "export_caf_report",
+            "export_caf_csv",
+            "export_caf_html",
+            "export_caf_pdf",
+        ):
+            assert not hasattr(eng, name), f"{name} was reintroduced"
+
+    def test_invoices_carry_no_fund_reimbursement(self):
+        eng = _engine()
+        inv = eng.generate_invoice("cust-fund", "", 0, time.time(), 0.13)
+        assert inv.fund_eligible_reimbursement_cad == 0.0
+        assert inv.effective_cost_after_fund_cad == inv.total_cad

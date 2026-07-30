@@ -820,7 +820,7 @@ def api_generate_invoice(
     period_end: float = 0,
     tax_rate: float = 0.13,
 ):
-    """Generate an AI Compute Access Fund–aligned invoice."""
+    """Generate an invoice for a billing period, itemised by job."""
     _require_customer_access(request, customer_id)
     if period_end == 0:
         period_end = time.time()
@@ -829,57 +829,6 @@ def api_generate_invoice(
     be = get_billing_engine()
     invoice = be.generate_invoice(customer_id, customer_name, period_start, period_end, tax_rate)
     return {"ok": True, "invoice": invoice.to_dict()}
-
-
-@router.get("/api/billing/export/caf/{customer_id}", tags=["Billing"])
-def api_export_caf(
-    customer_id: str,
-    request: Request,
-    period_start: float = 0,
-    period_end: float = 0,
-    format: str = "json",
-    customer_name: str = "",
-):
-    """Export AI Compute Access Fund rebate documentation.
-
-    From REPORT_FEATURE_2.md: /billing/export?format=caf
-    Supports json, csv, and html (print-ready claim form) formats.
-    """
-    _require_customer_access(request, customer_id)
-    if period_end == 0:
-        period_end = time.time()
-    if period_start == 0:
-        period_start = period_end - 30 * 86400
-    be = get_billing_engine()
-
-    if format == "csv":
-        csv_data = be.export_caf_csv(customer_id, period_start, period_end)
-        return StreamingResponse(
-            iter([csv_data]),
-            media_type="text/csv",
-            headers={"Content-Disposition": f"attachment; filename=xcelsior-caf-{customer_id}.csv"},
-        )
-
-    if format == "pdf":
-        pdf_bytes = be.export_caf_pdf(
-            customer_id, period_start, period_end, customer_name=customer_name
-        )
-        return StreamingResponse(
-            iter([pdf_bytes]),
-            media_type="application/pdf",
-            headers={"Content-Disposition": f"attachment; filename=xcelsior-caf-{customer_id}.pdf"},
-        )
-
-    if format in ("html", "form", "print"):
-        from fastapi.responses import HTMLResponse
-
-        html_data = be.export_caf_html(
-            customer_id, period_start, period_end, customer_name=customer_name
-        )
-        return HTMLResponse(content=html_data, media_type="text/html; charset=utf-8")
-
-    report = be.export_caf_report(customer_id, period_start, period_end)
-    return {"ok": True, **report}
 
 
 @router.get("/api/billing/invoices/{customer_id}", tags=["Billing"])
@@ -911,7 +860,6 @@ def api_list_invoices(customer_id: str, request: Request, limit: int = 12):
                         "tax_cad": inv_dict.get("tax_amount_cad", 0),
                         "tax_rate": inv_dict.get("tax_rate", 0.13),
                         "line_items": len(inv_dict.get("line_items", [])),
-                        "caf_eligible_cad": inv_dict.get("fund_eligible_reimbursement_cad", 0),
                         "status": inv_dict.get("status", "paid"),
                     }
                 )
@@ -971,7 +919,6 @@ def api_download_invoice(
         writer.writerow(
             ["Total (CAD)", "", "", "", round(inv_dict.get("total_with_tax_cad", 0), 2)]
         )
-        writer.writerow(["CAF Eligible", "", "", "", round(inv_dict.get("caf_eligible_cad", 0), 2)])
         csv_data = output.getvalue()
         return StreamingResponse(
             iter([csv_data]),
@@ -1008,7 +955,6 @@ def api_download_invoice(
         f"{'Tax (' + str(round(tax_rate*100, 1)) + '%)':<55} ${inv_dict.get('tax_cad', 0):>8.2f}",
         f"{'TOTAL (CAD)':<55} ${inv_dict.get('total_with_tax_cad', 0):>8.2f}",
         "",
-        f"AI Compute Access Fund Eligible: ${inv_dict.get('caf_eligible_cad', 0):.2f} CAD",
         "=" * 60,
         "Xcelsior Inc. | xcelsior.ca | Built in Canada 🍁",
     ]
@@ -1025,7 +971,7 @@ def api_download_invoice(
 
 @router.get("/api/billing/attestation", tags=["Billing"])
 def api_provider_attestation():
-    """Get Xcelsior supplier attestation bundle for Fund claims."""
+    """Get the Xcelsior supplier attestation bundle for procurement review."""
     be = get_billing_engine()
     attestation = be.generate_attestation()
     return {"ok": True, "attestation": attestation.to_dict()}
@@ -1218,15 +1164,15 @@ class EstimateRequest(BaseModel):
     duration_hours: float = Field(default=1.0, ge=0.0, le=8760)  # max 1 year
     spot: bool = False
     sovereignty: bool = False
-    is_canadian: bool = True
+    # Records whether the workload runs on Canadian compute. Defaults to False so
+    # an omitted field never implies eligibility for the (now-ended) AI Compute
+    # Access Fund; see jurisdiction.FUND_PROGRAM_ACTIVE.
+    is_canadian: bool = False
 
 
 @router.post("/api/pricing/estimate", tags=["Billing"])
 def api_estimate_cost(req: EstimateRequest):
-    """Estimate job cost with AI Compute Access Fund rebate preview.
-
-    From REPORT_FEATURE_2.md: --estimate-rebate / simulate=true
-    """
+    """Estimate what a job will cost, in CAD, before launching it."""
     estimate = estimate_job_cost(
         req.gpu_model,
         req.duration_hours,

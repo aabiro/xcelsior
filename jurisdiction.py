@@ -321,14 +321,25 @@ def classify_host_trust_tier(jurisdiction: Optional[HostJurisdiction]) -> TrustT
 
 
 # ── AI Compute Access Fund Tracking ──────────────────────────────────
-# From REPORT_MARKETING_FINAL.md:
+# The Canadian AI Compute Access Fund has ENDED. No new claims can be made, so
+# no quote, estimate, or invoice may deduct a reimbursement for it. Leaving the
+# rebate on was understating real cost by up to 67% everywhere this is called —
+# pricing estimates, invoices, the dashboard, and the CLI.
+#
+# The historical rates are kept so archived records can still be reconciled, but
+# they are only reachable by flipping FUND_PROGRAM_ACTIVE back on. Do not flip it
+# unless a successor program actually exists and its terms are confirmed.
+FUND_PROGRAM_ACTIVE = False
+
+# Historical terms, for reference and reconciliation of pre-closure records:
 #   - 67% (2:1) for Canadian compute costs
 #   - 50% (1:1) for non-Canadian compute until March 31, 2027
 #   - Non-Canadian no longer eligible after April 1, 2027
-
 FUND_CANADIAN_RATE = 0.6667  # 2/3 coverage
 FUND_NON_CANADIAN_RATE = 0.50  # 1/2 coverage
 FUND_NON_CANADIAN_CUTOFF = 1743465600  # April 1, 2027 UTC
+
+FUND_CLOSED_LABEL = "AI Compute Access Fund (program ended — no rebate applied)"
 
 
 def compute_fund_eligible_amount(
@@ -338,11 +349,16 @@ def compute_fund_eligible_amount(
 ) -> dict:
     """Calculate AI Compute Access Fund eligible reimbursement.
 
-    Returns dict with fund details for invoicing/reporting.
+    The fund has closed, so this reports zero reimbursement and an effective cost
+    equal to the real cost. Returns dict with fund details for invoicing/reporting.
     """
     ts = timestamp or time.time()
 
-    if is_canadian_compute:
+    if not FUND_PROGRAM_ACTIVE:
+        rate = 0.0
+        eligible = False
+        label = FUND_CLOSED_LABEL
+    elif is_canadian_compute:
         rate = FUND_CANADIAN_RATE
         eligible = True
         label = "Canadian AI Compute (67% eligible)"

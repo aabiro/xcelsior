@@ -28,16 +28,23 @@ export function registerGuardrailTools(
     "should_i_run_this",
     {
       description:
-        "Composite guardrail: estimate cost, check wallet balance, and return approval guidance before spend.",
+        "Composite guardrail: estimate cost, check wallet balance, and return approval guidance before spend. " +
+        "Call this instead of estimate_job_cost when you are about to launch — it answers whether the job is " +
+        "affordable, not just what it costs.",
       inputSchema: z.object({
         gpu_model: z.string().default("RTX 4090"),
         duration_hours: z.number().min(0).max(8760).default(1),
         spot: z.boolean().default(false),
         max_hourly_cad: z.number().positive().optional().describe("Reject if hourly rate exceeds this"),
-        require_canada: z
-          .boolean()
-          .default(false)
-          .describe("Include Canadian residency guidance in the response"),
+        require_residency: z
+          .string()
+          .max(32)
+          .optional()
+          .describe(
+            "Region or jurisdiction code the workload must stay within (e.g. 'ca-east'). Omit when the " +
+              "workload has no residency requirement. Call list_available_gpus to see which regions " +
+              "currently have capacity.",
+          ),
       }),
     },
     async (args) => {

@@ -431,7 +431,7 @@ export function GPUAvailabilityContent() {
               <div className="site-kpi-value">{gpus.length || "-"}</div>
             </div>
             <div className="site-kpi">
-              <div className="site-kpi-label">{t("gpus.stat_hydro")}</div>
+              <div className="site-kpi-label">{t("gpus.stat_agent")}</div>
               <div className="site-kpi-value">100%</div>
             </div>
           </div>

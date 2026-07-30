@@ -65,7 +65,7 @@ def _register_and_fund() -> dict:
 
 
 @pytest.fixture(scope="module")
-def user_headers():
+def user_headers(persistent_auth_module):
     return _register_and_fund()
 
 

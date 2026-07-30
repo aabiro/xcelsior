@@ -234,13 +234,17 @@ class TestAutoBillingCycle:
 
 
 class TestLowBalancePause:
-    """test_low_balance_pause — Low balance triggers grace + suspension."""
+    """test_low_balance_pause — Low balance warns, insufficient funds hard-stops."""
 
-    def test_grace_period_in_charge(self):
+    def test_low_balance_warning_and_hard_stop_in_charge(self):
+        # The payments hardening (hard-stop floor) removed the free-ride
+        # GRACE_PERIOD_SEC: wallets now get a low-balance warning (grace_until
+        # doubles as the warn watermark) and a hard stop at insufficient funds.
         source = Path(__file__).resolve().parent.parent / "billing.py"
         text = source.read_text()
         assert "grace_until" in text
-        assert "GRACE_PERIOD_SEC" in text
+        assert "hard_stop" in text
+        assert "insufficient_balance" in text
 
     def test_stop_jobs_for_suspended(self):
         from billing import BillingEngine

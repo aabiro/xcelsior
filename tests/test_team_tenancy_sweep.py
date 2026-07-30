@@ -69,7 +69,7 @@ def _create_job(headers: dict, name: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def team_roles():
+def team_roles(persistent_auth_module):
     admin = _register_and_login("admin")
     member = _register_and_login("member")
     viewer = _register_and_login("viewer")

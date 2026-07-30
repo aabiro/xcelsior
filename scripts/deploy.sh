@@ -1627,12 +1627,22 @@ rollback() {
 deploy_test_local() {
     log "Deploying test environment locally..."
 
-    # Run Alembic migrations on the test database
-    log "Running test database migrations..."
+    # The xcelsior-test compose stack owns the `xcelsior_test` database.
+    # .env.test points XCELSIOR_POSTGRES_DB/_DSN at `xcelsior_pytest` for the
+    # local pytest suite (scripts/setup_pytest_db.sh) — the always-on stack
+    # must never follow it there: its scheduler/autoscaler mutates pytest
+    # fixtures mid-run and its pools camp on the pytest DB's connection
+    # budget (observed as full-suite flakes and pool timeouts).
+    local stack_db="${XCELSIOR_STACK_POSTGRES_DB:-xcelsior_test}"
+    local pg_password
+    pg_password=$(grep '^XCELSIOR_POSTGRES_PASSWORD=' "$ENV_FILE" | cut -d= -f2-)
+    local stack_dsn="postgresql://xcelsior:${pg_password}@localhost:5432/${stack_db}"
+
+    # Run Alembic migrations on the STACK database (not the pytest one)
+    log "Running test database migrations (${stack_db})..."
     (
         cd "$PROJECT_DIR"
-        export XCELSIOR_POSTGRES_DSN
-        XCELSIOR_POSTGRES_DSN=$(grep '^XCELSIOR_POSTGRES_DSN=' "$ENV_FILE" | cut -d= -f2-)
+        export XCELSIOR_POSTGRES_DSN="$stack_dsn"
         source venv/bin/activate 2>/dev/null || true
         # C8 — fatal on migration failure. Silent-warn hides real bugs;
         # aborting here forces the operator to fix the migration before
@@ -1641,10 +1651,15 @@ deploy_test_local() {
     ) || error "Test database migration failed — aborting."
     success "Test database migrated"
 
-    # Start with docker compose using the test env file
+    # Start with docker compose using the test env file. Exported process env
+    # wins over --env-file during compose interpolation, pinning every
+    # component-built XCELSIOR_POSTGRES_DSN in docker-compose.yml to the
+    # stack's own database.
     log "Starting test containers..."
     cd "$PROJECT_DIR"
-    docker compose --env-file .env.test -p xcelsior-test up -d --build
+    XCELSIOR_POSTGRES_DB="$stack_db" \
+    XCELSIOR_POSTGRES_DSN="$stack_dsn" \
+        docker compose --env-file .env.test -p xcelsior-test up -d --build
 
     # Wait for health
     local api_port

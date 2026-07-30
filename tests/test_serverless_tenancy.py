@@ -59,7 +59,7 @@ def _register(label: str) -> dict:
 
 
 @pytest.fixture(scope="module")
-def tenancy_ctx():
+def tenancy_ctx(persistent_auth_module):
     owner = _register("owner")
     outsider = _register("outsider")
     viewer = _register("viewer")
