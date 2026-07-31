@@ -347,7 +347,7 @@ def api_admin_overview(request: Request, days: int = 30):
         be = get_billing_engine()
         with be._conn() as conn:
             row = conn.execute(
-                """SELECT COALESCE(SUM(amount_cad), 0) AS total
+                """SELECT COALESCE(SUM(amount_micros) / 1000000.0, 0) AS total
                    FROM wallet_transactions
                    WHERE tx_type = 'deposit' AND created_at >= %s""",
                 (month_start,),
@@ -356,7 +356,7 @@ def api_admin_overview(request: Request, days: int = 30):
 
             for r in conn.execute(
                 """SELECT to_char(to_timestamp(created_at), 'YYYY-MM-DD') AS day,
-                          ROUND(SUM(amount_cad)::numeric, 2) AS amount
+                          ROUND(SUM(amount_micros) / 1000000.0::numeric, 2) AS amount
                    FROM wallet_transactions
                    WHERE tx_type = 'deposit' AND created_at >= %s
                    GROUP BY day ORDER BY day""",
@@ -367,9 +367,9 @@ def api_admin_overview(request: Request, days: int = 30):
             mode_row = conn.execute(
                 """SELECT
                       ROUND(COALESCE(SUM(CASE WHEN COALESCE(pricing_mode, 'on_demand') = 'spot'
-                          THEN total_cost_cad ELSE 0 END), 0)::numeric, 2) AS spot_rev,
+                          THEN total_cost_micros / 1000000.0 ELSE 0 END), 0)::numeric, 2) AS spot_rev,
                       ROUND(COALESCE(SUM(CASE WHEN COALESCE(pricing_mode, 'on_demand') != 'spot'
-                          THEN total_cost_cad ELSE 0 END), 0)::numeric, 2) AS other_rev
+                          THEN total_cost_micros / 1000000.0 ELSE 0 END), 0)::numeric, 2) AS other_rev
                    FROM usage_meters WHERE created_at >= %s""",
                 (thirty_days_ago,),
             ).fetchone()
@@ -379,7 +379,7 @@ def api_admin_overview(request: Request, days: int = 30):
 
             for r in conn.execute(
                 """SELECT COALESCE(pricing_mode, 'on_demand') AS mode,
-                          ROUND(SUM(total_cost_cad)::numeric, 2) AS revenue,
+                          ROUND(SUM(total_cost_micros) / 1000000.0::numeric, 2) AS revenue,
                           COUNT(*) AS jobs
                    FROM usage_meters WHERE created_at >= %s
                    GROUP BY COALESCE(pricing_mode, 'on_demand')
@@ -398,7 +398,7 @@ def api_admin_overview(request: Request, days: int = 30):
             for r in conn.execute(
                 """SELECT to_char(to_timestamp(created_at), 'YYYY-MM-DD') AS day,
                           COALESCE(pricing_mode, 'on_demand') AS mode,
-                          ROUND(SUM(total_cost_cad)::numeric, 2) AS revenue
+                          ROUND(SUM(total_cost_micros) / 1000000.0::numeric, 2) AS revenue
                    FROM usage_meters WHERE created_at >= %s
                    GROUP BY day, COALESCE(pricing_mode, 'on_demand')
                    ORDER BY day""",
@@ -711,7 +711,7 @@ def api_admin_revenue(request: Request, days: int = 90):
         with be._conn() as conn:
             rows = conn.execute(
                 """SELECT COALESCE(pricing_mode, 'on_demand') AS mode,
-                          ROUND(SUM(total_cost_cad)::numeric, 2) AS revenue,
+                          ROUND(SUM(total_cost_micros) / 1000000.0::numeric, 2) AS revenue,
                           COUNT(*) AS jobs
                    FROM usage_meters WHERE created_at >= %s
                    GROUP BY COALESCE(pricing_mode, 'on_demand')
@@ -724,7 +724,7 @@ def api_admin_revenue(request: Request, days: int = 90):
             ]
             dep_rows = conn.execute(
                 """SELECT to_char(to_timestamp(created_at), 'YYYY-MM-DD') AS day,
-                          ROUND(SUM(amount_cad)::numeric, 2) AS deposits
+                          ROUND(SUM(amount_micros) / 1000000.0::numeric, 2) AS deposits
                    FROM wallet_transactions
                    WHERE tx_type = 'deposit' AND created_at >= %s
                    GROUP BY day ORDER BY day""",

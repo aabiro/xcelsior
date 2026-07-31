@@ -51,7 +51,7 @@ def main() -> int:
     with be._conn() as conn:
         rows = conn.execute(
             """
-            SELECT tx_id, customer_id, amount_cad, description, idempotency_key, created_at
+            SELECT tx_id, customer_id, amount_micros / 1000000.0 AS amount_cad, description, idempotency_key, created_at
             FROM wallet_transactions
             WHERE tx_type = 'deposit'
             ORDER BY created_at DESC
