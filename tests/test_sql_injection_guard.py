@@ -38,6 +38,22 @@ KNOWN_SAFE = {
     "scripts/migrate_sqlite_to_pg.py",
     # Applied migration — every identifier comes from the immutable WALLET_MONEY tuple.
     "migrations/versions/068_wallet_ledger_micro_units.py",
+    # Applied migrations. Each interpolates only DDL identifiers taken from a
+    # literal tuple written in the same file — no caller, request or database
+    # value reaches them. Postgres accepts no placeholder for an identifier or
+    # a DEFAULT expression, so these cannot be parameterised.
+    #   054: constraint/table names from the loop literal at L179, columns L425
+    #   056: columns from the literal tuple at L397
+    #   066: columns from the literals at L80 and L270
+    #   067: DDL fragments and columns from literals at L204 and L314
+    #   080: columns/defaults from the literal tuples at L299 and L315
+    #   085: (table, column) pairs from the module-level DEAD_COLUMNS tuple
+    "migrations/versions/054_control_plane_core_columns.py",
+    "migrations/versions/056_durable_control_work.py",
+    "migrations/versions/066_ln_deposits_typed_money_and_time.py",
+    "migrations/versions/067_shared_state_contract.py",
+    "migrations/versions/080_authoritative_provider_settlement.py",
+    "migrations/versions/085_drop_dead_columns.py",
 }
 
 # SQL keywords must be UPPERCASE — this is the codebase convention for all real
@@ -46,7 +62,7 @@ KNOWN_SAFE = {
 SCAN_PATTERNS = [
     # f-string with UPPERCASE SQL keyword + brace-interpolated Python variable.
     re.compile(
-        r"""f["'][^"']*\b(?:SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|ORDER\s+BY|GROUP\s+BY|JOIN|SET)\b[^"']*\{[a-zA-Z_][\w]*\}""",
+        r"""f["'][^"']*\b(?:SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|ORDER\s+BY|GROUP\s+BY|JOIN|SET|ALTER\s+TABLE|DROP\s+COLUMN|CREATE\s+INDEX|TRUNCATE)\b[^"']*\{[a-zA-Z_][\w]*\}""",
     ),
     # .format() called directly on an UPPERCASE-SQL string literal.
     re.compile(
