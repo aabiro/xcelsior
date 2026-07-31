@@ -579,10 +579,17 @@ export default function SettingsPage() {
     if (deleteConfirm !== "DELETE") return;
     setDeleting(true);
     try {
-      await api.deleteAccount();
-      toast.success("Account deleted");
+      const receipt = await api.deleteAccount(crypto.randomUUID());
+      localStorage.setItem("xcelsior.privacy.deletion", JSON.stringify({
+        requestId: receipt.request_id,
+        statusToken: receipt.status_token,
+        deadlineAt: receipt.deadline_at,
+      }));
+      toast.success("Deletion request accepted and tracking details saved");
       logout();
-    } catch { toast.error("Failed to delete account"); }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to start account deletion");
+    }
     finally { setDeleting(false); }
   };
 
@@ -2131,7 +2138,9 @@ function PrivacyTab({
             <div className="rounded-lg border border-accent-red/30 bg-accent-red/5 p-4">
               <p className="text-sm font-medium text-accent-red mb-2">Delete Account</p>
               <p className="text-xs text-text-secondary mb-3">
-                This will permanently delete your account, all sessions, and related data. This action cannot be undone.
+                This starts permanent deletion across Xcelsior&apos;s data stores.
+                You&apos;ll receive a tracking receipt; legally retained records and
+                held artifacts remain clearly identified until their retention ends.
               </p>
               <div className="flex gap-2">
                 <Input
@@ -2147,7 +2156,7 @@ function PrivacyTab({
                   className="text-accent-red border-accent-red/30 hover:bg-accent-red/10"
                 >
                   {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                  Delete
+                  Start deletion
                 </Button>
               </div>
             </div>

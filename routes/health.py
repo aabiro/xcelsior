@@ -47,6 +47,7 @@ from scheduler import (
 )
 
 router = APIRouter()
+_projection_metrics_last_success_timestamp = 0.0
 
 # Templates and device code constants
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
@@ -877,6 +878,8 @@ def metrics_prometheus():
     Exports xcelsior_* gauges, counters, and histograms in Prometheus
     text exposition format for scraping by Prometheus/Grafana.
     """
+    global _projection_metrics_last_success_timestamp
+
     snap = get_metrics_snapshot()
 
     lines = [
@@ -914,12 +917,17 @@ def metrics_prometheus():
 
         with _get_pg_pool().connection() as conn:
             projection = health_snapshot(conn)
+        _projection_metrics_last_success_timestamp = time.time()
         lines.extend(
             [
                 "",
                 "# HELP xcelsior_projection_metrics_available 1 when projection metrics can be read",
                 "# TYPE xcelsior_projection_metrics_available gauge",
                 "xcelsior_projection_metrics_available 1",
+                "# HELP xcelsior_projection_metrics_last_success_timestamp_seconds Unix time of the most recent successful projection metrics snapshot",
+                "# TYPE xcelsior_projection_metrics_last_success_timestamp_seconds gauge",
+                "xcelsior_projection_metrics_last_success_timestamp_seconds "
+                f"{_projection_metrics_last_success_timestamp:.3f}",
                 "# HELP xcelsior_projection_outbox_unprepared Outbox events awaiting fan-out preparation",
                 "# TYPE xcelsior_projection_outbox_unprepared gauge",
                 f'xcelsior_projection_outbox_unprepared {projection["unprepared"]}',
@@ -957,8 +965,45 @@ def metrics_prometheus():
                 "# HELP xcelsior_projection_metrics_available 1 when projection metrics can be read",
                 "# TYPE xcelsior_projection_metrics_available gauge",
                 "xcelsior_projection_metrics_available 0",
+                "# HELP xcelsior_projection_metrics_last_success_timestamp_seconds Unix time of the most recent successful projection metrics snapshot",
+                "# TYPE xcelsior_projection_metrics_last_success_timestamp_seconds gauge",
+                "xcelsior_projection_metrics_last_success_timestamp_seconds "
+                f"{_projection_metrics_last_success_timestamp:.3f}",
             ]
         )
+
+    # Durable operational state and cross-process heartbeats.  Keep this
+    # separate from the projection block: one failing subsystem must carry an
+    # explicit availability=0 signal without suppressing the other metrics.
+    try:
+        from control_plane.operational_metrics import (
+            collect_operational_snapshot,
+            render_operational_metrics,
+        )
+        from db import _get_pg_pool
+
+        observation_stale_seconds = max(
+            1,
+            int(os.environ.get("XCELSIOR_OBSERVATION_STALE_SEC", "300")),
+        )
+        heartbeat_fresh_seconds = max(
+            1,
+            int(os.environ.get("XCELSIOR_SERVICE_HEARTBEAT_FRESH_SEC", "60")),
+        )
+        with _get_pg_pool().connection() as conn:
+            operational = collect_operational_snapshot(
+                conn,
+                observation_stale_seconds=observation_stale_seconds,
+                heartbeat_fresh_seconds=heartbeat_fresh_seconds,
+            )
+        lines.extend(render_operational_metrics(operational))
+    except Exception as e:
+        log.warning("durable operational metrics failed: %s", e)
+        from control_plane.operational_metrics import (
+            render_operational_metrics_unavailable,
+        )
+
+        lines.extend(render_operational_metrics_unavailable())
 
     volumes = snap.get("volumes", {})
     lines.extend(
