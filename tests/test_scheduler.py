@@ -42,12 +42,11 @@ scheduler.log.addHandler(_fh)
 
 def _admit_host(host_id):
     """Mark a registered host as admitted so allocate() will pick it."""
-    backend = scheduler._active_backend()
-    with scheduler._atomic_mutation() as conn:
-        data = scheduler.DatabaseOps.get_host(conn, host_id, backend=backend)
-        if data:
-            data["admitted"] = True
-            scheduler.DatabaseOps.upsert_host(conn, data, backend=backend)
+    from tests._db_helpers import admit_test_host
+
+    # Since 082 the projection reads the admission_state column rather than
+    # payload.admitted, so writing the payload alone leaves the host pending.
+    admit_test_host(host_id, active=True)
 
 
 @pytest.fixture(autouse=True)
@@ -891,6 +890,7 @@ class TestPreemption:
     def test_identify_preemptible_jobs_capacity_model(self):
         scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24, cost_per_hour=0.30)
         scheduler._set_host_fields("h1", admitted=True, gpu_count=1, spot_gpu_slots=1)
+        _admit_host("h1")
         spot = scheduler.submit_job("spot-block", 8, pricing_mode="spot", gpu_model="RTX 4090")
         scheduler.update_job_status(spot["job_id"], "running", host_id="h1")
         scheduler.submit_job("od-wait", 8, pricing_mode="on_demand", gpu_model="RTX 4090")
