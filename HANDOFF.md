@@ -42,8 +42,9 @@ and observability deployment.
 
 ## Remaining work, with evidence (2026-07-31)
 
-Suite is at **4529 passed, 1 order-dependent failure** (was 235 failed when this
+Suite is **green: 4533 passed, 7 skipped, 0 failed** (was 235 failed when this
 pass began).
+
 The remaining failures are almost entirely tests that encode contracts the
 Phase 10 and 082 work deliberately retired — they describe the old system, not
 defects in the new one. In priority order:
@@ -95,6 +96,31 @@ Verified along the way and safe to rely on: migrations rehearse up/down/up
 `085` and enforced by `tests/test_migration_ledger.py`, and production startup
 validation now fails closed on both a missing compatibility-session secret and
 a defaulted audit signing key.
+
+
+### Hardening findings from the self-audit (2026-07-31)
+
+Audited what this branch itself introduced, not just what it inherited:
+
+- **Agent-key auth was writing on every request.** `validate_agent_api_key`
+  resolves every authenticated agent call and updated `last_used_at` each
+  time — a row write and lock contention on one hot row per request, where the
+  JWT it replaced did no I/O. Now throttled to once per
+  `XCELSIOR_AGENT_KEY_TOUCH_INTERVAL_SEC` (300s) and failure-tolerant, since
+  bookkeeping must never be able to lock every agent out.
+- **A trust-boundary test that could not fail.** The admission check matched
+  route *source text*, so it passed even with `_require_admin` inert. Proven by
+  mutation, then replaced with a behavioural assertion.
+- **Two order-dependent tests, both shared database state.** The account
+  deletion test leaked a pending privacy request; the meter drain test drained
+  rows its own earlier runs had left. Both now clean up, and the drain asserts
+  an exact outcome rather than `>= 1`, which would have passed even if the
+  drain silently skipped events.
+
+Remaining known risk, unchanged: `balance_cad` is still float and still
+authoritative (66 readers vs 17 for `balance_micros`). Before attempting that
+cutover, read the `086` note above about `wallets_project_money` — dropping a
+`_cad` column without rewriting that trigger fails every wallet write.
 
 ## Read this first
 
