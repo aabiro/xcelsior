@@ -10,6 +10,7 @@ import os
 import time
 
 import pytest
+from unittest import mock
 
 os.environ.setdefault("XCELSIOR_API_TOKEN", "")
 os.environ.setdefault("XCELSIOR_ENV", "test")
@@ -100,6 +101,31 @@ class TestValidation:
         assert oa.looks_like_agent_key("xcel_ai_abc")
         assert not oa.looks_like_agent_key("xoa_abc")
         assert not oa.looks_like_agent_key(None)
+
+    def test_repeat_use_does_not_rewrite_on_every_request(self, user):
+        """last_used_at must not put a write on the hot auth path.
+
+        Every authenticated agent call resolves through this function. Writing
+        the timestamp each time would add a row-level write — and lock
+        contention on a single hot row — to every request, which is exactly
+        what the JWT it replaced avoided by verifying locally.
+        """
+        token = _issue(user)["access_token"]
+        oa.validate_agent_api_key(token)
+        first = AgentKeyStore.get_live_by_hash(oa._hash_agent_key(token))["last_used_at"]
+        assert first > 0
+        for _ in range(5):
+            assert oa.validate_agent_api_key(token) is not None
+        again = AgentKeyStore.get_live_by_hash(oa._hash_agent_key(token))["last_used_at"]
+        assert again == first, "last_used_at was rewritten inside the throttle window"
+
+    def test_bookkeeping_failure_never_fails_authentication(self, user):
+        """A write problem must not lock every agent out of the platform."""
+        token = _issue(user)["access_token"]
+        with mock.patch.object(
+            AgentKeyStore, "touch_last_used", side_effect=RuntimeError("db down")
+        ):
+            assert oa.validate_agent_api_key(token) is not None
 
     def test_use_is_recorded(self, user):
         """last_used_at is how the dashboard knows a key is live in a config."""
