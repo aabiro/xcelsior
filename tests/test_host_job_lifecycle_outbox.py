@@ -224,8 +224,8 @@ def test_try_append_lifecycle_outbox_savepoint_isolates_failure(cleanup, monkeyp
 
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload)
-               VALUES (%s, 'active', %s, %s)""",
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state)
+               VALUES (%s, 'active', %s, %s, 'admitted')""",
             (host_id, time.time(), json.dumps({"host_id": host_id})),
         )
         ok = try_append_lifecycle_outbox(

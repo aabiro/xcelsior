@@ -52,8 +52,8 @@ def stress_fleet():
         for host_id in host_ids:
             conn.execute(
                 """INSERT INTO hosts (host_id, status, registered_at, payload,
-                                      administrative_state, availability_state)
-                   VALUES (%s, 'active', %s, '{"admitted": true}', 'admitted', 'ready')""",
+                                      administrative_state, availability_state, admission_state)
+                   VALUES (%s, 'active', %s, '{"admitted": true}', 'admitted', 'ready', 'admitted')""",
                 (host_id, time.time()),
             )
             for g in range(GPUS_PER_HOST):

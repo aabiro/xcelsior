@@ -193,8 +193,8 @@ def _inject_host(host_id="h-1", ip="10.0.0.5"):
     payload = {"host_id": host_id, "ip": ip, "status": "active"}
     with scheduler._atomic_mutation() as conn:
         conn.execute(
-            "INSERT INTO hosts (host_id, status, registered_at, payload) "
-            "VALUES (%s, %s, %s, %s)",
+            "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) "
+            "VALUES (%s, %s, %s, %s, 'admitted')",
             (host_id, "active", time.time(), json.dumps(payload)),
         )
 

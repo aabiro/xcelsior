@@ -280,8 +280,8 @@ def api_seeded_job():
     }
     with pool.connection() as conn:
         conn.execute(
-            "INSERT INTO hosts (host_id, status, registered_at, payload) "
-            "VALUES (%s,%s,%s,%s::jsonb) "
+            "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) "
+            "VALUES (%s,%s,%s,%s::jsonb, 'admitted') "
             "ON CONFLICT (host_id) DO UPDATE SET payload=EXCLUDED.payload",
             (host_id, "active", now, _ijson.dumps(host_payload)),
         )
@@ -443,8 +443,8 @@ def test_get_404_when_auto_launch_not_configured(api_client):
     }
     with pool.connection() as conn:
         conn.execute(
-            "INSERT INTO hosts (host_id, status, registered_at, payload) "
-            "VALUES (%s,%s,%s,%s::jsonb) "
+            "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) "
+            "VALUES (%s,%s,%s,%s::jsonb, 'admitted') "
             "ON CONFLICT (host_id) DO UPDATE SET payload=EXCLUDED.payload",
             (host_id, "active", now, _ijson.dumps(host_payload)),
         )
