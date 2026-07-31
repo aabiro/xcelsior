@@ -117,6 +117,45 @@ Audited what this branch itself introduced, not just what it inherited:
   an exact outcome rather than `>= 1`, which would have passed even if the
   drain silently skipped events.
 
+### The `_cad` columns should be dropped — attempted, reverted, plan below
+
+Straight answer: **yes, they should go.** Arguing they "cost nothing" was
+wrong. Every write to the busiest tables on the platform fires a projection
+trigger (~140 lines of PL/pgSQL across four functions) to recompute floats
+nobody should read, each row stores the same number twice, and a second
+representation invites reading the lossy one — silently.
+
+I attempted the removal in this session and reverted it. What was learned,
+so the next attempt starts from evidence rather than from scratch:
+
+1. **The drop itself is easy and was proven.** A migration dropping all 12
+   columns and the 4 triggers applied cleanly; afterwards `_cad columns: 0,
+   projection triggers: 0`. Triggers must be dropped in the same transaction
+   as their columns — PL/pgSQL resolves `NEW.<field>` at execution time.
+2. **`payout_splits` has `ck_payout_splits_exact_money`**, which requires
+   `source_total + rounding = total` and `provider + platform = total`. A
+   naive backfill of `total_micros` alone violates it. Rebuild every component
+   in one statement and derive the platform share as the remainder, so the
+   identity stays exact rather than trusting two rounded floats to add up.
+3. **The real cost is 63 row reads across 7 files**, not the schema change.
+   `billing.py` (19 + 13), `routes/admin.py` (10), `provider_settlement.py`
+   (16), `stripe_connect.py` (6), plus `ai_assistant.py` and
+   `routes/serverless.py`.
+4. **Do not attempt this with a regex.** I tried; it rewrote INSERT column
+   lists and dict keys into nonsense like
+   `KeyError: 'total_micros / 1000000.0 AS total_cad'`. The conversion needs
+   per-statement judgement: `SUM(x_cad)` becomes `SUM(x_micros) / 1000000.0`,
+   a projection becomes `x_micros / 1000000.0 AS x_cad`, an INSERT column list
+   loses the column entirely, and a Python keyword argument named `amount_cad`
+   must not be touched at all — the API contract stays CAD.
+5. **The cheap way in** is `billing.get_wallet`: it does `SELECT *` and returns
+   the row, so deriving the four CAD keys there from micros frees 28 of the 63
+   readers without touching any call site. Do the same for the other row
+   loaders, then drop the columns last.
+
+Until then the columns stay and the triggers keep them exact, which is
+correct-but-wasteful rather than incorrect.
+
 ### Money representation — corrected
 
 An earlier note in this file said `balance_cad` was "still authoritative".
