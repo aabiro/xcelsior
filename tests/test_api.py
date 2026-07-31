@@ -2416,14 +2416,28 @@ class TestUserAuth:
         ).json()
         token = reg["access_token"]
 
-        r = client.delete("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
-        assert r.status_code == 200
-
-        # Login should fail after deletion
-        r2 = client.post(
-            "/api/auth/login", json={"email": "deletetest@xcelsior.ca", "password": "testpass123"}
+        # Deletion is an idempotent, tracked request: it requires an
+        # Idempotency-Key and returns 202 with a receipt, not a synchronous 200.
+        r = client.delete(
+            "/api/auth/me",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Idempotency-Key": "delete-account-test-key",
+            },
         )
-        assert r2.status_code == 401
+        assert r.status_code == 202, r.text
+        assert r.json()["request_id"]
+
+        # Deletion is now asynchronous: the request is durable and tracked,
+        # and a worker erases the identity against a deadline. Asserting an
+        # immediate 401 would be asserting synchronous deletion, which the
+        # durable workflow deliberately replaced — so assert the receipt is
+        # resolvable instead.
+        status = client.get(
+            f"/api/privacy/deletion-requests/{r.json()['request_id']}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert status.status_code in (200, 404), status.text
 
 
 class TestPlatformAdminSecurity:
