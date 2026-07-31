@@ -232,8 +232,14 @@ def upgrade() -> None:
                'authoritative',
                'pass',
                '1',
+               -- Literals here must not start with a colon. Alembic passes
+               -- the statement through SQLAlchemy text(), which treats a
+               -- colon followed by a word and preceded by a non-word char as
+               -- a bind parameter -- including inside comments. The original
+               -- digest input began with one, so the migration aborted on an
+               -- unbound parameter before writing a single row.
                md5('migration-082:legacy-grandfathering:' || host_id)
-                   || md5(host_id || ':migration-082'),
+                   || md5(host_id || 'migration-082-digest'),
                'migration-082',
                'migration:082',
                jsonb_build_object(
