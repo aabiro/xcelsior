@@ -1,0 +1,149 @@
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  file_storage:
+    directory: /var/lib/otelcol
+    create_directory: true
+    compaction:
+      directory: /var/lib/otelcol
+      on_start: true
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+  filelog/docker:
+    include:
+      - /var/lib/docker/containers/*/*-json.log
+    exclude:
+      - /var/lib/docker/containers/*/*-json.log.*.gz
+    include_file_name: false
+    include_file_path: true
+    start_at: end
+    storage: file_storage
+    operators:
+      - id: parse-docker-json
+        type: json_parser
+        parse_from: body
+        timestamp:
+          parse_from: attributes.time
+          layout_type: gotime
+          layout: "2006-01-02T15:04:05.999999999Z07:00"
+      - id: keep-docker-stream
+        type: move
+        from: attributes.stream
+        to: attributes["log.iostream"]
+        if: attributes.stream != nil
+      - id: use-log-body
+        type: move
+        from: attributes.log
+        to: body
+        if: attributes.log != nil
+
+processors:
+  memory_limiter:
+    check_interval: 2s
+    limit_mib: 384
+    spike_limit_mib: 96
+  resource/xcelsior:
+    attributes:
+      - key: service.namespace
+        value: xcelsior
+        action: upsert
+      - key: deployment.environment
+        value: ${env:XCELSIOR_ENV}
+        action: upsert
+  batch:
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+    timeout: 5s
+
+exporters:
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+    sending_queue:
+      enabled: true
+      storage: file_storage
+      queue_size: 4096
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 300s
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+    sending_queue:
+      enabled: true
+      storage: file_storage
+      queue_size: 2048
+    retry_on_failure:
+      enabled: true
+      max_elapsed_time: 120s
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+    sending_queue:
+      enabled: true
+      storage: file_storage
+      queue_size: 4096
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 300s
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    resource_to_telemetry_conversion:
+      enabled: true
+
+service:
+  extensions:
+    - health_check
+    - file_storage
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      level: normal
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+  pipelines:
+    traces:
+      receivers:
+        - otlp
+      processors:
+        - memory_limiter
+        - resource/xcelsior
+        - batch
+      exporters:
+        - otlp/tempo
+        - otlp/jaeger
+    metrics:
+      receivers:
+        - otlp
+      processors:
+        - memory_limiter
+        - resource/xcelsior
+        - batch
+      exporters:
+        - prometheus
+    logs:
+      receivers:
+        - otlp
+        - filelog/docker
+      processors:
+        - memory_limiter
+        - resource/xcelsior
+        - batch
+      exporters:
+        - otlphttp/loki

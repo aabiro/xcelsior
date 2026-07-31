@@ -1601,8 +1601,49 @@ export async function changePassword(currentPassword: string, newPassword: strin
 }
 
 // ── Account Deletion ──────────────────────────────────────────────────
-export async function deleteAccount() {
-  return apiFetch<{ ok: boolean }>("/api/auth/me", { method: "DELETE" });
+export type PrivacyDeletionStatus = {
+  request_id: string;
+  state: string;
+  deadline_at: string;
+  created_at: string;
+  updated_at: string;
+  completed_at?: string | null;
+  last_error?: string | null;
+  sinks: Array<{
+    sink: string;
+    status: string;
+    attempt_count: number;
+    deadline_at: string;
+    last_error?: string | null;
+    evidence: Record<string, unknown>;
+    updated_at: string;
+    completed_at?: string | null;
+  }>;
+};
+
+export async function deleteAccount(idempotencyKey: string) {
+  return apiFetch<{
+    ok: boolean;
+    request_id: string;
+    state: string;
+    deadline_at: string;
+    status_token: string;
+    already_existed: boolean;
+    message: string;
+  }>("/api/auth/me", {
+    method: "DELETE",
+    headers: { "Idempotency-Key": idempotencyKey },
+  });
+}
+
+export async function fetchAccountDeletionStatus(
+  requestId: string,
+  statusToken: string,
+) {
+  return apiFetch<{ ok: boolean; deletion: PrivacyDeletionStatus }>(
+    `/api/v2/privacy/erase/${encodeURIComponent(requestId)}`,
+    { headers: { "X-Deletion-Status-Token": statusToken } },
+  );
 }
 
 // ── MFA / Two-Factor Authentication ───────────────────────────────────

@@ -103,6 +103,13 @@ def _register_host(
     return client.put("/host", json=data)
 
 
+def _authoritatively_admit(host_id: str) -> None:
+    """Model the separate trusted admission path used outside self-reports."""
+    from tests._db_helpers import admit_test_host
+
+    admit_test_host(host_id, active=True)
+
+
 def _submit_job(name="llama3", vram=16, **extra):
     """Helper to submit a job."""
     data = {"name": name, "vram_needed_gb": vram}
@@ -248,11 +255,15 @@ class TestHostRegistrationFlow:
         assert host["status"] == "pending"
 
     def test_put_host_with_valid_versions(self):
-        """PUT /host with good versions → admitted=True."""
+        """Good self-reported versions are compatible but do not admit."""
         r = _register_host("h1", versions=GOOD_VERSIONS)
         assert r.status_code == 200
         host = r.json()["host"]
-        assert host["admitted"] is True
+        assert host["admitted"] is False
+        assert host["status"] == "pending"
+        assert host["compatibility_details"]["compatible"] is True
+        assert host["compatibility_details"]["admission_applied"] is False
+        assert scheduler.get_marketplace(active_only=True) == []
 
     def test_put_host_with_failing_versions(self):
         """PUT /host with old runc → admitted=False, status=pending."""
@@ -284,21 +295,34 @@ class TestHostRegistrationFlow:
         host = r.json()["host"]
         assert host["ssh_user"] == "provider"
 
-    def test_agent_versions_admits_host(self):
-        """POST /agent/versions with good versions → host becomes active."""
+    def test_agent_versions_only_reports_compatibility(self):
+        """POST /agent/versions cannot mutate a pending host."""
         _register_host("h1")
         r = client.post(
             "/agent/versions",
             json={"host_id": "h1", "versions": GOOD_VERSIONS},
         )
         assert r.status_code == 200
-        assert r.json()["admitted"] is True
+        assert r.json()["compatible"] is True
+        assert r.json()["admitted"] is False
+        assert r.json()["admission_applied"] is False
 
-        # Verify host is now active
+        # The report is advisory: the durable host remains pending and unlisted.
         hosts = client.get("/hosts?active_only=false").json()["hosts"]
         h = next(h for h in hosts if h["host_id"] == "h1")
-        assert h["admitted"] is True
-        assert h["status"] == "active"
+        assert h["admitted"] is False
+        assert h["status"] == "pending"
+        assert scheduler.get_marketplace(active_only=True) == []
+
+    def test_agent_versions_does_not_create_unknown_host(self):
+        r = client.post(
+            "/agent/versions",
+            json={"host_id": "unknown-host", "versions": GOOD_VERSIONS},
+        )
+        assert r.status_code == 200
+        assert r.json()["compatible"] is True
+        hosts = client.get("/hosts?active_only=false").json()["hosts"]
+        assert all(h["host_id"] != "unknown-host" for h in hosts)
 
     def test_agent_versions_rejects_host(self):
         """POST /agent/versions with bad versions → host stays pending."""
@@ -310,9 +334,27 @@ class TestHostRegistrationFlow:
         assert r.status_code == 200
         assert r.json()["admitted"] is False
 
+    def test_self_report_cannot_demote_authoritatively_admitted_host(self):
+        _register_host("h1")
+        _authoritatively_admit("h1")
+
+        version_report = client.post(
+            "/agent/versions",
+            json={"host_id": "h1", "versions": BAD_VERSIONS},
+        )
+        assert version_report.status_code == 200
+        assert version_report.json()["compatible"] is False
+        assert version_report.json()["admitted"] is False
+
+        heartbeat = _register_host("h1", versions=BAD_VERSIONS)
+        assert heartbeat.status_code == 200
+        assert heartbeat.json()["host"]["admitted"] is True
+        assert heartbeat.json()["host"]["status"] == "active"
+
     def test_admitted_host_receives_work(self):
         """Only admitted hosts get job assignments."""
         _register_host("h1", versions=GOOD_VERSIONS)
+        _authoritatively_admit("h1")
         instance = _submit_and_place("llama3", 16)
         # The scheduler claims the queued job and places it on the admitted host.
         assert instance["status"] in ("assigned", "running")
@@ -330,6 +372,7 @@ class TestHostRegistrationFlow:
     def test_drain_endpoint_marks_host_draining(self):
         """Drained hosts are preserved but excluded from scheduling."""
         _register_host("h1", versions=GOOD_VERSIONS)
+        _authoritatively_admit("h1")
         r = client.post("/host/h1/drain")
         assert r.status_code == 200
         host = r.json()["host"]
@@ -345,6 +388,8 @@ class TestHostRegistrationFlow:
         """Scheduler should skip drained hosts and use another active host."""
         _register_host("h1", ip="10.0.0.1", versions=GOOD_VERSIONS)
         _register_host("h2", ip="10.0.0.2", versions=GOOD_VERSIONS)
+        _authoritatively_admit("h1")
+        _authoritatively_admit("h2")
         assert client.post("/host/h1/drain").status_code == 200
 
         instance = _submit_and_place("llama3", 16)
@@ -353,6 +398,7 @@ class TestHostRegistrationFlow:
     def test_direct_launch_rejects_draining_host(self):
         """Direct marketplace launches should fail fast for drained hosts."""
         _register_host("h1", versions=GOOD_VERSIONS)
+        _authoritatively_admit("h1")
         assert client.post("/host/h1/drain").status_code == 200
 
         r = _submit_job("llama3", 16, host_id="h1")
@@ -362,6 +408,7 @@ class TestHostRegistrationFlow:
     def test_host_maintenance_summary_blocks_until_interactive_jobs_clear(self):
         """Maintenance summary should expose active interactive instances."""
         _register_host("h1", versions=GOOD_VERSIONS)
+        _authoritatively_admit("h1")
 
         instance = _submit_and_place("llama3", 16)
         assert instance["host_id"] == "h1"
@@ -378,6 +425,7 @@ class TestHostRegistrationFlow:
     def test_undrain_restores_active_status_for_admitted_host(self):
         """Undraining an admitted host should make it schedulable again."""
         _register_host("h1", versions=GOOD_VERSIONS)
+        _authoritatively_admit("h1")
         assert client.post("/host/h1/drain").status_code == 200
 
         r = client.post("/host/h1/undrain")
@@ -647,6 +695,7 @@ class TestJobEndpoints:
 
     def test_process_queue(self):
         _register_host("h1", versions=GOOD_VERSIONS)
+        _authoritatively_admit("h1")
         # B2.6: submit only enqueues; placement is the scheduler's job.
         r = _submit_job("llama3", 16)
         assert r.status_code == 200
@@ -1210,6 +1259,10 @@ class TestCanadaEndpoint:
 
 class TestMarketplaceEndpoints:
     def test_list_rig(self):
+        scheduler.register_host(
+            "h1", "10.0.0.1", "RTX 4090", 24, 24, pending_until_admitted=True
+        )
+        _authoritatively_admit("h1")
         token = client.post(
             "/api/auth/register",
             json={"email": "marketplace-list@xcelsior.ca", "password": "testpass123"},
@@ -1222,7 +1275,103 @@ class TestMarketplaceEndpoints:
         assert r.status_code == 200
         assert r.json()["ok"]
 
+    def test_pending_host_cannot_be_listed(self):
+        scheduler.register_host(
+            "pending-h1",
+            "10.0.0.2",
+            "RTX 4090",
+            24,
+            24,
+            pending_until_admitted=True,
+        )
+        token = client.post(
+            "/api/auth/register",
+            json={"email": "marketplace-pending@xcelsior.ca", "password": "testpass123"},
+        ).json()["access_token"]
+
+        r = client.post(
+            "/marketplace/list",
+            json={
+                "host_id": "pending-h1",
+                "gpu_model": "RTX 4090",
+                "vram_gb": 24,
+                "price_per_hour": 0.30,
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert r.status_code == 409
+        assert scheduler.get_marketplace(active_only=False) == []
+
+    def test_pending_host_cannot_create_v2_offer(self):
+        from marketplace import get_marketplace_engine
+
+        scheduler.register_host(
+            "pending-v2",
+            "10.0.0.4",
+            "RTX 4090",
+            24,
+            24,
+            pending_until_admitted=True,
+        )
+        token = client.post(
+            "/api/auth/register",
+            json={"email": "marketplace-pending-v2@xcelsior.ca", "password": "testpass123"},
+        ).json()["access_token"]
+
+        r = client.post(
+            "/api/v2/marketplace/offers",
+            json={
+                "host_id": "pending-v2",
+                "gpu_model": "RTX 4090",
+                "gpu_count_total": 1,
+                "vram_gb": 24,
+                "ask_cents_per_hour": 30,
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert r.status_code == 409
+        assert get_marketplace_engine().get_offer_for_host("pending-v2") is None
+
+    def test_admitted_host_can_create_v2_offer(self):
+        from marketplace import get_marketplace_engine
+
+        scheduler.register_host(
+            "admitted-v2",
+            "10.0.0.5",
+            "RTX 4090",
+            24,
+            24,
+            pending_until_admitted=True,
+        )
+        _authoritatively_admit("admitted-v2")
+        token = client.post(
+            "/api/auth/register",
+            json={"email": "marketplace-admitted-v2@xcelsior.ca", "password": "testpass123"},
+        ).json()["access_token"]
+
+        r = client.post(
+            "/api/v2/marketplace/offers",
+            json={
+                "host_id": "admitted-v2",
+                "gpu_model": "RTX 4090",
+                "gpu_count_total": 1,
+                "vram_gb": 24,
+                "ask_cents_per_hour": 30,
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert r.status_code == 200
+        assert r.json()["offer"]["offer_id"]
+        assert get_marketplace_engine().get_offer_for_host("admitted-v2") is not None
+
     def test_get_marketplace(self):
+        scheduler.register_host(
+            "h1", "10.0.0.1", "RTX 4090", 24, 24, pending_until_admitted=True
+        )
+        _authoritatively_admit("h1")
         token = client.post(
             "/api/auth/register",
             json={"email": "marketplace-get@xcelsior.ca", "password": "testpass123"},
@@ -1242,6 +1391,10 @@ class TestMarketplaceEndpoints:
 
     def test_unlist_rig(self):
         """DELETE /marketplace/{host_id} removes listing."""
+        scheduler.register_host(
+            "to-remove", "10.0.0.3", "RTX 4090", 24, 24, pending_until_admitted=True
+        )
+        _authoritatively_admit("to-remove")
         token = client.post(
             "/api/auth/register",
             json={"email": "marketplace-delete@xcelsior.ca", "password": "testpass123"},
@@ -2393,6 +2546,7 @@ class TestGpuAvailability:
         """Falls back to hosts table when gpu_offers is empty."""
         # Register an admitted host
         _register_host("gpu-h1", ip="10.0.1.1", gpu="RTX 4090", vram=24, versions=GOOD_VERSIONS)
+        _authoritatively_admit("gpu-h1")
         r = client.get("/api/v2/gpu/available")
         assert r.status_code == 200
         data = r.json()
@@ -2409,6 +2563,8 @@ class TestGpuAvailability:
         """Multiple hosts with same GPU model are counted correctly."""
         _register_host("gpu-h2", ip="10.0.1.2", gpu="A100", vram=80, versions=GOOD_VERSIONS)
         _register_host("gpu-h3", ip="10.0.1.3", gpu="A100", vram=80, versions=GOOD_VERSIONS)
+        _authoritatively_admit("gpu-h2")
+        _authoritatively_admit("gpu-h3")
         r = client.get("/api/v2/gpu/available")
         assert r.status_code == 200
         data = r.json()

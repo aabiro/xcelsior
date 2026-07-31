@@ -18,6 +18,7 @@ import { checkDocker, type CheckResult } from "./checks.js";
 import {
     checkVersions, detectGpuFull, runComputeBenchmark,
     runNetworkBenchmark, buildVerificationReport,
+    benchmarkUnavailableResults, buildWizardVerificationResults,
     CHECK_REMEDIATION,
     type GpuInfo, type BenchmarkResult, type NetworkBenchResult,
     type VersionCheck,
@@ -1337,7 +1338,9 @@ export function useWizardFlow(): UseWizardFlowReturn {
             case "benchmark": {
                 // Skip benchmark if only basic GPU detection passed (no detailed nvidia-smi data)
                 if (currentAnswers["_gpu_basic_only"] === "true") {
-                    return [{ name: "Benchmark", ok: true, detail: "Skipped — detailed GPU data unavailable (nvidia-smi query failed)" }];
+                    return benchmarkUnavailableResults(
+                        "Failed — detailed GPU data unavailable (nvidia-smi query failed)",
+                    );
                 }
                 const bench = await runComputeBenchmark(streamPhase);
                 if (!bench || bench.error) {
@@ -1383,14 +1386,10 @@ export function useWizardFlow(): UseWizardFlowReturn {
                     const updated = { ...currentAnswers, "_verification_state": result.state, "_verification_score": String(result.score) };
                     answersRef.current = updated;
                     setAnswers(updated);
+                    return buildWizardVerificationResults(report, result);
                 } catch {
-                    // Server verification is best-effort during wizard
+                    return buildWizardVerificationResults(report);
                 }
-                return report.checks.map((c) => ({
-                    name: c.name,
-                    ok: c.passed,
-                    detail: c.detail,
-                }));
             }
             case "host-register": {
                 const gpu = gpuInfoRef.current;
@@ -1467,7 +1466,11 @@ export function useWizardFlow(): UseWizardFlowReturn {
                         }
                     }
 
-                    return [{ name: "Host Registration", ok: true, detail: `Registered as ${host.host_id || hostId} · ${gpu.gpu_model} · $${costPerHour.toFixed(2)}/hr` }];
+                    return [{
+                        name: "Host Registration",
+                        ok: true,
+                        detail: `Registered as ${host.host_id || hostId} · pending worker verification · not yet listed`,
+                    }];
                 } catch (err) {
                     return [{ name: "Host Registration", ok: false, detail: err instanceof Error ? err.message : "Registration failed" }];
                 }
@@ -1484,7 +1487,8 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 }
                 try {
                     const result = await reportVersions(API_BASE_URL, token, hostId, versions);
-                    const admitted = result.admitted;
+                    const compatible = result.compatible === true;
+                    const admitted = result.admitted === true;
                     const runtime = (result.details as Record<string, string>)?.recommended_runtime || "runc";
 
                     // Build provider summary
@@ -1516,7 +1520,20 @@ export function useWizardFlow(): UseWizardFlowReturn {
                     });
 
                     return [
-                        { name: "Admission", ok: admitted, detail: admitted ? "Admitted to the network" : "Not admitted — version requirements not met" },
+                        {
+                            name: "Version Compatibility",
+                            ok: compatible,
+                            detail: compatible
+                                ? "Required component versions are compatible"
+                                : "Required component versions need remediation",
+                        },
+                        {
+                            name: "Admission Boundary",
+                            ok: !admitted && result.admission_applied === false,
+                            detail: !admitted
+                                ? "Pending authoritative worker verification — not admitted or listed"
+                                : "Unexpected admission from a self-reported compatibility check",
+                        },
                         { name: "Runtime", ok: true, detail: `Recommended: ${runtime}` },
                     ];
                 } catch (err) {
@@ -1804,7 +1821,8 @@ export function useWizardFlow(): UseWizardFlowReturn {
                         const successMsg = nextStep.checkId === "launch" ? "Instance launched!"
                             : nextStep.checkId === "benchmark" ? "Benchmarks complete!"
                                 : nextStep.checkId === "verify" ? "Hardware verified!"
-                                    : nextStep.checkId === "host-register" ? "Host registered on the marketplace!"
+                                    : nextStep.checkId === "host-register" ? "Host registered as pending verification."
+                                        : nextStep.checkId === "admission" ? "Compatibility recorded; admission remains pending."
                                         : nextStep.checkId === "docker" ? "Docker environment ready!"
                                             : nextStep.checkId === "sdk-detect" ? "Project detected!"
                                                 : nextStep.checkId === "sdk-install" ? "SDK package ready!"

@@ -269,120 +269,86 @@ class TestSettlementEligibility:
         assert d["status"] == "paid_eligible"
         assert d["need_cents"] == 1234
 
-    def test_split_payout_queues_when_float_low(self):
-        from stripe_connect import StripeConnectManager, PLATFORM_CUT_FRAC
+    def test_transfer_uses_persisted_idempotency_key(self):
+        from stripe_connect import _stripe_create_transfer
 
-        mgr = StripeConnectManager.__new__(StripeConnectManager)
         mock_stripe = MagicMock()
-        mock_stripe.Balance.retrieve.return_value = SimpleNamespace(
-            available=[{"currency": "cad", "amount": 50}]
+        mock_stripe.Transfer.create.return_value = SimpleNamespace(id="tr_paid_1")
+
+        transfer = _stripe_create_transfer(
+            amount_cents=8_500,
+            destination="acct_1",
+            job_id="job-pay1",
+            provider_id="p1",
+            settlement="instant",
+            idempotency_key="provider-settlement:job-pay1",
+            stripe_mod=mock_stripe,
         )
-        mock_conn = MagicMock()
-        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
-        mock_conn.__exit__ = MagicMock(return_value=False)
-        mock_conn.execute = MagicMock()
 
-        with (
-            patch("stripe_connect.STRIPE_ENABLED", True),
-            patch("stripe_connect.stripe", mock_stripe),
-            patch.object(StripeConnectManager, "get_provider", return_value={
+        assert transfer.id == "tr_paid_1"
+        mock_stripe.Transfer.create.assert_called_once_with(
+            amount=8_500,
+            currency="cad",
+            destination="acct_1",
+            metadata={
+                "job_id": "job-pay1",
                 "provider_id": "p1",
-                "stripe_account_id": "acct_1",
-                "status": "active",
-            }),
-            patch.object(StripeConnectManager, "_conn", return_value=mock_conn),
-            patch("billing.get_tax_rate_for_province", return_value=0.13),
-        ):
-            result = mgr.split_payout("job-q1", "p1", 100.0, "ON")
+                "settlement": "instant",
+            },
+            idempotency_key="provider-settlement:job-pay1",
+        )
 
-        assert result["settlement_status"] == "queued"
-        assert result["settlement_error"] == "insufficient_platform_balance"
-        assert result["stripe_transfer_id"] == ""
-        mock_stripe.Transfer.create.assert_not_called()
-
-    def test_split_payout_pays_when_eligible(self):
+    def test_split_payout_accepts_identifiers_only(self):
         from stripe_connect import StripeConnectManager
 
-        mgr = StripeConnectManager.__new__(StripeConnectManager)
-        mock_stripe = MagicMock()
-        mock_stripe.Balance.retrieve.return_value = SimpleNamespace(
-            available=[{"currency": "cad", "amount": 1_000_00}]
-        )
-        transfer = SimpleNamespace(id="tr_paid_1")
-        mock_stripe.Transfer.create.return_value = transfer
-        mock_conn = MagicMock()
-        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
-        mock_conn.__exit__ = MagicMock(return_value=False)
-        mock_conn.execute = MagicMock()
-
-        with (
-            patch("stripe_connect.STRIPE_ENABLED", True),
-            patch("stripe_connect.stripe", mock_stripe),
-            patch.object(StripeConnectManager, "get_provider", return_value={
-                "provider_id": "p1",
-                "stripe_account_id": "acct_1",
-                "status": "active",
-            }),
-            patch.object(StripeConnectManager, "_conn", return_value=mock_conn),
-            patch("billing.get_tax_rate_for_province", return_value=0.13),
-        ):
-            result = mgr.split_payout("job-pay1", "p1", 100.0, "ON")
-
-        assert result["settlement_status"] == "paid"
-        assert result["stripe_transfer_id"] == "tr_paid_1"
-        assert result["provider_share_cad"] == pytest.approx(85.0, abs=0.01)
-        mock_stripe.Transfer.create.assert_called_once()
+        parameters = inspect.signature(StripeConnectManager.split_payout).parameters
+        assert list(parameters) == ["self", "job_id", "provider_id"]
+        assert "total_cad" not in parameters
+        assert "province" not in parameters
 
     def test_daily_settle_drains_queued(self):
         from stripe_connect import StripeConnectManager
 
         mgr = StripeConnectManager.__new__(StripeConnectManager)
         mock_stripe = MagicMock()
-        mock_stripe.Balance.retrieve.return_value = SimpleNamespace(
-            available=[{"currency": "cad", "amount": 500_00}]
-        )
-        mock_stripe.Transfer.create.return_value = SimpleNamespace(id="tr_daily_1")
-
-        select_rows = [
-            {
-                "job_id": "j-q",
-                "provider_id": "p1",
-                "provider_share_cad": 10.0,
-                "stripe_transfer_id": "",
-            }
-        ]
-
-        class Conn:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a):
-                return False
-
-            def execute(self, sql, params=None):
-                m = MagicMock()
-                if "SELECT" in sql:
-                    m.fetchall.return_value = select_rows
-                return m
+        claimed = {
+            "id": 42,
+            "job_id": "j-q",
+            "provider_id": "p1",
+            "provider_share_micros": 10_000_000,
+            "rail_idempotency_key": "provider-settlement:j-q",
+            "claim_token": "claim-token",
+        }
+        mock_conn = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
 
         with (
             patch("stripe_connect.STRIPE_ENABLED", True),
             patch("stripe_connect.stripe", mock_stripe),
-            patch.object(StripeConnectManager, "_conn", side_effect=lambda: Conn()),
+            patch.object(StripeConnectManager, "_conn", return_value=mock_conn),
+            patch(
+                "stripe_connect.claim_settlements",
+                return_value=[claimed],
+            ) as mock_claim,
             patch.object(
                 StripeConnectManager,
-                "get_provider",
-                return_value={
-                    "provider_id": "p1",
-                    "stripe_account_id": "acct_1",
-                    "status": "active",
-                },
-            ),
+                "_process_stripe_claim",
+                return_value={"settlement_status": "paid", "settlement_error": ""},
+            ) as mock_process,
         ):
             out = mgr.settle_queued_payouts(limit=10, stripe_mod=mock_stripe)
 
         assert out["settled"] == 1
         assert out["failed"] == 0
+        mock_claim.assert_called_once()
+        assert mock_claim.call_args.kwargs["rail"] == "stripe"
+        assert mock_claim.call_args.kwargs["limit"] == 10
+        mock_process.assert_called_once_with(
+            claimed,
+            stripe_mod=mock_stripe,
+            settlement_label="daily",
+        )
 
 
 # ── Criterion 3b / 4: account session + country ────────────────────────

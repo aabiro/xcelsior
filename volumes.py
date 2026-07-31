@@ -1995,10 +1995,24 @@ def nfs_storage_healthcheck() -> dict:
     export = shlex.quote(NFS_EXPORT_BASE)
     try:
         engine = get_volume_engine()
+        health_host = NFS_SSH_HOST
+        health_user = NFS_SSH_USER
+        force_ssh = False
+        # An unprivileged API container deliberately has no /exports bind
+        # mount. For a colocated NFS server, checking that path inside the
+        # container will therefore report a false outage. Cross the same
+        # narrow host-SSH boundary used by privileged volume operations so
+        # readiness proves the real export is available.
+        if engine._in_docker() and engine._nfs_is_local_host(NFS_SSH_HOST):
+            health_host = engine._luks_ssh_host()
+            health_user = engine._luks_ssh_user()
+            force_ssh = True
         rc, _, err = engine._ssh_exec_with_retry(
-            NFS_SSH_HOST,
+            health_host,
             f"test -d {export}",
             timeout=15,
+            user=health_user,
+            force_ssh=force_ssh,
         )
         reachable = rc == 0
         return {

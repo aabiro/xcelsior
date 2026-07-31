@@ -288,21 +288,21 @@ export const WIZARD_STEPS: WizardStep[] = [
         },
     },
 
-    // ── Step 7b: Provider — Host registration ──────────────────────────
+    // ── Step 7b: Provider — Pending host registration ──────────────────
     {
         id: "host-register",
         type: "auto-check",
-        prompt: "Registering your host on the marketplace...",
+        prompt: "Registering your host as pending verification...",
         checkId: "host-register",
         condition: (a) => a.mode === "provide" || a.mode === "both",
         checkRequired: true,
     },
 
-    // ── Step 7c: Provider — Admission gate ─────────────────────────────
+    // ── Step 7c: Provider — Compatibility and admission boundary ───────
     {
         id: "admission-gate",
         type: "auto-check",
-        prompt: "Checking admission status and security runtime...",
+        prompt: "Checking compatibility and pending admission status...",
         checkId: "admission",
         condition: (a) => a.mode === "provide" || a.mode === "both",
     },
@@ -311,7 +311,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "provider-summary",
         type: "confirm",
-        prompt: "Your GPU is verified and listed on the marketplace!",
+        prompt: "Compatibility checks are complete; worker verification is still pending.",
         confirmLabel: "Continue to save configuration",
         condition: (a) => a.mode === "provide" || a.mode === "both",
     },

@@ -398,20 +398,21 @@ def api_provider_payout(
     provider_id: str,
     request: Request,
     job_id: str = "",
-    total_cad: float = 0,
     payment_rail: str = "stripe",
 ):
-    """Split a job payment between provider (85%) and platform (15%).
+    """Settle an eligible job from PostgreSQL billing authority.
 
-    Applies province-specific GST/HST. If Stripe is configured,
-    creates a real Transfer to the provider's connected account.
+    The caller identifies a job and rail only. Amount, customer, provider
+    ownership, currency, terminal state, and prior settlement are derived from
+    PostgreSQL under a lock.
     """
     from routes._deps import _require_scope
+    from provider_settlement import SettlementError
 
     user = _require_provider_access(request, provider_id)
     _require_scope(user, "providers:write")
-    if not job_id or total_cad <= 0:
-        raise HTTPException(400, "job_id and total_cad (>0) required")
+    if not job_id:
+        raise HTTPException(400, "job_id is required")
     mgr = get_stripe_manager()
     provider = mgr.get_provider(provider_id)
     if not provider:
@@ -419,7 +420,9 @@ def api_provider_payout(
     rail = (payment_rail or "stripe").strip().lower()
     if rail == "paypal":
         try:
-            result = get_paypal_manager().create_marketplace_order(provider_id, job_id, total_cad)
+            result = get_paypal_manager().create_marketplace_order(provider_id, job_id)
+        except SettlementError as exc:
+            raise HTTPException(exc.status_code, str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(400, str(exc)) from exc
         return {
@@ -430,7 +433,12 @@ def api_provider_payout(
             "provider_share_cad": result["provider_share_cad"],
             "message": "Approve and capture via /api/billing/paypal/marketplace/capture-order",
         }
-    result = mgr.split_payout(job_id, provider_id, total_cad, provider.get("province", "ON"))
+    if rail != "stripe":
+        raise HTTPException(400, "payment_rail must be stripe or paypal")
+    try:
+        result = mgr.split_payout(job_id, provider_id)
+    except SettlementError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
     return {"ok": True, "payment_rail": "stripe", **result}
 
 

@@ -4,6 +4,8 @@ import { describe, it, expect } from "vitest";
 import {
     runVerificationChecks,
     buildVerificationReport,
+    benchmarkUnavailableResults,
+    buildWizardVerificationResults,
     buildWorkerEnvContent,
     mergeAuthorizedKeys,
     MINIMUM_VERSIONS,
@@ -238,6 +240,50 @@ describe("buildVerificationReport", () => {
         const net = report.checks.find((c) => c.name === "Network Quality");
         expect(net?.passed).toBe(false);
         expect(report.allPassed).toBe(false);
+    });
+});
+
+describe("wizard verification fail-closed boundary", () => {
+    it("treats an unavailable benchmark as failed", () => {
+        const results = benchmarkUnavailableResults("nvidia-smi query failed");
+        expect(results).toHaveLength(1);
+        expect(results[0].ok).toBe(false);
+        expect(results[0].detail).toContain("nvidia-smi");
+    });
+
+    it("does not report success when server verification is unavailable", () => {
+        const report = buildVerificationReport(makeGpu(), makeBench(), makeNetwork(), makeVersions());
+        const results = buildWizardVerificationResults(report);
+        const server = results.find((item) => item.name === "Server Verification");
+        expect(server?.ok).toBe(false);
+        expect(server?.detail).toContain("not verified or admitted");
+        expect(results.every((item) => item.ok)).toBe(false);
+    });
+
+    it("does not report success for a non-verified server state", () => {
+        const report = buildVerificationReport(makeGpu(), makeBench(), makeNetwork(), makeVersions());
+        const results = buildWizardVerificationResults(report, { ok: true, state: "deverified" });
+        expect(results.find((item) => item.name === "Server Verification")?.ok).toBe(false);
+        expect(results.every((item) => item.ok)).toBe(false);
+    });
+
+    it("requires both local checks and a verified server decision", () => {
+        const passing = buildVerificationReport(makeGpu(), makeBench(), makeNetwork(), makeVersions());
+        expect(
+            buildWizardVerificationResults(passing, { ok: true, state: "verified" })
+                .every((item) => item.ok),
+        ).toBe(true);
+
+        const failing = buildVerificationReport(
+            makeGpu(),
+            makeBench({ pcie_bandwidth_gbps: 1 }),
+            makeNetwork(),
+            makeVersions(),
+        );
+        expect(
+            buildWizardVerificationResults(failing, { ok: true, state: "verified" })
+                .every((item) => item.ok),
+        ).toBe(false);
     });
 });
 

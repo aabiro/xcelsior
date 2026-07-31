@@ -169,6 +169,12 @@ def main():
     # Force bg tasks env so any transitive import of api.py sees it
     os.environ["XCELSIOR_BG_TASKS"] = "true"
 
+    # A durable no-op task proves that the maintenance executor itself is
+    # claiming and settling work.  Metrics derive freshness from its
+    # last_run_at, avoiding a new cross-domain DB privilege for the billing
+    # service role.
+    register_task("maintenance_heartbeat", lambda: None, 15)
+
     # 1. Auto-billing cycle (every 5 minutes)
     def _billing_cycle():
         from billing import get_billing_engine
@@ -370,6 +376,18 @@ def main():
         cm.expire_implied_consents()
 
     register_task("privacy_purge", _privacy_purge, 21600)
+
+    # Cross-store account deletion is a durable claimed workflow.  Run a
+    # bounded batch frequently so identity revocation begins promptly, while
+    # failed external sinks remain visible and retry until their deadline.
+    def _privacy_deletion_requests():
+        from privacy_deletion import process_deletion_requests_task
+
+        result = process_deletion_requests_task(limit=10, claim_ttl_sec=180)
+        if result["claimed"]:
+            log.info("privacy deletion workflow: %s", result)
+
+    register_task("privacy_deletion_requests", _privacy_deletion_requests, 30)
 
     # 9. Session cleanup (every hour)
     def _session_cleanup():

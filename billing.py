@@ -518,9 +518,9 @@ class BillingEngine:
                         gpu_utilization_pct, xcu_score, country, province,
                         is_canadian_compute, trust_tier, base_rate_per_hour,
                         tier_multiplier, spot_discount, pricing_mode, total_cost_cad,
-                        created_at, attempt_id)
+                        total_cost_micros, created_at, attempt_id)
                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                               %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                        ON CONFLICT (meter_id) DO UPDATE SET
                          job_id = EXCLUDED.job_id, host_id = EXCLUDED.host_id,
                          owner = EXCLUDED.owner,
@@ -529,6 +529,7 @@ class BillingEngine:
                          duration_sec = EXCLUDED.duration_sec,
                          gpu_seconds = EXCLUDED.gpu_seconds,
                          total_cost_cad = EXCLUDED.total_cost_cad,
+                         total_cost_micros = EXCLUDED.total_cost_micros,
                          pricing_mode = EXCLUDED.pricing_mode,
                          attempt_id = COALESCE(usage_meters.attempt_id, EXCLUDED.attempt_id),
                          created_at = EXCLUDED.created_at""",
@@ -554,6 +555,7 @@ class BillingEngine:
                         meter.spot_discount,
                         meter.pricing_mode,
                         meter.total_cost_cad,
+                        cad_to_micros(meter.total_cost_cad),
                         time.time(),
                         attempt_id,
                     ),

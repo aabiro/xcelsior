@@ -29,6 +29,7 @@ from control_plane.db import RetryBudgetExceeded, run_transaction
 from control_plane.commands import redeliver_expired_claims
 from control_plane.inventory import sync_host_gpu_inventory
 from control_plane.leases import expire_stale_leases
+from control_plane.operational_metrics import ServiceHeartbeat
 from control_plane.scheduler.claim import (
     ClaimedJob,
     claim_next_job,
@@ -70,6 +71,10 @@ class SchedulerService:
 
     def __init__(self, config: SchedulerConfig | None = None):
         self.config = config or SchedulerConfig.from_env()
+        self._reconciler_heartbeat = ServiceHeartbeat(
+            "reconciler",
+            replica_id=self.config.replica_id,
+        )
 
     # ── maintenance ──────────────────────────────────────────────────
 
@@ -92,6 +97,10 @@ class SchedulerService:
                 lambda c: process_due(c, worker_id=self.config.replica_id),
                 what="sched_reconcile",
             )
+            try:
+                self._reconciler_heartbeat.emit_if_due()
+            except Exception:
+                log.exception("reconciler heartbeat failed; continuing")
         except Exception:
             log.exception("reconcile sweep failed; continuing")
         return claims, len(leases), commands

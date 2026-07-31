@@ -534,7 +534,7 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
         spot_enabled: spotEnabled,
         spot_min_cents: spotEnabled ? spotMinCents : 0,
       });
-      toast.success("Host registered successfully! Install the worker agent to bring it online.");
+      toast.success("Host registered as pending. Install the worker agent to begin verification.");
       onDone();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to register host");
@@ -567,8 +567,8 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
                 <p className="font-medium text-text-primary mb-1">What is host registration?</p>
                 <p className="text-text-secondary leading-relaxed">
                   Registering creates a record of your GPU machine in the Xcelsior network. 
-                  After registration, install the worker agent on your machine to start 
-                  accepting compute jobs and earning revenue.
+                  Registration stays pending and unlisted. Install the worker agent so
+                  Xcelsior can verify the machine before it accepts compute jobs.
                 </p>
               </div>
             </div>
@@ -762,7 +762,7 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://xcelsior.ca";
 const APP_HOST = APP_URL.replace(/^https?:\/\//, "");
-const WIZARD_CMD = "npx @xcelsior-gpu/wizard@latest";
+const WIZARD_CMD = "npx @xcelsior-gpu/wizard@0.1.0";
 const SDK_INSTALL_CMD = "npm install @xcelsior-gpu/sdk";
 
 const LLM_INSTALL_PROMPT = `I am setting up an Xcelsior GPU worker node to join the distributed GPU compute marketplace at ${APP_HOST}. Walk me through setup step-by-step. Mark any values I need to fill in with placeholder comments.
@@ -775,7 +775,7 @@ Register at ${APP_URL}/dashboard/hosts → "Register Host" (the wizard can also 
 ### 2. Run the wizard (one command on the GPU host)
 
 \`\`\`bash
-npx @xcelsior-gpu/wizard@latest
+npx @xcelsior-gpu/wizard@0.1.0
 \`\`\`
 
 (\`npx\` runs the wizard without a global install, no \`-g\`, no \`/usr/lib/node_modules\` permission issues.)
@@ -803,7 +803,7 @@ xcelsior earnings --period 30d                   # Earnings summary
 \`\`\`
 
 ### Requirements
-- Node.js >= 18, NVIDIA drivers >= 535, Docker >= 24.0, Ubuntu 22.04+ or WSL2
+- Node.js >= 18, NVIDIA drivers >= 550, Docker >= 24.0, Ubuntu 22.04+ or WSL2
 
 ## Option B: Manual Setup
 
@@ -863,7 +863,7 @@ journalctl -u xcelsior-worker -f
 
 ## Notes
 - Register your host first at ${APP_URL}/dashboard/hosts → "Register Host" (the AI Onboarding Wizard handles this automatically).
-- \`nvidia-smi\` not found → \`sudo apt install nvidia-driver-535\`
+- \`nvidia-smi\` not found → install a supported NVIDIA driver (550 or newer)
 - Docker permission denied → \`sudo usermod -aG docker $USER\`
 - Can't connect → check firewall allows outbound HTTPS to ${APP_HOST}:443
 - Not picking up jobs → \`xcelsior pricing compare\` to check competitiveness`;
@@ -1197,13 +1197,13 @@ function ProviderTipsCard({ hosts }: { hosts: Host[] }) {
       icon: Terminal,
       color: "accent-violet",
       title: "Almost there: install the worker agent",
-      description: `You have ${hosts.length} host${hosts.length > 1 ? "s" : ""} registered but none are active. Install the worker agent to bring your GPU online and start accepting jobs.`,
+      description: `You have ${hosts.length} host${hosts.length > 1 ? "s" : ""} registered but none are active. Install the worker agent to begin authoritative verification.`,
       items: [
         "Click Install Worker above for setup instructions",
         "The agent runs as a background process and sends heartbeats every 30s",
         "Make sure Docker is installed and your user is in the docker group",
         `Allow outbound HTTPS to ${APP_HOST}:443 through your firewall`,
-        "Once running, your host status will change to 'active' automatically",
+        "The host stays pending and unlisted until worker verification admits it",
       ],
       cta: { label: "Install Worker", action: "install" },
     },
@@ -1437,7 +1437,7 @@ xcelsior earnings --period 30d`;
         <ul className="text-xs text-text-secondary space-y-1.5">
           <li className="flex items-start gap-2">
             <span className="text-accent-cyan mt-0.5">&#x2022;</span>
-            <span><span className="font-medium text-text-primary">Provide GPUs</span>, detect hardware, register host, set pricing, install worker service</span>
+            <span><span className="font-medium text-text-primary">Provide GPUs</span>, check compatibility, register a pending host, set pricing, install the worker service for verification</span>
           </li>
           <li className="flex items-start gap-2">
             <span className="text-accent-violet mt-0.5">&#x2022;</span>
@@ -1467,7 +1467,7 @@ xcelsior earnings --period 30d`;
             <p className="text-xs font-medium text-text-primary mb-1.5">Pre-install requirements</p>
             <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-text-secondary">
               <span>Node.js &ge; 18</span>
-              <span>NVIDIA drivers &ge; 535</span>
+              <span>NVIDIA drivers &ge; 550</span>
               <span>Docker Engine &ge; 24.0</span>
               <span>Ubuntu 22.04+ or WSL2</span>
             </div>

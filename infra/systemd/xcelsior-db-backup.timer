@@ -1,0 +1,12 @@
+[Unit]
+Description=Create a verified Xcelsior PostgreSQL backup every day
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 UTC
+RandomizedDelaySec=10m
+Persistent=true
+Unit=xcelsior-db-backup.service
+
+[Install]
+WantedBy=timers.target
+

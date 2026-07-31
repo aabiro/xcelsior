@@ -689,7 +689,9 @@ export async function getHostStatus(
 
 export interface VersionReportResult {
     ok: boolean;
+    compatible: boolean;
     admitted: boolean;
+    admission_applied: boolean;
     details: Record<string, unknown>;
 }
 

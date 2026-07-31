@@ -23,7 +23,7 @@ from scheduler import (
     update_job_status,
 )
 from events import Event, get_event_store, get_state_machine
-from security import admit_node
+from security import check_node_versions, recommend_runtime
 from db import _get_pg_pool
 import threading
 
@@ -31,7 +31,7 @@ router = APIRouter()
 
 
 # ── Auth helper ───────────────────────────────────────────────────────
-# Every /agent/* endpoint except the admission path (/agent/versions) and
+# Every /agent/* endpoint except the compatibility path (/agent/versions) and
 # the public popular-images metadata endpoint requires a Bearer token or
 # API key. The worker_agent.py already sends
 # `Authorization: Bearer $XCELSIOR_API_TOKEN` on every request (see
@@ -672,89 +672,34 @@ def _notify_provider_admission_failure(host: dict, details: dict):
 
 @router.post("/agent/versions", tags=["Agent"])
 def api_agent_versions(report: VersionReport):
-    """Receive and validate node component versions for admission control.
+    """Evaluate self-reported versions without mutating host admission.
 
-    When a host passes admission, updates the host record to admitted=True
-    and status='active'. This is the gate that allows hosts to receive work.
-    Per REPORT_FEATURE_FINAL.md §62 and REPORT_FEATURE_1.md:
-    - CUDA >= 12.0, runc patched, NVIDIA Container Toolkit patched
-    - Hosts that fail stay in 'pending' status
+    This endpoint remains useful to older workers and compatibility tooling,
+    but a provider-controlled report cannot activate, create, or list a host.
     """
-    from security import admit_node
-
-    admitted_result, details = admit_node(report.host_id, report.versions)
-
-    # Update host record with admission status
-    from scheduler import _atomic_mutation, _upsert_host_row, _migrate_hosts_if_needed
-
-    hosts = list_hosts(active_only=False)
-    host_found = False
-    for h in hosts:
-        if h.get("host_id") == report.host_id:
-            host_found = True
-            h["admitted"] = details["admitted"]
-            h["recommended_runtime"] = details.get("recommended_runtime", "runc")
-            h["admission_details"] = details
-            if details["admitted"]:
-                h["status"] = "draining" if h.get("status") == "draining" else "active"
-                log.info(
-                    "HOST %s ADMITTED — status set to active, runtime=%s",
-                    report.host_id,
-                    details.get("recommended_runtime", "runc"),
-                )
-            else:
-                h["status"] = "pending"
-                log.warning(
-                    "HOST %s NOT ADMITTED — status remains pending: %s",
-                    report.host_id,
-                    details.get("rejection_reasons", []),
-                )
-                # Notify the provider about what needs fixing
-                _notify_provider_admission_failure(h, details)
-            # Persist
-            with _atomic_mutation() as conn:
-                _migrate_hosts_if_needed(conn)
-                _upsert_host_row(conn, h)
-            break
-
-    if not host_found:
-        # Host hasn't heartbeated yet — create a minimal record so the
-        # admission state survives until the first heartbeat arrives.
-        entry = {
-            "host_id": report.host_id,
-            "ip": "",
-            "gpu_model": "",
-            "total_vram_gb": 0,
-            "free_vram_gb": 0,
-            "cost_per_hour": 0,
-            "admitted": details["admitted"],
-            "admission_details": details,
-            "recommended_runtime": details.get("recommended_runtime", "runc"),
-            "status": "active" if details["admitted"] else "pending",
-            "registered_at": time.time(),
-            "last_seen": time.time(),
-        }
-        with _atomic_mutation() as conn:
-            _migrate_hosts_if_needed(conn)
-            _upsert_host_row(conn, entry)
-        log.info(
-            "HOST %s pre-registered via /agent/versions (admitted=%s)",
-            report.host_id,
-            details["admitted"],
-        )
-
-    broadcast_sse(
-        "node_admission",
-        {
-            "host_id": report.host_id,
-            "admitted": details["admitted"],
-            "versions": report.versions,
-            "runtime": details.get("recommended_runtime", "runc"),
-        },
+    compatible, reasons = check_node_versions(report.versions)
+    runtime, runtime_reason = recommend_runtime("unknown")
+    details = {
+        "host_id": report.host_id,
+        "compatible": compatible,
+        "admitted": False,
+        "admission_applied": False,
+        "versions": dict(report.versions),
+        "rejection_reasons": reasons,
+        "recommended_runtime": runtime,
+        "runtime_reason": runtime_reason,
+        "checked_at": time.time(),
+    }
+    log.info(
+        "NODE VERSION COMPATIBILITY host=%s compatible=%s (no admission applied)",
+        report.host_id,
+        compatible,
     )
     return {
         "ok": True,
-        "admitted": details["admitted"],
+        "compatible": compatible,
+        "admitted": False,
+        "admission_applied": False,
         "details": details,
     }
 

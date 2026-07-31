@@ -1,0 +1,42 @@
+groups:
+  - name: xcelsior.recording
+    interval: 30s
+    rules:
+      - record: xcelsior:api_available
+        expr: max(up{job="xcelsior-api"})
+
+      - record: xcelsior:mcp_available
+        expr: max(up{job="xcelsior-mcp"})
+
+      - record: xcelsior:control_plane_metrics_available
+        expr: max(xcelsior_control_plane_metrics_available)
+
+      - record: xcelsior:control_plane_metrics_age_seconds
+        expr: time() - max(xcelsior_control_plane_metrics_last_success_timestamp_seconds)
+
+      - record: xcelsior:queue_depth
+        expr: max(xcelsior_queue_depth)
+
+      - record: xcelsior:queue_oldest_age_seconds
+        expr: max(xcelsior_queue_oldest_age_seconds)
+
+      - record: xcelsior:billing_meter_invariant_violations
+        expr: max(xcelsior_billing_missing_meters) + max(xcelsior_billing_open_terminal_meters)
+
+      - record: xcelsior:outbox_backlog
+        expr: max(xcelsior_outbox_backlog)
+
+      - record: xcelsior:outbox_oldest_pending_age_seconds
+        expr: max(xcelsior_outbox_oldest_pending_age_seconds)
+
+      - record: xcelsior:projection_pending_deliveries
+        expr: sum(max by (sink) (xcelsior_projection_deliveries{status="pending"}))
+
+      - record: xcelsior:projection_dead_letters
+        expr: sum(max by (sink) (xcelsior_projection_deliveries{status="dead_lettered"}))
+
+      - record: xcelsior:postgres_connections_utilization
+        expr: sum(pg_stat_database_numbackends) / clamp_min(max(pg_settings_max_connections), 1)
+
+      - record: xcelsior:host_filesystem_available_ratio
+        expr: min by (instance, mountpoint) (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"})

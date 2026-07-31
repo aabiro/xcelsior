@@ -1,0 +1,21 @@
+[Unit]
+Description=Xcelsior PostgreSQL verified backup
+Documentation=file:/opt/xcelsior/docs/xcelsior-production-data-architecture-companion.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/xcelsior
+ExecStart=/opt/xcelsior/scripts/backup-db.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+UMask=0077
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/backups/xcelsior /var/lib/node_exporter/textfile_collector
+NoNewPrivileges=true

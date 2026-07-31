@@ -56,6 +56,17 @@ def test_hosts_register_web(user_headers):
     host = r.json().get("host") or {}
     assert host.get("host_id")
     assert host.get("gpu_model") == "RTX 4090"
+    assert host.get("admitted") is False
+    assert host.get("status") == "pending"
+
+    from scheduler import get_marketplace
+    from marketplace import get_marketplace_engine
+
+    assert all(
+        listing.get("host_id") != host["host_id"]
+        for listing in get_marketplace(active_only=True)
+    )
+    assert get_marketplace_engine().get_offer_for_host(host["host_id"]) is None
 
 
 def test_hosts_register_web_requires_auth():
@@ -169,6 +180,12 @@ def test_worker_oauth_heartbeat_for_dashboard_host(user_headers):
         headers={"Authorization": f"Bearer {machine_token}"},
     )
     assert heartbeat.status_code == 200, heartbeat.text
+    assert heartbeat.json()["host"]["admitted"] is False
+    assert heartbeat.json()["host"]["status"] == "pending"
+
+    from marketplace import get_marketplace_engine
+
+    assert get_marketplace_engine().get_offer_for_host(host_id) is None
 
 
 def test_worker_oauth_heartbeat_rejects_foreign_host(user_headers):

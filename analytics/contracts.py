@@ -154,6 +154,36 @@ CONTRACTS: tuple[EventContract, ...] = (
     ),
     EventContract("artifact.v1.deleted", 1, "internal", {"artifact_id": "internal"}),
     EventContract(
+        "privacy.v1.deletion_requested",
+        1,
+        "pii",
+        {
+            "request_id": "internal",
+            "subject_reference_hash": "pii",
+            "deadline_at": "internal",
+        },
+    ),
+    EventContract(
+        "privacy.v1.authority_anonymized",
+        1,
+        "pii",
+        {
+            "request_id": "internal",
+            "subject_reference_hash": "pii",
+            "evidence": "internal",
+        },
+    ),
+    EventContract(
+        "privacy.v1.deletion_completed",
+        1,
+        "pii",
+        {
+            "request_id": "internal",
+            "subject_reference_hash": "pii",
+            "deadline_at": "internal",
+        },
+    ),
+    EventContract(
         "mcp.v1.action_approved", 1, "internal", {"plan_id": "internal", "client_id": "internal"}
     ),
     EventContract(

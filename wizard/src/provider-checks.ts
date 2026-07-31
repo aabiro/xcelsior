@@ -104,6 +104,56 @@ export interface VerificationReport {
     versions: VersionCheck[];
 }
 
+export interface WizardCheckResult {
+    name: string;
+    ok: boolean;
+    detail: string;
+    remediation?: string;
+}
+
+export interface ServerVerificationOutcome {
+    ok: boolean;
+    state: string;
+}
+
+/** A skipped or unavailable mandatory benchmark is a hard failure. */
+export function benchmarkUnavailableResults(detail: string): WizardCheckResult[] {
+    return [{
+        name: "Benchmark",
+        ok: false,
+        detail,
+        remediation: CHECK_REMEDIATION.benchmark,
+    }];
+}
+
+/**
+ * Combine local evidence with the server's decision. Local success is never
+ * presented as verified when the server is unavailable or returns a
+ * non-verified state.
+ */
+export function buildWizardVerificationResults(
+    report: VerificationReport,
+    server?: ServerVerificationOutcome,
+): WizardCheckResult[] {
+    const results = report.checks.map((check) => ({
+        name: check.name,
+        ok: check.passed,
+        detail: check.detail,
+    }));
+
+    const verified = server?.ok === true && server.state === "verified";
+    results.push({
+        name: "Server Verification",
+        ok: verified,
+        detail: !server
+            ? "Unavailable — the host was not verified or admitted"
+            : verified
+                ? "Verified by the server"
+                : `Server state: ${server.state || "unknown"} — the host remains pending`,
+    });
+    return results;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 /** @internal exported for testing */

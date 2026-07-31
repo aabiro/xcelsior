@@ -1312,6 +1312,7 @@ def register_host(
     spot_enabled: bool | None = None,
     spot_gpu_slots: int | None = None,
     spot_min_cents: int | None = None,
+    pending_until_admitted: bool = False,
 ):
     """
     Register a host. If it exists, update it. If not, add it.
@@ -1322,6 +1323,12 @@ def register_host(
         _migrate_hosts_if_needed(conn)
         existing = _get_host_by_id_conn(conn, host_id)
         gpu_count = max(1, int(existing.get("gpu_count", 1) or 1)) if existing else 1
+        admitted_before_update = bool(existing and existing.get("admitted") is True)
+        initial_status = (
+            "pending"
+            if pending_until_admitted and not admitted_before_update
+            else "active"
+        )
         entry = {
             "host_id": host_id,
             "ip": ip,
@@ -1335,7 +1342,7 @@ def register_host(
             "spot_min_cents": 0 if spot_min_cents is None else max(0, int(spot_min_cents)),
             "registered_at": time.time(),
             "last_seen": time.time(),
-            "status": "active",
+            "status": initial_status,
         }
         if country:
             entry["country"] = country.upper()
@@ -1393,9 +1400,9 @@ def register_host(
                 aggregate_type="host",
                 aggregate_id=str(host_id),
                 event_type="host.v1.status_changed",
-                payload={"status": entry.get("status") or "active"},
+                payload={"status": entry.get("status") or initial_status},
                 idempotency_key=(
-                    f"host_status:{host_id}:{entry.get('status') or 'active'}:"
+                    f"host_status:{host_id}:{entry.get('status') or initial_status}:"
                     f"{entry.get('last_seen') or entry.get('registered_at') or time.time()}"
                 ),
             )
@@ -1405,7 +1412,7 @@ def register_host(
     engine.mirror_to_secondary(DatabaseOps.upsert_host, entry)
 
     if not outbox_enqueued:
-        emit_event("host_update", {"host_id": host_id, "status": "active"})
+        emit_event("host_update", {"host_id": host_id, "status": entry.get("status") or initial_status})
 
     if existing:
         log.info("HOST UPDATED %s | %s | %s | %sGB", host_id, ip, gpu_model, total_vram_gb)
@@ -1470,19 +1477,30 @@ def update_host_spot_settings(
         from marketplace import get_marketplace_engine
 
         me = get_marketplace_engine()
-        ask_cents = max(1, int(round(float(host.get("cost_per_hour", 0.20) or 0.20) * 100)))
-        me.upsert_offer(
-            provider_id=str(host.get("owner") or host_id),
-            host_id=host_id,
-            gpu_model=str(host.get("gpu_model") or "unknown"),
-            gpu_count_total=max(1, int(host.get("gpu_count", 1) or 1)),
-            vram_gb=float(host.get("total_vram_gb") or host.get("vram_gb") or 0),
-            ask_cents_per_hour=ask_cents,
-            region=normalize_host_region(host),
-            province=str(host.get("province") or ""),
-            spot_enabled=bool(host.get("spot_enabled", True)),
-            spot_min_cents=int(host.get("spot_min_cents", 0) or 0),
+        marketplace_eligible = (
+            host.get("admitted") is True and host.get("status") == "active"
         )
+        if marketplace_eligible:
+            ask_cents = max(
+                1,
+                int(round(float(host.get("cost_per_hour", 0.20) or 0.20) * 100)),
+            )
+            me.upsert_offer(
+                provider_id=str(host.get("owner") or host_id),
+                host_id=host_id,
+                gpu_model=str(host.get("gpu_model") or "unknown"),
+                gpu_count_total=max(1, int(host.get("gpu_count", 1) or 1)),
+                vram_gb=float(host.get("total_vram_gb") or host.get("vram_gb") or 0),
+                ask_cents_per_hour=ask_cents,
+                region=normalize_host_region(host),
+                province=str(host.get("province") or ""),
+                spot_enabled=bool(host.get("spot_enabled", True)),
+                spot_min_cents=int(host.get("spot_min_cents", 0) or 0),
+            )
+        else:
+            stale_offer = me.get_offer_for_host(host_id)
+            if stale_offer:
+                me.disable_offer(str(stale_offer["offer_id"]))
     except Exception as exc:
         log.debug("Spot settings marketplace sync skipped for %s: %s", host_id, exc)
 
@@ -2721,8 +2739,15 @@ def scheduler_main():
 
     event_store = get_event_store()
     tick_count = 0
+    from control_plane.operational_metrics import ServiceHeartbeat
+
+    scheduler_heartbeat = ServiceHeartbeat("scheduler")
 
     while True:
+        try:
+            scheduler_heartbeat.emit_if_due()
+        except Exception as e:
+            log.error("Scheduler heartbeat failed: %s", e)
         scheduler_tick()
 
         # Expire stale leases every 5th tick (10s)

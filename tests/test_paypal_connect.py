@@ -24,10 +24,6 @@ def test_platform_payee_sandbox_prefers_email(monkeypatch):
 
 
 def test_marketplace_purchase_unit_includes_platform_fee(monkeypatch):
-    monkeypatch.setattr(pc, "PLATFORM_CUT_FRAC", 0.15)
-    import billing
-
-    monkeypatch.setattr(billing, "get_tax_rate_for_province", lambda _p: 0.13)
     mgr = pc.PayPalConnectManager()
     monkeypatch.setattr(
         pc.PayPalConnectManager,
@@ -38,7 +34,15 @@ def test_marketplace_purchase_unit_includes_platform_fee(monkeypatch):
             "seller@example.com",
         ),
     )
-    unit = mgr.marketplace_purchase_unit("prov-1", "job-9", 100.0)
+    unit = mgr.marketplace_purchase_unit(
+        "prov-1",
+        "job-9",
+        {
+            "currency": "CAD",
+            "total_micros": 100_000_000,
+            "platform_share_micros": 15_000_000,
+        },
+    )
     assert unit["payee"] == {"email_address": "seller@example.com"}
     assert unit["custom_id"] == "prov-1:job-9"
     fees = unit["payment_instruction"]["platform_fees"][0]["amount"]
@@ -64,6 +68,7 @@ def test_capture_marketplace_order_idempotent(monkeypatch):
     monkeypatch.setattr(pc, "_access_token", lambda: "test-token")
 
     provider_id = f"prov-idem-{uuid.uuid4().hex[:8]}"
+    customer_id = f"customer-idem-{uuid.uuid4().hex[:8]}"
     job_id = f"job-idem-{uuid.uuid4().hex[:8]}"
     order_id = "ORDER-IDEM-TEST"
     now = time.time()
@@ -81,46 +86,81 @@ def test_capture_marketplace_order_idempotent(monkeypatch):
         )
         conn.execute(
             """INSERT INTO payout_splits
-               (job_id, provider_id, total_cad, provider_share_cad, platform_share_cad,
-                gst_hst_cad, stripe_transfer_id, paypal_capture_id, payment_rail, created_at)
-               VALUES (%s, %s, %s, %s, %s, %s, '', %s, 'paypal', %s)""",
-            (job_id, provider_id, 100.0, 85.0, 15.0, 13.0, "CAP-EXISTING", now),
+               (job_id, provider_id, total_cad, provider_share_cad,
+                platform_share_cad, gst_hst_cad, stripe_transfer_id,
+                paypal_capture_id, paypal_order_id, payment_rail,
+                settlement_status, created_at)
+               VALUES (%s, %s, 0, 0, 0, 0, '', '', %s, 'paypal',
+                       'legacy_conflict', %s)""",
+            (f"legacy-{job_id}", provider_id, order_id, now - 1),
+        )
+        conn.execute(
+            """INSERT INTO payout_splits
+               (job_id, provider_id, customer_id, currency,
+                total_cad, provider_share_cad, platform_share_cad, gst_hst_cad,
+                stripe_transfer_id, paypal_capture_id, paypal_order_id,
+                payment_rail, settlement_status, settlement_error,
+                source_total_micros, total_micros, provider_share_micros,
+                platform_share_micros, gst_hst_micros, rounding_adjustment_micros,
+                platform_cut_bps, tax_rate_bps, settlement_key,
+                rail_idempotency_key, created_at, updated_at, settled_at,
+                legacy_imported)
+               VALUES (%s, %s, %s, 'CAD',
+                       100.0, 85.0, 15.0, 13.0,
+                       '', %s, %s,
+                       'paypal', 'paid', '',
+                       100000000, 100000000, 85000000,
+                       15000000, 13000000, 0,
+                       1500, 1300, %s,
+                       %s, %s, clock_timestamp(), clock_timestamp(),
+                       FALSE)""",
+            (
+                job_id,
+                provider_id,
+                customer_id,
+                "CAP-EXISTING",
+                order_id,
+                f"provider-job:{job_id}",
+                f"provider-settlement:{job_id}",
+                now,
+            ),
         )
 
-    completed_order = {
-        "status": "COMPLETED",
-        "purchase_units": [
-            {
-                "custom_id": f"{provider_id}:{job_id}",
-                "payments": {
-                    "captures": [{"id": "CAP-NEW", "amount": {"value": "100.00"}}],
-                },
-            }
-        ],
-    }
+    def unexpected_get(*args, **kwargs):
+        raise AssertionError("paid settlement replay must not call PayPal")
 
-    class FakeResp:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return completed_order
-
-    monkeypatch.setattr(pc.httpx, "get", lambda *args, **kwargs: FakeResp())
+    monkeypatch.setattr(pc.httpx, "get", unexpected_get)
     monkeypatch.setattr(
         pc.PayPalConnectManager,
         "seller_payee",
         lambda self, pid: ({"email_address": "seller@example.com"}, "", "seller@example.com"),
     )
 
-    result = mgr.capture_marketplace_order(provider_id, order_id)
-    assert result["job_id"] == job_id
-    assert result["provider_share_cad"] == 85.0
-    assert result["capture_id"] == "CAP-EXISTING"
+    try:
+        result = mgr.capture_marketplace_order(
+            provider_id,
+            order_id,
+            expected_customer_id=customer_id,
+        )
+        assert result["job_id"] == job_id
+        assert result["provider_share_cad"] == 85.0
+        assert result["capture_id"] == "CAP-EXISTING"
 
-    with mgr._conn() as conn:
-        count = conn.execute(
-            "SELECT COUNT(*) AS n FROM payout_splits WHERE job_id=%s AND payment_rail='paypal'",
-            (job_id,),
-        ).fetchone()["n"]
-    assert count == 1
+        with mgr._conn() as conn:
+            count = conn.execute(
+                """SELECT COUNT(*) AS n
+                     FROM payout_splits
+                    WHERE settlement_key=%s""",
+                (f"provider-job:{job_id}",),
+            ).fetchone()["n"]
+        assert count == 1
+    finally:
+        with mgr._conn() as conn:
+            conn.execute(
+                "DELETE FROM payout_splits WHERE paypal_order_id=%s",
+                (order_id,),
+            )
+            conn.execute(
+                "DELETE FROM provider_accounts WHERE provider_id=%s",
+                (provider_id,),
+            )
