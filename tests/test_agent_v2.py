@@ -145,7 +145,11 @@ def _auth(job_id, host_id, refs, **overrides):
 
 
 class TestNegotiation:
-    def test_default_denies_v2(self):
+    def test_default_denies_v2(self, monkeypatch):
+        # This asserts the *default* posture, so it must establish it: the
+        # test environment pins XCELSIOR_AGENT_V2_HOSTS=* for the suites that
+        # need v2 reachable, and ambient config must not decide the outcome.
+        monkeypatch.delenv("XCELSIOR_AGENT_V2_HOSTS", raising=False)
         r = client.get("/agent/v2/negotiate/some-host")
         assert r.status_code == 200
         assert r.json()["v2"] is False and r.json()["protocol"] == 1

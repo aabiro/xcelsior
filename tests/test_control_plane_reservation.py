@@ -235,9 +235,10 @@ class TestConflictsLeaveNoResidue:
             # trigger derives administrative_state='draining' from it —
             # writing the column directly would just be recomputed.
             conn.execute(
-                """UPDATE hosts
-                      SET payload = jsonb_set(payload, '{draining}', 'true')
-                    WHERE host_id=%s""",
+                # Since 082 the projection derives administrative_state from
+                # status and admission_state, not from the payload, so a
+                # payload write no longer drains a host.
+                """UPDATE hosts SET status = 'draining' WHERE host_id=%s""",
                 (host_id,),
             )
             conn.commit()

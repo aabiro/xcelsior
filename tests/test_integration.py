@@ -296,6 +296,8 @@ class TestSpotPricingLifecycle:
         scheduler.register_host("spot-h1", "10.0.0.30", "RTX 4090", 24, 24, 0.50)
         scheduler._set_host_fields("spot-h1", admitted=True)
 
+        # 082: the projection reads admission_state, not payload.admitted.
+        _admit_host("spot-h1")
         spot_job = scheduler.submit_job("spot-train", 8, pricing_mode="spot")
         assert spot_job["spot"] is True
         assert spot_job["preemptible"] is True
@@ -340,6 +342,8 @@ class TestSpotPricingLifecycle:
         scheduler.register_host("pre-h1", "10.0.0.32", "RTX 4090", 24, 24, 0.50)
         scheduler._set_host_fields("pre-h1", admitted=True)
 
+        # 082: the projection reads admission_state, not payload.admitted.
+        _admit_host("pre-h1")
         spot = scheduler.submit_job("preempt-me", 8, pricing_mode="spot")
         scheduler.update_job_status(spot["job_id"], "running", host_id="pre-h1")
 
@@ -393,6 +397,8 @@ class TestFailoverReassignment:
         scheduler.register_host("fail-h1", "10.0.0.40", "RTX 4090", 24, 24, 0.50)
         scheduler._set_host_fields("fail-h1", admitted=True)
 
+        # 082: the projection reads admission_state, not payload.admitted.
+        _admit_host("fail-h1")
         job = scheduler.submit_job("fail-job", 8)
         scheduler.update_job_status(job["job_id"], "running", host_id="fail-h1")
 
@@ -409,8 +415,12 @@ class TestFailoverReassignment:
         scheduler.register_host("fa-dead", "10.0.0.41", "RTX 4090", 24, 24, 0.50)
         scheduler.register_host("fa-alive", "10.0.0.42", "A100", 80, 80, 1.0)
         scheduler._set_host_fields("fa-dead", admitted=True)
+        # 082: the projection reads admission_state, not payload.admitted.
+        _admit_host("fa-dead")
         scheduler._set_host_fields("fa-alive", admitted=True)
 
+        # 082: the projection reads admission_state, not payload.admitted.
+        _admit_host("fa-alive")
         job = scheduler.submit_job("failover-job", 8)
         scheduler.update_job_status(job["job_id"], "running", host_id="fa-dead")
 
@@ -439,6 +449,8 @@ class TestAutoscaleUpDown:
         scheduler.register_host("auto-h1", "10.0.0.50", "RTX 4090", 24, 24, 0.50)
         scheduler._set_host_fields("auto-h1", autoscaled=True, admitted=True, status="active")
 
+        # 082: the projection reads admission_state, not payload.admitted.
+        _admit_host("auto-h1")
         # No running jobs → should be eligible for deprovision
         result = scheduler.autoscale_down()
         # Result depends on implementation; verify the function runs without error
@@ -606,10 +618,14 @@ class TestSecurityAdmission:
         scheduler.register_host("runc-h", "10.0.0.70", "A100", 80, 80, 1.0)
         scheduler._set_host_fields("runc-h", admitted=True, recommended_runtime="runc")
 
+        # 082: the projection reads admission_state, not payload.admitted.
+        _admit_host("runc-h")
         # gVisor host
         scheduler.register_host("gvisor-h", "10.0.0.71", "A100", 80, 80, 1.2)
         scheduler._set_host_fields("gvisor-h", admitted=True, recommended_runtime="runsc")
 
+        # 082: the projection reads admission_state, not payload.admitted.
+        _admit_host("gvisor-h")
         # Submit job as premium tier (valid), then patch tier to sovereign
         # for the allocator's isolation check
         job = scheduler.submit_job("sovereign-test", 16, tier="premium")
@@ -680,10 +696,14 @@ class TestMultiGPUAllocation:
         scheduler.register_host("1gpu", "10.0.0.80", "RTX 4090", 24, 24, 0.50)
         scheduler._set_host_fields("1gpu", admitted=True, gpu_count=1)
 
+        # 082: the projection reads admission_state, not payload.admitted.
+        _admit_host("1gpu")
         # Multi-GPU host
         scheduler.register_host("4gpu", "10.0.0.81", "A100", 80, 80, 2.0)
         scheduler._set_host_fields("4gpu", admitted=True, gpu_count=4)
 
+        # 082: the projection reads admission_state, not payload.admitted.
+        _admit_host("4gpu")
         job = scheduler.submit_job("multi-gpu-job", 16, num_gpus=4)
         hosts = scheduler.load_hosts()
         best = scheduler.allocate(job, hosts)
@@ -696,6 +716,8 @@ class TestMultiGPUAllocation:
         scheduler.register_host("any-h", "10.0.0.82", "RTX 4090", 24, 24, 0.50)
         scheduler._set_host_fields("any-h", admitted=True)
 
+        # 082: the projection reads admission_state, not payload.admitted.
+        _admit_host("any-h")
         job = scheduler.submit_job("single-gpu", 8, num_gpus=1)
         hosts = scheduler.load_hosts()
         best = scheduler.allocate(job, hosts)
