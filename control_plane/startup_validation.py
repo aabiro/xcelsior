@@ -336,6 +336,39 @@ def _check_compatibility_session_secret() -> Finding | None:
     )
 
 
+def _check_audit_signing_key() -> Finding | None:
+    """Audit checkpoints must not be signed with the development key.
+
+    control_plane/audit_checkpoints falls back to the literal
+    "dev-audit-key-not-for-prod" when neither XCELSIOR_AUDIT_SIGNING_KEYS nor
+    XCELSIOR_AUDIT_SIGNING_KEY is set. That string is in the public source, so
+    in production the Merkle checkpoint signature would be forgeable by anyone
+    who has read the repository — which defeats the point of a tamper-evident
+    audit trail.
+    """
+    if not is_production():
+        return None
+    if (os.environ.get("XCELSIOR_AUDIT_SIGNING_KEYS") or "").strip():
+        return None
+    if (os.environ.get("XCELSIOR_AUDIT_SIGNING_KEY") or "").strip():
+        return None
+    return Finding(
+        code="audit_signing_key_default",
+        severity="error",
+        message=(
+            "Neither XCELSIOR_AUDIT_SIGNING_KEYS nor XCELSIOR_AUDIT_SIGNING_KEY "
+            "is set — audit checkpoints would be signed with the public "
+            "development key and the audit trail would be forgeable"
+        ),
+        remediation=(
+            "Set XCELSIOR_AUDIT_SIGNING_KEYS to a JSON map of key-id to secret "
+            '(for example {"v1": "<random>"}) and XCELSIOR_AUDIT_SIGNING_ACTIVE '
+            "to the active id, so keys can be rotated without invalidating "
+            "previously signed checkpoints."
+        ),
+    )
+
+
 def _check_host_token_rotation_readiness() -> Finding | None:
     """Flipping to ``require`` while a host has no token locks it out."""
     from control_plane.agent_tokens import host_tokens_required
@@ -403,6 +436,7 @@ CHECKS: tuple[Callable[[], "Finding | None"], ...] = (
     _check_agent_gateway_secret,
     _check_host_token_rotation_readiness,
     _check_compatibility_session_secret,
+    _check_audit_signing_key,
     _check_shared_bearer_migration,
     _check_mcp_rate_limiting,
     _check_volume_privilege,
