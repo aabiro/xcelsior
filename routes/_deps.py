@@ -22,6 +22,8 @@ from oauth_service import (
     REFRESH_TOKEN_TTL_SEC,
     build_deprecation_headers,
     is_oauth_access_token,
+    looks_like_agent_key,
+    validate_agent_api_key,
     resolve_opaque_access_token,
     validate_client_credentials_jwt,
 )
@@ -1100,6 +1102,19 @@ def _get_current_user(request: Request) -> dict | None:
             merged["session_type"] = oauth_user.get("session_type", "browser")
             merged["audience"] = oauth_user.get("audience")
             return merged
+
+    # Agent keys (MCP + Agent Skill). Checked before the JWT path because the
+    # prefix test is a string comparison, and because these are the only
+    # credentials that survive an auth-cache flush.
+    if looks_like_agent_key(token):
+        agent_principal = validate_agent_api_key(token)
+        if agent_principal:
+            full_user = (
+                UserStore.get_user(agent_principal["email"])
+                if agent_principal.get("email")
+                else None
+            )
+            return _merge_auth_user(dict(agent_principal), full_user)
 
     machine_principal = validate_client_credentials_jwt(token)
     if machine_principal:
