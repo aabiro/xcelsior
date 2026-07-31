@@ -4,6 +4,8 @@ import httpx
 import io
 import os
 import time
+
+from money import micros_to_cad
 import uuid
 from datetime import datetime, timezone
 from typing import Any, cast
@@ -2099,8 +2101,9 @@ def api_billing_get_topup(request: Request):
         "ok": True,
         "auto_topup": {
             "enabled": bool(wallet.get("auto_topup_enabled", False)),
-            "amount_cad": wallet.get("auto_topup_amount_cad", 0),
-            "threshold_cad": wallet.get("auto_topup_threshold_cad", 0),
+            # Stored as integer micros; the response contract is CAD.
+            "amount_cad": micros_to_cad(wallet.get("auto_topup_amount_micros") or 0),
+            "threshold_cad": micros_to_cad(wallet.get("auto_topup_threshold_micros") or 0),
             "payment_method_id": payment_method_id,
             "has_payment_method": bool(payment_method_id),
         },
