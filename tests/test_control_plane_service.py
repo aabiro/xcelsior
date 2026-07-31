@@ -66,10 +66,20 @@ def _mk_host(fleet, host_id, *, gpu_model, gpu_count=2, total_vram_gb=48.0,
         "last_seen": time.time(),
     }
     with _pool.connection() as conn:
+        # Since 082 the projection reads admission_state, not payload.admitted,
+        # so a fixture must set the authority column to produce an admitted
+        # host. payload.admitted is kept only because callers assert on it.
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload)
-               VALUES (%s, %s, %s, %s)""",
-            (host_id, status, time.time(), json.dumps(payload)),
+            """INSERT INTO hosts (host_id, status, registered_at, payload,
+                                  admission_state)
+               VALUES (%s, %s, %s, %s, %s)""",
+            (
+                host_id,
+                status,
+                time.time(),
+                json.dumps(payload),
+                "admitted" if admitted else "pending",
+            ),
         )
         conn.commit()
     fleet["hosts"].append(host_id)
@@ -160,7 +170,14 @@ class TestProjectionTriggers:
         assert row["phase"] == "running"
         assert row["desired_state"] == "stopped"
 
-    def test_host_admission_follows_payload(self, fleet):
+    def test_payload_alone_cannot_admit_a_host(self, fleet):
+        """Since 082, admission is driven by `admission_state`, not payload.
+
+        Before that migration the projection read `payload.admitted`, so
+        anything able to write a host payload could promote that host into the
+        marketplace. Admission is now an operator decision recorded through
+        host_admission, and a payload write must not be able to forge it.
+        """
         marker = uuid.uuid4().hex[:8]
         host_id = f"h-{marker}-adm"
         _mk_host(fleet, host_id, gpu_model=f"m-{marker}", admitted=False)
@@ -170,6 +187,20 @@ class TestProjectionTriggers:
                 """UPDATE hosts
                       SET payload = jsonb_set(payload, '{admitted}', 'true')
                     WHERE host_id=%s""",
+                (host_id,),
+            )
+            conn.commit()
+        row = _host_row(host_id)
+        assert row["administrative_state"] == "pending"
+
+    def test_admission_state_drives_the_projection(self, fleet):
+        """The authority column is what promotes a host."""
+        marker = uuid.uuid4().hex[:8]
+        host_id = f"h-{marker}-adm2"
+        _mk_host(fleet, host_id, gpu_model=f"m-{marker}", admitted=False)
+        with _pool.connection() as conn:
+            conn.execute(
+                "UPDATE hosts SET admission_state = 'admitted' WHERE host_id=%s",
                 (host_id,),
             )
             conn.commit()

@@ -303,6 +303,39 @@ def _check_agent_gateway_secret() -> Finding | None:
     return None
 
 
+def _check_compatibility_session_secret() -> Finding | None:
+    """Host admission (082) derives submit tokens from this secret.
+
+    Without it, host_admission falls back to a hard-coded development value.
+    That is fine on a laptop and fatal in production: the submit token and the
+    proof-of-possession challenge become predictable, so anyone could post
+    compatibility evidence for a host they do not control. The service already
+    refuses to start a session in production without it — this surfaces the
+    problem at boot rather than at the first provider's first attempt.
+    """
+    if (os.environ.get("XCELSIOR_COMPAT_SESSION_SECRET") or "").strip():
+        return None
+    if not is_production():
+        # host_admission deliberately falls back to a development constant
+        # outside production so a laptop still boots. Mirror that here rather
+        # than failing every dev and test run.
+        return None
+    return Finding(
+        code="compat_session_secret_missing",
+        severity="error",
+        message=(
+            "XCELSIOR_COMPAT_SESSION_SECRET is unset — host compatibility "
+            "sessions would derive submit tokens from a public development "
+            "constant, making provider evidence forgeable"
+        ),
+        remediation=(
+            "Generate a dedicated high-entropy secret "
+            "(python -c 'import secrets; print(secrets.token_urlsafe(32))') "
+            "and store it in the production secret manager."
+        ),
+    )
+
+
 def _check_host_token_rotation_readiness() -> Finding | None:
     """Flipping to ``require`` while a host has no token locks it out."""
     from control_plane.agent_tokens import host_tokens_required
@@ -369,6 +402,7 @@ CHECKS: tuple[Callable[[], "Finding | None"], ...] = (
     _check_agent_authentication,
     _check_agent_gateway_secret,
     _check_host_token_rotation_readiness,
+    _check_compatibility_session_secret,
     _check_shared_bearer_migration,
     _check_mcp_rate_limiting,
     _check_volume_privilege,
