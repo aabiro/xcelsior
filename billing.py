@@ -517,10 +517,10 @@ class BillingEngine:
                         duration_sec, gpu_seconds, gpu_model, vram_gb,
                         gpu_utilization_pct, xcu_score, country, province,
                         is_canadian_compute, trust_tier, base_rate_per_hour,
-                        tier_multiplier, spot_discount, pricing_mode, total_cost_cad,
+                        tier_multiplier, spot_discount, pricing_mode,
                         total_cost_micros, created_at, attempt_id)
                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                               %s, %s, %s, %s, %s, %s, %s, %s, %s)
                        ON CONFLICT (meter_id) DO UPDATE SET
                          job_id = EXCLUDED.job_id, host_id = EXCLUDED.host_id,
                          owner = EXCLUDED.owner,
@@ -528,7 +528,9 @@ class BillingEngine:
                          completed_at = EXCLUDED.completed_at,
                          duration_sec = EXCLUDED.duration_sec,
                          gpu_seconds = EXCLUDED.gpu_seconds,
-                         total_cost_cad = EXCLUDED.total_cost_cad,
+                         -- total_cost_cad is derived by the projection
+                         -- trigger; assigning it here would invert which
+                         -- representation is authoritative.
                          total_cost_micros = EXCLUDED.total_cost_micros,
                          pricing_mode = EXCLUDED.pricing_mode,
                          attempt_id = COALESCE(usage_meters.attempt_id, EXCLUDED.attempt_id),
@@ -554,7 +556,6 @@ class BillingEngine:
                         meter.tier_multiplier,
                         meter.spot_discount,
                         meter.pricing_mode,
-                        meter.total_cost_cad,
                         cad_to_micros(meter.total_cost_cad),
                         time.time(),
                         attempt_id,
@@ -1963,10 +1964,14 @@ class BillingEngine:
             )
             conn.execute(
                 """UPDATE wallets
-                   SET balance_cad = 0,
-                       total_deposited_cad = 0,
-                       total_spent_cad = 0,
-                       total_refunded_cad = 0,
+                   -- Write the integer columns. The _cad pair is a projection
+                   -- maintained by wallets_project_money; every other money
+                   -- path already writes micros, and writing the float here
+                   -- was the last place application code touched one.
+                   SET balance_micros = 0,
+                       total_deposited_micros = 0,
+                       total_spent_micros = 0,
+                       total_refunded_micros = 0,
                        grace_until = 0,
                        status = 'active',
                        updated_at = %s
