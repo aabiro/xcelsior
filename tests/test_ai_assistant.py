@@ -308,6 +308,9 @@ class TestSystemPrompt:
     def test_provider_wizard_instructions(self):
         prompt = build_ai_system_prompt(_user("provider"))
         assert "PROVIDER ONBOARDING WIZARD" in prompt
+        assert "npx @xcelsior-gpu/wizard@0.1.0" in prompt
+        assert "@latest" not in prompt
+        assert "authoritative worker verification" in prompt
 
     def test_renter_wizard_instructions(self):
         prompt = build_ai_system_prompt(_user("user"))

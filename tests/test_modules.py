@@ -318,47 +318,28 @@ class TestStripeWebhookDedup:
 
 
 class TestStripeSplitPayout:
-    """Test split_payout math."""
+    """Test the exact, provider-authoritative split math."""
 
     def setup_method(self):
         from stripe_connect import StripeConnectManager
 
         self.mgr = StripeConnectManager.__new__(StripeConnectManager)
 
-    @patch("stripe_connect.STRIPE_ENABLED", True)
-    @patch("stripe_connect.PLATFORM_CUT_FRAC", 0.15)
-    @patch("stripe_connect.stripe")
-    @patch.object(__import__("stripe_connect").StripeConnectManager, "_conn")
-    @patch.object(__import__("stripe_connect").StripeConnectManager, "get_provider")
-    def test_split_math(self, mock_get_prov, mock_conn, mock_stripe):
-        from types import SimpleNamespace
+    def test_split_math(self):
+        from provider_settlement import split_source_micros
 
-        mock_get_prov.return_value = {
-            "provider_id": "p1",
-            "stripe_account_id": "acct_123",
-            "status": "active",
-        }
-        mock_stripe.Balance.retrieve.return_value = SimpleNamespace(
-            available=[{"currency": "cad", "amount": 1_000_00}]
+        result = split_source_micros(
+            100_000_000,
+            cut_bps=1_500,
+            tax_bps=1_300,
         )
-        mock_stripe.Transfer.create.return_value = MagicMock(id="tr_123")
-
-        mock_cursor = MagicMock()
-        mock_cursor.execute.return_value = mock_cursor
-        mock_cm = MagicMock()
-        mock_cm.__enter__ = MagicMock(return_value=mock_cursor)
-        mock_cm.__exit__ = MagicMock(return_value=False)
-        mock_conn.return_value = mock_cm
-
-        with patch("billing.get_tax_rate_for_province", return_value=0.13):
-            result = self.mgr.split_payout(
-                job_id="j1", provider_id="p1", total_cad=100.0, province="ON"
-            )
-            assert result["total_cad"] == 100.0
-            assert result["platform_share_cad"] == pytest.approx(15.0, abs=0.01)
-            assert result["provider_share_cad"] == pytest.approx(85.0, abs=0.01)
-            assert result["gst_hst_cad"] == pytest.approx(13.0, abs=0.01)
-            assert result.get("settlement_status") in ("paid", "queued")
+        assert result.total_micros == 100_000_000
+        assert result.platform_share_micros == 15_000_000
+        assert result.provider_share_micros == 85_000_000
+        assert result.gst_hst_micros == 13_000_000
+        assert result.provider_share_micros + result.platform_share_micros == (
+            result.total_micros
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════

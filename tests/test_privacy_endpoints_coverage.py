@@ -111,16 +111,30 @@ def test_privacy_v2_consent_list_record_withdraw(user_headers):
 
 
 def test_privacy_v2_erase(user_headers, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    from privacy_deletion import DeletionReceipt
+
     _, headers = user_headers
+    headers["Idempotency-Key"] = "privacy-endpoint-test-request"
 
-    def _mock_erasure(user_id: str) -> dict:
-        return {"user_id": user_id, "actions": ["encryption_key_destroyed"]}
+    def _mock_request(**_kwargs) -> DeletionReceipt:
+        return DeletionReceipt(
+            request_id="00000000-0000-4000-8000-000000000123",
+            state="requested",
+            deadline_at=datetime.now(timezone.utc) + timedelta(days=30),
+            status_token="status-token-only-returned-once",
+            already_existed=False,
+        )
 
-    monkeypatch.setattr("routes.privacy.execute_right_to_erasure", _mock_erasure)
+    monkeypatch.setattr(
+        "privacy_deletion.create_deletion_request", _mock_request
+    )
     r = client.post("/api/v2/privacy/erase", headers=headers)
-    assert r.status_code == 200
+    assert r.status_code == 202
     assert r.json().get("ok") is True
-    assert "erasure" in r.json()
+    assert r.json()["state"] == "requested"
+    assert r.json()["status_token"] == "status-token-only-returned-once"
 
 
 def test_privacy_v2_consent_requires_auth():
