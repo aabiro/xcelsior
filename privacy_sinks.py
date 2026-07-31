@@ -485,11 +485,16 @@ def delete_authoritative_subject(
                    team_id = NULL,
                    reset_token = NULL,
                    reset_token_expires = NULL,
-                   notifications_enabled = false,
-                   canada_only_routing = true,
+                   -- These five are INTEGER flags on `users`, not booleans;
+                   -- assigning SQL false here aborted the whole anonymization
+                   -- with a DatatypeMismatch, so no identity was ever erased.
+                   -- (wallets.auto_topup_enabled and casl_consent.active are
+                   -- real booleans and are assigned as such elsewhere.)
+                   notifications_enabled = 0,
+                   canada_only_routing = 1,
                    preferences = '{}'::jsonb,
-                   mfa_enabled = false,
-                   email_verified = false,
+                   mfa_enabled = 0,
+                   email_verified = 0,
                    email_verification_token = NULL,
                    email_verification_expires = NULL,
                    is_admin = 0,
