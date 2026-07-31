@@ -1109,8 +1109,8 @@ class BillingEngine:
                 now = time.time()
                 conn.execute(
                     """INSERT INTO wallets
-                       (customer_id, balance_cad, total_deposited_cad,
-                        total_spent_cad, total_refunded_cad,
+                       (customer_id, balance_micros, total_deposited_micros,
+                        total_spent_micros, total_refunded_micros,
                         grace_until, status, created_at, updated_at)
                        VALUES (%s, 0, 0, 0, 0, 0, 'active', %s, %s)""",
                     (customer_id, now, now),
@@ -1378,14 +1378,14 @@ class BillingEngine:
                 conn.execute(
                     """
                     INSERT INTO wallet_holds
-                        (hold_id, customer_id, amount_cad, status, job_id,
+                        (hold_id, customer_id, amount_micros, status, job_id,
                          idempotency_key, created_at, expires_at, updated_at)
                     VALUES (%s, %s, %s, 'held', %s, %s, %s, %s, %s)
                     """,
                     (
                         hold_id,
                         customer_id,
-                        amount,
+                        cad_to_micros(amount),
                         job_id,
                         idemp,
                         now,
@@ -1448,7 +1448,7 @@ class BillingEngine:
 
     def _available_locked(self, conn: Any, customer_id: str, *, now: float) -> float:
         row = conn.execute(
-            "SELECT balance_cad FROM wallets WHERE customer_id = %s",
+            "SELECT balance_micros / 1000000.0 AS balance_cad FROM wallets WHERE customer_id = %s",
             (customer_id,),
         ).fetchone()
         balance = float(
@@ -1600,7 +1600,7 @@ class BillingEngine:
         if idempotency_key:
             with self._conn() as conn:
                 existing = conn.execute(
-                    "SELECT tx_id, balance_after_cad FROM wallet_transactions WHERE idempotency_key = %s",
+                    "SELECT tx_id, balance_after_micros / 1000000.0 AS balance_after_cad FROM wallet_transactions WHERE idempotency_key = %s",
                     (idempotency_key,),
                 ).fetchone()
                 if existing:
@@ -1644,14 +1644,14 @@ class BillingEngine:
             )
             conn.execute(
                 """INSERT INTO wallet_transactions
-                   (tx_id, customer_id, tx_type, amount_cad,
-                    balance_after_cad, description, created_at, idempotency_key)
+                   (tx_id, customer_id, tx_type, amount_micros,
+                    balance_after_micros, description, created_at, idempotency_key)
                    VALUES (%s, %s, 'deposit', %s, %s, %s, %s, %s)""",
                 (
                     tx_id,
                     customer_id,
-                    amount_cad,
-                    new_balance,
+                    cad_to_micros(amount_cad),
+                    cad_to_micros(new_balance),
                     description,
                     time.time(),
                     idempotency_key or "",
@@ -1855,10 +1855,18 @@ class BillingEngine:
             )
             conn.execute(
                 """INSERT INTO wallet_transactions
-                   (tx_id, customer_id, tx_type, amount_cad,
-                    balance_after_cad, description, job_id, created_at)
+                   (tx_id, customer_id, tx_type, amount_micros,
+                    balance_after_micros, description, job_id, created_at)
                    VALUES (%s, %s, 'charge', %s, %s, %s, %s, %s)""",
-                (tx_id, customer_id, -amount_cad, new_balance, description, job_id, now),
+                (
+                    tx_id,
+                    customer_id,
+                    -cad_to_micros(amount_cad),
+                    cad_to_micros(new_balance),
+                    description,
+                    job_id,
+                    now,
+                ),
             )
 
         log.info(
@@ -1927,10 +1935,17 @@ class BillingEngine:
             )
             conn.execute(
                 """INSERT INTO wallet_transactions
-                   (tx_id, customer_id, tx_type, amount_cad,
-                    balance_after_cad, description, created_at)
+                   (tx_id, customer_id, tx_type, amount_micros,
+                    balance_after_micros, description, created_at)
                    VALUES (%s, %s, 'refund', %s, %s, %s, %s)""",
-                (tx_id, customer_id, amount_cad, new_balance, description, time.time()),
+                (
+                    tx_id,
+                    customer_id,
+                    cad_to_micros(amount_cad),
+                    cad_to_micros(new_balance),
+                    description,
+                    time.time(),
+                ),
             )
 
     def get_wallet_history(self, customer_id: str, limit: int = 50) -> list:
