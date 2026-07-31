@@ -1825,18 +1825,58 @@ export async function createOAuthClient(
 export interface McpQuickConnect {
   ok: boolean;
   client_id: string;
-  access_token: string;
-  expires_in: number;
+  /** Only present when the key was just minted. Keys are stored as a hash, so
+   * an existing key can never be shown again — null means "already in use". */
+  access_token: string | null;
+  key_id: string | null;
+  /** Masked form, e.g. `xcel_ai_…HfQ8`, safe to display at any time. */
+  key_prefix: string | null;
+  /** True once the key has authenticated a real request, i.e. it is live in
+   * someone's agent config and replacing it would break that setup. */
+  in_use: boolean;
+  last_used_at: number;
+  /** Always null: agent keys do not expire, they are revoked. */
+  expires_in: number | null;
   scopes: string[];
   mcp_url: string;
   api_url: string;
 }
 
-/** Powers the /dashboard/mcp page: returns a live, ready-to-paste Bearer token
- * for the caller's auto-provisioned MCP client. `regenerate` rotates the client. */
+/** Powers the /dashboard/mcp page. Returns the full key only when one is
+ * minted — which happens when there is no key, or the existing key has never
+ * been used, or `regenerate` forces a rotation. */
 export async function getMcpQuickConnect(regenerate = false) {
   const q = regenerate ? "?regenerate=true" : "";
   return apiFetch<McpQuickConnect>(`/api/mcp/quick-connect${q}`, { cache: "no-store" });
+}
+
+export interface AgentKey {
+  key_id: string;
+  name: string;
+  key_prefix: string;
+  client_id: string;
+  scopes: string[];
+  created_at: number;
+  last_used_at: number;
+  in_use: boolean;
+}
+
+export async function fetchAgentKeys() {
+  return apiFetch<{ ok: boolean; keys: AgentKey[] }>("/api/agent-keys", { cache: "no-store" });
+}
+
+export async function revokeAgentKey(keyId: string) {
+  return apiFetch<{ ok: boolean; revoked: string }>(
+    `/api/agent-keys/${encodeURIComponent(keyId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function renameAgentKey(keyId: string, name: string) {
+  return apiFetch<{ ok: boolean; key_id: string; name: string }>(
+    `/api/agent-keys/${encodeURIComponent(keyId)}`,
+    { method: "PATCH", body: JSON.stringify({ name }) },
+  );
 }
 
 export async function fetchOAuthClients() {
