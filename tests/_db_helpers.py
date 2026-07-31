@@ -14,6 +14,15 @@ def admit_test_host(host_id: str, *, active: bool = False) -> None:
         if active:
             data["status"] = "active"
         scheduler.DatabaseOps.upsert_host(conn, data, backend=backend)
+        # Since migration 082 the projection derives administrative_state from
+        # the admission_state column, not from payload.admitted — a payload
+        # write can no longer promote a host, which is the point. Set the
+        # authority column so fixtures produce a host the scheduler will place
+        # on, without reintroducing the path 082 closed.
+        conn.execute(
+            "UPDATE hosts SET admission_state = 'admitted' WHERE host_id = %s",
+            (host_id,),
+        )
 
 
 from contextlib import contextmanager
