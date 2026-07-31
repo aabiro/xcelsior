@@ -15,6 +15,7 @@ from routes.compliance import router as compliance_router
 from routes.events import router as events_router
 from routes.gpu import router as gpu_router
 from routes.health import router as health_router
+from routes.host_admission import router as host_admission_router
 from routes.hosts import router as hosts_router
 from routes.inference import router as inference_router
 from routes.serverless import router as serverless_router
@@ -54,6 +55,7 @@ ALL_ROUTERS = [
     events_router,
     gpu_router,
     health_router,
+    host_admission_router,
     hosts_router,
     inference_router,
     serverless_router,

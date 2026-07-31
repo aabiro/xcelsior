@@ -56,6 +56,9 @@ IDENTITY_TABLES = frozenset(
         "team_invites",
         "sessions",
         "api_keys",
+        # Long-lived agent credentials (083). Identity domain: it is a bearer
+        # credential resolved on the auth path, not control-plane state.
+        "agent_api_keys",
         "oauth_clients",
         "oauth_refresh_tokens",
         "mfa_methods",
@@ -85,6 +88,12 @@ CONTROL_TABLES = frozenset(
     {
         "jobs",
         "hosts",
+        # Host admission (082). Control-plane rather than identity: these
+        # decide whether a machine may take work, and are written by the
+        # scheduler/operator path, not by the auth service.
+        "host_compatibility_sessions",
+        "host_admission_evidence",
+        "host_admission_decisions",
         "job_attempts",
         "job_logs",
         "job_failure_log",
