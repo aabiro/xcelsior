@@ -635,7 +635,7 @@ class BillingEngine:
                     trust_tier,
                     COALESCE(pricing_mode, 'on_demand') AS pricing_mode,
                     ROUND((SUM(duration_sec) / 3600.0)::numeric, 4) AS gpu_hours,
-                    ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 4) AS subtotal_cad,
+                    ROUND(COALESCE(SUM(total_cost_micros) / 1000000.0, 0)::numeric, 4) AS subtotal_cad,
                     ROUND(COALESCE(AVG(base_rate_per_hour * tier_multiplier), 0)::numeric, 4)
                         AS unit_price_cad,
                     (MAX(is_canadian_compute) = 1) AS is_canadian_compute,
@@ -644,9 +644,9 @@ class BillingEngine:
                 WHERE owner = %s
                   AND started_at >= %s
                   AND completed_at <= %s
-                  AND total_cost_cad > 0
+                  AND total_cost_micros > 0
                 GROUP BY gpu_model, trust_tier, COALESCE(pricing_mode, 'on_demand')
-                HAVING SUM(total_cost_cad) > 0
+                HAVING SUM(total_cost_micros) / 1000000.0 > 0
                 ORDER BY subtotal_cad DESC""",
                 (customer_id, period_start, period_end),
             ).fetchall()
@@ -908,13 +908,13 @@ class BillingEngine:
                     COUNT(*) as job_count,
                     SUM(duration_sec) as total_duration_sec,
                     SUM(gpu_seconds) as total_gpu_seconds,
-                    SUM(total_cost_cad) as total_cost_cad,
-                    SUM(CASE WHEN is_canadian_compute = 1 THEN total_cost_cad ELSE 0 END) as ca_cost,
-                    SUM(CASE WHEN is_canadian_compute = 0 THEN total_cost_cad ELSE 0 END) as non_ca_cost,
+                    SUM(total_cost_micros) / 1000000.0 AS total_cost_cad,
+                    SUM(CASE WHEN is_canadian_compute = 1 THEN total_cost_micros / 1000000.0 ELSE 0 END) as ca_cost,
+                    SUM(CASE WHEN is_canadian_compute = 0 THEN total_cost_micros / 1000000.0 ELSE 0 END) as non_ca_cost,
                     SUM(CASE WHEN COALESCE(pricing_mode, 'on_demand') = 'spot'
-                        THEN total_cost_cad ELSE 0 END) as spot_cost,
+                        THEN total_cost_micros / 1000000.0 ELSE 0 END) as spot_cost,
                     SUM(CASE WHEN COALESCE(pricing_mode, 'on_demand') != 'spot'
-                        THEN total_cost_cad ELSE 0 END) as on_demand_cost,
+                        THEN total_cost_micros / 1000000.0 ELSE 0 END) as on_demand_cost,
                     COUNT(DISTINCT host_id) as hosts_used,
                     COUNT(DISTINCT trust_tier) as tiers_used
                 FROM usage_meters
@@ -1158,7 +1158,7 @@ class BillingEngine:
             )
             row = conn.execute(
                 """
-                SELECT COALESCE(SUM(amount_cad), 0) AS held
+                SELECT COALESCE(SUM(amount_micros) / 1000000.0, 0) AS held
                   FROM wallet_holds
                  WHERE customer_id = %s
                    AND status = 'held'
@@ -1310,7 +1310,7 @@ class BillingEngine:
             if idemp:
                 prior = conn.execute(
                     """
-                    SELECT hold_id, status, amount_cad, expires_at
+                    SELECT hold_id, status, amount_micros / 1000000.0 AS amount_cad, expires_at
                       FROM wallet_holds
                      WHERE customer_id = %s AND idempotency_key = %s
                      LIMIT 1
@@ -1349,7 +1349,7 @@ class BillingEngine:
 
             wallet = conn.execute(
                 """
-                SELECT balance_cad, status FROM wallets
+                SELECT balance_micros / 1000000.0 AS balance_cad, status FROM wallets
                  WHERE customer_id = %s
                  FOR UPDATE
                 """,
@@ -1399,7 +1399,7 @@ class BillingEngine:
                     conn.rollback()
                     winner = conn.execute(
                         """
-                        SELECT hold_id, status, amount_cad
+                        SELECT hold_id, status, amount_micros / 1000000.0 AS amount_cad
                           FROM wallet_holds
                          WHERE customer_id = %s AND idempotency_key = %s
                          LIMIT 1
@@ -3741,7 +3741,7 @@ class BillingEngine:
         window_start = now - 86400
         with self._conn() as conn:
             row = conn.execute(
-                """SELECT COALESCE(SUM(ABS(amount_cad)), 0) as total_24h
+                """SELECT COALESCE(SUM(ABS(amount_micros / 1000000.0)), 0) as total_24h
                    FROM wallet_transactions
                    WHERE customer_id = %s AND created_at >= %s AND tx_type = 'deposit'""",
                 (customer_id, window_start),

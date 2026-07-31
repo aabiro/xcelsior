@@ -1113,13 +1113,13 @@ class StripeConnectManager:
             row = conn.execute(
                 """SELECT
                     COUNT(*) as total_jobs,
-                    COALESCE(SUM(ps.provider_share_cad), 0) as total_earned_cad,
-                    COALESCE(SUM(ps.platform_share_cad), 0) as total_platform_cad,
-                    COALESCE(SUM(ps.gst_hst_cad), 0) as total_tax_cad,
+                    COALESCE(SUM(ps.provider_share_micros) / 1000000.0, 0) as total_earned_cad,
+                    COALESCE(SUM(ps.platform_share_micros) / 1000000.0, 0) as total_platform_cad,
+                    COALESCE(SUM(ps.gst_hst_micros) / 1000000.0, 0) as total_tax_cad,
                     COALESCE(SUM(CASE WHEN COALESCE(j.pricing_mode, 'on_demand') = 'spot'
-                        THEN ps.provider_share_cad ELSE 0 END), 0) as spot_earned_cad,
+                        THEN ps.provider_share_micros / 1000000.0 ELSE 0 END), 0) as spot_earned_cad,
                     COALESCE(SUM(CASE WHEN COALESCE(j.pricing_mode, 'on_demand') != 'spot'
-                        THEN ps.provider_share_cad ELSE 0 END), 0) as on_demand_earned_cad
+                        THEN ps.provider_share_micros / 1000000.0 ELSE 0 END), 0) as on_demand_earned_cad
                    FROM payout_splits ps
                    LEFT JOIN jobs j ON j.job_id = ps.job_id
                    WHERE ps.provider_id=%s""",
