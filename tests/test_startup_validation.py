@@ -32,6 +32,13 @@ def clean_env(monkeypatch):
     monkeypatch.setenv("XCELSIOR_DB_BACKEND", "postgres")
     monkeypatch.setenv("XCELSIOR_POSTGRES_DSN", "postgresql://u:p@127.0.0.1:5432/xcelsior")
     monkeypatch.setenv("XCELSIOR_OAUTH_JWT_SECRET", "not-empty")
+    monkeypatch.setenv(
+        "XCELSIOR_PRIVACY_REFERENCE_SECRET",
+        "test-privacy-reference-secret-with-high-entropy",
+    )
+    monkeypatch.delenv("NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN", raising=False)
+    monkeypatch.delenv("XCELSIOR_POSTHOG_PERSONAL_API_KEY", raising=False)
+    monkeypatch.delenv("XCELSIOR_POSTHOG_PROJECT_ID", raising=False)
     monkeypatch.delenv("XCELSIOR_ALLOW_UNAUTH_AGENT", raising=False)
     monkeypatch.delenv("XCELSIOR_ALLOW_RUNTIME_DDL", raising=False)
     monkeypatch.delenv("XCELSIOR_TRUSTED_AGENT_GATEWAY", raising=False)
@@ -105,6 +112,23 @@ def test_rejects_empty_oauth_signing_configuration(clean_env):
 
     clean_env.setenv("XCELSIOR_OAUTH_JWT_KEYS_JSON", '{"keys":[]}')
     assert "oauth_signing" in _codes(sv.collect_findings())
+
+
+def test_rejects_missing_privacy_reference_secret(clean_env):
+    clean_env.delenv("XCELSIOR_PRIVACY_REFERENCE_SECRET", raising=False)
+    assert "privacy_reference_secret_missing" in _codes(sv.collect_findings())
+
+
+def test_posthog_identification_requires_deletion_credentials(clean_env):
+    clean_env.setenv("NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN", "phc_enabled")
+    findings = sv.collect_findings()
+    assert "posthog_deletion_credentials_missing" in _codes(findings)
+
+    clean_env.setenv("XCELSIOR_POSTHOG_PERSONAL_API_KEY", "phx_person_delete")
+    clean_env.setenv("XCELSIOR_POSTHOG_PROJECT_ID", "12345")
+    assert "posthog_deletion_credentials_missing" not in _codes(
+        sv.collect_findings()
+    )
 
 
 def test_rejects_unauthenticated_agent_mode(clean_env):
@@ -319,3 +343,13 @@ def test_the_three_probes_are_distinct(clean_env):
     if ready.status_code == 200:
         assert "storage" in ready.json()
         assert "storage" not in live.json()
+
+
+def test_orchestrator_probes_do_not_require_user_auth(monkeypatch, clean_env):
+    """Load balancers and orchestrators cannot present a customer session."""
+    import routes._deps as deps
+
+    monkeypatch.setattr(deps, "AUTH_REQUIRED", True)
+
+    assert client.get("/livez").status_code == 200
+    assert client.get("/startupz").status_code == 200

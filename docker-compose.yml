@@ -124,6 +124,13 @@ x-api-environment: &api-env
   XCELSIOR_WEB_PUSH_STALE_AFTER_DAYS: ${XCELSIOR_WEB_PUSH_STALE_AFTER_DAYS:-30}
   XCELSIOR_WEB_PUSH_REVOKED_RETENTION_DAYS: ${XCELSIOR_WEB_PUSH_REVOKED_RETENTION_DAYS:-30}
   XCELSIOR_NOTIFICATION_RETENTION_DAYS: ${XCELSIOR_NOTIFICATION_RETENTION_DAYS:-30}
+  # Privacy erasure references and optional PostHog deletion credentials.
+  # Values are injected by Compose from the deploy environment; never commit
+  # the reference secret or personal API key.
+  XCELSIOR_PRIVACY_REFERENCE_SECRET: ${XCELSIOR_PRIVACY_REFERENCE_SECRET:-}
+  XCELSIOR_PRIVACY_DELETION_DEADLINE_DAYS: ${XCELSIOR_PRIVACY_DELETION_DEADLINE_DAYS:-30}
+  XCELSIOR_POSTHOG_PERSONAL_API_KEY: ${XCELSIOR_POSTHOG_PERSONAL_API_KEY:-}
+  XCELSIOR_POSTHOG_PROJECT_ID: ${XCELSIOR_POSTHOG_PROJECT_ID:-}
   XCELSIOR_NFS_SERVER: ${XCELSIOR_NFS_SERVER:-}
   XCELSIOR_NFS_SSH_HOST: ${XCELSIOR_NFS_SSH_HOST:-}
   XCELSIOR_NFS_SSH_USER: ${XCELSIOR_NFS_SSH_USER:-}
@@ -161,6 +168,9 @@ x-api-environment: &api-env
   XCELSIOR_SSH_USER: ${XCELSIOR_SSH_USER:-xcelsior}
   # Observability
   OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://127.0.0.1:4317}
+  XCELSIOR_OBSERVATION_STALE_SEC: ${XCELSIOR_OBSERVATION_STALE_SEC:-300}
+  XCELSIOR_SERVICE_HEARTBEAT_FRESH_SEC: ${XCELSIOR_SERVICE_HEARTBEAT_FRESH_SEC:-60}
+  XCELSIOR_OUTBOX_DISPATCHER: ${XCELSIOR_OUTBOX_DISPATCHER:-true}
   # Cloudburst
   XCELSIOR_BURST_ENABLED: ${XCELSIOR_BURST_ENABLED:-false}
   XCELSIOR_BURST_BUDGET_CAD: ${XCELSIOR_BURST_BUDGET_CAD:-500.0}
@@ -460,6 +470,8 @@ services:
       MCP_REDIS_URL: ${XCELSIOR_MCP_REDIS_URL:-${MCP_REDIS_URL:-${XCELSIOR_AUTH_REDIS_URL:-redis://127.0.0.1:6379/0}}}
       MCP_RATE_LIMIT_REQUIRE_REDIS: ${MCP_RATE_LIMIT_REQUIRE_REDIS:-true}
       MCP_RATE_LIMIT_FAIL_CLOSED: ${MCP_RATE_LIMIT_FAIL_CLOSED:-true}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_HTTP_ENDPOINT:-http://127.0.0.1:4318}
+      OTEL_SERVICE_NAME: xcelsior-mcp
     depends_on:
       - api
     restart: unless-stopped
@@ -570,19 +582,347 @@ services:
       XCELSIOR_VOLUME_PRIVILEGE: local
     restart: unless-stopped
 
-  # ── Observability: Jaeger (OpenTelemetry traces) ───────────────────
+  # ── Private observability plane ────────────────────────────────────
+  # Only operator UIs and OTLP ingress bind to the host, always on loopback.
+  # Exporter and storage ports remain reachable only on this bridge network.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.130.1
+    user: "0:0"
+    command:
+      - --config=/etc/otelcol-contrib/config.yaml
+    environment:
+      XCELSIOR_ENV: ${XCELSIOR_ENV:-production}
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+    volumes:
+      - ./infra/observability/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - otel-collector-data:/var/lib/otelcol
+    networks:
+      - observability
+    depends_on:
+      - loki
+      - tempo
+      - jaeger
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 256
+    healthcheck:
+      test:
+        - CMD
+        - /otelcol-contrib
+        - validate
+        - --config=/etc/otelcol-contrib/config.yaml
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.retention.size=20GB
+      - --storage.tsdb.wal-compression
+      - --web.enable-lifecycle
+      - --web.enable-remote-write-receiver
+      - --web.listen-address=0.0.0.0:9090
+    ports:
+      - "127.0.0.1:9091:9090"
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - ./infra/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/observability/prometheus/recording-rules.yml:/etc/prometheus/rules/recording-rules.yml:ro
+      - ./infra/observability/prometheus/alert-rules.yml:/etc/prometheus/rules/alert-rules.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - observability
+    depends_on:
+      - alertmanager
+      - node-exporter
+      - postgres-exporter
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 1g
+    cpus: 1.5
+    pids_limit: 256
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q --spider http://127.0.0.1:9090/-/ready
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --data.retention=120h
+      - --web.listen-address=0.0.0.0:9093
+      - --cluster.listen-address=
+    ports:
+      - "127.0.0.1:9093:9093"
+    volumes:
+      - ${XCELSIOR_ALERTMANAGER_CONFIG_PATH:-./infra/observability/alertmanager/alertmanager.yml}:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    networks:
+      - observability
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q --spider http://127.0.0.1:9093/-/ready
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  grafana:
+    image: grafana/grafana:12.1.0
+    environment:
+      GF_SECURITY_ADMIN_USER: ${XCELSIOR_GRAFANA_ADMIN_USER:-xcelsior-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${XCELSIOR_GRAFANA_ADMIN_PASSWORD:-}
+      GF_SECURITY_SECRET_KEY: ${XCELSIOR_GRAFANA_SECRET_KEY:-}
+      GF_PATHS_CONFIG: /etc/grafana/grafana.ini
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+    ports:
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - ./infra/observability/grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+      - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    networks:
+      - observability
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+      - /var/log/grafana:rw,noexec,nosuid,size=32m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 256
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q --spider http://127.0.0.1:3000/api/health
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+
+  loki:
+    image: grafana/loki:3.5.3
+    command:
+      - -config.file=/etc/loki/loki.yaml
+    volumes:
+      - ./infra/observability/loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/loki
+    networks:
+      - observability
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 768m
+    cpus: 1.0
+    pids_limit: 256
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q --spider http://127.0.0.1:3100/ready
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+
+  tempo:
+    image: grafana/tempo:2.8.2
+    command:
+      - -config.file=/etc/tempo/tempo.yaml
+    volumes:
+      - ./infra/observability/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    networks:
+      - observability
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 768m
+    cpus: 1.0
+    pids_limit: 256
+    healthcheck:
+      test:
+        - CMD
+        - /tempo
+        - -config.file=/etc/tempo/tempo.yaml
+        - -config.verify=true
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.17.1
+    environment:
+      DATA_SOURCE_URI: ${XCELSIOR_POSTGRES_EXPORTER_URI:-host.docker.internal:5432/${XCELSIOR_POSTGRES_DB:-xcelsior}?sslmode=disable}
+      DATA_SOURCE_USER: ${XCELSIOR_POSTGRES_EXPORTER_USER:-xcelsior}
+      DATA_SOURCE_PASS: ${XCELSIOR_POSTGRES_EXPORTER_PASSWORD:-${XCELSIOR_POSTGRES_PASSWORD:-}}
+      PG_EXPORTER_AUTO_DISCOVER_DATABASES: "false"
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    networks:
+      - observability
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
+    healthcheck:
+      test:
+        - CMD
+        - /bin/postgres_exporter
+        - --version
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+      - --collector.textfile.directory=/var/lib/node_exporter/textfile_collector
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+|var/lib/containers/storage/.+)($|/)
+    pid: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro,rslave
+      - /var/lib/node_exporter/textfile_collector:/var/lib/node_exporter/textfile_collector:ro
+    networks:
+      - observability
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
+    healthcheck:
+      test:
+        - CMD
+        - /bin/node_exporter
+        - --version
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  # Jaeger remains a local trace UI during the Tempo transition. OTLP reaches
+  # it through the collector; its receiver ports are not exposed on the host.
   jaeger:
     image: jaegertracing/jaeger:2.6.0
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     ports:
-      - "127.0.0.1:16686:16686"    # Jaeger UI (localhost only)
-      - "127.0.0.1:4317:4317"      # OTLP gRPC (API uses host network → 127.0.0.1:4317)
-      - "127.0.0.1:4318:4318"      # OTLP HTTP
+      - "127.0.0.1:16686:16686"
     volumes:
       - jaeger-data:/badger
+    networks:
+      - observability
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 256
+    healthcheck:
+      test:
+        - CMD
+        - /cmd/jaeger/jaeger-linux
+        - version
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
 
 volumes:
   xcelsior-data:
+  otel-collector-data:
+  prometheus-data:
+  alertmanager-data:
+  grafana-data:
+  loki-data:
+  tempo-data:
   jaeger-data:
+
+networks:
+  observability:
+    driver: bridge

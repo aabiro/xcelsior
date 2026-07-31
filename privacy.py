@@ -416,9 +416,28 @@ class DataLifecycleManager:
                     entity_id,
                     e,
                 )
-                # Still mark purged — the retention record is consumed even
-                # if the underlying store is unavailable.  A re-run won't
-                # find orphaned data because it's keyed by the record.
+                # Keep the row due so the next maintenance pass retries.  A
+                # failed sink is not a completed purge.
+                with self._conn() as conn:
+                    conn.execute(
+                        """
+                        UPDATE retention_records
+                           SET metadata = COALESCE(metadata, '{}'::jsonb)
+                               || jsonb_build_object(
+                                   'last_purge_error', left(%s, 1000),
+                                   'last_purge_attempt_at',
+                                       extract(epoch FROM clock_timestamp()),
+                                   'purge_attempt_count',
+                                       COALESCE(
+                                           (metadata->>'purge_attempt_count')::int,
+                                           0
+                                       ) + 1
+                               )
+                         WHERE record_id = %s
+                        """,
+                        (str(e), record["record_id"]),
+                    )
+                continue
 
             self.mark_purged(record["record_id"])
             count += 1
@@ -438,7 +457,7 @@ class DataLifecycleManager:
         if handler:
             handler(self, entity_id, entity_type)
         else:
-            log.debug("No cascade handler for category=%s, metadata-only purge", category)
+            raise ValueError(f"no purge handler for data category {category!r}")
 
     # ── Per-category purge handlers ───────────────────────────────────
 
@@ -578,18 +597,19 @@ class DataLifecycleManager:
 
         be = get_billing_engine()
         with be._conn() as conn:
-            conn.execute("DELETE FROM usage_meters WHERE customer_id = %s", (entity_id,))
+            conn.execute("DELETE FROM usage_meters WHERE owner = %s", (entity_id,))
             conn.execute("DELETE FROM invoices WHERE customer_id = %s", (entity_id,))
         log.info("PURGE billing_info entity=%s", entity_id)
 
     def _purge_provider_identity(self, entity_id: str, entity_type: str):
         """Delete provider/user identity records."""
-        from db import UserStore
+        from scheduler import _db_connection
 
-        try:
-            UserStore.delete_user(entity_id)
-        except Exception:
-            pass  # User may not exist in user store
+        with _db_connection() as conn:
+            conn.execute(
+                "DELETE FROM users WHERE user_id = %s OR lower(email) = lower(%s)",
+                (entity_id, entity_id),
+            )
         log.info("PURGE provider_identity entity=%s", entity_id)
 
     # Handler dispatch table
@@ -1117,40 +1137,48 @@ def get_consent_manager() -> ConsentManager:
 
 
 def execute_right_to_erasure(user_id):
-    """Complete right-to-erasure workflow per PIPEDA/Law 25.
+    """Compatibility entry point that creates the durable erasure workflow.
 
-    Steps:
-    1. Destroy user's encryption key (cryptographic shredding)
-    2. Withdraw all CASL consents
-    3. Anonymize non-encrypted records
-    4. Mark lifecycle records as purged
-
-    Returns summary dict.
+    It intentionally does not perform destructive work in the caller's
+    transaction.  Older internal callers receive a request receipt rather than
+    the former false-success summary.
     """
-    summary = {"user_id": user_id, "actions": []}
+    from db import _get_pg_pool
+    from privacy_deletion import (
+        PrivacyDeletionNotFound,
+        create_deletion_request,
+    )
 
-    # Step 1: Cryptographic shredding
-    shredder = get_crypto_shredder()
-    shredder.destroy_user_key(user_id)
-    summary["actions"].append("encryption_key_destroyed")
-
-    # Step 2: Withdraw all CASL consents
-    cm = get_consent_manager()
-    consents = cm.get_user_consents(user_id)
-    for c in consents:
-        if c["active"]:
-            cm.withdraw_consent(user_id, c["purpose"])
-    summary["actions"].append(f"casl_consents_withdrawn:{len(consents)}")
-
-    # Step 3: Anonymize lifecycle tracking records
-    lm = get_lifecycle_manager()
-    with lm._conn() as conn:
-        conn.execute(
-            "UPDATE data_lifecycle SET entity_id = %s, purged_at = extract(epoch FROM now()), "
-            "purge_reason = 'right_to_erasure' WHERE entity_id = %s",
-            (f"erased-{hashlib.sha256(user_id.encode()).hexdigest()[:12]}", user_id),
-        )
-    summary["actions"].append("lifecycle_records_anonymized")
-
-    log.info("RIGHT TO ERASURE complete for user=%s actions=%s", user_id, summary["actions"])
-    return summary
+    identity = str(user_id).strip()
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        row = conn.execute(
+            """
+            SELECT user_id, email, customer_id
+              FROM users
+             WHERE user_id = %s OR lower(email) = lower(%s)
+             LIMIT 1
+            """,
+            (identity, identity),
+        ).fetchone()
+        conn.rollback()
+    if not row:
+        raise PrivacyDeletionNotFound("user not found")
+    resolved_user_id = row["user_id"] if isinstance(row, dict) else row[0]
+    resolved_email = row["email"] if isinstance(row, dict) else row[1]
+    resolved_customer_id = row["customer_id"] if isinstance(row, dict) else row[2]
+    receipt = create_deletion_request(
+        user_id=str(resolved_user_id),
+        email=str(resolved_email),
+        customer_ids=[str(resolved_customer_id or "")],
+        idempotency_key=f"compat-erasure:{resolved_user_id}",
+        requested_by=f"compat:{resolved_user_id}",
+        request_source="compatibility_api",
+    )
+    return {
+        "request_id": receipt.request_id,
+        "state": receipt.state,
+        "deadline_at": receipt.deadline_at.isoformat(),
+        "status_token": receipt.status_token,
+        "already_existed": receipt.already_existed,
+    }

@@ -386,7 +386,6 @@ class PayPalMarketplaceCreateRequest(BaseModel):
     customer_id: str = Field(min_length=1, max_length=128)
     provider_id: str = Field(min_length=1, max_length=128)
     job_id: str = Field(min_length=1, max_length=128)
-    amount_cad: float = Field(gt=0, le=10000)
 
 
 class PayPalMarketplaceCaptureRequest(BaseModel):
@@ -460,8 +459,9 @@ def api_paypal_capture_order(req: PayPalCaptureRequest, request: Request):
 
 @router.post("/api/billing/paypal/marketplace/create-order", tags=["Billing"])
 def api_paypal_marketplace_create_order(req: PayPalMarketplaceCreateRequest, request: Request):
-    """Create a PayPal order that pays a provider with an instant platform fee split."""
+    """Create a provider order using the exact PostgreSQL-settled job amount."""
     from paypal_connect import get_paypal_manager
+    from provider_settlement import SettlementError
 
     user = _require_customer_access(request, req.customer_id, billing_write=True)
     _require_scope(user, "billing:write")
@@ -470,7 +470,13 @@ def api_paypal_marketplace_create_order(req: PayPalMarketplaceCreateRequest, req
     if not mgr.get_paypal_profile(req.provider_id):
         raise HTTPException(404, f"Provider {req.provider_id} not found")
     try:
-        result = mgr.create_marketplace_order(req.provider_id, req.job_id, req.amount_cad)
+        result = mgr.create_marketplace_order(
+            req.provider_id,
+            req.job_id,
+            expected_customer_id=req.customer_id,
+        )
+    except SettlementError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"ok": True, **result}
@@ -480,13 +486,20 @@ def api_paypal_marketplace_create_order(req: PayPalMarketplaceCreateRequest, req
 def api_paypal_marketplace_capture_order(req: PayPalMarketplaceCaptureRequest, request: Request):
     """Capture a marketplace PayPal order and record the provider/platform split."""
     from paypal_connect import get_paypal_manager
+    from provider_settlement import SettlementError
 
     user = _require_customer_access(request, req.customer_id, billing_write=True)
     _require_scope(user, "billing:write")
     _check_billing_payment_rate_limit(req.customer_id, "paypal-marketplace-capture")
     mgr = get_paypal_manager()
     try:
-        result = mgr.capture_marketplace_order(req.provider_id, req.order_id)
+        result = mgr.capture_marketplace_order(
+            req.provider_id,
+            req.order_id,
+            expected_customer_id=req.customer_id,
+        )
+    except SettlementError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"ok": True, **result}
