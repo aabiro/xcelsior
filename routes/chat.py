@@ -76,7 +76,7 @@ async def api_chat(body: ChatRequest, request: Request):
     )
 
     # Build messages array
-    system_prompt = build_system_prompt()
+    system_prompt = build_system_prompt(user_message)
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(history)
     messages.append({"role": "user", "content": user_message})
