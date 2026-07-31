@@ -554,7 +554,7 @@ export function ProviderSummaryStep({ summary, onConfirm, error }: ProviderSumma
   return (
     <Box flexDirection="column">
       <Box flexDirection="column" borderStyle="round" borderColor="#22c55e" paddingX={2} paddingY={1}>
-        <Text bold color="#22c55e">Provider Setup Complete</Text>
+        <Text bold color="#22c55e">Provider Setup Recorded</Text>
         <Text />
         <Text>  GPU: <Text bold>{summary.gpuModel}</Text> · {summary.vramGb} GB VRAM</Text>
         <Text>  XCU Score: <Text bold color="#ffcc00">{summary.xcuScore}</Text> ({summary.tflops} TFLOPS)</Text>

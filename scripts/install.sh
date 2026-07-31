@@ -17,6 +17,7 @@ AGENT_PATH="$CONFIG_DIR/worker_agent.py"
 ENV_FILE="$CONFIG_DIR/worker.env"
 VENV_DIR="$CONFIG_DIR/venv"
 VENV_PYTHON="$VENV_DIR/bin/python3"
+readonly WIZARD_PACKAGE="@xcelsior-gpu/wizard@0.1.0"
 AGENT_SIGNING_PUB_EMBEDDED='-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAa8ybnMNSvU/2/QRbDJ5Y1F6LzusKKu1ACYMeMhyyRXs=
 -----END PUBLIC KEY-----'
@@ -62,13 +63,15 @@ check_deps() {
 }
 
 check_nvidia() {
-    if command -v nvidia-smi >/dev/null 2>&1; then
-        local gpu
-        gpu=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
-        ok "GPU detected: $gpu"
-    else
-        warn "nvidia-smi not found — GPU compute won't be available"
+    command -v nvidia-smi >/dev/null 2>&1 \
+        || fail "nvidia-smi is required — install a supported NVIDIA driver before running the worker"
+
+    local gpu
+    if ! gpu=$(nvidia-smi --query-gpu=name --format=csv,noheader,nounits 2>/dev/null) \
+        || [ -z "$gpu" ]; then
+        fail "nvidia-smi could not detect a usable NVIDIA GPU"
     fi
+    ok "GPU detected: $(printf '%s\n' "$gpu" | head -1)"
 }
 
 check_docker() {
@@ -78,12 +81,12 @@ check_docker() {
         fail "Docker is not running or current user lacks permissions. Try: sudo usermod -aG docker \$USER"
     fi
 
-    if docker info 2>/dev/null | grep -qi nvidia; then
-        ok "NVIDIA Container Toolkit detected"
-    else
-        warn "NVIDIA Container Toolkit not detected — GPU passthrough may not work"
-        warn "Install: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html"
+    local runtimes
+    if ! runtimes=$(docker info --format '{{json .Runtimes}}' 2>/dev/null) \
+        || ! printf '%s' "$runtimes" | grep -qi nvidia; then
+        fail "NVIDIA Container Toolkit/runtime is required — install it before running the worker: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html"
     fi
+    ok "NVIDIA Container Toolkit/runtime detected"
 }
 
 # ── Network detection (B8) ─────────────────────────────────────────────
@@ -342,18 +345,25 @@ verify_host_online() {
     local host_id="${XCELSIOR_HOST_ID:-}"
     [ -z "$host_id" ] && return 0
 
-    info "Verifying host registration (up to 60s)..."
-    local i status
+    info "Checking host registration and admission state (up to 60s)..."
+    local i host_state status admitted
     for i in $(seq 1 12); do
-        status=$(curl -fsSL --max-time 5 "$XCELSIOR_API/host/$host_id" 2>/dev/null \
-            | python3 -c "import sys,json; d=json.load(sys.stdin); print((d.get('host') or {}).get('status',''))" 2>/dev/null || true)
-        if [ "$status" = "online" ] || [ "$status" = "active" ]; then
-            ok "Host $host_id is $status in the dashboard"
+        host_state=$(curl -fsSL --max-time 5 "$XCELSIOR_API/host/$host_id" 2>/dev/null \
+            | python3 -c "import sys,json; h=json.load(sys.stdin).get('host') or {}; print(f\"{h.get('status','')}|{str(h.get('admitted') is True).lower()}\")" 2>/dev/null || true)
+        status="${host_state%%|*}"
+        admitted="${host_state#*|}"
+        if [ "$admitted" = "true" ] && { [ "$status" = "online" ] || [ "$status" = "active" ]; }; then
+            ok "Host $host_id is authoritatively admitted and $status"
             return 0
+        fi
+        if [ "$status" = "pending" ]; then
+            warn "Host $host_id is registered but pending authoritative verification"
+            warn "It is not listed or eligible for work yet; check the dashboard for admission status"
+            return 1
         fi
         sleep 5
     done
-    warn "Host not yet visible as online — check logs:"
+    warn "Host not yet visible in the dashboard — check logs:"
     warn "  journalctl -u xcelsior-worker -n 50 --no-pager"
     return 1
 }
@@ -414,7 +424,7 @@ run_wizard() {
     info "Checking for Node.js..."
     if command -v npx >/dev/null 2>&1; then
         info "Launching interactive wizard..."
-        if npx @xcelsior-gpu/wizard@latest; then
+        if npx --yes "$WIZARD_PACKAGE"; then
             return 0
         fi
         warn "Wizard failed (network, npm, or package error) — falling back to direct agent install"
@@ -506,9 +516,11 @@ main() {
     esac
 
     echo ""
-    ok "Setup complete! Check the dashboard for host status."
+    ok "Local setup complete. Check the dashboard for host admission status."
     info "Dashboard: $XCELSIOR_API/dashboard/hosts"
     echo ""
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi
