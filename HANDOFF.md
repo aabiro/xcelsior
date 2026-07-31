@@ -40,6 +40,41 @@ Still open from the original plan: the remaining Track B gaps in "Major
 original-goal gaps that remain", personal-data export, warehouse deletion sink,
 and observability deployment.
 
+## Remaining work, with evidence (2026-07-31)
+
+Suite is at **114 failed / 4411 passed** (was 235 failed when this pass began).
+The remaining failures are almost entirely tests that encode contracts the
+Phase 10 and 082 work deliberately retired — they describe the old system, not
+defects in the new one. In priority order:
+
+1. **Agent routes now require host authentication (~40 failures).**
+   `tests/test_instance_flow.py`, `tests/test_api.py` and `tests/test_agent_v2.py`
+   still post to `/agent/*` with no credentials and assert 200. The correct fix
+   is the pattern already used in `tests/test_host_agent_tokens.py:409` — issue a
+   host token via `control_plane.agent_tokens` and send
+   `Authorization: Bearer <secret>`. Do not relax the auth to make these pass.
+2. **`XCELSIOR_AGENT_HOST_TOKENS=require` with hosts that have no token.**
+   Startup validation reports this against whichever database `.env` points at.
+   In development that is one leftover fixture host (`h-skep-leg-750fcb`,
+   registered 2026-07-19, one job attached), not a production condition.
+3. **Money precision is half-migrated.** `wallets` carries both
+   `auto_topup_amount_cad` / `auto_topup_threshold_cad` (float, what the code
+   reads) and `auto_topup_amount_micros` / `auto_topup_threshold_micros`
+   (integer, populated on 147 rows, read by nothing). Float is the wrong
+   representation for money. Finish the cutover to `_micros` and drop the
+   `_cad` pair; do not drop `_micros`, which is what migration `085`
+   deliberately left alone.
+4. **Still open from the original plan:** personal-data export (the settings
+   button still downloads billing CSV only), the governed warehouse deletion
+   sink, observability stack deployment, and the "Major original-goal gaps"
+   section below.
+
+Verified along the way and safe to rely on: migrations rehearse up/down/up
+(`081->082->081->082` and `084->085->084->085`), the migration ledger head is
+`085` and enforced by `tests/test_migration_ledger.py`, and production startup
+validation now fails closed on both a missing compatibility-session secret and
+a defaulted audit signing key.
+
 ## Read this first
 
 **Do not deploy the current worktree.** It is a large, shared, uncommitted
