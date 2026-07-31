@@ -1,0 +1,11 @@
+[Unit]
+Description=Prove Xcelsior backup recoverability every month
+
+[Timer]
+OnCalendar=Sun *-*-01..07 04:00:00 UTC
+RandomizedDelaySec=30m
+Persistent=true
+Unit=xcelsior-db-restore-drill.service
+
+[Install]
+WantedBy=timers.target

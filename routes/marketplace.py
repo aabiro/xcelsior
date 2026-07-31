@@ -11,7 +11,14 @@ from routes._deps import (
     _require_scope,
 )
 from marketplace import get_marketplace_engine
-from scheduler import get_marketplace, list_rig, marketplace_bill, marketplace_stats, unlist_rig
+from scheduler import (
+    get_marketplace,
+    list_hosts,
+    list_rig,
+    marketplace_bill,
+    marketplace_stats,
+    unlist_rig,
+)
 
 router = APIRouter()
 
@@ -83,15 +90,31 @@ class RigListing(BaseModel):
     province: str = ""
 
 
+def _require_marketplace_eligible_host(host_id: str) -> dict:
+    host = next(
+        (entry for entry in list_hosts(active_only=False) if entry.get("host_id") == host_id),
+        None,
+    )
+    if host is None:
+        raise HTTPException(status_code=404, detail=f"Host {host_id} not found")
+    if host.get("admitted") is not True or host.get("status") != "active":
+        raise HTTPException(
+            status_code=409,
+            detail="Host must complete authoritative worker verification before listing",
+        )
+    return host
+
+
 @router.post("/marketplace/list", tags=["Marketplace"])
 def api_list_rig(rig: RigListing, request: Request):
-    """List a rig on the marketplace."""
+    """List an active, authoritatively admitted rig on the marketplace."""
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
     from routes._deps import _require_scope
 
     _require_scope(user, "marketplace:write")
+    _require_marketplace_eligible_host(rig.host_id)
     listing = list_rig(
         rig.host_id,
         rig.gpu_model,
@@ -172,6 +195,7 @@ def api_marketplace_create_offer(body: GPUOfferCreate, request: Request):
     from routes._deps import _require_scope
 
     _require_scope(user, "marketplace:write")
+    _require_marketplace_eligible_host(body.host_id)
     me = get_marketplace_engine()
     offer = me.upsert_offer(
         provider_id=user.get("user_id", user.get("email", "")),

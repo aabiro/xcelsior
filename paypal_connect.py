@@ -7,10 +7,27 @@ import json
 import logging
 import os
 import time
+import uuid
 from contextlib import contextmanager
 from typing import Any, Optional
 
 import httpx
+
+from money import cad_to_micros, micros_to_cad
+from provider_settlement import (
+    SettlementConflict,
+    SettlementNotFound,
+    claim_settlements,
+    get_settlement,
+    mark_awaiting_paypal_capture,
+    mark_settlement_paid,
+    mark_settlement_retry,
+    platform_cut_bps,
+    prepare_settlement,
+    settlement_response,
+    split_source_micros,
+    tax_rate_bps_for_province,
+)
 
 log = logging.getLogger("xcelsior.paypal_connect")
 
@@ -65,7 +82,13 @@ def auth_assertion(*, merchant_id: str = "", email: str = "") -> str:
     return f"{header}.{_b64_json(payload)}."
 
 
-def _headers(token: str, *, seller_merchant_id: str = "", seller_email: str = "") -> dict[str, str]:
+def _headers(
+    token: str,
+    *,
+    seller_merchant_id: str = "",
+    seller_email: str = "",
+    request_id: str = "",
+) -> dict[str, str]:
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
@@ -77,6 +100,8 @@ def _headers(token: str, *, seller_merchant_id: str = "", seller_email: str = ""
         headers["PayPal-Auth-Assertion"] = auth_assertion(
             merchant_id=seller_merchant_id, email=seller_email
         )
+    if request_id:
+        headers["PayPal-Request-Id"] = request_id
     return headers
 
 
@@ -112,18 +137,27 @@ def wallet_purchase_unit(customer_id: str, amount_cad: float) -> dict:
 
 
 def _split_amounts(total_cad: float, province: str = "ON") -> dict[str, float]:
-    from billing import get_tax_rate_for_province
+    """Compatibility projection backed by the exact settlement calculator."""
 
-    platform_share = round(total_cad * PLATFORM_CUT_FRAC, 2)
-    provider_share = round(total_cad - platform_share, 2)
-    tax_rate = get_tax_rate_for_province(province)
-    gst_hst = round(total_cad * tax_rate, 2)
+    tax_bps, _description = tax_rate_bps_for_province(province)
+    exact = split_source_micros(
+        cad_to_micros(total_cad),
+        cut_bps=platform_cut_bps(str(PLATFORM_CUT_FRAC)),
+        tax_bps=tax_bps,
+    )
     return {
-        "platform_share_cad": platform_share,
-        "provider_share_cad": provider_share,
-        "gst_hst_cad": gst_hst,
-        "tax_rate": tax_rate,
+        "platform_share_cad": micros_to_cad(exact.platform_share_micros),
+        "provider_share_cad": micros_to_cad(exact.provider_share_micros),
+        "gst_hst_cad": micros_to_cad(exact.gst_hst_micros),
+        "tax_rate": exact.tax_rate_bps / 10_000,
     }
+
+
+def _paypal_value(amount_micros: int) -> str:
+    amount = int(amount_micros)
+    if amount < 0 or amount % 10_000:
+        raise ValueError("PayPal settlement amounts must be whole CAD cents")
+    return f"{amount // 1_000_000}.{(amount // 10_000) % 100:02d}"
 
 
 class PayPalConnectManager:
@@ -353,11 +387,18 @@ class PayPalConnectManager:
             return {"merchant_id": merchant_id}, auth_id, email
         raise RuntimeError("Provider PayPal merchant identity missing")
 
-    def marketplace_purchase_unit(self, provider_id: str, job_id: str, amount_cad: float) -> dict:
+    def marketplace_purchase_unit(
+        self,
+        provider_id: str,
+        job_id: str,
+        settlement: dict,
+    ) -> dict:
         payee, _, _ = self.seller_payee(provider_id)
-        splits = _split_amounts(amount_cad)
         unit: dict[str, Any] = {
-            "amount": {"currency_code": "CAD", "value": f"{amount_cad:.2f}"},
+            "amount": {
+                "currency_code": str(settlement["currency"]).upper(),
+                "value": _paypal_value(int(settlement["total_micros"])),
+            },
             "description": f"Xcelsior marketplace — {job_id}",
             "custom_id": f"{provider_id}:{job_id}",
             "payee": payee,
@@ -366,8 +407,10 @@ class PayPalConnectManager:
                 "platform_fees": [
                     {
                         "amount": {
-                            "currency_code": "CAD",
-                            "value": f"{splits['platform_share_cad']:.2f}",
+                            "currency_code": str(settlement["currency"]).upper(),
+                            "value": _paypal_value(
+                                int(settlement["platform_share_micros"])
+                            ),
                         }
                     }
                 ],
@@ -375,113 +418,247 @@ class PayPalConnectManager:
         }
         return unit
 
-    def create_marketplace_order(self, provider_id: str, job_id: str, amount_cad: float) -> dict:
+    def create_marketplace_order(
+        self,
+        provider_id: str,
+        job_id: str,
+        *,
+        expected_customer_id: str | None = None,
+    ) -> dict:
+        """Create one idempotent PayPal order from PostgreSQL authority."""
+
         if not PAYPAL_ENABLED:
             raise RuntimeError("PayPal is not configured")
         payee, auth_id, email = self.seller_payee(provider_id)
-        token = _access_token()
-        resp = httpx.post(
-            f"{_PAYPAL_BASE}/v2/checkout/orders",
-            headers=_headers(token, seller_merchant_id=auth_id, seller_email=email if not auth_id else ""),
-            json={
-                "intent": "CAPTURE",
-                "purchase_units": [self.marketplace_purchase_unit(provider_id, job_id, amount_cad)],
-                "application_context": {
-                    "brand_name": "Xcelsior",
-                    "shipping_preference": "NO_SHIPPING",
-                },
-            },
-            timeout=20,
-        )
-        if resp.status_code >= 400:
-            log.error("PayPal marketplace create-order failed: %s", resp.text)
-            raise RuntimeError("PayPal marketplace order creation failed")
-        data = resp.json()
-        splits = _split_amounts(amount_cad)
-        return {
-            "order_id": data["id"],
-            "provider_id": provider_id,
-            "job_id": job_id,
-            "amount_cad": amount_cad,
-            **splits,
-        }
+        with self._conn() as conn:
+            prepared = prepare_settlement(
+                conn,
+                job_id=job_id,
+                provider_id=provider_id,
+                rail="paypal",
+                expected_customer_id=expected_customer_id,
+            )
+        if prepared.get("paypal_order_id"):
+            return {
+                "order_id": prepared["paypal_order_id"],
+                **settlement_response(prepared),
+            }
+        if prepared.get("settlement_status") == "paid":
+            return {
+                "order_id": prepared.get("paypal_order_id") or "",
+                **settlement_response(prepared),
+            }
 
-    def capture_marketplace_order(self, provider_id: str, order_id: str) -> dict:
-        payee, auth_id, email = self.seller_payee(provider_id)
+        owner = f"paypal-order:{uuid.uuid4()}"
+        with self._conn() as conn:
+            claims = claim_settlements(
+                conn,
+                rail="paypal",
+                owner=owner,
+                limit=1,
+                job_id=job_id,
+                allowed_statuses=("pending", "queued", "failed"),
+            )
+            current = get_settlement(conn, job_id=job_id)
+        if not claims:
+            if current and current.get("paypal_order_id"):
+                return {
+                    "order_id": current["paypal_order_id"],
+                    **settlement_response(current),
+                }
+            raise SettlementConflict(
+                "settlement_busy",
+                "The PayPal settlement is already being prepared",
+            )
+        claimed = claims[0]
+
         token = _access_token()
-        hdrs = _headers(token, seller_merchant_id=auth_id, seller_email=email if not auth_id else "")
-        get_resp = httpx.get(f"{_PAYPAL_BASE}/v2/checkout/orders/{order_id}", headers=hdrs, timeout=15)
-        get_resp.raise_for_status()
-        order = get_resp.json()
-        if order.get("status") == "COMPLETED":
-            data = order
-        elif order.get("status") != "APPROVED":
-            raise RuntimeError(f"PayPal order status: {order.get('status', 'unknown')}")
-        else:
-            cap_resp = httpx.post(
-                f"{_PAYPAL_BASE}/v2/checkout/orders/{order_id}/capture",
-                headers=hdrs,
-                json={},
+        try:
+            resp = httpx.post(
+                f"{_PAYPAL_BASE}/v2/checkout/orders",
+                headers=_headers(
+                    token,
+                    seller_merchant_id=auth_id,
+                    seller_email=email if not auth_id else "",
+                    request_id=str(claimed["rail_idempotency_key"]),
+                ),
+                json={
+                    "intent": "CAPTURE",
+                    "purchase_units": [
+                        self.marketplace_purchase_unit(provider_id, job_id, claimed)
+                    ],
+                    "application_context": {
+                        "brand_name": "Xcelsior",
+                        "shipping_preference": "NO_SHIPPING",
+                    },
+                },
                 timeout=20,
             )
-            if cap_resp.status_code >= 400:
-                log.error("PayPal marketplace capture failed: %s", cap_resp.text)
-                raise RuntimeError("PayPal marketplace capture failed")
-            data = cap_resp.json()
-        capture = data["purchase_units"][0]["payments"]["captures"][0]
-        custom_id = (data["purchase_units"][0].get("custom_id") or "")
-        job_id = custom_id.split(":", 1)[-1] if ":" in custom_id else custom_id
-        if custom_id and ":" in custom_id:
-            custom_provider = custom_id.split(":", 1)[0]
-            if custom_provider and custom_provider != provider_id:
-                raise RuntimeError("PayPal order provider does not match request")
-        amount_cad = float(capture["amount"]["value"])
-        splits = _split_amounts(amount_cad)
-        capture_id = capture.get("id", "")
+            if resp.status_code >= 400:
+                log.error("PayPal marketplace create-order failed: %s", resp.text)
+                raise RuntimeError("PayPal marketplace order creation failed")
+            data = resp.json()
+            order_id = str(data.get("id") or "")
+            if not order_id:
+                raise RuntimeError("PayPal marketplace order returned no identifier")
+        except Exception as exc:
+            with self._conn() as conn:
+                mark_settlement_retry(
+                    conn,
+                    settlement_id=int(claimed["id"]),
+                    claim_token=str(claimed["claim_token"]),
+                    error=str(exc),
+                )
+            raise
+
         with self._conn() as conn:
-            existing = conn.execute(
-                """SELECT job_id, provider_id, total_cad, provider_share_cad, platform_share_cad,
-                          gst_hst_cad, paypal_capture_id
-                   FROM payout_splits
-                   WHERE job_id=%s AND payment_rail='paypal'""",
-                (job_id,),
-            ).fetchone()
-            if existing:
-                log.info("PayPal marketplace capture idempotent for job %s", job_id)
-                return {
-                    "order_id": order_id,
-                    "job_id": existing["job_id"],
-                    "provider_id": existing["provider_id"],
-                    "capture_id": existing.get("paypal_capture_id") or capture_id,
-                    "amount_cad": float(existing["total_cad"]),
-                    "provider_share_cad": float(existing["provider_share_cad"]),
-                    "platform_share_cad": float(existing["platform_share_cad"]),
-                    "gst_hst_cad": float(existing["gst_hst_cad"]),
-                    "tax_rate": splits["tax_rate"],
-                }
-            conn.execute(
-                """INSERT INTO payout_splits
-                   (job_id, provider_id, total_cad, provider_share_cad, platform_share_cad,
-                    gst_hst_cad, stripe_transfer_id, paypal_capture_id, payment_rail, created_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, '', %s, 'paypal', %s)""",
-                (
-                    job_id,
-                    provider_id,
-                    amount_cad,
-                    splits["provider_share_cad"],
-                    splits["platform_share_cad"],
-                    splits["gst_hst_cad"],
-                    capture_id,
-                    time.time(),
-                ),
+            awaiting = mark_awaiting_paypal_capture(
+                conn,
+                settlement_id=int(claimed["id"]),
+                claim_token=str(claimed["claim_token"]),
+                paypal_order_id=order_id,
             )
         return {
             "order_id": order_id,
-            "job_id": job_id,
-            "provider_id": provider_id,
+            **settlement_response(awaiting),
+        }
+
+    def capture_marketplace_order(
+        self,
+        provider_id: str,
+        order_id: str,
+        *,
+        expected_customer_id: str | None = None,
+    ) -> dict:
+        """Capture the persisted PayPal order under a durable DB claim."""
+
+        payee, auth_id, email = self.seller_payee(provider_id)
+        with self._conn() as conn:
+            row = conn.execute(
+                """
+                SELECT *
+                  FROM payout_splits
+                 WHERE paypal_order_id = %s
+                   AND payment_rail = 'paypal'
+                   AND settlement_key IS NOT NULL
+                """,
+                (order_id,),
+            ).fetchone()
+            settlement = dict(row) if row else None
+        if settlement is None or str(settlement.get("provider_id") or "") != provider_id:
+            raise SettlementNotFound("PayPal settlement order was not found")
+        if expected_customer_id and str(settlement.get("customer_id") or "") != expected_customer_id:
+            raise SettlementNotFound("PayPal settlement order was not found")
+        if settlement.get("settlement_status") == "paid":
+            return {
+                "order_id": order_id,
+                "capture_id": settlement.get("paypal_capture_id") or "",
+                **settlement_response(settlement),
+            }
+
+        owner = f"paypal-capture:{uuid.uuid4()}"
+        with self._conn() as conn:
+            claims = claim_settlements(
+                conn,
+                rail="paypal",
+                owner=owner,
+                limit=1,
+                job_id=str(settlement["job_id"]),
+                allowed_statuses=("awaiting_capture", "failed"),
+            )
+            current = get_settlement(conn, job_id=str(settlement["job_id"]))
+        if not claims:
+            if current and current.get("settlement_status") == "paid":
+                return {
+                    "order_id": order_id,
+                    "capture_id": current.get("paypal_capture_id") or "",
+                    **settlement_response(current),
+                }
+            raise SettlementConflict(
+                "settlement_busy",
+                "The PayPal settlement is already being captured",
+            )
+        claimed = claims[0]
+
+        token = _access_token()
+        hdrs = _headers(
+            token,
+            seller_merchant_id=auth_id,
+            seller_email=email if not auth_id else "",
+            request_id=f"{claimed['rail_idempotency_key']}:capture",
+        )
+        try:
+            get_resp = httpx.get(
+                f"{_PAYPAL_BASE}/v2/checkout/orders/{order_id}",
+                headers=hdrs,
+                timeout=15,
+            )
+            get_resp.raise_for_status()
+            order = get_resp.json()
+            units = order.get("purchase_units") or []
+            unit = units[0] if units else {}
+            expected_custom_id = f"{provider_id}:{claimed['job_id']}"
+            if str(unit.get("custom_id") or "") != expected_custom_id:
+                raise RuntimeError("PayPal order identity does not match settlement authority")
+            order_amount = unit.get("amount") or {}
+            if str(order_amount.get("currency_code") or "").upper() != str(
+                claimed["currency"]
+            ).upper():
+                raise RuntimeError("PayPal order currency does not match settlement authority")
+            if cad_to_micros(str(order_amount.get("value") or "0")) != int(
+                claimed["total_micros"]
+            ):
+                raise RuntimeError("PayPal order amount does not match settlement authority")
+
+            if order.get("status") == "COMPLETED":
+                data = order
+            elif order.get("status") != "APPROVED":
+                raise RuntimeError(f"PayPal order status: {order.get('status', 'unknown')}")
+            else:
+                cap_resp = httpx.post(
+                    f"{_PAYPAL_BASE}/v2/checkout/orders/{order_id}/capture",
+                    headers=hdrs,
+                    json={},
+                    timeout=20,
+                )
+                if cap_resp.status_code >= 400:
+                    log.error("PayPal marketplace capture failed: %s", cap_resp.text)
+                    raise RuntimeError("PayPal marketplace capture failed")
+                data = cap_resp.json()
+            capture = data["purchase_units"][0]["payments"]["captures"][0]
+            capture_amount = capture.get("amount") or {}
+            capture_currency = str(capture_amount.get("currency_code") or "CAD").upper()
+            if capture_currency != str(claimed["currency"]).upper():
+                raise RuntimeError("PayPal capture currency does not match settlement authority")
+            if cad_to_micros(str(capture_amount.get("value") or "0")) != int(
+                claimed["total_micros"]
+            ):
+                raise RuntimeError("PayPal capture amount does not match settlement authority")
+            capture_id = str(capture.get("id") or "")
+            if not capture_id:
+                raise RuntimeError("PayPal capture returned no identifier")
+        except Exception as exc:
+            with self._conn() as conn:
+                mark_settlement_retry(
+                    conn,
+                    settlement_id=int(claimed["id"]),
+                    claim_token=str(claimed["claim_token"]),
+                    error=str(exc),
+                    retry_status="awaiting_capture",
+                )
+            raise
+
+        with self._conn() as conn:
+            paid = mark_settlement_paid(
+                conn,
+                settlement_id=int(claimed["id"]),
+                claim_token=str(claimed["claim_token"]),
+                paypal_capture_id=capture_id,
+            )
+        return {
+            "order_id": order_id,
             "capture_id": capture_id,
-            "amount_cad": amount_cad,
-            **splits,
+            **settlement_response(paid),
         }
 
 

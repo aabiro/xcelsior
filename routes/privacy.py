@@ -11,7 +11,6 @@ from routes._deps import (
 from privacy import (
     PrivacyConfig,
     RETENTION_POLICIES,
-    execute_right_to_erasure,
     get_consent_manager,
     get_lifecycle_manager,
 )
@@ -124,14 +123,14 @@ def api_get_privacy_config(org_id: str, request: Request):
 # ── Model: ConsentRequest ──
 
 
-class ConsentRequest(BaseModel):
+class LifecycleConsentRequest(BaseModel):
     entity_id: str
     consent_type: str  # "cross_border", "data_collection", "telemetry", "profiling"
     details: dict = None
 
 
 @router.post("/api/privacy/consent", tags=["Privacy"])
-def api_record_consent(req: ConsentRequest, request: Request):
+def api_record_consent(req: LifecycleConsentRequest, request: Request):
     """Record explicit consent (PIPEDA principle: Consent)."""
     from routes._deps import _require_scope, _get_current_user
 
@@ -172,13 +171,13 @@ def api_get_consents(entity_id: str, request: Request):
 # ── Model: ConsentRequest ──
 
 
-class ConsentRequest(BaseModel):
+class CaslConsentRequest(BaseModel):
     purpose: str
     consent_type: str = "express"
 
 
 @router.post("/api/v2/privacy/consent", tags=["Privacy"])
-def api_privacy_record_consent(body: ConsentRequest, request: Request):
+def api_privacy_record_consent(body: CaslConsentRequest, request: Request):
     """Record CASL consent for a purpose."""
     user = _require_user_grant(request)
     cm = get_consent_manager()
@@ -213,7 +212,63 @@ def api_privacy_list_consents(request: Request):
 
 @router.post("/api/v2/privacy/erase", tags=["Privacy"])
 def api_privacy_right_to_erasure(request: Request):
-    """Execute right-to-erasure (PIPEDA/Law 25). Irreversible."""
+    """Create an inspectable, asynchronous right-to-erasure request."""
+    from fastapi.responses import JSONResponse
+    from privacy_deletion import (
+        PrivacyDeletionError,
+        create_deletion_request,
+    )
+
     user = _require_user_grant(request)
-    summary = execute_right_to_erasure(user.get("user_id", user.get("email", "")))
-    return {"ok": True, "erasure": summary}
+    idempotency_key = request.headers.get("Idempotency-Key", "").strip()
+    try:
+        receipt = create_deletion_request(
+            user_id=str(user.get("user_id") or ""),
+            email=str(user.get("email") or ""),
+            customer_ids=[str(user.get("customer_id") or "")],
+            idempotency_key=idempotency_key,
+            requested_by=str(user.get("user_id") or user.get("email") or ""),
+        )
+    except PrivacyDeletionError as exc:
+        raise HTTPException(428, str(exc)) from exc
+    return JSONResponse(
+        status_code=202,
+        content={
+            "ok": True,
+            "request_id": receipt.request_id,
+            "state": receipt.state,
+            "deadline_at": receipt.deadline_at.isoformat(),
+            "status_token": receipt.status_token,
+            "already_existed": receipt.already_existed,
+            "message": (
+                "Deletion is in progress. Keep the status token until every "
+                "data store has reported its result."
+            ),
+        },
+    )
+
+
+@router.get("/api/v2/privacy/erase/{request_id}", tags=["Privacy"])
+def api_privacy_erasure_status(request_id: str, request: Request):
+    """Return honest per-store status for one erasure request."""
+    from routes._deps import _get_current_user, _is_platform_admin
+    from privacy_deletion import (
+        PrivacyDeletionAccessDenied,
+        PrivacyDeletionNotFound,
+        get_deletion_status,
+    )
+
+    user = _get_current_user(request)
+    status_token = request.headers.get("X-Deletion-Status-Token", "").strip()
+    if not user and not status_token:
+        raise HTTPException(401, "Authentication or a deletion status token is required")
+    try:
+        status = get_deletion_status(
+            request_id,
+            caller_user_id=str((user or {}).get("user_id") or "") or None,
+            status_token=status_token or None,
+            is_admin=bool(user and _is_platform_admin(user)),
+        )
+    except (PrivacyDeletionNotFound, PrivacyDeletionAccessDenied) as exc:
+        raise HTTPException(404, "Deletion request not found") from exc
+    return {"ok": True, "deletion": status}

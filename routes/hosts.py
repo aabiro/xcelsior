@@ -31,7 +31,7 @@ from scheduler import (
 )
 from db import UserStore
 from verification import get_verification_engine
-from security import admit_node
+from security import check_node_versions, recommend_runtime
 from reputation import VerificationType, get_reputation_engine
 from host_metadata import (
     CANONICAL_GPU_MODELS,
@@ -247,19 +247,16 @@ class StatusUpdate(BaseModel):
 
 @router.put("/host", tags=["Hosts"])
 def api_register_host(h: HostIn, request: Request):
-    """Register or update a host with strict admission gating.
+    """Register or update a host without trusting self-reported admission.
 
-    Per REPORT_FEATURE_FINAL.md §62 and REPORT_FEATURE_2.md §37:
-    - Hosts must pass node admission (version gating) before accepting work
-    - Country/province recorded for jurisdiction-aware scheduling
-    - Hosts register as 'pending' until agent completes benchmark + admission
-    - If versions are provided inline, admission is checked immediately
+    Heartbeats and inline component versions are useful inventory and
+    compatibility signals, but they are supplied by the provider-controlled
+    client. New hosts therefore remain pending until a separate authoritative
+    worker-verification path admits them.
     """
     user = _require_auth(request)
     _require_scope(user, "hosts:write")
     _require_host_operator(user, h.host_id)
-    from security import admit_node
-
     gpu_model = normalize_gpu_model(h.gpu_model)
     total_vram = float(h.total_vram_gb or 0)
     if total_vram <= 0 and gpu_model:
@@ -282,6 +279,7 @@ def api_register_host(h: HostIn, request: Request):
         spot_gpu_slots=h.spot_gpu_slots,
         spot_min_cents=h.spot_min_cents,
         region=h.region,
+        pending_until_admitted=True,
     )
     owner_id = _resolve_host_owner_from_user(user)
     existing_owner = str(entry.get("owner") or "").strip()
@@ -324,28 +322,27 @@ def api_register_host(h: HostIn, request: Request):
     if h.legal_name:
         entry["legal_name"] = h.legal_name
 
-    # Inline admission check if versions provided
+    # Inline versions are a compatibility signal only. A provider-controlled
+    # client must never be able to grant itself scheduler admission.
     if h.versions:
-        admitted, details = admit_node(
-            h.host_id, h.versions, h.gpu_model, attestation=h.attestation
-        )
-        entry["admitted"] = admitted
-        entry["admission_details"] = details
-        entry["recommended_runtime"] = details.get("recommended_runtime", "runc")
-        if not admitted:
-            # Host is registered but marked as not-admitted — won't receive work
-            entry["status"] = "pending"
-            log.warning(
-                "HOST %s registered but NOT ADMITTED: %s",
-                h.host_id,
-                details.get("rejection_reasons", []),
-            )
-    else:
-        # No versions provided — only set pending for NEW hosts.
-        # Existing hosts preserve their admission status from /agent/versions.
-        if not entry.get("admitted"):
-            entry.setdefault("admitted", False)
-            entry["status"] = "pending"
+        compatible, reasons = check_node_versions(h.versions)
+        runtime, runtime_reason = recommend_runtime(gpu_model or "unknown")
+        entry["reported_versions"] = dict(h.versions)
+        entry["compatibility_details"] = {
+            "host_id": h.host_id,
+            "compatible": compatible,
+            "admission_applied": False,
+            "versions": dict(h.versions),
+            "rejection_reasons": reasons,
+            "recommended_runtime": runtime,
+            "runtime_reason": runtime_reason,
+            "checked_at": time.time(),
+        }
+        entry["recommended_runtime"] = runtime
+
+    if entry.get("admitted") is not True:
+        entry["admitted"] = False
+        entry["status"] = "pending"
 
     # Persist the updated entry (country, province, admitted status)
     from scheduler import _atomic_mutation, _upsert_host_row, _migrate_hosts_if_needed
@@ -354,23 +351,13 @@ def api_register_host(h: HostIn, request: Request):
         _migrate_hosts_if_needed(conn)
         _upsert_host_row(conn, entry)
 
-    # Auto-compute score and auto-list on marketplace
-    from scheduler import estimate_compute_score, register_compute_score, list_rig
+    # A deterministic score is safe to show while pending, but marketplace
+    # publication is reserved for the future authoritative admission path.
+    from scheduler import estimate_compute_score, register_compute_score
 
     score = estimate_compute_score(gpu_model)
     register_compute_score(h.host_id, gpu_model, score)
     entry["compute_score"] = score
-
-    list_rig(
-        h.host_id,
-        gpu_model,
-        total_vram,
-        cost_per_hour,
-        description=f"{gpu_model} ({total_vram}GB) in {h.country.upper()}",
-        owner=entry.get("owner") or owner_id or h.host_id,
-        region=entry.get("region", ""),
-        province=entry.get("province", ""),
-    )
 
     # ── Auto-create verification + reputation records ────────────────────
     # Ensures the host appears on the trust page immediately (as "unverified")
@@ -823,6 +810,7 @@ def api_register_host_web(h: RegisterHostRequest, request: Request):
         spot_enabled=h.spot_enabled,
         spot_gpu_slots=h.spot_gpu_slots,
         spot_min_cents=spot_min,
+        pending_until_admitted=True,
     )
 
     # Store web-form-specific fields (validators already strip/normalize)
@@ -835,7 +823,7 @@ def api_register_host_web(h: RegisterHostRequest, request: Request):
     entry["owner"] = user.get("user_id", user.get("sub", ""))
 
     # New web-registered hosts start as pending until agent connects
-    entry.setdefault("admitted", False)
+    entry["admitted"] = False
     entry["status"] = "pending"
 
     # Persist the full entry
@@ -845,23 +833,13 @@ def api_register_host_web(h: RegisterHostRequest, request: Request):
         _migrate_hosts_if_needed(conn)
         _upsert_host_row(conn, entry)
 
-    # Auto-compute score and auto-list on marketplace
-    from scheduler import estimate_compute_score, register_compute_score, list_rig
+    # Manual registration records inventory and a display score only. It must
+    # not publish provider-asserted hardware to the marketplace.
+    from scheduler import estimate_compute_score, register_compute_score
 
     score = estimate_compute_score(h.gpu_model)
     register_compute_score(host_id, h.gpu_model, score)
     entry["compute_score"] = score
-
-    list_rig(
-        host_id,
-        h.gpu_model,
-        h.vram_gb,
-        h.cost_per_hour,
-        description=f"{h.gpu_model} ({h.vram_gb}GB) in {h.country.upper()}",
-        owner=entry["owner"],
-        region=entry.get("region", ""),
-        province=entry.get("province", ""),
-    )
 
     try:
         update_host_spot_settings(

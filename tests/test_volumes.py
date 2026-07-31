@@ -527,13 +527,43 @@ class TestVolumeAPIEndpoints:
         assert ve is ve2
 
     def test_nfs_storage_healthcheck_metadata_only(self, monkeypatch):
-        from volumes import nfs_storage_healthcheck
+        import volumes
 
-        monkeypatch.setenv("XCELSIOR_NFS_SERVER", "")
-        health = nfs_storage_healthcheck()
+        monkeypatch.setattr(volumes, "NFS_SERVER", "")
+        health = volumes.nfs_storage_healthcheck()
         assert health["configured"] is False
         assert health["mode"] == "metadata-only"
         assert health["ok"] is True
+
+    def test_colocated_nfs_health_crosses_host_boundary(self, monkeypatch):
+        import volumes
+
+        engine = volumes.VolumeEngine()
+        observed = {}
+
+        monkeypatch.setattr(volumes, "NFS_SERVER", "127.0.0.1")
+        monkeypatch.setattr(volumes, "NFS_SSH_HOST", "127.0.0.1")
+        monkeypatch.setattr(volumes, "NFS_SSH_USER", "root")
+        monkeypatch.setattr(volumes, "NFS_EXPORT_BASE", "/exports/volumes")
+        monkeypatch.setattr(volumes, "get_volume_engine", lambda: engine)
+        monkeypatch.setattr(engine, "_in_docker", lambda: True)
+        monkeypatch.setattr(engine, "_luks_ssh_host", lambda: "172.17.0.1")
+        monkeypatch.setattr(engine, "_luks_ssh_user", lambda: "root")
+
+        def _exec(host, command, **kwargs):
+            observed.update(host=host, command=command, kwargs=kwargs)
+            return 0, "", ""
+
+        monkeypatch.setattr(engine, "_ssh_exec_with_retry", _exec)
+
+        health = volumes.nfs_storage_healthcheck()
+
+        assert health["ok"] is True
+        assert observed == {
+            "host": "172.17.0.1",
+            "command": "test -d /exports/volumes",
+            "kwargs": {"timeout": 15, "user": "root", "force_ssh": True},
+        }
 
 
 # ── Name validation tests ────────────────────────────────────────────

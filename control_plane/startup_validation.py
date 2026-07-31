@@ -173,6 +173,53 @@ def _check_agent_authentication() -> Finding | None:
     return None
 
 
+def _check_privacy_deletion_credentials() -> Finding | None:
+    reference_secret = (
+        os.environ.get("XCELSIOR_PRIVACY_REFERENCE_SECRET") or ""
+    ).strip()
+    if not reference_secret:
+        return Finding(
+            code="privacy_reference_secret_missing",
+            severity="error",
+            message=(
+                "XCELSIOR_PRIVACY_REFERENCE_SECRET is empty; completed "
+                "deletion evidence cannot use a keyed subject reference"
+            ),
+            remediation=(
+                "Generate a dedicated high-entropy secret, store it in the "
+                "production secret manager, and expose it only to the API and "
+                "privacy worker."
+            ),
+        )
+
+    posthog_enabled = bool(
+        (os.environ.get("NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN") or "").strip()
+    )
+    if not posthog_enabled:
+        return None
+    personal_key = (
+        os.environ.get("XCELSIOR_POSTHOG_PERSONAL_API_KEY") or ""
+    ).strip()
+    project_id = (
+        os.environ.get("XCELSIOR_POSTHOG_PROJECT_ID") or ""
+    ).strip()
+    if personal_key and project_id:
+        return None
+    return Finding(
+        code="posthog_deletion_credentials_missing",
+        severity="error",
+        message=(
+            "PostHog identification is enabled without the credentials needed "
+            "to delete persons, events, and recordings"
+        ),
+        remediation=(
+            "Set XCELSIOR_POSTHOG_PERSONAL_API_KEY with person:read and "
+            "person:write scopes plus XCELSIOR_POSTHOG_PROJECT_ID, or disable "
+            "PostHog identification."
+        ),
+    )
+
+
 def _check_mcp_rate_limiting() -> Finding | None:
     try:
         replicas = int(os.environ.get("MCP_REPLICAS", "1") or "1")
@@ -318,6 +365,7 @@ CHECKS: tuple[Callable[[], "Finding | None"], ...] = (
     _check_database_tls,
     _check_runtime_ddl,
     _check_oauth_signing,
+    _check_privacy_deletion_credentials,
     _check_agent_authentication,
     _check_agent_gateway_secret,
     _check_host_token_rotation_readiness,

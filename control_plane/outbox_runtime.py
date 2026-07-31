@@ -36,6 +36,7 @@ from typing import Any
 from psycopg import Connection, sql
 
 from control_plane.db import run_transaction
+from control_plane.operational_metrics import ServiceHeartbeat
 from control_plane.outbox import OutboxDispatcher, OutboxEvent
 
 log = logging.getLogger("xcelsior.control_plane.outbox_runtime")
@@ -423,8 +424,16 @@ def run_dispatcher_loop(
     dispatcher = OutboxDispatcher(dispatcher_id or f"outbox-{os.getpid()}", default_handlers())
     stop = stop or threading.Event()
     cycles = 0
+    heartbeat = ServiceHeartbeat(
+        "outbox",
+        replica_id=dispatcher.dispatcher_id,
+    )
     log.info("outbox dispatcher %s starting", dispatcher.dispatcher_id)
     while not stop.is_set():
+        try:
+            heartbeat.emit_if_due()
+        except Exception:
+            log.exception("outbox heartbeat failed; dispatcher continuing")
         try:
             stats = dispatcher.run_once()
             cycles += 1

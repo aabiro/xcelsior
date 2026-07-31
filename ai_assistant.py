@@ -8,6 +8,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from collections import defaultdict, deque
@@ -2231,7 +2232,6 @@ def _build_openai_tools() -> list[dict]:
 def _parse_wizard_context(page_context: str) -> tuple[str, dict[str, str]]:
     """Parse 'cli-wizard:STEP_ID | key=value | ...' into (step_id, kv_dict)."""
     from urllib.parse import unquote
-    import re
 
     step_id = ""
     kv: dict[str, str] = {}
@@ -3567,7 +3567,13 @@ def build_ai_system_prompt(user: dict, page_context: str = "") -> str:
     """Build a context-rich system prompt including user details, platform docs, and onboarding detection."""
     from chat import _load_llms_txt
 
-    context = _load_llms_txt()
+    # Keep the live assistant fail-closed even while the documentation refresh
+    # is handled separately from this provider-admission slice.
+    context = re.sub(
+        r"npx @xcelsior-gpu/wizard@[^\s`]+",
+        "npx @xcelsior-gpu/wizard@0.1.0",
+        _load_llms_txt(),
+    )
 
     role = user.get("role", "user")
     is_admin = bool(user.get("is_admin"))
@@ -3622,12 +3628,13 @@ When a user wants to provide GPUs, guide them step-by-step:
 3. Use `estimate_cost` in reverse — estimate monthly earnings at 40-70% utilisation.
 4. Walk them through installation:
    ```bash
-   npx @xcelsior-gpu/wizard@latest
+   npx @xcelsior-gpu/wizard@0.1.0
    ```
    (Use `npx`, not `npm install -g` — a global install writes to a root-owned
    directory like /usr/lib/node_modules and fails with EACCES on most Linux setups.)
    The AI Onboarding Wizard asks whether they want to rent, provide, or both — then handles
-   hardware detection, host registration, pricing, and worker service setup automatically.
+   hardware detection, pending host registration, pricing, and worker service setup.
+   The host remains unlisted until authoritative worker verification admits it.
 5. Recommend completing their profile and jurisdiction settings for better reputation.
 6. Mention SLA tiers (community → secure → sovereign) and how higher tiers earn more.
 
@@ -3635,13 +3642,15 @@ WORKER INSTALLATION GUIDE (provide when users ask how to install the worker):
 
 **Option A: AI Onboarding Wizard (Recommended)**
 ```bash
-npx @xcelsior-gpu/wizard@latest
+npx @xcelsior-gpu/wizard@0.1.0
 ```
 (Use `npx`, not `npm install -g` — global installs fail with EACCES against
 root-owned /usr/lib/node_modules on most Linux setups. To use the SDK in your
 own project, `npm install @xcelsior-gpu/sdk` locally — never with `-g`.)
 The AI Onboarding Wizard will ask your intent (rent, provide, or both), then handle
-hardware detection, host registration, pricing, and systemd service setup.
+hardware detection, pending host registration, pricing, and systemd service setup.
+Registration does not admit or list the host; authoritative worker verification is
+required before it can accept marketplace work.
 
 It will prompt for:
 - API key (from Dashboard → Settings → API & SSH)
@@ -3656,7 +3665,8 @@ SDK commands after setup:
 - `xcelsior diagnostics --full` — run diagnostics
 - `xcelsior earnings --period 30d` — view earnings summary
 
-Requirements: Node.js >= 18, NVIDIA drivers >= 535, Docker >= 24.0, Ubuntu 22.04+ or WSL2.
+Requirements: Node.js >= 18, NVIDIA drivers >= 550, Docker >= 24.0,
+NVIDIA Container Toolkit/runtime, Ubuntu 22.04+ or WSL2.
 
 **Option B: Manual Setup**
 1. Install: `curl -fsSL https://{_BASE_DOMAIN}/install.sh | bash`
@@ -3688,10 +3698,11 @@ Requirements: Node.js >= 18, NVIDIA drivers >= 535, Docker >= 24.0, Ubuntu 22.04
 4. Enable: `sudo systemctl daemon-reload && sudo systemctl enable --now xcelsior-worker`
 5. Verify: `sudo systemctl status xcelsior-worker`
 
-Register host first at: Dashboard → Hosts → Register Host (the AI Onboarding Wizard handles this automatically).
+Register host first at: Dashboard → Hosts → Register Host. Registration remains
+pending and unlisted until authoritative worker verification admits the host.
 
 Troubleshooting:
-- nvidia-smi not found → `sudo apt install nvidia-driver-535`
+- nvidia-smi not found → install a supported NVIDIA driver (550 or newer)
 - Docker permission denied → `sudo usermod -aG docker $USER`
 - Can't connect → check firewall allows outbound HTTPS to {_BASE_DOMAIN}:443
 - Not picking up jobs → verify pricing via `xcelsior pricing compare`

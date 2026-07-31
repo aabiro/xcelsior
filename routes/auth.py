@@ -1940,22 +1940,43 @@ def api_auth_logout(request: Request):
 
 @router.delete("/api/auth/me", tags=["Auth"])
 def api_auth_delete_account(request: Request):
-    """Delete the current user's account."""
+    """Start the durable cross-store account deletion workflow."""
+    from privacy_deletion import (
+        PrivacyDeletionError,
+        create_deletion_request,
+    )
+
     user = _require_user_grant(request)
+    idempotency_key = request.headers.get("Idempotency-Key", "").strip()
+    try:
+        receipt = create_deletion_request(
+            user_id=str(user.get("user_id") or ""),
+            email=str(user.get("email") or ""),
+            customer_ids=[str(user.get("customer_id") or "")],
+            idempotency_key=idempotency_key,
+            requested_by=str(user.get("user_id") or user.get("email") or ""),
+            request_source="account_settings",
+        )
+    except PrivacyDeletionError as exc:
+        raise HTTPException(428, str(exc)) from exc
 
-    if _USE_PERSISTENT_AUTH:
-        UserStore.delete_user(user["email"])
-    else:
-        with _user_lock:
-            _users_db.pop(user["email"], None)
-            to_remove = [k for k, v in _sessions.items() if v.get("email") == user["email"]]
-            for k in to_remove:
-                del _sessions[k]
-            to_remove = [k for k, v in _api_keys.items() if v.get("email") == user["email"]]
-            for k in to_remove:
-                del _api_keys[k]
-
-    return {"ok": True, "message": "Account deleted"}
+    response = JSONResponse(
+        status_code=202,
+        content={
+            "ok": True,
+            "request_id": receipt.request_id,
+            "state": receipt.state,
+            "deadline_at": receipt.deadline_at.isoformat(),
+            "status_token": receipt.status_token,
+            "already_existed": receipt.already_existed,
+            "message": (
+                "Account deletion is in progress. Completion is reported only "
+                "after every data store has recorded an outcome."
+            ),
+        },
+    )
+    _clear_auth_cookie(response)
+    return response
 
 
 @router.post("/api/keys/generate", tags=["Auth"], deprecated=True)

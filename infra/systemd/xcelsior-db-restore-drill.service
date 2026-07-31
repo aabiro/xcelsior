@@ -1,0 +1,23 @@
+[Unit]
+Description=Xcelsior isolated PostgreSQL restore and invariant drill
+Documentation=file:/opt/xcelsior/docs/xcelsior-production-data-architecture-companion.md
+After=network-online.target postgresql.service docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/xcelsior
+ExecStart=/opt/xcelsior/scripts/restore-db-drill.sh
+Nice=15
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+UMask=0077
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/backups/xcelsior /var/lib/postgresql /run/docker.sock /var/lib/node_exporter/textfile_collector
+NoNewPrivileges=true
+TimeoutStartSec=2h
