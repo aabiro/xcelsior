@@ -285,6 +285,19 @@ export function McpLandingContent() {
               </AuthAwareLink>
             </div>
           </div>
+
+          {/* Fallback path for agents that speak no MCP at all — the skill drives
+              the REST API through the SDK instead, so it needs no client support. */}
+          <div className="site-callout site-callout-violet" style={{ marginTop: 32 }}>
+            <h2 className="site-callout-title">{t("mcp.landing.skill_title")}</h2>
+            <p className="site-callout-copy">{t("mcp.landing.skill_desc")}</p>
+            <CodeBlock
+              filename="terminal"
+              code="npx skills add xcelsior-gpu/skill"
+              className="site-marketing-code"
+            />
+            <p className="site-callout-copy">{t("mcp.landing.skill_note")}</p>
+          </div>
         </section>
 
         <section className="site-rails site-cta">

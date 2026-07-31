@@ -26,7 +26,7 @@ The fastest route is **Dashboard → MCP (Quick Connect)**, which gives you a re
 
 ### Option 2 — Agent Skill (no MCP client needed)
 
-Some agents have no MCP support at all. For those, install the Xcelsior Agent Skill, which teaches the agent to drive the public REST API directly:
+Some agents have no MCP support at all. For those, install the Xcelsior Agent Skill, which teaches the agent to drive the platform through the official TypeScript SDK:
 
 ```bash
 npx skills add xcelsior-gpu/skill
@@ -38,7 +38,11 @@ Then authenticate by exporting the same access token from Quick Connect:
 export XCELSIOR_ACCESS_TOKEN="xcl_..."
 ```
 
-The agent can then list GPUs, check spot pricing, estimate cost, launch and monitor instances, and check your balance — in natural language, without speaking the Model Context Protocol at all. This is the command-line route: you install once from your shell, and any agent on that machine picks it up.
+The agent installs `@xcelsior-gpu/sdk` and can then list GPUs, check spot pricing, estimate cost, launch and monitor instances, and check your balance — in natural language, without speaking the Model Context Protocol at all.
+
+This is the command-line route: you install once from your shell, and any agent on that machine picks it up. Because it goes through the generated SDK rather than hand-written requests, the agent gets typed responses and real error classes, and cannot drift from the API's wire format.
+
+The skill is open source at [github.com/xcelsior-gpu/skill](https://github.com/xcelsior-gpu/skill).
 
 ## Agent Tool Capabilities
 
