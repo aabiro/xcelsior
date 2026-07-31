@@ -71,6 +71,15 @@ defects in the new one. In priority order:
    button still downloads billing CSV only), the governed warehouse deletion
    sink, observability stack deployment, and the "Major original-goal gaps"
    section below.
+5. **Order-dependent flake:** `tests/test_api.py::TestJobEndpoints::test_list_jobs`
+   raises a psycopg error only when run after the rest of the suite; it passes
+   in isolation. Shared-state leakage between test modules, not a product bug.
+
+**Fern docs are published.** `./scripts/publish-fern-docs.sh` (repo root, not
+`frontend/`) ran clean: `fern check` 0 errors, 17 pages live at
+https://xcelsior.docs.buildwithfern.com and https://docs.xcelsior.ca, both
+returning 200. Fern CLI reports an available upgrade (4.58 → 5.89) which was
+deliberately not taken during a publish.
 
 Verified along the way and safe to rely on: migrations rehearse up/down/up
 (`081->082->081->082` and `084->085->084->085`), the migration ledger head is
