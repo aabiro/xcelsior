@@ -95,8 +95,8 @@ def _mk_host(
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO hosts (host_id, status, registered_at, payload,
-                                  administrative_state, availability_state)
-               VALUES (%s, %s, %s, %s, %s, 'ready')""",
+                                  administrative_state, availability_state, admission_state)
+               VALUES (%s, %s, %s, %s, %s, 'ready', 'admitted')""",
             (
                 host_id,
                 status,

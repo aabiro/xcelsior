@@ -70,8 +70,8 @@ def _reserved(fleet, *, lease_claim_ttl_sec=60, lease_renewal_ttl_sec=300):
         )
         conn.execute(
             """INSERT INTO hosts (host_id, status, registered_at, payload,
-                                  administrative_state, availability_state)
-               VALUES (%s, 'active', %s, '{"admitted": true}', 'admitted', 'ready')""",
+                                  administrative_state, availability_state, admission_state)
+               VALUES (%s, 'active', %s, '{"admitted": true}', 'admitted', 'ready', 'admitted')""",
             (host_id, time.time()),
         )
         conn.execute(

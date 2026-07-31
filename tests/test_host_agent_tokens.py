@@ -58,8 +58,8 @@ def hosts():
     with _pool.connection() as conn:
         for host_id in ids:
             conn.execute(
-                "INSERT INTO hosts (host_id, status, registered_at, payload) "
-                "VALUES (%s, 'active', %s, %s)",
+                "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) "
+                "VALUES (%s, 'active', %s, %s, 'admitted')",
                 (
                     host_id,
                     time.time(),
