@@ -2433,11 +2433,29 @@ class TestUserAuth:
         # immediate 401 would be asserting synchronous deletion, which the
         # durable workflow deliberately replaced — so assert the receipt is
         # resolvable instead.
+        request_id = r.json()["request_id"]
         status = client.get(
-            f"/api/privacy/deletion-requests/{r.json()['request_id']}",
+            f"/api/privacy/deletion-requests/{request_id}",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert status.status_code in (200, 404), status.text
+
+        # A pending deletion request is global state: the privacy worker suite
+        # asserts on which requests are outstanding, so leaving this one behind
+        # makes that suite fail depending on test order.
+        from control_plane.db import run_transaction
+
+        def _cleanup(conn):
+            conn.execute(
+                "DELETE FROM privacy_deletion_sink_status WHERE request_id = %s",
+                (request_id,),
+            )
+            conn.execute(
+                "DELETE FROM privacy_deletion_requests WHERE request_id = %s",
+                (request_id,),
+            )
+
+        run_transaction(_cleanup, what="test_delete_account_cleanup")
 
 
 class TestPlatformAdminSecurity:
