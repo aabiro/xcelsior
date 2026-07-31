@@ -43,28 +43,29 @@ If you are building an application on top of Xcelsior, the wizard will:
 
 ## Scripting and automation
 
-For automation beyond the wizard — CI/CD pipelines, scheduled retraining, programmatic instance management — use one of the SDKs rather than a shell tool. They talk to the same public REST API the dashboard uses, and they handle authentication, retries, and typed errors for you.
-
-**Python**
-
-```bash
-pip install xcelsior
-```
-
-**TypeScript / Node**
+For automation beyond the wizard — CI/CD pipelines, scheduled retraining, programmatic instance management — use the TypeScript SDK. It talks to the same public REST API the dashboard uses, and handles authentication, retries, and typed errors for you.
 
 ```bash
 npm install @xcelsior-gpu/sdk
 ```
 
-Both SDKs authenticate with an API credential you create from **Dashboard → Settings**. See the TypeScript SDK and API Overview pages for client construction, error handling, and the full endpoint surface.
+```ts
+import { XcelsiorApiClient } from "@xcelsior-gpu/sdk";
 
-## The MCP command-line server
+const client = new XcelsiorApiClient({ token: process.env.XCELSIOR_ACCESS_TOKEN });
 
-If you would rather drive the platform from an AI agent than write client code, Xcelsior publishes a command-line MCP server you can run locally:
-
-```bash
-npx -y @xcelsior-gpu/mcp
+const gpus = await client.gpu.listAvailable();
+const quote = await client.billing.estimateCost();
+const run = await client.instances.create({ name: "training-run" });
+const logs = await client.instances.getLogs({ job_id: "JOB_ID" });
+await client.instances.cancel({ job_id: "JOB_ID" });
 ```
 
-Set `XCELSIOR_ACCESS_TOKEN` in your environment to authenticate, using the token from **Dashboard → MCP (Quick Connect)**. This is the local alternative to the hosted MCP endpoint, and it exposes the same agent tools. See the MCP Server page for full configuration.
+The client is organised by resource — `instances`, `marketplace`, `billing`, `gpu`, `serverless`, `volumes`, `teams`, `sshKeys` — mirroring the REST API. Authenticate with an API credential from **Dashboard → Settings**. See the TypeScript SDK and API Overview pages for the full surface.
+
+## Driving Xcelsior from an AI agent
+
+If you would rather have an agent operate the platform than write client code, there are two routes:
+
+- **Agent Skill** — one command teaches any agent to drive the REST API directly, with no MCP client required. See the MCP Server page.
+- **Hosted MCP server** — connect Claude, Cursor, or any MCP-capable agent to `https://xcelsior.ca/mcp`.
