@@ -83,7 +83,11 @@ def test_quick_connect_returns_live_token():
     body = r.json()
     assert body["ok"] is True
     assert body["access_token"]
-    assert body["expires_in"] > 0
+    assert body["access_token"].startswith("xcel_ai_")
+    # Agent keys are revoked, not expired. Reporting an expiry would make
+    # clients schedule a refresh that has nothing to refresh.
+    assert body["expires_in"] is None
+    assert body["in_use"] is False
     assert body["mcp_url"].endswith("/mcp")
     assert "gpu:read" in body["scopes"]
 
