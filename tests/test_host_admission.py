@@ -15,6 +15,7 @@ import time
 import uuid
 
 import pytest
+from unittest import mock
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -429,3 +430,31 @@ class TestRouteTrustBoundary:
         for block in source.split("@router.")[1:]:
             if "host_admission.decide_admission(" in block:
                 assert "_require_admin(request)" in block
+
+    def test_admin_guard_actually_rejects_a_non_admin(self):
+        """The structural check above passes even if _require_admin is inert.
+
+        This asserts the behaviour it depends on: a provider-role principal is
+        refused, so the operator-only routes really are operator-only.
+        """
+        from fastapi import HTTPException
+
+        from routes._deps import _require_admin
+
+        class _Req:
+            headers: dict = {}
+            cookies: dict = {}
+
+            class client:
+                host = "127.0.0.1"
+
+            scope: dict = {"type": "http", "headers": [], "path": "/api/admin/x"}
+
+        with mock.patch("routes._deps._require_auth", return_value=_provider()):
+            with pytest.raises(HTTPException) as exc:
+                _require_admin(_Req())
+        assert exc.value.status_code == 403
+
+        with mock.patch("routes._deps._require_auth", return_value=_operator()):
+            with mock.patch("routes._deps._is_platform_admin", return_value=True):
+                assert _require_admin(_Req())["role"] == "admin"
