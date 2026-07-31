@@ -403,6 +403,11 @@ def is_oauth_access_token(token: str) -> bool:
 # database round trip.
 AGENT_KEY_PREFIX = os.environ.get("XCELSIOR_AGENT_KEY_PREFIX", "xcel_ai_")
 AGENT_KEY_DISPLAY_CHARS = 4
+# Coarse enough to keep the auth path free of a per-request write, fine enough
+# that "never used" versus "in use" stays accurate in the dashboard.
+AGENT_KEY_TOUCH_INTERVAL_SEC = int(
+    os.environ.get("XCELSIOR_AGENT_KEY_TOUCH_INTERVAL_SEC", "300")
+)
 
 
 def looks_like_agent_key(token: str | None) -> bool:
@@ -491,7 +496,21 @@ def validate_agent_api_key(token: str) -> dict[str, Any] | None:
         return None
 
     user = UserStore.get_user_by_id(row["user_id"]) or {}
-    AgentKeyStore.touch_last_used(row["key_id"], time.time())
+    # last_used_at exists so the dashboard can tell a live key from an unused
+    # one; that question is answered just as well by a coarse timestamp. Writing
+    # it on every request would put a write — and row-level lock contention — on
+    # the hot authentication path of every agent call. Update at most once per
+    # AGENT_KEY_TOUCH_INTERVAL_SEC per key.
+    now = time.time()
+    if now - float(row.get("last_used_at") or 0) >= AGENT_KEY_TOUCH_INTERVAL_SEC:
+        try:
+            AgentKeyStore.touch_last_used(row["key_id"], now)
+        except Exception as exc:  # pragma: no cover - never fail auth on bookkeeping
+            import logging
+
+            logging.getLogger("xcelsior.oauth").warning(
+                "agent key last_used update failed (non-fatal): %s", exc
+            )
     return {
         "auth_type": "agent_api_key",
         "key_id": row["key_id"],
