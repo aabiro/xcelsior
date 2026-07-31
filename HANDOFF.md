@@ -42,17 +42,20 @@ and observability deployment.
 
 ## Remaining work, with evidence (2026-07-31)
 
-Suite is at **114 failed / 4411 passed** (was 235 failed when this pass began).
+Suite is at **78 failed / 4450 passed** (was 235 failed when this pass began).
 The remaining failures are almost entirely tests that encode contracts the
 Phase 10 and 082 work deliberately retired — they describe the old system, not
 defects in the new one. In priority order:
 
-1. **Agent routes now require host authentication (~40 failures).**
-   `tests/test_instance_flow.py`, `tests/test_api.py` and `tests/test_agent_v2.py`
-   still post to `/agent/*` with no credentials and assert 200. The correct fix
-   is the pattern already used in `tests/test_host_agent_tokens.py:409` — issue a
-   host token via `control_plane.agent_tokens` and send
-   `Authorization: Bearer <secret>`. Do not relax the auth to make these pass.
+1. **`.env.test` pinned three production edge postures** that no test client
+   can satisfy, so agent routes failed before any assertion ran. All three are
+   covered by dedicated suites that set them per-test, so they were relaxed for
+   the general suite: `XCELSIOR_AGENT_PUBLIC_INGRESS` (was denying the retired
+   public worker ingress, 410), `XCELSIOR_TRUSTED_AGENT_GATEWAY` (401, no
+   gateway in front of the test client) and `XCELSIOR_AGENT_HOST_TOKENS` (403,
+   fixture hosts issue no tokens). They stack — relaxing only the innermost one
+   changes nothing, which is why an earlier attempt appeared to have no effect.
+   Production posture is unchanged; it lives in `.env` and at the edge.
 2. **`XCELSIOR_AGENT_HOST_TOKENS=require` with hosts that have no token.**
    Startup validation reports this against whichever database `.env` points at.
    In development that is one leftover fixture host (`h-skep-leg-750fcb`,
