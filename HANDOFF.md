@@ -42,7 +42,7 @@ and observability deployment.
 
 ## Remaining work, with evidence (2026-07-31)
 
-Suite is **green: 4533 passed, 7 skipped, 0 failed** (was 235 failed when this
+Suite is **green: 4536 passed, 7 skipped, 0 failed** (was 235 failed when this
 pass began).
 
 The remaining failures are almost entirely tests that encode contracts the
@@ -117,10 +117,40 @@ Audited what this branch itself introduced, not just what it inherited:
   an exact outcome rather than `>= 1`, which would have passed even if the
   drain silently skipped events.
 
-Remaining known risk, unchanged: `balance_cad` is still float and still
-authoritative (66 readers vs 17 for `balance_micros`). Before attempting that
-cutover, read the `086` note above about `wallets_project_money` — dropping a
-`_cad` column without rewriting that trigger fails every wallet write.
+### Money representation — corrected
+
+An earlier note in this file said `balance_cad` was "still authoritative".
+That was wrong. `deposit`, `charge` and `refund` already write
+`balance_micros` with integer arithmetic, and four tables carry a projection
+trigger that derives the `_cad` column from the integer one:
+
+| table | trigger | `_cad` is |
+|---|---|---|
+| `wallets` | yes | derived |
+| `wallet_transactions` | yes | derived |
+| `wallet_holds` | yes | derived |
+| `usage_meters` | yes | derived |
+| **`payout_splits`** | **none** | **independently written** |
+
+So the floats on the first four are *outputs*. Two places were still assigning
+them in SQL — the wallet reset path and the `usage_meters` upsert — which
+inverts the direction and makes the float authoritative for those rows. Both
+now write micros only, and `tests/test_money_representation.py` fails if
+another one appears.
+
+**The real remaining risk is `payout_splits`.** It has all four pairs and no
+trigger, so `provider_share_cad` and `provider_share_micros` are written
+independently and can silently diverge — in the settlement path, where a
+divergence is money paid to the wrong figure. `stripe_connect` is correct to
+write both today. The fix is to give it a projection trigger (mirroring
+`wallets_project_money`) or drop its float columns and convert the readers —
+not to remove the dual write.
+
+Dropping the derived `_cad` columns on the other four tables is optional and
+low-value: they cost nothing, keep ad-hoc SQL readable, and removing them
+means rewriting four triggers plus roughly sixty read sites. If it is ever
+done, read the `086` note above first — dropping a `_cad` column without
+rewriting its trigger fails every write to that table.
 
 ## Read this first
 
