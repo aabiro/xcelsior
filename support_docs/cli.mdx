@@ -59,4 +59,12 @@ npm install @xcelsior-gpu/sdk
 
 Both SDKs authenticate with an API credential you create from **Dashboard → Settings**. See the TypeScript SDK and API Overview pages for client construction, error handling, and the full endpoint surface.
 
-If you would rather drive the platform from an AI agent than write client code, the Xcelsior MCP server exposes the same capabilities as agent tools — see the MCP Server page.
+## The MCP command-line server
+
+If you would rather drive the platform from an AI agent than write client code, Xcelsior publishes a command-line MCP server you can run locally:
+
+```bash
+npx -y @xcelsior-gpu/mcp
+```
+
+Set `XCELSIOR_ACCESS_TOKEN` in your environment to authenticate, using the token from **Dashboard → MCP (Quick Connect)**. This is the local alternative to the hosted MCP endpoint, and it exposes the same agent tools. See the MCP Server page for full configuration.
