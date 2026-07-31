@@ -428,6 +428,22 @@ async def lifespan(app):
             raise
         log.warning("startup validation could not run: %s", exc)
 
+    # ── Support documentation corpus ───────────────────────────────────
+    # Without this the ai_docs table stays empty and Xcel AI answers every
+    # documentation question with "the index is unavailable". Refreshed on
+    # each boot so a deploy that ships doc changes also ships the answers.
+    # Only allowlisted public docs are ingested — see collect_public_docs().
+    try:
+        from ai_assistant import ingest_docs
+        from ai_assistant_config import FEATURE_AI_ASSISTANT
+
+        if FEATURE_AI_ASSISTANT:
+            log.info("Support docs corpus refreshed: %d chunks", ingest_docs())
+    except Exception as exc:
+        # Never block boot on documentation. A stale or empty corpus degrades
+        # the assistant; a failed API start takes the whole platform down.
+        log.warning("support docs ingestion failed (non-fatal): %s", exc)
+
     # ── One-time backfill: ensure owner field exists on active jobs ────
     db_backend = os.environ.get("XCELSIOR_DB_BACKEND", "postgres").lower()
     try:

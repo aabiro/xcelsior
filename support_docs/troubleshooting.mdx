@@ -1,0 +1,78 @@
+---
+title: Troubleshooting
+subtitle: Common problems and how to resolve them.
+slug: troubleshooting
+---
+
+# Troubleshooting
+
+This page covers the issues people hit most often. If none of it matches what you are seeing, ask Xcel AI in your dashboard — it can read your account state and tell you exactly what is happening to your instance or wallet.
+
+## My instance will not start
+
+**Check your wallet balance first.** Launching an instance requires a positive balance. Before an instance starts, the platform estimates roughly one hour of runtime at the current rate and refuses the launch if your available balance will not cover it. Top up from the Billing page and try again.
+
+**Check GPU availability.** The marketplace is a live fleet of real machines, so a specific GPU model is not always free. If your launch is waiting, either pick a different GPU tier or leave the job queued — it will be assigned as soon as matching capacity appears.
+
+**Check your requested VRAM.** If you request more VRAM than any available host can offer, the scheduler cannot place the job. Reduce the requirement or choose a larger GPU tier.
+
+## My job is stuck in "queued"
+
+Queued means the scheduler has accepted the job but has not yet found a host that satisfies its requirements. This is normal and usually brief. It persists when:
+
+- No host currently has enough free VRAM for your request.
+- You have constrained placement (for example, Canada-only routing) and no matching host is free.
+- Your balance dropped below the threshold needed to start.
+
+Jobs are assigned automatically when capacity frees up; you do not need to resubmit.
+
+## My spot instance was interrupted
+
+This is expected behaviour, not a fault. Spot instances run on spare capacity, and a non-interruptible workload can reclaim that GPU. When that happens your instance is preempted and metering stops at the moment of preemption — you are billed pro-rata to the second, never for the full hour.
+
+To avoid interruption entirely, use an On-Demand instance. To survive interruption gracefully, checkpoint your work to a persistent volume so a restarted run can resume from the last checkpoint.
+
+## My balance ran out mid-job
+
+The platform tracks a low-balance threshold and sends you a notification before you hit zero. If the balance reaches zero, billing enters a hard-stop state and running work is halted rather than silently accruing debt.
+
+Top up your wallet from the Billing page. Any persistent volumes you created still exist and still bill for storage while the instance is stopped, so delete volumes you no longer need.
+
+## I cannot SSH into my instance
+
+Instances are not exposed to the public internet — they live on a private mesh network. You cannot SSH to them from an arbitrary machine.
+
+1. Install the Tailscale client and join the Xcelsior mesh using the login server and pre-auth key from your dashboard.
+2. Confirm you received a `100.64.x.x` mesh address.
+3. Confirm the SSH public key you are using is registered on your account.
+
+If you would rather not configure a mesh client at all, use the built-in **Web Terminal** in the dashboard, which needs no local setup.
+
+## My web terminal keeps disconnecting
+
+The terminal reconnects automatically with exponential backoff, so brief network drops recover on their own. Two behaviours are deliberate and are not bugs:
+
+- **Idle sessions close after 4 hours.** Your shell runs inside `tmux`, so your processes keep running. Reopen the terminal and it reattaches to the same session.
+- **Output is rate-limited to 512 KB/s.** A command producing an enormous burst of output is throttled to keep the session responsive rather than freezing the browser tab.
+
+## My volume will not attach
+
+- A volume can only be attached to one instance at a time. Detach it from the previous instance first.
+- Check you have not hit the account limits: 2,000 GB total storage across a maximum of 50 volumes.
+- Encrypted volumes need to be unlocked by the platform at attach time. If an encrypted volume fails to attach, retry once, then contact support — do not delete the volume, since that destroys the data.
+
+## My payment did not go through
+
+Direct wallet deposits through the raw API are intentionally blocked; credits must arrive through a real payment rail. Add funds using Stripe (card), PayPal, or crypto from the Billing page.
+
+If a card payment fails, the usual causes are an issuer decline, insufficient funds, or a 3-D Secure challenge that was not completed. Your bank will normally tell you which. Failed payments do not credit your wallet, and no charge is captured.
+
+## I was charged for something I do not recognise
+
+Open your invoices from the Billing page — each one itemises the job, its duration, the rate applied, and provincial tax. Compute is billed by the second at the rate locked when the instance was assigned, and storage bills separately per GB-month.
+
+If the charge still looks wrong after reviewing the invoice, contact support with the invoice number.
+
+## Getting more help
+
+Ask Xcel AI in your dashboard — it has access to your account state and this documentation, and can explain a specific charge, job, or instance directly. For anything it cannot resolve, including billing disputes and suspected security issues, contact Xcelsior support.
