@@ -60,13 +60,17 @@ defects in the new one. In priority order:
    Startup validation reports this against whichever database `.env` points at.
    In development that is one leftover fixture host (`h-skep-leg-750fcb`,
    registered 2026-07-19, one job attached), not a production condition.
-3. **Money precision is half-migrated.** `wallets` carries both
-   `auto_topup_amount_cad` / `auto_topup_threshold_cad` (float, what the code
-   reads) and `auto_topup_amount_micros` / `auto_topup_threshold_micros`
-   (integer, populated on 147 rows, read by nothing). Float is the wrong
-   representation for money. Finish the cutover to `_micros` and drop the
-   `_cad` pair; do not drop `_micros`, which is what migration `085`
-   deliberately left alone.
+3. **Auto-top-up money precision: DONE (migration `086`).** The float pair is
+   retired and the code reads integer micros; the Stripe charge is now
+   `micros // 10_000` rather than `int(amount_cad * 100)`, which truncated.
+   The trap worth knowing for the next pair: `wallets_project_money` mirrors
+   every `_cad` <-> `_micros` column, and PL/pgSQL resolves `NEW.<field>` at
+   execution time, so dropping a column without rewriting that function makes
+   **every wallet INSERT and UPDATE fail**. The first draft of `086` did
+   exactly that. Rewrite the trigger in the same transaction as the drop.
+   **`balance_cad` is still float and still authoritative** — 66 readers
+   against 17 for `balance_micros`. That is the next money cutover, and it is
+   larger than this one was.
 4. **Still open from the original plan:** personal-data export (the settings
    button still downloads billing CSV only), the governed warehouse deletion
    sink, observability stack deployment, and the "Major original-goal gaps"
