@@ -1131,7 +1131,7 @@ class BillingEngine:
             row["held_cad"] = held
             row["available_cad"] = round(max(0.0, balance - held), 4)
             # Low-balance UX signals (warning before hard stop at zero).
-            warn_at = float(row.get("auto_topup_threshold_cad") or 0) or float(
+            warn_at = micros_to_cad(row.get("auto_topup_threshold_micros") or 0) or float(
                 os.environ.get("XCELSIOR_LOW_BALANCE_WARN_CAD", "5.0")
             )
             row["low_balance_threshold_cad"] = warn_at
@@ -1666,7 +1666,7 @@ class BillingEngine:
         Uses auto-topup threshold when configured; otherwise $5 CAD default.
         """
         wallet = self.get_wallet(customer_id)
-        threshold = float(wallet.get("auto_topup_threshold_cad") or 0)
+        threshold = micros_to_cad(wallet.get("auto_topup_threshold_micros") or 0)
         if threshold > 0:
             return threshold
         return float(os.environ.get("XCELSIOR_LOW_BALANCE_WARN_CAD", "5.0"))
@@ -2742,15 +2742,17 @@ class BillingEngine:
             conn.execute(
                 """UPDATE wallets
                    SET auto_topup_enabled = %s,
-                       auto_topup_amount_cad = %s,
-                       auto_topup_threshold_cad = %s,
+                       auto_topup_amount_micros = %s,
+                       auto_topup_threshold_micros = %s,
                        stripe_payment_method_id = %s,
                        updated_at = %s
                    WHERE customer_id = %s""",
                 (
                     enabled,
-                    amount_cad,
-                    threshold_cad,
+                    # Convert once, at the edge. Storing money as float lets
+                    # rounding drift accumulate every time it is read back.
+                    cad_to_micros(amount_cad),
+                    cad_to_micros(threshold_cad),
                     stripe_payment_method_id,
                     time.time(),
                     customer_id,
@@ -2766,6 +2768,8 @@ class BillingEngine:
         return {
             "customer_id": customer_id,
             "auto_topup_enabled": enabled,
+            # The API contract stays in CAD; only the stored representation
+            # became integer micros.
             "auto_topup_amount_cad": amount_cad,
             "auto_topup_threshold_cad": threshold_cad,
         }
@@ -3588,7 +3592,7 @@ class BillingEngine:
                 """SELECT * FROM wallets
                    WHERE status = 'active'
                      AND auto_topup_enabled = true
-                     AND balance_cad <= auto_topup_threshold_cad
+                     AND balance_micros <= auto_topup_threshold_micros
                      AND stripe_payment_method_id != ''
                      AND stripe_customer_id != ''
                      AND auto_topup_failures < 3""",
@@ -3612,7 +3616,9 @@ class BillingEngine:
                 if not STRIPE_ENABLED or not _stripe_mod:
                     continue
 
-                amount_cents = int(w["auto_topup_amount_cad"] * 100)
+                # 10_000 micros == 1 cent. Integer division keeps the
+                # charged amount exact; float * 100 did not.
+                amount_cents = int(w["auto_topup_amount_micros"]) // 10_000
                 # Off-session saved PM: do not hardcode payment_method_types.
                 pi = _stripe_mod.PaymentIntent.create(
                     amount=amount_cents,
@@ -3632,7 +3638,7 @@ class BillingEngine:
                     "Auto-topup PaymentIntent created for %s: %s ($%.2f)",
                     customer_id,
                     pi.id,
-                    w["auto_topup_amount_cad"],
+                    micros_to_cad(w["auto_topup_amount_micros"]),
                 )
                 topped_up += 1
 
