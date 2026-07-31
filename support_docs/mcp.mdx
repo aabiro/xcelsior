@@ -24,29 +24,21 @@ The Xcelsior MCP Server is a hosted service at `https://xcelsior.ca/mcp`, using 
 
 The fastest route is **Dashboard → MCP (Quick Connect)**, which gives you a ready-made prompt with your access token already embedded — paste it to your agent and it configures itself.
 
-### Option 2 — Local CLI over stdio
+### Option 2 — Agent Skill (no MCP client needed)
 
-Some agents cannot reach a remote MCP server, or you may simply prefer a local subprocess. Run the Xcelsior MCP server on your own machine:
+Some agents have no MCP support at all. For those, install the Xcelsior Agent Skill, which teaches the agent to drive the public REST API directly:
 
 ```bash
-npx -y @xcelsior-gpu/mcp
+npx skills add xcelsior-gpu/skill
 ```
 
-Authenticate by setting `XCELSIOR_ACCESS_TOKEN` in the environment — the same access token from Quick Connect. In an agent config it looks like this:
+Then authenticate by exporting the same access token from Quick Connect:
 
-```json
-{
-  "mcpServers": {
-    "xcelsior": {
-      "command": "npx",
-      "args": ["-y", "@xcelsior-gpu/mcp"],
-      "env": { "XCELSIOR_ACCESS_TOKEN": "your-token" }
-    }
-  }
-}
+```bash
+export XCELSIOR_ACCESS_TOKEN="xcl_..."
 ```
 
-Because stdio never speaks HTTP to your agent, the client can never be pulled into an interactive OAuth flow — the token is supplied out of band. The server also starts even when no token is set, so your agent never shows it as "failed to start"; individual tool calls return a clear `401` telling you to refresh the token instead.
+The agent can then list GPUs, check spot pricing, estimate cost, launch and monitor instances, and check your balance — in natural language, without speaking the Model Context Protocol at all. This is the command-line route: you install once from your shell, and any agent on that machine picks it up.
 
 ## Agent Tool Capabilities
 
