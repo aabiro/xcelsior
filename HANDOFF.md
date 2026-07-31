@@ -42,7 +42,7 @@ and observability deployment.
 
 ## Remaining work, with evidence (2026-07-31)
 
-Suite is at **78 failed / 4450 passed** (was 235 failed when this pass began).
+Suite is at **34 failed / 4496 passed** (was 235 failed when this pass began).
 The remaining failures are almost entirely tests that encode contracts the
 Phase 10 and 082 work deliberately retired — they describe the old system, not
 defects in the new one. In priority order:
