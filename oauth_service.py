@@ -391,6 +391,121 @@ def is_oauth_access_token(token: str) -> bool:
     return str(token or "").startswith(ACCESS_TOKEN_PREFIX)
 
 
+# ── Agent API keys (MCP + Agent Skill) ────────────────────────────────
+#
+# Agent credentials are pasted into an editor config once and left there, so
+# they are long-lived by design and must survive a cache flush. They are
+# stored in Postgres as a SHA-256 digest and never expire; they are revoked.
+#
+# The prefix is not decoration: secret scanners (GitHub, gitleaks) match on
+# known prefixes, so a key pasted into a public repo is detectable. It also
+# lets the bearer path reject a non-key in one string comparison instead of a
+# database round trip.
+AGENT_KEY_PREFIX = os.environ.get("XCELSIOR_AGENT_KEY_PREFIX", "xcel_ai_")
+AGENT_KEY_DISPLAY_CHARS = 4
+
+
+def looks_like_agent_key(token: str | None) -> bool:
+    """Cheap shape check so ordinary bearers skip the key lookup entirely."""
+    return bool(token) and str(token).startswith(AGENT_KEY_PREFIX)
+
+
+def _hash_agent_key(secret: str) -> str:
+    """SHA-256 of the presented secret.
+
+    The secret is 256 bits of CSPRNG output, so there is no low-entropy
+    pre-image for an attacker to grind and a slow KDF would buy nothing.
+    Digest lookup also keeps verification one indexed read.
+    """
+    return hashlib.sha256(secret.encode("utf-8")).hexdigest()
+
+
+def issue_agent_api_key(
+    *,
+    user: dict,
+    client_id: str,
+    scopes: list[str],
+    audience: str | None = None,
+    name: str = "Agent key",
+    replace_existing: bool = False,
+) -> dict[str, Any]:
+    """Mint a durable agent key. The plaintext is returned exactly once.
+
+    When ``replace_existing`` is set, every live key this user holds for the
+    same client is revoked first — rotation has to invalidate what it
+    replaces, or it just accumulates working credentials.
+    """
+    from db import AgentKeyStore
+
+    now = time.time()
+    user_id = str(user.get("user_id") or user.get("email") or "")
+    if not user_id:
+        raise OAuthGrantError("invalid_request", "Cannot issue an agent key without a user")
+
+    replaced = 0
+    if replace_existing:
+        replaced = AgentKeyStore.revoke_all_for_client(user_id, client_id, now)
+
+    secret = f"{AGENT_KEY_PREFIX}{secrets.token_urlsafe(32)}"
+    key_id = str(uuid.uuid4())
+    AgentKeyStore.create(
+        key_id=key_id,
+        user_id=user_id,
+        client_id=client_id,
+        name=name,
+        # Enough to tell two keys apart in a list, far too little to use.
+        key_prefix=f"{AGENT_KEY_PREFIX}…{secret[-AGENT_KEY_DISPLAY_CHARS:]}",
+        key_hash=_hash_agent_key(secret),
+        scopes=" ".join(scopes),
+        audience=audience or OAUTH_AUDIENCE,
+        created_at=now,
+    )
+    return {
+        "access_token": secret,
+        "key_id": key_id,
+        "token_type": "Bearer",
+        "scope": " ".join(scopes),
+        "replaced_keys": replaced,
+        # No expires_in: these do not expire. Saying otherwise would make
+        # clients schedule a refresh that has nothing to refresh.
+        "expires_in": None,
+    }
+
+
+def validate_agent_api_key(token: str) -> dict[str, Any] | None:
+    """Resolve an agent key to a principal, or None.
+
+    Records use on success. ``last_used_at`` is what lets the dashboard tell a
+    key that is live in someone's editor from one that was generated and never
+    applied — the difference between a rotation that is safe and one that
+    silently breaks a working setup.
+    """
+    from db import AgentKeyStore
+
+    if not looks_like_agent_key(token):
+        return None
+    row = AgentKeyStore.get_live_by_hash(_hash_agent_key(token))
+    if not row:
+        return None
+
+    user = UserStore.get_user_by_id(row["user_id"]) or {}
+    AgentKeyStore.touch_last_used(row["key_id"], time.time())
+    return {
+        "auth_type": "agent_api_key",
+        "key_id": row["key_id"],
+        "client_id": row["client_id"],
+        "user_id": row["user_id"],
+        "email": user.get("email", ""),
+        "role": user.get("role", "submitter"),
+        "name": user.get("name", ""),
+        "is_admin": bool(user.get("is_admin")),
+        "customer_id": user.get("customer_id"),
+        "provider_id": user.get("provider_id"),
+        "scopes": (row["scopes"] or "").split() if row["scopes"] else [],
+        "audience": row["audience"],
+    }
+
+
 def _base64url_encode(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
 
