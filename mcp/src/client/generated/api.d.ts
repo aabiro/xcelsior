@@ -4,7 +4,7 @@
  */
 
 export interface paths {
-    "/api/v1/control-plane/commands/{command_id}/retry": {
+    "/api/v1/placements/simulate": {
         parameters: {
             query?: never;
             header?: never;
@@ -14,414 +14,14 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Api V1 Retry Agent Command
-         * @description Redeliver only failed/dead-letter commands without changing identity.
-         */
-        post: operations["api_v1_retry_agent_command_api_v1_control_plane_commands__command_id__retry_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/control-plane/health": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Api V1 Control Plane Health
-         * @description §18/§20.2 — control-plane health aggregate: outbox, findings, tasks.
+         * Api Simulate Placement
+         * @description §18 placement feasibility for a spec — read-only.
          *
-         *     A dashboard "0" from a broken pipeline must be distinguishable from a
-         *     genuine zero (DA§17), so this reports live counts, not a single flag.
-         *     Operator read.
+         *     Reuses the launch service's snapshot + Stage-C filter simulation: it creates
+         *     no plan, no attempt, no allocation, and no lease. Answers "could this be
+         *     placed right now, and if not, why".
          */
-        get: operations["api_v1_control_plane_health_api_v1_control_plane_health_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/control-plane/queue": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Api V1 Control Plane Queue
-         * @description §18/§20.2 — the queued instances awaiting placement, with reasons. Operator read.
-         */
-        get: operations["api_v1_control_plane_queue_api_v1_control_plane_queue_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/control-plane/reconciliation-findings": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Api V1 Reconciliation Findings
-         * @description §18/§20.2 — reconciler findings feed (operator surface).
-         *
-         *     Admin, or a machine principal with `control_plane:read`. Wraps the existing
-         *     `reconciliation_findings` authority; read-only.
-         */
-        get: operations["api_v1_reconciliation_findings_api_v1_control_plane_reconciliation_findings_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/hosts/{host_id}/capacity": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Api V1 Host Capacity
-         * @description §18/§20.4 — a host's GPU capacity snapshot. Operator read.
-         */
-        get: operations["api_v1_host_capacity_api_v1_hosts__host_id__capacity_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/hosts/{host_id}/drain": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Api V1 Drain Host
-         * @description §3.3 drain — stop **new** placements only. Running workloads keep running.
-         *
-         *     Unlike the legacy endpoint, this does NOT preempt. To remove workloads, call
-         *     `/evictions` (a separate scope + audit trail).
-         */
-        post: operations["api_v1_drain_host_api_v1_hosts__host_id__drain_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/hosts/{host_id}/eviction-plans": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Api V1 Create Eviction Plan
-         * @description Create a human-approved plan; this never evicts workloads.
-         */
-        post: operations["api_v1_create_eviction_plan_api_v1_hosts__host_id__eviction_plans_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/hosts/{host_id}/eviction-plans/{plan_id}/execute": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Api V1 Execute Eviction Plan */
-        post: operations["api_v1_execute_eviction_plan_api_v1_hosts__host_id__eviction_plans__plan_id__execute_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/hosts/{host_id}/evictions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Api V1 Evict Host Workloads
-         * @description §3.3 evict — remove running workloads from a host, distinct from drain.
-         *
-         *     Requires the `hosts:evict` scope (a principal cleared only to drain cannot
-         *     evict). Each workload is preempted (running → preempted → requeued), which
-         *     abandons its placement so a fresh, fenced attempt is scheduled elsewhere.
-         *     Records a separate `host.workloads_evicted` audit event.
-         */
-        post: operations["api_v1_evict_host_workloads_api_v1_hosts__host_id__evictions_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/hosts/{host_id}/observations": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Api V1 Host Observations
-         * @description §18/§20.4 — recent worker-reported observations for a host. Operator read.
-         */
-        get: operations["api_v1_host_observations_api_v1_hosts__host_id__observations_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/hosts/{host_id}/undrain": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Api V1 Undrain Host
-         * @description §3.3 undrain — return a drained host to service.
-         */
-        post: operations["api_v1_undrain_host_api_v1_hosts__host_id__undrain_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/instances/{job_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Api V1 Instance
-         * @description Tenant-safe instance detail; cross-tenant identifiers are not-found.
-         */
-        get: operations["api_v1_instance_api_v1_instances__job_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/instances/{job_id}/active-lease": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Api V1 Instance Active Lease
-         * @description Current lease health with a tenant-safe host alias and no credentials.
-         */
-        get: operations["api_v1_instance_active_lease_api_v1_instances__job_id__active_lease_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/instances/{job_id}/attempts": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Api V1 Instance Attempts
-         * @description §18 — the raw attempt records for a job. Tenant-scoped.
-         */
-        get: operations["api_v1_instance_attempts_api_v1_instances__job_id__attempts_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/instances/{job_id}/control-plane": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Api V1 Instance Control Plane
-         * @description §18/§20.3 — a job's control-plane state: phase, desired state, current
-         *     attempt. Tenant-scoped; a cross-tenant id is not-found (no existence leak).
-         */
-        get: operations["api_v1_instance_control_plane_api_v1_instances__job_id__control_plane_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/instances/{job_id}/events": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Api V1 Instance Events
-         * @description Durable, opaque-cursor event page for resumable MCP watches.
-         */
-        get: operations["api_v1_instance_events_api_v1_instances__job_id__events_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/instances/{job_id}/placement-explanation": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Api V1 Instance Placement Explanation
-         * @description §3.2/§18 — the persisted placement explanation for the current attempt.
-         *
-         *     Returns the bounded, pre-computed explanation the scheduler stored (no LLM
-         *     invents a reason). Tenant-scoped; not-found for a cross-tenant id.
-         */
-        get: operations["api_v1_instance_placement_explanation_api_v1_instances__job_id__placement_explanation_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/instances/{job_id}/reconcile": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Api V1 Instance Reconcile
-         * @description §3.3/§18 reconcile — **enqueue** a reconcile for this instance.
-         *
-         *     It never performs direct repair (§3.3): it inserts a durable request into
-         *     `reconciliation_queue`, coalesced to one pending entry per instance, and the
-         *     reconciler claims and processes it out-of-band. Tenant-scoped.
-         */
-        post: operations["api_v1_instance_reconcile_api_v1_instances__job_id__reconcile_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/instances/{job_id}/retry": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Api V1 Instance Retry
-         * @description §18 — re-enqueue a failed/stuck instance (does not run the queue inline).
-         *
-         *     Tenant-scoped write. Delegates to the one requeue authority; the scheduler
-         *     then claims and places it.
-         */
-        post: operations["api_v1_instance_retry_api_v1_instances__job_id__retry_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/instances/{job_id}/timeline": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Api V1 Instance Timeline
-         * @description §20.3 — the attempt timeline for a job (reserve → command → lease →
-         *     start → end per attempt). Tenant-scoped; cross-tenant is not-found.
-         */
-        get: operations["api_v1_instance_timeline_api_v1_instances__job_id__timeline_get"];
-        put?: never;
-        post?: never;
+        post: operations["api_simulate_placement_api_v1_placements_simulate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -492,26 +92,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/launch-plans/{plan_id}/execute": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Api Execute Launch Plan
-         * @description §14.3 execute. Exactly-once; a price move beyond tolerance is 409 quote_changed.
-         */
-        post: operations["api_execute_launch_plan_api_v1_launch_plans__plan_id__execute_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/launch-plans/{plan_id}/revoke": {
         parameters: {
             query?: never;
@@ -532,6 +112,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/launch-plans/{plan_id}/execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Api Execute Launch Plan
+         * @description §14.3 execute. Exactly-once; a price move beyond tolerance is 409 quote_changed.
+         */
+        post: operations["api_execute_launch_plan_api_v1_launch_plans__plan_id__execute_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mcp/tool-audit": {
         parameters: {
             query?: never;
@@ -546,6 +146,386 @@ export interface paths {
          * @description Persist a redacted MCP audit and its delivery intent atomically.
          */
         post: operations["api_v1_mcp_tool_audit_api_v1_mcp_tool_audit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/instances/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api V1 Instance
+         * @description Tenant-safe instance detail; cross-tenant identifiers are not-found.
+         */
+        get: operations["api_v1_instance_api_v1_instances__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hosts/{host_id}/eviction-plans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Api V1 Create Eviction Plan
+         * @description Create a human-approved plan; this never evicts workloads.
+         */
+        post: operations["api_v1_create_eviction_plan_api_v1_hosts__host_id__eviction_plans_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hosts/{host_id}/eviction-plans/{plan_id}/execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Api V1 Execute Eviction Plan */
+        post: operations["api_v1_execute_eviction_plan_api_v1_hosts__host_id__eviction_plans__plan_id__execute_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hosts/{host_id}/drain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Api V1 Drain Host
+         * @description §3.3 drain — stop **new** placements only. Running workloads keep running.
+         *
+         *     Unlike the legacy endpoint, this does NOT preempt. To remove workloads, call
+         *     `/evictions` (a separate scope + audit trail).
+         */
+        post: operations["api_v1_drain_host_api_v1_hosts__host_id__drain_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hosts/{host_id}/undrain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Api V1 Undrain Host
+         * @description §3.3 undrain — return a drained host to service.
+         */
+        post: operations["api_v1_undrain_host_api_v1_hosts__host_id__undrain_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hosts/{host_id}/evictions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Api V1 Evict Host Workloads
+         * @description §3.3 evict — remove running workloads from a host, distinct from drain.
+         *
+         *     Requires the `hosts:evict` scope (a principal cleared only to drain cannot
+         *     evict). Each workload is preempted (running → preempted → requeued), which
+         *     abandons its placement so a fresh, fenced attempt is scheduled elsewhere.
+         *     Records a separate `host.workloads_evicted` audit event.
+         */
+        post: operations["api_v1_evict_host_workloads_api_v1_hosts__host_id__evictions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/instances/{job_id}/control-plane": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api V1 Instance Control Plane
+         * @description §18/§20.3 — a job's control-plane state: phase, desired state, current
+         *     attempt. Tenant-scoped; a cross-tenant id is not-found (no existence leak).
+         */
+        get: operations["api_v1_instance_control_plane_api_v1_instances__job_id__control_plane_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/instances/{job_id}/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api V1 Instance Timeline
+         * @description §20.3 — the attempt timeline for a job (reserve → command → lease →
+         *     start → end per attempt). Tenant-scoped; cross-tenant is not-found.
+         */
+        get: operations["api_v1_instance_timeline_api_v1_instances__job_id__timeline_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/instances/{job_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api V1 Instance Events
+         * @description Durable, opaque-cursor event page for resumable MCP watches.
+         */
+        get: operations["api_v1_instance_events_api_v1_instances__job_id__events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/control-plane/reconciliation-findings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api V1 Reconciliation Findings
+         * @description §18/§20.2 — reconciler findings feed (operator surface).
+         *
+         *     Admin, or a machine principal with `control_plane:read`. Wraps the existing
+         *     `reconciliation_findings` authority; read-only.
+         */
+        get: operations["api_v1_reconciliation_findings_api_v1_control_plane_reconciliation_findings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/instances/{job_id}/attempts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api V1 Instance Attempts
+         * @description §18 — the raw attempt records for a job. Tenant-scoped.
+         */
+        get: operations["api_v1_instance_attempts_api_v1_instances__job_id__attempts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/instances/{job_id}/active-lease": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api V1 Instance Active Lease
+         * @description Current lease health with a tenant-safe host alias and no credentials.
+         */
+        get: operations["api_v1_instance_active_lease_api_v1_instances__job_id__active_lease_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/instances/{job_id}/placement-explanation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api V1 Instance Placement Explanation
+         * @description §3.2/§18 — the persisted placement explanation for the current attempt.
+         *
+         *     Returns the bounded, pre-computed explanation the scheduler stored (no LLM
+         *     invents a reason). Tenant-scoped; not-found for a cross-tenant id.
+         */
+        get: operations["api_v1_instance_placement_explanation_api_v1_instances__job_id__placement_explanation_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/instances/{job_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Api V1 Instance Retry
+         * @description §18 — re-enqueue a failed/stuck instance (does not run the queue inline).
+         *
+         *     Tenant-scoped write. Delegates to the one requeue authority; the scheduler
+         *     then claims and places it.
+         */
+        post: operations["api_v1_instance_retry_api_v1_instances__job_id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hosts/{host_id}/capacity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api V1 Host Capacity
+         * @description §18/§20.4 — a host's GPU capacity snapshot. Operator read.
+         */
+        get: operations["api_v1_host_capacity_api_v1_hosts__host_id__capacity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hosts/{host_id}/observations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api V1 Host Observations
+         * @description §18/§20.4 — recent worker-reported observations for a host. Operator read.
+         */
+        get: operations["api_v1_host_observations_api_v1_hosts__host_id__observations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/control-plane/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api V1 Control Plane Queue
+         * @description §18/§20.2 — the queued instances awaiting placement, with reasons. Operator read.
+         */
+        get: operations["api_v1_control_plane_queue_api_v1_control_plane_queue_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/control-plane/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api V1 Control Plane Health
+         * @description §18/§20.2 — control-plane health aggregate: outbox, findings, tasks.
+         *
+         *     A dashboard "0" from a broken pipeline must be distinguishable from a
+         *     genuine zero (DA§17), so this reports live counts, not a single flag.
+         *     Operator read.
+         */
+        get: operations["api_v1_control_plane_health_api_v1_control_plane_health_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -577,7 +557,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/placements/simulate": {
+    "/api/v1/instances/{job_id}/reconcile": {
         parameters: {
             query?: never;
             header?: never;
@@ -587,14 +567,34 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Api Simulate Placement
-         * @description §18 placement feasibility for a spec — read-only.
+         * Api V1 Instance Reconcile
+         * @description §3.3/§18 reconcile — **enqueue** a reconcile for this instance.
          *
-         *     Reuses the launch service's snapshot + Stage-C filter simulation: it creates
-         *     no plan, no attempt, no allocation, and no lease. Answers "could this be
-         *     placed right now, and if not, why".
+         *     It never performs direct repair (§3.3): it inserts a durable request into
+         *     `reconciliation_queue`, coalesced to one pending entry per instance, and the
+         *     reconciler claims and processes it out-of-band. Tenant-scoped.
          */
-        post: operations["api_simulate_placement_api_v1_placements_simulate_post"];
+        post: operations["api_v1_instance_reconcile_api_v1_instances__job_id__reconcile_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/control-plane/commands/{command_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Api V1 Retry Agent Command
+         * @description Redeliver only failed/dead-letter commands without changing identity.
+         */
+        post: operations["api_v1_retry_agent_command_api_v1_control_plane_commands__command_id__retry_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -655,24 +655,40 @@ export interface components {
              */
             role: string;
         };
+        /** AdmissionDecisionRequest */
+        AdmissionDecisionRequest: {
+            /** Action */
+            action: string;
+            /** Reason */
+            reason: string;
+            /** Idempotency Key */
+            idempotency_key: string;
+            /** Expected Version */
+            expected_version?: number | null;
+        };
         /** AgentDegradedReport */
         AgentDegradedReport: {
+            /** Host Id */
+            host_id: string;
+            /** Reason */
+            reason: string;
             /**
              * Context
              * @default
              */
             context: string;
-            /** Host Id */
-            host_id: string;
-            /** Reason */
-            reason: string;
+        };
+        /** AgentKeyRename */
+        AgentKeyRename: {
+            /** Name */
+            name: string;
         };
         /** AiChatRequest */
         AiChatRequest: {
-            /** Conversation Id */
-            conversation_id?: string | null;
             /** Message */
             message: string;
+            /** Conversation Id */
+            conversation_id?: string | null;
             /**
              * Page Context
              * @default
@@ -681,45 +697,45 @@ export interface components {
         };
         /** AiConfirmRequest */
         AiConfirmRequest: {
-            /** Approved */
-            approved: boolean;
             /** Confirmation Id */
             confirmation_id: string;
+            /** Approved */
+            approved: boolean;
         };
         /** AlertConfig */
         AlertConfig: {
             /** Email Enabled */
             email_enabled?: boolean | null;
-            /** Email From */
-            email_from?: string | null;
-            /** Email To */
-            email_to?: string | null;
             /** Smtp Host */
             smtp_host?: string | null;
-            /** Smtp Pass */
-            smtp_pass?: string | null;
             /** Smtp Port */
             smtp_port?: number | null;
             /** Smtp User */
             smtp_user?: string | null;
+            /** Smtp Pass */
+            smtp_pass?: string | null;
+            /** Email From */
+            email_from?: string | null;
+            /** Email To */
+            email_to?: string | null;
+            /** Telegram Enabled */
+            telegram_enabled?: boolean | null;
             /** Telegram Bot Token */
             telegram_bot_token?: string | null;
             /** Telegram Chat Id */
             telegram_chat_id?: string | null;
-            /** Telegram Enabled */
-            telegram_enabled?: boolean | null;
         };
         /** AllocateGPURequest */
         AllocateGPURequest: {
+            /** Offer Id */
+            offer_id: string;
+            /** Job Id */
+            job_id: string;
             /**
              * Gpu Count
              * @default 1
              */
             gpu_count: number;
-            /** Job Id */
-            job_id: string;
-            /** Offer Id */
-            offer_id: string;
             /**
              * Spot
              * @default false
@@ -728,20 +744,20 @@ export interface components {
         };
         /** AnalyticsAiRequest */
         AnalyticsAiRequest: {
-            /**
-             * Analytics Summary
-             * @default
-             */
-            analytics_summary: string;
+            /** Message */
+            message: string;
+            /** Conversation Id */
+            conversation_id?: string | null;
             /**
              * Chart Context
              * @default
              */
             chart_context: string;
-            /** Conversation Id */
-            conversation_id?: string | null;
-            /** Message */
-            message: string;
+            /**
+             * Analytics Summary
+             * @default
+             */
+            analytics_summary: string;
         };
         /** ApiKeyCreateRequest */
         ApiKeyCreateRequest: {
@@ -751,84 +767,102 @@ export interface components {
              */
             name: string;
             /**
-             * Rate Limit Rpm
-             * @default 60
-             */
-            rate_limit_rpm: number;
-            /**
              * Scopes
              * @default inference:write
              */
             scopes: string;
+            /**
+             * Rate Limit Rpm
+             * @default 60
+             */
+            rate_limit_rpm: number;
         };
         /** AttemptStatusRequest */
         AttemptStatusRequest: {
+            /** Job Id */
+            job_id: string;
             /** Attempt Id */
             attempt_id: string;
+            /** Host Id */
+            host_id: string;
+            /** Fencing Token */
+            fencing_token: number;
+            /** Status */
+            status: string;
+            /** Failure Code */
+            failure_code?: string | null;
             /** Detail */
             detail?: {
                 [key: string]: unknown;
             } | null;
-            /** Failure Code */
-            failure_code?: string | null;
-            /** Fencing Token */
-            fencing_token: number;
-            /** Host Id */
-            host_id: string;
-            /** Job Id */
-            job_id: string;
-            /** Status */
-            status: string;
+        };
+        /** AuthoritativeEvidenceRequest */
+        AuthoritativeEvidenceRequest: {
+            /** Evidence Type */
+            evidence_type: string;
+            /** Verdict */
+            verdict: string;
+            /** Summary */
+            summary: {
+                [key: string]: unknown;
+            };
+            /** Idempotency Key */
+            idempotency_key: string;
+            /**
+             * Validity Seconds
+             * @default 86400
+             */
+            validity_seconds: number;
         };
         /** AutoTopupConfig */
         AutoTopupConfig: {
-            /**
-             * Amount Cad
-             * @default 25
-             */
-            amount_cad: number;
             /**
              * Enabled
              * @default true
              */
             enabled: boolean;
             /**
-             * Stripe Payment Method Id
-             * @default
+             * Amount Cad
+             * @default 25
              */
-            stripe_payment_method_id: string;
+            amount_cad: number;
             /**
              * Threshold Cad
              * @default 5
              */
             threshold_cad: number;
+            /**
+             * Stripe Payment Method Id
+             * @default
+             */
+            stripe_payment_method_id: string;
         };
         /** BatchCreateRequest */
         BatchCreateRequest: {
+            /** Requests */
+            requests: {
+                [key: string]: unknown;
+            }[];
             /**
              * Completion Window
              * @default 24h
              */
             completion_window: string;
-            /** Requests */
-            requests: {
-                [key: string]: unknown;
-            }[];
         };
         /** BenchmarkReport */
         BenchmarkReport: {
-            /** Details */
-            details?: {
-                [key: string]: unknown;
-            } | null;
-            /** Gpu Model */
-            gpu_model: string;
             /** Host Id */
             host_id: string;
+            /** Gpu Model */
+            gpu_model: string;
             /** Score */
             score: number;
             /** Tflops */
             tflops: number;
+            /** Details */
+            details?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** Body_api_auth_upload_avatar_api_auth_me_avatar_post */
         Body_api_auth_upload_avatar_api_auth_me_avatar_post: {
@@ -840,25 +874,35 @@ export interface components {
         };
         /** BuildIn */
         BuildIn: {
+            /** Model */
+            model: string;
             /**
              * Base Image
              * @default python:3.11-slim
              */
             base_image: string;
-            /** Model */
-            model: string;
+            /** Quantize */
+            quantize?: string | null;
             /**
              * Push
              * @default false
              */
             push: boolean;
-            /** Quantize */
-            quantize?: string | null;
         };
         /** CanadaToggle */
         CanadaToggle: {
             /** Enabled */
             enabled: boolean;
+        };
+        /** CaslConsentRequest */
+        CaslConsentRequest: {
+            /** Purpose */
+            purpose: string;
+            /**
+             * Consent Type
+             * @default express
+             */
+            consent_type: string;
         };
         /** ChangePasswordRequest */
         ChangePasswordRequest: {
@@ -869,27 +913,27 @@ export interface components {
         };
         /** ChatCompletionRequest */
         ChatCompletionRequest: {
+            /** Model */
+            model: string;
+            /** Messages */
+            messages?: {
+                [key: string]: unknown;
+            }[];
             /**
              * Max Tokens
              * @default 512
              */
             max_tokens: number;
-            /** Messages */
-            messages?: {
-                [key: string]: unknown;
-            }[];
-            /** Model */
-            model: string;
-            /**
-             * Stream
-             * @default false
-             */
-            stream: boolean;
             /**
              * Temperature
              * @default 1
              */
             temperature: number;
+            /**
+             * Stream
+             * @default false
+             */
+            stream: boolean;
         };
         /** ChatFeedbackRequest */
         ChatFeedbackRequest: {
@@ -900,10 +944,10 @@ export interface components {
         };
         /** ChatRequest */
         ChatRequest: {
-            /** Conversation Id */
-            conversation_id?: string | null;
             /** Message */
             message: string;
+            /** Conversation Id */
+            conversation_id?: string | null;
         };
         /**
          * CheckoutRequest
@@ -931,24 +975,24 @@ export interface components {
         CommandClaimRequest: {
             /** Host Id */
             host_id: string;
+            /** Worker Session Id */
+            worker_session_id: string;
             /**
              * Limit
              * @default 10
              */
             limit: number;
-            /** Worker Session Id */
-            worker_session_id: string;
         };
         /** CommandNackRequest */
         CommandNackRequest: {
+            /** Host Id */
+            host_id: string;
             /** Error Code */
             error_code: string;
             /** Error Details */
             error_details?: {
                 [key: string]: unknown;
             } | null;
-            /** Host Id */
-            host_id: string;
             /**
              * Retryable
              * @default true
@@ -960,34 +1004,46 @@ export interface components {
          * @description Body for POST /api/connect/accounts.
          */
         CreateAccountRequest: {
+            /** Display Name */
+            display_name: string;
             /** Contact Email */
             contact_email: string;
             /** Country */
             country?: string | null;
-            /** Display Name */
-            display_name: string;
         };
         /**
          * CreateProductRequest
          * @description Body for POST /api/connect/products.
          */
         CreateProductRequest: {
-            /** Account Id */
-            account_id: string;
-            /**
-             * Currency
-             * @default usd
-             */
-            currency: string;
+            /** Name */
+            name: string;
             /**
              * Description
              * @default
              */
             description: string;
-            /** Name */
-            name: string;
             /** Price Cents */
             price_cents: number;
+            /**
+             * Currency
+             * @default usd
+             */
+            currency: string;
+            /** Account Id */
+            account_id: string;
+        };
+        /** CreateSessionRequest */
+        CreateSessionRequest: {
+            /** Helper Public Key Spki */
+            helper_public_key_spki: string;
+            /** Idempotency Key */
+            idempotency_key: string;
+            /**
+             * Ttl Seconds
+             * @default 900
+             */
+            ttl_seconds: number;
         };
         /** CreateTeamRequest */
         CreateTeamRequest: {
@@ -1001,10 +1057,10 @@ export interface components {
         };
         /** CryptoDepositRequest */
         CryptoDepositRequest: {
-            /** Amount Cad */
-            amount_cad: number;
             /** Customer Id */
             customer_id: string;
+            /** Amount Cad */
+            amount_cad: number;
         };
         /** DepositRequest */
         DepositRequest: {
@@ -1038,6 +1094,10 @@ export interface components {
         };
         /** DownloadRequest */
         DownloadRequest: {
+            /** Job Id */
+            job_id?: string | null;
+            /** Filename */
+            filename?: string | null;
             /** Artifact Id */
             artifact_id?: string | null;
             /**
@@ -1045,10 +1105,6 @@ export interface components {
              * @default job_output
              */
             artifact_type: string;
-            /** Filename */
-            filename?: string | null;
-            /** Job Id */
-            job_id?: string | null;
         };
         /** EmailChangeConfirmRequest */
         EmailChangeConfirmRequest: {
@@ -1063,72 +1119,77 @@ export interface components {
         /** EmbeddingRequest */
         EmbeddingRequest: {
             /**
-             * Encoding Format
-             * @default float
+             * Model
+             * @default
              */
-            encoding_format: string;
+            model: string;
             /**
              * Input
              * @default
              */
             input: string | string[];
             /**
-             * Model
-             * @default
+             * Encoding Format
+             * @default float
              */
-            model: string;
+            encoding_format: string;
         };
         /** EstimateRequest */
         EstimateRequest: {
-            /**
-             * Duration Hours
-             * @default 1
-             */
-            duration_hours: number;
             /**
              * Gpu Model
              * @default RTX 4090
              */
             gpu_model: string;
             /**
-             * Is Canadian
+             * Duration Hours
+             * @default 1
+             */
+            duration_hours: number;
+            /**
+             * Spot
              * @default false
              */
-            is_canadian: boolean;
+            spot: boolean;
             /**
              * Sovereignty
              * @default false
              */
             sovereignty: boolean;
             /**
-             * Spot
+             * Is Canadian
              * @default false
              */
-            spot: boolean;
+            is_canadian: boolean;
         };
         /** FinalizeRequest */
         FinalizeRequest: {
-            /** Checksum */
-            checksum?: string | null;
             /** Upload Session Id */
             upload_session_id: string;
+            /** Checksum */
+            checksum?: string | null;
         };
         /** GPUOfferCreate */
         GPUOfferCreate: {
-            /**
-             * Ask Cents Per Hour
-             * @default 20
-             */
-            ask_cents_per_hour: number;
+            /** Host Id */
+            host_id: string;
+            /** Gpu Model */
+            gpu_model: string;
             /**
              * Gpu Count Total
              * @default 1
              */
             gpu_count_total: number;
-            /** Gpu Model */
-            gpu_model: string;
-            /** Host Id */
-            host_id: string;
+            /**
+             * Vram Gb
+             * @default 0
+             */
+            vram_gb: number;
+            /**
+             * Ask Cents Per Hour
+             * @default 20
+             */
+            ask_cents_per_hour: number;
             /**
              * Region
              * @default ca-east
@@ -1144,11 +1205,6 @@ export interface components {
              * @default 10
              */
             spot_min_cents: number;
-            /**
-             * Vram Gb
-             * @default 0
-             */
-            vram_gb: number;
         };
         /** GitHubResolveRequest */
         GitHubResolveRequest: {
@@ -1167,30 +1223,16 @@ export interface components {
         };
         /** HostIn */
         HostIn: {
-            /** Agent Sha256 */
-            agent_sha256?: string | null;
-            /** Agent Version */
-            agent_version?: string | null;
-            /** Attestation */
-            attestation?: {
-                [key: string]: unknown;
-            } | null;
-            /**
-             * Business Number
-             * @default
-             */
-            business_number: string;
-            /** Capabilities */
-            capabilities?: {
-                [key: string]: unknown;
-            } | null;
-            /** Checkpoint Class */
-            checkpoint_class?: string | null;
-            /**
-             * Corporation Name
-             * @default
-             */
-            corporation_name: string;
+            /** Host Id */
+            host_id: string;
+            /** Ip */
+            ip: string;
+            /** Gpu Model */
+            gpu_model: string;
+            /** Total Vram Gb */
+            total_vram_gb: number;
+            /** Free Vram Gb */
+            free_vram_gb: number;
             /**
              * Cost Per Hour
              * @default 0.2
@@ -1201,28 +1243,6 @@ export interface components {
              * @default CA
              */
             country: string;
-            /** Cpu Count */
-            cpu_count?: number | null;
-            /** Cuda Driver Version */
-            cuda_driver_version?: string | null;
-            /** Free Vram Gb */
-            free_vram_gb: number;
-            /** Gpu Model */
-            gpu_model: string;
-            /**
-             * Gst Hst Number
-             * @default
-             */
-            gst_hst_number: string;
-            /** Host Id */
-            host_id: string;
-            /** Ip */
-            ip: string;
-            /**
-             * Legal Name
-             * @default
-             */
-            legal_name: string;
             /**
              * Province
              * @default
@@ -1233,18 +1253,54 @@ export interface components {
              * @default
              */
             region: string;
+            /** Versions */
+            versions?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Corporation Name
+             * @default
+             */
+            corporation_name: string;
+            /**
+             * Business Number
+             * @default
+             */
+            business_number: string;
+            /**
+             * Gst Hst Number
+             * @default
+             */
+            gst_hst_number: string;
+            /**
+             * Legal Name
+             * @default
+             */
+            legal_name: string;
+            /** Agent Version */
+            agent_version?: string | null;
+            /** Agent Sha256 */
+            agent_sha256?: string | null;
+            /** Cpu Count */
+            cpu_count?: number | null;
+            /** Ssh User */
+            ssh_user?: string | null;
             /** Spot Enabled */
             spot_enabled?: boolean | null;
             /** Spot Gpu Slots */
             spot_gpu_slots?: number | null;
             /** Spot Min Cents */
             spot_min_cents?: number | null;
-            /** Ssh User */
-            ssh_user?: string | null;
-            /** Total Vram Gb */
-            total_vram_gb: number;
-            /** Versions */
-            versions?: {
+            /** Checkpoint Class */
+            checkpoint_class?: string | null;
+            /** Capabilities */
+            capabilities?: {
+                [key: string]: unknown;
+            } | null;
+            /** Cuda Driver Version */
+            cuda_driver_version?: string | null;
+            /** Attestation */
+            attestation?: {
                 [key: string]: unknown;
             } | null;
         };
@@ -1265,26 +1321,26 @@ export interface components {
         /** InferenceRequest */
         InferenceRequest: {
             /**
-             * Gpu Model
-             * @description Preferred GPU model or 'any'
-             * @default any
+             * Model
+             * @description Model name or HuggingFace repo (e.g. 'distilbert-base-uncased-finetuned-sst-2-english')
              */
-            gpu_model: string;
+            model: string;
             /**
              * Inputs
              * @description Text input(s) for inference
              */
             inputs: string[] | string;
             /**
+             * Gpu Model
+             * @description Preferred GPU model or 'any'
+             * @default any
+             */
+            gpu_model: string;
+            /**
              * Max Tokens
              * @default 512
              */
             max_tokens: number;
-            /**
-             * Model
-             * @description Model name or HuggingFace repo (e.g. 'distilbert-base-uncased-finetuned-sst-2-english')
-             */
-            model: string;
             /**
              * Temperature
              * @default 1
@@ -1298,18 +1354,18 @@ export interface components {
         };
         /** InferenceResultCallback */
         InferenceResultCallback: {
-            /**
-             * Latency Ms
-             * @default 0
-             */
-            latency_ms: number;
+            /** Outputs */
+            outputs?: unknown[];
             /**
              * Model
              * @default
              */
             model: string;
-            /** Outputs */
-            outputs?: unknown[];
+            /**
+             * Latency Ms
+             * @default 0
+             */
+            latency_ms: number;
         };
         /** InstanceRenamePayload */
         InstanceRenamePayload: {
@@ -1318,11 +1374,10 @@ export interface components {
         };
         /** JobCompleteBody */
         JobCompleteBody: {
-            /**
-             * Cached Tokens
-             * @default 0
-             */
-            cached_tokens: number;
+            /** Output */
+            output?: {
+                [key: string]: unknown;
+            } | null;
             /** Error */
             error?: string | null;
             /**
@@ -1330,15 +1385,16 @@ export interface components {
              * @default 0
              */
             input_tokens: number;
-            /** Output */
-            output?: {
-                [key: string]: unknown;
-            } | null;
             /**
              * Output Tokens
              * @default 0
              */
             output_tokens: number;
+            /**
+             * Cached Tokens
+             * @default 0
+             */
+            cached_tokens: number;
             /**
              * Ttft Ms
              * @default 0
@@ -1359,72 +1415,72 @@ export interface components {
         };
         /** JobIn */
         JobIn: {
-            /** Auto Launch */
-            auto_launch?: string[] | null;
-            /** Command */
-            command?: string | null;
-            /**
-             * Encrypted Workspace
-             * @default false
-             */
-            encrypted_workspace: boolean;
-            /** Exposed Ports */
-            exposed_ports?: number[] | null;
-            /** Git Repo */
-            git_repo?: string | null;
-            /** Gpu Model */
-            gpu_model?: string | null;
-            /** Host Id */
-            host_id?: string | null;
-            /** Image */
-            image?: string | null;
-            /** Init Script */
-            init_script?: string | null;
-            /**
-             * Interactive
-             * @default true
-             */
-            interactive: boolean;
             /** Name */
             name: string;
-            /** Nfs Mount Point */
-            nfs_mount_point?: string | null;
-            /** Nfs Path */
-            nfs_path?: string | null;
-            /** Nfs Server */
-            nfs_server?: string | null;
+            /**
+             * Vram Needed Gb
+             * @default 0
+             */
+            vram_needed_gb: number;
+            /**
+             * Priority
+             * @default 0
+             */
+            priority: number;
+            /** Tier */
+            tier?: string | null;
             /**
              * Num Gpus
              * @default 1
              */
             num_gpus: number;
+            /** Host Id */
+            host_id?: string | null;
+            /** Gpu Model */
+            gpu_model?: string | null;
+            /** Nfs Server */
+            nfs_server?: string | null;
+            /** Nfs Path */
+            nfs_path?: string | null;
+            /** Nfs Mount Point */
+            nfs_mount_point?: string | null;
+            /** Image */
+            image?: string | null;
+            /**
+             * Interactive
+             * @default true
+             */
+            interactive: boolean;
+            /** Command */
+            command?: string | null;
+            /**
+             * Ssh Port
+             * @default 22
+             */
+            ssh_port: number;
             /**
              * Pricing Mode
              * @default on_demand
              * @enum {string}
              */
             pricing_mode: "on_demand" | "spot";
-            /**
-             * Priority
-             * @default 0
-             */
-            priority: number;
-            /**
-             * Ssh Port
-             * @default 22
-             */
-            ssh_port: number;
-            /** Template Image Id */
-            template_image_id?: string | null;
-            /** Tier */
-            tier?: string | null;
             /** Volume Ids */
             volume_ids?: string[] | null;
             /**
-             * Vram Needed Gb
-             * @default 0
+             * Encrypted Workspace
+             * @default false
              */
-            vram_needed_gb: number;
+            encrypted_workspace: boolean;
+            /** Init Script */
+            init_script?: string | null;
+            /** Git Repo */
+            git_repo?: string | null;
+            /** Auto Launch */
+            auto_launch?: string[] | null;
+            /** Exposed Ports */
+            exposed_ports?: number[] | null;
+            /** Template Image Id */
+            template_image_id?: string | null;
         };
         /** JurisdictionFilterRequest */
         JurisdictionFilterRequest: {
@@ -1440,16 +1496,16 @@ export interface components {
         };
         /** LeaseAuthorityRequest */
         LeaseAuthorityRequest: {
-            /** Attempt Id */
-            attempt_id: string;
-            /** Fencing Token */
-            fencing_token: number;
-            /** Host Id */
-            host_id: string;
-            /** Job Id */
-            job_id: string;
             /** Lease Id */
             lease_id: string;
+            /** Job Id */
+            job_id: string;
+            /** Attempt Id */
+            attempt_id: string;
+            /** Host Id */
+            host_id: string;
+            /** Fencing Token */
+            fencing_token: number;
             /**
              * Worker Session Id
              * @default
@@ -1483,37 +1539,48 @@ export interface components {
         /** LegalRequestRecord */
         LegalRequestRecord: {
             /**
-             * Authority
-             * @default
+             * Request Type
+             * @default subpoena
              */
-            authority: string;
+            request_type: string;
             /**
              * Jurisdiction
              * @default CA
              */
             jurisdiction: string;
             /**
-             * Notes
+             * Authority
              * @default
              */
-            notes: string;
-            /**
-             * Request Type
-             * @default subpoena
-             */
-            request_type: string;
+            authority: string;
             /**
              * Scope
              * @default
              */
             scope: string;
+            /**
+             * Notes
+             * @default
+             */
+            notes: string;
+        };
+        /** LifecycleConsentRequest */
+        LifecycleConsentRequest: {
+            /** Entity Id */
+            entity_id: string;
+            /** Consent Type */
+            consent_type: string;
+            /** Details */
+            details?: {
+                [key: string]: unknown;
+            };
         };
         /** LnDepositRequest */
         LnDepositRequest: {
-            /** Amount Cad */
-            amount_cad: number;
             /** Customer Id */
             customer_id: string;
+            /** Amount Cad */
+            amount_cad: number;
         };
         /** LoginRequest */
         LoginRequest: {
@@ -1525,45 +1592,45 @@ export interface components {
         /** MarketplaceSearchParams */
         MarketplaceSearchParams: {
             /**
-             * Canada Only
-             * @default false
-             */
-            canada_only: boolean;
-            /**
              * Gpu Model
              * @default
              */
             gpu_model: string;
-            /**
-             * Limit
-             * @default 50
-             */
-            limit: number;
-            /**
-             * Max Price Cents
-             * @default 0
-             */
-            max_price_cents: number;
             /**
              * Min Vram Gb
              * @default 0
              */
             min_vram_gb: number;
             /**
+             * Max Price Cents
+             * @default 0
+             */
+            max_price_cents: number;
+            /**
              * Region
              * @default
              */
             region: string;
+            /**
+             * Canada Only
+             * @default false
+             */
+            canada_only: boolean;
+            /**
+             * Spot Available
+             * @default false
+             */
+            spot_available: boolean;
             /**
              * Sort By
              * @default price
              */
             sort_by: string;
             /**
-             * Spot Available
-             * @default false
+             * Limit
+             * @default 50
              */
-            spot_available: boolean;
+            limit: number;
         };
         /** MfaSendSmsRequest */
         MfaSendSmsRequest: {
@@ -1574,19 +1641,19 @@ export interface components {
         MfaVerifyLogin: {
             /** Challenge Id */
             challenge_id: string;
-            /** Code */
-            code: string;
             /** Method */
             method: string;
+            /** Code */
+            code: string;
         };
         /** MiningAlert */
         MiningAlert: {
-            /** Confidence */
-            confidence: number;
-            /** Gpu Index */
-            gpu_index: number;
             /** Host Id */
             host_id: string;
+            /** Gpu Index */
+            gpu_index: number;
+            /** Confidence */
+            confidence: number;
             /** Reason */
             reason: string;
             /** Timestamp */
@@ -1596,31 +1663,31 @@ export interface components {
         OAuthClientCreateRequest: {
             /** Client Name */
             client_name: string;
+            /** Redirect Uris */
+            redirect_uris?: string[];
+            /** Grant Types */
+            grant_types?: string[];
+            /** Scopes */
+            scopes?: string[];
             /**
              * Client Type
              * @default confidential
              */
             client_type: string;
-            /** Grant Types */
-            grant_types?: string[];
             /**
              * Is First Party
              * @default false
              */
             is_first_party: boolean;
-            /** Redirect Uris */
-            redirect_uris?: string[];
-            /** Scopes */
-            scopes?: string[];
         };
         /** OAuthClientUpdateRequest */
         OAuthClientUpdateRequest: {
             /** Client Name */
             client_name?: string | null;
-            /** Grant Types */
-            grant_types?: string[] | null;
             /** Redirect Uris */
             redirect_uris?: string[] | null;
+            /** Grant Types */
+            grant_types?: string[] | null;
             /** Scopes */
             scopes?: string[] | null;
             /** Status */
@@ -1628,35 +1695,31 @@ export interface components {
         };
         /** ObservationReport */
         ObservationReport: {
-            /** Agent Version */
-            agent_version?: string | null;
             /** Host Id */
             host_id: string;
-            /** Observation Generation */
-            observation_generation: number;
-            /** Worker Reported At */
-            worker_reported_at?: number | null;
             /** Worker Session Id */
             worker_session_id: string;
+            /** Observation Generation */
+            observation_generation: number;
             /** Workloads */
             workloads?: components["schemas"]["ObservedWorkload"][];
+            /** Agent Version */
+            agent_version?: string | null;
+            /** Worker Reported At */
+            worker_reported_at?: number | null;
         };
         /** ObservedWorkload */
         ObservedWorkload: {
+            /** Job Id */
+            job_id?: string | null;
             /** Attempt Id */
             attempt_id?: string | null;
+            /** Fencing Token */
+            fencing_token?: number | null;
             /** Container Id */
             container_id?: string | null;
             /** Container Name */
             container_name?: string | null;
-            /** Details */
-            details?: {
-                [key: string]: unknown;
-            } | null;
-            /** Fencing Token */
-            fencing_token?: number | null;
-            /** Job Id */
-            job_id?: string | null;
             /** Spec Hash */
             spec_hash?: string | null;
             /**
@@ -1664,14 +1727,13 @@ export interface components {
              * @default unknown
              */
             state: string;
+            /** Details */
+            details?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** PIACheckRequest */
         PIACheckRequest: {
-            /**
-             * Data Contains Pi
-             * @default false
-             */
-            data_contains_pi: boolean;
             /**
              * Data Origin Province
              * @default QC
@@ -1682,15 +1744,20 @@ export interface components {
              * @default ON
              */
             processing_province: string;
+            /**
+             * Data Contains Pi
+             * @default false
+             */
+            data_contains_pi: boolean;
         };
         /** PasskeyAuthenticateCompleteRequest */
         PasskeyAuthenticateCompleteRequest: {
+            /** State Id */
+            state_id: string;
             /** Credential */
             credential: {
                 [key: string]: unknown;
             };
-            /** State Id */
-            state_id: string;
         };
         /** PasskeyAuthenticateOptionsRequest */
         PasskeyAuthenticateOptionsRequest: {
@@ -1704,12 +1771,12 @@ export interface components {
         };
         /** PasskeyRegisterCompleteRequest */
         PasskeyRegisterCompleteRequest: {
+            /** State Id */
+            state_id: string;
             /** Credential */
             credential: {
                 [key: string]: unknown;
             };
-            /** State Id */
-            state_id: string;
         };
         /** PasskeyRegisterRequest */
         PasskeyRegisterRequest: {
@@ -1721,10 +1788,10 @@ export interface components {
         };
         /** PasswordResetConfirm */
         PasswordResetConfirm: {
-            /** New Password */
-            new_password: string;
             /** Token */
             token: string;
+            /** New Password */
+            new_password: string;
         };
         /** PasswordResetRequest */
         PasswordResetRequest: {
@@ -1740,37 +1807,35 @@ export interface components {
         };
         /** PayPalCreateOrderRequest */
         PayPalCreateOrderRequest: {
-            /** Amount Cad */
-            amount_cad: number;
             /** Customer Id */
             customer_id: string;
+            /** Amount Cad */
+            amount_cad: number;
         };
         /** PayPalMarketplaceCaptureRequest */
         PayPalMarketplaceCaptureRequest: {
             /** Customer Id */
             customer_id: string;
-            /** Order Id */
-            order_id: string;
             /** Provider Id */
             provider_id: string;
+            /** Order Id */
+            order_id: string;
         };
         /** PayPalMarketplaceCreateRequest */
         PayPalMarketplaceCreateRequest: {
-            /** Amount Cad */
-            amount_cad: number;
             /** Customer Id */
             customer_id: string;
-            /** Job Id */
-            job_id: string;
             /** Provider Id */
             provider_id: string;
+            /** Job Id */
+            job_id: string;
         };
         /** PaymentIntentRequest */
         PaymentIntentRequest: {
-            /** Amount Cad */
-            amount_cad: number;
             /** Customer Id */
             customer_id: string;
+            /** Amount Cad */
+            amount_cad: number;
             /**
              * Description
              * @default Compute credits
@@ -1779,6 +1844,14 @@ export interface components {
         };
         /** PoolHost */
         PoolHost: {
+            /** Host Id */
+            host_id: string;
+            /** Ip */
+            ip: string;
+            /** Gpu Model */
+            gpu_model: string;
+            /** Vram Gb */
+            vram_gb: number;
             /**
              * Cost Per Hour
              * @default 0.2
@@ -1789,17 +1862,26 @@ export interface components {
              * @default CA
              */
             country: string;
-            /** Gpu Model */
-            gpu_model: string;
-            /** Host Id */
-            host_id: string;
-            /** Ip */
-            ip: string;
-            /** Vram Gb */
-            vram_gb: number;
         };
         /** PrivacyConfigRequest */
         PrivacyConfigRequest: {
+            /** Org Id */
+            org_id: string;
+            /**
+             * Privacy Level
+             * @default strict
+             */
+            privacy_level: string;
+            /**
+             * Privacy Officer Name
+             * @default
+             */
+            privacy_officer_name: string;
+            /**
+             * Privacy Officer Email
+             * @default
+             */
+            privacy_officer_email: string;
             /**
              * Enable Identification
              * @default false
@@ -1815,25 +1897,11 @@ export interface components {
              * @default false
              */
             enable_profiling: boolean;
-            /** Log Retention Days */
-            log_retention_days?: number;
-            /** Org Id */
-            org_id: string;
             /**
-             * Privacy Level
-             * @default strict
+             * Redact Pii In Logs
+             * @default true
              */
-            privacy_level: string;
-            /**
-             * Privacy Officer Email
-             * @default
-             */
-            privacy_officer_email: string;
-            /**
-             * Privacy Officer Name
-             * @default
-             */
-            privacy_officer_name: string;
+            redact_pii_in_logs: boolean;
             /**
              * Redact Env Vars
              * @default true
@@ -1844,69 +1912,75 @@ export interface components {
              * @default true
              */
             redact_ip_addresses: boolean;
-            /**
-             * Redact Pii In Logs
-             * @default true
-             */
-            redact_pii_in_logs: boolean;
+            /** Log Retention Days */
+            log_retention_days?: number;
             /** Telemetry Retention Days */
             telemetry_retention_days?: number;
         };
         /** ProfileUpdateRequest */
         ProfileUpdateRequest: {
-            /** Country */
-            country?: string | null;
             /** Name */
             name?: string | null;
-            /** Province */
-            province?: string | null;
             /** Role */
             role?: string | null;
+            /** Country */
+            country?: string | null;
+            /** Province */
+            province?: string | null;
+        };
+        /** ProviderEvidenceRequest */
+        ProviderEvidenceRequest: {
+            /** Report */
+            report: {
+                [key: string]: unknown;
+            };
         };
         /** ProviderRegisterRequest */
         ProviderRegisterRequest: {
-            /**
-             * Business Number
-             * @default
-             */
-            business_number: string;
-            /**
-             * Corporation Name
-             * @default
-             */
-            corporation_name: string;
-            /**
-             * Country
-             * @default CA
-             */
-            country: string;
-            /** Email */
-            email: string;
-            /**
-             * Gst Hst Number
-             * @default
-             */
-            gst_hst_number: string;
-            /**
-             * Legal Name
-             * @default
-             */
-            legal_name: string;
             /** Provider Id */
             provider_id: string;
+            /** Email */
+            email: string;
             /**
              * Provider Type
              * @default individual
              */
             provider_type: string;
             /**
+             * Corporation Name
+             * @default
+             */
+            corporation_name: string;
+            /**
+             * Business Number
+             * @default
+             */
+            business_number: string;
+            /**
+             * Gst Hst Number
+             * @default
+             */
+            gst_hst_number: string;
+            /**
              * Province
              * @default
              */
             province: string;
+            /**
+             * Legal Name
+             * @default
+             */
+            legal_name: string;
+            /**
+             * Country
+             * @default CA
+             */
+            country: string;
         };
         /** RefundRequest */
         RefundRequest: {
+            /** Job Id */
+            job_id: string;
             /** Exit Code */
             exit_code: number;
             /**
@@ -1914,8 +1988,6 @@ export interface components {
              * @default
              */
             failure_reason: string;
-            /** Job Id */
-            job_id: string;
         };
         /**
          * RegisterHostRequest
@@ -1926,6 +1998,12 @@ export interface components {
          *     auto-generated or derived here.
          */
         RegisterHostRequest: {
+            /** Hostname */
+            hostname: string;
+            /** Gpu Model */
+            gpu_model: string;
+            /** Vram Gb */
+            vram_gb: number;
             /**
              * Cost Per Hour
              * @default 0.2
@@ -1936,15 +2014,6 @@ export interface components {
              * @default CA
              */
             country: string;
-            /** Gpu Model */
-            gpu_model: string;
-            /** Hostname */
-            hostname: string;
-            /**
-             * Notes
-             * @default
-             */
-            notes: string;
             /**
              * Province
              * @default
@@ -1956,6 +2025,11 @@ export interface components {
              */
             region: string;
             /**
+             * Notes
+             * @default
+             */
+            notes: string;
+            /**
              * Spot Enabled
              * @default true
              */
@@ -1964,20 +2038,18 @@ export interface components {
             spot_gpu_slots?: number | null;
             /** Spot Min Cents */
             spot_min_cents?: number | null;
-            /** Vram Gb */
-            vram_gb: number;
         };
         /** RegisterRequest */
         RegisterRequest: {
             /** Email */
             email: string;
+            /** Password */
+            password: string;
             /**
              * Name
              * @default
              */
             name: string;
-            /** Password */
-            password: string;
             /**
              * Role
              * @default submitter
@@ -1991,13 +2063,13 @@ export interface components {
         };
         /** ReservationCreate */
         ReservationCreate: {
+            /** Gpu Model */
+            gpu_model: string;
             /**
              * Gpu Count
              * @default 1
              */
             gpu_count: number;
-            /** Gpu Model */
-            gpu_model: string;
             /**
              * Period Months
              * @default 1
@@ -2006,11 +2078,6 @@ export interface components {
         };
         /** ReservedCommitmentRequest */
         ReservedCommitmentRequest: {
-            /**
-             * Commitment Type
-             * @default 1_month
-             */
-            commitment_type: string;
             /** Customer Id */
             customer_id: string;
             /**
@@ -2019,46 +2086,51 @@ export interface components {
              */
             gpu_model: string;
             /**
-             * Province
-             * @default ON
+             * Commitment Type
+             * @default 1_month
              */
-            province: string;
+            commitment_type: string;
             /**
              * Quantity
              * @default 1
              */
             quantity: number;
+            /**
+             * Province
+             * @default ON
+             */
+            province: string;
         };
         /** RigListing */
         RigListing: {
+            /** Host Id */
+            host_id: string;
+            /** Gpu Model */
+            gpu_model: string;
+            /** Vram Gb */
+            vram_gb: number;
+            /** Price Per Hour */
+            price_per_hour: number;
             /**
              * Description
              * @default
              */
             description: string;
-            /** Gpu Model */
-            gpu_model: string;
-            /** Host Id */
-            host_id: string;
             /**
              * Owner
              * @default anonymous
              */
             owner: string;
-            /** Price Per Hour */
-            price_per_hour: number;
-            /**
-             * Province
-             * @default
-             */
-            province: string;
             /**
              * Region
              * @default
              */
             region: string;
-            /** Vram Gb */
-            vram_gb: number;
+            /**
+             * Province
+             * @default
+             */
+            province: string;
         };
         /** RunJobRequest */
         RunJobRequest: {
@@ -2076,111 +2148,33 @@ export interface components {
             /** Month */
             month: string;
             /**
-             * Monthly Spend Cad
-             * @default 0
-             */
-            monthly_spend_cad: number;
-            /**
              * Tier
              * @default community
              */
             tier: string;
+            /**
+             * Monthly Spend Cad
+             * @default 0
+             */
+            monthly_spend_cad: number;
         };
         /** ServerlessEndpointCreate */
         ServerlessEndpointCreate: {
             /**
-             * Cuda Version
-             * @default 12.4
-             */
-            cuda_version: string;
-            /**
-             * Docker Image
+             * Name
              * @default
              */
-            docker_image: string;
-            /** Env */
-            env?: {
-                [key: string]: string;
-            };
-            /**
-             * Execution Mode
-             * @default sync
-             */
-            execution_mode: string;
-            /**
-             * Gpu Count
-             * @default 1
-             */
-            gpu_count: number;
-            /**
-             * Gpu Tier
-             * @default
-             */
-            gpu_tier: string;
-            /**
-             * Gpu Type
-             * @default
-             */
-            gpu_type: string;
-            /**
-             * Health Check Path
-             * @default /health
-             */
-            health_check_path: string;
-            /**
-             * Health Endpoint
-             * @default
-             */
-            health_endpoint: string;
-            /**
-             * Http Port
-             * @default 8080
-             */
-            http_port: number;
-            /**
-             * Idle Timeout Sec
-             * @default 60
-             */
-            idle_timeout_sec: number;
-            /**
-             * Image Ref
-             * @default
-             */
-            image_ref: string;
-            /** Lora Adapters */
-            lora_adapters?: {
-                [key: string]: string;
-            }[];
-            /**
-             * Managed Engine
-             * @default vllm
-             */
-            managed_engine: string;
-            /**
-             * Max Concurrency
-             * @default 1
-             */
-            max_concurrency: number;
-            /**
-             * Max Request Bytes
-             * @default 10485760
-             */
-            max_request_bytes: number;
-            /**
-             * Max Workers
-             * @default 3
-             */
-            max_workers: number;
-            /**
-             * Min Workers
-             * @default 1
-             */
-            min_workers: number;
+            name: string;
             /**
              * Mode
              * @default preset
              */
             mode: string;
+            /**
+             * Managed Engine
+             * @default vllm
+             */
+            managed_engine: string;
             /**
              * Model Name
              * @default
@@ -2192,25 +2186,70 @@ export interface components {
              */
             model_ref: string;
             /**
-             * Name
+             * Image Ref
              * @default
              */
-            name: string;
+            image_ref: string;
             /**
-             * Queue Timeout Sec
-             * @default 120
+             * Docker Image
+             * @default
              */
-            queue_timeout_sec: number;
+            docker_image: string;
+            /**
+             * Source Type
+             * @default
+             */
+            source_type: string;
+            /**
+             * Source Ref
+             * @default
+             */
+            source_ref: string;
+            /**
+             * Source Ref Branch
+             * @default main
+             */
+            source_ref_branch: string;
+            /**
+             * Gpu Type
+             * @default
+             */
+            gpu_type: string;
+            /**
+             * Gpu Tier
+             * @default
+             */
+            gpu_tier: string;
+            /**
+             * Gpu Count
+             * @default 1
+             */
+            gpu_count: number;
             /**
              * Region
              * @default ca-east
              */
             region: string;
             /**
-             * Request Timeout Sec
-             * @default 120
+             * Min Workers
+             * @default 1
              */
-            request_timeout_sec: number;
+            min_workers: number;
+            /**
+             * Max Workers
+             * @default 3
+             */
+            max_workers: number;
+            /**
+             * Max Concurrency
+             * @default 1
+             */
+            max_concurrency: number;
+            /**
+             * Idle Timeout Sec
+             * @default 60
+             */
+            idle_timeout_sec: number;
             /** Scaledown Window Sec */
             scaledown_window_sec?: number | null;
             /**
@@ -2224,52 +2263,85 @@ export interface components {
              */
             scaling_policy_value: number;
             /**
-             * Source Ref
-             * @default
+             * Execution Mode
+             * @default sync
              */
-            source_ref: string;
+            execution_mode: string;
             /**
-             * Source Ref Branch
-             * @default main
+             * Queue Timeout Sec
+             * @default 120
              */
-            source_ref_branch: string;
-            /**
-             * Source Type
-             * @default
-             */
-            source_type: string;
+            queue_timeout_sec: number;
             /**
              * Startup Command
              * @default
              */
             startup_command: string;
+            /**
+             * Http Port
+             * @default 8080
+             */
+            http_port: number;
+            /**
+             * Health Check Path
+             * @default /health
+             */
+            health_check_path: string;
+            /**
+             * Health Endpoint
+             * @default
+             */
+            health_endpoint: string;
+            /**
+             * Cuda Version
+             * @default 12.4
+             */
+            cuda_version: string;
+            /**
+             * Request Timeout Sec
+             * @default 120
+             */
+            request_timeout_sec: number;
+            /**
+             * Max Request Bytes
+             * @default 10485760
+             */
+            max_request_bytes: number;
+            /** Env */
+            env?: {
+                [key: string]: string;
+            };
+            /** Lora Adapters */
+            lora_adapters?: {
+                [key: string]: string;
+            }[];
         };
         /** ServerlessEndpointPatch */
         ServerlessEndpointPatch: {
-            /** Execution Mode */
-            execution_mode?: string | null;
-            /** Idle Timeout Sec */
-            idle_timeout_sec?: number | null;
-            /** Keep Warm */
-            keep_warm?: boolean | null;
-            /** Max Concurrency */
-            max_concurrency?: number | null;
-            /** Max Queue Size */
-            max_queue_size?: number | null;
-            /** Max Workers */
-            max_workers?: number | null;
-            /** Min Workers */
-            min_workers?: number | null;
             /** Name */
             name?: string | null;
-            /** Queue Timeout Sec */
-            queue_timeout_sec?: number | null;
-            /** Request Timeout Sec */
-            request_timeout_sec?: number | null;
+            /** Min Workers */
+            min_workers?: number | null;
+            /** Max Workers */
+            max_workers?: number | null;
+            /** Max Concurrency */
+            max_concurrency?: number | null;
+            /** Idle Timeout Sec */
+            idle_timeout_sec?: number | null;
             /** Scaling Policy Type */
             scaling_policy_type?: string | null;
             /** Scaling Policy Value */
             scaling_policy_value?: number | null;
+            /** Execution Mode */
+            execution_mode?: string | null;
+            /** Queue Timeout Sec */
+            queue_timeout_sec?: number | null;
+            /** Request Timeout Sec */
+            request_timeout_sec?: number | null;
+            /** Max Queue Size */
+            max_queue_size?: number | null;
+            /** Keep Warm */
+            keep_warm?: boolean | null;
         };
         /** SetActiveTeamRequest */
         SetActiveTeamRequest: {
@@ -2278,13 +2350,10 @@ export interface components {
         };
         /** ShouldIRunPelRequest */
         ShouldIRunPelRequest: {
-            /**
-             * Duration Hours
-             * @default 0.1
-             */
-            duration_hours: number;
             /** Endpoint Id */
             endpoint_id?: string | null;
+            /** Model Ref */
+            model_ref?: string | null;
             /**
              * Estimated Input Tokens
              * @default 1000
@@ -2296,43 +2365,46 @@ export interface components {
              */
             estimated_output_tokens: number;
             /**
+             * Duration Hours
+             * @default 0.1
+             */
+            duration_hours: number;
+            /**
              * Gpu Tier
              * @default RTX 4090
              */
             gpu_tier: string;
-            /** Model Ref */
-            model_ref?: string | null;
         };
         /** SlurmSubmitIn */
         SlurmSubmitIn: {
-            /**
-             * Dry Run
-             * @default false
-             */
-            dry_run: boolean;
-            /**
-             * Image
-             * @default
-             */
-            image: string;
             /** Name */
             name: string;
+            /** Vram Needed Gb */
+            vram_needed_gb: number;
+            /**
+             * Priority
+             * @default 0
+             */
+            priority: number;
+            /** Tier */
+            tier?: string | null;
             /**
              * Num Gpus
              * @default 1
              */
             num_gpus: number;
             /**
-             * Priority
-             * @default 0
+             * Image
+             * @default
              */
-            priority: number;
+            image: string;
             /** Profile */
             profile?: string | null;
-            /** Tier */
-            tier?: string | null;
-            /** Vram Needed Gb */
-            vram_needed_gb: number;
+            /**
+             * Dry Run
+             * @default false
+             */
+            dry_run: boolean;
         };
         /** SmsSetupRequest */
         SmsSetupRequest: {
@@ -2354,11 +2426,6 @@ export interface components {
         };
         /** SnapshotIn */
         SnapshotIn: {
-            /**
-             * Description
-             * @default
-             */
-            description: string;
             /** Name */
             name: string;
             /**
@@ -2366,6 +2433,11 @@ export interface components {
              * @default latest
              */
             tag: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
         };
         /** SocialOAuthInitBody */
         SocialOAuthInitBody: {
@@ -2389,35 +2461,51 @@ export interface components {
         };
         /** StatusUpdate */
         StatusUpdate: {
+            /** Status */
+            status: string;
+            /** Host Id */
+            host_id?: string | null;
             /** Attempt Id */
             attempt_id?: string | null;
+            /** Fencing Token */
+            fencing_token?: number | null;
             /** Container Id */
             container_id?: string | null;
             /** Container Name */
             container_name?: string | null;
-            /** Error Message */
-            error_message?: string | null;
-            /** Fencing Token */
-            fencing_token?: number | null;
-            /** Host Id */
-            host_id?: string | null;
+            /** Ssh Port */
+            ssh_port?: number | null;
             /** Interactive */
             interactive?: boolean | null;
-            /** Resumable */
-            resumable?: boolean | null;
+            /** Error Message */
+            error_message?: string | null;
             /** Resume From */
             resume_from?: {
                 [key: string]: unknown;
             } | null;
-            /** Ssh Port */
-            ssh_port?: number | null;
-            /** Status */
-            status: string;
+            /** Resumable */
+            resumable?: boolean | null;
+        };
+        /** SubmitEvidenceRequest */
+        SubmitEvidenceRequest: {
+            /** Submit Token */
+            submit_token: string;
+            /** Report */
+            report: {
+                [key: string]: unknown;
+            };
+            /** Signature */
+            signature: string;
         };
         /** TelemetryPayload */
         TelemetryPayload: {
             /** Host Id */
             host_id: string;
+            /**
+             * Timestamp
+             * @default 0
+             */
+            timestamp: number;
             /**
              * Metrics
              * @default {}
@@ -2425,11 +2513,6 @@ export interface components {
             metrics: {
                 [key: string]: unknown;
             };
-            /**
-             * Timestamp
-             * @default 0
-             */
-            timestamp: number;
         };
         /** TerminalTicketIn */
         TerminalTicketIn: {
@@ -2450,15 +2533,15 @@ export interface components {
         };
         /** UploadRequest */
         UploadRequest: {
+            /** Job Id */
+            job_id: string;
+            /** Filename */
+            filename: string;
             /**
              * Artifact Type
              * @default job_output
              */
             artifact_type: string;
-            /** Filename */
-            filename: string;
-            /** Job Id */
-            job_id: string;
             /**
              * Residency Policy
              * @default canada_only
@@ -2471,6 +2554,11 @@ export interface components {
          */
         V1InferenceRequest: {
             /**
+             * Model
+             * @description Model name or HuggingFace repo
+             */
+            model: string;
+            /**
              * Inputs
              * @description Text input(s) for inference
              */
@@ -2481,34 +2569,29 @@ export interface components {
              */
             max_tokens: number;
             /**
-             * Model
-             * @description Model name or HuggingFace repo
+             * Temperature
+             * @default 1
              */
-            model: string;
+            temperature: number;
             /**
              * Stream
              * @description Stream response via SSE
              * @default false
              */
             stream: boolean;
-            /**
-             * Temperature
-             * @default 1
-             */
-            temperature: number;
         };
         /** ValidationError */
         ValidationError: {
-            /** Context */
-            ctx?: Record<string, never>;
-            /** Input */
-            input?: unknown;
             /** Location */
             loc: (string | number)[];
             /** Message */
             msg: string;
             /** Error Type */
             type: string;
+            /** Input */
+            input?: unknown;
+            /** Context */
+            ctx?: Record<string, never>;
         };
         /** VerificationGrant */
         VerificationGrant: {
@@ -2556,36 +2639,36 @@ export interface components {
             /** Instance Id */
             instance_id: string;
             /**
+             * Mount Path
+             * @default /workspace
+             */
+            mount_path: string;
+            /**
              * Mode
              * @default rw
              * @enum {string}
              */
             mode: "rw" | "ro";
-            /**
-             * Mount Path
-             * @default /workspace
-             */
-            mount_path: string;
         };
         /** VolumeCreate */
         VolumeCreate: {
-            /**
-             * Encrypted
-             * @default true
-             */
-            encrypted: boolean;
             /** Name */
             name: string;
+            /**
+             * Size Gb
+             * @default 50
+             */
+            size_gb: number;
             /**
              * Region
              * @default ca-east
              */
             region: string;
             /**
-             * Size Gb
-             * @default 50
+             * Encrypted
+             * @default true
              */
-            size_gb: number;
+            encrypted: boolean;
         };
         /** VolumeRename */
         VolumeRename: {
@@ -2594,10 +2677,10 @@ export interface components {
         };
         /** WebPushKeys */
         WebPushKeys: {
-            /** Auth */
-            auth: string;
             /** P256Dh */
             p256dh: string;
+            /** Auth */
+            auth: string;
         };
         /** WebPushSubscriptionDeletePayload */
         WebPushSubscriptionDeletePayload: {
@@ -2615,15 +2698,15 @@ export interface components {
         /** WorkerExitedBody */
         WorkerExitedBody: {
             /**
-             * Error Message
-             * @default
-             */
-            error_message: string;
-            /**
              * Exit Code
              * @default 0
              */
             exit_code: number;
+            /**
+             * Error Message
+             * @default
+             */
+            error_message: string;
         };
         /** WorkerReadyBody */
         WorkerReadyBody: {
@@ -2640,10 +2723,10 @@ export interface components {
              * @default false
              */
             confirm: boolean;
-            /** Confirmation */
-            confirmation?: string | null;
             /** Expected Version */
             expected_version?: number | null;
+            /** Confirmation */
+            confirmation?: string | null;
         };
         /** _AutoLaunchReport */
         _AutoLaunchReport: {
@@ -2653,13 +2736,13 @@ export interface components {
             ports?: {
                 [key: string]: number;
             };
-            /** Token */
-            token?: string | null;
             /**
              * Token Sha
              * @default
              */
             token_sha: string;
+            /** Token */
+            token?: string | null;
         };
         /** _EvictionPlanIn */
         _EvictionPlanIn: {
@@ -2692,44 +2775,44 @@ export interface components {
         };
         /** _McpAuditIn */
         _McpAuditIn: {
-            /** Action Plan Id */
-            action_plan_id?: string | null;
-            /** Api Route */
-            api_route?: string | null;
-            /** Api Status */
-            api_status?: number | null;
-            /** Approval Method */
-            approval_method?: string | null;
-            /** Client Id */
-            client_id?: string | null;
-            /** Idempotency Key */
-            idempotency_key?: string | null;
-            /** Latency Ms */
-            latency_ms: number;
-            /** Outcome */
-            outcome: string;
-            /** Principal Id */
-            principal_id?: string | null;
-            /** Problem Type */
-            problem_type?: string | null;
-            /** Redacted Args Hash */
-            redacted_args_hash: string;
-            /** Resource Id */
-            resource_id?: string | null;
-            /** Scopes Evaluated */
-            scopes_evaluated?: string[];
-            /** Team Id */
-            team_id?: string | null;
-            /** Tenant Id */
-            tenant_id?: string | null;
             /** Tool Name */
             tool_name: string;
             /** Tool Version */
             tool_version: string;
-            /** Trace Id */
-            trace_id: string;
             /** Transport */
             transport: string;
+            /** Client Id */
+            client_id?: string | null;
+            /** Principal Id */
+            principal_id?: string | null;
+            /** Tenant Id */
+            tenant_id?: string | null;
+            /** Team Id */
+            team_id?: string | null;
+            /** Scopes Evaluated */
+            scopes_evaluated?: string[];
+            /** Redacted Args Hash */
+            redacted_args_hash: string;
+            /** Action Plan Id */
+            action_plan_id?: string | null;
+            /** Idempotency Key */
+            idempotency_key?: string | null;
+            /** Api Route */
+            api_route?: string | null;
+            /** Api Status */
+            api_status?: number | null;
+            /** Problem Type */
+            problem_type?: string | null;
+            /** Resource Id */
+            resource_id?: string | null;
+            /** Latency Ms */
+            latency_ms: number;
+            /** Trace Id */
+            trace_id: string;
+            /** Approval Method */
+            approval_method?: string | null;
+            /** Outcome */
+            outcome: string;
         };
         /** _OpIn */
         _OpIn: {
@@ -2746,18 +2829,18 @@ export interface components {
         };
         /** _UserImageCompleteIn */
         _UserImageCompleteIn: {
-            /**
-             * Error
-             * @default
-             */
-            error: string;
+            /** Status */
+            status: string;
             /**
              * Size Bytes
              * @default 0
              */
             size_bytes: number;
-            /** Status */
-            status: string;
+            /**
+             * Error
+             * @default
+             */
+            error: string;
         };
         /**
          * _UserImagePatchIn
@@ -2777,27 +2860,6 @@ export interface components {
             /** Starred */
             starred?: boolean | null;
         };
-        /** ConsentRequest */
-        routes__privacy__ConsentRequest__1: {
-            /** Consent Type */
-            consent_type: string;
-            /** Details */
-            details?: {
-                [key: string]: unknown;
-            };
-            /** Entity Id */
-            entity_id: string;
-        };
-        /** ConsentRequest */
-        routes__privacy__ConsentRequest__2: {
-            /**
-             * Consent Type
-             * @default express
-             */
-            consent_type: string;
-            /** Purpose */
-            purpose: string;
-        };
     };
     responses: never;
     parameters: never;
@@ -2807,619 +2869,18 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    api_v1_retry_agent_command_api_v1_control_plane_commands__command_id__retry_post: {
+    api_simulate_placement_api_v1_placements_simulate_post: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                command_id: string;
-            };
+            path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["_OpIn"];
+                "application/json": components["schemas"]["JobIn"];
             };
         };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    api_v1_control_plane_health_api_v1_control_plane_health_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    api_v1_control_plane_queue_api_v1_control_plane_queue_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    api_v1_reconciliation_findings_api_v1_control_plane_reconciliation_findings_get: {
-        parameters: {
-            query?: {
-                status?: string;
-                cursor?: string | null;
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    api_v1_host_capacity_api_v1_hosts__host_id__capacity_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                host_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    api_v1_drain_host_api_v1_hosts__host_id__drain_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                host_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["_OpIn"] | null;
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    api_v1_create_eviction_plan_api_v1_hosts__host_id__eviction_plans_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                host_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["_EvictionPlanIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    api_v1_execute_eviction_plan_api_v1_hosts__host_id__eviction_plans__plan_id__execute_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                host_id: string;
-                plan_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    api_v1_evict_host_workloads_api_v1_hosts__host_id__evictions_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                host_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["_OpIn"] | null;
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    api_v1_host_observations_api_v1_hosts__host_id__observations_get: {
-        parameters: {
-            query?: {
-                limit?: number;
-            };
-            header?: never;
-            path: {
-                host_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    api_v1_undrain_host_api_v1_hosts__host_id__undrain_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                host_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["_OpIn"] | null;
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    api_v1_instance_api_v1_instances__job_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                job_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    api_v1_instance_active_lease_api_v1_instances__job_id__active_lease_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                job_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    api_v1_instance_attempts_api_v1_instances__job_id__attempts_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                job_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    api_v1_instance_control_plane_api_v1_instances__job_id__control_plane_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                job_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    api_v1_instance_events_api_v1_instances__job_id__events_get: {
-        parameters: {
-            query?: {
-                cursor?: string | null;
-                limit?: number;
-            };
-            header?: never;
-            path: {
-                job_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    api_v1_instance_placement_explanation_api_v1_instances__job_id__placement_explanation_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                job_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    api_v1_instance_reconcile_api_v1_instances__job_id__reconcile_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                job_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["_OpIn"] | null;
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    api_v1_instance_retry_api_v1_instances__job_id__retry_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                job_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["_OpIn"] | null;
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    api_v1_instance_timeline_api_v1_instances__job_id__timeline_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                job_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -3540,7 +3001,7 @@ export interface operations {
             };
         };
     };
-    api_execute_launch_plan_api_v1_launch_plans__plan_id__execute_post: {
+    api_revoke_launch_plan_api_v1_launch_plans__plan_id__revoke_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -3551,7 +3012,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["_ExecuteIn"] | null;
+                "application/json": components["schemas"]["_RevokeIn"] | null;
             };
         };
         responses: {
@@ -3575,7 +3036,7 @@ export interface operations {
             };
         };
     };
-    api_revoke_launch_plan_api_v1_launch_plans__plan_id__revoke_post: {
+    api_execute_launch_plan_api_v1_launch_plans__plan_id__execute_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -3586,7 +3047,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["_RevokeIn"] | null;
+                "application/json": components["schemas"]["_ExecuteIn"] | null;
             };
         };
         responses: {
@@ -3643,6 +3104,570 @@ export interface operations {
             };
         };
     };
+    api_v1_instance_api_v1_instances__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_create_eviction_plan_api_v1_hosts__host_id__eviction_plans_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["_EvictionPlanIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_execute_eviction_plan_api_v1_hosts__host_id__eviction_plans__plan_id__execute_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host_id: string;
+                plan_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_drain_host_api_v1_hosts__host_id__drain_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["_OpIn"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_undrain_host_api_v1_hosts__host_id__undrain_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["_OpIn"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_evict_host_workloads_api_v1_hosts__host_id__evictions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["_OpIn"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_instance_control_plane_api_v1_instances__job_id__control_plane_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_instance_timeline_api_v1_instances__job_id__timeline_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_instance_events_api_v1_instances__job_id__events_get: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_reconciliation_findings_api_v1_control_plane_reconciliation_findings_get: {
+        parameters: {
+            query?: {
+                status?: string;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_instance_attempts_api_v1_instances__job_id__attempts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_instance_active_lease_api_v1_instances__job_id__active_lease_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_instance_placement_explanation_api_v1_instances__job_id__placement_explanation_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_instance_retry_api_v1_instances__job_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["_OpIn"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_host_capacity_api_v1_hosts__host_id__capacity_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_host_observations_api_v1_hosts__host_id__observations_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                host_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_control_plane_queue_api_v1_control_plane_queue_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    api_v1_control_plane_health_api_v1_control_plane_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     api_v1_openapi_api_v1_openapi_json_get: {
         parameters: {
             query?: never;
@@ -3663,16 +3688,53 @@ export interface operations {
             };
         };
     };
-    api_simulate_placement_api_v1_placements_simulate_post: {
+    api_v1_instance_reconcile_api_v1_instances__job_id__reconcile_post: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["_OpIn"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_retry_agent_command_api_v1_control_plane_commands__command_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                command_id: string;
+            };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["JobIn"];
+                "application/json": components["schemas"]["_OpIn"];
             };
         };
         responses: {
