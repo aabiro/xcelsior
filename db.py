@@ -2631,3 +2631,101 @@ class OAuthStore:
                 "DELETE FROM oauth_refresh_tokens WHERE session_token = %s",
                 (session_token,),
             )
+
+
+class AgentKeyStore:
+    """Durable storage for long-lived agent API keys (MCP + Agent Skill).
+
+    Only the SHA-256 digest of a key is stored. ``key_prefix`` keeps a short
+    display fragment so a key is identifiable in a list without ever holding
+    the secret. Keys do not expire; they are revoked.
+    """
+
+    @staticmethod
+    def create(
+        *,
+        key_id: str,
+        user_id: str,
+        client_id: str,
+        name: str,
+        key_prefix: str,
+        key_hash: str,
+        scopes: str,
+        audience: str,
+        created_at: float,
+    ) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO agent_api_keys
+                    (key_id, user_id, client_id, name, key_prefix, key_hash,
+                     scopes, audience, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (key_id, user_id, client_id, name, key_prefix, key_hash,
+                 scopes, audience, created_at),
+            )
+
+    @staticmethod
+    def get_live_by_hash(key_hash: str) -> dict | None:
+        """Single indexed read on the request path. Revoked keys are invisible."""
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM agent_api_keys WHERE key_hash = %s AND revoked_at = 0",
+                (key_hash,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def touch_last_used(key_id: str, when: float) -> None:
+        """Record use. This is what tells the dashboard a key is live in a real
+        config, and therefore that rotating it would break something."""
+        with auth_connection() as conn:
+            conn.execute(
+                "UPDATE agent_api_keys SET last_used_at = %s WHERE key_id = %s",
+                (when, key_id),
+            )
+
+    @staticmethod
+    def list_for_user(user_id: str, *, include_revoked: bool = False) -> list[dict]:
+        clause = "" if include_revoked else " AND revoked_at = 0"
+        with auth_connection() as conn:
+            rows = conn.execute(
+                cast(Any, f"SELECT * FROM agent_api_keys WHERE user_id = %s{clause} "
+                          "ORDER BY created_at DESC"),
+                (user_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    @staticmethod
+    def revoke(key_id: str, user_id: str, when: float) -> bool:
+        """Scoped to the owner so a key id alone cannot revoke someone else's key."""
+        with auth_connection() as conn:
+            cur = conn.execute(
+                "UPDATE agent_api_keys SET revoked_at = %s "
+                "WHERE key_id = %s AND user_id = %s AND revoked_at = 0",
+                (when, key_id, user_id),
+            )
+            return cur.rowcount > 0
+
+    @staticmethod
+    def revoke_all_for_client(user_id: str, client_id: str, when: float) -> int:
+        """Used when rotating: the previous key must stop working, or rotation
+        just accumulates live credentials."""
+        with auth_connection() as conn:
+            cur = conn.execute(
+                "UPDATE agent_api_keys SET revoked_at = %s "
+                "WHERE user_id = %s AND client_id = %s AND revoked_at = 0",
+                (when, user_id, client_id),
+            )
+            return cur.rowcount
+
+    @staticmethod
+    def rename(key_id: str, user_id: str, name: str) -> bool:
+        with auth_connection() as conn:
+            cur = conn.execute(
+                "UPDATE agent_api_keys SET name = %s "
+                "WHERE key_id = %s AND user_id = %s AND revoked_at = 0",
+                (name, key_id, user_id),
+            )
+            return cur.rowcount > 0
