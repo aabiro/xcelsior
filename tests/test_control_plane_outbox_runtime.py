@@ -221,8 +221,8 @@ class TestDispatcherDelivery:
         job_id = f"j-{marker}-run"
         with _pool.connection() as conn:
             conn.execute(
-                "INSERT INTO hosts (host_id, status, registered_at, payload) "
-                "VALUES (%s, 'active', %s, %s)",
+                "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) "
+                "VALUES (%s, 'active', %s, %s, 'admitted')",
                 (host_id, time.time(), json.dumps({
                     "host_id": host_id, "gpu_model": model, "gpu_count": 2,
                     "free_vram_gb": 48.0, "total_vram_gb": 48.0,

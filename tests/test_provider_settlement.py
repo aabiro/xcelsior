@@ -82,9 +82,8 @@ def settlement_authority():
             """
             INSERT INTO hosts (
                 host_id, status, registered_at, payload,
-                provider_id, owner_id, country, province
-            )
-            VALUES (%s, 'active', %s, %s::jsonb, %s, %s, 'CA', 'ON')
+                provider_id, owner_id, country, province, admission_state)
+            VALUES (%s, 'active', %s, %s::jsonb, %s, %s, 'CA', 'ON', 'admitted')
             """,
             (
                 host_id,

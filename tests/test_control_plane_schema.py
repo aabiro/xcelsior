@@ -79,8 +79,8 @@ def _mkhost(cleanup):
     host_id = f"host-cp-{uuid.uuid4().hex[:10]}"
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload)
-               VALUES (%s, 'active', %s, %s)""",
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state)
+               VALUES (%s, 'active', %s, %s, 'admitted')""",
             (host_id, time.time(), json.dumps({"name": host_id})),
         )
         conn.commit()

@@ -70,8 +70,8 @@ def _mkhost(scratch, *, gpus=1):
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO hosts (host_id, status, registered_at, payload,
-                                  administrative_state, availability_state, inventory_generation)
-               VALUES (%s, 'active', %s, %s, 'admitted', 'ready', 1)""",
+                                  administrative_state, availability_state, inventory_generation, admission_state)
+               VALUES (%s, 'active', %s, %s, 'admitted', 'ready', 1, 'admitted')""",
             (host_id, time.time(), json.dumps({"admitted": True})),
         )
         for i in range(gpus):

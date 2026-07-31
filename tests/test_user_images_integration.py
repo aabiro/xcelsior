@@ -115,8 +115,8 @@ def seeded_job():
 
     with pool.connection() as conn:
         conn.execute(
-            "INSERT INTO hosts (host_id, status, registered_at, payload) "
-            "VALUES (%s, %s, %s, %s::jsonb) "
+            "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) "
+            "VALUES (%s, %s, %s, %s::jsonb, 'admitted') "
             "ON CONFLICT (host_id) DO UPDATE SET payload=EXCLUDED.payload",
             (host_id, "active", now, json.dumps(host_payload)),
         )

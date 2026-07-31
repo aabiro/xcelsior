@@ -62,7 +62,7 @@ def _mk_host(scratch) -> str:
     host_id = f"host-bc-{uuid.uuid4().hex[:10]}"
     with _pool.connection() as conn:
         conn.execute(
-            "INSERT INTO hosts (host_id, status, registered_at, payload) VALUES (%s,'active',%s,%s)",
+            "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) VALUES (%s,'active',%s,%s, 'admitted')",
             (host_id, time.time(), json.dumps({"gpu_model": "RTX 4090", "country": "CA", "compute_score": 8.0})),
         )
         conn.commit()

@@ -51,10 +51,19 @@ def _make_host(host_id: str, *, tenant: str, admitted: bool = False) -> None:
     def txn(conn):
         conn.execute(
             """INSERT INTO hosts (host_id, status, registered_at, payload,
-                                  tenant_id, owner_id)
-               VALUES (%s, 'active', %s, %s::jsonb, %s, %s)
+                                  tenant_id, owner_id, admission_state)
+               VALUES (%s, 'active', %s, %s::jsonb, %s, %s, %s)
                ON CONFLICT (host_id) DO NOTHING""",
-            (host_id, time.time(), payload, tenant, tenant),
+            (
+                host_id,
+                time.time(),
+                payload,
+                tenant,
+                tenant,
+                # These tests drive the pending -> admitted transition, so the
+                # fixture must start where the caller asks, not pre-admitted.
+                "admitted" if admitted else "pending",
+            ),
         )
 
     run_transaction(txn, what="test_make_host")

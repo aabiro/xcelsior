@@ -83,8 +83,8 @@ def _mk_stopped_job(cleanup, *, owner: str, host_id: str) -> str:
     }
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload)
-               VALUES (%s, 'active', %s, %s)
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state)
+               VALUES (%s, 'active', %s, %s, 'admitted')
                ON CONFLICT (host_id) DO NOTHING""",
             (host_id, now, json.dumps({"host_id": host_id})),
         )
