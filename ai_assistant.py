@@ -1716,14 +1716,14 @@ def _tool_get_wallet_transactions(args: dict, user: dict) -> dict:
         with _ai_db() as conn:
             if tx_type:
                 rows = conn.execute(
-                    "SELECT tx_id, tx_type, amount_cad, balance_after_cad, description, job_id, created_at "
+                    "SELECT tx_id, tx_type, amount_micros / 1000000.0 AS amount_cad, balance_after_micros / 1000000.0 AS balance_after_cad, description, job_id, created_at "
                     "FROM wallet_transactions WHERE customer_id = %s AND tx_type = %s "
                     "ORDER BY created_at DESC LIMIT %s",
                     (user_id, tx_type, limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT tx_id, tx_type, amount_cad, balance_after_cad, description, job_id, created_at "
+                    "SELECT tx_id, tx_type, amount_micros / 1000000.0 AS amount_cad, balance_after_micros / 1000000.0 AS balance_after_cad, description, job_id, created_at "
                     "FROM wallet_transactions WHERE customer_id = %s "
                     "ORDER BY created_at DESC LIMIT %s",
                     (user_id, limit),

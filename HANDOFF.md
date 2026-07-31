@@ -117,7 +117,46 @@ Audited what this branch itself introduced, not just what it inherited:
   an exact outcome rather than `>= 1`, which would have passed even if the
   drain silently skipped events.
 
-### The `_cad` columns should be dropped — attempted, reverted, plan below
+### `_cad` removal — application side DONE, one step left
+
+**Application code no longer reads or writes the float money columns on
+`wallets`, `wallet_transactions`, `wallet_holds` or `usage_meters`.** Reads
+select the integer column and scale once, aliased back to the same output key;
+writes use `cad_to_micros`. The API contract is unchanged and still speaks CAD.
+Suite green at 4536.
+
+**The only thing standing between here and a clean database is test fixtures.**
+27 test files still `INSERT INTO wallets (customer_id, balance_cad)`. Convert
+those to `balance_micros` (value × 1_000_000), then apply the staged migration
+`migrations/versions/087_drop_derived_cad_columns.py.staged` — rename off the
+`.staged` suffix — which drops all 12 columns and the 4 projection triggers.
+It has been applied and rolled back successfully; the only reason it is not
+live is those fixtures.
+
+`tests/test_wallet_micro_units.py` needs judgement rather than mechanical
+conversion: it exists to test the dual representation, so it is asserting the
+behaviour being removed.
+
+Two files are deliberately **not** converted yet — `provider_settlement.py`
+and `stripe_connect.py`. Their `payout_splits` float columns are `NOT NULL`,
+so removing them from the INSERT fails until the migration drops them. Convert
+those two in the same commit as the migration, not before.
+
+Traps already paid for, do not rediscover them:
+
+- Scope by table. `billing_cycles.amount_cad`, `invoices.total_cad` and
+  `btc_deposits.amount_cad` look identical but have no integer twin. A Python
+  keyword argument named `amount_cad` is the API contract and stays.
+- An alias is invalid inside `CASE ... THEN` and inside `ABS(...)`, and
+  applying the rewrite twice yields
+  `SUM(x_micros) / 1000000.0 as x_micros / 1000000.0 AS x_cad`.
+- `ck_payout_splits_exact_money` requires `provider + platform = total` and
+  `source + rounding = total`, so a backfill must rebuild every component in
+  one statement with the platform share as the remainder.
+- Triggers must be dropped in the same transaction as their columns; PL/pgSQL
+  resolves `NEW.<field>` at execution time.
+
+### Superseded: earlier attempt notes
 
 Straight answer: **yes, they should go.** Arguing they "cost nothing" was
 wrong. Every write to the busiest tables on the platform fires a projection
