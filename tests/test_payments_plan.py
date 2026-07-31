@@ -188,6 +188,12 @@ class TestMeterDualWrite:
             conn.commit()
 
         stripe_meters.set_outbox_backend(None)  # real Postgres path
+        # drain_meter_outbox works on the whole table, so rows left by earlier
+        # runs of this test would be drained alongside this one and make the
+        # assertions depend on history. Start from a known-empty outbox.
+        with pool.connection() as conn:
+            conn.execute("DELETE FROM stripe_meter_event_outbox")
+            conn.commit()
         enq = stripe_meters.enqueue_meter_event(
             customer_id=cid,
             event_name=stripe_meters.EVENT_GPU_HOUR,
@@ -211,10 +217,20 @@ class TestMeterDualWrite:
         ):
             stats = stripe_meters.drain_meter_outbox(limit=50, stripe_mod=mock_stripe)
 
-        assert stats["failed"] >= 1
+        # Two events are outstanding, and both must fail: the one enqueued
+        # explicitly above, and the usage meter that charge() emits. Starting
+        # from an empty outbox makes that count exact rather than "at least
+        # one", which would pass even if the drain silently skipped events.
+        assert stats == {"failed": 2, "sent": 0, "skipped": 0}, stats
         assert mock_stripe.billing.MeterEvent.create.called
         # Wallet must be unchanged by drain failure
         assert eng.get_wallet(cid)["balance_cad"] == pytest.approx(bal_after_charge, abs=0.001)
+
+        with pool.connection() as conn:
+            conn.execute(
+                "DELETE FROM stripe_meter_event_outbox WHERE customer_id = %s", (cid,)
+            )
+            conn.commit()
 
     def test_infer_event_gpu_hours(self):
         from stripe_meters import EVENT_GPU_HOUR, _infer_event
