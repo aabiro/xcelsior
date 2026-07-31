@@ -1,0 +1,57 @@
+---
+title: Account & Security
+subtitle: Profile, sign-in, multi-factor authentication, and your data.
+slug: account
+---
+
+# Account & Security
+
+Everything about managing your Xcelsior identity — how you sign in, how you secure the account, and how to get your data out.
+
+## Signing in
+
+You can sign in with an email address and password, or through a supported OAuth provider. Both routes reach the same account, so if you registered with a password you can continue using it.
+
+### Changing your password
+
+Change your password from your account settings while signed in. If you have forgotten it, use the password-reset flow: you will receive a reset link by email, and the link expires after a limited window.
+
+### Changing your email address
+
+Email changes are confirmed before they take effect. When you request a change, a confirmation is sent to the new address, and the change only applies once you follow it. This prevents someone who briefly has access to your session from silently moving your account to an address they control.
+
+## Multi-factor authentication
+
+Xcelsior supports multiple second factors, and you can register more than one so that losing a single device does not lock you out.
+
+- **Passkeys** — the strongest option. A passkey is bound to your device's secure hardware and cannot be phished or replayed. Register one from your security settings.
+- **SMS codes** — a one-time code sent to a verified phone number.
+- **Backup codes** — single-use recovery codes for when your usual factor is unavailable.
+
+**Store your backup codes somewhere safe and offline.** They are your recovery path if you lose your passkey device and your phone. You can regenerate them at any time, which immediately invalidates the previous set.
+
+## SSH keys
+
+To reach instances over SSH you register a public key on your account. Add, list, and remove keys from your dashboard.
+
+Register only the public half of the keypair. Your private key never leaves your machine and Xcelsior never asks for it — treat any request for a private key as fraudulent.
+
+Removing a key from your account revokes its access for future connections.
+
+## API credentials
+
+Programmatic access uses credentials you create from your dashboard settings, scoped to the operations they need. Give each integration its own credential so you can revoke one without disrupting the others.
+
+For AI agents, create a dedicated MCP client rather than reusing a general credential — MCP clients are scoped specifically for agent workflows. See the MCP Server page.
+
+Treat credentials like passwords: never commit them to a repository, and never paste them into a chat or a support ticket.
+
+## Exporting your data
+
+You can request an export of your account data from your settings. The export covers the information Xcelsior holds about your account and its activity.
+
+## Notifications
+
+Xcelsior notifies you about events that affect your money and your compute — low wallet balance, instances starting, finishing, or failing, and serverless endpoints scaling. You can enable native desktop notifications through the installable app; see the Desktop App page.
+
+The low-balance warning is worth leaving on. It gives you a chance to top up before a running job reaches a hard stop.

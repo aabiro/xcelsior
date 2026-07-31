@@ -1,0 +1,38 @@
+---
+title: Desktop PWA & Desktop App
+subtitle: Install Xcelsior as a native desktop experience.
+slug: pwa
+---
+
+# Desktop App & PWA
+
+Xcelsior is designed to be installed on your desktop. We offer a Progressive Web App (PWA) that you can install directly from your browser, as well as a fully Native Desktop App built with Tauri for advanced infrastructure management.
+
+## Browser PWA
+
+You can install the Xcelsior dashboard directly from Chrome or Edge on macOS, Windows, and Linux.
+
+1. Open `https://xcelsior.ca` in a supported browser.
+2. Click the **Install** icon in the URL bar, or click **Install Xcelsior** from the Dashboard settings.
+3. The dashboard will launch in a standalone window, identical to a native app.
+
+**Offline Resilience:** The PWA caches the core application shell. If your internet connection drops, you can still open the app, view cached metrics, and navigate the shell. The app uses safe "network-first" caching to ensure you never accidentally make offline billing mutations or launch jobs into a void.
+
+## Push Notifications
+
+Both the PWA and the Native Desktop app support Web Push Notifications.
+- Enable push notifications from your Dashboard Settings.
+- You will receive native OS notifications when your instances start, finish, or fail, and when your serverless endpoints scale.
+- We use the `pywebpush` standard with VAPID keys to securely deliver alerts without a third-party notification proxy.
+
+## Native Desktop App (Tauri)
+
+For heavy operators and infrastructure engineers, we also offer a Native Desktop App built on Tauri 2.
+
+This app bundles the standard web dashboard but wraps it with a **Native Control Center**, giving you access to:
+- **System Tray Integration:** Run the app in the background and trigger quick actions.
+- **Deep Linking:** Launch specific instances or terminal connections via `xcelsior://` deep links.
+- **Auto-start:** Configure Xcelsior to launch silently on OS login.
+- **Native Routing:** Access desktop-exclusive routes like `/desktop/activity` and `/desktop/launch` for advanced fleet monitoring.
+
+*The Native Desktop App can be downloaded from the Marketing page as a direct installer for macOS, Windows, and Linux.*

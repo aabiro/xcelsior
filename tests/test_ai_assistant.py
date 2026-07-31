@@ -2825,3 +2825,126 @@ class TestToolSchemaHandlerSync:
             assert (
                 tool["input_schema"].get("type") == "object"
             ), f"Tool {tool['name']} schema type must be 'object'"
+
+
+class TestPublicDocsCorpus:
+    """The corpus Xcel AI can search must never contain internal material.
+
+    Any signed-up user can reach the assistant, so a leak here discloses
+    business strategy and infrastructure detail to customers. These tests
+    guard the allowlist rather than the retrieval logic.
+    """
+
+    def test_no_source_is_rooted_in_a_forbidden_directory(self):
+        from ai_assistant import collect_public_docs
+        from ai_assistant_config import FORBIDDEN_DOC_ROOTS
+
+        for source, _ in collect_public_docs():
+            root = source.split("/", 1)[0]
+            assert root not in FORBIDDEN_DOC_ROOTS, (
+                f"{source} comes from an internal-only directory and must not "
+                f"be searchable by end users"
+            )
+
+    def test_internal_documents_are_absent_from_the_corpus(self):
+        """Named internal files must never appear, however the globs change."""
+        from ai_assistant import collect_public_docs
+
+        internal = {
+            "BUSINESS_STRATEGY.md",
+            "BUSINESS_STRATEGY_CHECKLIST.md",
+            "GCP_BUSINESS_PROPOSAL_2026_2028.md",
+            "NEXT_PRIORITIES_ROADMAP.md",
+            "UI_ROADMAP.md",
+            "xcelsior-production-control-plane-mcp-blueprint.md",
+        }
+        names = {source.rsplit("/", 1)[-1] for source, _ in collect_public_docs()}
+        assert not (names & internal), f"Internal docs reachable by users: {names & internal}"
+
+    def test_no_site_audit_reports_in_the_corpus(self):
+        from ai_assistant import collect_public_docs
+
+        offenders = [
+            s for s, _ in collect_public_docs() if "site-audit" in s or "audit-report" in s
+        ]
+        assert not offenders, f"Audit reports must not be user-searchable: {offenders}"
+
+    def test_corpus_text_carries_no_internal_markers(self):
+        """Catches an internal doc copied *into* an allowlisted directory."""
+        from ai_assistant import collect_public_docs
+
+        markers = ("GCP_BUSINESS_PROPOSAL", "BUSINESS_STRATEGY", "Track B", "control-plane blueprint")
+        for source, text in collect_public_docs():
+            for marker in markers:
+                assert marker not in text, f"{source} contains internal marker {marker!r}"
+
+    def test_ingest_refuses_internal_sources(self):
+        from ai_assistant import _assert_no_internal_sources
+
+        with pytest.raises(RuntimeError, match="non-public documentation"):
+            _assert_no_internal_sources([("docs/BUSINESS_STRATEGY.md", "revenue plan")])
+
+    def test_corpus_is_not_empty(self):
+        """A moved directory would silently produce a corpus of nothing."""
+        from ai_assistant import collect_public_docs
+
+        sources = collect_public_docs()
+        assert len(sources) >= 20, f"Expected a populated corpus, got {len(sources)} sources"
+        assert all(text.strip() for _, text in sources), "A corpus document is empty"
+
+    def test_published_and_supplemental_docs_are_both_present(self):
+        from ai_assistant import collect_public_docs
+
+        roots = {s.split("/", 1)[0] for s, _ in collect_public_docs() if "/" in s}
+        assert "fern" in {r.split("/")[0] for r in roots} or any(
+            s.startswith("fern/pages") for s, _ in collect_public_docs()
+        )
+        assert any(s.startswith("support_docs/") for s, _ in collect_public_docs())
+
+    def test_supplemental_docs_have_frontmatter(self):
+        """Every support page needs a title so retrieval results are labelled."""
+        from ai_assistant import collect_public_docs
+
+        for source, text in collect_public_docs():
+            if not source.startswith("support_docs/"):
+                continue
+            assert text.startswith("---"), f"{source} is missing frontmatter"
+            assert "title:" in text.split("---")[1], f"{source} has no title"
+
+
+class TestTsqueryTerms:
+    """Query tokenisation for doc search.
+
+    Support questions are prose containing hyphens, slashes and apostrophes.
+    The previous `w.isalnum()` filter dropped those tokens entirely, so
+    'on-demand pricing' was ranked on 'pricing' alone.
+    """
+
+    def test_keeps_hyphenated_terms(self):
+        from ai_assistant import tsquery_terms
+
+        assert tsquery_terms("on-demand pricing") == ["on", "demand", "pricing"]
+
+    def test_keeps_slash_separated_terms(self):
+        from ai_assistant import tsquery_terms
+
+        assert "GST" in tsquery_terms("what is the GST/HST rate")
+        assert "HST" in tsquery_terms("what is the GST/HST rate")
+
+    def test_splits_apostrophes_without_dropping_the_word(self):
+        from ai_assistant import tsquery_terms
+
+        assert "what" in tsquery_terms("what's my balance")
+        assert "balance" in tsquery_terms("what's my balance")
+
+    def test_degenerate_queries_yield_no_terms(self):
+        from ai_assistant import tsquery_terms
+
+        assert tsquery_terms("") == []
+        assert tsquery_terms("   ") == []
+        assert tsquery_terms("!@#$%^&*()") == []
+
+    def test_preserves_alphanumeric_identifiers(self):
+        from ai_assistant import tsquery_terms
+
+        assert tsquery_terms("RTX4090 spot rate") == ["RTX4090", "spot", "rate"]
