@@ -35,6 +35,11 @@ for h in scheduler.log.handlers[:]:
 
 def _admit(host_id: str, **extra):
     scheduler._set_host_fields(host_id, admitted=True, **extra)
+    # Since 082 the projection reads admission_state, not payload.admitted, so
+    # a payload write alone leaves the host pending and unplaceable.
+    from tests._db_helpers import admit_test_host
+
+    admit_test_host(host_id, active=True)
 
 
 def _host(host_id: str, *, spot_enabled: bool = True, spot_gpu_slots: int = 1, gpu_count: int = 1):
