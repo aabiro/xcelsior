@@ -448,13 +448,14 @@ def issue_agent_api_key(
 
     secret = f"{AGENT_KEY_PREFIX}{secrets.token_urlsafe(32)}"
     key_id = str(uuid.uuid4())
+    # Enough to tell two keys apart in a list, far too little to use.
+    key_prefix = f"{AGENT_KEY_PREFIX}…{secret[-AGENT_KEY_DISPLAY_CHARS:]}"
     AgentKeyStore.create(
         key_id=key_id,
         user_id=user_id,
         client_id=client_id,
         name=name,
-        # Enough to tell two keys apart in a list, far too little to use.
-        key_prefix=f"{AGENT_KEY_PREFIX}…{secret[-AGENT_KEY_DISPLAY_CHARS:]}",
+        key_prefix=key_prefix,
         key_hash=_hash_agent_key(secret),
         scopes=" ".join(scopes),
         audience=audience or OAUTH_AUDIENCE,
@@ -463,6 +464,7 @@ def issue_agent_api_key(
     return {
         "access_token": secret,
         "key_id": key_id,
+        "key_prefix": key_prefix,
         "token_type": "Bearer",
         "scope": " ".join(scopes),
         "replaced_keys": replaced,

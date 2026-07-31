@@ -23,6 +23,7 @@ import { DesktopAppPreferences } from "@/components/settings/DesktopAppPreferenc
 import { NativeDesktopPreferences } from "@/components/settings/NativeDesktopPreferences";
 import { OAuthClientManager } from "@/components/settings/OAuthClientManager";
 import { McpAgentSetup } from "@/components/settings/McpAgentSetup";
+import { AgentKeysPanel } from "@/components/settings/AgentKeysPanel";
 import { COUNTRY_CODES } from "@/lib/country-codes";
 import { FadeIn, StaggerList, StaggerItem } from "@/components/ui/motion";
 import { motion, AnimatePresence } from "framer-motion";
@@ -760,10 +761,17 @@ export default function SettingsPage() {
             />
           )}
           {activeTab === "mcp" && (
-            <McpAgentSetup
-              oauthClients={oauthClients}
-              onOAuthClientsChange={setOauthClients}
-            />
+            <>
+              <McpAgentSetup
+                oauthClients={oauthClients}
+                onOAuthClientsChange={setOauthClients}
+              />
+              {/* Keys are created on the MCP page; this is where they are
+                  audited and retired. */}
+              <div className="mt-6">
+                <AgentKeysPanel />
+              </div>
+            </>
           )}
           {activeTab === "api-keys" && (
             <ApiKeysTab

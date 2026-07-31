@@ -40,13 +40,18 @@ export function McpConnectCard() {
     void load(true);
   };
 
+  // Keys are stored as a hash, so an existing one can never be shown again.
+  // access_token is present only on a fresh mint; otherwise we show the masked
+  // prefix, which is safe to display but cannot be pasted into a config.
   const token = conn?.access_token ?? "";
+  const inUse = conn?.in_use ?? false;
+  const displayKey = conn?.access_token ?? conn?.key_prefix ?? "";
   const mcpTarget = conn?.mcp_url ?? "https://xcelsior.ca/mcp";
 
   const promptText = conn
     ? tab === "mcp"
-      ? t("dash.mcp.mcp_prompt", { token, mcp_url: mcpTarget })
-      : t("dash.mcp.cli_prompt", { token })
+      ? t("dash.mcp.mcp_prompt", { token: displayKey, mcp_url: mcpTarget })
+      : t("dash.mcp.cli_prompt", { token: displayKey })
     : "";
 
   const handleCopy = () => {
@@ -63,12 +68,13 @@ export function McpConnectCard() {
     toast.success(t("dash.mcp.token_copied"));
   };
 
-  const tokenIndex = token ? promptText.indexOf(token) : -1;
+  const tokenIndex = displayKey ? promptText.indexOf(displayKey) : -1;
   const promptBeforeToken = tokenIndex >= 0 ? promptText.slice(0, tokenIndex) : promptText;
-  const promptAfterToken = tokenIndex >= 0 ? promptText.slice(tokenIndex + token.length) : "";
-  const abbreviatedToken = token.length > 24
-    ? `${token.slice(0, 12)}…${token.slice(-8)}`
-    : token;
+  const promptAfterToken =
+    tokenIndex >= 0 ? promptText.slice(tokenIndex + displayKey.length) : "";
+  // Shown whole: an agent key is 51 characters, so there is nothing to
+  // abbreviate and a partial key is worse than useless to paste.
+  const abbreviatedToken = displayKey;
 
   return (
     <div className="mcp-connect-card glow-card glass relative mx-auto w-full max-w-2xl rounded-[22px] p-6 sm:p-8">
@@ -105,17 +111,24 @@ export function McpConnectCard() {
         ) : (
           <p className="whitespace-pre-wrap break-words text-sm sm:text-base leading-relaxed text-text-primary font-medium">
             {promptBeforeToken}
-            {tokenIndex >= 0 && (
-              <button
-                type="button"
-                onClick={handleCopyToken}
-                className="inline rounded px-1 py-0.5 bg-accent-cyan/10 font-mono text-xs sm:text-sm text-accent-cyan decoration-accent-cyan/50 underline-offset-4 transition-colors hover:bg-accent-cyan/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-cyan/50 font-bold"
-                aria-label={t("dash.mcp.copy_token")}
-                title={t("dash.mcp.copy_token")}
-              >
-                {abbreviatedToken}
-              </button>
-            )}
+            {tokenIndex >= 0 &&
+              (token ? (
+                <button
+                  type="button"
+                  onClick={handleCopyToken}
+                  className="inline rounded px-1 py-0.5 bg-accent-cyan/10 font-mono text-xs sm:text-sm text-accent-cyan decoration-accent-cyan/50 underline-offset-4 transition-colors hover:bg-accent-cyan/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-cyan/50 font-bold"
+                  aria-label={t("dash.mcp.copy_token")}
+                  title={t("dash.mcp.copy_token")}
+                >
+                  {abbreviatedToken}
+                </button>
+              ) : (
+                // Masked prefix: identifies which key is live without being
+                // copyable, since there is no secret to copy.
+                <span className="inline rounded px-1 py-0.5 bg-surface font-mono text-xs sm:text-sm text-text-muted font-bold">
+                  {abbreviatedToken}
+                </span>
+              ))}
             {promptAfterToken}
           </p>
         )}
@@ -131,7 +144,9 @@ export function McpConnectCard() {
         <button
           type="button"
           onClick={handleCopy}
-          disabled={loading}
+          // Copying a masked key would hand the agent a credential that cannot
+          // work, so the copy path is closed once a key is live elsewhere.
+          disabled={loading || inUse}
           className={cn(
             "inline-flex items-center gap-2 rounded-full px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-transform",
             "bg-gradient-to-r from-accent-cyan to-accent-violet hover:scale-[1.02] active:scale-100",
@@ -141,11 +156,14 @@ export function McpConnectCard() {
           {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
           {t("dash.mcp.copy_prompt")}
         </button>
+        {/* Same control throughout — only its label changes. Once a key is in
+            use this is the way forward, so it reads as the action it performs
+            rather than adding a second primary-styled button. */}
         <button
           type="button"
           onClick={handleRegenerate}
           disabled={loading || regenerating}
-          title={t("dash.mcp.regenerate")}
+          title={inUse ? t("dash.mcp.create_new_key") : t("dash.mcp.regenerate")}
           className="inline-flex items-center gap-1.5 rounded-full border border-border/60 px-4 py-2.5 text-xs text-text-muted transition-colors hover:text-text-primary disabled:opacity-60"
         >
           {regenerating ? (
@@ -153,9 +171,15 @@ export function McpConnectCard() {
           ) : (
             <RefreshCw className="h-3.5 w-3.5" />
           )}
-          {t("dash.mcp.regenerate")}
+          {inUse ? t("dash.mcp.create_new_key") : t("dash.mcp.regenerate")}
         </button>
       </div>
+
+      {inUse && !loading && (
+        <p className="mt-3 text-center text-[10px] leading-none text-text-muted">
+          {t("dash.mcp.key_in_config")}
+        </p>
+      )}
     </div>
   );
 }

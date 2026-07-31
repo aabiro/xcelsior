@@ -861,7 +861,6 @@ def api_mcp_quick_connect(request: Request, regenerate: bool = False):
     from oauth_service import (
         MCP_QUICK_CONNECT_SCOPES,
         get_or_create_mcp_quick_connect_client,
-        issue_client_credentials_jwt,
     )
 
     client = get_or_create_mcp_quick_connect_client(
@@ -870,22 +869,112 @@ def api_mcp_quick_connect(request: Request, regenerate: bool = False):
         team_id=_oauth_workspace_team_id(user),
         regenerate=regenerate,
     )
-    from oauth_service import MCP_RESOURCE_AUDIENCE
-    token_bundle = issue_client_credentials_jwt(
-        client,
-        list(client.get("scopes") or MCP_QUICK_CONNECT_SCOPES),
-        audience=MCP_RESOURCE_AUDIENCE,
-    )
+    from db import AgentKeyStore
+    from oauth_service import MCP_RESOURCE_AUDIENCE, issue_agent_api_key
+
+    scopes = list(client.get("scopes") or MCP_QUICK_CONNECT_SCOPES)
+    user_id = str(user.get("user_id") or user.get("email") or "")
+    client_id = client["client_id"]
+
+    live = [
+        k
+        for k in AgentKeyStore.list_for_user(user_id)
+        if k["client_id"] == client_id
+    ]
+    existing = live[0] if live else None
+
+    # Only the SHA-256 digest of a key is stored, so a key can never be shown
+    # a second time. That leaves three cases, and the distinction that matters
+    # is last_used_at: a key that has never authenticated a request cannot be
+    # in anyone's config, so replacing it breaks nothing.
+    mint = existing is None or existing["last_used_at"] == 0 or regenerate
+    bundle = None
+    if mint:
+        bundle = issue_agent_api_key(
+            user=user,
+            client_id=client_id,
+            scopes=scopes,
+            audience=MCP_RESOURCE_AUDIENCE,
+            name="MCP Quick Connect",
+            replace_existing=True,
+        )
+
     mcp_base = os.environ.get("XCELSIOR_PUBLIC_URL", "https://xcelsior.ca")
     return {
         "ok": True,
-        "client_id": client["client_id"],
-        "access_token": token_bundle["access_token"],
-        "expires_in": token_bundle["expires_in"],
-        "scopes": list(client.get("scopes") or []),
+        "client_id": client_id,
+        # Present only when freshly minted. Absent means "already issued and in
+        # use" — the UI shows the masked prefix instead of a token it cannot
+        # legitimately produce.
+        "access_token": bundle["access_token"] if bundle else None,
+        "key_id": bundle["key_id"] if bundle else (existing["key_id"] if existing else None),
+        "key_prefix": (
+            bundle["key_prefix"] if bundle else (existing["key_prefix"] if existing else None)
+        ),
+        # A freshly minted key has never authenticated anything, so it is never
+        # "in use" — that only becomes true once the agent actually calls.
+        "in_use": bool(not bundle and existing and existing["last_used_at"] > 0),
+        "last_used_at": 0 if bundle else (existing["last_used_at"] if existing else 0),
+        # These keys do not expire; they are revoked. Reporting an expiry would
+        # make clients schedule a refresh that has nothing to refresh.
+        "expires_in": None,
+        "scopes": scopes,
         "mcp_url": f"{mcp_base}/mcp",
         "api_url": mcp_base,
     }
+
+
+@router.get("/api/agent-keys", tags=["Auth"])
+def api_list_agent_keys(request: Request):
+    """List the caller's agent keys for the Settings management view."""
+    user = _require_user_grant(request)
+    from db import AgentKeyStore
+
+    user_id = str(user.get("user_id") or user.get("email") or "")
+    return {
+        "ok": True,
+        "keys": [
+            {
+                "key_id": k["key_id"],
+                "name": k["name"],
+                "key_prefix": k["key_prefix"],
+                "client_id": k["client_id"],
+                "scopes": (k["scopes"] or "").split(),
+                "created_at": k["created_at"],
+                "last_used_at": k["last_used_at"],
+                "in_use": k["last_used_at"] > 0,
+            }
+            for k in AgentKeyStore.list_for_user(user_id)
+        ],
+    }
+
+
+@router.delete("/api/agent-keys/{key_id}", tags=["Auth"])
+def api_revoke_agent_key(key_id: str, request: Request):
+    """Revoke a key immediately. Scoped to the owner."""
+    user = _require_user_grant(request)
+    from db import AgentKeyStore
+
+    user_id = str(user.get("user_id") or user.get("email") or "")
+    if not AgentKeyStore.revoke(key_id, user_id, time.time()):
+        raise HTTPException(404, "Key not found")
+    return {"ok": True, "revoked": key_id}
+
+
+class AgentKeyRename(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+
+
+@router.patch("/api/agent-keys/{key_id}", tags=["Auth"])
+def api_rename_agent_key(key_id: str, body: AgentKeyRename, request: Request):
+    """Rename a key so several are tellable apart in Settings."""
+    user = _require_user_grant(request)
+    from db import AgentKeyStore
+
+    user_id = str(user.get("user_id") or user.get("email") or "")
+    if not AgentKeyStore.rename(key_id, user_id, body.name.strip()):
+        raise HTTPException(404, "Key not found")
+    return {"ok": True, "key_id": key_id, "name": body.name.strip()}
 
 
 @router.delete("/api/oauth/clients/{client_id}", tags=["Auth"])
