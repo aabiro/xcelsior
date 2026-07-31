@@ -42,7 +42,8 @@ and observability deployment.
 
 ## Remaining work, with evidence (2026-07-31)
 
-Suite is at **34 failed / 4496 passed** (was 235 failed when this pass began).
+Suite is at **4529 passed, 1 order-dependent failure** (was 235 failed when this
+pass began).
 The remaining failures are almost entirely tests that encode contracts the
 Phase 10 and 082 work deliberately retired — they describe the old system, not
 defects in the new one. In priority order:
@@ -75,7 +76,11 @@ defects in the new one. In priority order:
    button still downloads billing CSV only), the governed warehouse deletion
    sink, observability stack deployment, and the "Major original-goal gaps"
    section below.
-5. **Order-dependent flake:** `tests/test_api.py::TestJobEndpoints::test_list_jobs`
+5. **Order-dependent flakes.** Two tests pass alone and fail in a full run —
+   `test_payments_plan.py::TestMeterDualWrite::test_drain_failure_does_not_reverse_wallet`
+   and, before it was fixed, the privacy worker suite. Both are shared database
+   state between modules rather than product defects; the pattern to look for
+   is a test creating a row that another module's assertions count. Previously: `tests/test_api.py::TestJobEndpoints::test_list_jobs`
    raises a psycopg error only when run after the rest of the suite; it passes
    in isolation. Shared-state leakage between test modules, not a product bug.
 
