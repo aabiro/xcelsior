@@ -1771,6 +1771,9 @@ const fr: Record<string, string> = {
   "mcp.landing.agent_claude": "Claude",
   "mcp.landing.agent_vscode": "VS Code",
   "mcp.landing.setup_cta": "Ouvrir la configuration",
+  "mcp.landing.skill_title": "Pas de support MCP ? Utilisez le Skill agent",
+  "mcp.landing.skill_desc": "Une seule commande apprend à n'importe quel agent à piloter Xcelsior via le SDK TypeScript officiel — aucun client MCP requis.",
+  "mcp.landing.skill_note": "Exportez ensuite votre jeton d'accès depuis le tableau de bord. Votre agent peut lister les GPU, consulter les prix spot, estimer les coûts et lancer des instances en langage naturel.",
   "mcp.landing.footer_line": "Du langage naturel aux vrais GPU. Zéro friction.",
   "mcp.landing.footer_cta": "Parcourir la disponibilité GPU",
 
