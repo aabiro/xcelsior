@@ -1,0 +1,39 @@
+---
+title: Networking & Mesh
+subtitle: Connect securely to your instances via WireGuard.
+slug: networking
+---
+
+# Networking & Mesh Infrastructure
+
+Unlike traditional cloud providers that expose instances directly to the public internet, Xcelsior prioritizes security by placing all instances inside a **Private WireGuard Mesh Network**.
+
+## Headscale & WireGuard
+
+Xcelsior operates a self-hosted **Headscale** control server. This creates a zero-trust, peer-to-peer overlay network connecting you directly to the GPU host processing your workload.
+
+- **No Public IPs:** GPU hosts do not need public IP addresses or open firewall ports.
+- **End-to-End Encryption:** All traffic between your local machine and the GPU instance is encrypted via WireGuard.
+
+## Connecting to Your Instance
+
+To interact with your running instances (e.g., via SSH or Jupyter Notebooks), you must join the Xcelsior mesh network.
+
+### 1. Install Tailscale
+Download and install the [Tailscale client](https://tailscale.com/download) for your operating system.
+
+### 2. Authenticate
+Use the custom Xcelsior login server. You can generate a pre-auth key from your Dashboard.
+```bash
+sudo tailscale up --login-server https://hs.xcelsior.ca --authkey <YOUR_AUTH_KEY>
+```
+
+### Dual Tailscale Setup
+If you already use Tailscale for personal use, you don't have to choose between them! Xcelsior supports running a secondary `tailscaled` daemon. The onboarding wizard (`npx @xcelsior-gpu/wizard@latest`) can automatically configure this dual-setup for you, ensuring your personal Tailscale and Xcelsior Tailscale run harmoniously side-by-side.
+
+## Port Forwarding & SSH
+
+Once connected to the mesh, you will be assigned a `100.64.x.x` IP address. 
+You can SSH directly into your instance using the standard `ssh` command and the private key you registered on the dashboard.
+
+To access web services (like JupyterLab or TensorBoard) running on your instance, you can use SSH port forwarding, or access them directly via the instance's `100.64.x.x` mesh IP address.

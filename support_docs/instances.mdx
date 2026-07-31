@@ -1,0 +1,40 @@
+---
+title: GPU Instances
+subtitle: On-Demand and Spot GPU instances for AI workloads.
+slug: instances
+---
+
+# GPU Instances
+
+Xcelsior provides access to a decentralized marketplace of consumer and data-center GPUs. You can rent these GPUs by the hour using two main pricing models: **On-Demand** and **Spot**.
+
+## Pricing Models
+
+### On-Demand Instances
+On-Demand instances provide guaranteed, uninterrupted access to your GPU for as long as you have funds in your wallet. The hourly rate is fixed at the time of creation and will not change while the instance is running. 
+- **Best for:** Critical workloads, long-running training jobs, or interactive development where interruptions are unacceptable.
+- **Billing:** Billed by the second, drawn from your CAD wallet balance. 
+
+### Spot Instances (Interruptible)
+Spot instances let you bid on spare GPU capacity at a significant discount (often up to 70% cheaper than On-Demand). The trade-off is that **Spot instances can be preempted** (interrupted) if a higher-paying On-Demand job requests the same host.
+- **Best for:** Fault-tolerant workloads, batch processing, model checkpoints, and stateless inference.
+- **Preemption:** If preempted, your instance will receive a termination signal and be cleanly moved back to the queue until capacity frees up again. Any attached persistent volumes will be safely detached.
+- **Pricing:** Billed at the spot rate locked at assignment (`spot_rate_cad`).
+
+## Instance Lifecycle
+
+We use simple **Start** and **Stop** semantics to manage your instances.
+
+- **Start:** Boots the instance, allocates the GPU, and begins compute billing. Requires a positive wallet balance.
+- **Stop:** Suspends the compute job and releases the GPU back to the marketplace. **Your container and attached persistent volumes are preserved.** Note that storage billing for persistent volumes continues while the instance is stopped.
+- **Cancel/Terminate:** Permanently deletes the instance and all associated ephemeral data.
+
+### Low Balance & Auto-Pause
+If your wallet balance runs out while an instance is running, Xcelsior's billing engine will automatically trigger a **Stop** action. The container is paused (`docker stop`) rather than destroyed, allowing you to top up your balance and resume exactly where you left off.
+
+## Secure Execution
+
+Every instance runs in a highly secure environment:
+1. **Container Isolation:** Workloads run in Docker containers, isolated from the host and from other tenants.
+2. **Sandboxing:** Hosts can run workloads under the **gVisor** (`runsc`) runtime, which places a user-space kernel between your container and the host kernel. GPU passthrough under gVisor uses nvproxy.
+3. **Egress Filtering:** Outbound network traffic from workload containers is filtered by default.

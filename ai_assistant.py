@@ -38,6 +38,7 @@ from ai_assistant_config import (
     DEFAULT_MESSAGE_LIMIT,
     ERROR_BODY_PREVIEW_LEN,
     FEATURE_AI_ASSISTANT,
+    FORBIDDEN_DOC_ROOTS,
     KEY_PREVIEW_PREFIX_LEN,
     KEY_PREVIEW_SUFFIX_LEN,
     MAX_DOCKER_IMAGE_LEN,
@@ -49,6 +50,8 @@ from ai_assistant_config import (
     MAX_TOOL_ROUNDS,
     MAX_WIZARD_KV_VALUE_LEN,
     MOCK_PREVIEW_MAX_LEN,
+    PUBLIC_DOC_FILES,
+    PUBLIC_DOC_GLOBS,
     RAG_CHUNK_OVERLAP,
     RAG_CHUNK_SIZE,
     RATE_LIMIT_WINDOW_SEC,
@@ -372,21 +375,65 @@ def resolve_confirmation(confirmation_id: str, user_id: str, approved: bool) -> 
 
 # ── RAG: BM25 Document Search ────────────────────────────────────────
 
+# Arbitrary but stable key so concurrent API replicas serialise their corpus
+# refresh instead of racing each other's TRUNCATE.
+_DOCS_INGEST_LOCK_KEY = 0x5D0C5
 
-def ingest_docs():
-    """Chunk and ingest llms.txt + docs/*.md into ai_docs for BM25 search."""
+
+
+
+
+def collect_public_docs() -> list[tuple[str, str]]:
+    """Read every allowlisted user-facing document as (source, text).
+
+    Deliberately an allowlist rather than a directory walk. The corpus is
+    reachable by any signed-up user through Xcel AI, so it may only contain
+    material that is already published or was written for external readers.
+    See PUBLIC_DOC_GLOBS in ai_assistant_config.
+    """
+    root = Path(os.path.dirname(__file__))
     sources: list[tuple[str, str]] = []
 
-    # llms.txt
-    llms_path = Path(os.path.dirname(__file__)) / "llms.txt"
-    if llms_path.exists():
-        sources.append(("llms.txt", llms_path.read_text()))
+    for filename in PUBLIC_DOC_FILES:
+        path = root / filename
+        if path.is_file():
+            sources.append((filename, path.read_text(encoding="utf-8")))
 
-    # docs/*.md
-    docs_dir = Path(os.path.dirname(__file__)) / "docs"
-    if docs_dir.is_dir():
-        for md_file in sorted(docs_dir.glob("*.md")):
-            sources.append((md_file.name, md_file.read_text()))
+    for rel_dir, pattern in PUBLIC_DOC_GLOBS:
+        directory = root / rel_dir
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.glob(pattern)):
+            sources.append((f"{rel_dir}/{path.name}", path.read_text(encoding="utf-8")))
+
+    return sources
+
+
+def _assert_no_internal_sources(sources: list[tuple[str, str]]) -> None:
+    """Refuse to ingest anything rooted in a forbidden directory.
+
+    A belt-and-braces check against the allowlist being widened by accident:
+    leaking internal strategy to end users is far worse than an empty corpus,
+    so this raises rather than filtering silently.
+    """
+    leaked = sorted({s for s, _ in sources if s.split("/", 1)[0] in FORBIDDEN_DOC_ROOTS})
+    if leaked:
+        raise RuntimeError(
+            f"Refusing to ingest non-public documentation into the support "
+            f"corpus: {', '.join(leaked)}. These paths are internal-only; "
+            f"see PUBLIC_DOC_GLOBS in ai_assistant_config."
+        )
+
+
+def ingest_docs() -> int:
+    """Chunk and ingest the allowlisted public docs into ai_docs for BM25 search.
+
+    Returns the number of chunks written. Safe to call on every API boot: the
+    corpus is small, and the refresh runs in one transaction so readers never
+    observe a half-populated index.
+    """
+    sources = collect_public_docs()
+    _assert_no_internal_sources(sources)
 
     chunks = []
     for source, text in sources:
@@ -400,6 +447,10 @@ def ingest_docs():
             i += chunk_size - overlap
 
     with _ai_db() as conn:
+        # Serialise replicas booting simultaneously. TRUNCATE holds ACCESS
+        # EXCLUSIVE until commit, so a concurrent search_docs() blocks briefly
+        # rather than seeing an empty corpus and reporting "no documentation".
+        conn.execute("SELECT pg_advisory_xact_lock(%s)", (_DOCS_INGEST_LOCK_KEY,))
         conn.execute("TRUNCATE ai_docs")
         for source, chunk in chunks:
             conn.execute(
@@ -407,27 +458,48 @@ def ingest_docs():
                 (source, chunk),
             )
     log.info("Ingested %d documentation chunks from %d sources", len(chunks), len(sources))
+    return len(chunks)
 
 
 def search_docs(query: str, limit: int = DEFAULT_DOC_SEARCH_LIMIT) -> list[dict]:
     """BM25 full-text search over documentation chunks."""
-    if not query.strip():
-        return []
-    # Sanitise query for tsquery
-    terms = [w for w in query.split() if w.isalnum()]
+    terms = tsquery_terms(query)
     if not terms:
         return []
-    tsquery = " & ".join(terms)
     with _ai_db() as conn:
-        rows = conn.execute(
-            "SELECT source, chunk, ts_rank(tsv, to_tsquery('english', %s)) AS rank "
-            "FROM ai_docs WHERE tsv @@ to_tsquery('english', %s) "
-            "ORDER BY rank DESC LIMIT %s",
-            (tsquery, tsquery, limit),
-        ).fetchall()
-        return [
-            {"source": r["source"], "chunk": r["chunk"], "rank": float(r["rank"])} for r in rows
-        ]
+        # Require every term first, since an answer matching the whole
+        # question is the best answer. Support questions are asked in prose
+        # though ("why did my instance stop last night"), and ANDing eight
+        # words together matches nothing, so fall back to ranking on any
+        # term rather than telling the user the docs are silent.
+        for joiner in (" & ", " | "):
+            tsquery = joiner.join(terms)
+            rows = conn.execute(
+                "SELECT source, chunk, ts_rank(tsv, to_tsquery('english', %s)) AS rank "
+                "FROM ai_docs WHERE tsv @@ to_tsquery('english', %s) "
+                "ORDER BY rank DESC LIMIT %s",
+                (tsquery, tsquery, limit),
+            ).fetchall()
+            if rows:
+                return [
+                    {"source": r["source"], "chunk": r["chunk"], "rank": float(r["rank"])}
+                    for r in rows
+                ]
+    return []
+
+
+def tsquery_terms(query: str) -> list[str]:
+    """Extract tsquery-safe lexemes from a natural-language question.
+
+    Splits on punctuation instead of discarding any token containing it.
+    Rejecting non-alphanumeric tokens outright silently dropped exactly the
+    terms support questions turn on — "on-demand", "GST/HST", "don't" — and
+    then ranked results on whatever ordinary word was left over.
+    """
+    terms: list[str] = []
+    for raw in query.split():
+        terms.extend(part for part in re.split(r"[^0-9A-Za-z]+", raw) if part)
+    return terms
 
 
 def docs_corpus_size() -> int:
@@ -1113,7 +1185,7 @@ def _tool_search_docs(args: dict, _user: dict) -> dict:
     # tells the user the documentation is silent on a topic it may cover in
     # full. Degenerate queries never reached the corpus, so don't probe for
     # those; anything else that comes back empty gets checked.
-    if not [w for w in query.split() if w.isalnum()]:
+    if not tsquery_terms(query):
         return {"results": [], "count": 0}
     if docs_corpus_size() == 0:
         return {

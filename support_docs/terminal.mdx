@@ -1,0 +1,39 @@
+---
+title: Web Terminal
+subtitle: Secure, hardware-accelerated, persistent browser terminal.
+slug: terminal
+---
+
+# Web Terminal
+
+Xcelsior provides a best-in-class, fully featured Web Terminal directly inside your browser. This terminal connects directly to your running GPU instances securely over our private mesh network, without requiring you to manage local SSH keys or VPN clients.
+
+## Features
+
+- **Hardware Acceleration:** The terminal renders using a dedicated WebGL canvas engine, ensuring high performance (up to 512 KB/s) without UI stuttering, even when tailing heavy machine learning logs.
+- **Session Persistence (tmux):** We automatically wrap your shell sessions in `tmux`. If you accidentally close your browser tab or lose your internet connection, your workload keeps running. Simply reopen the instance terminal, and it will instantly reattach to your exact session.
+- **Native Inline Search:** Press `Ctrl+F` to open an inline search panel (with regex and case-sensitive support) directly within the terminal buffer.
+- **Native History:** Press `Ctrl+R` to trigger your shell's native reverse-i-search.
+- **Unicode 11 Support:** Full support for wide characters, CJK fonts, and emojis.
+
+## Security & Isolation
+
+- **No Public Exposure:** The terminal connects via SSH directly over the encrypted Xcelsior Headscale mesh network. Your container does not need to expose any ports to the public internet.
+- **Sandboxed Execution:** Terminal commands execute strictly within your container's isolation boundary (typically a gVisor/Kata sandbox for sovereign workloads). Terminal access does not grant access to the underlying GPU host OS.
+- **Authentication:** WebSockets are authenticated natively with your user session.
+
+## Keyboard Shortcuts
+
+The terminal intercepts specific keyboard shortcuts to provide a native-like experience:
+
+| Shortcut | Behavior |
+|----------|----------|
+| `Ctrl+C` (no text selected) | Sends a standard interrupt signal (`SIGINT`) to the running process. |
+| `Ctrl+C` (text selected) | Copies the selected text to your clipboard. |
+| `Ctrl+Shift+V` / `Ctrl+V` | Pastes from your clipboard. |
+| `Ctrl+F` | Opens the inline search overlay. |
+| `Ctrl+R` | Triggers shell reverse history search. |
+
+## Connection Resilience
+
+The terminal uses an exponential backoff algorithm to automatically reconnect if your network drops. It also detects idle sessions, shutting down inactive interactive terminals after 4 hours to preserve resources, while leaving your `tmux` background processes running safely.

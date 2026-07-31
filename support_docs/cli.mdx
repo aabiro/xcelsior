@@ -1,0 +1,62 @@
+---
+title: Xcelsior CLI & Wizard
+subtitle: Command-line tools for providers and users.
+slug: cli
+---
+
+# Xcelsior CLI & Wizard
+
+Whether you're looking to rent a GPU for your next AI project or you want to earn money by hosting your own idle GPU, the easiest way to get started is with the Xcelsior CLI Wizard.
+
+## The Onboarding Wizard
+
+The onboarding wizard is a highly automated interactive CLI that configures everything you need. It requires Node.js 18 or higher. You don't need to install anything permanently—just run it via `npx`:
+
+```bash
+npx @xcelsior-gpu/wizard@latest
+```
+
+The wizard will guide you through three different pathways based on what you want to achieve:
+
+### 1. Rent a GPU (Submitter)
+If you want to run a workload, the wizard will:
+- Authenticate you with the Xcelsior platform.
+- Check your wallet balance and prompt you to add funds if necessary.
+- Allow you to pick a GPU from the live marketplace (e.g., RTX 4090, A100).
+- Automatically configure your SSH keys.
+- Launch your first instance and provide you with the direct SSH connection string.
+
+### 2. Provide a GPU (Host)
+If you have an idle GPU and want to earn CAD, the wizard will:
+- Detect your NVIDIA GPU and verify your CUDA driver versions.
+- Run an automated benchmark to classify your GPU's performance tier.
+- Help you price your GPU per hour.
+- Register your host with the central marketplace.
+- Install the Xcelsior worker agent as a background systemd service so your GPU can accept jobs securely.
+
+### 3. Integrate the SDK (Developer)
+If you are building an application on top of Xcelsior, the wizard will:
+- Detect if you are using a Python or TypeScript/Node framework.
+- Install the appropriate SDK packages (`xcelsior` for Python, `@xcelsior-gpu/sdk` for TypeScript).
+- Generate real, scoped API credentials and write them to your local `.env` or `.env.local` file.
+- Verify the connection to the API and hand you a working code snippet to copy and paste.
+
+## Scripting and automation
+
+For automation beyond the wizard — CI/CD pipelines, scheduled retraining, programmatic instance management — use one of the SDKs rather than a shell tool. They talk to the same public REST API the dashboard uses, and they handle authentication, retries, and typed errors for you.
+
+**Python**
+
+```bash
+pip install xcelsior
+```
+
+**TypeScript / Node**
+
+```bash
+npm install @xcelsior-gpu/sdk
+```
+
+Both SDKs authenticate with an API credential you create from **Dashboard → Settings**. See the TypeScript SDK and API Overview pages for client construction, error handling, and the full endpoint surface.
+
+If you would rather drive the platform from an AI agent than write client code, the Xcelsior MCP server exposes the same capabilities as agent tools — see the MCP Server page.

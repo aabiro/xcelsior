@@ -36,6 +36,28 @@ AI_RATE_LIMIT = int(os.environ.get("AI_ASSISTANT_RATE_LIMIT", "20"))
 CONFIRMATION_TTL_SEC = 300
 RAG_CHUNK_SIZE = 400
 RAG_CHUNK_OVERLAP = 50
+
+# ── Support documentation corpus ──────────────────────────────────────
+# The corpus Xcel AI can search is an allowlist, never a directory scan.
+# docs/ holds internal material — business strategy, financial proposals,
+# the control-plane blueprint, security and site audits — and any signed-up
+# user who can reach the assistant could surface it by asking the right
+# question. Only what is already published, plus supplemental user-facing
+# pages written for support, is eligible to be ingested.
+#
+# fern/pages is the published documentation site, so it is public by
+# construction: anything added there is already visible at docs.xcelsior.ca.
+# support_docs holds user-facing pages covering features the published site
+# does not yet document. Adding a directory here is a disclosure decision.
+PUBLIC_DOC_GLOBS: tuple[tuple[str, str], ...] = (
+    ("fern/pages", "*.mdx"),
+    ("support_docs", "*.mdx"),
+)
+PUBLIC_DOC_FILES: tuple[str, ...] = ("llms.txt",)
+
+# Repository roots that must never contribute to the corpus, at any depth.
+# Enforced at ingest time and asserted by tests/test_ai_assistant.py.
+FORBIDDEN_DOC_ROOTS: frozenset[str] = frozenset({"docs"})
 MAX_TOOL_ROUNDS = 5
 AI_TEMPERATURE = 0.2
 TEXT_PROVIDER_TIMEOUT = 60.0

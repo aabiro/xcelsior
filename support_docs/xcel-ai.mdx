@@ -1,0 +1,37 @@
+---
+title: Xcel AI Assistant
+subtitle: Agent-native platform control and intelligent support.
+slug: xcel-ai
+---
+
+# Xcel AI Assistant
+
+Xcelsior isn't just a dashboard—it's an **Agent-Native** platform. Every action available via the REST API or Dashboard is also fully exposed to our built-in AI assistant, **Xcel AI**, and externally via the **Model Context Protocol (MCP)**.
+
+## What Xcel AI Can Do
+
+Xcel AI lives right inside your dashboard. It has access to real-time platform metrics, your billing ledger, instance states, and the comprehensive platform documentation you are reading right now.
+
+You can ask Xcel AI to:
+- *"Spin up an RTX 4090 Spot instance with PyTorch, and mount my 'dataset' volume to it."*
+- *"Estimate the cost of running an A100 for 72 hours."*
+- *"Why did my Serverless Inference endpoint scale down?"*
+- *"Deploy a serverless endpoint using the meta-llama/Llama-3-8B model."*
+
+## Security & Confirmations
+
+Xcel AI is incredibly powerful, but it respects your wallet. 
+Any action that incurs a cost (like launching an instance or provisioning storage) requires **explicit cryptographic confirmation**.
+
+When Xcel AI proposes a billable action, it will present a **Confirmation Card** in the chat UI. 
+1. The AI generates the API payload.
+2. The payload is signed with a tamper-proof HMAC signature by the backend.
+3. You review the exact cost and parameters.
+4. If approved, the signed payload is executed. If rejected, the AI is informed and will adjust its plan.
+
+## External MCP Integration
+
+If you prefer to use your own tools, Xcelsior provides a fully managed **Model Context Protocol (MCP)** server.
+You can connect the Xcelsior MCP server to Cursor, Claude Desktop, or any other MCP-compatible client. 
+
+This allows your local AI agents to seamlessly orchestrate cloud GPUs on your behalf without you ever needing to open the dashboard or write an API request manually.

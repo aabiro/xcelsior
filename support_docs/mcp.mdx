@@ -1,0 +1,56 @@
+---
+title: Xcelsior MCP Server
+subtitle: The missing backend for agentic AI.
+slug: mcp-server
+---
+
+# Xcelsior MCP Server
+
+Xcelsior provides a **Model Context Protocol (MCP)** server that allows AI agents to directly control real GPUs. It turns natural language into compute — instantly, securely, and globally.
+
+Instead of writing custom API scripts, you can connect your AI agent (like Cursor, Claude Desktop, or a custom application) directly to Xcelsior.
+
+## Getting Started
+
+The Xcelsior MCP Server is a hosted service located at `https://xcelsior.ca/mcp`. 
+It uses **Streamable HTTP** transport.
+
+To connect your agent:
+1. Go to your **Dashboard > Settings > MCP Agent Setup**.
+2. Click **Create MCP client**. This generates an OAuth Client specifically scoped for agent workflows (e.g. `instances:read`, `instances:write`, `billing:read`).
+3. Copy the URL and Bearer Token and paste it into your agent's configuration (like `cursor.json` or `claude_desktop_config.json`).
+
+## Agent Tool Capabilities
+
+We expose a curated surface of high-level tools designed specifically for AI agents. The tools fall into these groups:
+
+### 1. Discovery (Read-only)
+- `list_available_gpus`: Search the active fleet.
+- `get_spot_prices`: Check the live dynamic spot pricing.
+- `search_marketplace`: Filter GPU hosts.
+
+### 2. Compute Lifecycle
+- `create_instance`: Deploy jobs via containers, including git repositories and initialization scripts.
+- `cancel_instance` / `terminate_instance`
+- `get_instance_logs`
+
+### 3. Serverless Inference
+- `create_serverless_endpoint`
+- `run_serverless_job`
+- `get_serverless_job_status`
+
+### 4. Billing & Guardrails
+- `get_wallet_balance`
+- `estimate_job_cost`
+- **`should_i_run_this`**: A composite tool agents use to evaluate cost, wallet sufficiency, and jurisdictional rules *before* running a workload.
+
+### 5. Composite Workflows
+- `run_training_job`: Instructs the agent to spin up an instance, wait for it to boot, and stream the logs back.
+- `schedule_under_budget`: Tells the agent to wait and poll spot prices until a specific GPU model drops below your specified CAD/hour max budget.
+
+## Security & Guardrails
+
+Agents are powerful, so we enforce strict guardrails:
+- **No Master Tokens:** The MCP server rejects the `XCELSIOR_API_TOKEN` master admin token. Agents authenticate via scoped OAuth Client Credentials.
+- **Confirmation Gates:** Destructive or billable tools (`create_instance`, `terminate_instance`) have a `confirm` schema field. If an agent tries to run them with `confirm: false`, the server safely returns a dry-run cost estimate without billing you.
+- **OAuth Scopes:** The MCP layer strictly validates scopes (`gpu:read`, `billing:read`) before it proxies requests to the core backend.
