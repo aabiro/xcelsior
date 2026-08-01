@@ -384,7 +384,7 @@ def prepare_settlement(
     conn.execute(
         """
         INSERT INTO payout_splits (
-            job_id, provider_id, customer_id, currency,
+            job_id, provider_id, customer_id, tenant_id, currency,
             source_total_micros, total_micros, provider_share_micros,
             platform_share_micros, gst_hst_micros, rounding_adjustment_micros,
             platform_cut_bps, tax_rate_bps,
@@ -394,14 +394,15 @@ def prepare_settlement(
             attempt_count, created_at, updated_at, legacy_imported
         )
         VALUES (
-            %(job_id)s, %(provider_id)s, %(customer_id)s, %(currency)s,
+            %(job_id)s, %(provider_id)s, %(customer_id)s,
+            %(customer_id)s, %(currency)s,
             %(source_total_micros)s, %(total_micros)s,
             %(provider_share_micros)s, %(platform_share_micros)s,
             %(gst_hst_micros)s, %(rounding_adjustment_micros)s,
             %(platform_cut_bps)s, %(tax_rate_bps)s,
             '', '', '', %(payment_rail)s, 'queued', '',
             %(settlement_key)s, %(rail_idempotency_key)s,
-            0, %(created_at)s, clock_timestamp(), FALSE
+            0, clock_timestamp(), clock_timestamp(), FALSE
         )
         ON CONFLICT (settlement_key) WHERE settlement_key IS NOT NULL DO NOTHING
         """,

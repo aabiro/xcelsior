@@ -887,7 +887,7 @@ def api_mcp_quick_connect(request: Request, regenerate: bool = False):
     # a second time. That leaves three cases, and the distinction that matters
     # is last_used_at: a key that has never authenticated a request cannot be
     # in anyone's config, so replacing it breaks nothing.
-    mint = existing is None or existing["last_used_at"] == 0 or regenerate
+    mint = existing is None or existing["last_used_at"] is None or regenerate
     bundle = None
     if mint:
         bundle = issue_agent_api_key(
@@ -913,8 +913,14 @@ def api_mcp_quick_connect(request: Request, regenerate: bool = False):
         ),
         # A freshly minted key has never authenticated anything, so it is never
         # "in use" — that only becomes true once the agent actually calls.
-        "in_use": bool(not bundle and existing and existing["last_used_at"] > 0),
-        "last_used_at": 0 if bundle else (existing["last_used_at"] if existing else 0),
+        # NULL last_used_at means never used (companion §4.4.5 timestamps), so
+        # "in use" is simply whether it has ever authenticated a request.
+        "in_use": bool(not bundle and existing and existing["last_used_at"] is not None),
+        "last_used_at": (
+            None
+            if bundle or not existing or existing["last_used_at"] is None
+            else existing["last_used_at"].isoformat()
+        ),
         # These keys do not expire; they are revoked. Reporting an expiry would
         # make clients schedule a refresh that has nothing to refresh.
         "expires_in": None,

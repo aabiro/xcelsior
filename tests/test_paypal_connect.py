@@ -86,14 +86,14 @@ def test_capture_marketplace_order_idempotent(monkeypatch):
         )
         conn.execute(
             """INSERT INTO payout_splits
-               (job_id, provider_id, total_micros, source_total_micros,
-                provider_share_micros,
+               (job_id, provider_id, tenant_id, total_micros,
+                source_total_micros, provider_share_micros,
                 platform_share_micros, gst_hst_micros, stripe_transfer_id,
                 paypal_capture_id, paypal_order_id, payment_rail,
                 settlement_status, created_at)
-               VALUES (%s, %s, 0, 0, 0, 0, 0, '', '', %s, 'paypal',
-                       'legacy_conflict', %s)""",
-            (f"legacy-{job_id}", provider_id, order_id, now - 1),
+               VALUES (%s, %s, %s, 0, 0, 0, 0, 0, '', '', %s, 'paypal',
+                       'legacy_conflict', to_timestamp(%s))""",
+            (f"legacy-{job_id}", provider_id, provider_id, order_id, now - 1),
         )
         conn.execute(
             """INSERT INTO payout_splits
@@ -103,7 +103,7 @@ def test_capture_marketplace_order_idempotent(monkeypatch):
                 source_total_micros, total_micros, provider_share_micros,
                 platform_share_micros, gst_hst_micros, rounding_adjustment_micros,
                 platform_cut_bps, tax_rate_bps, settlement_key,
-                rail_idempotency_key, created_at, updated_at, settled_at,
+                rail_idempotency_key, tenant_id, created_at, updated_at, settled_at,
                 legacy_imported)
                VALUES (%s, %s, %s, 'CAD',
                        '', %s, %s,
@@ -111,8 +111,8 @@ def test_capture_marketplace_order_idempotent(monkeypatch):
                        100000000, 100000000, 85000000,
                        15000000, 13000000, 0,
                        1500, 1300, %s,
-                       %s, %s, clock_timestamp(), clock_timestamp(),
-                       FALSE)""",
+                       %s, %s, to_timestamp(%s), clock_timestamp(),
+                       clock_timestamp(), FALSE)""",
             (
                 job_id,
                 provider_id,
@@ -121,6 +121,7 @@ def test_capture_marketplace_order_idempotent(monkeypatch):
                 order_id,
                 f"provider-job:{job_id}",
                 f"provider-settlement:{job_id}",
+                customer_id,
                 now,
             ),
         )
