@@ -6,37 +6,94 @@ from them once already: `agent_api_keys` (083) was modelled on a pre-companion
 table and shipped with float timestamps and no tenant column, while the `082`
 tables written days earlier followed both rules.
 
-Scoped to tables added from migration 080 onward. The companion acknowledges
-the pre-existing schema violates these ("many TEXT, floating-point timestamps,
+Scoped to tables created by migration 080 onward, plus older tables a later
+migration has since brought up to standard. The companion acknowledges the
+pre-existing schema violates these ("many TEXT, floating-point timestamps,
 floating-point currency values") and treats fixing it as staged work — so this
-guards new tables rather than failing on inherited debt.
+guards new and remediated tables rather than failing on inherited debt.
+
+The governed set is read out of the migrations themselves, not maintained by
+hand here, so a new table is governed the moment it is created.
 """
+
+import pathlib
+import re
 
 import pytest
 
 from db import _get_pg_pool
 
-# Tables introduced by migrations 080-088, which are held to the companion's
-# rules in full. Adding a table here is how a new migration opts in.
-GOVERNED_TABLES = (
-    "payout_splits",
-    "privacy_deletion_requests",
-    "privacy_deletion_sink_status",
-    "host_compatibility_sessions",
-    "host_admission_evidence",
-    "host_admission_decisions",
-    "agent_api_keys",
-    "casl_consent",
-    "user_encryption_keys",
+# Governance starts here: the companion predates the schema, so tables created
+# from this revision onward had no excuse to diverge.
+FIRST_GOVERNED_REVISION = "080"
+
+MIGRATIONS_DIR = pathlib.Path(__file__).resolve().parent.parent / "migrations" / "versions"
+
+# The trailing `(` is what keeps prose out of the result — several migrations
+# discuss `CREATE TABLE IF NOT EXISTS` in their docstrings.
+_CREATE_TABLE = re.compile(
+    r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-z_][a-z0-9_]*)\s*\(", re.I
 )
 
-# No exemptions. An earlier version skipped the privacy deletion tables on the
-# grounds that a deletion subject must stay unlinkable — but that conflated
-# tenant with identity. The companion keeps the tenant and pseudonymises the
-# identity (2.1: a row "must own identity, tenant, checksum, state, retention,
-# region, and deletion status"; 11.2: pseudonymous keys with "direct identity
-# only in restricted mapping"). The tenant is the workspace, not the person.
-NOT_TENANT_SCOPED: dict[str, str] = {}
+
+def _tables_created_since(revision: str) -> frozenset[str]:
+    """Every table any migration at or after `revision` creates.
+
+    Derived rather than hand-listed on purpose. The previous version of this
+    module kept a literal tuple and said "adding a table here is how a new
+    migration opts in" — which means a migration that forgets to opt in is
+    silently ungoverned, the exact drift these tests exist to catch. Governance
+    now attaches to the migration itself, so it cannot be skipped by omission.
+    """
+    tables: set[str] = set()
+    for path in sorted(MIGRATIONS_DIR.glob("*.py")):
+        rev = path.name.split("_", 1)[0]
+        if rev.isdigit() and rev >= revision:
+            tables |= set(_CREATE_TABLE.findall(path.read_text()))
+    return frozenset(tables)
+
+
+# Pre-existing tables a later migration brought up to the companion's standard.
+# They are not caught by the rule above because they were created earlier, so
+# they are named explicitly. This is a ratchet: once a table is remediated it
+# is listed here and can never regress. Removing an entry is the only way to
+# lower a standard, which makes that visible in review.
+ADOPTED_LEGACY_TABLES = frozenset(
+    {
+        "payout_splits",  # 080 hardened it, 089 finished it
+    }
+)
+
+GOVERNED_TABLES = tuple(
+    sorted(_tables_created_since(FIRST_GOVERNED_REVISION) | ADOPTED_LEGACY_TABLES)
+)
+
+# There is deliberately no exemption list. An earlier version of this module
+# carried one and used it to skip the privacy deletion tables, on the grounds
+# that a deletion subject must stay unlinkable — but that conflated tenant with
+# identity. The companion keeps the tenant and pseudonymises the identity (2.1:
+# a row "must own identity, tenant, checksum, state, retention, region, and
+# deletion status"; 11.2: pseudonymous keys with "direct identity only in
+# restricted mapping"). The tenant is the workspace, not the person. An empty
+# exemption map would just be an invitation to refill it.
+
+
+def test_governed_set_is_derived_and_populated():
+    """Canary: a regex regression must not silently empty the governed set.
+
+    Every other test in this module is parametrised over GOVERNED_TABLES, so if
+    that collection ever came back empty the whole file would report green
+    while checking nothing.
+    """
+    assert len(GOVERNED_TABLES) >= 9, (
+        f"governed set collapsed to {GOVERNED_TABLES}; _CREATE_TABLE or "
+        f"MIGRATIONS_DIR is likely wrong"
+    )
+    # Anchors from three different migrations, so a single file moving or being
+    # renamed does not go unnoticed.
+    for anchor in ("agent_api_keys", "host_admission_decisions", "casl_consent"):
+        assert anchor in GOVERNED_TABLES, f"{anchor} is no longer governed"
+
 
 def _columns(table: str) -> dict[str, str]:
     with _get_pg_pool().connection() as conn:
@@ -77,8 +134,6 @@ def test_tenant_owned_tables_carry_tenant_id(table):
     cols = _columns(table)
     if not cols:
         pytest.skip(f"{table} not present in this database")
-    if table in NOT_TENANT_SCOPED:
-        pytest.skip(f"{table}: {NOT_TENANT_SCOPED[table]}")
     assert "tenant_id" in cols, (
         f"{table} has no tenant_id; a tenant-scoped query would have to join "
         f"back through users (companion §4.4.10)"
@@ -94,18 +149,24 @@ def test_tenant_owned_tables_carry_tenant_id(table):
 
 
 @pytest.mark.parametrize("table", GOVERNED_TABLES)
-def test_no_float_money_columns(table):
-    """§4.4.6 — money is integer minor units or NUMERIC, never binary float."""
+def test_no_binary_float_columns(table):
+    """§4.4.6 — money is integer minor units or NUMERIC, never binary float.
+
+    Checked as "no binary float at all" rather than "no `_cad` column that is a
+    float". Matching on the suffix only catches money that admits to being
+    money: `total_micros` stored as a double would have passed, and so would
+    any future column that holds an amount under a different name. No governed
+    table has a legitimate use for binary float, so the absolute rule is both
+    stricter and simpler than guessing from names.
+    """
     cols = _columns(table)
     if not cols:
         pytest.skip(f"{table} not present in this database")
     offenders = {
-        name: dtype
-        for name, dtype in cols.items()
-        if name.endswith("_cad") and dtype == "double precision"
+        name: dtype for name, dtype in cols.items() if dtype in ("double precision", "real")
     }
     assert not offenders, (
-        f"{table} stores money as binary float (companion §4.4.6): {offenders}"
+        f"{table} has binary float columns (companion §4.4.6): {offenders}"
     )
 
 
@@ -113,7 +174,7 @@ def test_tenant_scoped_tables_index_tenant_first():
     """§4.4.10 — an index beginning with tenant_id for common access paths."""
     missing = []
     for table in GOVERNED_TABLES:
-        if table in NOT_TENANT_SCOPED or not _columns(table):
+        if not _columns(table):
             continue
         with _get_pg_pool().connection() as conn:
             defs = [
@@ -128,4 +189,81 @@ def test_tenant_scoped_tables_index_tenant_first():
             missing.append(table)
     assert not missing, (
         f"tables with no tenant_id-leading index (companion §4.4.10): {missing}"
+    )
+
+
+# ── Inherited float money: a ratchet, not a rule ──────────────────────────
+#
+# Migration 087 removed every `_cad` column that duplicated a `_micros` column
+# — those were projections, and a float projection of an integer source is a
+# rounding bug waiting to be reconciled against. What remains is different:
+# 30 `_cad` columns across 18 legacy tables where the float *is* the only
+# representation of that amount. Converting them is a real migration per table
+# with code changes on both sides, not a mechanical sweep, and several sit on
+# financially authoritative tables (invoices, payout_ledger, billing_cycles).
+#
+# So this is not asserted to be zero. It is pinned, so the number can only go
+# down: a new float money column fails here, and finishing a table's conversion
+# requires lowering the bound in the same commit. That makes the debt a visible
+# countdown instead of a comment nobody revisits.
+MAX_LEGACY_FLOAT_CAD_COLUMNS = 30
+
+
+def test_legacy_float_money_only_shrinks():
+    """§4.4.6, applied to inherited debt as a downward ratchet."""
+    with _get_pg_pool().connection() as conn:
+        offenders = [
+            f"{r[0]}.{r[1]}"
+            for r in conn.execute(
+                r"""SELECT table_name, column_name
+                      FROM information_schema.columns
+                     WHERE table_schema = 'public'
+                       AND column_name LIKE '%\_cad'
+                       AND data_type IN ('double precision', 'real')
+                     ORDER BY table_name, column_name"""
+            ).fetchall()
+        ]
+    assert len(offenders) <= MAX_LEGACY_FLOAT_CAD_COLUMNS, (
+        f"{len(offenders)} float CAD columns, budget is "
+        f"{MAX_LEGACY_FLOAT_CAD_COLUMNS} (companion §4.4.6). New money must be "
+        f"integer micros or NUMERIC:\n  " + "\n  ".join(offenders)
+    )
+    assert len(offenders) == MAX_LEGACY_FLOAT_CAD_COLUMNS, (
+        f"only {len(offenders)} float CAD columns remain but the budget is "
+        f"still {MAX_LEGACY_FLOAT_CAD_COLUMNS}. Lower "
+        f"MAX_LEGACY_FLOAT_CAD_COLUMNS to {len(offenders)} so the ratchet "
+        f"cannot slip back."
+    )
+
+
+def test_no_float_cad_column_shadows_a_micros_column():
+    """The 087 defect class, asserted as gone rather than assumed.
+
+    A `_cad` float alongside a `_micros` integer for the same amount means two
+    sources of truth for one number, and they drift. 087 dropped all twelve;
+    this fails if one is ever reintroduced.
+    """
+    with _get_pg_pool().connection() as conn:
+        shadows = [
+            f"{r[0]}.{r[1]}"
+            for r in conn.execute(
+                r"""SELECT c.table_name, c.column_name
+                      FROM information_schema.columns c
+                     WHERE c.table_schema = 'public'
+                       AND c.column_name LIKE '%\_cad'
+                       AND EXISTS (
+                           SELECT 1 FROM information_schema.columns m
+                            WHERE m.table_schema = 'public'
+                              AND m.table_name = c.table_name
+                              AND m.column_name IN (
+                                  regexp_replace(c.column_name, '_cad$', '') || '_micros',
+                                  regexp_replace(c.column_name, '_cad$', '') || '_minor'
+                              )
+                       )
+                     ORDER BY 1, 2"""
+            ).fetchall()
+        ]
+    assert not shadows, (
+        "a _cad column shadows a _micros/_minor column for the same amount; "
+        f"one of the two is a stale projection: {shadows}"
     )
