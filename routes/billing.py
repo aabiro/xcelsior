@@ -1962,13 +1962,13 @@ def api_analytics_enhanced(
             # ── 9. Provider earnings (if user is a provider) ──
             if provider_id:
                 prov_rows = conn.execute(
-                    "SELECT to_char(to_timestamp(COALESCE(um.completed_at, ps.created_at)), 'YYYY-MM-DD') AS date, "
+                    "SELECT to_char(COALESCE(to_timestamp(um.completed_at), ps.created_at), 'YYYY-MM-DD') AS date, "
                     "COUNT(DISTINCT ps.job_id) AS jobs_served, "
                     "ROUND(COALESCE(SUM(ps.provider_share_micros) / 1000000.0, 0)::numeric, 2) AS total_revenue, "
                     "ROUND(COALESCE(AVG(COALESCE(um.gpu_utilization_pct, 0)), 0)::numeric, 1) AS avg_util "
                     "FROM payout_splits ps "
                     "LEFT JOIN usage_meters um ON um.job_id = ps.job_id "
-                    "WHERE ps.provider_id = %s AND ps.created_at >= %s AND ps.created_at < %s "
+                    "WHERE ps.provider_id = %s AND ps.created_at >= to_timestamp(%s) AND ps.created_at < to_timestamp(%s) "
                     "GROUP BY date ORDER BY date",
                     (provider_id, since, now),
                 ).fetchall()
@@ -1989,7 +1989,7 @@ def api_analytics_enhanced(
                     "ROUND(COALESCE(AVG(COALESCE(um.gpu_utilization_pct, 0)), 0)::numeric, 1) AS avg_util "
                     "FROM payout_splits ps "
                     "LEFT JOIN usage_meters um ON um.job_id = ps.job_id "
-                    "WHERE ps.provider_id = %s AND ps.created_at >= %s AND ps.created_at < %s",
+                    "WHERE ps.provider_id = %s AND ps.created_at >= to_timestamp(%s) AND ps.created_at < to_timestamp(%s)",
                     (provider_id, since, now),
                 ).fetchone()
                 result["provider_summary"] = {

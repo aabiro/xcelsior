@@ -2646,6 +2646,7 @@ class AgentKeyStore:
         *,
         key_id: str,
         user_id: str,
+        tenant_id: str,
         client_id: str,
         name: str,
         key_prefix: str,
@@ -2658,12 +2659,12 @@ class AgentKeyStore:
             conn.execute(
                 """
                 INSERT INTO agent_api_keys
-                    (key_id, user_id, client_id, name, key_prefix, key_hash,
-                     scopes, audience, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    (key_id, user_id, tenant_id, client_id, name, key_prefix,
+                     key_hash, scopes, audience, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, to_timestamp(%s))
                 """,
-                (key_id, user_id, client_id, name, key_prefix, key_hash,
-                 scopes, audience, created_at),
+                (key_id, user_id, tenant_id, client_id, name, key_prefix,
+                 key_hash, scopes, audience, created_at),
             )
 
     @staticmethod
@@ -2671,7 +2672,7 @@ class AgentKeyStore:
         """Single indexed read on the request path. Revoked keys are invisible."""
         with auth_connection() as conn:
             row = conn.execute(
-                "SELECT * FROM agent_api_keys WHERE key_hash = %s AND revoked_at = 0",
+                "SELECT * FROM agent_api_keys WHERE key_hash = %s AND revoked_at IS NULL",
                 (key_hash,),
             ).fetchone()
             return dict(row) if row else None
@@ -2682,13 +2683,13 @@ class AgentKeyStore:
         config, and therefore that rotating it would break something."""
         with auth_connection() as conn:
             conn.execute(
-                "UPDATE agent_api_keys SET last_used_at = %s WHERE key_id = %s",
+                "UPDATE agent_api_keys SET last_used_at = to_timestamp(%s) WHERE key_id = %s",
                 (when, key_id),
             )
 
     @staticmethod
     def list_for_user(user_id: str, *, include_revoked: bool = False) -> list[dict]:
-        clause = "" if include_revoked else " AND revoked_at = 0"
+        clause = "" if include_revoked else " AND revoked_at IS NULL"
         with auth_connection() as conn:
             rows = conn.execute(
                 cast(Any, f"SELECT * FROM agent_api_keys WHERE user_id = %s{clause} "
@@ -2702,8 +2703,8 @@ class AgentKeyStore:
         """Scoped to the owner so a key id alone cannot revoke someone else's key."""
         with auth_connection() as conn:
             cur = conn.execute(
-                "UPDATE agent_api_keys SET revoked_at = %s "
-                "WHERE key_id = %s AND user_id = %s AND revoked_at = 0",
+                "UPDATE agent_api_keys SET revoked_at = to_timestamp(%s) "
+                "WHERE key_id = %s AND user_id = %s AND revoked_at IS NULL",
                 (when, key_id, user_id),
             )
             return cur.rowcount > 0
@@ -2714,8 +2715,8 @@ class AgentKeyStore:
         just accumulates live credentials."""
         with auth_connection() as conn:
             cur = conn.execute(
-                "UPDATE agent_api_keys SET revoked_at = %s "
-                "WHERE user_id = %s AND client_id = %s AND revoked_at = 0",
+                "UPDATE agent_api_keys SET revoked_at = to_timestamp(%s) "
+                "WHERE user_id = %s AND client_id = %s AND revoked_at IS NULL",
                 (when, user_id, client_id),
             )
             return cur.rowcount
@@ -2725,7 +2726,7 @@ class AgentKeyStore:
         with auth_connection() as conn:
             cur = conn.execute(
                 "UPDATE agent_api_keys SET name = %s "
-                "WHERE key_id = %s AND user_id = %s AND revoked_at = 0",
+                "WHERE key_id = %s AND user_id = %s AND revoked_at IS NULL",
                 (name, key_id, user_id),
             )
             return cur.rowcount > 0

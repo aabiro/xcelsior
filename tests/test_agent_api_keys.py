@@ -113,7 +113,7 @@ class TestValidation:
         token = _issue(user)["access_token"]
         oa.validate_agent_api_key(token)
         first = AgentKeyStore.get_live_by_hash(oa._hash_agent_key(token))["last_used_at"]
-        assert first > 0
+        assert first is not None
         for _ in range(5):
             assert oa.validate_agent_api_key(token) is not None
         again = AgentKeyStore.get_live_by_hash(oa._hash_agent_key(token))["last_used_at"]
@@ -131,10 +131,10 @@ class TestValidation:
         """last_used_at is how the dashboard knows a key is live in a config."""
         token = _issue(user)["access_token"]
         before = AgentKeyStore.get_live_by_hash(oa._hash_agent_key(token))
-        assert before["last_used_at"] == 0
+        assert before["last_used_at"] is None, "a fresh key has never been used"
         oa.validate_agent_api_key(token)
         after = AgentKeyStore.get_live_by_hash(oa._hash_agent_key(token))
-        assert after["last_used_at"] > 0
+        assert after["last_used_at"] is not None
 
 
 class TestRevocation:
