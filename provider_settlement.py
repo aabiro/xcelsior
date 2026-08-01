@@ -385,7 +385,6 @@ def prepare_settlement(
         """
         INSERT INTO payout_splits (
             job_id, provider_id, customer_id, currency,
-            total_cad, provider_share_cad, platform_share_cad, gst_hst_cad,
             source_total_micros, total_micros, provider_share_micros,
             platform_share_micros, gst_hst_micros, rounding_adjustment_micros,
             platform_cut_bps, tax_rate_bps,
@@ -396,8 +395,6 @@ def prepare_settlement(
         )
         VALUES (
             %(job_id)s, %(provider_id)s, %(customer_id)s, %(currency)s,
-            %(total_cad)s, %(provider_share_cad)s, %(platform_share_cad)s,
-            %(gst_hst_cad)s,
             %(source_total_micros)s, %(total_micros)s,
             %(provider_share_micros)s, %(platform_share_micros)s,
             %(gst_hst_micros)s, %(rounding_adjustment_micros)s,

@@ -103,10 +103,12 @@ def _mkwallet(cleanup, customer_id, balance_cad=10.0):
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO wallets
-               (customer_id, balance_cad, total_deposited_cad, total_spent_cad,
-                total_refunded_cad, status, created_at, updated_at)
-               VALUES (%s, %s, %s, 0, 0, 'active', %s, %s)
-               ON CONFLICT (customer_id) DO UPDATE SET balance_cad=EXCLUDED.balance_cad""",
+               (customer_id, balance_micros, total_deposited_micros, total_spent_micros,
+                total_refunded_micros, status, created_at, updated_at)
+               VALUES (%s, (%s * 1000000)::bigint, (%s * 1000000)::bigint, 0, 0,
+                       'active', %s, %s)
+               ON CONFLICT (customer_id) DO UPDATE SET
+                   balance_micros=EXCLUDED.balance_micros""",
             (customer_id, balance_cad, balance_cad, now, now),
         )
         conn.commit()

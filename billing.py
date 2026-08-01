@@ -282,7 +282,8 @@ def _usage_meter_from_row(row: Any) -> UsageMeter:
         tier_multiplier=float(row.get("tier_multiplier") or 1.0),
         spot_discount=float(row.get("spot_discount") or 0),
         pricing_mode=str(row.get("pricing_mode") or "on_demand"),
-        total_cost_cad=float(row.get("total_cost_cad") or 0),
+        # Derived from the integer column; the float twin was dropped in 087.
+        total_cost_cad=micros_to_cad(row.get("total_cost_micros") or 0),
     )
 
 
@@ -1030,7 +1031,8 @@ class BillingEngine:
         if not row:
             return {"refund": False, "reason": "No usage record found"}
 
-        cost = float(row["total_cost_cad"])
+        # SELECT * no longer yields a float twin; derive from the integer.
+        cost = micros_to_cad(row["total_cost_micros"] or 0)
 
         # Classify failure type and determine refund
         if exit_code == 137:
@@ -1126,6 +1128,13 @@ class BillingEngine:
                 }
             else:
                 row = dict(row)
+
+            # The CAD keys are a presentation view derived from the integer
+            # columns, not a second stored representation. Deriving them here
+            # keeps every caller's row["balance_cad"] working while the
+            # database holds exactly one authoritative number.
+            for base in ("balance", "total_deposited", "total_spent", "total_refunded"):
+                row[f"{base}_cad"] = micros_to_cad(row.get(f"{base}_micros") or 0)
 
             balance = float(row.get("balance_cad") or 0)
             held = self._active_holds_total(conn, customer_id)
@@ -1508,7 +1517,7 @@ class BillingEngine:
                        updated_at = %s
                  WHERE hold_id = %s::uuid
                    AND status = 'held'
-                 RETURNING hold_id, customer_id, amount_cad, job_id
+                 RETURNING hold_id, customer_id, amount_micros / 1000000.0 AS amount_cad, job_id
                 """,
                 (now, now, hold_id),
             ).fetchone()
@@ -1630,7 +1639,7 @@ class BillingEngine:
                        total_deposited_micros = total_deposited_micros + %s,
                        updated_at = %s
                    WHERE customer_id = %s
-                   RETURNING balance_micros, balance_cad""",
+                   RETURNING balance_micros, balance_micros / 1000000.0 AS balance_cad""",
                 (cad_to_micros(amount_cad), cad_to_micros(amount_cad),
                  time.time(), customer_id),
             ).fetchone()
@@ -1814,7 +1823,7 @@ class BillingEngine:
                        updated_at = %s
                    WHERE customer_id = %s
                      AND balance_micros >= %s
-                   RETURNING balance_micros, balance_cad""",
+                   RETURNING balance_micros, balance_micros / 1000000.0 AS balance_cad""",
                 (amount_micros, amount_micros, now, customer_id, amount_micros),
             ).fetchone()
             if not row:
@@ -1924,7 +1933,7 @@ class BillingEngine:
                        total_refunded_micros = total_refunded_micros + %s,
                        updated_at = %s
                    WHERE customer_id = %s
-                   RETURNING balance_micros, balance_cad""",
+                   RETURNING balance_micros, balance_micros / 1000000.0 AS balance_cad""",
                 (cad_to_micros(amount_cad), cad_to_micros(amount_cad),
                  time.time(), customer_id),
             ).fetchone()

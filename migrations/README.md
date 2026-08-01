@@ -70,7 +70,7 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `086_auto_topup_micros_cutover.py`.**
+**Repository head: `087_drop_derived_cad_columns.py`.**
 (`079_settlement_meters_reprice.py` was head through the settlement reprice;
 `080` added authoritative provider settlement; `081` the durable per-sink
 privacy deletion workflow; `082` authoritative host admission and signed
@@ -79,7 +79,9 @@ brought `casl_consent` and `user_encryption_keys` into the chain instead of
 being created at runtime by `privacy.py`; `085` dropped fifteen columns no
 code reads; `086` finished the auto-top-up money cutover to integer micros
 and rewrote the wallet projection trigger that referenced the retired float
-columns.)
+columns; `087` removed the remaining float money columns and the four
+projection triggers that maintained them, leaving integer micros as the single
+representation.)
 (`069_action_plans_mcp_policy_audit.py` was head through Track B B2.1; B3.1
 added `070`, binding `serverless_workers` to their fenced attempt; B3.2 added
 `071`, the per-endpoint spend ceiling; B4.1 added `072`, the partitioned

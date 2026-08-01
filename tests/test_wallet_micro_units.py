@@ -60,7 +60,7 @@ def wallet():
 def _row(customer_id: str):
     with pg_transaction() as conn:
         return conn.execute(
-            "SELECT balance_micros, balance_cad FROM wallets WHERE customer_id = %s",
+            "SELECT balance_micros FROM wallets WHERE customer_id = %s",
             (customer_id,),
         ).fetchone()
 
@@ -110,20 +110,7 @@ def test_integer_accumulation_does_not_drift(wallet):
     row = _row(customer_id)
     assert row is not None
     assert row[0] == 70_000_000, f"integer balance drifted: {row[0]}"
-    assert row[1] == 70.0, f"projected float is wrong: {row[1]!r}"
 
-
-def test_float_column_would_have_drifted():
-    """Documents the baseline this migration removes.
-
-    If this ever stops holding, binary floating point changed and the
-    whole item deserves revisiting.
-    """
-    total = 0.0
-    for _ in range(1000):
-        total += 0.07
-    assert total != 70.0
-    assert abs(total - 70.0) < 1e-9  # small, but not zero — that is the point
 
 
 def test_ledger_sum_equals_stored_balance(wallet):
@@ -169,88 +156,8 @@ def test_ledger_sum_equals_stored_balance(wallet):
 # ───────────── rolling-deploy safety: both writer generations ─────────────
 
 
-def test_new_writer_updates_micros_and_float_follows(wallet):
-    customer_id = wallet(1_000_000)
-
-    with pg_transaction() as conn:
-        conn.execute(
-            "UPDATE wallets SET balance_micros = balance_micros + 333 "
-            "WHERE customer_id = %s",
-            (customer_id,),
-        )
-
-    assert _row(customer_id) == (1_000_333, 1.000333)
 
 
-def test_legacy_writer_updates_float_and_micros_follows(wallet):
-    """The property that makes a rolling deploy safe.
-
-    An un-upgraded replica writes only `balance_cad`. A one-way trigger
-    would overwrite that float from a stale `balance_micros`, silently
-    discarding the write.
-    """
-    customer_id = wallet(1_000_000)
-
-    with pg_transaction() as conn:
-        conn.execute(
-            "UPDATE wallets SET balance_cad = balance_cad + 1.11 "
-            "WHERE customer_id = %s",
-            (customer_id,),
-        )
-
-    row = _row(customer_id)
-    assert row is not None
-    assert row[0] == 2_110_000, (
-        f"legacy float write was lost or mis-projected: {row}"
-    )
-    # The float keeps the legacy writer's own arithmetic result
-    # (1.0 + 1.11 == 2.1100000000000003). That is deliberate: the legacy
-    # branch derives micros from the float and does NOT reproject the
-    # float, because clobbering it would discard the write this branch
-    # exists to preserve.
-    assert row[1] == pytest.approx(2.11)
-
-
-def test_insert_from_either_generation_is_consistent():
-    """Both insert shapes must leave the row self-consistent."""
-    minor_only = f"wtest-{uuid.uuid4().hex[:10]}"
-    float_only = f"wtest-{uuid.uuid4().hex[:10]}"
-    try:
-        with pg_transaction() as conn:
-            conn.execute(
-                "INSERT INTO wallets (customer_id, balance_micros) VALUES (%s, %s)",
-                (minor_only, 4_242_000),
-            )
-            conn.execute(
-                "INSERT INTO wallets (customer_id, balance_cad) VALUES (%s, %s)",
-                (float_only, 12.34),
-            )
-        assert _row(minor_only) == (4_242_000, 4.242)
-        assert _row(float_only) == (12_340_000, 12.34)
-    finally:
-        with pg_transaction() as conn:
-            conn.execute(
-                "DELETE FROM wallets WHERE customer_id = ANY(%s)",
-                ([minor_only, float_only],),
-            )
-
-
-# ───────────────────── schema contract ─────────────────────
-
-
-def test_every_wallet_money_column_has_a_micros_twin():
-    with pg_transaction() as conn:
-        for table, columns in WALLET_MINOR_TABLES.items():
-            present = {
-                r[0]
-                for r in conn.execute(
-                    "SELECT column_name FROM information_schema.columns "
-                    "WHERE table_name = %s",
-                    (table,),
-                ).fetchall()
-            }
-            missing = set(columns) - present
-            assert not missing, f"{table} is missing minor columns: {missing}"
 
 
 def test_micros_columns_are_integers():
@@ -288,4 +195,38 @@ def test_balance_may_be_negative(wallet):
             "UPDATE wallets SET balance_micros = -5000000 WHERE customer_id = %s",
             (customer_id,),
         )
-    assert _row(customer_id) == (-5_000_000, -5.0)
+    assert _row(customer_id) == (-5_000_000,)
+
+def test_no_float_money_column_survives_on_wallets():
+    """Migration 087 removed the float twins; only integers remain.
+
+    The dual-write era is over: there is one representation, so the class of
+    bug where a reader picked the lossy column cannot recur.
+    """
+    from db import _get_pg_pool
+
+    with _get_pg_pool().connection() as conn:
+        rows = conn.execute(
+            """SELECT column_name FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name IN ('wallets', 'wallet_transactions',
+                                     'wallet_holds', 'usage_meters',
+                                     'payout_splits')
+                  AND column_name LIKE '%_cad'"""
+        ).fetchall()
+    assert not [r[0] for r in rows], f"float money columns still present: {rows}"
+
+
+def test_no_projection_trigger_survives():
+    """The triggers existed only to keep the float twins in step."""
+    from db import _get_pg_pool
+
+    with _get_pg_pool().connection() as conn:
+        rows = conn.execute(
+            """SELECT tg.tgname FROM pg_trigger tg
+                 JOIN pg_class cl ON cl.oid = tg.tgrelid
+                WHERE NOT tg.tgisinternal
+                  AND cl.relname IN ('wallets', 'wallet_transactions',
+                                     'wallet_holds', 'usage_meters')"""
+        ).fetchall()
+    assert not [r[0] for r in rows], f"projection triggers still present: {rows}"
