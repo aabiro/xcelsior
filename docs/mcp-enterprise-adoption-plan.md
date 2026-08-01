@@ -743,3 +743,103 @@ the old listener released it (`EADDRINUSE`, surfacing as "MCP restart failed"),
 and `afterAll` signalled the replicas without waiting, so a back-to-back run
 died on startup. Teardown now waits for exit and escalates to `SIGKILL` if a
 replica ignores `SIGTERM` — which, verified across three runs, it never does.
+
+---
+
+## 10. Amendment (2026-08-01): solo-operator delivery tracks
+
+§§X3–X5 above were written for a funded team. Read literally they make MVP 2.0
+depend on a decision made by staff at Anthropic (**GX3** closes only when
+*listed*, explicitly not on "submitted"), which is not a gate the operator of
+this project can close by working harder. This amendment does not delete those
+gates. It splits each into the part that is achievable now and the part that
+genuinely requires a company behind it, so promotion depends on things within
+reach.
+
+**The premise that makes this safe:** directory listing is *distribution*, not
+*function*. The connector works the moment it is deployed — any Claude or
+ChatGPT user can add `https://mcp.xcelsior.ca/mcp` as a custom connector by URL
+and get OAuth, `tools/list`, and tool calls. No directory is in that path. A
+listing is a marketing channel, and the free, open MCP registry (X5.25) is the
+one that matters most for a developer-tools product anyway.
+
+### Assets on hand (2026-08-01)
+
+| Asset | Held | Consequence |
+|---|---|---|
+| OpenAI organization | ✅ | Owner already implies Apps Management = Write on your own org. X4's blocker is business identity, not a role. |
+| Claude **Pro** | ✅ | Enough to *verify* the connector end to end. Not enough to *submit*: submission needs a Team or Enterprise org. |
+| GCP org + project, startup program | ✅ | Vertex/Gemini API work is reachable. |
+| Gemini **Enterprise** | ❌ (Business ceiling) | X5.21 as written is out of reach; it targets Gemini Enterprise custom-MCP data stores. |
+| Verified business identity | ❌ | Gates X3 *and* X4 submission. A registered sole proprietorship is a legal entity — this is a one-time filing, not a subscription. |
+| GitHub Actions billing | ❌ | Every gate result is local. A push with no checks is not a green push. |
+
+### Track A — closeable solo, and the only track MVP 2.0 depends on
+
+**A1. Real Anthropic egress verification** *(replaces the Anthropic half of X2.19)*
+This is the one item in X2 that code cannot fake, and Pro closes it.
+1. Deploy the connector to `mcp.xcelsior.ca`.
+2. In Claude, add a custom connector pointing at `https://mcp.xcelsior.ca/mcp`.
+3. Complete the OAuth flow in a browser you are *not* already logged into, to
+   catch cookie-dependent redirect bugs.
+4. Confirm `tools/list` returns exactly the customer profile (30 tools), then
+   call one read tool and one tool that creates an action plan.
+5. Record the source IP the edge observed. **GA1:** an Anthropic-originated
+   request reached the edge, authenticated, and executed a tool — proving the
+   public edge, auth host, and redirects are not WAF-blocked.
+
+**A2. Real OpenAI egress verification** *(replaces the OpenAI half of X2.19)*
+Same as A1 via ChatGPT developer mode. **GA2:** identical evidence from OpenAI's
+egress.
+
+**A3. Official MCP registry entry** *(X5.25, unchanged — free and open)*
+No org, no verification, no fee. **Treat this as the primary distribution
+channel**, not a consolation prize. **GA3:** entry live and installable from it.
+
+**A4. GitHub Copilot paths** *(X5.24, unchanged — no org required)*
+Verify hosted HTTP in VS Code and the local `npx @xcelsior-gpu/mcp` path in
+Copilot CLI. **GA4:** both paths reach an authenticated session.
+
+**A5. One-click installs** *(X5.26)* — already delivered and tested.
+
+**A6. Reviewer/demo account** *(X2.16)* — already scripted
+(`scripts/seed_reviewer_account.py`). Useful for A1/A2 regardless of submission.
+
+> **MVP 2.0 promotion gate (amended):** GA1 · GA2 · GA3 · GA4 · GX0 · GX1 · GX6 ·
+> GX7. Directory listings are explicitly *not* in it.
+
+### Track B — deferred, needs a legal entity or a customer
+
+Ordered by cost to unlock, cheapest first. None blocks MVP 2.0.
+
+**B1. Verified business identity** — one-time filing (a sole proprietorship
+qualifies). Unlocks the identity half of both X3 and X4. Do this first; it is
+the cheapest thing that unblocks the most.
+
+**B2. X4, OpenAI submission** — closest to reachable, since the org exists and
+owner role already carries Apps Management = Write. Needs B1, plus the
+portal-issued `XCELSIOR_MCP_OPENAI_APPS_CHALLENGE` token deployed to the
+already-built `/.well-known/openai-apps-challenge` route.
+
+**B3. X3, Anthropic submission** — needs B1 **and** a Claude Team (or
+Enterprise) org, because individual plans cannot submit. *Verify the current
+seat minimum and per-seat price directly with Anthropic before budgeting;
+do not plan against a number quoted from memory.* Everything else for X3 is
+already built.
+
+**B4. X5.21 Gemini Enterprise** — out of reach at the Business tier. Revisit
+only if an enterprise customer brings their own Gemini Enterprise project;
+the onboarding is theirs to drive, not ours.
+
+**B5. X5.22 Grok / X5.23 Microsoft** — need a Grok Business team and a verified
+Microsoft publisher + Partner Center enrolment respectively. Both are
+post-revenue moves.
+
+### Correction to X5.21's premise
+
+X5.21 warns that Gemini Enterprise's ≤100-action cap will truncate us and that a
+subset must be curated. **At the current surface that premise is false**: the
+server defines 39 tool contracts — 30 in the customer profile, 37 with operator,
+39 with company-knowledge enabled. There is no truncation risk today. Re-check
+this if the surface grows past ~80, and do not curate a subset to solve a
+problem that does not exist.
