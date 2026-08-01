@@ -1006,7 +1006,10 @@ def _tool_get_billing_summary(_args: dict, user: dict) -> dict:
     try:
         with _ai_db() as conn:
             meters = conn.execute(
-                "SELECT gpu_model, duration_sec, total_cost_cad, started_at "
+                # 087 dropped total_cost_cad; total_cost_micros is authoritative.
+                # Aliased back to the key the response shape already uses.
+                "SELECT gpu_model, duration_sec, "
+                "       total_cost_micros / 1000000.0 AS total_cost_cad, started_at "
                 "FROM usage_meters WHERE owner = %s ORDER BY started_at DESC LIMIT %s",
                 (customer_id, RECENT_USAGE_LIMIT),
             ).fetchall()
