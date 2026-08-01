@@ -670,7 +670,8 @@ def settlement_response(row: dict) -> dict:
         ("platform_share_micros", "platform_share_cad"),
         ("gst_hst_micros", "gst_hst_cad"),
     ):
-        if result.get(micros_key) is not None:
-            result[cad_key] = micros_to_cad(int(result[micros_key]))
+        micros = result.get(micros_key)
+        if micros is not None:
+            result[cad_key] = micros_to_cad(int(micros))
     result["tax_rate"] = int(result.get("tax_rate_bps") or 0) / 10_000
     return result

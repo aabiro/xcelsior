@@ -32,9 +32,9 @@ def _user(suffix: str = "") -> dict:
 @pytest.fixture
 def user():
     u = _user()
-    AgentKeyStore.revoke_all_for_client(u["user_id"], CLIENT, time.time())
+    AgentKeyStore.revoke_all_for_client(u["user_id"], CLIENT)
     yield u
-    AgentKeyStore.revoke_all_for_client(u["user_id"], CLIENT, time.time())
+    AgentKeyStore.revoke_all_for_client(u["user_id"], CLIENT)
 
 
 def _issue(u, **kw):
@@ -141,19 +141,19 @@ class TestRevocation:
     def test_revoked_key_stops_working(self, user):
         bundle = _issue(user)
         assert oa.validate_agent_api_key(bundle["access_token"]) is not None
-        assert AgentKeyStore.revoke(bundle["key_id"], user["user_id"], time.time())
+        assert AgentKeyStore.revoke(bundle["key_id"], user["user_id"])
         assert oa.validate_agent_api_key(bundle["access_token"]) is None
 
     def test_revocation_is_scoped_to_the_owner(self, user):
         """A key id alone must not let someone revoke another user's key."""
         bundle = _issue(user)
-        assert not AgentKeyStore.revoke(bundle["key_id"], "someone-else", time.time())
+        assert not AgentKeyStore.revoke(bundle["key_id"], "someone-else")
         assert oa.validate_agent_api_key(bundle["access_token"]) is not None
 
     def test_revoking_twice_is_not_an_error_the_second_time(self, user):
         bundle = _issue(user)
-        assert AgentKeyStore.revoke(bundle["key_id"], user["user_id"], time.time())
-        assert not AgentKeyStore.revoke(bundle["key_id"], user["user_id"], time.time())
+        assert AgentKeyStore.revoke(bundle["key_id"], user["user_id"])
+        assert not AgentKeyStore.revoke(bundle["key_id"], user["user_id"])
 
 
 class TestRotation:
@@ -174,7 +174,7 @@ class TestRotation:
     def test_listing_excludes_revoked_keys(self, user):
         bundle = _issue(user)
         assert any(k["key_id"] == bundle["key_id"] for k in AgentKeyStore.list_for_user(user["user_id"]))
-        AgentKeyStore.revoke(bundle["key_id"], user["user_id"], time.time())
+        AgentKeyStore.revoke(bundle["key_id"], user["user_id"])
         assert not any(
             k["key_id"] == bundle["key_id"] for k in AgentKeyStore.list_for_user(user["user_id"])
         )

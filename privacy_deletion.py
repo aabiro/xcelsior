@@ -124,6 +124,9 @@ _REQUEST_COLUMNS = (
     "updated_at",
     "validated_at",
     "completed_at",
+    # Appended by migration 090 (companion 4.4.10). This tuple mirrors
+    # SELECT * ordering, so a new column must be added here too.
+    "tenant_id",
 )
 
 _SINK_COLUMNS = (
@@ -139,6 +142,7 @@ _SINK_COLUMNS = (
     "started_at",
     "completed_at",
     "updated_at",
+    "tenant_id",
 )
 
 
@@ -298,8 +302,8 @@ def create_deletion_request(
             INSERT INTO privacy_deletion_requests (
                 subject_reference_hash, subject_user_id, subject_email,
                 subject_customer_ids, requested_by, request_source, legal_basis,
-                idempotency_key, status_token_hash, deadline_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                idempotency_key, status_token_hash, deadline_at, tenant_id
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING request_id, state, deadline_at
             """,
             (
@@ -313,6 +317,10 @@ def create_deletion_request(
                 idempotency_key,
                 status_token_hash,
                 deadline_at,
+                # Companion 4.4.10: the tenant is the workspace the request was
+                # raised in. The *subject* stays pseudonymous via
+                # subject_reference_hash; tenant is not identity.
+                str(user_id or reference),
             ),
         ).fetchone()
         request_id = str(_row_value(row, "request_id", 0))
@@ -321,11 +329,13 @@ def create_deletion_request(
         conn.execute(
             """
             INSERT INTO privacy_deletion_sink_status
-                (request_id, sink, deadline_at)
-            SELECT %s, sink, %s
+                (request_id, sink, deadline_at, tenant_id)
+            SELECT %s, sink, %s,
+                   (SELECT tenant_id FROM privacy_deletion_requests
+                     WHERE request_id = %s)
               FROM unnest(%s::text[]) AS sink
             """,
-            (request_id, stored_deadline, list(SINK_ORDER)),
+            (request_id, stored_deadline, request_id, list(SINK_ORDER)),
         )
         event_id = _append_privacy_event(
             conn,

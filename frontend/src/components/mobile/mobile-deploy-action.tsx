@@ -74,9 +74,13 @@ export function MobileDeployAction({ canWrite, serverlessEnabled }: MobileDeploy
   }, [disarm]);
 
   const resetArmedRef = useRef(resetArmed);
-  resetArmedRef.current = resetArmed;
+  useEffect(() => {
+    resetArmedRef.current = resetArmed;
+  }, [resetArmed]);
 
-  useArmedIdleTimeout(isArmed && !modalOpenRef.current, () => {
+  const modalOpen = deployModalOpen || launchModalOpen;
+
+  useArmedIdleTimeout(isArmed && !modalOpen, () => {
     resetArmed();
     toast.message(t("dash.mobile.action_disarmed_timeout"), { duration: 2200 });
   }, ARMED_IDLE_MS);
@@ -195,7 +199,6 @@ export function MobileDeployAction({ canWrite, serverlessEnabled }: MobileDeploy
   if (!canWrite) return null;
 
   const showOnMobile = desktopState.isStandalonePwa;
-  const modalOpen = deployModalOpen || launchModalOpen;
   const trackAccent = selectedTrack === "serverless" ? "violet" : "cyan";
   const armedAccent = armedTrack === "serverless" ? "violet" : armedTrack === "instance" ? "cyan" : null;
 

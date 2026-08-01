@@ -441,7 +441,7 @@ def delete_authoritative_subject(
             """
             UPDATE user_encryption_keys
                SET active = false,
-                   destroyed_at = extract(epoch FROM clock_timestamp()),
+                   destroyed_at = clock_timestamp(),
                    fernet_key = 'DESTROYED'
              WHERE user_id = %s
                AND active

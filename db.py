@@ -2653,18 +2653,17 @@ class AgentKeyStore:
         key_hash: str,
         scopes: str,
         audience: str,
-        created_at: float,
     ) -> None:
         with auth_connection() as conn:
             conn.execute(
                 """
                 INSERT INTO agent_api_keys
                     (key_id, user_id, tenant_id, client_id, name, key_prefix,
-                     key_hash, scopes, audience, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, to_timestamp(%s))
+                     key_hash, scopes, audience)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (key_id, user_id, tenant_id, client_id, name, key_prefix,
-                 key_hash, scopes, audience, created_at),
+                 key_hash, scopes, audience),
             )
 
     @staticmethod
@@ -2678,13 +2677,13 @@ class AgentKeyStore:
             return dict(row) if row else None
 
     @staticmethod
-    def touch_last_used(key_id: str, when: float) -> None:
+    def touch_last_used(key_id: str) -> None:
         """Record use. This is what tells the dashboard a key is live in a real
         config, and therefore that rotating it would break something."""
         with auth_connection() as conn:
             conn.execute(
-                "UPDATE agent_api_keys SET last_used_at = to_timestamp(%s) WHERE key_id = %s",
-                (when, key_id),
+                "UPDATE agent_api_keys SET last_used_at = now() WHERE key_id = %s",
+                (key_id,),
             )
 
     @staticmethod
@@ -2699,25 +2698,25 @@ class AgentKeyStore:
             return [dict(r) for r in rows]
 
     @staticmethod
-    def revoke(key_id: str, user_id: str, when: float) -> bool:
+    def revoke(key_id: str, user_id: str) -> bool:
         """Scoped to the owner so a key id alone cannot revoke someone else's key."""
         with auth_connection() as conn:
             cur = conn.execute(
-                "UPDATE agent_api_keys SET revoked_at = to_timestamp(%s) "
+                "UPDATE agent_api_keys SET revoked_at = now() "
                 "WHERE key_id = %s AND user_id = %s AND revoked_at IS NULL",
-                (when, key_id, user_id),
+                (key_id, user_id),
             )
             return cur.rowcount > 0
 
     @staticmethod
-    def revoke_all_for_client(user_id: str, client_id: str, when: float) -> int:
+    def revoke_all_for_client(user_id: str, client_id: str) -> int:
         """Used when rotating: the previous key must stop working, or rotation
         just accumulates live credentials."""
         with auth_connection() as conn:
             cur = conn.execute(
-                "UPDATE agent_api_keys SET revoked_at = to_timestamp(%s) "
+                "UPDATE agent_api_keys SET revoked_at = now() "
                 "WHERE user_id = %s AND client_id = %s AND revoked_at IS NULL",
-                (when, user_id, client_id),
+                (user_id, client_id),
             )
             return cur.rowcount
 
