@@ -446,6 +446,12 @@ def issue_agent_api_key(
     user_id = str(user.get("user_id") or user.get("email") or "")
     if not user_id:
         raise OAuthGrantError("invalid_request", "Cannot issue an agent key without a user")
+    # Companion §4.4.10: tenant-owned rows carry the tenant explicitly rather
+    # than making every query join back through users. A personal workspace's
+    # tenant is the user itself, which matches the wallet and host paths.
+    tenant_id = str(
+        user.get("team_id") or user.get("customer_id") or user_id
+    )
 
     replaced = 0
     if replace_existing:
@@ -458,6 +464,7 @@ def issue_agent_api_key(
     AgentKeyStore.create(
         key_id=key_id,
         user_id=user_id,
+        tenant_id=tenant_id,
         client_id=client_id,
         name=name,
         key_prefix=key_prefix,
@@ -502,7 +509,9 @@ def validate_agent_api_key(token: str) -> dict[str, Any] | None:
     # the hot authentication path of every agent call. Update at most once per
     # AGENT_KEY_TOUCH_INTERVAL_SEC per key.
     now = time.time()
-    if now - float(row.get("last_used_at") or 0) >= AGENT_KEY_TOUCH_INTERVAL_SEC:
+    last_used = row.get("last_used_at")
+    last_used_epoch = last_used.timestamp() if last_used is not None else 0.0
+    if now - last_used_epoch >= AGENT_KEY_TOUCH_INTERVAL_SEC:
         try:
             AgentKeyStore.touch_last_used(row["key_id"], now)
         except Exception as exc:  # pragma: no cover - never fail auth on bookkeeping
@@ -524,6 +533,7 @@ def validate_agent_api_key(token: str) -> dict[str, Any] | None:
         "provider_id": user.get("provider_id"),
         "scopes": (row["scopes"] or "").split() if row["scopes"] else [],
         "audience": row["audience"],
+        "tenant_id": row.get("tenant_id"),
     }
 
 

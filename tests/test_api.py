@@ -2195,14 +2195,15 @@ class TestAnalytics:
         with eng._conn() as conn:
             conn.execute(
                 """INSERT INTO payout_splits
-                   (job_id, provider_id, total_micros, source_total_micros,
-                    provider_share_micros,
-                    platform_share_micros, gst_hst_micros, stripe_transfer_id, created_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                   (job_id, provider_id, tenant_id, total_micros,
+                    source_total_micros, provider_share_micros,
+                    platform_share_micros, gst_hst_micros, stripe_transfer_id,
+                    created_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, to_timestamp(%s))""",
                 # Integer micros, satisfying ck_payout_splits_exact_money:
                 # provider + platform == total, source + rounding == total.
-                (job_id, provider_id, 5_000_000, 5_000_000, 4_250_000,
-                 750_000, 650_000, "", now - 600),
+                (job_id, provider_id, provider_id, 5_000_000, 5_000_000,
+                 4_250_000, 750_000, 650_000, "", now - 600),
             )
 
         r = client.get(
