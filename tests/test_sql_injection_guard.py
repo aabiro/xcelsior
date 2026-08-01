@@ -54,6 +54,8 @@ KNOWN_SAFE = {
     "migrations/versions/067_shared_state_contract.py",
     "migrations/versions/080_authoritative_provider_settlement.py",
     "migrations/versions/085_drop_dead_columns.py",
+    #   087: table/trigger/column names from the module-level DERIVED tuple
+    "migrations/versions/087_drop_derived_cad_columns.py",
 }
 
 # SQL keywords must be UPPERCASE — this is the codebase convention for all real

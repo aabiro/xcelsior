@@ -141,7 +141,7 @@ def _mk_attempt_owned_job(cleanup, *, host_id: str, owner: str) -> tuple[str, st
 def _meters_for_job(job_id: str) -> list[dict]:
     with _pool.connection() as conn:
         rows = conn.execute(
-            """SELECT meter_id, job_id, attempt_id, total_cost_cad
+            """SELECT meter_id, job_id, attempt_id, total_cost_micros / 1000000.0 AS total_cost_cad
                  FROM usage_meters WHERE job_id=%s ORDER BY created_at""",
             (job_id,),
         ).fetchall()

@@ -86,18 +86,18 @@ def test_capture_marketplace_order_idempotent(monkeypatch):
         )
         conn.execute(
             """INSERT INTO payout_splits
-               (job_id, provider_id, total_cad, provider_share_cad,
-                platform_share_cad, gst_hst_cad, stripe_transfer_id,
+               (job_id, provider_id, total_micros, source_total_micros,
+                provider_share_micros,
+                platform_share_micros, gst_hst_micros, stripe_transfer_id,
                 paypal_capture_id, paypal_order_id, payment_rail,
                 settlement_status, created_at)
-               VALUES (%s, %s, 0, 0, 0, 0, '', '', %s, 'paypal',
+               VALUES (%s, %s, 0, 0, 0, 0, 0, '', '', %s, 'paypal',
                        'legacy_conflict', %s)""",
             (f"legacy-{job_id}", provider_id, order_id, now - 1),
         )
         conn.execute(
             """INSERT INTO payout_splits
                (job_id, provider_id, customer_id, currency,
-                total_cad, provider_share_cad, platform_share_cad, gst_hst_cad,
                 stripe_transfer_id, paypal_capture_id, paypal_order_id,
                 payment_rail, settlement_status, settlement_error,
                 source_total_micros, total_micros, provider_share_micros,
@@ -106,7 +106,6 @@ def test_capture_marketplace_order_idempotent(monkeypatch):
                 rail_idempotency_key, created_at, updated_at, settled_at,
                 legacy_imported)
                VALUES (%s, %s, %s, 'CAD',
-                       100.0, 85.0, 15.0, 13.0,
                        '', %s, %s,
                        'paypal', 'paid', '',
                        100000000, 100000000, 85000000,

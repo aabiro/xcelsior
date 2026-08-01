@@ -3464,6 +3464,7 @@ ALERT_CONFIG = {
     "smtp_pass": os.environ.get("XCELSIOR_SMTP_PASS", ""),
     "email_from": os.environ.get("XCELSIOR_EMAIL_FROM", ""),
     "email_to": os.environ.get("XCELSIOR_EMAIL_TO", ""),
+    "reply_to": os.environ.get("XCELSIOR_EMAIL_REPLY_TO", ""),
     "telegram_enabled": bool(
         os.environ.get("XCELSIOR_TG_TOKEN") and os.environ.get("XCELSIOR_TG_CHAT_ID")
     ),
@@ -3492,6 +3493,8 @@ def send_email(subject, body, to_email=None):
         msg["Subject"] = f"[Xcelsior] {subject}"
         msg["From"] = cfg["email_from"]
         msg["To"] = recipient
+        if cfg.get("reply_to"):
+            msg["Reply-To"] = cfg["reply_to"]
 
         with smtplib.SMTP(cfg["smtp_host"], cfg["smtp_port"]) as server:
             server.starttls()

@@ -1449,8 +1449,6 @@ class StripeConnectManager:
                     """UPDATE payout_splits
                           SET platform_share_micros = total_micros,
                               provider_share_micros = 0,
-                              platform_share_cad = total_cad,
-                              provider_share_cad = 0,
                               settlement_status = 'manual_review',
                               settlement_error = 'stripe_transfer_reversed',
                               updated_at = clock_timestamp()

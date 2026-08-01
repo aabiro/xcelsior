@@ -86,6 +86,8 @@ def _send_team_email(
             msg["Subject"] = f"[Xcelsior] {subject}"
             msg["From"] = cfg["email_from"]
             msg["To"] = to_email
+            if cfg.get("reply_to"):
+                msg["Reply-To"] = cfg["reply_to"]
             # Plain text fallback
             msg.attach(MIMEText(body_text, "plain"))
             # Styled HTML

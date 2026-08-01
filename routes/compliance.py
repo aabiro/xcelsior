@@ -46,7 +46,7 @@ def api_gst_threshold_status(request: Request):
     try:
         with billing._conn() as conn:
             row = conn.execute(
-                "SELECT COALESCE(SUM(total_cost_cad), 0) AS total "
+                "SELECT COALESCE(SUM(total_cost_micros) / 1000000.0, 0) AS total "
                 "FROM usage_meters WHERE started_at >= %s",
                 (one_year_ago,),
             ).fetchone()

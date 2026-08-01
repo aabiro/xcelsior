@@ -231,9 +231,9 @@ class TestActionPlanHoldLink:
         with _pool.connection() as conn:
             conn.execute(
                 "INSERT INTO wallet_holds "
-                "(hold_id, customer_id, amount_cad, status, created_at, "
+                "(hold_id, customer_id, amount_micros, status, created_at, "
                 " expires_at, updated_at) "
-                "VALUES (%s, 'cust-b21', 1.0, 'held', %s, %s, %s)",
+                "VALUES (%s, 'cust-b21', 1000000, 'held', %s, %s, %s)",
                 (hold_id, time.time(), time.time() + 600, time.time()),
             )
             conn.commit()
