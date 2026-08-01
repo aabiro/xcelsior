@@ -25,8 +25,9 @@ original author; this block records what has since changed.
   `routes/host_admission.py` (7 endpoints, provider/operator split enforced at
   the routing layer), `db_roles` ownership, a production-only startup check for
   `XCELSIOR_COMPAT_SESSION_SECRET`, and 23 tests.
-- **Migration head is now `084`** (082 host admission, 083 agent API keys,
-  084 privacy tables).
+- **Migration head is now `090`** (082 host admission, 083 agent API keys, 084
+  privacy tables into the chain, 085 dead-column drop, 086 auto-top-up micros,
+  087 float money removal, 088-090 data-companion §4.4 parity).
 - **Agent credentials replaced.** Quick Connect no longer mints ~1 KB JWTs held
   in the Redis auth cache; it issues `xcel_ai_` keys (51 chars) stored in
   Postgres as a SHA-256 digest, non-expiring and revocable, with `last_used_at`
@@ -42,8 +43,9 @@ and observability deployment.
 
 ## Remaining work, with evidence (2026-07-31)
 
-Suite is **green: 4536 passed, 7 skipped, 0 failed** (was 235 failed when this
-pass began).
+Suite is **green: 4568 passed, 7 skipped, 0 failed** (was 235 failed when this
+pass began). ruff and pyright clean; frontend `tsc` clean, 214 vitest tests
+pass, eslint 0 errors.
 
 The remaining failures are almost entirely tests that encode contracts the
 Phase 10 and 082 work deliberately retired — they describe the old system, not
@@ -70,9 +72,11 @@ defects in the new one. In priority order:
    execution time, so dropping a column without rewriting that function makes
    **every wallet INSERT and UPDATE fail**. The first draft of `086` did
    exactly that. Rewrite the trigger in the same transaction as the drop.
-   **`balance_cad` is still float and still authoritative** — 66 readers
-   against 17 for `balance_micros`. That is the next money cutover, and it is
-   larger than this one was.
+   **Superseded: `balance_cad` is gone.** Migration `087` dropped it along
+   with the other eleven float projections and the four triggers that
+   maintained them, so `balance_micros` is now the only stored balance. The
+   remaining `balance_cad` reads are a presentation view derived in Python by
+   `BillingEngine.get_wallet`, not a second stored number.
 4. **Still open from the original plan:** personal-data export (the settings
    button still downloads billing CSV only), the governed warehouse deletion
    sink, observability stack deployment, and the "Major original-goal gaps"
@@ -92,10 +96,12 @@ returning 200. Fern CLI reports an available upgrade (4.58 → 5.89) which was
 deliberately not taken during a publish.
 
 Verified along the way and safe to rely on: migrations rehearse up/down/up
-(`081->082->081->082` and `084->085->084->085`), the migration ledger head is
-`085` and enforced by `tests/test_migration_ledger.py`, and production startup
-validation now fails closed on both a missing compatibility-session secret and
-a defaulted audit signing key.
+(`081->082->081->082`, `084->085->084->085`, and `090->087->090`, the last
+dumping byte-identical schema), the from-empty bootstrap reaches head
+deterministically, the migration ledger head is `090` and enforced by
+`tests/test_migration_ledger.py`, and production startup validation now fails
+closed on both a missing compatibility-session secret and a defaulted audit
+signing key.
 
 
 ### Hardening findings from the self-audit (2026-07-31)
@@ -116,6 +122,43 @@ Audited what this branch itself introduced, not just what it inherited:
   rows its own earlier runs had left. Both now clean up, and the drain asserts
   an exact outcome rather than `>= 1`, which would have passed even if the
   drain silently skipped events.
+
+### Second audit pass (2026-08-01)
+
+Re-audited the same surfaces against the live schema rather than against the
+commit messages. Three of the four findings were things the suite could not
+have caught, because the failing code was wrapped in `except Exception`.
+
+- **Two live queries named columns `087` had dropped.** `routes/admin.py`
+  selected `wallets.balance_cad` and `ai_assistant.py` selected
+  `usage_meters.total_cost_cad`. Both are inside broad exception handlers, so
+  neither raised: the admin user list reported a $0.00 balance and 0 jobs for
+  every user, and the assistant reported no recent usage. A swallowed
+  `UndefinedColumn` is indistinguishable from an empty result. Fixed to read
+  the micros columns, and `tests/test_retired_columns_not_referenced.py` now
+  reads the retired set out of the `085`/`087` migration tuples and fails if
+  any live SQL names one of the 27. It works from the AST's string constants,
+  not line windows — `billing.py` has a local named `amount_cad` in functions
+  that query `wallet_transactions`, which produced seven false positives on
+  the first attempt.
+- **A live endpoint bug in the agent-key work.** `/api/agent-keys` computed
+  `in_use` as `last_used_at > 0` after `088` made that column a nullable
+  `TIMESTAMPTZ`, so the endpoint raised `TypeError` on every call. NULL now
+  means "never used" throughout, and both key endpoints emit ISO 8601.
+- **The §4.4 guard trusted hand-maintained lists.** `GOVERNED_TABLES` was a
+  literal tuple, so a new migration that forgot to register its table was
+  silently ungoverned; the money rule only matched column names ending `_cad`,
+  so a `total_micros` stored as a double would have passed. Both are now
+  derived, and every rule was mutation-tested against a live database.
+- **Three stale comments** described the migration-068 projection triggers as
+  still maintaining `balance_cad`/`total_cost_cad`. `087` dropped them.
+
+Left deliberately: 30 `_cad` columns across 17 legacy tables are still binary
+float where the float is the *only* representation of that amount, including
+on `invoices`, `payout_ledger` and `billing_cycles`. Each is a per-table
+migration with code on both sides, not a sweep. The count is pinned as a
+downward ratchet so it cannot grow, and the companion §4.4 conformance
+subsection records the position.
 
 ### `_cad` removal — DONE (migration 087)
 
