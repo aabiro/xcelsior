@@ -117,83 +117,24 @@ Audited what this branch itself introduced, not just what it inherited:
   an exact outcome rather than `>= 1`, which would have passed even if the
   drain silently skipped events.
 
-### `_cad` removal — application side DONE, one step left
+### `_cad` removal — DONE (migration 087)
 
-**Application code no longer reads or writes the float money columns on
-`wallets`, `wallet_transactions`, `wallet_holds` or `usage_meters`.** Reads
-select the integer column and scale once, aliased back to the same output key;
-writes use `cad_to_micros`. The API contract is unchanged and still speaks CAD.
-Suite green at 4536.
+Integer micros is the single money representation. All 12 float columns and
+the 4 projection triggers are gone from `wallets`, `wallet_transactions`,
+`wallet_holds`, `usage_meters` and `payout_splits`. The API contract still
+speaks CAD, derived at the read boundary.
 
-**The only thing standing between here and a clean database is test fixtures.**
-27 test files still `INSERT INTO wallets (customer_id, balance_cad)`. Convert
-those to `balance_micros` (value × 1_000_000), then apply the staged migration
-`migrations/versions/087_drop_derived_cad_columns.py.staged` — rename off the
-`.staged` suffix — which drops all 12 columns and the 4 projection triggers.
-It has been applied and rolled back successfully; the only reason it is not
-live is those fixtures.
+`payout_splits` was the one that mattered: it had all four pairs and no
+trigger, so its halves were written independently and could diverge in the
+settlement path.
 
-`tests/test_wallet_micro_units.py` needs judgement rather than mechanical
-conversion: it exists to test the dual representation, so it is asserting the
-behaviour being removed.
-
-Two files are deliberately **not** converted yet — `provider_settlement.py`
-and `stripe_connect.py`. Their `payout_splits` float columns are `NOT NULL`,
-so removing them from the INSERT fails until the migration drops them. Convert
-those two in the same commit as the migration, not before.
-
-Traps already paid for, do not rediscover them:
-
-- Scope by table. `billing_cycles.amount_cad`, `invoices.total_cad` and
-  `btc_deposits.amount_cad` look identical but have no integer twin. A Python
-  keyword argument named `amount_cad` is the API contract and stays.
-- An alias is invalid inside `CASE ... THEN` and inside `ABS(...)`, and
-  applying the rewrite twice yields
-  `SUM(x_micros) / 1000000.0 as x_micros / 1000000.0 AS x_cad`.
-- `ck_payout_splits_exact_money` requires `provider + platform = total` and
-  `source + rounding = total`, so a backfill must rebuild every component in
-  one statement with the platform share as the remainder.
-- Triggers must be dropped in the same transaction as their columns; PL/pgSQL
-  resolves `NEW.<field>` at execution time.
-
-### Superseded: earlier attempt notes
-
-Straight answer: **yes, they should go.** Arguing they "cost nothing" was
-wrong. Every write to the busiest tables on the platform fires a projection
-trigger (~140 lines of PL/pgSQL across four functions) to recompute floats
-nobody should read, each row stores the same number twice, and a second
-representation invites reading the lossy one — silently.
-
-I attempted the removal in this session and reverted it. What was learned,
-so the next attempt starts from evidence rather than from scratch:
-
-1. **The drop itself is easy and was proven.** A migration dropping all 12
-   columns and the 4 triggers applied cleanly; afterwards `_cad columns: 0,
-   projection triggers: 0`. Triggers must be dropped in the same transaction
-   as their columns — PL/pgSQL resolves `NEW.<field>` at execution time.
-2. **`payout_splits` has `ck_payout_splits_exact_money`**, which requires
-   `source_total + rounding = total` and `provider + platform = total`. A
-   naive backfill of `total_micros` alone violates it. Rebuild every component
-   in one statement and derive the platform share as the remainder, so the
-   identity stays exact rather than trusting two rounded floats to add up.
-3. **The real cost is 63 row reads across 7 files**, not the schema change.
-   `billing.py` (19 + 13), `routes/admin.py` (10), `provider_settlement.py`
-   (16), `stripe_connect.py` (6), plus `ai_assistant.py` and
-   `routes/serverless.py`.
-4. **Do not attempt this with a regex.** I tried; it rewrote INSERT column
-   lists and dict keys into nonsense like
-   `KeyError: 'total_micros / 1000000.0 AS total_cad'`. The conversion needs
-   per-statement judgement: `SUM(x_cad)` becomes `SUM(x_micros) / 1000000.0`,
-   a projection becomes `x_micros / 1000000.0 AS x_cad`, an INSERT column list
-   loses the column entirely, and a Python keyword argument named `amount_cad`
-   must not be touched at all — the API contract stays CAD.
-5. **The cheap way in** is `billing.get_wallet`: it does `SELECT *` and returns
-   the row, so deriving the four CAD keys there from micros frees 28 of the 63
-   readers without touching any call site. Do the same for the other row
-   loaders, then drop the columns last.
-
-Until then the columns stay and the triggers keep them exact, which is
-correct-but-wasteful rather than incorrect.
+If a similar cutover comes up, these SQL forms break a mechanical rewrite and
+each cost a debug cycle here: an alias is invalid inside `CASE ... THEN` and
+inside `ABS(...)`; aggregates need `SUM(x_micros) / 1000000.0` including
+through table aliases (`SUM(ps.x_micros)`); `RETURNING` clauses need the same;
+single-quoted SQL is easy to miss when scanning triple-quoted blocks; and
+`ck_payout_splits_exact_money` requires every component rebuilt in one
+statement.
 
 ### Money representation — corrected
 
