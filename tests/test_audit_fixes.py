@@ -12,6 +12,7 @@ Covers:
 
 import os
 import time
+from datetime import datetime, timedelta, timezone
 import tempfile
 import logging
 from unittest.mock import patch, MagicMock
@@ -315,7 +316,7 @@ class TestConsentManagerDictRows:
         from db import _get_pg_pool
 
         pool = _get_pg_pool()
-        expired_at = time.time() - 100
+        expired_at = datetime.now(timezone.utc) - timedelta(seconds=100)
         with pool.connection() as conn:
             updated = conn.execute(
                 "UPDATE casl_consent SET expires_at = %s " "WHERE user_id = %s AND purpose = %s",
@@ -333,7 +334,7 @@ class TestConsentManagerDictRows:
                 ("user-expire-test", "expiring_purpose"),
             ).fetchone()
         assert row is not None
-        assert abs(row["expires_at"] - expired_at) < 1, row
+        assert abs((row["expires_at"] - expired_at).total_seconds()) < 1, row
 
         has, ctype = cm.has_consent("user-expire-test", "expiring_purpose")
         assert has is False
@@ -351,7 +352,11 @@ class TestConsentManagerDictRows:
         with pool.connection() as conn:
             conn.execute(
                 "UPDATE casl_consent SET expires_at = %s " "WHERE user_id = %s AND purpose = %s",
-                (time.time() - 100, "user-batch-expire", "batch_test"),
+                (
+                    datetime.now(timezone.utc) - timedelta(seconds=100),
+                    "user-batch-expire",
+                    "batch_test",
+                ),
             )
             conn.commit()
 
