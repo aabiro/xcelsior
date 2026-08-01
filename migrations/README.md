@@ -70,7 +70,7 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `089_payout_splits_companion_parity.py`.**
+**Repository head: `090_privacy_tables_companion_parity.py`.**
 (`079_settlement_meters_reprice.py` was head through the settlement reprice;
 `080` added authoritative provider settlement; `081` the durable per-sink
 privacy deletion workflow; `082` authoritative host admission and signed
@@ -83,7 +83,18 @@ columns; `087` removed the remaining float money columns and the four
 projection triggers that maintained them, leaving integer micros as the single
 representation; `088` and `089` brought `agent_api_keys` and `payout_splits`
 into line with the data-architecture companion §4.4 — TIMESTAMPTZ times and a
-non-null `tenant_id` with a tenant-leading index.)
+non-null `tenant_id` with a tenant-leading index; `090` finished that pass over
+the four privacy tables. `084` had lifted `casl_consent` and
+`user_encryption_keys` out of runtime DDL with their float epoch columns
+preserved verbatim, which only made the defect official — `084` now creates
+them as TIMESTAMPTZ and `090` converts databases that ran the earlier version,
+each conversion guarded on the column's actual type so a from-empty build and
+an existing database converge. `090` also gives the two privacy deletion tables
+a `tenant_id`; they had been treated as tenant-exempt on the grounds that a
+deletion subject must stay unlinkable, which conflated tenant with identity.
+The companion keeps the tenant and pseudonymises the identity — the tenant is
+the workspace, not the person, and erasure still blanks `subject_email` and
+`subject_user_id`.)
 (`069_action_plans_mcp_policy_audit.py` was head through Track B B2.1; B3.1
 added `070`, binding `serverless_workers` to their fenced attempt; B3.2 added
 `071`, the per-endpoint spend ceiling; B4.1 added `072`, the partitioned

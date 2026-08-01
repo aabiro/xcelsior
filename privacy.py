@@ -854,7 +854,7 @@ class CryptoShredder:
             pool.putconn(conn)
 
     def _ensure_table(self, conn):
-        """No-op: migration 084 owns this schema (companion 4.4.1/4.4.3)."""
+        """No-op: migration 084 owns this schema (companion §4.4.1 and §4.4.3)."""
         return None
 
     def get_or_create_key(self, user_id):
@@ -973,7 +973,7 @@ class ConsentManager:
                 raise
 
     def _ensure_table(self, conn):
-        """No-op: migration 084 owns this schema (companion 4.4.1/4.4.3).
+        """No-op: migration 084 owns this schema (companion §4.4.1 and §4.4.3).
 
         This used to CREATE TABLE IF NOT EXISTS at runtime with float epoch
         columns. Alembic is the only production DDL authority, and leaving a
