@@ -50,7 +50,7 @@ def api_admin_stats(request: Request):
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).timestamp()
         with be._conn() as conn:
             row = conn.execute(
-                "SELECT COALESCE(SUM(total_cost_cad), 0) AS rev FROM usage_meters WHERE created_at >= %s",
+                "SELECT COALESCE(SUM(total_cost_micros) / 1000000.0, 0) AS rev FROM usage_meters WHERE created_at >= %s",
                 (month_start,),
             ).fetchone()
             revenue_mtd = round(float(row["rev"]), 2) if row else 0.0
@@ -162,14 +162,14 @@ def api_admin_overview(request: Request, days: int = 30):
         with be._conn() as conn:
             # MTD revenue
             row = conn.execute(
-                "SELECT COALESCE(SUM(total_cost_cad), 0) AS rev FROM usage_meters WHERE created_at >= %s",
+                "SELECT COALESCE(SUM(total_cost_micros) / 1000000.0, 0) AS rev FROM usage_meters WHERE created_at >= %s",
                 (month_start,),
             ).fetchone()
             revenue_mtd = round(float(row["rev"]), 2) if row else 0.0
 
             # Total revenue
             row = conn.execute(
-                "SELECT COALESCE(SUM(total_cost_cad), 0) AS rev FROM usage_meters"
+                "SELECT COALESCE(SUM(total_cost_micros) / 1000000.0, 0) AS rev FROM usage_meters"
             ).fetchone()
             revenue_total = round(float(row["rev"]), 2) if row else 0.0
 
@@ -182,7 +182,7 @@ def api_admin_overview(request: Request, days: int = 30):
             # 30-day revenue trend
             for r in conn.execute(
                 "SELECT to_char(to_timestamp(created_at), 'YYYY-MM-DD') AS day, "
-                "ROUND(SUM(total_cost_cad)::numeric, 2) AS revenue, COUNT(*) AS jobs "
+                "ROUND(SUM(total_cost_micros) / 1000000.0::numeric, 2) AS revenue, COUNT(*) AS jobs "
                 "FROM usage_meters WHERE created_at >= %s GROUP BY day ORDER BY day",
                 (thirty_days_ago,),
             ).fetchall():
@@ -224,7 +224,7 @@ def api_admin_overview(request: Request, days: int = 30):
         be = get_billing_engine()
         with be._conn() as conn:
             row = conn.execute(
-                "SELECT COALESCE(SUM(total_cost_cad), 0) AS rev FROM usage_meters WHERE created_at >= %s AND created_at < %s",
+                "SELECT COALESCE(SUM(total_cost_micros) / 1000000.0, 0) AS rev FROM usage_meters WHERE created_at >= %s AND created_at < %s",
                 (prev_thirty, thirty_days_ago),
             ).fetchone()
             prev_revenue = float(row["rev"]) if row else 0.0
@@ -328,7 +328,7 @@ def api_admin_overview(request: Request, days: int = 30):
         be = get_billing_engine()
         with be._conn() as conn:
             row = conn.execute(
-                "SELECT COALESCE(SUM(amount_cad), 0) AS rev FROM billing_cycles "
+                "SELECT COALESCE(SUM(amount_micros) / 1000000.0, 0) AS rev FROM billing_cycles "
                 "WHERE gpu_model = 'storage' AND tier = 'volume' AND status = 'charged'"
             ).fetchone()
             volume_revenue = round(float(row["rev"]), 2) if row else 0.0
@@ -423,7 +423,7 @@ def api_admin_overview(request: Request, days: int = 30):
             daily_pricing_mix = list(mix_by_day.values())
 
             sl_row = conn.execute(
-                """SELECT COALESCE(SUM(amount_cad), 0) AS total
+                """SELECT COALESCE(SUM(amount_micros) / 1000000.0, 0) AS total
                    FROM billing_cycles
                    WHERE resource_type IN ('serverless_gpu', 'serverless_gpu_cold_start')
                      AND status = 'charged' AND period_start >= %s""",
@@ -432,7 +432,7 @@ def api_admin_overview(request: Request, days: int = 30):
             serverless_revenue_window = round(float(sl_row["total"] if sl_row else 0), 2)
 
             st_row = conn.execute(
-                """SELECT COALESCE(SUM(amount_cad), 0) AS total
+                """SELECT COALESCE(SUM(amount_micros) / 1000000.0, 0) AS total
                    FROM billing_cycles
                    WHERE resource_type = 'volume' AND status = 'charged' AND period_start >= %s""",
                 (thirty_days_ago,),
@@ -621,7 +621,7 @@ def api_admin_revenue(request: Request, days: int = 90):
         with be._conn() as conn:
             rows = conn.execute(
                 "SELECT to_char(to_timestamp(created_at), 'YYYY-MM-DD') AS day, "
-                "ROUND(SUM(total_cost_cad)::numeric, 2) AS revenue, COUNT(*) AS jobs, "
+                "ROUND(SUM(total_cost_micros) / 1000000.0::numeric, 2) AS revenue, COUNT(*) AS jobs, "
                 "ROUND(SUM(gpu_seconds)::numeric / 3600, 1) AS gpu_hours "
                 "FROM usage_meters WHERE created_at >= %s GROUP BY day ORDER BY day",
                 (since,),
@@ -643,7 +643,7 @@ def api_admin_revenue(request: Request, days: int = 90):
     try:
         with be._conn() as conn:
             rows = conn.execute(
-                "SELECT COALESCE(gpu_model, 'Unknown') AS gpu_model, ROUND(SUM(total_cost_cad)::numeric, 2) AS revenue, COUNT(*) AS jobs "
+                "SELECT COALESCE(gpu_model, 'Unknown') AS gpu_model, ROUND(SUM(total_cost_micros) / 1000000.0::numeric, 2) AS revenue, COUNT(*) AS jobs "
                 "FROM usage_meters WHERE created_at >= %s GROUP BY COALESCE(gpu_model, 'Unknown') ORDER BY revenue DESC",
                 (since,),
             ).fetchall()
@@ -659,7 +659,7 @@ def api_admin_revenue(request: Request, days: int = 90):
     try:
         with be._conn() as conn:
             rows = conn.execute(
-                "SELECT COALESCE(province, 'Unknown') AS province, ROUND(SUM(total_cost_cad)::numeric, 2) AS revenue, COUNT(*) AS jobs "
+                "SELECT COALESCE(province, 'Unknown') AS province, ROUND(SUM(total_cost_micros) / 1000000.0::numeric, 2) AS revenue, COUNT(*) AS jobs "
                 "FROM usage_meters WHERE created_at >= %s GROUP BY COALESCE(province, 'Unknown') ORDER BY revenue DESC",
                 (since,),
             ).fetchall()
@@ -675,7 +675,7 @@ def api_admin_revenue(request: Request, days: int = 90):
     try:
         with be._conn() as conn:
             rows = conn.execute(
-                "SELECT owner AS email, ROUND(SUM(total_cost_cad)::numeric, 2) AS total_spend, COUNT(*) AS jobs "
+                "SELECT owner AS email, ROUND(SUM(total_cost_micros) / 1000000.0::numeric, 2) AS total_spend, COUNT(*) AS jobs "
                 "FROM usage_meters WHERE created_at >= %s GROUP BY owner ORDER BY total_spend DESC LIMIT 10",
                 (since,),
             ).fetchall()
@@ -757,7 +757,7 @@ def api_admin_unit_economics(request: Request, days: int = 30):
     try:
         with be._conn() as conn:
             r = conn.execute(
-                "SELECT ROUND(COALESCE(SUM(amount_cad),0)::numeric,2) AS gross, "
+                "SELECT ROUND(COALESCE(SUM(amount_micros) / 1000000.0,0)::numeric,2) AS gross, "
                 "ROUND(COALESCE(SUM(provider_payout_cad),0)::numeric,2) AS payout, "
                 "ROUND(COALESCE(SUM(platform_fee_cad),0)::numeric,2) AS margin, "
                 "COUNT(*) AS payouts FROM payout_ledger WHERE created_at >= %s",
@@ -780,7 +780,7 @@ def api_admin_unit_economics(request: Request, days: int = 30):
     try:
         with be._conn() as conn:
             r = conn.execute(
-                "SELECT ROUND(COALESCE(SUM(amount_cad),0)::numeric,2) AS revenue, "
+                "SELECT ROUND(COALESCE(SUM(amount_micros) / 1000000.0,0)::numeric,2) AS revenue, "
                 "ROUND(COALESCE(SUM(token_cost_cad),0)::numeric,2) AS token_cost, "
                 "COALESCE(SUM(duration_seconds),0) AS gpu_seconds, COUNT(*) AS cycles "
                 "FROM billing_cycles WHERE created_at >= %s AND status = 'charged' "
@@ -811,7 +811,7 @@ def api_admin_unit_economics(request: Request, days: int = 30):
         with be._conn() as conn:
             rows = conn.execute(
                 "SELECT model_ref, "
-                "ROUND(COALESCE(SUM(amount_cad),0)::numeric,4) AS gpu_revenue, "
+                "ROUND(COALESCE(SUM(amount_micros) / 1000000.0,0)::numeric,4) AS gpu_revenue, "
                 "ROUND(COALESCE(SUM(token_cost_cad),0)::numeric,4) AS token_cost, "
                 "COALESCE(SUM(duration_seconds),0) AS gpu_seconds, COUNT(*) AS cycles "
                 "FROM billing_cycles WHERE created_at >= %s AND status = 'charged' "
@@ -905,7 +905,7 @@ def api_admin_unit_economics(request: Request, days: int = 30):
         with be._conn() as conn:
             rows = conn.execute(
                 "SELECT to_char(to_timestamp(created_at), 'IYYY-\"W\"IW') AS week, "
-                "ROUND(COALESCE(SUM(total_cost_cad),0)::numeric,2) AS revenue, "
+                "ROUND(COALESCE(SUM(total_cost_micros) / 1000000.0,0)::numeric,2) AS revenue, "
                 "ROUND(COALESCE(SUM(gpu_seconds),0)::numeric/3600,1) AS gpu_hours "
                 "FROM usage_meters WHERE created_at >= %s GROUP BY week ORDER BY week",
                 (time.time() - 56 * 86400,),

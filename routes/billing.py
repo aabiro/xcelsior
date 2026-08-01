@@ -1667,7 +1667,7 @@ def api_usage_analytics(
                     Any,
                     f"SELECT {group_sql}, "
                     "COUNT(*) AS job_count, "
-                    "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS total_cost_cad, "
+                    "ROUND(COALESCE(SUM(total_cost_micros) / 1000000.0, 0)::numeric, 2) AS total_cost_cad, "
                     "ROUND(COALESCE(SUM(gpu_seconds), 0)::numeric, 0) AS total_gpu_seconds, "
                     "ROUND(COALESCE(AVG(gpu_utilization_pct), 0)::numeric, 1) AS avg_gpu_util_pct, "
                     "COALESCE(SUM(is_canadian_compute), 0) AS canadian_jobs, "
@@ -1700,13 +1700,13 @@ def api_usage_analytics(
                 cast(
                     Any,
                     "SELECT COUNT(*) AS total_jobs, "
-                    "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS total_spend, "
+                    "ROUND(COALESCE(SUM(total_cost_micros) / 1000000.0, 0)::numeric, 2) AS total_spend, "
                     "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS total_gpu_hours, "
                     "ROUND(COALESCE(AVG(gpu_utilization_pct), 0)::numeric, 1) AS avg_util, "
                     "ROUND(COALESCE(SUM(CASE WHEN COALESCE(pricing_mode, 'on_demand') = 'spot' "
-                    "THEN total_cost_cad ELSE 0 END), 0)::numeric, 2) AS spot_spend, "
+                    "THEN total_cost_micros / 1000000.0 ELSE 0 END), 0)::numeric, 2) AS spot_spend, "
                     "ROUND(COALESCE(SUM(CASE WHEN COALESCE(pricing_mode, 'on_demand') != 'spot' "
-                    "THEN total_cost_cad ELSE 0 END), 0)::numeric, 2) AS on_demand_spend "
+                    "THEN total_cost_micros / 1000000.0 ELSE 0 END), 0)::numeric, 2) AS on_demand_spend "
                     f"FROM usage_meters WHERE {where_sql}",
                 ),
                 params,
@@ -1791,10 +1791,10 @@ def api_analytics_enhanced(
                     Any,
                     "SELECT to_char(to_timestamp(started_at), 'YYYY-MM-DD') AS date, "
                     "CASE WHEN SUM(gpu_seconds) > 0 "
-                    "  THEN ROUND((SUM(total_cost_cad) / (SUM(gpu_seconds) / 3600.0))::numeric, 4) "
+                    "  THEN ROUND((SUM(total_cost_micros) / 1000000.0 / (SUM(gpu_seconds) / 3600.0))::numeric, 4) "
                     "  ELSE 0 END AS cost_per_hour, "
                     "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS gpu_hours, "
-                    "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS spend "
+                    "ROUND(COALESCE(SUM(total_cost_micros) / 1000000.0, 0)::numeric, 2) AS spend "
                     f"FROM usage_meters WHERE {where_sql} "
                     "GROUP BY date ORDER BY date",
                 ),
@@ -1832,7 +1832,7 @@ def api_analytics_enhanced(
                     "  ELSE '4+ hr' "
                     "END AS bucket, "
                     "COUNT(*) AS count, "
-                    "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS total_cost "
+                    "ROUND(COALESCE(SUM(total_cost_micros) / 1000000.0, 0)::numeric, 2) AS total_cost "
                     f"FROM usage_meters WHERE {where_sql} "
                     "GROUP BY bucket ORDER BY MIN(duration_sec)",
                 ),
@@ -1875,7 +1875,7 @@ def api_analytics_enhanced(
                     cast(
                         Any,
                         "SELECT owner AS entity, COUNT(*) AS job_count, "
-                        "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS total_cost, "
+                        "ROUND(COALESCE(SUM(total_cost_micros) / 1000000.0, 0)::numeric, 2) AS total_cost, "
                         "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS gpu_hours "
                         f"FROM usage_meters WHERE {where_sql} "
                         "GROUP BY owner ORDER BY total_cost DESC LIMIT 10",
@@ -1887,7 +1887,7 @@ def api_analytics_enhanced(
                     cast(
                         Any,
                         "SELECT host_id AS entity, COUNT(*) AS job_count, "
-                        "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS total_cost, "
+                        "ROUND(COALESCE(SUM(total_cost_micros) / 1000000.0, 0)::numeric, 2) AS total_cost, "
                         "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS gpu_hours "
                         f"FROM usage_meters WHERE {where_sql} "
                         "GROUP BY host_id ORDER BY job_count DESC LIMIT 10",
@@ -1911,8 +1911,8 @@ def api_analytics_enhanced(
                     "SELECT "
                     "COUNT(*) AS total, "
                     "SUM(CASE WHEN is_canadian_compute = 1 THEN 1 ELSE 0 END) AS canadian, "
-                    "ROUND(COALESCE(SUM(CASE WHEN is_canadian_compute = 1 THEN total_cost_cad ELSE 0 END), 0)::numeric, 2) AS ca_spend, "
-                    "ROUND(COALESCE(SUM(CASE WHEN is_canadian_compute = 0 THEN total_cost_cad ELSE 0 END), 0)::numeric, 2) AS intl_spend "
+                    "ROUND(COALESCE(SUM(CASE WHEN is_canadian_compute = 1 THEN total_cost_micros / 1000000.0 ELSE 0 END), 0)::numeric, 2) AS ca_spend, "
+                    "ROUND(COALESCE(SUM(CASE WHEN is_canadian_compute = 0 THEN total_cost_micros / 1000000.0 ELSE 0 END), 0)::numeric, 2) AS intl_spend "
                     f"FROM usage_meters WHERE {where_sql}",
                 ),
                 params,
@@ -1937,10 +1937,10 @@ def api_analytics_enhanced(
                     "SELECT gpu_model, COUNT(*) AS jobs, "
                     "ROUND(COALESCE(AVG(gpu_utilization_pct), 0)::numeric, 1) AS avg_util, "
                     "ROUND(COALESCE(AVG(duration_sec / 60.0), 0)::numeric, 1) AS avg_duration_min, "
-                    "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS total_cost, "
+                    "ROUND(COALESCE(SUM(total_cost_micros) / 1000000.0, 0)::numeric, 2) AS total_cost, "
                     "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS gpu_hours, "
                     "ROUND(COALESCE(AVG(CASE WHEN gpu_seconds > 0 "
-                    "  THEN total_cost_cad / (gpu_seconds / 3600.0) ELSE 0 END), 0)::numeric, 4) AS avg_cost_per_hour "
+                    "  THEN total_cost_micros / 1000000.0 / (gpu_seconds / 3600.0) ELSE 0 END), 0)::numeric, 4) AS avg_cost_per_hour "
                     f"FROM usage_meters WHERE {where_sql} "
                     "GROUP BY gpu_model ORDER BY total_cost DESC LIMIT 12",
                 ),
@@ -1964,7 +1964,7 @@ def api_analytics_enhanced(
                 prov_rows = conn.execute(
                     "SELECT to_char(to_timestamp(COALESCE(um.completed_at, ps.created_at)), 'YYYY-MM-DD') AS date, "
                     "COUNT(DISTINCT ps.job_id) AS jobs_served, "
-                    "ROUND(COALESCE(SUM(ps.provider_share_cad), 0)::numeric, 2) AS total_revenue, "
+                    "ROUND(COALESCE(SUM(ps.provider_share_micros) / 1000000.0, 0)::numeric, 2) AS total_revenue, "
                     "ROUND(COALESCE(AVG(COALESCE(um.gpu_utilization_pct, 0)), 0)::numeric, 1) AS avg_util "
                     "FROM payout_splits ps "
                     "LEFT JOIN usage_meters um ON um.job_id = ps.job_id "
@@ -1984,7 +1984,7 @@ def api_analytics_enhanced(
 
                 prov_summary = conn.execute(
                     "SELECT COUNT(DISTINCT ps.job_id) AS total_jobs_served, "
-                    "ROUND(COALESCE(SUM(ps.provider_share_cad), 0)::numeric, 2) AS total_revenue, "
+                    "ROUND(COALESCE(SUM(ps.provider_share_micros) / 1000000.0, 0)::numeric, 2) AS total_revenue, "
                     "ROUND((COALESCE(SUM(um.gpu_seconds), 0) / 3600.0)::numeric, 2) AS total_gpu_hours, "
                     "ROUND(COALESCE(AVG(COALESCE(um.gpu_utilization_pct, 0)), 0)::numeric, 1) AS avg_util "
                     "FROM payout_splits ps "
@@ -2008,7 +2008,7 @@ def api_analytics_enhanced(
                 wallet_rows = conn.execute(
                     "SELECT to_char(to_timestamp(created_at), 'YYYY-MM-DD') AS date, "
                     "tx_type, "
-                    "SUM(amount_cad) AS total_amount, "
+                    "SUM(amount_micros) / 1000000.0 AS total_amount, "
                     "COUNT(*) AS tx_count "
                     "FROM wallet_transactions "
                     "WHERE customer_id = %s AND created_at >= %s "
@@ -2034,7 +2034,7 @@ def api_analytics_enhanced(
                     "SELECT to_char(to_timestamp(started_at), 'YYYY-MM-DD') AS date, "
                     "COUNT(*) AS jobs, "
                     "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS gpu_hours, "
-                    "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS spend, "
+                    "ROUND(COALESCE(SUM(total_cost_micros) / 1000000.0, 0)::numeric, 2) AS spend, "
                     "ROUND(COALESCE(AVG(gpu_utilization_pct), 0)::numeric, 1) AS avg_util "
                     f"FROM usage_meters WHERE {where_sql} "
                     "GROUP BY date ORDER BY jobs DESC LIMIT 5",
