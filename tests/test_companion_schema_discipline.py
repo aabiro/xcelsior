@@ -267,3 +267,57 @@ def test_no_float_cad_column_shadows_a_micros_column():
         "a _cad column shadows a _micros/_minor column for the same amount; "
         f"one of the two is a stale projection: {shadows}"
     )
+
+
+# The companion records this conformance state in prose (§4.4, "Conformance
+# state as implemented"). A number written in a document goes stale silently,
+# which is how the schema drifted from the companion in the first place — so
+# the document is checked against the database like everything else here.
+COMPANION_DOC = (
+    pathlib.Path(__file__).resolve().parent.parent
+    / "docs"
+    / "xcelsior-production-data-architecture-companion.md"
+)
+
+_NUMBER_WORDS = {
+    1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven",
+    8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve",
+    13: "thirteen", 14: "fourteen", 15: "fifteen", 16: "sixteen",
+    17: "seventeen", 18: "eighteen", 19: "nineteen", 20: "twenty",
+    30: "thirty", 40: "forty", 50: "fifty",
+}
+
+
+def _spell(n: int) -> str:
+    if n in _NUMBER_WORDS:
+        return _NUMBER_WORDS[n]
+    tens, units = divmod(n, 10)
+    if tens * 10 in _NUMBER_WORDS and units:
+        return f"{_NUMBER_WORDS[tens * 10]}-{_NUMBER_WORDS[units]}"
+    return str(n)
+
+
+def test_companion_conformance_prose_matches_the_database():
+    """The companion's stated float-money debt must be the real debt."""
+    if not COMPANION_DOC.exists():
+        pytest.skip("companion document not present in this checkout")
+    with _get_pg_pool().connection() as conn:
+        columns, tables = conn.execute(
+            r"""SELECT count(*), count(DISTINCT table_name)
+                  FROM information_schema.columns
+                 WHERE table_schema = 'public'
+                   AND column_name LIKE '%\_cad'
+                   AND data_type IN ('double precision', 'real')"""
+        ).fetchone()
+
+    # Guard the guard: MAX_LEGACY_FLOAT_CAD_COLUMNS and the prose must not
+    # drift apart from each other either.
+    assert columns == MAX_LEGACY_FLOAT_CAD_COLUMNS
+
+    sentence = f"{_spell(columns).capitalize()} `_cad` columns across {_spell(tables)} legacy tables"
+    assert sentence in COMPANION_DOC.read_text(), (
+        f"the companion's §4.4 conformance prose no longer matches the "
+        f"database. Expected it to say:\n  {sentence!r}\n"
+        f"Update the sentence in {COMPANION_DOC.name} in the same commit as "
+        f"the migration that changed the count."
+    )
