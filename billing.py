@@ -529,9 +529,9 @@ class BillingEngine:
                          completed_at = EXCLUDED.completed_at,
                          duration_sec = EXCLUDED.duration_sec,
                          gpu_seconds = EXCLUDED.gpu_seconds,
-                         -- total_cost_cad is derived by the projection
-                         -- trigger; assigning it here would invert which
-                         -- representation is authoritative.
+                         -- 087 dropped total_cost_cad and the trigger that
+                         -- projected it; total_cost_micros is the only
+                         -- stored representation.
                          total_cost_micros = EXCLUDED.total_cost_micros,
                          pricing_mode = EXCLUDED.pricing_mode,
                          attempt_id = COALESCE(usage_meters.attempt_id, EXCLUDED.attempt_id),
@@ -1631,9 +1631,10 @@ class BillingEngine:
             # Atomic: increment balance and get new value in one statement
             row = conn.execute(
                 # Integer minor units: the arithmetic itself must be exact
-                # (companion §4.4 rule 6). The migration-068 trigger derives
-                # balance_cad from balance_micros, so legacy readers still see
-                # a float without that float ever being the accumulator.
+                # (companion §4.4 rule 6). 087 dropped the balance_cad column
+                # and the trigger that projected it, so the float for legacy
+                # readers is derived in the RETURNING clause instead — it is a
+                # presentation value and never the accumulator.
                 """UPDATE wallets
                    SET balance_micros = balance_micros + %s,
                        total_deposited_micros = total_deposited_micros + %s,
@@ -1644,8 +1645,7 @@ class BillingEngine:
                  time.time(), customer_id),
             ).fetchone()
             # Read the derived float for the legacy response shape; the
-            # authoritative value is balance_micros, which the trigger just
-            # projected into balance_cad.
+            # authoritative value is balance_micros.
             new_balance = (
                 micros_to_cad(row["balance_micros"])
                 if row and row.get("balance_micros") is not None

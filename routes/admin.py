@@ -19,6 +19,7 @@ from scheduler import (
     list_jobs,
 )
 from db import NotificationStore, UserStore, WebPushSubscriptionStore, emit_event
+from money import micros_to_cad
 from billing import get_billing_engine
 from verification import get_verification_engine
 from events import get_event_store
@@ -79,18 +80,28 @@ def api_admin_users(request: Request):
     wallet_map: dict[str, float] = {}
     job_count_map: dict[str, int] = {}
     last_activity_map: dict[str, float] = {}
+    enrichment_failed = False
     try:
         be = get_billing_engine()
         with be._conn() as conn:
-            for wr in conn.execute("SELECT customer_id, balance_cad FROM wallets").fetchall():
-                wallet_map[wr["customer_id"]] = float(wr["balance_cad"])
+            # balance_micros is the authoritative column; 087 dropped the float
+            # projection. Converted here rather than in SQL so the rounding is
+            # the same one every other caller gets.
+            for wr in conn.execute(
+                "SELECT customer_id, balance_micros FROM wallets"
+            ).fetchall():
+                wallet_map[wr["customer_id"]] = micros_to_cad(wr["balance_micros"] or 0)
             for jr in conn.execute(
                 "SELECT owner, COUNT(*) AS cnt, MAX(created_at) AS last_at FROM usage_meters GROUP BY owner"
             ).fetchall():
                 job_count_map[jr["owner"]] = jr["cnt"]
                 last_activity_map[jr["owner"]] = float(jr["last_at"]) if jr["last_at"] else 0.0
-    except Exception as e:
-        log.warning("admin_users: failed to fetch wallet/job data", exc_info=True)
+    except Exception:
+        # Non-fatal: the user list is still useful without balances. But it must
+        # not look like every user has $0 — this block silently reported exactly
+        # that for as long as it queried a column 087 had dropped.
+        enrichment_failed = True
+        log.error("admin_users: failed to fetch wallet/job data", exc_info=True)
 
     import datetime as _dt
 
@@ -125,7 +136,7 @@ def api_admin_users(request: Request):
                 "team_id": u.get("team_id") or None,
             }
         )
-    return {"ok": True, "users": safe_users}
+    return {"ok": True, "users": safe_users, "enrichment_failed": enrichment_failed}
 
 
 @router.get("/api/admin/overview", tags=["Admin"])
