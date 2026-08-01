@@ -56,6 +56,9 @@ KNOWN_SAFE = {
     "migrations/versions/085_drop_dead_columns.py",
     #   087: table/trigger/column names from the module-level DERIVED tuple
     "migrations/versions/087_drop_derived_cad_columns.py",
+    #   090: table/column names from the literal tuples at L49, L92, L100,
+    #        L146, L183 and L192; nothing external reaches the DDL
+    "migrations/versions/090_privacy_tables_companion_parity.py",
 }
 
 # SQL keywords must be UPPERCASE — this is the codebase convention for all real

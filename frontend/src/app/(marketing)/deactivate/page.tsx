@@ -94,10 +94,10 @@ export default function DeactivatePage() {
             How to Revoke Facebook Access
           </h2>
           <p style={{ fontSize: "0.95rem", lineHeight: "1.5", marginBottom: "1.2rem", opacity: 0.9 }}>
-            If you signed up with your Facebook credentials and wish to revoke Xcelsior's access from your social account, follow these direct, official Meta steps:
+            If you signed up with your Facebook credentials and wish to revoke Xcelsior&apos;s access from your social account, follow these direct, official Meta steps:
           </p>
           <ol style={{ paddingLeft: "1.2rem", lineHeight: "1.8", fontSize: "0.95rem", opacity: 0.9, marginBottom: "1rem" }}>
-            <li>Go to your Facebook Profile's <strong>Settings & Privacy</strong> &gt; <strong>Settings</strong>.</li>
+            <li>Go to your Facebook Profile&apos;s <strong>Settings & Privacy</strong> &gt; <strong>Settings</strong>.</li>
             <li>In the left sidebar, click on <strong>Apps and Websites</strong>.</li>
             <li>Locate <strong>Xcelsior</strong> in the list of active applications.</li>
             <li>Click <strong>Remove</strong> next to Xcelsior to immediately revoke all tokens and access.</li>

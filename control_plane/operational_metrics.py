@@ -19,7 +19,7 @@ import os
 import socket
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -47,7 +47,9 @@ def _row_dict(row: object, columns: tuple[str, ...]) -> dict[str, Any]:
         return {column: row.get(column) for column in columns}
     if row is None:
         return {column: 0 for column in columns}
-    return dict(zip(columns, row, strict=False))
+    if isinstance(row, Iterable):
+        return dict(zip(columns, row, strict=False))
+    raise TypeError(f"unsupported metrics row type: {type(row).__name__}")
 
 
 _SNAPSHOT_COLUMNS = (

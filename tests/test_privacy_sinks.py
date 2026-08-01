@@ -187,21 +187,21 @@ def test_authority_revokes_access_anonymizes_identity_and_retains_finance(subjec
         conn.execute(
             """
             INSERT INTO casl_consent (
-                consent_id, user_id, consent_type, purpose, granted_at,
-                expires_at, withdrawn_at, source, ip_address, active
+                consent_id, user_id, tenant_id, consent_type, purpose,
+                granted_at, expires_at, withdrawn_at, source, ip_address, active
             ) VALUES (
-                %s, %s, 'express', 'newsletter', %s, 0, 0, 'test',
-                '203.0.113.10', true
+                %s, %s, %s, 'express', 'newsletter', to_timestamp(%s),
+                NULL, NULL, 'test', '203.0.113.10', true
             )
             """,
-            (f"consent-{uuid.uuid4().hex}", user_id, time.time()),
+            (f"consent-{uuid.uuid4().hex}", user_id, user_id, time.time()),
         )
         conn.execute(
             """
-            INSERT INTO user_encryption_keys (user_id, fernet_key)
-            VALUES (%s, 'test-fernet-key')
+            INSERT INTO user_encryption_keys (user_id, tenant_id, fernet_key)
+            VALUES (%s, %s, 'test-fernet-key')
             """,
-            (user_id,),
+            (user_id, user_id),
         )
         conn.commit()
     get_billing_engine().deposit(

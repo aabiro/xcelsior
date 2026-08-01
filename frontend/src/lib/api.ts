@@ -1834,7 +1834,8 @@ export interface McpQuickConnect {
   /** True once the key has authenticated a real request, i.e. it is live in
    * someone's agent config and replacing it would break that setup. */
   in_use: boolean;
-  last_used_at: number;
+  /** ISO 8601, or null when the key has never authenticated a request. */
+  last_used_at: string | null;
   /** Always null: agent keys do not expire, they are revoked. */
   expires_in: number | null;
   scopes: string[];
@@ -1856,8 +1857,10 @@ export interface AgentKey {
   key_prefix: string;
   client_id: string;
   scopes: string[];
-  created_at: number;
-  last_used_at: number;
+  /** ISO 8601. */
+  created_at: string;
+  /** ISO 8601, or null when the key has never authenticated a request. */
+  last_used_at: string | null;
   in_use: boolean;
 }
 

@@ -946,9 +946,15 @@ def api_list_agent_keys(request: Request):
                 "key_prefix": k["key_prefix"],
                 "client_id": k["client_id"],
                 "scopes": (k["scopes"] or "").split(),
-                "created_at": k["created_at"],
-                "last_used_at": k["last_used_at"],
-                "in_use": k["last_used_at"] > 0,
+                # ISO 8601, matching /api/mcp/quick-connect. Serialised here
+                # rather than left to FastAPI so both endpoints agree.
+                "created_at": k["created_at"].isoformat(),
+                "last_used_at": (
+                    k["last_used_at"].isoformat() if k["last_used_at"] is not None else None
+                ),
+                # NULL means the key has never authenticated a request, so it
+                # cannot be in anyone's config yet.
+                "in_use": k["last_used_at"] is not None,
             }
             for k in AgentKeyStore.list_for_user(user_id)
         ],
@@ -962,7 +968,7 @@ def api_revoke_agent_key(key_id: str, request: Request):
     from db import AgentKeyStore
 
     user_id = str(user.get("user_id") or user.get("email") or "")
-    if not AgentKeyStore.revoke(key_id, user_id, time.time()):
+    if not AgentKeyStore.revoke(key_id, user_id):
         raise HTTPException(404, "Key not found")
     return {"ok": True, "revoked": key_id}
 

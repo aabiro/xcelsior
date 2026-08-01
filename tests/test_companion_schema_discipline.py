@@ -26,17 +26,17 @@ GOVERNED_TABLES = (
     "host_admission_evidence",
     "host_admission_decisions",
     "agent_api_keys",
+    "casl_consent",
+    "user_encryption_keys",
 )
 
-# Tables that are genuinely not tenant-scoped: platform-wide or keyed by
-# something other than a tenant. Each needs a reason, not just an entry.
-NOT_TENANT_SCOPED = {
-    # Keyed by the pseudonymous subject reference, deliberately not by tenant:
-    # the whole point is that the subject is unlinkable after erasure.
-    "privacy_deletion_requests": "keyed by pseudonymous subject reference",
-    "privacy_deletion_sink_status": "child of privacy_deletion_requests",
-}
-
+# No exemptions. An earlier version skipped the privacy deletion tables on the
+# grounds that a deletion subject must stay unlinkable — but that conflated
+# tenant with identity. The companion keeps the tenant and pseudonymises the
+# identity (2.1: a row "must own identity, tenant, checksum, state, retention,
+# region, and deletion status"; 11.2: pseudonymous keys with "direct identity
+# only in restricted mapping"). The tenant is the workspace, not the person.
+NOT_TENANT_SCOPED: dict[str, str] = {}
 
 def _columns(table: str) -> dict[str, str]:
     with _get_pg_pool().connection() as conn:

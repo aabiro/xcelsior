@@ -7,9 +7,11 @@ import { useLocale } from "@/lib/locale";
 import * as api from "@/lib/api";
 import { toast } from "sonner";
 
-function formatWhen(seconds: number): string | null {
-  if (!seconds) return null;
-  return new Date(seconds * 1000).toLocaleDateString(undefined, {
+function formatWhen(iso: string | null): string | null {
+  if (!iso) return null;
+  const when = new Date(iso);
+  if (Number.isNaN(when.getTime())) return null;
+  return when.toLocaleDateString(undefined, {
     year: "numeric",
     month: "short",
     day: "numeric",

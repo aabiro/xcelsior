@@ -17,12 +17,11 @@ configuration, so schema ownership moves here. The definitions match the
 runtime DDL exactly, and the in-code ``CREATE TABLE IF NOT EXISTS`` calls stay
 as harmless no-ops for databases that predate this revision.
 
-``created_at``/``destroyed_at`` on ``user_encryption_keys`` are kept as REAL to
-match what the runtime DDL has already created in existing databases; changing
-the type here would rewrite a table this migration is only meant to formalise.
-``casl_consent`` uses DOUBLE PRECISION because ``privacy.py`` already widens it
-in place — REAL quantises epoch seconds by roughly two minutes, which silently
-shifted consent expiries.
+Both tables use TIMESTAMPTZ, per companion 4.4.5. An earlier revision of this
+migration preserved the runtime DDL's float epoch columns verbatim, on the
+reasoning that formalising a table should not change it. That was wrong:
+importing a table into the chain unchanged just makes its defect official.
+Migration 090 converts databases that already ran the earlier version.
 """
 
 from alembic import op
@@ -41,9 +40,9 @@ def upgrade() -> None:
             user_id TEXT NOT NULL,
             consent_type TEXT NOT NULL CHECK (consent_type IN ('express', 'implied')),
             purpose TEXT NOT NULL,
-            granted_at DOUBLE PRECISION NOT NULL DEFAULT (extract(epoch FROM now())),
-            expires_at DOUBLE PRECISION DEFAULT 0,
-            withdrawn_at DOUBLE PRECISION DEFAULT 0,
+            granted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            expires_at TIMESTAMPTZ,
+            withdrawn_at TIMESTAMPTZ,
             source TEXT DEFAULT '',
             ip_address TEXT DEFAULT '',
             active BOOLEAN DEFAULT TRUE,
@@ -61,31 +60,10 @@ def upgrade() -> None:
         CREATE TABLE IF NOT EXISTS user_encryption_keys (
             user_id TEXT PRIMARY KEY,
             fernet_key TEXT NOT NULL,
-            created_at REAL NOT NULL DEFAULT (extract(epoch FROM now())),
-            destroyed_at REAL DEFAULT 0,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            destroyed_at TIMESTAMPTZ,
             active BOOLEAN DEFAULT TRUE
         )
-        """
-    )
-
-    # Widen any database still carrying the REAL columns the runtime DDL
-    # originally created. Guarded so the rewrite runs at most once.
-    op.execute(
-        """
-        DO $$ BEGIN
-            IF EXISTS (
-                SELECT 1 FROM information_schema.columns
-                WHERE table_schema = current_schema()
-                  AND table_name = 'casl_consent'
-                  AND column_name = 'expires_at'
-                  AND data_type = 'real'
-            ) THEN
-                ALTER TABLE casl_consent
-                    ALTER COLUMN granted_at TYPE DOUBLE PRECISION,
-                    ALTER COLUMN expires_at TYPE DOUBLE PRECISION,
-                    ALTER COLUMN withdrawn_at TYPE DOUBLE PRECISION;
-            END IF;
-        END $$;
         """
     )
 

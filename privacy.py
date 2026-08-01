@@ -14,6 +14,7 @@ import os
 import re
 import time
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Optional
@@ -853,15 +854,8 @@ class CryptoShredder:
             pool.putconn(conn)
 
     def _ensure_table(self, conn):
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS user_encryption_keys (
-                user_id TEXT PRIMARY KEY,
-                fernet_key TEXT NOT NULL,
-                created_at REAL NOT NULL DEFAULT (extract(epoch FROM now())),
-                destroyed_at REAL DEFAULT 0,
-                active BOOLEAN DEFAULT TRUE
-            )
-        """)
+        """No-op: migration 084 owns this schema (companion 4.4.1/4.4.3)."""
+        return None
 
     def get_or_create_key(self, user_id):
         """Get or create a Fernet encryption key for a user.
@@ -881,9 +875,10 @@ class CryptoShredder:
                 return row[0]
             key = Fernet.generate_key().decode("ascii")
             conn.execute(
-                "INSERT INTO user_encryption_keys (user_id, fernet_key) VALUES (%s, %s) "
-                "ON CONFLICT (user_id) DO UPDATE SET fernet_key = EXCLUDED.fernet_key, active = TRUE, destroyed_at = 0",
-                (user_id, key),
+                "INSERT INTO user_encryption_keys (user_id, tenant_id, fernet_key) VALUES (%s, %s, %s) "
+                "ON CONFLICT (user_id) DO UPDATE SET fernet_key = EXCLUDED.fernet_key, active = TRUE, destroyed_at = NULL",
+                # Personal workspace: the user is the tenant (companion 4.4.10).
+                (user_id, user_id, key),
             )
             return key
 
@@ -925,7 +920,7 @@ class CryptoShredder:
         with self._conn() as conn:
             self._ensure_table(conn)
             conn.execute(
-                "UPDATE user_encryption_keys SET active = FALSE, destroyed_at = extract(epoch FROM now()), "
+                "UPDATE user_encryption_keys SET active = FALSE, destroyed_at = now(), "
                 "fernet_key = 'DESTROYED' WHERE user_id = %s",
                 (user_id,),
             )
@@ -978,42 +973,14 @@ class ConsentManager:
                 raise
 
     def _ensure_table(self, conn):
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS casl_consent (
-                consent_id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-                user_id TEXT NOT NULL,
-                consent_type TEXT NOT NULL CHECK (consent_type IN ('express', 'implied')),
-                purpose TEXT NOT NULL,
-                granted_at DOUBLE PRECISION NOT NULL DEFAULT (extract(epoch FROM now())),
-                expires_at DOUBLE PRECISION DEFAULT 0,
-                withdrawn_at DOUBLE PRECISION DEFAULT 0,
-                source TEXT DEFAULT '',
-                ip_address TEXT DEFAULT '',
-                active BOOLEAN DEFAULT TRUE,
-                UNIQUE(user_id, purpose)
-            )
-        """)
-        # Self-heal databases created before the float8 fix: REAL (float4)
-        # quantizes epoch seconds to ~±128 s in 2026, which silently shifted
-        # consent expiries (a "100 seconds ago" expiry could land in the
-        # future). The table is ensure-only (not in the alembic chain), so
-        # widen in place, guarded to run the rewrite only once.
-        conn.execute("""
-            DO $$ BEGIN
-                IF EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_schema = current_schema()
-                      AND table_name = 'casl_consent'
-                      AND column_name = 'expires_at'
-                      AND data_type = 'real'
-                ) THEN
-                    ALTER TABLE casl_consent
-                        ALTER COLUMN granted_at TYPE DOUBLE PRECISION,
-                        ALTER COLUMN expires_at TYPE DOUBLE PRECISION,
-                        ALTER COLUMN withdrawn_at TYPE DOUBLE PRECISION;
-                END IF;
-            END $$;
-        """)
+        """No-op: migration 084 owns this schema (companion 4.4.1/4.4.3).
+
+        This used to CREATE TABLE IF NOT EXISTS at runtime with float epoch
+        columns. Alembic is the only production DDL authority, and leaving a
+        runtime creator in place meant a database could still acquire the
+        pre-companion shape ahead of the migration.
+        """
+        return None
 
     def record_consent(
         self, user_id, consent_type, purpose, source="", ip_address="", expires_in_days=0
@@ -1025,28 +992,28 @@ class ConsentManager:
             purpose: e.g. 'marketing_email', 'product_updates', 'third_party_offers'
             expires_in_days: 0 = no expiry (express), implied consent expires in 2 years per CASL
         """
-        expires_at = 0
+        expires_at: Optional[datetime] = None
         if consent_type == "implied" and expires_in_days == 0:
-            expires_at = time.time() + (730 * 86400)  # 2 years per CASL s.10(9)
+            expires_at = datetime.now(timezone.utc) + timedelta(days=730)  # CASL s.10(9)
         elif expires_in_days > 0:
-            expires_at = time.time() + (expires_in_days * 86400)
+            expires_at = datetime.now(timezone.utc) + timedelta(days=expires_in_days)
 
         with self._conn() as conn:
             self._ensure_table(conn)
             conn.execute(
                 """
-                INSERT INTO casl_consent (user_id, consent_type, purpose, source, ip_address, expires_at)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO casl_consent (user_id, tenant_id, consent_type, purpose, source, ip_address, expires_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (user_id, purpose) DO UPDATE SET
                     consent_type = EXCLUDED.consent_type,
-                    granted_at = extract(epoch FROM now()),
+                    granted_at = now(),
                     expires_at = EXCLUDED.expires_at,
-                    withdrawn_at = 0,
+                    withdrawn_at = NULL,
                     source = EXCLUDED.source,
                     ip_address = EXCLUDED.ip_address,
                     active = TRUE
             """,
-                (user_id, consent_type, purpose, source, ip_address, expires_at),
+                (user_id, user_id, consent_type, purpose, source, ip_address, expires_at),
             )
         log.info("CASL CONSENT: user=%s purpose=%s type=%s", user_id, purpose, consent_type)
 
@@ -1055,7 +1022,7 @@ class ConsentManager:
         with self._conn() as conn:
             self._ensure_table(conn)
             conn.execute(
-                "UPDATE casl_consent SET active = FALSE, withdrawn_at = extract(epoch FROM now()) "
+                "UPDATE casl_consent SET active = FALSE, withdrawn_at = now() "
                 "WHERE user_id = %s AND purpose = %s",
                 (user_id, purpose),
             )
@@ -1077,7 +1044,7 @@ class ConsentManager:
             if not row:
                 return False, None
             # Check expiry
-            if row["expires_at"] > 0 and time.time() > row["expires_at"]:
+            if row["expires_at"] is not None and datetime.now(timezone.utc) > row["expires_at"]:
                 conn.execute(
                     "UPDATE casl_consent SET active = FALSE WHERE user_id = %s AND purpose = %s",
                     (user_id, purpose),
@@ -1108,14 +1075,13 @@ class ConsentManager:
 
     def expire_implied_consents(self):
         """Expire all implied consents past their 2-year window. Run periodically."""
-        now = time.time()
         with self._conn() as conn:
             self._ensure_table(conn)
             cur = conn.execute(
                 "UPDATE casl_consent SET active = FALSE "
-                "WHERE consent_type = 'implied' AND expires_at > 0 AND expires_at < %s AND active = TRUE "
-                "RETURNING user_id, purpose",
-                (now,),
+                "WHERE consent_type = 'implied' AND expires_at IS NOT NULL "
+                "  AND expires_at < now() AND active = TRUE "
+                "RETURNING user_id, purpose"
             )
             expired = cur.fetchall()
             if expired:

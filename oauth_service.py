@@ -442,7 +442,6 @@ def issue_agent_api_key(
     """
     from db import AgentKeyStore
 
-    now = time.time()
     user_id = str(user.get("user_id") or user.get("email") or "")
     if not user_id:
         raise OAuthGrantError("invalid_request", "Cannot issue an agent key without a user")
@@ -455,7 +454,7 @@ def issue_agent_api_key(
 
     replaced = 0
     if replace_existing:
-        replaced = AgentKeyStore.revoke_all_for_client(user_id, client_id, now)
+        replaced = AgentKeyStore.revoke_all_for_client(user_id, client_id)
 
     secret = f"{AGENT_KEY_PREFIX}{secrets.token_urlsafe(32)}"
     key_id = str(uuid.uuid4())
@@ -471,7 +470,6 @@ def issue_agent_api_key(
         key_hash=_hash_agent_key(secret),
         scopes=" ".join(scopes),
         audience=audience or OAUTH_AUDIENCE,
-        created_at=now,
     )
     return {
         "access_token": secret,
@@ -508,12 +506,13 @@ def validate_agent_api_key(token: str) -> dict[str, Any] | None:
     # it on every request would put a write — and row-level lock contention — on
     # the hot authentication path of every agent call. Update at most once per
     # AGENT_KEY_TOUCH_INTERVAL_SEC per key.
-    now = time.time()
     last_used = row.get("last_used_at")
-    last_used_epoch = last_used.timestamp() if last_used is not None else 0.0
-    if now - last_used_epoch >= AGENT_KEY_TOUCH_INTERVAL_SEC:
+    stale = last_used is None or (
+        datetime.now(UTC) - last_used
+    ).total_seconds() >= AGENT_KEY_TOUCH_INTERVAL_SEC
+    if stale:
         try:
-            AgentKeyStore.touch_last_used(row["key_id"], now)
+            AgentKeyStore.touch_last_used(row["key_id"])
         except Exception as exc:  # pragma: no cover - never fail auth on bookkeeping
             import logging
 
