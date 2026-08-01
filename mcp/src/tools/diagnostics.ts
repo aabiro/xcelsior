@@ -14,12 +14,10 @@ function registerRead(
   client: XcelsiorApiClient,
   user: AuthUser | undefined,
   name: keyof typeof TOOL_SCOPES,
-  description: string,
   inputSchema: z.ZodObject<Record<string, z.ZodTypeAny>>,
   request: (args: Record<string, unknown>) => Promise<unknown>,
 ): void {
   server.registerTool(name, {
-    description,
     inputSchema,
     outputSchema: output,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -38,18 +36,18 @@ function registerRead(
 }
 
 export function registerDiagnosticTools(server: McpServer, client: XcelsiorApiClient, user?: AuthUser): void {
-  registerRead(server, client, user, "explain_instance_placement", "Explain persisted scheduler placement facts.", z.object({ job_id: id }), a => client.get(`/api/v1/instances/${encodeURIComponent(String(a.job_id))}/placement-explanation`));
-  registerRead(server, client, user, "simulate_instance_placement", "Simulate placement without allocating capacity.", z.object({ spec: z.record(z.unknown()) }), a => client.post("/api/v1/placements/simulate", a.spec));
-  registerRead(server, client, user, "get_instance_timeline", "Get the durable instance attempt timeline.", z.object({ job_id: id }), a => client.get(`/api/v1/instances/${encodeURIComponent(String(a.job_id))}/timeline`));
-  registerRead(server, client, user, "get_active_lease", "Get the current attempt and lease health for an instance.", z.object({ job_id: id }), a => client.get(`/api/v1/instances/${encodeURIComponent(String(a.job_id))}/active-lease`));
-  registerRead(server, client, user, "get_scheduler_health", "Get persisted control-plane health and backlog state.", z.object({}), () => client.get("/api/v1/control-plane/health"));
-  registerRead(server, client, user, "get_host_capacity", "Get redacted host GPU capacity.", z.object({ host_id: id }), a => client.get(`/api/v1/hosts/${encodeURIComponent(String(a.host_id))}/capacity`));
-  registerRead(server, client, user, "list_reconciliation_findings", "List durable reconciliation findings.", z.object({
+  registerRead(server, client, user, "explain_instance_placement", z.object({ job_id: id }), a => client.get(`/api/v1/instances/${encodeURIComponent(String(a.job_id))}/placement-explanation`));
+  registerRead(server, client, user, "simulate_instance_placement", z.object({ spec: z.record(z.unknown()) }), a => client.post("/api/v1/placements/simulate", a.spec));
+  registerRead(server, client, user, "get_instance_timeline", z.object({ job_id: id }), a => client.get(`/api/v1/instances/${encodeURIComponent(String(a.job_id))}/timeline`));
+  registerRead(server, client, user, "get_active_lease", z.object({ job_id: id }), a => client.get(`/api/v1/instances/${encodeURIComponent(String(a.job_id))}/active-lease`));
+  registerRead(server, client, user, "get_scheduler_health", z.object({}), () => client.get("/api/v1/control-plane/health"));
+  registerRead(server, client, user, "get_host_capacity", z.object({ host_id: id }), a => client.get(`/api/v1/hosts/${encodeURIComponent(String(a.host_id))}/capacity`));
+  registerRead(server, client, user, "list_reconciliation_findings", z.object({
     status: z.enum(["open", "resolved", "all"]).default("open"),
     cursor: z.string().max(512).optional(),
     limit: z.number().int().min(1).max(200).default(100),
   }), a => client.get("/api/v1/control-plane/reconciliation-findings", {
     status: String(a.status), cursor: a.cursor ? String(a.cursor) : undefined, limit: Number(a.limit),
   }));
-  registerRead(server, client, user, "get_mcp_action_status", "Get an action plan owned by the authenticated principal.", z.object({ plan_id: id }), a => client.get(`/api/v1/launch-plans/${encodeURIComponent(String(a.plan_id))}`));
+  registerRead(server, client, user, "get_mcp_action_status", z.object({ plan_id: id }), a => client.get(`/api/v1/launch-plans/${encodeURIComponent(String(a.plan_id))}`));
 }

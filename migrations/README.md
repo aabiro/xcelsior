@@ -70,7 +70,7 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `090_privacy_tables_companion_parity.py`.**
+**Repository head: `091_connector_client_registration.py`.**
 (`079_settlement_meters_reprice.py` was head through the settlement reprice;
 `080` added authoritative provider settlement; `081` the durable per-sink
 privacy deletion workflow; `082` authoritative host admission and signed
@@ -94,7 +94,15 @@ a `tenant_id`; they had been treated as tenant-exempt on the grounds that a
 deletion subject must stay unlinkable, which conflated tenant with identity.
 The companion keeps the tenant and pseudonymises the identity — the tenant is
 the workspace, not the person, and erasure still blanks `subject_email` and
-`subject_user_id`.)
+`subject_user_id`.
+`091` is the connector-adoption migration: `oauth_clients` gains the
+provenance and containment columns a dynamically identified client needs
+(`registration_source`, a `resource_audience` pin so a self-registered
+client can never mint a general API token, and `registration_expires_at`
+so an unused registration disappears instead of accumulating), the RFC 7591
+metadata fields a registration response has to echo back, and the new
+`oauth_consent_grants` table that makes a user's approval of a connector a
+durable, revocable record rather than a transient UI moment.)
 (`069_action_plans_mcp_policy_audit.py` was head through Track B B2.1; B3.1
 added `070`, binding `serverless_workers` to their fenced attempt; B3.2 added
 `071`, the per-endpoint spend ceiling; B4.1 added `072`, the partitioned

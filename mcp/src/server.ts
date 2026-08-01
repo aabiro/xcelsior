@@ -1,10 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { XcelsiorApiClient } from "./client/api.js";
 import type { AuthUser } from "./auth/bearer.js";
-import { registerAllTools } from "./tools/index.js";
+import { registerAllTools, type ToolRegistrationOptions } from "./tools/index.js";
 import { registerResources } from "./resources/index.js";
 import { registerPlaybooks } from "./prompts/playbooks.js";
 import { installToolAudit } from "./audit/context.js";
+import type { ToolProfile } from "./tools/profiles.js";
 
 const SERVER_INFO = {
   name: "xcelsior-mcp",
@@ -15,6 +16,8 @@ export function createMcpServer(
   client: XcelsiorApiClient,
   user?: AuthUser,
   transport: "streamable_http" | "stdio" = "streamable_http",
+  profile: ToolProfile = "customer",
+  options: ToolRegistrationOptions = {},
 ): McpServer {
   const server = new McpServer(SERVER_INFO, {
     capabilities: {
@@ -33,8 +36,8 @@ export function createMcpServer(
       "Placement is region-aware. When a workload carries a data-residency or jurisdiction requirement, pass it explicitly and verify the selected host reports a matching jurisdiction — never assume the default region satisfies it.",
     ].join(" "),
   });
-  installToolAudit(server, client, user, transport);
-  registerAllTools(server, client, user);
+  installToolAudit(server, client, user, transport, profile);
+  registerAllTools(server, client, user, options);
   registerResources(server, client);
   registerPlaybooks(server);
   return server;

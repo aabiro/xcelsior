@@ -1799,7 +1799,21 @@ class TestOAuthServer:
                 "code_challenge_method": "S256",
                 "state": "abc123",
             },
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {token}", "Accept": "text/html"},
+            follow_redirects=False,
+        )
+        # A third-party client gets the consent screen first: "sign in, then
+        # approve" is the flow, and silently issuing a code to any registered
+        # client would let a logged-in user be walked through authorization
+        # without ever seeing what was granted.
+        assert authz.status_code == 200, authz.text
+        import re as _re
+
+        consent_key = _re.search(r'name="consent_key"\s+value="([^"]+)"', authz.text)
+        assert consent_key, authz.text[:400]
+        authz = client.post(
+            "/oauth/authorize",
+            data={"consent_key": consent_key.group(1), "decision": "approve"},
             follow_redirects=False,
         )
         assert authz.status_code == 302

@@ -52,3 +52,9 @@ export const watchDuration = new Histogram({
   buckets: [1, 5, 15, 30, 60, 300, 900, 3600],
   registers: [metricsRegistry],
 });
+export const hygieneRedactions = new Counter({
+  name: "xcelsior_mcp_hygiene_redactions_total",
+  help: "Fields removed from tool output by the response-hygiene filter. Non-zero means a tool is leaking and the filter is the only thing stopping it.",
+  labelNames: ["tool"] as const,
+  registers: [metricsRegistry],
+});

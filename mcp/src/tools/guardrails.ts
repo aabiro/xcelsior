@@ -27,10 +27,6 @@ export function registerGuardrailTools(
   server.registerTool(
     "should_i_run_this",
     {
-      description:
-        "Composite guardrail: estimate cost, check wallet balance, and return approval guidance before spend. " +
-        "Call this instead of estimate_job_cost when you are about to launch — it answers whether the job is " +
-        "affordable, not just what it costs.",
       inputSchema: z.object({
         gpu_model: z.string().default("RTX 4090"),
         duration_hours: z.number().min(0).max(8760).default(1),

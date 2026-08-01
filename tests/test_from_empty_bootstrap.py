@@ -37,8 +37,10 @@ REQUIRED_AT_HEAD = (
     "oauth_clients",
     "oauth_refresh_tokens",
     "team_invites",
+    # 091: recorded connector consent, the durable half of the OAuth front door.
+    "oauth_consent_grants",
 )
-EXPECTED_HEAD = "090"
+EXPECTED_HEAD = "091"
 
 
 

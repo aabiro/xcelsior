@@ -55,6 +55,13 @@ export const TOOL_SCOPES: Record<string, McpScope[]> = {
   get_wallet_balance: ["billing:read", "api"],
   estimate_job_cost: ["billing:read", "api"],
   list_invoices: ["billing:read", "api"],
+  // Company knowledge (optional, off by default). These read published
+  // documentation and public pricing — no tenant data — so they take the
+  // broad read set rather than a scope of their own. A dedicated scope would
+  // make every existing connector token unable to read our own docs, for no
+  // security gain over content anyone can already load in a browser.
+  search: ["gpu:read", "marketplace:read", "instances:read", "inference:read", "billing:read", "api"],
+  fetch: ["gpu:read", "marketplace:read", "instances:read", "inference:read", "billing:read", "api"],
 };
 
 export function userHasScope(userScopes: string[] | undefined, required: McpScope[]): boolean {

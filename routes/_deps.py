@@ -860,8 +860,19 @@ def _resolve_serverless_endpoint_auth(
     auth = request.headers.get("Authorization", "")
     key_row = None
     if auth.startswith("Bearer "):
+        from oauth_service import looks_like_agent_key
+
         token = auth[7:].strip()
-        if token.startswith(KEY_PREFIX):
+        # An agent key (`xcel_ai_…`) also starts with the serverless key prefix
+        # (`xcel_`), so a prefix test alone misroutes every Quick Connect
+        # credential into the serverless-key validator, which rejects it — and
+        # this branch raised 401 before the session path below was ever tried.
+        # The effect was that the whole serverless surface (`run_serverless_job`,
+        # `get_serverless_job_status`) returned "Invalid API key" for exactly
+        # the credential we tell MCP users to paste. Match the more specific
+        # prefix first and fall through, which is the same order the main
+        # bearer path already uses.
+        if token.startswith(KEY_PREFIX) and not looks_like_agent_key(token):
             key_row = validate_key(repo, token)
             if not key_row:
                 raise HTTPException(401, "Invalid API key")

@@ -35,8 +35,6 @@ export function registerWorkflowTools(
   server.registerTool(
     "run_training_job",
     {
-      description:
-        "Launch a training instance (git_repo + init_script), wait until running, return connection info and log tail.",
       inputSchema: z.object({
         name: z.string().min(1).max(128),
         gpu_model: z.string().default("RTX 4090"),
@@ -126,8 +124,6 @@ export function registerWorkflowTools(
   server.registerTool(
     "schedule_under_budget",
     {
-      description:
-        "Find available GPU capacity under a max hourly CAD rate, then optionally create an instance.",
       inputSchema: z.object({
         max_hourly_cad: z.number().positive(),
         gpu_model: z.string().optional(),

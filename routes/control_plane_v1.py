@@ -118,6 +118,275 @@ def _iso(value) -> str | None:
     return value.isoformat() if hasattr(value, "isoformat") else (value if value is None else str(value))
 
 
+# Bounded so one export cannot become an unbounded table scan, and cursor-paged
+# so a customer can still walk their whole history.
+_AUDIT_PAGE_MAX = 500
+
+
+@router.get("/api/v1/mcp/tool-audit")
+def api_v1_mcp_tool_audit_export(request: Request):
+    """Customer-visible export of this tenant's own MCP tool-call audit trail.
+
+    The trail was already recorded per call — principal, tenant, scopes, a hash
+    of the redacted arguments, the action plan, the upstream route and status,
+    trace id, latency, and outcome. An audit trail a customer cannot read is a
+    log file, not an assurance: this is what makes "every agent action is
+    audited" checkable by the person whose account it is, which is what an
+    enterprise security review actually asks for (adoption plan X6.30).
+
+    Strictly tenant-scoped. There is no cross-tenant view here at any privilege
+    level — an operator investigating an incident uses the operator surface,
+    which is separately authorized and separately audited.
+    """
+    from db import _get_pg_pool
+
+    user = _require_auth(request)
+    tenant = str(
+        user.get("customer_id")
+        or user.get("workspace_id")
+        or user.get("workspace_customer_id")
+        or user.get("tenant_id")
+        or ""
+    )
+    if not tenant:
+        raise ProblemException(
+            status=404, code="tenant_not_found", detail="tenant not found"
+        )
+
+    params = request.query_params
+    try:
+        limit = min(max(int(params.get("limit", "100")), 1), _AUDIT_PAGE_MAX)
+    except ValueError:
+        limit = 100
+    tool_name = str(params.get("tool_name", "")).strip()[:128] or None
+    outcome = str(params.get("outcome", "")).strip()[:32] or None
+    # Opaque cursor: the occurred_at of the last row of the previous page.
+    # Keyset rather than OFFSET so deep pages stay cheap and a row written
+    # mid-walk cannot shift the window.
+    cursor = str(params.get("cursor", "")).strip()[:64] or None
+
+    clauses = ["tenant_id = %(tenant)s"]
+    values: dict = {"tenant": tenant, "limit": limit}
+    if tool_name:
+        clauses.append("tool_name = %(tool_name)s")
+        values["tool_name"] = tool_name
+    if outcome:
+        clauses.append("outcome = %(outcome)s")
+        values["outcome"] = outcome
+    if cursor:
+        clauses.append("occurred_at < %(cursor)s")
+        values["cursor"] = cursor
+
+    # Named explicitly rather than `SELECT *` so a column added to the table
+    # later cannot silently become part of a customer-facing payload.
+    columns = (
+        "audit_id", "occurred_at", "tool_name", "tool_version", "transport",
+        "client_id", "principal_id", "team_id", "scopes_evaluated",
+        "redacted_args_hash", "action_plan_id", "idempotency_key",
+        "api_route", "api_status", "problem_type", "resource_id",
+        "latency_ms", "trace_id", "approval_method", "outcome",
+    )
+    with _get_pg_pool().connection() as conn:
+        rows = conn.execute(
+            f"SELECT {', '.join(columns)} FROM mcp_tool_audit "
+            f" WHERE {' AND '.join(clauses)} "
+            " ORDER BY occurred_at DESC "
+            " LIMIT %(limit)s",
+            values,
+        ).fetchall()
+
+    records = []
+    for row in rows:
+        # This pool yields tuples; zip against the column list rather than
+        # assuming a dict row factory.
+        record = dict(row) if isinstance(row, dict) else dict(zip(columns, row, strict=True))
+        record["audit_id"] = str(record["audit_id"])
+        record["occurred_at"] = _iso(record["occurred_at"])
+        if record.get("action_plan_id"):
+            record["action_plan_id"] = str(record["action_plan_id"])
+        record["scopes_evaluated"] = list(record.get("scopes_evaluated") or [])
+        records.append(record)
+
+    return {
+        "ok": True,
+        "tenant_id": tenant,
+        "records": records,
+        # NULL when the page is not full: there is provably nothing older to
+        # ask for, so a client can stop rather than probe once more.
+        "next_cursor": records[-1]["occurred_at"] if len(records) == limit else None,
+        "notice": (
+            "Arguments are never stored — redacted_args_hash is a SHA-256 of the "
+            "canonicalised arguments with secret-bearing fields removed first."
+        ),
+    }
+
+
+@router.get("/api/v1/mcp/activation-funnel")
+def api_v1_mcp_activation_funnel(request: Request):
+    """Connector activation funnel, with per-surface attribution.
+
+    Adoption plan X7.33/X7.34. The stages are the ones a connector actually
+    passes through, computed from durable records rather than estimated:
+
+      authorized       → a user approved the connector (`oauth_consent_grants`)
+      first_tool_call  → that tenant made at least one MCP tool call
+      first_success    → at least one of those calls succeeded
+      first_write      → they used a tool that changes something
+      first_paid       → they ran a workload that was billed
+
+    **The two stages above `authorized` are deliberately not here.** Discovery
+    hits and 401 challenges are counted at the MCP edge as Prometheus counters
+    (`xcelsior_mcp_auth_failures_total`, `xcelsior_mcp_active_transports`) and
+    read in Grafana. Persisting a database row per unauthenticated request would
+    make an unauthenticated endpoint a write amplifier — the top of this funnel
+    belongs in a metrics pipeline, not in Postgres, and saying so is more useful
+    than a number we would have to fabricate.
+
+    Platform-wide, so admin-only: a tenant's own activity is the audit export.
+    """
+    from db import _get_pg_pool, auth_connection
+
+    user = _require_auth(request)
+    _require_scope(user, "control_plane:read")
+    if not _is_platform_admin(user):
+        raise ProblemException(status=404, code="not_found", detail="not found")
+
+    try:
+        days = min(max(int(request.query_params.get("days", "30")), 1), 365)
+    except ValueError:
+        days = 30
+
+    with auth_connection() as conn:
+        grants = conn.execute(
+            """
+            SELECT surface, tenant_id, granted_at
+              FROM oauth_consent_grants
+             WHERE revoked_at IS NULL
+               AND granted_at >= now() - make_interval(days => %s)
+            """,
+            (days,),
+        ).fetchall()
+
+    # tenant -> surface. A tenant that connected from two surfaces is counted
+    # under its earliest, so the funnel's stages always sum to the same
+    # population rather than double-counting a tenant that reconnected.
+    surface_by_tenant: dict[str, str] = {}
+    first_seen: dict[str, object] = {}
+    for row in grants:
+        record = dict(row) if isinstance(row, dict) else dict(
+            zip(("surface", "tenant_id", "granted_at"), row, strict=True)
+        )
+        tenant = str(record.get("tenant_id") or "")
+        if not tenant:
+            continue
+        granted = record.get("granted_at")
+        if tenant not in first_seen or (granted and first_seen[tenant] and granted < first_seen[tenant]):  # type: ignore[operator]
+            first_seen[tenant] = granted
+            surface_by_tenant[tenant] = str(record.get("surface") or "unknown")
+
+    tenants = list(surface_by_tenant)
+    called: set[str] = set()
+    succeeded: set[str] = set()
+    wrote: set[str] = set()
+    if tenants:
+        with _get_pg_pool().connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT tenant_id,
+                       bool_or(outcome = 'success')                       AS any_success,
+                       bool_or(tool_name IN (
+                           'create_instance', 'cancel_instance', 'terminate_instance',
+                           'run_training_job', 'schedule_under_budget',
+                           'create_serverless_endpoint', 'run_serverless_job',
+                           'retry_instance', 'reconcile_instance'
+                       ))                                                 AS any_write
+                  FROM mcp_tool_audit
+                 WHERE tenant_id = ANY(%s)
+                   AND occurred_at >= now() - make_interval(days => %s)
+                 GROUP BY tenant_id
+                """,
+                (tenants, days),
+            ).fetchall()
+        for row in rows:
+            tenant, any_success, any_write = (
+                (row["tenant_id"], row["any_success"], row["any_write"])
+                if isinstance(row, dict)
+                else (row[0], row[1], row[2])
+            )
+            called.add(str(tenant))
+            if any_success:
+                succeeded.add(str(tenant))
+            if any_write:
+                wrote.add(str(tenant))
+
+    paid: set[str] = set()
+    try:
+        from billing import get_billing_engine
+
+        engine = get_billing_engine()
+        for tenant in tenants:
+            history = engine.get_wallet_history(tenant, limit=200) or []
+            if any(str(entry.get("type") or entry.get("kind") or "") == "charge" for entry in history):
+                paid.add(tenant)
+    except Exception as exc:  # pragma: no cover - billing is not the gate here
+        log_billing_gap = str(exc)
+        paid = set()
+    else:
+        log_billing_gap = ""
+
+    def by_surface(population: set[str]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for tenant in population:
+            surface = surface_by_tenant.get(tenant, "unknown")
+            counts[surface] = counts.get(surface, 0) + 1
+        return dict(sorted(counts.items()))
+
+    stages = [
+        ("authorized", set(tenants)),
+        ("first_tool_call", called),
+        ("first_success", succeeded),
+        ("first_write", wrote),
+        ("first_paid_workload", paid),
+    ]
+    funnel = []
+    previous = len(tenants)
+    for name, population in stages:
+        count = len(population)
+        funnel.append({
+            "stage": name,
+            "tenants": count,
+            # Conversion from the *previous* stage, which is where a cliff shows
+            # up. Conversion from the top hides which step lost people.
+            "conversion_from_previous": round(count / previous, 4) if previous else None,
+            "by_surface": by_surface(population),
+        })
+        previous = count or previous
+
+    biggest_drop = None
+    for index in range(1, len(funnel)):
+        lost = funnel[index - 1]["tenants"] - funnel[index]["tenants"]
+        if lost > 0 and (biggest_drop is None or lost > biggest_drop["tenants_lost"]):
+            biggest_drop = {
+                "between": f"{funnel[index - 1]['stage']} → {funnel[index]['stage']}",
+                "tenants_lost": lost,
+            }
+
+    return {
+        "ok": True,
+        "window_days": days,
+        "funnel": funnel,
+        "biggest_drop": biggest_drop,
+        "notes": {
+            "top_of_funnel": (
+                "Discovery hits and 401 challenges are Prometheus counters on the MCP "
+                "edge, not database rows — persisting one row per unauthenticated "
+                "request would make an unauthenticated endpoint a write amplifier."
+            ),
+            **({"billing_unavailable": log_billing_gap} if log_billing_gap else {}),
+        },
+    }
+
+
 @router.get("/api/v1/instances/{job_id}")
 def api_v1_instance(job_id: str, request: Request):
     """Tenant-safe instance detail; cross-tenant identifiers are not-found."""

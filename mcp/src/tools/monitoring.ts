@@ -26,8 +26,6 @@ export function registerMonitoringTools(
   server.registerTool(
     "watch_instance",
     {
-      description:
-        "Poll instance status, telemetry, and recent logs for N minutes; returns an agent-friendly summary.",
       inputSchema: z.object({
         job_id: z.string(),
         duration_minutes: z.number().min(1).max(60).default(5),

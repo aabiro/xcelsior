@@ -859,6 +859,31 @@ def service_status():
             nfs_required,
         )
 
+    # MCP connector — the surface every connected AI assistant talks to. Probed
+    # through its own readiness endpoint rather than assumed healthy because the
+    # API is: it is a separate process behind a separate hostname, and it can be
+    # down while everything else is fine (adoption plan X6.27).
+    try:
+        import httpx as _httpx
+
+        mcp_health_url = os.environ.get(
+            "XCELSIOR_MCP_HEALTH_URL", "http://127.0.0.1:8770/readyz"
+        )
+        with _httpx.Client(timeout=3.0) as _http:
+            probe = _http.get(mcp_health_url)
+        if probe.status_code == 200:
+            add("MCP connector", "operational", "ready", False)
+        else:
+            checks = {}
+            try:
+                checks = probe.json().get("checks", {})
+            except Exception:
+                pass
+            failing = ", ".join(name for name, ok in checks.items() if not ok) or "not ready"
+            add("MCP connector", "down", failing, False)
+    except Exception as exc:
+        add("MCP connector", "down", f"unreachable: {exc}", False)
+
     required_down = any(s["required"] and s["state"] == "down" for s in services)
     has_problem = any(s["state"] in ("down", "degraded") for s in services)
     verdict = "blocked" if required_down else ("degraded" if has_problem else "operational")

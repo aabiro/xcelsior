@@ -74,7 +74,9 @@ from oauth_service import (
     approve_device_code,
     authenticate_client,
     build_deprecation_headers,
+    canonical_mcp_resource,
     create_oauth_client,
+    normalize_resource_indicator,
     exchange_authorization_code,
     exchange_device_code,
     get_client,
@@ -83,6 +85,7 @@ from oauth_service import (
     issue_client_credentials_jwt,
     issue_device_authorization,
     issue_user_tokens,
+    redirect_uri_matches,
     revoke_refresh_session,
     rotate_refresh_token,
     consume_social_oauth_state,
@@ -93,10 +96,7 @@ router = APIRouter()
 
 
 def _validated_resource_indicator(body: dict) -> str:
-    resource = str(body.get("resource", "")).strip()
-    if resource and resource != MCP_RESOURCE_AUDIENCE:
-        raise OAuthGrantError("invalid_target", "Unsupported resource indicator")
-    return resource or OAUTH_AUDIENCE
+    return normalize_resource_indicator(body.get("resource"))
 
 # OAuth configuration
 VALID_KEY_SCOPES = {"full-access", "read-only"}
@@ -322,7 +322,7 @@ def _current_refresh_token(request: Request, user: dict | None = None) -> str:
 
 def _validate_oauth_client_redirect(client: dict, redirect_uri: str) -> None:
     allowed = list(client.get("redirect_uris") or [])
-    if allowed and redirect_uri not in allowed:
+    if allowed and not any(redirect_uri_matches(entry, redirect_uri) for entry in allowed):
         raise OAuthGrantError("invalid_request", "redirect_uri is not registered for this client")
 
 
@@ -345,9 +345,7 @@ async def _oauth_token_grant_response(
             redirect_uri = str(body.get("redirect_uri", "")).strip()
             code = str(body.get("code", "")).strip()
             code_verifier = str(body.get("code_verifier", "")).strip()
-            resource = str(body.get("resource", "")).strip() or None
-            if resource and resource != MCP_RESOURCE_AUDIENCE:
-                raise OAuthGrantError("invalid_target", "Unsupported resource indicator")
+            resource = normalize_resource_indicator(body.get("resource"), default="") or None
             if not redirect_uri or not code or not code_verifier:
                 raise OAuthGrantError(
                     "invalid_request", "code, redirect_uri, and code_verifier are required"
@@ -371,9 +369,7 @@ async def _oauth_token_grant_response(
                     "unauthorized_client", "Client is not allowed to use device_code"
                 )
             device_code = str(body.get("device_code", "")).strip()
-            resource = str(body.get("resource", "")).strip() or None
-            if resource and resource != MCP_RESOURCE_AUDIENCE:
-                raise OAuthGrantError("invalid_target", "Unsupported resource indicator")
+            resource = normalize_resource_indicator(body.get("resource"), default="") or None
             if not device_code:
                 raise OAuthGrantError("invalid_request", "device_code is required")
             token_bundle = exchange_device_code(
@@ -389,9 +385,7 @@ async def _oauth_token_grant_response(
                     "unauthorized_client", "Client is not allowed to use client_credentials"
                 )
             scopes = str(body.get("scope", "")).strip()
-            resource = str(body.get("resource", "")).strip() or None
-            if resource and resource != MCP_RESOURCE_AUDIENCE:
-                raise OAuthGrantError("invalid_target", "Unsupported resource indicator")
+            resource = normalize_resource_indicator(body.get("resource"), default="") or None
             token_bundle = issue_client_credentials_jwt(
                 client,
                 [scope for scope in scopes.split() if scope] or list(client.get("scopes") or []),
@@ -477,8 +471,10 @@ class DeviceVerificationRequest(BaseModel):
 
 @router.get("/.well-known/oauth-authorization-server", tags=["Auth"])
 def oauth_authorization_server_metadata(request: Request):
+    from oauth_registration import CIMD_ENABLED, DCR_ENABLED
+
     base_url = str(request.base_url).rstrip("/")
-    return {
+    metadata = {
         "issuer": _OAUTH_BASE_URL.rstrip("/"),
         "authorization_endpoint": f"{base_url}/oauth/authorize",
         "token_endpoint": f"{base_url}/oauth/token",
@@ -523,6 +519,18 @@ def oauth_authorization_server_metadata(request: Request):
         "jwks_uri": f"{base_url}/.well-known/jwks.json",
         "resource_indicators_supported": True,
     }
+    # Client identification, advertised in the order clients should prefer it.
+    # CIMD first: it is what Anthropic and OpenAI recommend for a directory
+    # connector, and it keeps a high-traffic listing from turning into an
+    # unbounded client-registration table.
+    if CIMD_ENABLED:
+        metadata["client_id_metadata_document_supported"] = True
+    if DCR_ENABLED:
+        metadata["registration_endpoint"] = f"{base_url}/oauth/register"
+        # RFC 7591 §1.5: an open registration endpoint says so, so a client
+        # does not go hunting for an initial access token it will never get.
+        metadata["registration_endpoint_auth_methods_supported"] = ["none"]
+    return metadata
 
 
 @router.get("/.well-known/jwks.json", tags=["Auth"])
@@ -606,8 +614,122 @@ def _oauth_browser_error(request: Request, status: int, title: str, detail: str)
     return HTMLResponse(content=_oauth_error_page(title, detail, status), status_code=status)
 
 
-@router.get("/oauth/authorize", tags=["Auth"])
-def oauth_authorize(request: Request):
+def _oauth_consent_page(
+    *, client: dict, user: dict, scopes: list[str], resource: str, consent_key: str
+) -> str:
+    """The approve step of "paste URL → Connect → sign in → approve".
+
+    Rendered server-side and self-contained so it works before any frontend
+    asset loads and cannot be broken by a CDN or a client-side bundle — this
+    page sits in the middle of every provider's connector onboarding, so it has
+    to be the least fragile thing we serve.
+    """
+    import html as _html
+
+    from oauth_service import describe_scope
+
+    def esc(value: object) -> str:
+        return _html.escape(str(value or ""))
+
+    client_name = esc(client.get("client_name") or client.get("client_id"))
+    client_uri = str(client.get("client_uri") or "").strip()
+    # Only ever link out to https; a javascript: or data: client_uri from a
+    # metadata document must not become a clickable link on our origin.
+    client_link = (
+        f'<a class="clienturi" href="{esc(client_uri)}" rel="noopener noreferrer nofollow" '
+        f'target="_blank">{esc(_urllib_parse.urlsplit(client_uri).hostname or client_uri)}</a>'
+        if client_uri.lower().startswith("https://")
+        else ""
+    )
+    rows = "".join(
+        f'<li><span class="dot"></span><span>{esc(describe_scope(scope))}'
+        f'<code>{esc(scope)}</code></span></li>'
+        for scope in scopes
+    ) or '<li><span class="dot"></span><span>Sign you in only</span></li>'
+    resource_line = (
+        f'<p class="resource">Access is limited to <code>{esc(resource)}</code>.</p>'
+        if resource
+        else ""
+    )
+    return f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Authorize {client_name} — Xcelsior</title>
+<style>
+  :root {{ color-scheme: dark; }}
+  * {{ box-sizing: border-box; }}
+  body {{
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    color: #e6edf3; padding: 24px;
+    background: radial-gradient(1200px 600px at 50% -10%, rgba(124,58,237,0.18), transparent 60%),
+                radial-gradient(900px 500px at 80% 110%, rgba(34,211,238,0.12), transparent 55%),
+                #070b12;
+  }}
+  .card {{
+    width: 100%; max-width: 520px; padding: 36px 34px;
+    background: rgba(14,20,31,0.85); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 20px; box-shadow: 0 30px 80px -20px rgba(0,0,0,0.7);
+    backdrop-filter: blur(12px);
+  }}
+  .eyebrow {{ font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
+              color: #6b7689; font-weight: 600; }}
+  h1 {{ margin: 10px 0 6px; font-size: 22px; font-weight: 700; line-height: 1.3; }}
+  .who {{ margin: 0 0 22px; font-size: 14px; color: #9aa6b8; }}
+  .clienturi {{ color: #7dd3fc; text-decoration: none; }}
+  ul {{ list-style: none; margin: 0 0 18px; padding: 16px 18px; border-radius: 14px;
+        background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); }}
+  li {{ display: flex; gap: 10px; align-items: flex-start; font-size: 14px;
+        line-height: 1.5; color: #cbd5e1; padding: 5px 0; }}
+  .dot {{ width: 6px; height: 6px; border-radius: 999px; margin-top: 8px; flex: none;
+          background: linear-gradient(120deg, #38bdf8, #818cf8); }}
+  code {{ display: block; font-size: 11px; color: #6b7689; margin-top: 2px; }}
+  .resource {{ font-size: 13px; color: #9aa6b8; margin: 0 0 18px; }}
+  .resource code {{ display: inline; color: #7dd3fc; font-size: 12px; }}
+  form {{ display: flex; gap: 10px; }}
+  button {{
+    flex: 1; padding: 12px 18px; border-radius: 10px; font-size: 14px; font-weight: 600;
+    border: 0; cursor: pointer; font-family: inherit;
+    transition: transform .12s ease, filter .12s ease;
+  }}
+  button:hover {{ transform: translateY(-1px); filter: brightness(1.08); }}
+  .approve {{ color: #06121a; background: linear-gradient(120deg, #38bdf8, #818cf8); }}
+  .deny {{ color: #cbd5e1; background: transparent; border: 1px solid rgba(255,255,255,0.12); }}
+  .foot {{ margin-top: 22px; font-size: 12px; color: #4a5568; line-height: 1.6; }}
+  .foot a {{ color: #6b7689; }}
+</style></head>
+<body><main class="card">
+  <div class="eyebrow">Authorize application</div>
+  <h1>{client_name} wants to use your Xcelsior account</h1>
+  <p class="who">Signed in as {esc(user.get("email"))}{" · " + client_link if client_link else ""}</p>
+  <ul>{rows}</ul>
+  {resource_line}
+  <form method="post" action="/oauth/authorize">
+    <input type="hidden" name="consent_key" value="{esc(consent_key)}">
+    <button class="deny" type="submit" name="decision" value="deny">Cancel</button>
+    <button class="approve" type="submit" name="decision" value="approve">Approve</button>
+  </form>
+  <p class="foot">Destructive operations still require a separate, explicit approval at the
+  time they run — approving here does not pre-authorize them. You can revoke this connection
+  at any time in <a href="/dashboard/settings">Settings → AI Agents</a>.</p>
+</main></body></html>"""
+
+
+def _redirect_with(redirect_uri: str, state: str, **params: str):
+    """Append parameters to a client's callback, preserving any it already has."""
+    sep = "&" if "?" in redirect_uri else "?"
+    query = _urllib_parse.urlencode({**params, **({"state": state} if state else {})})
+    return RedirectResponse(f"{redirect_uri}{sep}{query}", status_code=302)
+
+
+def _prepare_authorization(request: Request, params) -> tuple[dict, dict, list[str], str]:
+    """Validate an authorization request. Returns (user, client, scopes, resource).
+
+    Raises `_AuthorizeRejection` carrying a rendered response for anything the
+    user needs to see, so GET and POST share one validation path — two copies of
+    this would be two places for the redirect or resource rules to drift.
+    """
     user = _get_current_user(request)
     if not user:
         wants_html = "text/html" in request.headers.get("accept", "").lower()
@@ -615,60 +737,108 @@ def oauth_authorize(request: Request):
             redirect_target = _urllib_parse.quote(
                 str(request.url.path) + (f"?{request.url.query}" if request.url.query else "")
             )
-            return RedirectResponse(f"/login?redirect={redirect_target}", status_code=302)
+            raise _AuthorizeRejection(
+                RedirectResponse(f"/login?redirect={redirect_target}", status_code=302)
+            )
         raise HTTPException(401, "Not authenticated")
     auth_type = str(user.get("auth_type", ""))
     if auth_type == "client_credentials":
         raise HTTPException(403, "Interactive user authentication required")
     if auth_type == "api_key":
         raise HTTPException(403, "Interactive session authentication required")
-    response_type = str(request.query_params.get("response_type", "")).strip()
-    client_id = str(request.query_params.get("client_id", "")).strip()
-    redirect_uri = str(request.query_params.get("redirect_uri", "")).strip()
-    state = str(request.query_params.get("state", "")).strip()
-    code_challenge = str(request.query_params.get("code_challenge", "")).strip()
-    code_challenge_method = str(request.query_params.get("code_challenge_method", "S256")).strip()
+
+    response_type = str(params.get("response_type", "")).strip()
+    client_id = str(params.get("client_id", "")).strip()
+    redirect_uri = str(params.get("redirect_uri", "")).strip()
+    code_challenge = str(params.get("code_challenge", "")).strip()
     if response_type != "code":
-        return _oauth_browser_error(
+        raise _AuthorizeRejection(_oauth_browser_error(
             request, 400, "Unsupported request",
             "This authorization link is malformed (response_type=code is required). "
             "Please start the connection again from your app.",
-        )
+        ))
     if not client_id or not redirect_uri or not code_challenge:
-        return _oauth_browser_error(
+        raise _AuthorizeRejection(_oauth_browser_error(
             request, 400, "Incomplete request",
             "This authorization link is missing required parameters. "
             "Please start the connection again from your app.",
-        )
+        ))
 
-    client = get_client(client_id)
+    try:
+        client = get_client(client_id)
+    except OAuthGrantError as exc:
+        # A CIMD client id that resolves to a missing, malformed, or
+        # self-inconsistent document lands here. Say which, rather than
+        # "unknown client" — the difference is what a connector author needs.
+        raise _AuthorizeRejection(_oauth_browser_error(
+            request, 400, "Untrusted application", exc.description,
+        )) from exc
     if not client:
-        return _oauth_browser_error(
+        raise _AuthorizeRejection(_oauth_browser_error(
             request, 400, "Unknown application",
             "We couldn't find an Xcelsior app matching that client ID. It may have been "
             "deleted, or the link is out of date. Create a new client in Settings → AI Agents.",
-        )
+        ))
     if "authorization_code" not in list(client.get("grant_types") or []):
-        return _oauth_browser_error(
+        raise _AuthorizeRejection(_oauth_browser_error(
             request, 403, "Not permitted",
             "This application isn't allowed to sign you in interactively. "
             "Check its grant types in Settings → AI Agents.",
-        )
+        ))
     try:
         _validate_oauth_client_redirect(client, redirect_uri)
     except OAuthGrantError:
-        return _oauth_browser_error(
+        raise _AuthorizeRejection(_oauth_browser_error(
             request, 400, "Redirect not allowed",
             "The redirect URL in this request isn't registered for this application. "
             "Update the client's allowed redirect URIs in Settings → AI Agents.",
-        )
-    scopes = str(request.query_params.get("scope", "")).strip().split()
-    resource = str(request.query_params.get("resource", "")).strip() or None
-    if resource and resource != MCP_RESOURCE_AUDIENCE:
-        return _oauth_browser_error(
+        )) from None
+
+    raw_resource = str(params.get("resource", "")).strip()
+    resource = canonical_mcp_resource(raw_resource) if raw_resource else None
+    if raw_resource and resource is None:
+        raise _AuthorizeRejection(_oauth_browser_error(
             request, 400, "Unsupported resource",
             "This authorization request targets an unsupported protected resource.",
-        )
+        ))
+    # A client pinned to one protected resource gets that resource by default,
+    # so a connector that omits the indicator still receives an MCP-bound token
+    # instead of a general API token.
+    pinned = str(client.get("resource_audience") or "").strip()
+    if pinned and not resource:
+        resource = pinned
+
+    allowed_scopes = list(client.get("scopes") or [])
+    requested = str(params.get("scope", "")).strip().split()
+    if requested:
+        invalid = [scope for scope in requested if allowed_scopes and scope not in allowed_scopes]
+        if invalid:
+            raise _AuthorizeRejection(_oauth_browser_error(
+                request, 400, "Unsupported permissions",
+                "This application asked for permissions it is not registered for: "
+                + ", ".join(sorted(set(invalid))),
+            ))
+        scopes = requested
+    else:
+        scopes = allowed_scopes
+    return user, client, sorted(set(scopes)), resource or ""
+
+
+class _AuthorizeRejection(Exception):
+    """Carries an already-rendered response out of shared authorize validation."""
+
+    def __init__(self, response):
+        super().__init__("authorization rejected")
+        self.response = response
+
+
+def _issue_code_and_redirect(
+    *, request: Request, user: dict, client: dict, redirect_uri: str, state: str,
+    code_challenge: str, code_challenge_method: str, scopes: list[str], resource: str,
+):
+    from db import ConsentStore, OAuthStore
+    from oauth_registration import registration_expiry
+
     try:
         code = issue_authorization_code(
             client=client,
@@ -676,23 +846,196 @@ def oauth_authorize(request: Request):
             redirect_uri=redirect_uri,
             code_challenge=code_challenge,
             code_challenge_method=code_challenge_method,
-            scopes=scopes or list(client.get("scopes") or []),
+            scopes=scopes,
             audience=resource or OAUTH_AUDIENCE,
         )
     except OAuthGrantError as exc:
         raise HTTPException(exc.status_code, exc.description) from exc
 
-    sep = "&" if "?" in redirect_uri else "?"
-    location = f"{redirect_uri}{sep}code={code}"
-    if state:
-        location += f"&state={state}"
-    return RedirectResponse(location, status_code=302)
+    if not client.get("is_first_party"):
+        user_id = str(user.get("user_id") or user.get("email") or "")
+        try:
+            ConsentStore.touch(user_id, str(client["client_id"]), resource)
+        except Exception as exc:  # pragma: no cover - bookkeeping, never fatal
+            log.warning("consent touch failed (non-fatal): %s", exc)
+    if str(client.get("registration_source") or "") == "dcr":
+        # A registration in active use must not expire out from under a working
+        # connector, so every completed authorization renews its window.
+        try:
+            OAuthStore.touch_registration(str(client["client_id"]), registration_expiry())
+        except Exception as exc:  # pragma: no cover - bookkeeping, never fatal
+            log.warning("registration renewal failed (non-fatal): %s", exc)
+    return _redirect_with(redirect_uri, state, code=code)
+
+
+@router.get("/oauth/authorize", tags=["Auth"])
+def oauth_authorize(request: Request):
+    from fastapi.responses import HTMLResponse
+    from oauth_service import consent_covers, stash_consent_request
+
+    params = request.query_params
+    try:
+        user, client, scopes, resource = _prepare_authorization(request, params)
+    except _AuthorizeRejection as rejection:
+        return rejection.response
+
+    redirect_uri = str(params.get("redirect_uri", "")).strip()
+    state = str(params.get("state", "")).strip()
+    code_challenge = str(params.get("code_challenge", "")).strip()
+    code_challenge_method = str(params.get("code_challenge_method", "S256")).strip()
+    user_id = str(user.get("user_id") or user.get("email") or "")
+
+    # First-party apps are us; a consent screen between our own login page and
+    # our own dashboard would be theatre. Everything else — including the
+    # pre-provisioned connector client and anything CIMD or DCR produced — asks.
+    already_consented = bool(client.get("is_first_party")) or consent_covers(
+        user_id, str(client["client_id"]), resource, scopes
+    )
+    if already_consented:
+        return _issue_code_and_redirect(
+            request=request, user=user, client=client, redirect_uri=redirect_uri,
+            state=state, code_challenge=code_challenge,
+            code_challenge_method=code_challenge_method, scopes=scopes, resource=resource,
+        )
+
+    consent_key = stash_consent_request({
+        "user_id": user_id,
+        "email": str(user.get("email") or ""),
+        "client_id": str(client["client_id"]),
+        "redirect_uri": redirect_uri,
+        "state": state,
+        "code_challenge": code_challenge,
+        "code_challenge_method": code_challenge_method,
+        "scopes": scopes,
+        "resource": resource,
+    })
+    return HTMLResponse(
+        content=_oauth_consent_page(
+            client=client, user=user, scopes=scopes, resource=resource, consent_key=consent_key,
+        )
+    )
+
+
+@router.post("/oauth/authorize", tags=["Auth"])
+async def oauth_authorize_decision(request: Request):
+    """Record the user's decision on a staged authorization request."""
+    from oauth_service import take_consent_request
+    from oauth_registration import classify_surface, new_grant_id
+    from db import ConsentStore
+
+    body = await _parse_request_body(request)
+    staged = take_consent_request(str(body.get("consent_key", "")).strip())
+    if not staged:
+        return _oauth_browser_error(
+            request, 400, "Request expired",
+            "This approval screen is no longer valid. Start the connection again from your app.",
+        )
+
+    user = _get_current_user(request)
+    user_id = str((user or {}).get("user_id") or (user or {}).get("email") or "")
+    # The staged request belongs to one signed-in identity. A different session
+    # submitting it would be consenting on someone else's behalf.
+    if not user or user_id != str(staged.get("user_id") or ""):
+        return _oauth_browser_error(
+            request, 403, "Sign-in changed",
+            "The signed-in account changed while this approval was open. "
+            "Start the connection again from your app.",
+        )
+
+    redirect_uri = str(staged.get("redirect_uri") or "")
+    state = str(staged.get("state") or "")
+    if not redirect_uri:  # pragma: no cover - staged requests always carry one
+        return _oauth_browser_error(
+            request, 400, "Incomplete request",
+            "This approval is missing its callback URL. Start the connection again from your app.",
+        )
+    if str(body.get("decision", "")).strip().lower() != "approve":
+        return _redirect_with(
+            redirect_uri, state,
+            error="access_denied",
+            error_description="The user declined the authorization request.",
+        )
+
+    client = get_client(str(staged.get("client_id") or ""))
+    if not client:
+        return _oauth_browser_error(
+            request, 400, "Unknown application",
+            "That application is no longer registered. Start the connection again from your app.",
+        )
+    scopes = [str(scope) for scope in (staged.get("scopes") or [])]
+    resource = str(staged.get("resource") or "")
+    ConsentStore.record(
+        grant_id=new_grant_id(),
+        tenant_id=str(
+            user.get("team_id") or user.get("customer_id") or user_id
+        ),
+        user_id=user_id,
+        email=str(user.get("email") or ""),
+        client_id=str(client["client_id"]),
+        scopes=scopes,
+        resource=resource,
+        # Attributable now, not later: the same connector client serves every
+        # surface, so the callback host is the only thing that says which
+        # directory produced this activation (X7.34).
+        surface=classify_surface(redirect_uri, str(client["client_id"])),
+    )
+    from routes._deps import append_user_audit_event
+
+    append_user_audit_event(
+        "user.oauth.consent_granted",
+        "oauth_client",
+        str(client["client_id"]),
+        user,
+        data={
+            "scopes": scopes,
+            "resource": resource,
+            "surface": classify_surface(redirect_uri, str(client["client_id"])),
+        },
+    )
+    return _issue_code_and_redirect(
+        request=request, user=user, client=client, redirect_uri=redirect_uri, state=state,
+        code_challenge=str(staged.get("code_challenge") or ""),
+        code_challenge_method=str(staged.get("code_challenge_method") or "S256"),
+        scopes=scopes, resource=resource,
+    )
 
 
 @router.post("/oauth/token", tags=["Auth"])
 async def oauth_token(request: Request):
+    # `_parse_request_body` accepts both `application/x-www-form-urlencoded`
+    # (what RFC 6749 §4.1.3 mandates and what every connector client sends) and
+    # JSON. A JSON-only token endpoint is a documented silent-failure cause for
+    # connector onboarding; `test_token_endpoint_accepts_form_encoding` pins it.
     body = await _parse_request_body(request)
     return await _oauth_token_grant_response(request, body)
+
+
+@router.post("/oauth/register", tags=["Auth"], status_code=201)
+async def oauth_dynamic_client_registration(request: Request):
+    """RFC 7591 dynamic client registration — the compatibility path.
+
+    Open (no initial access token) because Microsoft Copilot Studio and several
+    other clients discover this endpoint from authorization-server metadata and
+    register unattended. Every gate that makes that safe lives in
+    `oauth_registration.register_dynamic_client`: allowlisted redirect hosts,
+    MCP-audience-only clients, read-biased default scopes, no operator scopes,
+    per-IP and global rate limits, and expiry for registrations never used.
+    """
+    from oauth_registration import register_dynamic_client
+
+    body = await _parse_request_body(request)
+    try:
+        registration = register_dynamic_client(
+            body, client_ip=_deps_get_real_client_ip(request) or ""
+        )
+    except OAuthGrantError as exc:
+        return _oauth_error_response(exc)
+    log.info(
+        "oauth dcr registration client_id=%s redirects=%s",
+        registration["client_id"],
+        len(registration["redirect_uris"]),
+    )
+    return JSONResponse(content=registration, status_code=201)
 
 
 @router.post("/oauth/device/authorize", tags=["Auth"])
@@ -903,6 +1246,9 @@ def api_mcp_quick_connect(request: Request, regenerate: bool = False):
     return {
         "ok": True,
         "client_id": client_id,
+        # The canonical connector URL, not `${api}/mcp`: an agent key is bound
+        # to the MCP resource, so a config pointing anywhere else authenticates
+        # against a resource the token was never issued for.
         # Present only when freshly minted. Absent means "already issued and in
         # use" — the UI shows the masked prefix instead of a token it cannot
         # legitimately produce.
@@ -925,7 +1271,7 @@ def api_mcp_quick_connect(request: Request, regenerate: bool = False):
         # make clients schedule a refresh that has nothing to refresh.
         "expires_in": None,
         "scopes": scopes,
-        "mcp_url": f"{mcp_base}/mcp",
+        "mcp_url": MCP_RESOURCE_AUDIENCE,
         "api_url": mcp_base,
     }
 

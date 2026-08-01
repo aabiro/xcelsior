@@ -454,7 +454,21 @@ services:
       XCELSIOR_API_URL: ${XCELSIOR_API_URL:-http://127.0.0.1:9500}
       XCELSIOR_MCP_API_URL: ${XCELSIOR_MCP_API_URL:-http://127.0.0.1:9500}
       XCELSIOR_MCP_PUBLIC_URL: ${XCELSIOR_MCP_PUBLIC_URL:-https://mcp.xcelsior.ca/mcp}
-      XCELSIOR_MCP_RESOURCE_AUDIENCE: ${XCELSIOR_MCP_RESOURCE_AUDIENCE:-https://mcp.xcelsior.ca}
+      # RFC 8707 resource identifier: the exact URL a user pastes into a
+      # connector, path included. The bare origin is the pre-migration value
+      # and is accepted only until the sunset below.
+      XCELSIOR_MCP_RESOURCE_AUDIENCE: ${XCELSIOR_MCP_RESOURCE_AUDIENCE:-https://mcp.xcelsior.ca/mcp}
+      XCELSIOR_MCP_LEGACY_RESOURCE_AUDIENCE: ${XCELSIOR_MCP_LEGACY_RESOURCE_AUDIENCE:-https://mcp.xcelsior.ca}
+      XCELSIOR_MCP_LEGACY_AUDIENCE_SUNSET: ${XCELSIOR_MCP_LEGACY_AUDIENCE_SUNSET:-2026-11-30T00:00:00Z}
+      # `customer` is the public, directory-listed surface. The operator
+      # surface is the same image deployed with `operator` at an unlisted host.
+      XCELSIOR_MCP_TOOL_PROFILE: ${XCELSIOR_MCP_TOOL_PROFILE:-customer}
+      # ChatGPT company-knowledge search/fetch. Optional and off by default so
+      # the directory-reviewed surface does not change without a decision.
+      XCELSIOR_MCP_COMPANY_KNOWLEDGE: ${XCELSIOR_MCP_COMPANY_KNOWLEDGE:-0}
+      XCELSIOR_DOCS_URL: ${XCELSIOR_DOCS_URL:-https://docs.xcelsior.ca}
+      # Set once the OpenAI submission portal issues a verification token.
+      XCELSIOR_MCP_OPENAI_APPS_CHALLENGE: ${XCELSIOR_MCP_OPENAI_APPS_CHALLENGE:-}
       XCELSIOR_OAUTH_ISSUER: ${XCELSIOR_OAUTH_ISSUER:-https://xcelsior.ca}
       XCELSIOR_OAUTH_JWKS_URL: ${XCELSIOR_OAUTH_JWKS_URL:-https://xcelsior.ca/.well-known/jwks.json}
       XCELSIOR_MCP_MAX_WATCHES_PER_PRINCIPAL: ${XCELSIOR_MCP_MAX_WATCHES_PER_PRINCIPAL:-3}

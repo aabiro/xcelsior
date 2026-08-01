@@ -26,8 +26,6 @@ export function registerDiscoveryTools(
   server.registerTool(
     "list_available_gpus",
     {
-      description:
-        "List GPUs currently available on the Xcelsior marketplace with VRAM, region, counts, and CAD pricing.",
       inputSchema: z.object({
         region: z.string().optional().describe("Filter by region code (e.g. ca-east)"),
       }),
@@ -47,7 +45,6 @@ export function registerDiscoveryTools(
   server.registerTool(
     "get_spot_prices",
     {
-      description: "Get current spot/interruptible GPU prices per model in CAD.",
       inputSchema: z.object({}),
     },
     async () => {
@@ -65,7 +62,6 @@ export function registerDiscoveryTools(
   server.registerTool(
     "get_pricing_reference",
     {
-      description: "Reference on-demand GPU hourly rates in CAD from the live pricing table.",
       inputSchema: z.object({}),
     },
     async () => {
@@ -83,7 +79,6 @@ export function registerDiscoveryTools(
   server.registerTool(
     "search_marketplace",
     {
-      description: "Search marketplace listings by GPU model, VRAM, region, and reputation.",
       inputSchema: z.object({
         gpu_model: z.string().optional(),
         min_vram_gb: z.number().optional(),
@@ -107,7 +102,6 @@ export function registerDiscoveryTools(
   server.registerTool(
     "list_tiers",
     {
-      description: "List compute tier catalog (VRAM bands and tier names).",
       inputSchema: z.object({}),
     },
     async () => {

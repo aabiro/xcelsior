@@ -26,7 +26,6 @@ export function registerBillingTools(
   server.registerTool(
     "get_wallet_balance",
     {
-      description: "Get wallet balance and credits for a customer (defaults to authenticated user).",
       inputSchema: z.object({
         customer_id: z.string().optional().describe("Customer ID; omit to use your account"),
       }),
@@ -48,10 +47,6 @@ export function registerBillingTools(
   server.registerTool(
     "estimate_job_cost",
     {
-      description:
-        "Estimate what a GPU job will cost, in CAD, before launching it. Returns the hourly rate and " +
-        "projected total so you can compare against the wallet balance. Price on-demand by default; set " +
-        "spot:true for interruptible capacity when the workload can checkpoint.",
       inputSchema: z.object({
         gpu_model: z.string().default("RTX 4090"),
         duration_hours: z.number().min(0).max(8760).default(1),
@@ -95,7 +90,6 @@ export function registerBillingTools(
   server.registerTool(
     "list_invoices",
     {
-      description: "List billing invoices for a customer.",
       inputSchema: z.object({
         customer_id: z.string().optional(),
       }),

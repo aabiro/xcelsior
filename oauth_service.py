@@ -6,6 +6,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import secrets
 import threading
@@ -53,6 +54,14 @@ except Exception:
 
 
 ACCESS_TOKEN_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_ACCESS_TTL_SEC", "900"))
+# Connector access tokens live ~1h, not the 15m every other agent token gets.
+# Claude, ChatGPT and Grok hold a token across a whole conversation and only
+# refresh on 401; a 15m token turns every third turn into a refresh round trip
+# through our authorization server. One hour is the lifetime the adoption plan
+# settles on (X0.5) and is still short enough that revocation is meaningful,
+# because the refresh token — not the access token — is what carries the
+# 30-day session.
+MCP_ACCESS_TOKEN_TTL_SEC = int(os.environ.get("XCELSIOR_MCP_ACCESS_TTL_SEC", "3600"))
 # First-party browser sessions get a longer-lived access token than OAuth agent
 # tokens (which stay short for security), so users remain signed in across normal
 # navigation (e.g. dashboard -> marketing -> back) without a refresh round-trip.
@@ -81,8 +90,28 @@ OAUTH_ISSUER = os.environ.get(
     os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca").rstrip("/"),
 )
 OAUTH_AUDIENCE = os.environ.get("XCELSIOR_OAUTH_AUDIENCE", "xcelsior-api")
+# RFC 8707 resource indicator for the hosted MCP connector.
+#
+# This is the *exact* URL a user pastes into Claude/ChatGPT/Grok, path included.
+# It was previously the bare origin, which is a different identifier: a connector
+# client that discovers `resource` from protected-resource metadata and echoes it
+# back on /oauth/authorize would have been rejected with invalid_target, and the
+# server would have looked healthy the whole time. See
+# docs/mcp-enterprise-adoption-plan.md BLOCKER 1.
 MCP_RESOURCE_AUDIENCE = os.environ.get(
-    "XCELSIOR_MCP_RESOURCE_AUDIENCE", "https://mcp.xcelsior.ca"
+    "XCELSIOR_MCP_RESOURCE_AUDIENCE", "https://mcp.xcelsior.ca/mcp"
+).rstrip("/")
+# Tokens minted before the migration carry the old origin in `aud`. They stay
+# valid until the sunset instant below and are then rejected like any other
+# wrong-audience token — a deliberate, dated compatibility window rather than a
+# permanent second accepted audience. Set the legacy value to "" to end it early.
+MCP_LEGACY_RESOURCE_AUDIENCE = os.environ.get(
+    "XCELSIOR_MCP_LEGACY_RESOURCE_AUDIENCE", "https://mcp.xcelsior.ca"
+).rstrip("/")
+# Longer than CLIENT_CREDENTIALS_TTL_SEC (90 days) measured from the migration,
+# so no already-issued machine token can be cut off mid-life.
+MCP_LEGACY_AUDIENCE_SUNSET = os.environ.get(
+    "XCELSIOR_MCP_LEGACY_AUDIENCE_SUNSET", "2026-11-30T00:00:00Z"
 )
 REFRESH_COOKIE_NAME = "xcelsior_refresh"
 API_KEY_SUNSET_DATE = os.environ.get("XCELSIOR_API_KEY_SUNSET_DATE", "2026-07-07")
@@ -120,6 +149,180 @@ class OAuthGrantError(Exception):
         body = {"error": self.error, "error_description": self.description}
         body.update(self.extra)
         return body
+
+
+# ── RFC 8707 resource indicators ──────────────────────────────────────────
+#
+# One place decides what "the MCP resource" means, because the identifier is
+# checked in six places (authorize, three token grants, device authorize, and
+# JWT validation) and six copies of a string comparison is how the origin and
+# the connector URL drifted apart in the first place.
+
+
+def _parse_sunset(raw: str) -> float | None:
+    value = str(raw or "").strip()
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def legacy_mcp_audience_accepted(now: float | None = None) -> bool:
+    """True while the pre-migration origin audience is still honoured."""
+    if not MCP_LEGACY_RESOURCE_AUDIENCE:
+        return False
+    if MCP_LEGACY_RESOURCE_AUDIENCE == MCP_RESOURCE_AUDIENCE:
+        return False
+    sunset = _parse_sunset(MCP_LEGACY_AUDIENCE_SUNSET)
+    if sunset is None:
+        return True
+    return (now if now is not None else time.time()) < sunset
+
+
+def accepted_mcp_audiences(now: float | None = None) -> tuple[str, ...]:
+    """Audience values a presented MCP token may legitimately carry."""
+    if legacy_mcp_audience_accepted(now):
+        return (MCP_RESOURCE_AUDIENCE, MCP_LEGACY_RESOURCE_AUDIENCE)
+    return (MCP_RESOURCE_AUDIENCE,)
+
+
+def canonical_mcp_resource(value: str | None) -> str | None:
+    """Canonicalise a client-supplied resource indicator, or None if unrelated.
+
+    A client that read the old metadata still sends the origin; it gets the
+    canonical identifier back, so the token it receives is bound to the URL the
+    server actually serves rather than to whichever string the client happened
+    to have cached.
+    """
+    candidate = str(value or "").strip()
+    if not candidate:
+        return None
+    if candidate.rstrip("/") in accepted_mcp_audiences():
+        return MCP_RESOURCE_AUDIENCE
+    return None
+
+
+_NO_DEFAULT = object()
+
+
+def normalize_resource_indicator(value: str | None, *, default: Any = _NO_DEFAULT) -> str:
+    """Validate `resource` from a grant request and return what to bind.
+
+    ``default`` distinguishes two genuinely different callers. The device
+    endpoint has to pick an audience and defaults to the API's. The token
+    grants must be able to say "the client sent nothing", because substituting
+    the API audience there would make an MCP-bound authorization code fail its
+    own audience check — so they pass ``default=""`` and the empty string has
+    to survive rather than being coerced.
+
+    Raises ``invalid_target`` for anything that is neither the MCP resource nor
+    an accepted legacy alias — resource substitution has to fail loudly, which
+    is what ``test_authorization_code_rejects_resource_substitution`` pins.
+    """
+    candidate = str(value or "").strip()
+    if not candidate:
+        return OAUTH_AUDIENCE if default is _NO_DEFAULT else str(default)
+    canonical = canonical_mcp_resource(candidate)
+    if canonical is None:
+        raise OAuthGrantError("invalid_target", "Unsupported resource indicator")
+    return canonical
+
+
+# ── Redirect URI matching (RFC 8252 §7.3) ─────────────────────────────────
+
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
+
+def _split_redirect(uri: str) -> tuple[str, str, str, str] | None:
+    """(scheme, host, port, path) for a redirect URI, or None if unusable."""
+    from urllib.parse import urlsplit
+
+    try:
+        parts = urlsplit(uri.strip())
+    except ValueError:
+        return None
+    if not parts.scheme or not parts.netloc:
+        return None
+    if parts.fragment:
+        # RFC 6749 §3.1.2: the redirection endpoint MUST NOT include a fragment.
+        return None
+    if "@" in parts.netloc:
+        # userinfo in a redirect is a credential-in-URL smell and lets an
+        # attacker dress up a hostile host as ours in a browser address bar.
+        return None
+    host = (parts.hostname or "").lower()
+    if not host:
+        return None
+    # `.port` raises on a non-numeric port, and `:*` is exactly the wildcard
+    # pattern we accept for loopback — so classify it before asking.
+    if parts.netloc.rsplit("]", 1)[-1].endswith(":*"):
+        port = "*"
+    else:
+        try:
+            port = str(parts.port) if parts.port else ""
+        except ValueError:
+            return None
+    return parts.scheme.lower(), host, port, parts.path or ""
+
+
+def is_loopback_redirect(uri: str) -> bool:
+    parsed = _split_redirect(uri)
+    if not parsed:
+        return False
+    scheme, host, _, _ = parsed
+    return scheme == "http" and host in _LOOPBACK_HOSTS
+
+
+def redirect_uri_matches(registered: str, requested: str) -> bool:
+    """Exact match, widened only for loopback ports.
+
+    Native clients — Claude Code, VS Code, Copilot CLI, MCP Inspector — bind a
+    fresh ephemeral port per attempt, so an exact-match rule rejects every
+    second connection for no security benefit: the port is not a security
+    boundary on 127.0.0.1, which is precisely why RFC 8252 §7.3 tells the
+    authorization server to ignore it. The widening is deliberately confined to
+    loopback; a wildcard port on a routable host would let anyone who can bind a
+    port on that host receive authorization codes.
+    """
+    if registered == requested:
+        return True
+    reg = _split_redirect(registered)
+    req = _split_redirect(requested)
+    if not reg or not req:
+        return False
+    reg_scheme, reg_host, reg_port, reg_path = reg
+    req_scheme, req_host, _req_port, req_path = req
+    if reg_scheme != "http" or req_scheme != "http":
+        return False
+    if reg_host not in _LOOPBACK_HOSTS or req_host not in _LOOPBACK_HOSTS:
+        return False
+    # 127.0.0.1, ::1 and localhost are interchangeable in practice: the client
+    # picks whichever its HTTP stack binds, and RFC 8252 §8.3 asks servers not
+    # to make that choice a rejection.
+    if reg_port == "*":
+        # A bare `http://localhost:*` registration is a "any loopback callback"
+        # pattern; one carrying a path still pins the path.
+        return reg_path in ("", "/") or reg_path == req_path
+    return reg_path == req_path
+
+
+# Callbacks the first-party provider connectors post authorization codes back
+# to. Registered rather than discovered so the pre-provisioned connector client
+# works before any dynamic registration happens, and so DCR has a concrete
+# allowlist to check against.
+CONNECTOR_REDIRECT_URIS: tuple[str, ...] = (
+    "https://claude.ai/api/mcp/auth_callback",
+    "https://claude.com/api/mcp/auth_callback",
+    "https://chatgpt.com/connector_platform_oauth_redirect",
+    "https://chatgpt.com/aip/connectors/oauth/callback",
+    "https://platform.openai.com/connectors/oauth/callback",
+    "https://grok.com/api/mcp/auth_callback",
+    "http://127.0.0.1:*",
+    "http://localhost:*",
+    "http://[::1]:*",
+)
 
 
 class MemoryAuthCache:
@@ -514,11 +717,10 @@ def validate_agent_api_key(token: str) -> dict[str, Any] | None:
         try:
             AgentKeyStore.touch_last_used(row["key_id"])
         except Exception as exc:  # pragma: no cover - never fail auth on bookkeeping
-            import logging
-
             logging.getLogger("xcelsior.oauth").warning(
                 "agent key last_used update failed (non-fatal): %s", exc
             )
+    workspace = _agent_key_workspace(row, user)
     return {
         "auth_type": "agent_api_key",
         "key_id": row["key_id"],
@@ -528,12 +730,59 @@ def validate_agent_api_key(token: str) -> dict[str, Any] | None:
         "role": user.get("role", "submitter"),
         "name": user.get("name", ""),
         "is_admin": bool(user.get("is_admin")),
-        "customer_id": user.get("customer_id"),
+        "customer_id": workspace["customer_id"],
+        # Carried, not dropped. Without it `_user_team_id` finds nothing on this
+        # principal, so a team member's agent key resolves to their *personal*
+        # billing customer while the same person's browser session resolves to
+        # the team's — and everything the key creates becomes invisible to them.
+        "team_id": workspace["team_id"],
         "provider_id": user.get("provider_id"),
         "scopes": (row["scopes"] or "").split() if row["scopes"] else [],
         "audience": row["audience"],
         "tenant_id": row.get("tenant_id"),
     }
+
+
+def _agent_key_workspace(row: dict[str, Any], user: dict[str, Any]) -> dict[str, str | None]:
+    """Workspace identity for an agent-key principal.
+
+    The key row's ``tenant_id`` is the authority. That column was made
+    mandatory precisely so a tenant-scoped question does not have to join back
+    through ``users`` (companion §4.4.10) — but this function used to ignore it
+    and read ``customer_id`` off a live user lookup instead. When that lookup
+    returned nothing, the principal had no workspace at all, and
+    ``_canonical_owner_id`` silently fell through to the *user id*.
+
+    The consequence was not an error anyone saw: a launch plan created by an
+    agent key was filed under a tenant the owner's browser session never
+    resolves to, so approving it returned 404 ``plan_not_found`` — a resource
+    that exists, belongs to you, and is invisible to you. The live user row is
+    still preferred (it is the freshest source, and it distinguishes a team
+    workspace from a personal one); the stored tenant is the floor beneath it
+    rather than an unused column.
+    """
+    stored_tenant = str(row.get("tenant_id") or "").strip()
+    user_id = str(row.get("user_id") or "").strip()
+    customer_id = str(user.get("customer_id") or "").strip() or None
+    team_id = str(user.get("team_id") or "").strip() or None
+
+    if customer_id or team_id or not stored_tenant or stored_tenant == user_id:
+        # Either the live row answered, or the stored tenant adds nothing
+        # (a personal workspace with no customer is genuinely the user).
+        return {"customer_id": customer_id, "team_id": team_id}
+
+    # Degraded path: the user row could not be read. Fall back to the identity
+    # the key was actually issued under rather than to `user_id`, which nothing
+    # else in the system uses as a tenant. One lookup — only reached when the
+    # user lookup already failed — settles whether that identity is a team.
+    try:
+        if UserStore.get_team(stored_tenant):
+            return {"customer_id": None, "team_id": stored_tenant}
+    except Exception as exc:  # pragma: no cover - never fail auth on enrichment
+        logging.getLogger("xcelsior.oauth").warning(
+            "agent key team lookup failed (non-fatal): %s", exc
+        )
+    return {"customer_id": stored_tenant, "team_id": None}
 
 
 def _base64url_encode(raw: bytes) -> str:
@@ -700,7 +949,7 @@ def validate_client_credentials_jwt(token: str) -> dict[str, Any] | None:
         return None
     if payload.get("iss") != OAUTH_ISSUER:
         return None
-    if payload.get("aud") not in {OAUTH_AUDIENCE, MCP_RESOURCE_AUDIENCE}:
+    if payload.get("aud") not in {OAUTH_AUDIENCE, *accepted_mcp_audiences()}:
         return None
 
     client = OAuthStore.get_client(str(payload.get("client_id", "")))
@@ -856,6 +1105,41 @@ def ensure_default_oauth_clients() -> None:
                 "updated_at": now,
             },
             {
+                # Provider-held/predefined credentials: the contingency path in
+                # BLOCKER 3 item 3, and the client an operator hands to a
+                # provider that supports neither CIMD nor DCR. Public + PKCE, so
+                # there is no shared secret to distribute.
+                "client_id": "xcelsior-connector",
+                "client_name": "Xcelsior MCP Connector",
+                "client_type": "public",
+                "redirect_uris": list(CONNECTOR_REDIRECT_URIS),
+                "grant_types": ["authorization_code", "refresh_token"],
+                "scopes": [
+                    "profile",
+                    "email",
+                    "offline_access",
+                    "instances:read",
+                    "instances:write",
+                    "instances:operate",
+                    "billing:read",
+                    "gpu:read",
+                    "marketplace:read",
+                    "inference:read",
+                    "inference:write",
+                    "events:read",
+                    "mcp_actions:approve",
+                ],
+                "created_by_email": None,
+                # Deliberately *not* first-party: it is used by third-party
+                # products, so it must go through the same consent screen a
+                # dynamically registered client does.
+                "is_first_party": 0,
+                "registration_source": "connector",
+                "resource_audience": MCP_RESOURCE_AUDIENCE,
+                "created_at": now,
+                "updated_at": now,
+            },
+            {
                 "client_id": ps_id,
                 "client_name": "PixelSpark",
                 "client_type": "public",
@@ -875,8 +1159,27 @@ def ensure_default_oauth_clients() -> None:
 
 
 def get_client(client_id: str) -> dict | None:
+    """Resolve a client id to a client record.
+
+    A CIMD client id is an HTTPS URL rather than a stored row, so resolution
+    falls through to fetching the metadata document it names. Doing it here —
+    rather than at each call site — means authorize, token exchange, and
+    redirect validation all treat a metadata-document client identically to a
+    stored one, with no second code path to keep in sync.
+
+    Raises:
+        OAuthGrantError: if the id looks like a metadata document but the
+            document is missing, malformed, or does not vouch for that id.
+    """
     ensure_default_oauth_clients()
-    return OAuthStore.get_client(client_id)
+    stored = OAuthStore.get_client(client_id)
+    if stored:
+        return stored
+    from oauth_registration import is_cimd_client_id, resolve_cimd_client
+
+    if is_cimd_client_id(client_id):
+        return resolve_cimd_client(client_id)
+    return None
 
 
 def create_oauth_client(
@@ -891,6 +1194,16 @@ def create_oauth_client(
     workspace_customer_id: str | None = None,
     team_id: str | None = None,
     is_system_managed: bool = False,
+    registration_source: str = "manual",
+    resource_audience: str | None = None,
+    registration_expires_at: datetime | None = None,
+    client_uri: str | None = None,
+    logo_uri: str | None = None,
+    policy_uri: str | None = None,
+    tos_uri: str | None = None,
+    software_id: str | None = None,
+    software_version: str | None = None,
+    contacts: list[str] | None = None,
 ) -> dict[str, Any]:
     now = time.time()
     # Branded, API-key-length client identifier (e.g. xoa_<40 hex>).
@@ -921,6 +1234,16 @@ def create_oauth_client(
         "is_system_managed": 1 if is_system_managed else 0,
         "created_at": now,
         "updated_at": now,
+        "registration_source": registration_source,
+        "resource_audience": resource_audience,
+        "registration_expires_at": registration_expires_at,
+        "client_uri": client_uri,
+        "logo_uri": logo_uri,
+        "policy_uri": policy_uri,
+        "tos_uri": tos_uri,
+        "software_id": software_id,
+        "software_version": software_version,
+        "contacts": list(contacts or []),
     }
     OAuthStore.create_client(client)
     response = {
@@ -938,6 +1261,8 @@ def create_oauth_client(
         "updated_at": now,
         "last_used": None,
         "client_secret_preview": secret_preview,
+        "registration_source": registration_source,
+        "resource_audience": resource_audience,
     }
     if client_secret:
         response["client_secret"] = client_secret
@@ -1034,6 +1359,15 @@ def issue_authorization_code(
 ) -> str:
     if code_challenge_method != "S256":
         raise OAuthGrantError("invalid_request", "Only S256 PKCE is supported")
+    # A dynamically identified client is pinned to one protected resource. This
+    # is the containment that keeps "anyone may register a connector" from
+    # meaning "anyone may mint a general-purpose Xcelsior API token".
+    pinned = str(client.get("resource_audience") or "").strip()
+    if pinned and (audience or OAUTH_AUDIENCE) != pinned:
+        raise OAuthGrantError(
+            "invalid_target",
+            "This client may only be authorized for the resource it registered for",
+        )
     code = secrets.token_urlsafe(32)
     payload = {
         "client_id": client["client_id"],
@@ -1055,6 +1389,82 @@ def issue_authorization_code(
     if not _cache_set_json("authorization_code", code, payload, AUTH_CODE_TTL_SEC):
         raise OAuthGrantError("server_error", "Failed to issue authorization code", status_code=500)
     return code
+
+
+# ── User consent for third-party connectors ───────────────────────────────
+
+#: Long enough for a user to read the screen and sign in if the session
+#: expired mid-flow; short enough that a staged request is not a standing
+#: capability.
+CONSENT_REQUEST_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_CONSENT_TTL_SEC", "600"))
+
+#: Plain-language scope descriptions for the consent screen. A consent screen
+#: that shows raw scope strings is not informed consent.
+SCOPE_DESCRIPTIONS: dict[str, str] = {
+    "profile": "See your name and account role",
+    "email": "See your email address",
+    "offline_access": "Stay connected without asking you to sign in again",
+    "instances:read": "See your GPU instances, their status, and their logs",
+    "instances:write": "Launch, cancel, and terminate GPU instances",
+    "instances:operate": "Retry and reconcile stuck instances",
+    "billing:read": "See your wallet balance, cost estimates, and invoices",
+    "billing:write": "Change billing settings and move funds",
+    "gpu:read": "See available GPUs and pricing",
+    "marketplace:read": "Search the marketplace and read live spot prices",
+    "inference:read": "See your serverless endpoints and job status",
+    "inference:write": "Create serverless endpoints and run inference jobs",
+    "events:read": "Read your account's activity events",
+    "mcp_actions:approve": "Approve pending action plans on your behalf",
+    "hosts:read": "See platform host capacity (operator)",
+    "hosts:operate": "Drain and undrain platform hosts (operator)",
+    "hosts:evict": "Evict workloads from platform hosts (operator)",
+    "control_plane:read": "See platform control-plane health (operator)",
+    "control_plane:operate": "Retry platform control-plane commands (operator)",
+    "api": "Full access to the Xcelsior API",
+}
+
+
+def describe_scope(scope: str) -> str:
+    return SCOPE_DESCRIPTIONS.get(scope, scope)
+
+
+def stash_consent_request(payload: dict[str, Any]) -> str:
+    """Park a validated authorization request while the user decides.
+
+    The key is only ever rendered into the deciding user's own page, which is
+    what makes it a CSRF token as well as a lookup handle: a cross-site POST
+    cannot guess it, and the stored `user_id` is re-checked on submit so a
+    stolen key is useless in another session.
+    """
+    key = secrets.token_urlsafe(32)
+    if not _cache_set_json("consent_request", key, payload, CONSENT_REQUEST_TTL_SEC):
+        raise OAuthGrantError(
+            "server_error", "Failed to stage the authorization request", status_code=503
+        )
+    return key
+
+
+def take_consent_request(key: str) -> dict[str, Any] | None:
+    """Single-use retrieval: a consent decision cannot be replayed."""
+    if not key:
+        return None
+    return _cache_getdel_json("consent_request", key)
+
+
+def consent_covers(user_id: str, client_id: str, resource: str, scopes: list[str]) -> bool:
+    """True when a live grant already covers everything being asked for.
+
+    Scope-exact rather than "any grant exists": a connector that later asks for
+    the authority to spend money must show the user that screen, even if it
+    was previously approved for reads.
+    """
+    from db import ConsentStore
+
+    grant = ConsentStore.get(user_id, client_id, resource or "")
+    if not grant:
+        return False
+    granted = set(grant.get("scopes") or [])
+    return set(scopes).issubset(granted)
 
 
 def _build_session_record(
@@ -1095,7 +1505,12 @@ def _issue_opaque_access_token(
     # authorization-code grants for third-party agents (different client_id) keep
     # the short access-token TTL even though they also carry session_type=browser.
     is_first_party_web = session_type == "browser" and client_id == "xcelsior-web"
-    ttl = BROWSER_SESSION_TTL_SEC if is_first_party_web else ACCESS_TOKEN_TTL_SEC
+    if is_first_party_web:
+        ttl = BROWSER_SESSION_TTL_SEC
+    elif audience in accepted_mcp_audiences():
+        ttl = MCP_ACCESS_TOKEN_TTL_SEC
+    else:
+        ttl = ACCESS_TOKEN_TTL_SEC
     payload = {
         "auth_type": "oauth_access_token",
         "email": user.get("email", ""),
@@ -1206,7 +1621,10 @@ def issue_user_tokens(
         "access_token": access["access_token"],
         "refresh_token": refresh_token,
         "token_type": "Bearer",
-        "expires_in": ACCESS_TOKEN_TTL_SEC,
+        # The real TTL, not the global default: MCP-audience and first-party
+        # browser tokens both diverge from it, and a client that trusts a wrong
+        # expires_in schedules its refresh at the wrong time.
+        "expires_in": access["expires_in"],
         "refresh_expires_in": REFRESH_TOKEN_TTL_SEC,
         "scope": " ".join(scopes),
         "session_token": refresh_token,
@@ -1483,7 +1901,7 @@ def rotate_refresh_token(refresh_token: str, request) -> dict[str, Any]:
             "access_token": access["access_token"],
             "refresh_token": new_refresh_token,
             "token_type": "Bearer",
-            "expires_in": ACCESS_TOKEN_TTL_SEC,
+            "expires_in": access["expires_in"],
             "refresh_expires_in": REFRESH_TOKEN_TTL_SEC,
             "scope": " ".join(scopes),
             "session_type": session_type,

@@ -93,6 +93,13 @@ docs/*
 !docs/AI_ML_MASTER_INDEX_XCELSIOR.md
 !docs/PXL_REGISTRY_SECTION_10_MIRROR.md
 !docs/MASTER_INDEX_SECTION_10_XCELSIOR.synced.md
+# MCP enterprise adoption: the plan of record and the documents the tracked
+# HANDOFF.md links to. Without these exceptions `docs/*` swallows them, and a
+# tracked handoff points at files that do not exist for anyone who clones.
+!docs/mcp-enterprise-adoption-plan.md
+!docs/mcp-submission-readiness.md
+!docs/mcp-tool-versioning.md
+!docs/mcp-quickstarts.md
 
 # ── Editor / OS ──────────────────────────────────────────────────────
 .vscode/settings.json
