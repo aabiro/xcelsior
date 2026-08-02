@@ -3,16 +3,16 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { XcelsiorApiClient } from "../client/api.js";
 import { apiProblem, formatApiError } from "../client/errors.js";
 import { jsonText, structuredResult } from "../lib/format.js";
-import { TOOL_SCOPES, userHasScope } from "../auth/scopes.js";
+import { TOOL_SCOPES, userHasScope, scopeUnion, describeScopeRequirement } from "../auth/scopes.js";
 import type { AuthUser } from "../auth/bearer.js";
 
 function scopeDenied(tool: string, user: AuthUser | undefined) {
-  const required = TOOL_SCOPES[tool] || ["api"];
+  const required = TOOL_SCOPES[tool];
   if (!userHasScope(user?.scopes, required)) {
     return jsonText({
       error: "insufficient_scope",
-      required,
-      message: `This tool requires one of: ${required.join(", ")}`,
+      required: scopeUnion(required),
+      message: `This tool requires ${describeScopeRequirement(required)}`,
     });
   }
   return null;

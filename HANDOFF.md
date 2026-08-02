@@ -668,7 +668,6 @@ the SQL boolean false.
 The same `users` table uses integer flags for:
 
 - `notifications_enabled`
-- `canada_only_routing`
 - `mfa_enabled`
 - `email_verified`
 - `is_admin`

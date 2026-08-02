@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { TOOL_SCOPES } from "../auth/scopes.js";
+import { TOOL_SCOPES, scopeUnion } from "../auth/scopes.js";
+import type { ScopeRequirement } from "../auth/scopes.js";
 
 const READ_ONLY = new Set([
   "list_available_gpus", "get_spot_prices", "get_pricing_reference", "search_marketplace",
@@ -65,7 +66,10 @@ const OPERATOR_TOOLS = new Set([
 
 export interface ToolContract {
   version: string;
+  /** Advertising and metadata only — never authorize against this. */
   requiredScopes: readonly string[];
+  /** Authoritative for authorization. */
+  scopeRequirement: ScopeRequirement;
   tenantClass: "tenant" | "operator";
   idempotency: "read" | "keyed" | "none";
   timeoutMs: number;
@@ -80,12 +84,16 @@ export interface ToolContract {
 }
 
 export const TOOL_CONTRACTS: Record<string, ToolContract> = Object.fromEntries(
-  Object.entries(TOOL_SCOPES).map(([name, scopes]) => {
+  Object.entries(TOOL_SCOPES).map(([name, requirement]) => {
     const readOnly = READ_ONLY.has(name);
     const keyed = !readOnly && !["run_serverless_job"].includes(name);
     return [name, {
       version: "2.0.0",
-      requiredScopes: scopes,
+      // Enforcement uses `scopeRequirement`; this flat union exists only for
+      // metadata and advertising. Never authorize against it — flattening
+      // `allOf` into a list is exactly how the any-one-of bug read.
+      requiredScopes: scopeUnion(requirement),
+      scopeRequirement: requirement,
       tenantClass: OPERATOR_TOOLS.has(name) ? "operator" : "tenant",
       idempotency: readOnly ? "read" : keyed ? "keyed" : "none",
       timeoutMs: name === "watch_instance" ? 3_600_000 : 15_000,

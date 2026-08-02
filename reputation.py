@@ -73,7 +73,7 @@ class VerificationType(str, Enum):
     PHONE = "phone"
     GOV_ID = "gov_id"
     HARDWARE_AUDIT = "hardware_audit"
-    INCORPORATION = "incorporation"  # For sovereignty tier
+    INCORPORATION = "incorporation"  # Registered business entity
     DATA_CENTER = "data_center"  # Tier 3/4 DC verification
 
 
@@ -1043,9 +1043,6 @@ GPU_REFERENCE_PRICING_CAD = {
     },
 }
 
-# From REPORT_MARKETING_2.md: sovereignty premium
-SOVEREIGNTY_PREMIUM_PCT = 0.10  # 10% extra for Canada-only mode
-
 # From REPORT_MARKETING_2.md: spot pricing at 70% of on-demand
 SPOT_DISCOUNT_FACTOR = 0.30  # 30% discount for spot/preemptible
 
@@ -1054,14 +1051,12 @@ def get_reference_rate(
     gpu_model: str,
     tier: ReputationTier = ReputationTier.BRONZE,
     spot: bool = False,
-    sovereignty: bool = False,
 ) -> float:
     """Get the reference rate in CAD/hr for a GPU model.
 
     Adjusts for:
     - Reputation tier (premium hosts can charge more)
-    - Spot pricing (30% discount per REPORT_MARKETING_2.md)
-    - Sovereignty premium (10% extra for Canada-only)
+    - Spot pricing (30% discount)
     """
     # Match GPU model: exact first, then longest-key-first substring to avoid
     # "A100" matching "A100 40GB" when only the generic entry is wanted.
@@ -1089,9 +1084,6 @@ def get_reference_rate(
     if spot:
         rate *= 1 - SPOT_DISCOUNT_FACTOR
 
-    # Sovereignty premium
-    if sovereignty:
-        rate *= 1 + SOVEREIGNTY_PREMIUM_PCT
 
     return round(rate, 4)
 
@@ -1101,21 +1093,11 @@ def estimate_job_cost(
     duration_hours: float,
     tier: ReputationTier = ReputationTier.BRONZE,
     spot: bool = False,
-    sovereignty: bool = False,
-    is_canadian: bool = False,
 ) -> dict:
-    """Estimate job cost in CAD.
+    """Estimate job cost in CAD."""
 
-    ``is_canadian`` only records where the compute runs. The AI Compute Access
-    Fund has ended, so no rebate is deducted regardless of its value and
-    ``effective_cost_cad`` equals ``gross_cost_cad``.
-    """
-    from jurisdiction import compute_fund_eligible_amount
-
-    rate = get_reference_rate(gpu_model, tier, spot, sovereignty)
+    rate = get_reference_rate(gpu_model, tier, spot)
     gross_cost = round(rate * duration_hours, 4)
-
-    fund = compute_fund_eligible_amount(gross_cost, is_canadian)
 
     return {
         "gpu_model": gpu_model,
@@ -1123,22 +1105,9 @@ def estimate_job_cost(
         "rate_cad_per_hour": rate,
         "gross_cost_cad": gross_cost,
         "currency": "CAD",
-        "is_canadian_compute": is_canadian,
         "spot": spot,
-        "sovereignty_premium": sovereignty,
         "host_tier": tier,
-        # Fund breakdown. ``fund_rate`` is the numeric reimbursement rate (0.0
-        # while the program is closed); the human-readable reason lives in
-        # ``fund_label``. These were transposed before, which put a sentence in
-        # a field callers read as a number.
-        "fund_eligible": fund["fund_eligible"],
-        "fund_rate": fund["fund_rate"],
-        "fund_label": fund["fund_label"],
-        "fund_reimbursable_cad": fund["reimbursable_amount_cad"],
-        "effective_cost_cad": round(gross_cost - fund["reimbursable_amount_cad"], 2),
-        "savings_pct": (
-            round(fund["reimbursable_amount_cad"] / gross_cost * 100, 1) if gross_cost > 0 else 0
-        ),
+        "effective_cost_cad": gross_cost,
     }
 
 

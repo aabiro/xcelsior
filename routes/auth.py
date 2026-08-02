@@ -460,7 +460,10 @@ class OAuthClientCreateRequest(BaseModel):
     client_name: str = Field(min_length=1, max_length=128)
     redirect_uris: list[str] = Field(default_factory=list, max_length=20)
     grant_types: list[str] = Field(default_factory=lambda: ["client_credentials"], max_length=10)
-    scopes: list[str] = Field(default_factory=lambda: ["api"], max_length=20)
+    # No default grant. A client that registers without naming scopes gets
+    # none, and is refused by every scope-checked route until it asks for
+    # what it needs. The old default was ["api"], a wildcard.
+    scopes: list[str] = Field(default_factory=list, max_length=20)
     client_type: str = Field(default="confidential", pattern="^(confidential|public)$")
     is_first_party: bool = False
 
@@ -513,7 +516,6 @@ def oauth_authorization_server_metadata(request: Request):
             "events:read",
             "inference:read",
             "inference:write",
-            "api",
         ],
         "service_documentation": f"{_OAUTH_BASE_URL.rstrip('/')}/docs",
         "jwks_uri": f"{base_url}/.well-known/jwks.json",
@@ -1509,7 +1511,7 @@ def api_auth_register(body: RegisterRequest, request: Request):
             email,
             f"Verify your email, {display_name}",
             f"Hi {display_name},\n\n"
-            "Thanks for signing up for Xcelsior — Canada's sovereign GPU compute marketplace.\n\n"
+            "Thanks for signing up for Xcelsior — the global GPU compute marketplace.\n\n"
             "Please verify your email address by clicking the button below. This link expires in 24 hours.\n\n"
             f"{verify_url}\n\n"
             "If you didn't create this account, you can safely ignore this email.",
@@ -2697,7 +2699,7 @@ def api_auth_verify_email(req: VerifyEmailRequest, request: Request):
                 f"Hi {display_name},\n\n"
                 "Your email is verified and your account is active.\n\n"
                 "From your dashboard you can browse available GPU hosts, "
-                "launch compute instances, and track your usage — all billed in CAD with full Canadian data residency.\n\n"
+                "launch compute instances, and track your usage — all billed in CAD.\n\n"
                 "We're currently in early access, so if you run into anything or have questions, just reply to this email. "
                 "We'd love to hear from you.",
                 cta_url="https://xcelsior.ca/dashboard",
@@ -3004,7 +3006,7 @@ def api_auth_revoke_session(token_prefix: str, request: Request):
 
 @router.get("/api/auth/me/data-export", tags=["Auth"])
 def api_data_export(request: Request):
-    """Export all personal data for the current user (PIPEDA right).
+    """Export all personal data for the current user.
 
     Returns a JSON bundle of all user data: profile, jobs, billing,
     reputation, artifacts, and consent records.
@@ -3076,7 +3078,6 @@ def api_get_user_preferences(request: Request):
             raw_prefs = {}
     return {
         "ok": True,
-        "canada_only_routing": bool(full_user.get("canada_only_routing", 0)),
         "notifications": bool(full_user.get("notifications_enabled", 1)),
         "preferences": raw_prefs if isinstance(raw_prefs, dict) else {},
     }
@@ -3089,8 +3090,6 @@ def api_set_user_preferences(request: Request, body: dict):
     updates: dict = {}
     if "notifications" in body:
         updates["notifications_enabled"] = 1 if body["notifications"] else 0
-    if "canada_only_routing" in body:
-        updates["canada_only_routing"] = 1 if body["canada_only_routing"] else 0
     # Merge JSONB preferences (partial update)
     if "preferences" in body and isinstance(body["preferences"], dict):
         # Validate: only allow known preference keys

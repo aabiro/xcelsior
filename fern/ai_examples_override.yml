@@ -112,7 +112,6 @@ paths:
             min_vram_gb: 24
             max_price_cents: 15000
             region: 'ON'
-            canada_only: true
             sort_by: price
             limit: 25
   /api/inference:
@@ -149,8 +148,6 @@ paths:
             gpu_model: NVIDIA RTX 4090
             duration_hours: 5.5
             spot: true
-            sovereignty: true
-            is_canadian: true
           response:
             body:
               estimated_cost_cad: 42.75
@@ -160,8 +157,6 @@ paths:
               duration_hours: 5.5
               gpu_model: NVIDIA RTX 4090
               spot: true
-              sovereignty: true
-              is_canadian: true
               rebate_applied: true
               timestamp: '2024-06-15T12:00:00Z'
   /api/v2/serverless/endpoints/endpoint_id:
@@ -350,7 +345,7 @@ paths:
               created: 1712345678
               model: gpt-4-xcelsior
               choices:
-                - text: Distributed GPU orchestration enables efficient allocation and scaling of GPU resources across multiple nodes, improving performance and reducing latency for AI workloads. It also enhances fault tolerance and resource utilization, allowing AI models to train and infer faster while maintaining data sovereignty and compliance.
+                - text: Distributed GPU orchestration enables efficient allocation and scaling of GPU resources across multiple nodes, improving performance and reducing latency for AI workloads. It also enhances fault tolerance and resource utilization, allowing AI models to train and infer faster while keeping costs predictable.
                   index: 0
                   logprobs: null
                   finish_reason: stop

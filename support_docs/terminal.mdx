@@ -19,7 +19,7 @@ Xcelsior provides a best-in-class, fully featured Web Terminal directly inside y
 ## Security & Isolation
 
 - **No Public Exposure:** The terminal connects via SSH directly over the encrypted Xcelsior Headscale mesh network. Your container does not need to expose any ports to the public internet.
-- **Sandboxed Execution:** Terminal commands execute strictly within your container's isolation boundary (typically a gVisor/Kata sandbox for sovereign workloads). Terminal access does not grant access to the underlying GPU host OS.
+- **Sandboxed Execution:** Terminal commands execute strictly within your container's isolation boundary (typically a gVisor/Kata sandbox on higher tiers). Terminal access does not grant access to the underlying GPU host OS.
 - **Authentication:** WebSockets are authenticated natively with your user session.
 
 ## Keyboard Shortcuts

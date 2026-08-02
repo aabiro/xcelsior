@@ -17,7 +17,7 @@ const SAMPLE_INDEX = `# Xcelsior Docs
 
 - [Introduction](https://xcelsior.docs.buildwithfern.com/introduction.md): Distributed GPU compute.
 - [Billing](https://xcelsior.docs.buildwithfern.com/billing.md): CAD-native billing with tax support.
-- [Compliance & Data Residency](https://xcelsior.docs.buildwithfern.com/compliance.md): Pin a workload to a jurisdiction.
+- [Trust & Controls](https://xcelsior.docs.buildwithfern.com/compliance.md): What the platform enforces.
 - [Introduction](https://xcelsior.docs.buildwithfern.com/introduction.md): duplicate line
 not a list item
 - [Broken](not-a-url): should be skipped

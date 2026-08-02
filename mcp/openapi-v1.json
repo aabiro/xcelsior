@@ -2040,19 +2040,6 @@
         ],
         "title": "BuildIn"
       },
-      "CanadaToggle": {
-        "properties": {
-          "enabled": {
-            "type": "boolean",
-            "title": "Enabled"
-          }
-        },
-        "type": "object",
-        "required": [
-          "enabled"
-        ],
-        "title": "CanadaToggle"
-      },
       "CaslConsentRequest": {
         "properties": {
           "purpose": {
@@ -2611,16 +2598,6 @@
           "spot": {
             "type": "boolean",
             "title": "Spot",
-            "default": false
-          },
-          "sovereignty": {
-            "type": "boolean",
-            "title": "Sovereignty",
-            "default": false
-          },
-          "is_canadian": {
-            "type": "boolean",
-            "title": "Is Canadian",
             "default": false
           }
         },
@@ -3426,25 +3403,6 @@
         ],
         "title": "JobIn"
       },
-      "JurisdictionFilterRequest": {
-        "properties": {
-          "canada_only": {
-            "type": "boolean",
-            "title": "Canada Only",
-            "default": true
-          },
-          "province": {
-            "type": "string",
-            "title": "Province"
-          },
-          "trust_tier": {
-            "type": "string",
-            "title": "Trust Tier"
-          }
-        },
-        "type": "object",
-        "title": "JurisdictionFilterRequest"
-      },
       "LeaseAuthorityRequest": {
         "properties": {
           "lease_id": {
@@ -3554,9 +3512,9 @@
             "title": "Request Type",
             "default": "subpoena"
           },
-          "jurisdiction": {
+          "requesting_country": {
             "type": "string",
-            "title": "Jurisdiction",
+            "title": "Requesting Country",
             "default": "CA"
           },
           "authority": {
@@ -3671,11 +3629,6 @@
             "maxLength": 32,
             "title": "Region",
             "default": ""
-          },
-          "canada_only": {
-            "type": "boolean",
-            "title": "Canada Only",
-            "default": false
           },
           "spot_available": {
             "type": "boolean",
@@ -4056,27 +4009,6 @@
         },
         "type": "object",
         "title": "ObservedWorkload"
-      },
-      "PIACheckRequest": {
-        "properties": {
-          "data_origin_province": {
-            "type": "string",
-            "title": "Data Origin Province",
-            "default": "QC"
-          },
-          "processing_province": {
-            "type": "string",
-            "title": "Processing Province",
-            "default": "ON"
-          },
-          "data_contains_pi": {
-            "type": "boolean",
-            "title": "Data Contains Pi",
-            "default": false
-          }
-        },
-        "type": "object",
-        "title": "PIACheckRequest"
       },
       "PasskeyAuthenticateCompleteRequest": {
         "properties": {
@@ -5434,25 +5366,6 @@
         "type": "object",
         "title": "SocialOAuthInitBody"
       },
-      "SovereignQueueRequest": {
-        "properties": {
-          "canada_only": {
-            "type": "boolean",
-            "title": "Canada Only",
-            "default": true
-          },
-          "province": {
-            "type": "string",
-            "title": "Province"
-          },
-          "trust_tier": {
-            "type": "string",
-            "title": "Trust Tier"
-          }
-        },
-        "type": "object",
-        "title": "SovereignQueueRequest"
-      },
       "StatusUpdate": {
         "properties": {
           "status": {
@@ -5697,10 +5610,10 @@
             "title": "Artifact Type",
             "default": "job_output"
           },
-          "residency_policy": {
+          "storage_policy": {
             "type": "string",
-            "title": "Residency Policy",
-            "default": "canada_only"
+            "title": "Storage Policy",
+            "default": "any"
           }
         },
         "type": "object",

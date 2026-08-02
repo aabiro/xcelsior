@@ -8,6 +8,4 @@ export interface EstimateRequest {
     gpu_model?: string;
     duration_hours?: number;
     spot?: boolean;
-    sovereignty?: boolean;
-    is_canadian?: boolean;
 }

@@ -41,22 +41,5 @@ describe("evaluateShouldIRunThis", () => {
     expect(result.reasons.some((r) => r.includes("max_hourly_cad"))).toBe(true);
   });
 
-  it("includes a jurisdiction note naming the requested residency", () => {
-    const result = evaluateShouldIRunThis(
-      { gpu_model: "RTX 4090", duration_hours: 1, require_residency: "CA" },
-      estimate,
-      50,
-    );
-    expect(result.jurisdiction_note).toContain("CA");
-    expect(result.jurisdiction_note).toContain("Do not assume");
-  });
 
-  it("omits the jurisdiction note when residency is unconstrained", () => {
-    const result = evaluateShouldIRunThis(
-      { gpu_model: "RTX 4090", duration_hours: 1 },
-      estimate,
-      50,
-    );
-    expect(result.jurisdiction_note).toBeUndefined();
-  });
 });

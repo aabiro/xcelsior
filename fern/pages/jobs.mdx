@@ -20,7 +20,7 @@ curl -X POST https://xcelsior.ca/instance \
     "name": "llama-70b-inference",
     "vram_needed_gb": 48,
     "priority": 8,
-    "tier": "sovereign"
+    "tier": "dedicated"
   }'
 ```
 
@@ -31,7 +31,7 @@ curl -X POST https://xcelsior.ca/instance \
 | `name` | string | Instance identifier |
 | `vram_needed_gb` | float | Required GPU VRAM in GB |
 | `priority` | int | 1-10 (higher = more urgent) |
-| `tier` | string | Isolation tier: `community`, `secure`, `regulated`, `sovereign` |
+| `tier` | string | Service tier: `community`, `secure`, `dedicated` |
 
 ## Instance Lifecycle
 
@@ -56,7 +56,7 @@ The scheduler uses a 3-step filtering process:
 
 1. **VRAM Check**, Host must have enough free VRAM
 2. **Admission Gate**, Only `admitted = true` hosts considered
-3. **Isolation Tier**, Sovereign/regulated jobs prefer gVisor/Kata runtime
+3. **Runtime**, hardened container isolation on every host
 
 Trigger scheduling manually:
 

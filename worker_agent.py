@@ -121,7 +121,6 @@ OAUTH_TOKEN_REFRESH_SKEW_SEC = int(os.environ.get("XCELSIOR_OAUTH_TOKEN_REFRESH_
 # Optional tuning
 COST_PER_HOUR = float(os.environ.get("XCELSIOR_COST_PER_HOUR", "0.50"))
 HOST_COUNTRY = os.environ.get("XCELSIOR_COUNTRY", "").strip().upper()
-HOST_PROVINCE = os.environ.get("XCELSIOR_PROVINCE", "").strip().upper()
 HOST_REGION = os.environ.get("XCELSIOR_REGION", "").strip()
 HOST_SSH_USER = os.environ.get("XCELSIOR_HOST_SSH_USER", "").strip()
 HEARTBEAT_INTERVAL = int(os.environ.get("XCELSIOR_HEARTBEAT_INTERVAL", "10"))
@@ -1220,8 +1219,6 @@ def heartbeat(gpu_info, host_ip, compute_score=None):
     }
     if HOST_COUNTRY:
         data["country"] = HOST_COUNTRY
-    if HOST_PROVINCE:
-        data["province"] = HOST_PROVINCE
     if HOST_REGION:
         data["region"] = HOST_REGION
     host_ssh_user = _reported_host_ssh_user()
@@ -6361,12 +6358,11 @@ def print_startup_banner(gpu_info, host_ip, admitted, runtime):
         "  GPU:            %s (%.1f GB VRAM)", gpu_info["gpu_model"], gpu_info["total_vram_gb"]
     )
     log.info("  Cost/hour:      $%.2f", COST_PER_HOUR)
-    if HOST_REGION or HOST_PROVINCE or HOST_COUNTRY:
+    if HOST_REGION or HOST_COUNTRY:
         log.info(
-            "  Region:         %s%s%s",
+            "  Region:         %s%s",
             HOST_REGION or "-",
             f" / {HOST_COUNTRY}" if HOST_COUNTRY else "",
-            f" {HOST_PROVINCE}" if HOST_PROVINCE else "",
         )
     log.info("  Poll interval:  %ds", POLL_INTERVAL)
     log.info("  Heartbeat:      %ds", HEARTBEAT_INTERVAL)

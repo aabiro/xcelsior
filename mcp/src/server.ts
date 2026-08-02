@@ -33,7 +33,6 @@ export function createMcpServer(
       "Rates are quoted and settled in CAD; call get_pricing_reference for the live table rather than assuming a price.",
       "Check spend before committing: should_i_run_this, or estimate_job_cost + get_wallet_balance.",
       "Destructive tools require confirm:true — call with confirm:false first for a preview.",
-      "Placement is region-aware. When a workload carries a data-residency or jurisdiction requirement, pass it explicitly and verify the selected host reports a matching jurisdiction — never assume the default region satisfies it.",
     ].join(" "),
   });
   installToolAudit(server, client, user, transport, profile);

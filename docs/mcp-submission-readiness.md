@@ -106,7 +106,7 @@ a hardcoded placeholder would either be a lie now or stale later.
 > pricing, estimate what a job will cost before you commit, launch and monitor
 > training runs, and call serverless inference endpoints billed per token with
 > no idle cost. Everything is quoted and settled in Canadian dollars, and
-> workloads can be pinned to a jurisdiction when data residency matters.
+> every action is scoped, approved when destructive, and recorded.
 >
 > Destructive operations — cancelling, terminating, evicting — never execute on
 > the model's say-so. They produce a server-bound action plan that a human

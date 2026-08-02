@@ -567,7 +567,7 @@ our control; X3's clock is not.
   profiles share the implementation and build artifact while retaining separate trust boundaries.
 - **No VM or cloud migration merely to satisfy “remote.”** Independent validation runs as an
   ephemeral external job. Production hosting changes only for measured reliability, scale,
-  residency, or operating-cost reasons.
+  or operating-cost reasons.
 - **No operator tools in public directory submissions.** Comprehensive internal capability is
   preserved behind the operator profile; public curation is a security and model-quality boundary.
 - **No company-knowledge delay to the base OpenAI submission.** `search`/`fetch` is an optional

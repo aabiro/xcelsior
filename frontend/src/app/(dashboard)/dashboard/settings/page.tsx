@@ -108,7 +108,6 @@ export default function SettingsPage() {
   // Profile
   const [name, setName] = useState(user?.name || "");
   const [email] = useState(user?.email || "");
-  const [canadaOnly, setCanadaOnly] = useState(false);
   const [notifications, setNotifications] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -292,7 +291,6 @@ export default function SettingsPage() {
     fetch("/api/users/me/preferences", { credentials: "include" })
       .then((r) => r.ok ? r.json() : Promise.reject())
       .then((prefs) => {
-        setCanadaOnly(prefs.canada_only_routing ?? false);
         setNotifications(prefs.notifications ?? true);
       })
       .catch((e) => console.error("Failed to load preferences", e));
@@ -339,7 +337,7 @@ export default function SettingsPage() {
       await fetch("/api/users/me/preferences", {
         method: "PUT", credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ canada_only_routing: canadaOnly, notifications }),
+        body: JSON.stringify({ notifications }),
       });
       toast.success("Settings saved");
     } catch { toast.error("Failed to save settings"); }
@@ -718,7 +716,6 @@ export default function SettingsPage() {
           {activeTab === "profile" && user && (
             <ProfileTab
               t={t} user={user} name={name} setName={setName} email={email}
-              canadaOnly={canadaOnly} setCanadaOnly={setCanadaOnly}
               notifications={notifications} setNotifications={setNotifications}
               saving={saving} onSave={handleSave}
               onAvatarUpdated={refreshUser}
@@ -829,14 +826,13 @@ export default function SettingsPage() {
 // ════════════════════════════════════════════════════════════════════
 
 function ProfileTab({
-  t, user, name, setName, email, canadaOnly, setCanadaOnly,
+  t, user, name, setName, email,
   notifications, setNotifications, saving, onSave, onAvatarUpdated,
 }: {
   t: (k: string, vars?: Record<string, string | number>) => string;
   user: import("@/lib/auth").User;
   name: string; setName: (v: string) => void;
   email: string;
-  canadaOnly: boolean; setCanadaOnly: (v: boolean) => void;
   notifications: boolean; setNotifications: (v: boolean) => void;
   saving: boolean; onSave: () => void;
   onAvatarUpdated: () => Promise<void>;
@@ -1023,22 +1019,6 @@ function ProfileTab({
                 iconClassName="text-emerald"
               />
             </div>
-          </SettingsSection>
-        </StaggerItem>
-
-        <StaggerItem>
-          <SettingsSection
-            icon={Globe}
-            title={t("dash.settings.jurisdiction")}
-            description="Data residency and routing preferences"
-            accent="violet"
-          >
-            <SettingsToggleRow
-              title={t("dash.settings.canada_only")}
-              description={t("dash.settings.canada_only_desc")}
-              enabled={canadaOnly}
-              onToggle={() => setCanadaOnly(!canadaOnly)}
-            />
           </SettingsSection>
         </StaggerItem>
 
@@ -2101,8 +2081,8 @@ function PrivacyTab({
         <StaggerItem>
           <SettingsSection
             icon={ShieldCheck}
-            title={t("dash.settings.pipeda_title")}
-            description={t("dash.settings.pipeda_desc")}
+            title={t("dash.settings.privacy_title")}
+            description={t("dash.settings.privacy_desc")}
             accent="cyan"
             highlight
           >

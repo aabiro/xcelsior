@@ -259,7 +259,7 @@ def _get_pg_pool() -> Any:
 #
 # Pricing is derived from a compact base table: one canonical short name
 # + variant tuple + standard on-demand rate per row. Tiers (standard /
-# premium / sovereign) and pricing modes (on_demand / spot / reserved)
+# premium / dedicated) and pricing modes (on_demand / spot / reserved)
 # are expanded at seed time via deterministic multipliers.
 #
 # Canonical names MUST match frontend/src/lib/gpu-models.ts exactly.
@@ -344,11 +344,9 @@ _GPU_PRICING_BASE: list[tuple[str, int, str, bool, float]] = [
 ]
 
 # Deterministic expansion of base rates into the full tier × mode matrix.
-# Sovereign premium dropped (was 1.43 = premium × 1.10): we compete on price/DX,
-# not a sovereignty surcharge, so the sovereign tier no longer costs more than
-# standard. The tier string is retained (referenced by sla.py, scheduler, Stripe
-# catalog) but carries no price premium.
-_TIER_MULT = {"standard": 1.0, "premium": 1.30, "sovereign": 1.0}
+# The dedicated tier carries no price premium: we compete on price and developer
+# experience. It is a support and SLA tier, not a location claim.
+_TIER_MULT = {"standard": 1.0, "premium": 1.30, "dedicated": 1.0}
 _MODE_MULT = {
     "on_demand": 1.0,
     "spot": 0.40,
@@ -356,7 +354,6 @@ _MODE_MULT = {
     "reserved_3mo": 0.70,  # 30% off — matches billing API 3_month commitment
     "reserved_1yr": 0.55,
 }
-_TIER_SOVEREIGNTY = {"standard": 0.0, "premium": 0.0, "sovereign": 0.0}
 
 
 def _generate_gpu_pricing_rows() -> list[tuple]:
@@ -374,9 +371,8 @@ def _generate_gpu_pricing_rows() -> list[tuple]:
                         high_freq,
                         tier,
                         mode,
-                        rate,
+                        round(rate * 1_000_000),
                         1.0,  # priority_multiplier
-                        _TIER_SOVEREIGNTY[tier],  # sovereignty_premium
                         0.0,  # spot_discount (already in mode_mult)
                         0.05,
                         0.10,  # multi-GPU discounts
@@ -408,10 +404,10 @@ def _seed_gpu_pricing(cur):
         cur.execute(
             """INSERT INTO gpu_pricing
                (gpu_model, vram_gb, form_factor, high_frequency,
-                tier, pricing_mode, base_rate_cad,
-                priority_multiplier, sovereignty_premium, spot_discount,
+                tier, pricing_mode, base_rate_micros,
+                priority_multiplier, spot_discount,
                 multi_gpu_discount_4, multi_gpu_discount_8)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                ON CONFLICT (gpu_model, vram_gb, form_factor, high_frequency,
                             tier, pricing_mode) DO NOTHING""",
             row,
@@ -553,7 +549,7 @@ class DatabaseOps:
                 """
                 INSERT INTO jobs(
                     job_id, status, priority, submitted_at, host_id,
-                    pricing_mode, spot_rate_cad, payload
+                    pricing_mode, spot_rate_micros, payload
                 )
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT(job_id) DO UPDATE SET
@@ -562,7 +558,7 @@ class DatabaseOps:
                     submitted_at = EXCLUDED.submitted_at,
                     host_id = EXCLUDED.host_id,
                     pricing_mode = EXCLUDED.pricing_mode,
-                    spot_rate_cad = EXCLUDED.spot_rate_cad,
+                    spot_rate_micros = EXCLUDED.spot_rate_micros,
                     payload = EXCLUDED.payload
                 """,
                 (
@@ -572,7 +568,7 @@ class DatabaseOps:
                     submitted_at,
                     host_id,
                     pricing_mode,
-                    spot_rate_cad,
+                    None if spot_rate_cad is None else round(spot_rate_cad * 1_000_000),
                     Jsonb(job),
                 ),
             )
@@ -1165,7 +1161,6 @@ class UserStore:
             "reset_token",
             "reset_token_expires",
             "notifications_enabled",
-            "canada_only_routing",
             "preferences",
             "mfa_enabled",
             "email_verified",

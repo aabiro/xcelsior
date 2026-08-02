@@ -91,8 +91,6 @@ ADMIN_GUARD_NAMES = frozenset({"_require_admin"})
 GUARDED_ROUTE_HANDLERS = frozenset(
     {
         ("routes/billing.py", "api_reserve_commitment"),
-        ("routes/jurisdiction.py", "api_list_canadian_hosts"),
-        ("routes/jurisdiction.py", "api_jurisdiction_hosts"),
     }
 )
 

@@ -1,3 +1,4 @@
+<!-- residency-guard: documents-removal — records why the residency model was deleted -->
 # Xcelsior MCP tool surface — combined plan
 
 **Status:** plan of record for the tool-surface track, superseding the domain
@@ -55,15 +56,45 @@ so they cannot be enumerated or called there regardless of scope. That structura
 gate is doing the work the scope check is failing to do — which is precisely why
 the trust boundary must stay structural and never become "just a scope check."
 
-**Fix before anything else:**
+### Fixed 2026-08-02
 
-1. Replace flat arrays with `{ allOf?, anyOf? }` (the ChatGPT pass's shape is
-   correct and I would adopt it verbatim).
-2. Delete `api` as an authorization value everywhere. It is a token class, not
-   authority. Remove it from all 41 contracts.
-3. Make `_require_scope` apply to every machine principal, not only
-   `client_credentials`. Key off "has explicit scopes", not grant type.
-4. Regression tests at both layers, each verified to fail before the fix.
+1. **`{ allOf?, anyOf? }` replaces flat arrays.** `allOf` is cumulative and is
+   the default; `anyOf` is reserved for the three tools whose subject may live
+   in several domains (`get_mcp_action_status`, `search`, `fetch`).
+2. **`api` removed from all 41 contracts.** It survives only as a *legacy broad
+   grant* — it is the DCR default ([routes/auth.py:463](../routes/auth.py#L463)),
+   so refusing it outright would revoke live credentials. It now satisfies
+   tenant scopes and **never** an operator scope, so a tenant automation token
+   can no longer reach `hosts:evict` or `mcp_actions:approve`.
+3. **`_require_scope` now covers agent keys**, via an explicit machine-credential
+   set rather than `grant_type` alone.
+4. **The `|| ["api"]` fallback is gone.** Eight call sites resolved an
+   unregistered tool to "requires only the broad grant" — fail-open on the one
+   path that must fail closed. An unknown tool now denies.
+
+**One correction worth recording.** My first attempt keyed enforcement off "has
+explicit scopes", which broke 122 tests. Interactive sessions authenticated by
+`authorization_code` carry OIDC identity scopes — `profile`, `email`,
+`offline_access` — that say nothing about API authority, and denying every
+browser request for lacking API scopes it never held is not enforcement, it is
+an outage. The crude `grant_type` check was encoding a real distinction. The gate
+is *machine credential*, not *carries scopes*.
+
+**Two tests had pinned the bug in place**, which is how it survived a green
+suite. `mcp/tests/unit/contracts.test.ts` had a case named *"does not grant
+legacy api unless it is explicitly present"* whose assertion was
+`expect(userHasScope(["api"], ["hosts:evict"])).toBe(true)` — the name stated
+the rule, the assertion asserted its opposite. `scopes.test.ts` had *"allows api
+wildcard"* and *"allows matching scope"*, which locked in the bypass and the
+any-one-of semantics respectively. All three are rewritten to state the actual
+rules, with the old assertions quoted so the history is not lost.
+
+Regression coverage: `mcp/tests/unit/scope-enforcement.test.ts` (10 cases),
+`tests/test_scope_enforcement.py` (13 cases, 3 confirmed to fail against the old
+implementation), a cross-language drift test asserting the two operator-scope
+sets agree, and a live-token escalation assertion in the real-stack E2E — GT3
+asks for real tokens against a real server, because a mock is what passed while
+production did not.
 
 ---
 
@@ -93,32 +124,66 @@ someone else's number, and it measures *our* tools against *our* prompts.
 
 ---
 
-## 2. Compliance: keep two, not six, and not zero
+## 2. Compliance: zero residency tools. Grok and Gemini were right; I was wrong.
 
-Gemini's argument is half right. It is **correct** that the Canadian AI Compute
-Access Fund has ended — our own plan already records this — and that
-`is_canadian` defaulting true was making estimates understate cost. It is
-**wrong** that residency should be deleted. Xcelsior Compute Inc. is Canadian,
-PIPEDA and Law 25 are live procurement questions for Canadian enterprise buyers,
-and "prove where my training data ran" is a claim no GPU marketplace competitor
-answers. Deleting it discards the differentiator along with the dead rebate.
+I originally wrote that Gemini was "half right" — correct that the Canadian AI
+Compute Access Fund had closed, wrong to delete residency, because PIPEDA and
+Law 25 are live procurement questions and "prove where my training ran" is a
+differentiator. **That was wrong on the facts and wrong on the strategy, and it
+is retracted.**
 
-Grok's mechanism is the right one: residency is a **constraint on placement**,
-not a domain of its own. `should_i_run_this` and `estimate_job_cost` already
-accept `require_residency`.
+Wrong on the facts: the platform had already decided this. The `_cad` duplication
+had been cleaned up behind the pivot, and the sovereignty premium had already
+been zeroed in code (`_TIER_SOVEREIGNTY` mapped every tier to `0.0`). I read a
+half-finished migration as an argument for keeping the thing being migrated away
+from.
 
-**Decision — residency becomes a parameter, plus exactly two first-class tools:**
+Wrong on the strategy, and this is the part that matters. A residency guarantee
+is not a feature of a marketplace whose supply is independent hosts in arbitrary
+countries. Selling one means either refusing most of your own supply or making a
+promise you cannot keep. `privacy.s6_p3` said *"personal information of BC
+residents remains in Canada at all times"* — with global hosts that is not a
+positioning choice, it is a false statement in a live privacy policy. The
+sovereignty tier also charged a **premium** for it, so the platform was billing
+extra for a guarantee it structurally could not honour.
 
-- `get_residency_trace` — the auditable artifact proving where a workload ran.
-  This is the differentiator; without it the constraint is unverifiable.
-- `get_compliance_posture` — one evidence read for procurement (attestation,
-  trust tiers, tax, platform controls), replacing six catalog reads.
+### What was removed
 
-Everything else — jurisdiction host search, PIA check, retention posture —
-becomes a parameter on the placement and quote tools, or waits for a journey
-that demands it. **6 → 2.**
+| Removed | Why it could not stay |
+|---|---|
+| `jurisdiction.py`, `routes/jurisdiction.py` | Canada-only province routing, Law 25/PIIDPA/FOIPPA/PHIPA constraints, residency traces, the closed fund |
+| `require_residency` on MCP tools | A caller-supplied string that changed placement |
+| `sovereignty_premium`, `SOVEREIGNTY_PREMIUM_PCT`, tier `pricing_multiplier` | Charged more for a guarantee the supply model cannot make |
+| `is_canadian_compute`, the four fund invoice columns | Recorded a Canada-vs-rest split for a program that ended |
+| `x-data-residency: CA`, `x-compliance-version` | Asserted CA residency on **every** response, including work running abroad |
+| `XCELSIOR_CANADA_ONLY`, "Canada-Only Routing" setting | The gate itself |
+| Tier-driven gVisor isolation | Let a caller influence placement by renaming its own tier |
 
----
+### The two compliance tools that remain, and why they are the right two
+
+Not a compromise between six and zero — a different question. The surviving
+tools answer *"can I trust this platform with my workload?"*, which every buyer
+asks, rather than *"where will it run?"*, which this marketplace deliberately
+does not answer.
+
+1. **`get_platform_controls`** — scoped tokens, human-approved action plans on
+   destructive and spending operations, per-tool rate limits, the audit trail,
+   and tax registration. This is what a security review actually asks for, and
+   it is true regardless of geography.
+2. **`get_workload_audit_trail`** — for a given workload: who authorised it,
+   which plan was approved, what ran, on which host, and what it cost. It
+   reports **where it did run** as a fact after the event. It never promises
+   where it *will* run.
+
+That distinction is the whole design. A trace is evidence; a residency
+constraint is a promise. We can produce the first honestly and cannot produce
+the second, so the surface offers exactly one of them.
+
+Tax stays and is not compliance theatre: GST/HST is a real obligation of a
+Canadian company, computed from the customer's billing address, and it is
+unrelated to where a GPU sits. "Built in Canada" in the footer is a fact about
+the company, not a claim about anyone's data.
+
 
 ## 3. The provider boundary: A and C are the same decision at different layers
 

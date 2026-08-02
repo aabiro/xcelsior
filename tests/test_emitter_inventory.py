@@ -47,7 +47,6 @@ _EMITTER_FILES: dict[str, str] = {
     "routes/serverless.py": "process_local — serverless UI SSE",
     "serverless/service.py": "process_local — serverless worker UI SSE",
     "routes/spot.py": "process_local — spot pricing UI SSE",
-    "routes/jurisdiction.py": "process_local — jurisdiction queue UI SSE",
 }
 
 

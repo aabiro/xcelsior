@@ -86,7 +86,7 @@ relaxing them for convenience — propose ways to make them feel effortless.
   the two opt-in company-knowledge tools (`search`/`fetch`).
 - The prior audit targets ~91 actions, sized under Gemini Enterprise's
   100-action cap with headroom.
-- Zero-coverage domains: storage/volumes, compliance/residency, teams/access,
+- Zero-coverage domains: storage/volumes, compliance, teams/access,
   payouts/Connect.
 - Three scopes declared and wired to no tool: `billing:write`, `events:read`,
   `mcp_actions:approve`.
@@ -126,7 +126,7 @@ Give a per-domain count against this budget:
 | Payouts / Connect (provider) | 0 | 6 |
 | Monitoring & events | 4 | 8 |
 | Ops / control plane | 7 | 10 |
-| Compliance & residency | 0 | 6 |
+| Compliance (platform controls) | 0 | 2 |
 | Teams & access | 0 | 5 |
 | Meta (plans, status, capabilities) | 1 | 6 |
 

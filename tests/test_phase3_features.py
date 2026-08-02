@@ -1,3 +1,4 @@
+# residency-guard: documents-removal
 """Tests for Xcelsior Phase 3 features:
 - Prometheus metrics endpoint format
 - FINTRAC Bitcoin LVCTR reporting
@@ -120,25 +121,30 @@ class TestFintracBitcoinLVCTR:
         assert isinstance(reports, list)
 
 
-# ── Compliance Middleware ─────────────────────────────────────────────
+# ── Consent Middleware ────────────────────────────────────────────────
 
 
-class TestComplianceMiddleware:
-    """PIPEDA/CASL compliance middleware gates."""
+class TestConsentMiddleware:
+    """Billing-consent gate, and proof the residency headers are gone.
+
+    This class previously asserted `X-Data-Residency == "CA"` and
+    `"PIPEDA" in X-Compliance-Version` on every response, and that an
+    `x-province` header was accepted. Those tests held a Canada-first claim in
+    place on a global marketplace: the headers asserted CA residency for
+    requests served by hosts anywhere in the world. They now assert the
+    opposite, so the claim cannot come back without a failure.
+    """
 
     def test_middleware_registered(self):
-        """ComplianceGateMiddleware is in the middleware stack."""
         try:
             import api as api_module
         except ImportError:
             pytest.skip("api module import failed")
 
-        assert hasattr(api_module, "ComplianceGateMiddleware") or "ComplianceGateMiddleware" in dir(
-            api_module
-        )
+        assert hasattr(api_module, "ConsentGateMiddleware")
+        assert not hasattr(api_module, "ComplianceGateMiddleware")
 
-    def test_compliance_response_headers(self):
-        """Compliance middleware adds X-Data-Residency and X-Compliance-Version."""
+    def test_no_residency_or_jurisdiction_headers(self):
         try:
             from fastapi.testclient import TestClient
             from api import app
@@ -147,12 +153,11 @@ class TestComplianceMiddleware:
 
         client = TestClient(app, raise_server_exceptions=False)
         resp = client.get("/healthz")
-        if resp.status_code == 200:
-            assert resp.headers.get("X-Data-Residency") == "CA"
-            assert "PIPEDA" in resp.headers.get("X-Compliance-Version", "")
+        assert "X-Data-Residency" not in resp.headers
+        assert "X-Compliance-Version" not in resp.headers
 
-    def test_province_header_passthrough(self):
-        """x-province header is accepted and stored in request state."""
+    def test_province_header_is_ignored(self):
+        """An x-province header must not influence anything."""
         try:
             from fastapi.testclient import TestClient
             from api import app
@@ -160,8 +165,10 @@ class TestComplianceMiddleware:
             pytest.skip("api module import failed")
 
         client = TestClient(app, raise_server_exceptions=False)
-        resp = client.get("/healthz", headers={"x-province": "ON"})
-        assert resp.status_code in (200, 401, 403)
+        plain = client.get("/healthz")
+        with_province = client.get("/healthz", headers={"x-province": "ON"})
+        assert with_province.status_code == plain.status_code
+        assert with_province.json() == plain.json()
 
 
 # ── Bayesian Reputation Scoring ──────────────────────────────────────

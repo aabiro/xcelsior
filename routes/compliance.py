@@ -16,7 +16,6 @@ from db import UserStore
 from stripe_connect import get_stripe_manager
 from events import Event, get_event_store
 from billing import PROVINCE_TAX_RATES, get_billing_engine, get_tax_rate_for_province
-from jurisdiction import PROVINCE_COMPLIANCE, TRUST_TIER_REQUIREMENTS, requires_quebec_pia
 
 router = APIRouter()
 
@@ -134,7 +133,6 @@ def api_compliance_status(request: Request):
     includes an ``action`` with a CTA label and dashboard link.
     """
     from billing import PROVINCE_TAX_RATES
-    from jurisdiction import TRUST_TIER_REQUIREMENTS, PROVINCE_COMPLIANCE
 
     checks = []
 
@@ -143,8 +141,6 @@ def api_compliance_status(request: Request):
     full_user = None
     if user_id:
         full_user = UserStore.get_user_by_id(user_id)
-
-    canada_only_user = bool(full_user.get("canada_only_routing", 0)) if full_user else False
     user_province = (full_user.get("province") or "") if full_user else ""
     user_provider_id = (full_user.get("provider_id") or "") if full_user else ""
     user_customer_id = (full_user.get("customer_id") or "") if full_user else ""
@@ -190,106 +186,8 @@ def api_compliance_status(request: Request):
             }
         )
 
-    # 2. Data Residency — requires user to enable Canada-only routing in settings
-    canada_only_env = os.environ.get("XCELSIOR_CANADA_ONLY", "false").lower() == "true"
-    if canada_only_user or canada_only_env:
-        checks.append(
-            {
-                "id": "data_residency",
-                "name": "Data Residency",
-                "status": "pass",
-                "description": "Canada-only data residency enforced."
-                + (
-                    " Your account restricts all compute and storage to Canadian infrastructure."
-                    if canada_only_user
-                    else " Platform-wide enforcement active."
-                ),
-            }
-        )
-    else:
-        checks.append(
-            {
-                "id": "data_residency",
-                "name": "Data Residency",
-                "status": "warn",
-                "description": "Canada-only routing is not enabled. Enable it in your Jurisdiction settings to restrict all compute and data to Canadian infrastructure.",
-                "action": {"label": "Open Jurisdiction settings", "href": "/dashboard/settings"},
-            }
-        )
 
-    # 3. Trust Tiers — requires user to have registered provider hosts
-    expected_tiers = 4
-    tier_count = len(TRUST_TIER_REQUIREMENTS)
-    has_hosts = False
-    if user_id:
-        from db import auth_connection
 
-        with auth_connection() as conn:
-            cnt = conn.execute(
-                "SELECT COUNT(*) AS c FROM hosts WHERE payload->>'user_id' = %s AND status = 'active'",
-                (user_id,),
-            ).fetchone()
-            has_hosts = cnt and cnt["c"] > 0
-    if tier_count >= expected_tiers and has_hosts:
-        checks.append(
-            {
-                "id": "trust_tiers",
-                "name": "Trust Tier Definitions",
-                "status": "pass",
-                "description": f"{tier_count} trust tiers active. Your hosts are enrolled and earning reputation in the tier system.",
-            }
-        )
-    elif tier_count >= expected_tiers:
-        checks.append(
-            {
-                "id": "trust_tiers",
-                "name": "Trust Tier Definitions",
-                "status": "warn",
-                "description": f"{tier_count} tiers defined but you have no active provider hosts. Register a GPU host to participate in the trust tier system.",
-                "action": {"label": "Register a host", "href": "/dashboard/hosts"},
-            }
-        )
-    else:
-        checks.append(
-            {
-                "id": "trust_tiers",
-                "name": "Trust Tier Definitions",
-                "status": "warn",
-                "description": f"Only {tier_count}/{expected_tiers} trust tiers defined.",
-                "action": {"label": "View trust tiers", "href": "/dashboard/trust"},
-            }
-        )
-
-    # 4. Québec Law 25 (PIA) — requires user to set their province
-    if user_province:
-        if user_province == "QC":
-            checks.append(
-                {
-                    "id": "quebec_law25",
-                    "name": "Québec Law 25 (PIA)",
-                    "status": "pass",
-                    "description": "Province set to QC — Privacy Impact Assessments are enforced automatically for all data transfers involving Quebec residents.",
-                }
-            )
-        else:
-            checks.append(
-                {
-                    "id": "quebec_law25",
-                    "name": "Québec Law 25 (PIA)",
-                    "status": "pass",
-                    "description": f"Province set to {user_province}. PIA checks will apply automatically if you process data from QC residents.",
-                }
-            )
-    else:
-        checks.append(
-            {
-                "id": "quebec_law25",
-                "name": "Québec Law 25 (PIA)",
-                "status": "warn",
-                "description": "Your province is not set. Set your province in Settings so Law 25 compliance checks can be applied automatically.",
-                "action": {"label": "Update your profile", "href": "/dashboard/settings"},
-            }
-        )
 
     # 5. Audit Trail — checks for user-specific events, not just global existence
     try:
@@ -409,99 +307,6 @@ def api_compliance_status(request: Request):
     return {"ok": True, "checks": checks}
 
 
-@router.get("/api/compliance/provinces", tags=["Compliance"])
-def api_compliance_provinces():
-    """All 13 Canadian provinces/territories plus international, with tax rates and compliance info."""
-    PROVINCE_NAMES = {
-        "AB": "Alberta",
-        "BC": "British Columbia",
-        "MB": "Manitoba",
-        "NB": "New Brunswick",
-        "NL": "Newfoundland & Labrador",
-        "NS": "Nova Scotia",
-        "NT": "Northwest Territories",
-        "NU": "Nunavut",
-        "ON": "Ontario",
-        "PE": "Prince Edward Island",
-        "QC": "Québec",
-        "SK": "Saskatchewan",
-        "YT": "Yukon",
-    }
-    matrix = {}
-    for code, (tax_rate, tax_desc) in PROVINCE_TAX_RATES.items():
-        entry = {
-            "name": PROVINCE_NAMES.get(code, code),
-            "tax_rate": tax_rate,
-            "tax_description": tax_desc,
-        }
-        # Merge compliance info if this province has specific regulations
-        for prov, info in PROVINCE_COMPLIANCE.items():
-            prov_code = prov.value if hasattr(prov, "value") else str(prov)
-            if prov_code == code:
-                entry.update(info)
-                break
-        matrix[code] = entry
-    # International fallback
-    matrix["INTL"] = {
-        "name": "International",
-        "tax_rate": 0.05,
-        "tax_description": "GST 5% only (non-resident)",
-    }
-    return {"provinces": matrix}
-
-
-@router.get("/api/compliance/detect-province", tags=["Compliance"])
-def api_detect_province(request: Request):
-    """Best-effort province detection from request headers.
-
-    Checks Cloudflare CF-IPCountry / CF-Region first, then falls back
-    to X-Forwarded-For geolocation if available. Returns INTL for
-    non-Canadian or unknown origins.
-    """
-    country = (request.headers.get("CF-IPCountry") or "").upper()
-    region = (request.headers.get("CF-Region") or "").upper()
-
-    # Cloudflare region codes map to province codes for Canada
-    CF_REGION_MAP = {
-        "AB": "AB",
-        "BC": "BC",
-        "MB": "MB",
-        "NB": "NB",
-        "NL": "NL",
-        "NS": "NS",
-        "NT": "NT",
-        "NU": "NU",
-        "ON": "ON",
-        "PE": "PE",
-        "QC": "QC",
-        "SK": "SK",
-        "YT": "YT",
-        # Common Cloudflare region name variants
-        "ALBERTA": "AB",
-        "BRITISH COLUMBIA": "BC",
-        "MANITOBA": "MB",
-        "NEW BRUNSWICK": "NB",
-        "NEWFOUNDLAND AND LABRADOR": "NL",
-        "NOVA SCOTIA": "NS",
-        "ONTARIO": "ON",
-        "QUEBEC": "QC",
-        "SASKATCHEWAN": "SK",
-    }
-
-    if country == "CA" and region:
-        province = CF_REGION_MAP.get(region, None)
-        if province:
-            return {"province": province, "country": "CA", "method": "cloudflare"}
-
-    if country == "CA":
-        # Canada but region unknown — default to ON
-        return {"province": "ON", "country": "CA", "method": "cloudflare_country_only"}
-
-    if country and country != "XX":
-        return {"province": "INTL", "country": country, "method": "cloudflare"}
-
-    # No Cloudflare headers — cannot determine
-    return {"province": "ON", "country": "CA", "method": "default"}
 
 
 @router.get("/api/compliance/tax-rates", tags=["Compliance"])
@@ -537,28 +342,4 @@ def api_tax_rates():
     return {"rates": rates}
 
 
-@router.get("/api/compliance/trust-tier-requirements", tags=["Compliance"])
-def api_trust_tier_requirements():
-    """Full trust tier requirements matrix."""
-    return {
-        "tiers": [{"tier": tier.value, **reqs} for tier, reqs in TRUST_TIER_REQUIREMENTS.items()]
-    }
 
-
-# ── Model: PIACheckRequest ──
-
-
-class PIACheckRequest(BaseModel):
-    data_origin_province: str = "QC"
-    processing_province: str = "ON"
-    data_contains_pi: bool = False
-
-
-@router.post("/api/compliance/quebec-pia-check", tags=["Compliance"])
-def api_quebec_pia_check(req: PIACheckRequest):
-    """Check if Québec Law 25 PIA is required for cross-border transfer."""
-    return requires_quebec_pia(
-        req.data_origin_province,
-        req.processing_province,
-        req.data_contains_pi,
-    )

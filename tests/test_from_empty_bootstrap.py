@@ -40,7 +40,7 @@ REQUIRED_AT_HEAD = (
     # 091: recorded connector consent, the durable half of the OAuth front door.
     "oauth_consent_grants",
 )
-EXPECTED_HEAD = "091"
+EXPECTED_HEAD = "097"
 
 
 
@@ -298,7 +298,7 @@ def test_from_empty_bootstrap_reaches_head(empty_db):
         )
     # 061 residual ensure columns
     for table, col in (
-        ("billing_cycles", "token_cost_cad"),
+        ("billing_cycles", "token_cost_micros"),
         ("users", "max_concurrent_instances"),
     ):
         assert _column_exists(empty_db, table, col), f"{table}.{col} missing"

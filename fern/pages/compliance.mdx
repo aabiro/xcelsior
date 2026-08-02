@@ -1,101 +1,78 @@
 ---
-title: Compliance & Data Residency
-subtitle: Pin a workload to a jurisdiction, and prove where it ran.
+title: Trust & Controls
+subtitle: What the platform enforces, and how to prove what happened.
 slug: compliance
 ---
 
+<!-- residency-guard: documents-removal — states plainly that no residency guarantee exists -->
+
 ## Overview
 
-Placement on Xcelsior is region-aware. A workload that carries a data residency or
-regulatory obligation declares that constraint when it launches, and the scheduler
-enforces it, down to the province. Everything else runs wherever capacity is
-cheapest.
+Xcelsior is a global marketplace. Capacity comes from independent hosts around
+the world, and placement is decided on price, availability, GPU model, and host
+reputation. **We do not offer a data-residency guarantee**, because a
+marketplace whose supply is independent operators in many countries cannot
+honestly promise a workload stays in one of them.
 
-Residency is a **per-workload option, not a platform-wide restriction**. If your
-jobs have no jurisdiction requirement, you never touch any of this and you get the
-whole marketplace to bid for your work. If they do, the controls below are already
-built in, along with the consent, retention, and transparency machinery that
-regulated buyers ask for during procurement.
+What we do offer is enforcement you can verify: every action is scoped, every
+destructive or spending action is approved by a human before it runs, and every
+one of them is recorded. That is what a security review can actually check.
 
-## PIPEDA Compliance
+If a workload must be processed in a particular place, select capacity by region
+at launch and use the audit trail below as evidence of where it ran.
 
-The Personal Information Protection and Electronic Documents Act (PIPEDA) governs how private-sector organizations collect, use, and disclose personal information.
+## Access control
 
-### Xcelsior's PIPEDA Controls
+Credentials are scoped to the operations they need. There is no wildcard scope:
+a token that can read instances cannot launch one, and a token issued for tenant
+automation can never reach host or control-plane operations.
 
-- **Consent management**, Granular consent for data collection, storage, and processing
-- **Data minimization**, Only collect what's needed for the service
-- **Retention policies**, Automated data expiry and deletion schedules
-- **Access requests**, Users can request their data via the privacy API
-- **Breach notification**, Automated alerts for data breach scenarios
+- Scopes are checked at the edge and again at the API, and the two agree.
+- A scope requirement is **cumulative**. Holding one of a tool's several scopes
+  is not sufficient to invoke it.
+- Machine credentials — OAuth client-credentials tokens and agent API keys — are
+  scope-checked identically. Narrowing a credential genuinely narrows it.
 
-## Quebec Law 25
+## Human approval on anything destructive or costly
 
-Quebec's *Act respecting the protection of personal information in the private sector* (Law 25) adds stricter requirements:
+Terminating an instance, deleting a volume, moving money, or committing to spend
+does not execute on the strength of an argument in a tool call. The server
+prepares an **action plan** describing exactly what will happen, and a human
+approves that specific plan before anything runs.
 
-- **Privacy Impact Assessments (PIA)**, Triggered automatically for sensitive operations
-- **De-identification**, Personal data anonymized for analytics
-- **Cross-border transfers**, Restricted without explicit consent
-- **Privacy officer**, Designated contact for privacy matters
+- A plan is bound to the server, not the caller. Changing the request after
+  approval invalidates it.
+- A `confirm: true` flag is never a substitute for approval.
+- Plans expire, so an unapproved plan becomes unexecutable rather than lingering.
 
-## Data Residency
+## Audit trail
 
-### Province-Level Filtering
+Every action is recorded with the identity that authorised it, the plan that was
+approved, what ran, on which host, and what it cost. The chain is tamper-evident
+and exportable.
 
-Instances can be restricted to specific provinces:
+This is evidence **after the fact**, which is the honest thing to offer. It tells
+you where a workload ran. It is not a promise about where the next one will.
 
-```bash
-POST /instance
-{
-  "name": "sensitive-analysis",
-  "vram_needed_gb": 24,
-  "province": "QC",
-  "tier": "sovereign"
-}
-```
+## Privacy
 
-The scheduler will only allocate to hosts physically located in the specified province.
+- **Consent** is recorded before a customer is charged and can be withdrawn at
+  any time from Settings.
+- **Retention** policies are configurable, and expired data is purged on a
+  schedule rather than on request.
+- **Export and erasure** are self-service from your account, and each request is
+  trackable to completion.
+- Personal information is handled under the privacy law applicable to Xcelsior
+  Compute Inc. as a Canadian company. That is a statement about the operator,
+  not a claim about where your compute runs.
 
-### Sovereignty Tiers
+## Tax
 
-| Tier | Data Residency | Runtime | Use Case |
-|------|---------------|---------|----------|
-| `community` | Any Canadian host | runc OK | Non-sensitive workloads |
-| `secure` | Canadian hosts only | gVisor preferred | Business data |
-| `regulated` | Province-locked | gVisor required | Healthcare, finance |
-| `sovereign` | Province-locked | gVisor + audit trail | Government, defense |
+Sales tax is calculated from your billing address and appears on every invoice.
+GST/HST applies to Canadian customers. It is unrelated to where a GPU sits.
 
-## CLOUD Act Protection
+## Further reading
 
-Xcelsior maintains a **CLOUD Act canary warrant**, a transparency mechanism that confirms no foreign government data requests have been received.
-
-```bash
-GET /api/transparency/report
-```
-
-## Tax Compliance
-
-Full 13-province tax rate support:
-
-```bash
-GET /api/compliance/provinces
-```
-
-Returns GST/HST/PST/QST rates for all provinces and territories.
-
-## Privacy API
-
-| Endpoint | Description |
-|----------|-------------|
-| `GET /api/privacy/consents` | List user consents |
-| `POST /api/privacy/consent` | Record consent |
-| `GET /api/privacy/retention` | Data retention policy |
-| `POST /api/privacy/export` | Request data export |
-| `DELETE /api/privacy/data` | Request data deletion |
-
-## Further Reading
-
-- [Security Model](/security), isolation tiers, egress control, and sandboxing
-- [PIPEDA Compliant GPU Cloud](https://xcelsior.ca/blog/pipeda-compliant-gpu-cloud), practical compliance guide for AI teams
-- [Quebec Law 25 and GPU Compute](https://xcelsior.ca/blog/law-25-gpu-compute), province-specific requirements
-- [Features](https://xcelsior.ca/features), the full platform surface, including jurisdiction controls
+- [Security](https://xcelsior.ca/security), the controls behind the platform
+- [Privacy Policy](https://xcelsior.ca/privacy)
+- [Terms](https://xcelsior.ca/terms)

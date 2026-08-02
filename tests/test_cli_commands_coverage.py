@@ -88,7 +88,7 @@ def test_cmd_host_add(capsys):
         "total_vram_gb": 24,
         "cost_per_hour": 1.5,
         "country": "CA",
-        "province": "ON",
+        "region": "",
     }
     args = SimpleNamespace(
         id="h1",
@@ -98,7 +98,7 @@ def test_cmd_host_add(capsys):
         free_vram=24,
         rate=1.5,
         country="CA",
-        province="ON",
+        region="",
     )
     with patch("cli.register_host", return_value=entry):
         cli.cmd_host_add(args)
@@ -112,7 +112,7 @@ def test_cmd_host_rm(capsys):
     assert "h1" in capsys.readouterr().out
 
 
-def test_cmd_host_add_ca(capsys):
+def test_cmd_host_add_located(capsys):
     entry = {
         "host_id": "ca1",
         "ip": "10.0.0.2",
@@ -129,28 +129,12 @@ def test_cmd_host_add_ca(capsys):
         free_vram=80,
         rate=3.0,
         country="CA",
-        province="QC",
+        region="QC",
     )
-    with patch("cli.register_host_ca", return_value=entry):
-        cli.cmd_host_add_ca(args)
+    with patch("cli.register_host_located", return_value=entry):
+        cli.cmd_host_add_located(args)
     assert "ca1" in capsys.readouterr().out
 
-
-def test_cmd_hosts_ca(capsys):
-    hosts = [
-        {
-            "status": "active",
-            "host_id": "ca1",
-            "ip": "10.0.0.2",
-            "gpu_model": "A100",
-            "country": "CA",
-            "free_vram_gb": 80,
-            "cost_per_hour": 3.0,
-        }
-    ]
-    with patch("cli.list_hosts_filtered", return_value=hosts):
-        cli.cmd_hosts_ca(SimpleNamespace(all=False))
-    assert "ca1" in capsys.readouterr().out
 
 
 def test_cmd_pool_add(capsys):
@@ -285,7 +269,7 @@ def test_cmd_host_profile_list(capsys):
         }
     ]
     with patch("host_profiles.list_host_profiles", return_value=profiles):
-        cli.cmd_host_profile(SimpleNamespace(profile=None, host_id="h1", ip="10.0.0.1", json=False, country="CA", province="ON", owner="me"))
+        cli.cmd_host_profile(SimpleNamespace(profile=None, host_id="h1", ip="10.0.0.1", json=False, country="CA", region="", owner="me"))
     assert "rtx4090" in capsys.readouterr().out
 
 
@@ -446,12 +430,6 @@ def test_cmd_ssh_keygen(capsys):
     assert "id_test" in out
 
 
-def test_cmd_canada_on(capsys):
-    with patch("cli.set_canada_only") as setter:
-        cli.cmd_canada(SimpleNamespace(on=True, off=False))
-    setter.assert_called_once_with(True)
-    assert "ON" in capsys.readouterr().out
-
 
 def test_cmd_pool_list(capsys):
     pool = [
@@ -611,13 +589,6 @@ def test_cmd_leaderboard(capsys):
         cli.cmd_leaderboard(SimpleNamespace(type="host", limit=5))
     assert "h1" in capsys.readouterr().out
 
-
-def test_cmd_compliance(capsys):
-    with patch("billing.PROVINCE_TAX_RATES", {"ON": 0.13}):
-        with patch("jurisdiction.PROVINCE_COMPLIANCE", {}):
-            with patch("jurisdiction.Province", side_effect=lambda x: x):
-                cli.cmd_compliance(SimpleNamespace())
-    assert "ON" in capsys.readouterr().out
 
 
 def test_cmd_logout_removes_token(capsys, tmp_path):

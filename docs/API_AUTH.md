@@ -23,7 +23,6 @@ Some marketplace/SLA/compute-score routes are intentionally unauthenticated read
 ## Hardened routes
 
 - `GET /v1/inference/{job_id}` — requires auth + inference job ownership (was open poll).
-- `GET /api/jurisdiction/residency-trace/{job_id}` — requires auth + job ownership.
 
 ## Billing + host inventory guards
 
@@ -31,7 +30,6 @@ Some marketplace/SLA/compute-score routes are intentionally unauthenticated read
 |-------|-------|
 | `POST /api/pricing/reserve` | `_require_customer_access` — caller must own `customer_id` |
 | `GET /hosts/ca` | `_require_auth` + `hosts:read` |
-| `POST /api/jurisdiction/hosts` | `_require_auth` + `hosts:read` |
 
 CI tracks these in `GUARDED_ROUTE_HANDLERS` (`python scripts/audit_route_auth.py --guarded --strict`).
 

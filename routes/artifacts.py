@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from routes._deps import (
     log,
 )
-from artifacts import get_artifact_manager, ArtifactType, ResidencyPolicy
+from artifacts import get_artifact_manager, ArtifactType, StoragePolicy
 
 router = APIRouter()
 
@@ -21,7 +21,7 @@ class UploadRequest(BaseModel):
     job_id: str
     filename: str
     artifact_type: str = "job_output"
-    residency_policy: str = "canada_only"
+    storage_policy: str = "any"
 
 
 def _user_upload_slot(user: dict) -> str:
@@ -78,7 +78,7 @@ def api_request_upload(req: UploadRequest, request: Request):
     job_id = _resolve_artifact_job_id(user, req.job_id)
     try:
         atype = ArtifactType(req.artifact_type)
-        rpolicy = ResidencyPolicy(req.residency_policy)
+        spolicy = StoragePolicy(req.storage_policy)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     mgr = get_artifact_manager()
@@ -86,7 +86,7 @@ def api_request_upload(req: UploadRequest, request: Request):
         atype,
         job_id,
         req.filename,
-        residency=rpolicy,
+        storage_policy=spolicy,
         owner_user_id=user.get("user_id"),
     )
     return {"ok": True, **result}

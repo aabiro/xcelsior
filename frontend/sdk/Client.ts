@@ -12,7 +12,6 @@ import { HostsClient } from "./api/resources/hosts/client/Client.js";
 import { InferenceClient } from "./api/resources/inference/client/Client.js";
 import { InfrastructureClient } from "./api/resources/infrastructure/client/Client.js";
 import { InstancesClient } from "./api/resources/instances/client/Client.js";
-import { JurisdictionClient } from "./api/resources/jurisdiction/client/Client.js";
 import { MarketplaceClient } from "./api/resources/marketplace/client/Client.js";
 import { MarketplaceV2Client } from "./api/resources/marketplaceV2/client/Client.js";
 import { MfaClient } from "./api/resources/mfa/client/Client.js";
@@ -62,7 +61,6 @@ export class XcelsiorApiClient {
     protected _spotPricing: SpotPricingClient | undefined;
     protected _events: EventsClient | undefined;
     protected _verification: VerificationClient | undefined;
-    protected _jurisdiction: JurisdictionClient | undefined;
     protected _infrastructure: InfrastructureClient | undefined;
     protected _mfa: MfaClient | undefined;
     protected _gpu: GpuClient | undefined;
@@ -161,10 +159,6 @@ export class XcelsiorApiClient {
 
     public get verification(): VerificationClient {
         return (this._verification ??= new VerificationClient(this._options));
-    }
-
-    public get jurisdiction(): JurisdictionClient {
-        return (this._jurisdiction ??= new JurisdictionClient(this._options));
     }
 
     public get infrastructure(): InfrastructureClient {

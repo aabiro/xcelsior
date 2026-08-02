@@ -20,7 +20,6 @@ from routes.hosts import router as hosts_router
 from routes.inference import router as inference_router
 from routes.serverless import router as serverless_router
 from routes.instances import router as instances_router
-from routes.jurisdiction import router as jurisdiction_router
 from routes.terminal import router as terminal_router
 from routes.marketplace import router as marketplace_router
 from routes.mfa import router as mfa_router
@@ -60,7 +59,6 @@ ALL_ROUTERS = [
     inference_router,
     serverless_router,
     instances_router,
-    jurisdiction_router,
     terminal_router,
     marketplace_router,
     mfa_router,

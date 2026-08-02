@@ -193,7 +193,8 @@ def reconcile_ln_deposits(
 
     rows = conn.execute(
         """
-        SELECT deposit_id, tenant_id, customer_id, status, amount_cad,
+        SELECT deposit_id, tenant_id, customer_id, status,
+               amount_micros::double precision / 1000000.0 AS amount_cad,
                amount_cad_minor, wallet_ledger_entry_id,
                EXTRACT(EPOCH FROM (clock_timestamp() - paid_at_ts)) AS paid_age,
                EXTRACT(EPOCH FROM (clock_timestamp() - expires_at_ts)) AS expiry_age

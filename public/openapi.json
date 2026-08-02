@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Xcelsior",
-    "description": "Distributed GPU orchestration platform for AI/ML workloads. Canadian-first data sovereignty (PIPEDA/Law 25), automated trust scoring, Stripe Connect marketplace billing, and real-time GPU telemetry.\n\n**Authentication**: Bearer token via `Authorization: Bearer <token>` header.\n\n**Regions**: Canada-first with province-level filtering (ON, QC, BC, AB, etc.).\n\n**SDK**: Generate idiomatic Python/TypeScript SDKs with [Fern](https://buildwithfern.com).\n\n**LLM Integration**: See `/llms.txt` for AI agent–optimized documentation.\n\nThis published OpenAPI document contains the public developer surface only. Account settings, internal worker, admin, maintenance, and callback endpoints are intentionally omitted.",
+    "description": "Distributed GPU marketplace for AI/ML workloads. Rent capacity from independent hosts worldwide, or supply your own. Spot and on-demand pricing, automated trust scoring, Stripe Connect marketplace billing, and real-time GPU telemetry.\n\n**Authentication**: Bearer token via `Authorization: Bearer <token>` header.\n\n**Regions**: global. Capacity is selected on price, availability, GPU model, and host reputation — not on geography. Filter by region when your workload needs low latency to a specific place; otherwise the whole marketplace is available to you.\n\n**SDK**: Generate idiomatic Python/TypeScript SDKs with [Fern](https://buildwithfern.com).\n\n**LLM Integration**: See `/llms.txt` for AI agent–optimized documentation.\n\nThis published OpenAPI document contains the public developer surface only. Account settings, internal worker, admin, maintenance, and callback endpoints are intentionally omitted.",
     "contact": {
       "name": "Xcelsior",
       "url": "https://xcelsior.ca/",
@@ -3447,16 +3447,6 @@
             "type": "boolean",
             "title": "Spot",
             "default": false
-          },
-          "sovereignty": {
-            "type": "boolean",
-            "title": "Sovereignty",
-            "default": false
-          },
-          "is_canadian": {
-            "type": "boolean",
-            "title": "Is Canadian",
-            "default": false
           }
         },
         "type": "object",
@@ -3809,11 +3799,6 @@
             "maxLength": 32,
             "title": "Region",
             "default": ""
-          },
-          "canada_only": {
-            "type": "boolean",
-            "title": "Canada Only",
-            "default": false
           },
           "spot_available": {
             "type": "boolean",
@@ -4354,10 +4339,10 @@
             "title": "Artifact Type",
             "default": "job_output"
           },
-          "residency_policy": {
+          "storage_policy": {
             "type": "string",
-            "title": "Residency Policy",
-            "default": "canada_only"
+            "title": "Storage Policy",
+            "default": "any"
           }
         },
         "type": "object",
@@ -4538,7 +4523,7 @@
     },
     {
       "name": "Billing",
-      "description": "Wallet management, invoicing, CAF exports, refunds. Credit-first CAD billing."
+      "description": "Wallet management, invoicing, refunds. Credit-first billing in CAD."
     },
     {
       "name": "Inference"

@@ -994,7 +994,6 @@ class TestPricing:
             json={
                 "gpu_model": "RTX 4090",
                 "duration_hours": 1.0,
-                "is_canadian": True,
             },
         )
         assert r.status_code == 200
@@ -1240,21 +1239,6 @@ class TestTiersEndpoint:
         assert r.status_code == 200
         assert "urgent" in r.json()["tiers"]
 
-
-class TestCanadaEndpoint:
-    def test_toggle_canada(self):
-        r = client.put("/canada", json={"enabled": True})
-        assert r.status_code == 200
-        assert r.json()["canada_only"] is True
-        r = client.get("/canada")
-        assert r.json()["canada_only"] is True
-        client.put("/canada", json={"enabled": False})
-
-    def test_canada_hosts(self):
-        """GET /hosts/ca returns Canadian hosts."""
-        _register_host("ca-host", country="CA", province="ON")
-        r = client.get("/hosts/ca")
-        assert r.status_code == 200
 
 
 class TestMarketplaceEndpoints:
@@ -1566,11 +1550,11 @@ class TestVerificationEndpoints:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Jurisdiction Endpoints
+# Trust tier endpoints
 # ═══════════════════════════════════════════════════════════════════════
 
 
-class TestJurisdictionEndpoints:
+class TestTrustTierEndpoints:
     def test_trust_tiers(self):
         """GET /api/trust-tiers returns tier definitions."""
         r = client.get("/api/trust-tiers")

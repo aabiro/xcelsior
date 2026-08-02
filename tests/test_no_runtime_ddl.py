@@ -44,7 +44,7 @@ def test_migration_061_owns_residual_ensure_objects():
     for col in (
         "max_concurrent_instances",
         "pending_email",
-        "token_cost_cad",
+        "token_cost_cad",  # 061 added it under this name; 097 renamed to micros
         "model_ref",
     ):
         assert col in src, col
@@ -127,7 +127,7 @@ def test_residual_tables_exist_via_alembic_not_ensure():
         for table, column in (
             ("users", "max_concurrent_instances"),
             ("users", "pending_email"),
-            ("billing_cycles", "token_cost_cad"),
+            ("billing_cycles", "token_cost_micros"),
             ("billing_cycles", "model_ref"),
         ):
             row = conn.execute(

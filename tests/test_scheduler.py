@@ -615,30 +615,6 @@ class TestMarketplace:
         assert listing["total_platform_fees"] == bill["platform_fee"]
 
 
-# ── Phase 18: Canada-Only Toggle ────────────────────────────────────
-
-
-class TestCanadaOnly:
-    def test_toggle(self):
-        scheduler.set_canada_only(True)
-        assert scheduler.CANADA_ONLY is True
-        scheduler.set_canada_only(False)
-        assert scheduler.CANADA_ONLY is False
-
-    def test_register_host_ca(self):
-        entry = scheduler.register_host_ca("h1", "10.0.0.1", "RTX 4090", 24, 24, country="CA")
-        assert entry["country"] == "CA"
-
-    def test_list_hosts_filtered_canada(self):
-        scheduler.register_host_ca("h1", "10.0.0.1", "RTX 4090", 24, 24, country="CA")
-        scheduler.register_host_ca("h2", "10.0.0.2", "RTX 3090", 24, 24, country="US")
-        ca_hosts = scheduler.list_hosts_filtered(canada_only=True)
-        assert len(ca_hosts) == 1
-        assert ca_hosts[0]["host_id"] == "h1"
-
-
-# ── Phase 19: Auto-Scaling ──────────────────────────────────────────
-
 
 class TestAutoscale:
     def test_add_to_pool(self):

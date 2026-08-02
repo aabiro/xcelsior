@@ -1420,7 +1420,6 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     "hosts:evict": "Evict workloads from platform hosts (operator)",
     "control_plane:read": "See platform control-plane health (operator)",
     "control_plane:operate": "Retry platform control-plane commands (operator)",
-    "api": "Full access to the Xcelsior API",
 }
 
 

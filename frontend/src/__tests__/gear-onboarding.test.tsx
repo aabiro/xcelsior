@@ -23,7 +23,6 @@ describe("GearOnboarding", () => {
 
   function mockDetection({
     name = "Ada",
-    canadaOnly = true,
     onboarding = {},
     oauthClients = [{ client_id: "oauth_abc" }],
     instances = [],
@@ -34,7 +33,6 @@ describe("GearOnboarding", () => {
           ok: true,
           json: () =>
             Promise.resolve({
-              canada_only_routing: canadaOnly,
               preferences: { onboarding },
             }),
         });
@@ -57,8 +55,8 @@ describe("GearOnboarding", () => {
     return { user: { name, email: "ada@example.com" } };
   }
 
-  it("shows loading then progress with jurisdiction from canada_only_routing", async () => {
-    const { user } = mockDetection({ canadaOnly: true, oauthClients: [] });
+  it("shows loading then progress once an MCP client is connected", async () => {
+    const { user } = mockDetection({ oauthClients: [{ client_id: "c1" }] });
     render(
       <GearOnboarding t={t} user={user} pathname="/dashboard" />,
     );

@@ -7,7 +7,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "instances:write"
       ],
       "idempotency": "keyed",
@@ -35,7 +34,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "instances:write"
       ],
       "idempotency": "keyed",
@@ -111,7 +109,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "inference:write"
       ],
       "idempotency": "keyed",
@@ -171,7 +168,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "billing:read"
       ],
       "idempotency": "read",
@@ -194,10 +190,6 @@
         "spot": {
           "type": "boolean",
           "optional": true
-        },
-        "sovereignty": {
-          "type": "boolean",
-          "optional": true
         }
       },
       "hasOutputSchema": true
@@ -207,7 +199,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "instances:read"
       ],
       "idempotency": "read",
@@ -231,7 +222,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "instances:read"
       ],
       "idempotency": "read",
@@ -255,7 +245,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "instances:read"
       ],
       "idempotency": "read",
@@ -279,7 +268,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "instances:read"
       ],
       "idempotency": "read",
@@ -307,7 +295,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "instances:read"
       ],
       "idempotency": "read",
@@ -331,7 +318,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "hosts:read",
         "inference:read",
         "instances:read"
@@ -357,7 +343,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "gpu:read"
       ],
       "idempotency": "read",
@@ -376,7 +361,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "inference:read"
       ],
       "idempotency": "read",
@@ -404,7 +388,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "marketplace:read"
       ],
       "idempotency": "read",
@@ -423,7 +406,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "billing:read"
       ],
       "idempotency": "read",
@@ -447,7 +429,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "gpu:read"
       ],
       "idempotency": "read",
@@ -471,7 +452,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "instances:read"
       ],
       "idempotency": "read",
@@ -503,7 +483,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "billing:read"
       ],
       "idempotency": "read",
@@ -527,7 +506,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "inference:read"
       ],
       "idempotency": "read",
@@ -546,7 +524,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "gpu:read"
       ],
       "idempotency": "read",
@@ -565,7 +542,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "instances:operate"
       ],
       "idempotency": "keyed",
@@ -597,7 +573,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "instances:operate"
       ],
       "idempotency": "keyed",
@@ -629,7 +604,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "inference:write"
       ],
       "idempotency": "none",
@@ -661,7 +635,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "billing:read",
         "instances:write"
       ],
@@ -734,7 +707,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "gpu:read",
         "instances:write",
         "marketplace:read"
@@ -788,7 +760,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "marketplace:read"
       ],
       "idempotency": "read",
@@ -834,7 +805,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "billing:read",
         "inference:read"
       ],
@@ -879,7 +849,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "billing:read",
         "instances:read"
       ],
@@ -907,10 +876,6 @@
         "max_hourly_cad": {
           "type": "number",
           "optional": true
-        },
-        "require_residency": {
-          "type": "string",
-          "optional": true
         }
       },
       "hasOutputSchema": true
@@ -920,7 +885,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "gpu:read",
         "instances:read"
       ],
@@ -945,7 +909,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "instances:write"
       ],
       "idempotency": "keyed",
@@ -973,7 +936,6 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "api",
         "instances:read"
       ],
       "idempotency": "read",

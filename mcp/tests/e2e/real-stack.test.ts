@@ -433,6 +433,23 @@ describe.runIf(enabled)("§26.4 real MCP + API + PostgreSQL + Redis", () => {
       name: "must-not-launch", confirm: false,
     });
     expect(denied.code || denied.error).toBe("insufficient_scope");
+
+    // A *partial* match must be denied too, and this is the case the surface
+    // missed. `run_training_job` requires instances:write AND billing:read;
+    // the old check was `required.some(...)`, so a token holding only
+    // `billing:read` — a pure read scope — satisfied a spending write. GT3
+    // asks for this proven with real tokens against the live server, not a
+    // mock, because the mock is what passed while production did not.
+    const partialToken = await createMachineToken(
+      tenantA.browser, `${marker}-partial`, ["billing:read"],
+    );
+    const partial = await sdkClient(partialToken, "real-stack-partial-scope");
+    const escalation = await call(partial.client, "run_training_job", {
+      name: "must-not-launch", gpu_model: "RTX 4090", git_repo: "https://example.com/x.git",
+    });
+    expect(escalation.code || escalation.error, JSON.stringify(escalation))
+      .toBe("insufficient_scope");
+    await partial.transport.close();
     await readOnly.transport.close();
     const other = await sdkClient(tenantB.machine, "real-stack-b");
     const hidden = await call(other.client, "get_instance", { job_id: worker.job_id });

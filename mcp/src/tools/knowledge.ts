@@ -25,7 +25,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AuthUser } from "../auth/bearer.js";
 import type { XcelsiorApiClient } from "../client/api.js";
-import { TOOL_SCOPES, userHasScope } from "../auth/scopes.js";
+import { TOOL_SCOPES, userHasScope, scopeUnion, describeScopeRequirement } from "../auth/scopes.js";
 import { structuredResult } from "../lib/format.js";
 
 export interface KnowledgeSources {
@@ -137,7 +137,7 @@ async function buildIndex(
     title: "Marketplace listings — GPUs available now",
     url: `${sources.siteUrl}/gpus`,
     summary:
-      "Current listings from independent hosts: GPU model, VRAM, region, jurisdiction, " +
+      "Current listings from independent hosts: GPU model, VRAM, region, " +
       "host reputation, and hourly rate.",
     load: async () => JSON.stringify(await client.post("/api/v2/marketplace/search", {}), null, 2),
   });
@@ -223,7 +223,10 @@ export function registerKnowledgeTools(
     const required = TOOL_SCOPES[tool];
     return userHasScope(user?.scopes, required)
       ? null
-      : structuredResult({ ok: false, code: "insufficient_scope", required });
+      : structuredResult(
+          { ok: false, code: "insufficient_scope", required: scopeUnion(required) },
+          `Access denied: requires ${describeScopeRequirement(required)}.`,
+        );
   };
 
   server.registerTool(

@@ -18,7 +18,7 @@ TAG_TO_MODULE = {
     "Hosts": "hosts", "Instances": "instances", "Billing": "billing",
     "Infrastructure": "infra", "SSH Keys": "ssh", "Auth": "auth",
     "Auth – MFA": "mfa", "Teams": "teams", "Marketplace": "marketplace",
-    "Marketplace v2": "marketplace", "Jurisdiction": "jurisdiction",
+    "Marketplace v2": "marketplace",
     "Autoscale": "autoscale", "Agent": "agent", "Spot Pricing": "spot",
     "Events": "events", "Verification": "verification",
     "Reputation": "reputation", "Compliance": "compliance",
@@ -38,7 +38,6 @@ PATH_OVERRIDES = {
     "/api/auth/token": "auth", "/api/auth/verify": "auth",
     "/api/users/me/preferences": "auth", "/api/auth/me/data-export": "auth",
     "/api/artifacts": "artifacts",
-    "/api/queue/process-sovereign": "jurisdiction",
     "/api/audit/": "events",
     "/build": "infra", "/builds": "infra",
     "/alerts/": "infra", "/api/alerts/": "infra",
@@ -224,18 +223,6 @@ from pydantic import BaseModel, Field
 from scheduler import list_jobs, list_hosts
 from routes._deps import _get_current_user
 """,
-    "jurisdiction": """\
-from pydantic import BaseModel
-from scheduler import (
-    register_host_ca, list_hosts_filtered, process_queue_filtered,
-    set_canada_only, list_hosts, process_queue_sovereign,
-    allocate_jurisdiction_aware,
-)
-from jurisdiction import (
-    TrustTier, generate_residency_trace, TRUST_TIER_REQUIREMENTS,
-)
-from routes._deps import _get_current_user, _require_provider_or_admin
-""",
     "autoscale": """\
 from pydantic import BaseModel
 from scheduler import (
@@ -281,11 +268,7 @@ from routes._deps import _get_current_user
 """,
     "compliance": """\
 from pydantic import BaseModel
-from jurisdiction import (
-    PROVINCE_COMPLIANCE, TRUST_TIER_REQUIREMENTS, compute_fund_eligible_amount,
-)
 from billing import get_billing_engine, get_tax_rate_for_province, PROVINCE_TAX_RATES
-from privacy import requires_quebec_pia
 from routes._deps import _require_provider_or_admin, _get_current_user
 """,
     "privacy": """\
@@ -393,7 +376,7 @@ MODULE_TAGS = {
     "hosts": ["Hosts"], "instances": ["Instances"], "billing": ["Billing"],
     "health": ["Infrastructure"], "ssh": ["SSH Keys"], "auth": ["Auth"],
     "mfa": ["Auth – MFA"], "teams": ["Teams"], "marketplace": ["Marketplace"],
-    "slurm": ["Agent"], "jurisdiction": ["Jurisdiction"],
+    "slurm": ["Agent"],
     "autoscale": ["Autoscale"], "agent": ["Agent"], "spot": ["Spot Pricing"],
     "events": ["Events"], "verification": ["Verification"],
     "reputation": ["Reputation"], "compliance": ["Compliance"],

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AuthUser } from "../auth/bearer.js";
-import { TOOL_SCOPES, userHasScope } from "../auth/scopes.js";
+import { TOOL_SCOPES, userHasScope, scopeUnion, describeScopeRequirement } from "../auth/scopes.js";
 import type { XcelsiorApiClient } from "../client/api.js";
 import { apiProblem } from "../client/errors.js";
 import { structuredResult } from "../lib/format.js";
@@ -24,7 +24,7 @@ function registerRead(
   }, async (args) => {
     const required = TOOL_SCOPES[name];
     if (!userHasScope(user?.scopes, required)) {
-      return structuredResult({ ok: false, code: "insufficient_scope", required }, `Access denied: ${required.join(" or ")} required.`);
+      return structuredResult({ ok: false, code: "insufficient_scope", required }, `Access denied: requires ${describeScopeRequirement(required)}.`);
     }
     try {
       const value = await request(args) as Record<string, unknown>;

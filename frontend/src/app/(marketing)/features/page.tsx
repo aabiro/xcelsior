@@ -9,7 +9,7 @@ const FeaturesContent = dynamic(
 export const metadata: Metadata = {
   title: "Features",
   description:
-    "Explore Xcelsior's agent-native GPU compute platform: transparent pricing, real-time telemetry, jurisdiction controls, and provider tooling for teams worldwide.",
+    "Explore Xcelsior's agent-native GPU compute platform: transparent pricing, real-time telemetry, scoped access controls, and provider tooling for teams worldwide.",
   alternates: { canonical: "https://xcelsior.ca/features" },
   openGraph: {
     title: "Features | Xcelsior",

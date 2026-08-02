@@ -18,7 +18,7 @@ def test_transparency_legal_request_and_respond():
         "/api/transparency/legal-request",
         json={
             "request_type": "subpoena",
-            "jurisdiction": "CA",
+            "requesting_country": "CA",
             "authority": "Test Court",
             "scope": "coverage smoke",
             "notes": "pytest",

@@ -20,7 +20,7 @@ router = APIRouter()
 
 @router.get("/api/privacy/retention-policies", tags=["Privacy"])
 def api_retention_policies(request: Request):
-    """Data retention policies per PIPEDA fair information principles."""
+    """Data retention policies per privacy fair information principles."""
     from routes._deps import _require_scope, _get_current_user
 
     user = _get_current_user(request) if request else None
@@ -131,7 +131,7 @@ class LifecycleConsentRequest(BaseModel):
 
 @router.post("/api/privacy/consent", tags=["Privacy"])
 def api_record_consent(req: LifecycleConsentRequest, request: Request):
-    """Record explicit consent (PIPEDA principle: Consent)."""
+    """Record explicit consent (privacy principle: Consent)."""
     from routes._deps import _require_scope, _get_current_user
 
     user = _get_current_user(request) if request else None
@@ -144,7 +144,7 @@ def api_record_consent(req: LifecycleConsentRequest, request: Request):
 
 @router.delete("/api/privacy/consent/{entity_id}/{consent_type}", tags=["Privacy"])
 def api_revoke_consent(entity_id: str, consent_type: str, request: Request):
-    """Revoke consent (PIPEDA: individuals can withdraw consent)."""
+    """Revoke consent (privacy: individuals can withdraw consent)."""
     from routes._deps import _require_scope, _get_current_user
 
     user = _get_current_user(request) if request else None
@@ -157,7 +157,7 @@ def api_revoke_consent(entity_id: str, consent_type: str, request: Request):
 
 @router.get("/api/privacy/consent/{entity_id}", tags=["Privacy"])
 def api_get_consents(entity_id: str, request: Request):
-    """Get all consent records for an entity (PIPEDA: Individual Access)."""
+    """Get all consent records for an entity (privacy: Individual Access)."""
     from routes._deps import _require_scope, _get_current_user
 
     user = _get_current_user(request) if request else None

@@ -54,19 +54,14 @@ export function registerPlaybooks(server: McpServer): void {
     {
       title: "Launch a fine-tuning job",
       description:
-        "Playbook: launch a training instance with cost guardrails, optionally pinned to a region",
+        "Playbook: launch a training instance with cost guardrails",
       argsSchema: {
         gpu_model: z.string().default("RTX 4090"),
         git_repo: z.string().optional(),
-        require_residency: z
-          .string()
-          .optional()
-          .describe("Region code the workload must stay within, if it has a residency requirement"),
       },
     },
-    async ({ gpu_model, git_repo, require_residency }) => {
+    async ({ gpu_model, git_repo }) => {
       const repo = git_repo ? ` Clone ${git_repo}.` : "";
-      const residency = require_residency?.trim();
       return {
         messages: [
           {
@@ -75,9 +70,7 @@ export function registerPlaybooks(server: McpServer): void {
               type: "text",
               text: [
                 `Launch a fine-tuning instance on ${gpu_model}.${repo}`,
-                residency
-                  ? `1. Call should_i_run_this with require_residency:"${residency}", then confirm the chosen host reports a matching jurisdiction.`
-                  : "1. Call should_i_run_this to confirm the job is affordable. Consider spot:true if the training script checkpoints.",
+                "1. Call should_i_run_this to confirm the job is affordable. Consider spot:true if the training script checkpoints.",
                 "2. Compare live rates with get_spot_prices before committing to a host.",
                 "3. Use run_training_job with confirm:false for preview, then confirm:true to launch.",
                 "4. Use watch_instance to monitor GPU utilization.",

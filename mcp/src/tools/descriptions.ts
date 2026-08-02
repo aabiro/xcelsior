@@ -44,7 +44,7 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
   search_marketplace:
     "Search live marketplace listings by GPU model, minimum VRAM, region, and host reputation, " +
     "sorted by price, reputation, region, or VRAM. Use when the user has a constraint to satisfy " +
-    "— a jurisdiction, a VRAM floor, a trusted host — rather than just wanting to see what " +
+    "— a region, a VRAM floor, a trusted host — rather than just wanting to see what " +
     "exists. Read-only and free. Listings belong to independent hosts and change without notice.",
 
   list_tiers:
@@ -97,8 +97,7 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     "checks an optional max_hourly_cad ceiling, and returns an approve/decline verdict with " +
     "reasons. Use this instead of estimate_job_cost whenever you are about to launch — it " +
     "answers whether the job *should* run, not merely what it costs. Read-only and free; it " +
-    "never launches anything. Pass require_residency when the workload carries a data-residency " +
-    "obligation, and verify the selected host's jurisdiction before launching.",
+    "never launches anything.",
 
   // ── Workflows ───────────────────────────────────────────────────────────
   run_training_job:
@@ -160,7 +159,7 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
 
   simulate_instance_placement:
     "Run a proposed instance spec through the scheduler and return where it would be placed, " +
-    "without allocating anything. Use to test feasibility — a jurisdiction constraint, a VRAM " +
+    "without allocating anything. Use to test feasibility — a region preference, a VRAM " +
     "requirement, a host preference — before preparing a real launch plan. Read-only and free: " +
     "no capacity is reserved and nothing is billed.",
 

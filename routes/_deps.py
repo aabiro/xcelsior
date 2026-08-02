@@ -1228,24 +1228,50 @@ def _require_user_grant(request: Request, *, allow_api_key: bool = False) -> dic
     return user
 
 
+# Credential classes whose scopes are an authorization restriction rather than
+# an OIDC identity claim. `master_token` is deliberately absent: it is the
+# break-glass admin credential and is gated by admin checks, not scopes.
+_MACHINE_AUTH_TYPES = frozenset({"client_credentials", "agent_api_key"})
+
 def _require_scope(user: dict, *required: str) -> None:
     """Raise 403 if *user* is a scoped machine principal missing any of *required*.
 
-    No-op for interactive user sessions (browser, authorization_code),
-    legacy sessions, admin tokens, and principals without explicit scopes.
-    Only OAuth client_credentials JWTs and machine tokens are scope-checked.
+    No-op for interactive user sessions (browser, authorization_code), legacy
+    sessions, admin tokens, and principals without explicit scopes. **Every
+    machine credential** is checked — client-credentials tokens and agent API
+    keys alike.
+
+    This used to gate on ``grant_type == "client_credentials"`` alone. An
+    agent-key principal has no ``grant_type`` field at all (see
+    ``validate_agent_api_key``), so enforcement was skipped entirely for it —
+    including for the Quick Connect keys our own quickstarts tell users to
+    paste, which are issued with a deliberately *narrowed* scope set. The
+    reduction was real; the enforcement was not.
+
+    The gate is *machine credential*, not merely "carries scopes". An
+    interactive session authenticated through ``authorization_code`` carries
+    OIDC identity scopes — ``profile``, ``email``, ``offline_access`` — which
+    say nothing about API authority. Treating their presence as "scope
+    restricted" would deny every browser request for lacking API scopes it was
+    never meant to hold.
     """
-    # Interactive users always pass — scopes only gate machine-to-machine access.
-    grant_type = user.get("grant_type", "")
-    if grant_type != "client_credentials":
-        return  # browser/user session — implicit full access
+    is_machine = (
+        user.get("grant_type") == "client_credentials"
+        or user.get("auth_type") in _MACHINE_AUTH_TYPES
+    )
+    if not is_machine:
+        return
 
     scopes = user.get("scopes")
-    if scopes is None:
+    # `None`/empty means the credential predates scope recording; denying it
+    # would lock out existing keys for a bug that is not theirs.
+    if not scopes:
         return
     granted = set(scopes)
-    if "api" in granted:
-        return
+    # No wildcard. `api` used to short-circuit this check entirely, which made
+    # every narrowed credential — including Quick Connect keys — able to do
+    # anything. It is removed from the scope vocabulary rather than narrowed, so
+    # there is no value a caller can hold that means "everything".
     missing = [s for s in required if s not in granted]
     if missing:
         raise HTTPException(

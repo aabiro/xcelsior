@@ -1178,11 +1178,6 @@ class EstimateRequest(BaseModel):
     gpu_model: str = Field(default="RTX 4090", max_length=64)
     duration_hours: float = Field(default=1.0, ge=0.0, le=8760)  # max 1 year
     spot: bool = False
-    sovereignty: bool = False
-    # Records whether the workload runs on Canadian compute. Defaults to False so
-    # an omitted field never implies eligibility for the (now-ended) AI Compute
-    # Access Fund; see jurisdiction.FUND_PROGRAM_ACTIVE.
-    is_canadian: bool = False
 
 
 @router.post("/api/pricing/estimate", tags=["Billing"])
@@ -1192,8 +1187,6 @@ def api_estimate_cost(req: EstimateRequest):
         req.gpu_model,
         req.duration_hours,
         spot=req.spot,
-        sovereignty=req.sovereignty,
-        is_canadian=req.is_canadian,
     )
     return {"ok": True, **estimate}
 
@@ -1226,7 +1219,7 @@ def api_pricing_rates(
 ):
     """Compute effective GPU rate with all pricing variables.
 
-    Returns a full breakdown: base rate, priority multiplier, sovereignty
+    Returns a full breakdown: base rate, priority multiplier,
     premium, multi-GPU discount, tax rate, and final per-hour total.
     Volume (storage) costs are calculated at runtime in billing — not here.
     """
@@ -1244,7 +1237,7 @@ def api_pricing_rates(
 
     with pg_connection() as conn:
         cur = conn.execute(
-            """SELECT base_rate_cad, sovereignty_premium,
+            """SELECT base_rate_micros::double precision / 1000000.0 AS base_rate_cad,
                       multi_gpu_discount_4, multi_gpu_discount_8, vram_gb
                FROM gpu_pricing
                WHERE gpu_model = %s AND tier = %s AND pricing_mode = %s
@@ -1259,16 +1252,14 @@ def api_pricing_rates(
 
     if row:
         base_rate = row[0]
-        sovereignty_premium = row[1]
-        mg4_disc = row[2]
-        mg8_disc = row[3]
-        vram_gb = row[4]
+        mg4_disc = row[1]
+        mg8_disc = row[2]
+        vram_gb = row[3]
     else:
         # The guard above returns 404 when both row and quote are absent,
         # so reaching this branch means the live quote exists.
         assert live_spot_quote is not None
         base_rate = live_spot_quote.rate_cad
-        sovereignty_premium = 0.0
         mg4_disc = 0.05
         mg8_disc = 0.10
         vram_gb = 0
@@ -1285,7 +1276,7 @@ def api_pricing_rates(
         multi_gpu_discount = 0.0
 
     # Effective per-GPU rate
-    effective_rate = base_rate * pri_mult * (1 + sovereignty_premium) * (1 - multi_gpu_discount)
+    effective_rate = base_rate * pri_mult * (1 - multi_gpu_discount)
     effective_rate = round(effective_rate, 4)
 
     # Per-hour total across all GPUs
@@ -1307,7 +1298,6 @@ def api_pricing_rates(
         "num_gpus": num_gpus,
         "base_rate_cad": base_rate,
         "priority_multiplier": pri_mult,
-        "sovereignty_premium": sovereignty_premium,
         "multi_gpu_discount": multi_gpu_discount,
         "effective_rate_per_gpu": effective_rate,
         "total_per_hour": total_per_hour,
@@ -1380,7 +1370,8 @@ def api_pricing_models():
     from db import pg_connection
 
     with pg_connection() as conn:
-        cur = conn.execute("""SELECT DISTINCT gpu_model, vram_gb, base_rate_cad
+        cur = conn.execute("""SELECT DISTINCT gpu_model, vram_gb,
+                                     base_rate_micros::double precision / 1000000.0 AS base_rate_cad
                FROM gpu_pricing
                WHERE active = TRUE AND tier = 'standard' AND pricing_mode = 'on_demand'
                ORDER BY base_rate_cad ASC""")
@@ -1669,9 +1660,7 @@ def api_usage_analytics(
                     "COUNT(*) AS job_count, "
                     "ROUND(COALESCE(SUM(total_cost_micros) / 1000000.0, 0)::numeric, 2) AS total_cost_cad, "
                     "ROUND(COALESCE(SUM(gpu_seconds), 0)::numeric, 0) AS total_gpu_seconds, "
-                    "ROUND(COALESCE(AVG(gpu_utilization_pct), 0)::numeric, 1) AS avg_gpu_util_pct, "
-                    "COALESCE(SUM(is_canadian_compute), 0) AS canadian_jobs, "
-                    "COUNT(*) - COALESCE(SUM(is_canadian_compute), 0) AS international_jobs "
+                    "ROUND(COALESCE(AVG(gpu_utilization_pct), 0)::numeric, 1) AS avg_gpu_util_pct "
                     f"FROM usage_meters WHERE {where_sql} "
                     "GROUP BY period ORDER BY period",
                 ),
@@ -1689,8 +1678,6 @@ def api_usage_analytics(
                         else 0
                     ),
                     "avg_gpu_utilization_pct": float(r["avg_gpu_util_pct"] or 0),
-                    "canadian_jobs": r["canadian_jobs"],
-                    "international_jobs": r["international_jobs"],
                 }
                 for r in rows
             ]
@@ -1740,7 +1727,7 @@ def api_analytics_enhanced(
 
     Returns aggregated data including cost-per-hour trends, cumulative spend,
     duration histograms, job status breakdowns, wallet trends, top hosts,
-    sovereignty stats, and hourly heatmap data.
+    and hourly heatmap data.
 
     Non-admin users are automatically scoped to their own data.
     Providers get both provider and customer views.
@@ -1903,32 +1890,6 @@ def api_analytics_enhanced(
                 }
                 for r in top_rows
             ]
-
-            # ── 7. Sovereignty summary ──
-            sov_row = conn.execute(
-                cast(
-                    Any,
-                    "SELECT "
-                    "COUNT(*) AS total, "
-                    "SUM(CASE WHEN is_canadian_compute = 1 THEN 1 ELSE 0 END) AS canadian, "
-                    "ROUND(COALESCE(SUM(CASE WHEN is_canadian_compute = 1 THEN total_cost_micros / 1000000.0 ELSE 0 END), 0)::numeric, 2) AS ca_spend, "
-                    "ROUND(COALESCE(SUM(CASE WHEN is_canadian_compute = 0 THEN total_cost_micros / 1000000.0 ELSE 0 END), 0)::numeric, 2) AS intl_spend "
-                    f"FROM usage_meters WHERE {where_sql}",
-                ),
-                params,
-            ).fetchone()
-            total_jobs_sov = int(sov_row["total"]) if sov_row else 0
-            result["sovereignty"] = {
-                "total_jobs": total_jobs_sov,
-                "canadian_jobs": int((sov_row["canadian"] or 0)) if sov_row else 0,
-                "canadian_pct": (
-                    round(int((sov_row["canadian"] or 0)) / total_jobs_sov * 100, 1)
-                    if total_jobs_sov
-                    else 0
-                ),
-                "canadian_spend": float(sov_row["ca_spend"]) if sov_row else 0,
-                "international_spend": float(sov_row["intl_spend"]) if sov_row else 0,
-            }
 
             # ── 8. GPU model performance breakdown ──
             gpu_perf_rows = conn.execute(

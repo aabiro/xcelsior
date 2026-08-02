@@ -943,11 +943,6 @@ export interface components {
              */
             push: boolean;
         };
-        /** CanadaToggle */
-        CanadaToggle: {
-            /** Enabled */
-            enabled: boolean;
-        };
         /** CaslConsentRequest */
         CaslConsentRequest: {
             /** Purpose */
@@ -1205,16 +1200,6 @@ export interface components {
              * @default false
              */
             spot: boolean;
-            /**
-             * Sovereignty
-             * @default false
-             */
-            sovereignty: boolean;
-            /**
-             * Is Canadian
-             * @default false
-             */
-            is_canadian: boolean;
         };
         /** FinalizeRequest */
         FinalizeRequest: {
@@ -1536,18 +1521,6 @@ export interface components {
             /** Template Image Id */
             template_image_id?: string | null;
         };
-        /** JurisdictionFilterRequest */
-        JurisdictionFilterRequest: {
-            /**
-             * Canada Only
-             * @default true
-             */
-            canada_only: boolean;
-            /** Province */
-            province?: string;
-            /** Trust Tier */
-            trust_tier?: string;
-        };
         /** LeaseAuthorityRequest */
         LeaseAuthorityRequest: {
             /** Lease Id */
@@ -1598,10 +1571,10 @@ export interface components {
              */
             request_type: string;
             /**
-             * Jurisdiction
+             * Requesting Country
              * @default CA
              */
-            jurisdiction: string;
+            requesting_country: string;
             /**
              * Authority
              * @default
@@ -1665,11 +1638,6 @@ export interface components {
              * @default
              */
             region: string;
-            /**
-             * Canada Only
-             * @default false
-             */
-            canada_only: boolean;
             /**
              * Spot Available
              * @default false
@@ -1785,24 +1753,6 @@ export interface components {
             details?: {
                 [key: string]: unknown;
             } | null;
-        };
-        /** PIACheckRequest */
-        PIACheckRequest: {
-            /**
-             * Data Origin Province
-             * @default QC
-             */
-            data_origin_province: string;
-            /**
-             * Processing Province
-             * @default ON
-             */
-            processing_province: string;
-            /**
-             * Data Contains Pi
-             * @default false
-             */
-            data_contains_pi: boolean;
         };
         /** PasskeyAuthenticateCompleteRequest */
         PasskeyAuthenticateCompleteRequest: {
@@ -2501,18 +2451,6 @@ export interface components {
              */
             redirect: string;
         };
-        /** SovereignQueueRequest */
-        SovereignQueueRequest: {
-            /**
-             * Canada Only
-             * @default true
-             */
-            canada_only: boolean;
-            /** Province */
-            province?: string;
-            /** Trust Tier */
-            trust_tier?: string;
-        };
         /** StatusUpdate */
         StatusUpdate: {
             /** Status */
@@ -2597,10 +2535,10 @@ export interface components {
              */
             artifact_type: string;
             /**
-             * Residency Policy
-             * @default canada_only
+             * Storage Policy
+             * @default any
              */
-            residency_policy: string;
+            storage_policy: string;
         };
         /**
          * V1InferenceRequest

@@ -1,3 +1,4 @@
+<!-- residency-guard: documents-removal — records the surface that was removed -->
 # Xcelsior MCP — Curated Tool Surface Plan
 
 Companion to [`mcp-enterprise-adoption-plan.md`](./mcp-enterprise-adoption-plan.md). This document
@@ -32,7 +33,7 @@ The surface is complete when every journey below closes inside MCP:
 | **Customer (long-run)** | pre-authorize a spend envelope **once** → agent runs a multi-hour job unattended without ever going broke or over-spending |
 | **Host / provider** | onboard → publish capacity → observe utilization & reputation → **get paid out** |
 | **Operator** | scheduler health → placement forensics → drain/undrain/evict → reconcile → retry |
-| **Compliance officer** | prove residency → export attestation → answer a DSAR → pull the audit trail |
+| **Security reviewer** | read the platform's controls → export attestation → answer a DSAR → pull a workload's audit trail |
 | **Team admin** | invite/remove members → set roles → review per-member spend |
 
 Each journey gets a scripted end-to-end test in GT3. A journey that requires a raw `curl` is a
@@ -234,85 +235,25 @@ non-goal so it doesn't get quietly adopted later without a decision.
 
 ---
 
-### 4.6 Positioning: global-first, residency selectable  *(applied 2026-07-29)*
+### 4.6 Positioning — superseded 2026-08-02
 
-A distributed GPU marketplace needs supply wherever it is cheapest. Framing the platform as
-Canadian narrows the buyer *and* the host pool for no gain, and it was baked into the MCP surface
-in five places — including one that was quietly producing wrong numbers.
+This section recorded a half-step: the Canada-only defaults were removed but a
+per-workload region constraint was kept and "verified rather than assumed". That
+step is superseded. The constraint is gone too, and the reasoning is in
+[mcp-tool-surface-synthesis.md §2](./mcp-tool-surface-synthesis.md).
 
-**Changed:**
+The short version: a marketplace whose supply is independent hosts in arbitrary
+countries cannot honour a placement guarantee, and it was charging a premium for
+one. What survives is evidence after the fact — a workload's audit trail records
+where it *did* run — never a promise about where it *will*. The compliance
+domain in §5 is therefore two tools about platform controls and auditability,
+not six about geography.
 
-| File | Was | Now |
-|---|---|---|
-| `mcp/src/server.ts:30` | "Canadian data residency and PIPEDA compliance are supported — prefer CA regions when required." | Marketplace framing: hosts compete on price · instance vs. per-token serverless · spot as the default for checkpointable work · discover live rates before launching · residency passed explicitly and **verified**, never assumed |
-| `mcp/src/tools/billing.ts:58` | `is_canadian: z.boolean().default(true)` | **parameter removed**; `is_canadian: false` pinned in the request body |
-| `mcp/src/lib/guardrails.ts:46` | `require_canada?: boolean` → hardcoded "prefer `ca-east`" note | `require_residency?: string` → generated note naming the requested region and instructing verification |
-| `mcp/src/tools/guardrails.ts:37` | `require_canada: boolean` | `require_residency: string` (region code, optional) |
-| `mcp/src/prompts/playbooks.ts:53` | prompt `ca-fine-tune`, "Canadian fine-tuning job" | prompt `fine-tune`, optional `require_residency` arg |
-
-**The bug.** `estimate_job_cost` defaulted `is_canadian` to `true`, so every cost estimate applied
-Canadian AI Compute Access Fund rebate math. **That program has ended**, which makes the default
-unambiguously wrong for everyone: every estimate the MCP served was **understating real cost** by a
-rebate no customer can claim. There is no eligible cohort left, so the parameter was removed from
-the tool entirely rather than demoted to opt-in, and `is_canadian: false` is pinned in the request
-body to neutralise the API's own default.
-
-**Dead program still live API-side — separate cleanup, tracked here.** The fund ending leaves
-rebate machinery running in five places:
-
-| Location | What it is |
-|---|---|
-| `routes/billing.py:1221` | `EstimateRequest.is_canadian: bool = True` — the wrong default itself |
-| `routes/billing.py:843` | `GET /api/billing/export/caf/{customer_id}` — a whole export endpoint for the fund |
-| `billing.py:3955` | rebate documentation generator |
-| `reputation.py:1107` | a second estimate path carrying the same rebate preview |
-| `billing.py:4` | module docstring advertising "rebate-ready invoice exports" |
-
-The MCP path is correct regardless of all of it, because the flag is now sent explicitly. But the
-dashboard, the CLI, and any direct API consumer still inherit `= True` and are still quoting
-rebated prices. That is a live pricing-accuracy issue on those surfaces and wants its own change —
-flipping the default, then deciding whether the CAF export endpoint is retired or kept read-only
-for customers reconciling historical invoices. `export/caf` is on the §7 never-expose list either
-way.
-
-**What replaced the positioning, and why these claims are safe.** No hardcoded percentages, no
-comparative claims against named competitors, no numbers that go stale. Every quantitative
-statement points at a tool that returns live data:
-
-| Differentiator | Where the number comes from |
-|---|---|
-| Independent hosts competing on price | `search_marketplace`, `list_available_gpus` |
-| Spot materially below on-demand | `get_spot_prices` |
-| Per-token serverless on open-weight models, zero idle cost | `/api/v2/serverless/preset-token-pricing` — **real endpoint, currently unexposed to MCP; becomes `list_serverless_model_pricing` in the §5 budget** |
-| CAD-denominated pricing | `get_pricing_reference` |
-| Sovereignty-vetted hosts (35% premium, `jurisdiction.py:108`) | priced via `estimate_job_cost(sovereignty:true)` — a premium tier for buyers who need it, not the platform's identity |
-
-This is deliberate. The `instructions` string is read by reviewer models during directory
-submission; an unverifiable comparative claim there is both a review risk and exactly the kind of
-stale hardcoded assertion the honesty rules forbid. Stating facts and pointing at tools lets the
-price advantage show up in the data instead of being asserted.
-
-**Residency became stronger, not weaker.** `require_canada: boolean` could only express one
-jurisdiction and answered with a hardcoded "prefer `ca-east`". `require_residency: string` accepts
-any region, and the returned note instructs the agent to *confirm the selected host reports a
-matching jurisdiction before launching* rather than asserting that a region satisfies the
-requirement. That is a better compliance posture — and it is what makes GDPR/EU residency a
-configuration rather than a rewrite when hosts land there.
-
-**Out of scope here** (flagged, not changed): `chat.py:91`, `ai_assistant.py:3792` and
-`ai_assistant.py:4581` still describe the product as "Canada's distributed GPU compute marketplace"
-and instruct "Use Canadian English". Those are the web assistant's prompts, not the MCP surface.
-Same treatment, separate change.
-
-**Verification:** `npx tsc --noEmit` clean. `grep -rniE 'canad|pipeda|rebate' mcp/src/` returns only
-the explanatory comment on the pinned `is_canadian: false` — no Canada-specific positioning or
-behaviour remains on the MCP surface.
-
-⚠ `should_i_run_this` and `estimate_job_cost` are **breaking schema changes** to live tools. Correct
-to do now, before directory submission creates external dependents — but the stdio package version
-must bump and the change must be noted in `mcp/README.md`.
-
----
+Removed from the tool surface: the region parameter on the guardrail tool and
+its generated note, the pricing flags on the estimate tool, the region argument
+on the fine-tune playbook, and the server instruction telling models to verify a
+host's location. Removed from the platform: the routing module, the tier
+premium, the per-response location headers, and the user-facing routing toggle.
 
 ## 5. Domain budget
 

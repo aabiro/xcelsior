@@ -11,5 +11,5 @@ export interface UploadRequest {
     job_id: string;
     filename: string;
     artifact_type?: string;
-    residency_policy?: string;
+    storage_policy?: string;
 }

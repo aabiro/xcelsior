@@ -1,7 +1,7 @@
 # Xcelsior Billing & Metering — CAD-first
 # Implements REPORT_FEATURE_FINAL.md + REPORT_MARKETING_FINAL.md:
 #   - CAD pricing (competitors price in USD = procurement friction for CA buyers)
-#   - Per-job metering with residency trace
+#   - Per-job metering
 #   - Trust tier pricing multipliers
 #   - Stripe Connect–ready payout structure
 #   - Provider attestation bundle for compliance
@@ -153,10 +153,9 @@ class UsageMeter:
     # Compute score (XCU)
     xcu_score: float = 0.0
 
-    # Jurisdiction
+    # Host location (invoice metadata only)
     country: str = ""
     province: str = ""
-    is_canadian_compute: bool = False
 
     # Trust tier
     trust_tier: str = "community"
@@ -245,7 +244,6 @@ def _usage_meter_from_row(row: Any) -> UsageMeter:
             "xcu_score",
             "country",
             "province",
-            "is_canadian_compute",
             "trust_tier",
             "base_rate_per_hour",
             "tier_multiplier",
@@ -276,7 +274,6 @@ def _usage_meter_from_row(row: Any) -> UsageMeter:
         xcu_score=float(row.get("xcu_score") or 0),
         country=str(row.get("country") or ""),
         province=str(row.get("province") or ""),
-        is_canadian_compute=bool(int(row.get("is_canadian_compute") or 0)),
         trust_tier=str(row.get("trust_tier") or "community"),
         base_rate_per_hour=float(row.get("base_rate_per_hour") or 0),
         tier_multiplier=float(row.get("tier_multiplier") or 1.0),
@@ -300,7 +297,6 @@ class InvoiceLineItem:
     unit: str = "GPU-hours"
     unit_price_cad: float = 0.0
     subtotal_cad: float = 0.0
-    is_canadian_compute: bool = False
     trust_tier: str = "community"
     job_id: str = ""
     host_id: str = ""
@@ -343,14 +339,9 @@ class Invoice:
     tax_amount_cad: float = 0.0
     total_cad: float = 0.0
 
-    # Residency split. The two fund_* columns exist so archived invoices raised
+    # The two fund_* columns exist so archived invoices raised
     # while the AI Compute Access Fund was running still round-trip; the program
     # has ended, so both are 0.0 on anything issued now.
-    # See jurisdiction.FUND_PROGRAM_ACTIVE.
-    canadian_compute_total_cad: float = 0.0
-    non_canadian_compute_total_cad: float = 0.0
-    fund_eligible_reimbursement_cad: float = 0.0
-    effective_cost_after_fund_cad: float = 0.0
 
     # Metadata
     created_at: float = field(default_factory=time.time)
@@ -383,7 +374,6 @@ class ProviderAttestation:
     valid_until: float = 0.0
 
     # Compliance
-    pipeda_compliant: bool = True
     privacy_officer_designated: bool = False
     privacy_officer_contact: str = ""
     security_posture: str = "defense-in-depth"
@@ -399,7 +389,7 @@ class BillingEngine:
     """Production billing engine with CAD pricing.
 
     Features:
-    - Per-job metering with residency trace
+    - Per-job metering
     - Trust tier pricing multipliers
     - Canadian / non-Canadian compute split on every invoice
     - Invoice generation with auditable line items
@@ -428,7 +418,7 @@ class BillingEngine:
         self,
         job: dict,
         host: dict,
-        jurisdiction_data: Optional[dict] = None,
+        host_location: Optional[dict] = None,
         trust_tier: str = "community",
     ) -> UsageMeter:
         """Create a metering record for a completed job.
@@ -441,28 +431,24 @@ class BillingEngine:
         re-call for the same attempt (partial unique on attempt_id).
         Pure-legacy jobs meter by job/meter_id as before.
         """
-        from jurisdiction import TRUST_TIER_REQUIREMENTS, TrustTier
-
         started = float(job.get("started_at", 0))
         completed = float(job.get("completed_at", 0))
         duration = completed - started if completed > started else 0
 
-        # Jurisdiction info
+        # Host location is recorded on the invoice line. It never affects placement.
         country = ""
         province = ""
-        is_canadian = False
-        if jurisdiction_data:
-            country = jurisdiction_data.get("country", "")
-            province = jurisdiction_data.get("province", "")
-            is_canadian = country.upper() == "CA"
-        elif host.get("country", "").upper() == "CA":
-            country = "CA"
-            is_canadian = True
+        if host_location:
+            country = host_location.get("country", "")
+            province = host_location.get("province", "")
+        else:
+            country = host.get("country", "")
 
         pricing_mode = resolve_job_pricing_mode(job)
         base_rate, _ = resolve_compute_rate_cad(job, host)
-        tier_req = TRUST_TIER_REQUIREMENTS.get(TrustTier(trust_tier), {})
-        multiplier = 1.0 if pricing_mode == "spot" else tier_req.get("pricing_multiplier", 1.0)
+        # Price is the host's rate. Capacity is priced on what it is, never on
+        # where it sits or what tier label it carries.
+        multiplier = 1.0
         spot_discount = 0.0
 
         duration_hr = duration / 3600
@@ -484,7 +470,6 @@ class BillingEngine:
             xcu_score=float(host.get("compute_score", 0)),
             country=country,
             province=province,
-            is_canadian_compute=is_canadian,
             trust_tier=trust_tier,
             base_rate_per_hour=base_rate,
             tier_multiplier=multiplier,
@@ -517,11 +502,11 @@ class BillingEngine:
                        (meter_id, job_id, host_id, owner, started_at, completed_at,
                         duration_sec, gpu_seconds, gpu_model, vram_gb,
                         gpu_utilization_pct, xcu_score, country, province,
-                        is_canadian_compute, trust_tier, base_rate_per_hour,
+                        trust_tier, base_rate_per_hour,
                         tier_multiplier, spot_discount, pricing_mode,
                         total_cost_micros, created_at, attempt_id)
                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                               %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                               %s, %s, %s, %s, %s, %s, %s, %s)
                        ON CONFLICT (meter_id) DO UPDATE SET
                          job_id = EXCLUDED.job_id, host_id = EXCLUDED.host_id,
                          owner = EXCLUDED.owner,
@@ -551,7 +536,6 @@ class BillingEngine:
                         meter.xcu_score,
                         meter.country,
                         meter.province,
-                        1 if meter.is_canadian_compute else 0,
                         meter.trust_tier,
                         meter.base_rate_per_hour,
                         meter.tier_multiplier,
@@ -584,13 +568,12 @@ class BillingEngine:
                 raise
 
         log.info(
-            "METERED job=%s attempt=%s cost=$%.4f CAD mode=%s tier=%s canadian=%s",
+            "METERED job=%s attempt=%s cost=$%.4f CAD mode=%s tier=%s",
             meter.job_id,
             (attempt_id or "")[:8] or "—",
             meter.total_cost_cad,
             pricing_mode,
             trust_tier,
-            is_canadian,
         )
         return meter
 
@@ -612,11 +595,9 @@ class BillingEngine:
         """
         if tax_rate is None:
             tax_rate, _desc = get_tax_rate_for_province(customer_province)
-        from jurisdiction import compute_fund_eligible_amount
 
         line_items: list[dict] = []
-        ca_total = 0.0
-        non_ca_total = 0.0
+        subtotal_accum = 0.0
 
         def _mode_label(mode: str) -> str:
             labels = {
@@ -639,7 +620,6 @@ class BillingEngine:
                     ROUND(COALESCE(SUM(total_cost_micros) / 1000000.0, 0)::numeric, 4) AS subtotal_cad,
                     ROUND(COALESCE(AVG(base_rate_per_hour * tier_multiplier), 0)::numeric, 4)
                         AS unit_price_cad,
-                    (MAX(is_canadian_compute) = 1) AS is_canadian_compute,
                     MAX(province) AS province
                 FROM usage_meters
                 WHERE owner = %s
@@ -654,7 +634,6 @@ class BillingEngine:
 
             for row in gpu_rows:
                 cost = float(row["subtotal_cad"])
-                is_ca = bool(row["is_canadian_compute"])
                 mode = str(row["pricing_mode"])
                 li = InvoiceLineItem(
                     description=(
@@ -666,7 +645,6 @@ class BillingEngine:
                     unit="GPU-hours",
                     unit_price_cad=float(row["unit_price_cad"] or 0),
                     subtotal_cad=cost,
-                    is_canadian_compute=is_ca,
                     trust_tier=row["trust_tier"],
                     province=row["province"] or "",
                     line_type="compute",
@@ -674,10 +652,7 @@ class BillingEngine:
                     gpu_model=row["gpu_model"],
                 )
                 line_items.append(li.to_dict())
-                if is_ca:
-                    ca_total += cost
-                else:
-                    non_ca_total += cost
+                subtotal_accum += cost
 
             # ── Serverless inference (grouped by GPU tier) ──
             sl_rows = conn.execute(
@@ -685,7 +660,7 @@ class BillingEngine:
                     gpu_model,
                     resource_type,
                     ROUND(COALESCE(SUM(duration_seconds), 0)::numeric, 0) AS worker_seconds,
-                    ROUND(COALESCE(SUM(amount_cad), 0)::numeric, 4) AS subtotal_cad,
+                    ROUND(COALESCE(SUM(amount_micros), 0)::numeric / 1000000, 4) AS subtotal_cad,
                     ROUND(COALESCE(AVG(rate_per_hour), 0)::numeric, 4) AS rate_per_hour
                 FROM billing_cycles
                 WHERE customer_id = %s
@@ -694,7 +669,7 @@ class BillingEngine:
                   AND period_start >= %s
                   AND period_end <= %s
                 GROUP BY gpu_model, resource_type
-                HAVING SUM(amount_cad) > 0
+                HAVING SUM(amount_micros) > 0
                 ORDER BY subtotal_cad DESC""",
                 (customer_id, period_start, period_end),
             ).fetchall()
@@ -712,13 +687,12 @@ class BillingEngine:
                     unit="GPU-hours",
                     unit_price_cad=float(row["rate_per_hour"] or 0),
                     subtotal_cad=cost,
-                    is_canadian_compute=True,
                     line_type="serverless",
                     gpu_model=gpu_tier,
                     pricing_mode="on_demand",
                 )
                 line_items.append(li.to_dict())
-                ca_total += cost
+                subtotal_accum += cost
 
             # ── Persistent storage (per volume) ──
             vol_rows = conn.execute(
@@ -727,7 +701,7 @@ class BillingEngine:
                     COALESCE(v.name, bc.job_id) AS volume_name,
                     COALESCE(v.size_gb, 0) AS size_gb,
                     ROUND(COALESCE(SUM(bc.duration_seconds), 0)::numeric, 0) AS billed_seconds,
-                    ROUND(COALESCE(SUM(bc.amount_cad), 0)::numeric, 4) AS subtotal_cad
+                    ROUND(COALESCE(SUM(bc.amount_micros), 0)::numeric / 1000000, 4) AS subtotal_cad
                 FROM billing_cycles bc
                 LEFT JOIN volumes v ON v.volume_id = bc.job_id
                 WHERE bc.customer_id = %s
@@ -736,7 +710,7 @@ class BillingEngine:
                   AND bc.period_start >= %s
                   AND bc.period_end <= %s
                 GROUP BY bc.job_id, v.name, v.size_gb
-                HAVING SUM(bc.amount_cad) > 0
+                HAVING SUM(bc.amount_micros) > 0
                 ORDER BY subtotal_cad DESC""",
                 (customer_id, period_start, period_end),
             ).fetchall()
@@ -752,13 +726,12 @@ class BillingEngine:
                     unit="GB-hours",
                     unit_price_cad=round(cost / hours, 6) if hours > 0 else 0.0,
                     subtotal_cad=cost,
-                    is_canadian_compute=True,
                     job_id=row["job_id"],
                     line_type="storage",
                     gpu_model="storage",
                 )
                 line_items.append(li.to_dict())
-                ca_total += cost
+                subtotal_accum += cost
 
         try:
             from stripe_catalog import enrich_invoice_lines_with_catalog
@@ -767,17 +740,9 @@ class BillingEngine:
         except Exception as exc:
             log.debug("Stripe catalog enrichment skipped: %s", exc)
 
-        subtotal = ca_total + non_ca_total
+        subtotal = subtotal_accum
         tax = round(subtotal * tax_rate, 2)
         total = round(subtotal + tax, 2)
-
-        # Fund calculations
-        ca_fund = compute_fund_eligible_amount(ca_total, True)
-        non_ca_fund = compute_fund_eligible_amount(non_ca_total, False)
-        total_reimbursable = (
-            ca_fund["reimbursable_amount_cad"] + non_ca_fund["reimbursable_amount_cad"]
-        )
-        effective = round(total - total_reimbursable, 2)
 
         invoice = Invoice(
             customer_id=customer_id,
@@ -789,10 +754,6 @@ class BillingEngine:
             tax_rate=tax_rate,
             tax_amount_cad=tax,
             total_cad=total,
-            canadian_compute_total_cad=round(ca_total, 2),
-            non_canadian_compute_total_cad=round(non_ca_total, 2),
-            fund_eligible_reimbursement_cad=round(total_reimbursable, 2),
-            effective_cost_after_fund_cad=effective,
         )
 
         # Persist
@@ -802,12 +763,10 @@ class BillingEngine:
             conn.execute(
                 """INSERT INTO invoices
                    (invoice_id, customer_id, customer_name, currency,
-                    period_start, period_end, line_items, subtotal_cad,
-                    tax_rate, tax_amount_cad, total_cad,
-                    canadian_compute_total_cad, non_canadian_compute_total_cad,
-                    fund_eligible_reimbursement_cad, effective_cost_after_fund_cad,
+                    period_start, period_end, line_items, subtotal_micros,
+                    tax_rate, tax_amount_micros, total_micros,
                     created_at, status, notes)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     invoice.invoice_id,
                     invoice.customer_id,
@@ -816,14 +775,12 @@ class BillingEngine:
                     invoice.period_start,
                     invoice.period_end,
                     Jsonb(invoice.line_items),
-                    invoice.subtotal_cad,
+                    # Integer micros in storage; the dataclass keeps CAD, which
+                    # is what the API and the PDF renderer speak.
+                    round(invoice.subtotal_cad * 1_000_000),
                     invoice.tax_rate,
-                    invoice.tax_amount_cad,
-                    invoice.total_cad,
-                    invoice.canadian_compute_total_cad,
-                    invoice.non_canadian_compute_total_cad,
-                    invoice.fund_eligible_reimbursement_cad,
-                    invoice.effective_cost_after_fund_cad,
+                    round(invoice.tax_amount_cad * 1_000_000),
+                    round(invoice.total_cad * 1_000_000),
                     invoice.created_at,
                     invoice.status,
                     invoice.notes,
@@ -831,15 +788,10 @@ class BillingEngine:
             )
 
         log.info(
-            "INVOICE %s customer=%s total=$%.2f CAD (CA: $%.2f, non-CA: $%.2f, "
-            "fund reimbursable: $%.2f, effective: $%.2f)",
+            "INVOICE %s customer=%s total=$%.2f CAD",
             invoice.invoice_id,
             customer_id,
             total,
-            ca_total,
-            non_ca_total,
-            total_reimbursable,
-            effective,
         )
         return invoice
 
@@ -861,16 +813,16 @@ class BillingEngine:
         with self._conn() as conn:
             conn.execute(
                 """INSERT INTO payout_ledger
-                   (payout_id, provider_id, job_id, amount_cad,
-                    platform_fee_cad, provider_payout_cad, status, created_at)
+                   (payout_id, provider_id, job_id, amount_micros,
+                    platform_fee_micros, provider_payout_micros, status, created_at)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     payout_id,
                     provider_id,
                     job_id,
-                    gross_amount_cad,
-                    fee,
-                    payout,
+                    round(gross_amount_cad * 1_000_000),
+                    round(fee * 1_000_000),
+                    round(payout * 1_000_000),
                     "pending",
                     time.time(),
                 ),
@@ -910,8 +862,6 @@ class BillingEngine:
                     SUM(duration_sec) as total_duration_sec,
                     SUM(gpu_seconds) as total_gpu_seconds,
                     SUM(total_cost_micros) / 1000000.0 AS total_cost_cad,
-                    SUM(CASE WHEN is_canadian_compute = 1 THEN total_cost_micros / 1000000.0 ELSE 0 END) as ca_cost,
-                    SUM(CASE WHEN is_canadian_compute = 0 THEN total_cost_micros / 1000000.0 ELSE 0 END) as non_ca_cost,
                     SUM(CASE WHEN COALESCE(pricing_mode, 'on_demand') = 'spot'
                         THEN total_cost_micros / 1000000.0 ELSE 0 END) as spot_cost,
                     SUM(CASE WHEN COALESCE(pricing_mode, 'on_demand') != 'spot'
@@ -930,8 +880,6 @@ class BillingEngine:
             "job_count": rows["job_count"] or 0,
             "total_gpu_hours": round((rows["total_gpu_seconds"] or 0) / 3600, 2),
             "total_cost_cad": round(rows["total_cost_cad"] or 0, 2),
-            "canadian_compute_cad": round(rows["ca_cost"] or 0, 2),
-            "non_canadian_compute_cad": round(rows["non_ca_cost"] or 0, 2),
             "spot_spend_cad": round(rows["spot_cost"] or 0, 2),
             "on_demand_spend_cad": round(rows["on_demand_cost"] or 0, 2),
             "hosts_used": rows["hosts_used"] or 0,
@@ -947,17 +895,25 @@ class BillingEngine:
         Idempotent on ``commitment_id`` so a retried POST does not create
         duplicate commitments. Caller supplies the fully-priced commitment
         dict (see ``routes/billing.py:api_reserve_commitment``).
+
+        Callers speak CAD; storage is integer micros. Converting here keeps the
+        unit boundary in one place instead of at every call site.
         """
+        c = {
+            **c,
+            "base_rate_micros": round(float(c["base_rate_cad"]) * 1_000_000),
+            "discounted_rate_micros": round(float(c["discounted_rate_cad"]) * 1_000_000),
+        }
         with self._conn() as conn:
             conn.execute(
                 """INSERT INTO reserved_commitments
                     (commitment_id, customer_id, commitment_type, gpu_model,
-                     quantity, province, base_rate_cad, discounted_rate_cad,
+                     quantity, province, base_rate_micros, discounted_rate_micros,
                      discount_pct, min_hours_per_day, status, created_at,
                      start_at, end_at)
                    VALUES (%(commitment_id)s, %(customer_id)s, %(commitment_type)s,
                            %(gpu_model)s, %(quantity)s, %(province)s,
-                           %(base_rate_cad)s, %(discounted_rate_cad)s,
+                           %(base_rate_micros)s, %(discounted_rate_micros)s,
                            %(discount_pct)s, %(min_hours_per_day)s, %(status)s,
                            %(created_at)s, %(start_at)s, %(end_at)s)
                    ON CONFLICT (commitment_id) DO NOTHING""",
@@ -976,7 +932,10 @@ class BillingEngine:
         now = time.time()
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT * FROM reserved_commitments WHERE customer_id = %s "
+                "SELECT *, "
+                "  base_rate_micros::double precision / 1000000.0 AS base_rate_cad, "
+                "  discounted_rate_micros::double precision / 1000000.0 AS discounted_rate_cad "
+                "FROM reserved_commitments WHERE customer_id = %s "
                 "ORDER BY created_at DESC",
                 (customer_id,),
             ).fetchall()
@@ -2105,7 +2064,7 @@ class BillingEngine:
                         """INSERT INTO billing_cycles
                            (cycle_id, job_id, customer_id, host_id, resource_type,
                             period_start, period_end, duration_seconds, rate_per_hour,
-                            gpu_model, tier, tier_multiplier, amount_cad, status,
+                            gpu_model, tier, tier_multiplier, amount_micros, status,
                             created_at)
                            VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0,
                                    0, 'stopped', %s)""",
@@ -2189,7 +2148,7 @@ class BillingEngine:
                     """INSERT INTO billing_cycles
                        (cycle_id, job_id, customer_id, host_id, resource_type,
                         period_start, period_end, duration_seconds, rate_per_hour,
-                        gpu_model, tier, tier_multiplier, amount_cad, status,
+                        gpu_model, tier, tier_multiplier, amount_micros, status,
                         created_at)
                        VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0,
                                0, 'stopped', %s)""",
@@ -2358,7 +2317,7 @@ class BillingEngine:
                 """INSERT INTO billing_cycles
                    (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
                     duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
-                    amount_cad, status, created_at)
+                    amount_micros, status, created_at)
                    VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0, 0, 'started', %s)""",
                 (cycle_id, job_id, owner, host_id, now, now, now),
             )
@@ -2659,7 +2618,7 @@ class BillingEngine:
                         """INSERT INTO billing_cycles
                            (cycle_id, job_id, customer_id, host_id, resource_type,
                             period_start, period_end, duration_seconds, rate_per_hour,
-                            gpu_model, tier, tier_multiplier, amount_cad, status,
+                            gpu_model, tier, tier_multiplier, amount_micros, status,
                             created_at)
                            VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0,
                                    0, 'terminated', %s)
@@ -2699,7 +2658,7 @@ class BillingEngine:
                 """INSERT INTO billing_cycles
                    (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
                     duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
-                    amount_cad, status, created_at)
+                    amount_micros, status, created_at)
                    VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0, 0, 'terminated', %s)""",
                 (cycle_id, job_id, owner, host_id, now, now, now),
             )
@@ -3031,16 +2990,7 @@ class BillingEngine:
         }
         rate_per_hour, pricing_mode = resolve_compute_rate_cad(job_payload, host_payload)
 
-        from jurisdiction import TRUST_TIER_REQUIREMENTS, TrustTier
-
-        if pricing_mode == "spot":
-            tier_multiplier = 1.0
-        else:
-            try:
-                tier_req = TRUST_TIER_REQUIREMENTS.get(TrustTier(tier), {})
-                tier_multiplier = tier_req.get("pricing_multiplier", 1.0)
-            except (ValueError, KeyError):
-                tier_multiplier = 1.0
+        tier_multiplier = 1.0
 
         amount_cad = round((duration_sec / 3600) * rate_per_hour * tier_multiplier, 4)
         if amount_cad <= 0:
@@ -3415,7 +3365,7 @@ class BillingEngine:
                             """INSERT INTO billing_cycles
                                (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
                                 duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
-                                amount_cad, status, created_at)
+                                amount_micros, status, created_at)
                                VALUES (%s, %s, %s, %s, 'volume', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                             (
                                 vcycle_id,
@@ -3429,7 +3379,7 @@ class BillingEngine:
                                 "storage",
                                 "volume",
                                 1.0,
-                                vamount,
+                                round(vamount * 1_000_000),
                                 vstatus,
                                 now,
                             ),
@@ -3547,7 +3497,7 @@ class BillingEngine:
                             """INSERT INTO billing_cycles
                                (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
                                 duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
-                                amount_cad, status, created_at)
+                                amount_micros, status, created_at)
                                VALUES (%s, %s, %s, %s, 'gpu', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                             (
                                 scycle_id,
@@ -3561,7 +3511,7 @@ class BillingEngine:
                                 storage_type,
                                 "storage",
                                 1.0,
-                                samount,
+                                round(samount * 1_000_000),
                                 sstatus,
                                 now,
                             ),
@@ -3798,7 +3748,7 @@ class BillingEngine:
 
             conn.execute(
                 """INSERT INTO fintrac_reports
-                   (report_id, customer_id, report_type, trigger_amount_cad,
+                   (report_id, customer_id, report_type, trigger_amount_micros,
                     trigger_currency, aggregate_window_start, aggregate_window_end,
                     status, created_at, notes)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending', %s, %s)""",
@@ -3806,7 +3756,7 @@ class BillingEngine:
                     report_id,
                     customer_id,
                     report_type,
-                    trigger_amount,
+                    round(trigger_amount * 1_000_000),
                     trigger_currency,
                     now - 86400,
                     now,

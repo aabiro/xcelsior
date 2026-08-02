@@ -33,9 +33,9 @@ def artifact():
                 """INSERT INTO storage.artifacts
                    (artifact_id, tenant_id, artifact_type, logical_name, state,
                     primary_provider, primary_bucket, object_key, content_type,
-                    residency_region, retention_class, legal_hold, available_at)
+                    retention_class, legal_hold, available_at)
                    VALUES (%s, %s, 'output', %s, %s, 'local', 'test', %s,
-                           'application/octet-stream', 'ca-central', 'standard',
+                           'application/octet-stream', 'standard',
                            %s, clock_timestamp())""",
                 (artifact_id, f"tenant-{uuid.uuid4().hex[:8]}",
                  f"obj-{artifact_id}", state, object_key, legal_hold),

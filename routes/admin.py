@@ -702,7 +702,7 @@ def api_admin_revenue(request: Request, days: int = 90):
     try:
         with be._conn() as conn:
             rows = conn.execute(
-                "SELECT provider_id, ROUND(SUM(provider_payout_cad)::numeric, 2) AS earnings, COUNT(*) AS jobs "
+                "SELECT provider_id, ROUND(SUM(provider_payout_micros)::numeric / 1000000, 2) AS earnings, COUNT(*) AS jobs "
                 "FROM payout_ledger WHERE created_at >= %s GROUP BY provider_id ORDER BY earnings DESC LIMIT 10",
                 (since,),
             ).fetchall()
@@ -769,8 +769,8 @@ def api_admin_unit_economics(request: Request, days: int = 30):
         with be._conn() as conn:
             r = conn.execute(
                 "SELECT ROUND(COALESCE(SUM(amount_micros) / 1000000.0,0)::numeric,2) AS gross, "
-                "ROUND(COALESCE(SUM(provider_payout_cad),0)::numeric,2) AS payout, "
-                "ROUND(COALESCE(SUM(platform_fee_cad),0)::numeric,2) AS margin, "
+                "ROUND(COALESCE(SUM(provider_payout_micros),0)::numeric / 1000000,2) AS payout, "
+                "ROUND(COALESCE(SUM(platform_fee_micros) / 1000000,0)::numeric,2) AS margin, "
                 "COUNT(*) AS payouts FROM payout_ledger WHERE created_at >= %s",
                 (since,),
             ).fetchone()
@@ -792,7 +792,7 @@ def api_admin_unit_economics(request: Request, days: int = 30):
         with be._conn() as conn:
             r = conn.execute(
                 "SELECT ROUND(COALESCE(SUM(amount_micros) / 1000000.0,0)::numeric,2) AS revenue, "
-                "ROUND(COALESCE(SUM(token_cost_cad),0)::numeric,2) AS token_cost, "
+                "ROUND(COALESCE(SUM(token_cost_micros) / 1000000,0)::numeric,2) AS token_cost, "
                 "COALESCE(SUM(duration_seconds),0) AS gpu_seconds, COUNT(*) AS cycles "
                 "FROM billing_cycles WHERE created_at >= %s AND status = 'charged' "
                 "AND resource_type LIKE 'serverless%%'",
@@ -823,7 +823,7 @@ def api_admin_unit_economics(request: Request, days: int = 30):
             rows = conn.execute(
                 "SELECT model_ref, "
                 "ROUND(COALESCE(SUM(amount_micros) / 1000000.0,0)::numeric,4) AS gpu_revenue, "
-                "ROUND(COALESCE(SUM(token_cost_cad),0)::numeric,4) AS token_cost, "
+                "ROUND(COALESCE(SUM(token_cost_micros) / 1000000,0)::numeric,4) AS token_cost, "
                 "COALESCE(SUM(duration_seconds),0) AS gpu_seconds, COUNT(*) AS cycles "
                 "FROM billing_cycles WHERE created_at >= %s AND status = 'charged' "
                 "AND resource_type = 'serverless_gpu' AND model_ref <> '' "
@@ -877,7 +877,7 @@ def api_admin_unit_economics(request: Request, days: int = 30):
             ran = _count("SELECT COUNT(DISTINCT customer_id) AS c FROM billing_cycles")
             paid = _count(
                 "SELECT COUNT(DISTINCT customer_id) AS c FROM billing_cycles "
-                "WHERE amount_cad > 0 AND status = 'charged'"
+                "WHERE amount_micros > 0 AND status = 'charged'"
             )
             result["funnel"] = {
                 "signups": signups,

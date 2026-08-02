@@ -597,7 +597,7 @@ def create_deposit(customer_id: str, amount_cad: float) -> dict:
     with _conn() as c:
         c.execute(
             """INSERT INTO crypto_deposits
-               (deposit_id, customer_id, btc_address, amount_btc, amount_cad,
+               (deposit_id, customer_id, btc_address, amount_btc, amount_micros,
                 btc_cad_rate, status, confirmations, txid, created_at, expires_at)
                VALUES (%s, %s, %s, %s, %s, %s, 'pending', 0, '', %s, %s)""",
             (
@@ -605,7 +605,7 @@ def create_deposit(customer_id: str, amount_cad: float) -> dict:
                 customer_id,
                 address,
                 amount_btc,
-                amount_cad,
+                round(amount_cad * 1_000_000),
                 rate,
                 now,
                 now + BTC_DEPOSIT_EXPIRY,
@@ -636,7 +636,8 @@ def get_deposit(deposit_id: str) -> dict | None:
     """Get deposit status."""
     with _conn() as c:
         row = c.execute(
-            "SELECT * FROM crypto_deposits WHERE deposit_id = %s",
+            "SELECT *, amount_micros::double precision / 1000000.0 AS amount_cad "
+            "FROM crypto_deposits WHERE deposit_id = %s",
             (deposit_id,),
         ).fetchone()
         return dict(row) if row else None
@@ -646,7 +647,8 @@ def get_deposits_by_customer(customer_id: str, limit: int = 20) -> list[dict]:
     """Get deposit history for a customer."""
     with _conn() as c:
         rows = c.execute(
-            "SELECT * FROM crypto_deposits WHERE customer_id = %s ORDER BY created_at DESC LIMIT %s",
+            "SELECT *, amount_micros::double precision / 1000000.0 AS amount_cad "
+            "FROM crypto_deposits WHERE customer_id = %s ORDER BY created_at DESC LIMIT %s",
             (customer_id, limit),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -692,7 +694,8 @@ def get_pending_deposits() -> list[dict]:
     """Get all deposits that need confirmation checking."""
     with _conn() as c:
         rows = c.execute(
-            "SELECT * FROM crypto_deposits WHERE status IN ('pending', 'confirming')",
+            "SELECT *, amount_micros::double precision / 1000000.0 AS amount_cad "
+            "FROM crypto_deposits WHERE status IN ('pending', 'confirming')",
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -811,7 +814,7 @@ def fintrac_check_btc_deposit(customer_id: str, amount_cad: float) -> dict | Non
     window_start = now - 86400
     with _conn() as c:
         row = c.execute(
-            """SELECT COALESCE(SUM(amount_cad), 0) as total_24h
+            """SELECT COALESCE(SUM(amount_micros), 0) / 1000000.0 as total_24h
                FROM crypto_deposits
                WHERE customer_id = %s
                  AND created_at >= %s
@@ -846,11 +849,20 @@ def _create_btc_fintrac_report(
     with _conn() as c:
         c.execute(
             """INSERT INTO fintrac_reports
-               (report_id, customer_id, report_type, trigger_amount_cad,
+               (report_id, customer_id, report_type, trigger_amount_micros,
                 trigger_currency, aggregate_window_start, aggregate_window_end,
                 status, created_at, notes)
                VALUES (%s, %s, %s, %s, 'BTC', %s, %s, 'pending', %s, %s)""",
-            (report_id, customer_id, report_type, trigger_amount, now - 86400, now, now, notes),
+            (
+                report_id,
+                customer_id,
+                report_type,
+                round(trigger_amount * 1_000_000),
+                now - 86400,
+                now,
+                now,
+                notes,
+            ),
         )
 
     log.warning(
@@ -875,7 +887,8 @@ def get_pending_fintrac_reports() -> list[dict]:
     """Retrieve all pending FINTRAC reports for BTC transactions."""
     with _conn() as c:
         rows = c.execute(
-            """SELECT * FROM fintrac_reports
+            """SELECT *, trigger_amount_micros::double precision / 1000000.0 AS trigger_amount_cad
+                 FROM fintrac_reports
                WHERE trigger_currency = 'BTC' AND status = 'pending'
                ORDER BY created_at""",
         ).fetchall()

@@ -3,16 +3,16 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { XcelsiorApiClient } from "../client/api.js";
 import { formatApiError } from "../client/errors.js";
 import { jsonText } from "../lib/format.js";
-import { TOOL_SCOPES, userHasScope } from "../auth/scopes.js";
+import { TOOL_SCOPES, userHasScope, scopeUnion, describeScopeRequirement } from "../auth/scopes.js";
 import type { AuthUser } from "../auth/bearer.js";
 
 function scopeDenied(tool: string, user: AuthUser | undefined) {
-  const required = TOOL_SCOPES[tool] || ["api"];
+  const required = TOOL_SCOPES[tool];
   if (!userHasScope(user?.scopes, required)) {
     return jsonText({
       error: "insufficient_scope",
-      required,
-      message: `This tool requires one of: ${required.join(", ")}`,
+      required: scopeUnion(required),
+      message: `This tool requires ${describeScopeRequirement(required)}`,
     });
   }
   return null;
@@ -57,28 +57,16 @@ export function registerBillingTools(
             "Price as interruptible spot capacity instead of on-demand. Materially cheaper, but the " +
               "instance can be reclaimed — only use for workloads that checkpoint.",
           ),
-        sovereignty: z
-          .boolean()
-          .default(false)
-          .describe(
-            "Price for a sovereignty-vetted host (independently incorporated, no foreign control). " +
-              "Carries a pricing premium — set only when a contract or regulation actually requires it.",
-          ),
       }),
     },
     async (args) => {
       const denied = scopeDenied("estimate_job_cost", user);
       if (denied) return denied;
       try {
-        // The Canadian AI Compute Access Fund has ended, so no estimate should carry its rebate.
-        // EstimateRequest still defaults is_canadian to true, so pin it false explicitly —
-        // omitting it would apply a rebate that no longer exists and understate real cost.
         const data = await client.post("/api/pricing/estimate", {
           gpu_model: args.gpu_model,
           duration_hours: args.duration_hours,
           spot: args.spot,
-          sovereignty: args.sovereignty,
-          is_canadian: false,
         });
         return jsonText(data);
       } catch (e) {
