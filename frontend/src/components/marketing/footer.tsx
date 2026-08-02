@@ -28,6 +28,8 @@ const footerColumns = [
     items: [
       { href: "/privacy", key: "footer.privacy" },
       { href: "/terms", key: "footer.terms" },
+      { href: "/security", key: "footer.security" },
+      { href: "/status", key: "footer.status" },
     ],
   },
 ];

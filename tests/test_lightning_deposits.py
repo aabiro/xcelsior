@@ -43,7 +43,7 @@ def _insert_deposit(deposit_id: str, *, status: str, customer_id: str,
         conn.execute(
             """INSERT INTO ln_deposits
                (deposit_id, customer_id, label, bolt11, payment_hash,
-                amount_msat, amount_sats, amount_btc, amount_cad,
+                amount_msat, amount_sats, amount_btc, amount_micros,
                 btc_cad_rate, status, created_at, expires_at)
                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             (
@@ -55,7 +55,7 @@ def _insert_deposit(deposit_id: str, *, status: str, customer_id: str,
                 1_000_000,
                 1000,
                 0.00001,
-                amount_cad,
+                round(amount_cad * 1_000_000),
                 100_000.0,
                 status,
                 time.time(),
@@ -393,7 +393,8 @@ def test_new_deposits_store_exact_minor_units(deposits):
 
     with pg_transaction() as conn:
         row = conn.execute(
-            "SELECT amount_cad, amount_cad_minor, btc_cad_rate_exact "
+            "SELECT amount_micros::double precision / 1000000.0 AS amount_cad, "
+            "amount_cad_minor, btc_cad_rate_exact "
             "FROM ln_deposits WHERE deposit_id = %s",
             (deposit_id,),
         ).fetchone()
@@ -412,23 +413,27 @@ def test_new_deposits_store_exact_minor_units(deposits):
     )
 
 
-def test_legacy_only_writer_still_populates_typed_columns(deposits):
-    """A replica running pre-066 code writes floats; the trigger projects.
+def test_writer_that_omits_typed_columns_still_gets_them(deposits):
+    """A writer that sets only the amount gets cents and timestamps projected.
 
-    This is what makes the expand phase safe for a rolling deploy — an old
-    API replica cannot leave a money row without its exact representation.
+    This is what makes a rolling deploy safe: a replica that has not learned to
+    populate `amount_cad_minor` or the `_ts` columns cannot leave a money row
+    without its exact representation. 097 rewrote the projection to derive
+    cents from `amount_micros` — it used to read the float `amount_cad`, which
+    that migration dropped, and every insert failed with
+    `record "new" has no field "amount_cad"` until the function was replaced.
     """
     deposit_id = f"lntest-legacy-{uuid.uuid4().hex[:8]}"
     with pg_transaction() as conn:
         conn.execute(
             """INSERT INTO ln_deposits
                (deposit_id, customer_id, label, bolt11, payment_hash,
-                amount_msat, amount_sats, amount_btc, amount_cad,
+                amount_msat, amount_sats, amount_btc, amount_micros,
                 btc_cad_rate, status, created_at, expires_at)
                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             (
                 deposit_id, "cust-legacy", f"lbl-{deposit_id}", "bolt", "hash",
-                1_000_000, 1000, 0.00001, 3.33, 99_999.99, "pending",
+                1_000_000, 1000, 0.00001, 3_330_000, 99_999.99, "pending",
                 time.time(), time.time() + 3600,
             ),
         )
@@ -508,8 +513,8 @@ def test_sweep_credits_from_exact_cents_not_the_float(deposits):
     # the exact column correct.
     with pg_transaction() as conn:
         conn.execute(
-            "UPDATE ln_deposits SET amount_cad = %s WHERE deposit_id = %s",
-            (19.989999999999998, deposit_id),
+            "UPDATE ln_deposits SET amount_micros = %s WHERE deposit_id = %s",
+            (round(19.989999999999998 * 1_000_000), deposit_id),
         )
 
     credits: list[tuple] = []
@@ -533,7 +538,7 @@ def test_amount_check_constraint_rejects_non_positive():
             conn.execute(
                 """INSERT INTO ln_deposits
                    (deposit_id, customer_id, label, bolt11, payment_hash,
-                    amount_msat, amount_sats, amount_btc, amount_cad,
+                    amount_msat, amount_sats, amount_btc, amount_micros,
                     amount_cad_minor, btc_cad_rate, status, created_at,
                     expires_at)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",

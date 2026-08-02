@@ -23,7 +23,6 @@ from reputation import (
     ReputationScore,
     ReputationStore,
     ReputationTier,
-    SOVEREIGNTY_PREMIUM_PCT,
     SPOT_DISCOUNT_FACTOR,
     TIER_PRICING_PREMIUM,
     TIER_SEARCH_BOOST,
@@ -311,7 +310,7 @@ class TestGPUReferenceDict:
 
 
 class TestGetReferenceRate:
-    """Test get_reference_rate fuzzy matching, tier adjustments, spot/sovereignty."""
+    """Test get_reference_rate fuzzy matching, tier adjustments, and spot."""
 
     # ── Exact match ──
 
@@ -391,27 +390,5 @@ class TestGetReferenceRate:
         assert spot < base
         assert spot == round(base * (1 - SPOT_DISCOUNT_FACTOR), 4)
 
-    # ── Sovereignty premium ──
 
-    def test_sovereignty_premium(self):
-        base = get_reference_rate("RTX 4090")
-        sovereign = get_reference_rate("RTX 4090", sovereignty=True)
-        assert sovereign > base
-        assert sovereign == round(base * (1 + SOVEREIGNTY_PREMIUM_PCT), 4)
 
-    # ── Combined modifiers ──
-
-    def test_spot_and_sovereignty_combined(self):
-        base = GPU_REFERENCE_PRICING_CAD["RTX 4090"]["base_rate_cad"]
-        rate = get_reference_rate("RTX 4090", spot=True, sovereignty=True)
-        expected = round(base * (1 - SPOT_DISCOUNT_FACTOR) * (1 + SOVEREIGNTY_PREMIUM_PCT), 4)
-        assert rate == expected
-
-    def test_gold_spot_sovereignty(self):
-        base = GPU_REFERENCE_PRICING_CAD["RTX 4090"]["base_rate_cad"]
-        premium = TIER_PRICING_PREMIUM.get(ReputationTier.GOLD, 0)
-        rate = get_reference_rate("RTX 4090", tier=ReputationTier.GOLD, spot=True, sovereignty=True)
-        expected = round(
-            base * (1 + premium) * (1 - SPOT_DISCOUNT_FACTOR) * (1 + SOVEREIGNTY_PREMIUM_PCT), 4
-        )
-        assert rate == expected

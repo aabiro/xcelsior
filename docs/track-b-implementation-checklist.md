@@ -13,7 +13,7 @@ them):**
   — the control-plane and MCP architecture. All `§n` references below point
   here unless prefixed `DA§`.
 - [`xcelsior-production-data-architecture-companion.md`](./xcelsior-production-data-architecture-companion.md)
-  — the data-model, polyglot-persistence, residency, and analytics
+  — the data-model, polyglot-persistence, and analytics
   companion. Referenced below as `DA§n`.
 - [`track-a-implementation-checklist.md`](./track-a-implementation-checklist.md)
   — the completed predecessor. Track B never re-litigates a Track A gate;
@@ -1331,7 +1331,7 @@ Blueprint §21, §22, §23, §27, Phase 11; `DA§4.1`, `DA§4.3`, `DA§4.6`.
   `064_storage_catalog` created `storage.artifacts` (full `DA§6.2` state
   CHECK including `upload_authorized`, `uploaded_unverified`, `corrupt`,
   `quarantined`, `abandoned`, `delete_failed`, plus `legal_hold`,
-  `retain_until`, `residency_region`, `crc32c`/`sha256`, `object_generation`,
+  `retain_until`, `crc32c`/`sha256`, `object_generation`,
   `version`), `artifact_upload_sessions`, `artifact_replicas`, and
   `artifact_deletion_jobs` with the one-active-deletion partial unique;
   the store fails closed when a configured remote backend is unavailable
@@ -1813,7 +1813,7 @@ similarity over the latest 32 prompts — the exact unsafe behaviour
   deterministic chunk ids, `SKIP LOCKED` job claims under a bounded lease,
   and source readiness that flips only when the expected chunk count and
   model revision are complete. **An embedding is derived sensitive data**:
-  it inherits the source's tenant, classification, residency, retention,
+  it inherits the source's tenant, classification, retention,
   and deletion policy; query embeddings are transient and never appear in
   general logs or traces; the local model service never forwards source
   text to an external API. Replace `ai_assistant.py`'s FTS-only
@@ -1977,7 +1977,7 @@ per-sink delivery) is green** — the outbox is the only ingestion source.
 
 ---
 
-## B13 — Security, residency, and infrastructure as code
+## B13 — Security and infrastructure as code
 
 `DA§13`, `DA§14.4`. Track A closed §19.1–§19.4 (identity, privilege
 separation, ingress, supply chain) and `DA§13.5`'s MCP boundary in code.
@@ -2319,7 +2319,7 @@ Every section of both governing documents, and where it is owned.
 | `DA§12.1`, `DA§12.2` | **B4.4, B4.5** (global lock already removed by Track A) |
 | `DA§12.3`–`DA§12.6` | **B12.1, B9.2d, B11.2, B10.4** |
 | `DA§12.7` (deletion workflow) | **B12.2** |
-| `DA§13` (security, residency) | **B13**; `DA§13.5` MCP boundary = Track A + **B5** |
+| `DA§13` (security) | **B13**; `DA§13.5` MCP boundary = Track A + **B5** |
 | `DA§14` (repository map, deps, env, IaC) | **B1, B17, B18, B13.5** |
 | `DA§15` Phases 0–6 | **B1/B9, B9, B4, B10, B11, B10.7/B11 thresholds** |
 | `DA§16` (test strategy) | **B14** + per-section gates |
@@ -2411,7 +2411,7 @@ does not open until the previous stage's gates are green.
 8. **B6** — UI. Needs B2.8's API and B7.4's metrics.
 9. **B9.2** — artifact catalog completion.
 10. **B12** — cross-store consistency and deletion. Needs B4 and B9.2.
-11. **B13** — security, residency, IaC. Needs B8's topology.
+11. **B13** — security and IaC. Needs B8's topology.
 12. **B10** — retrieval and semantic cache. **B10.1's probe gates
     everything else in the section; do not author B10.2 before it passes.**
 13. **B11** — BigQuery. Needs B4 and B13.

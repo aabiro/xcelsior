@@ -59,6 +59,16 @@ KNOWN_SAFE = {
     #   090: table/column names from the literal tuples at L49, L92, L100,
     #        L146, L183 and L192; nothing external reaches the DDL
     "migrations/versions/090_privacy_tables_companion_parity.py",
+    #   092: table/column names are literals written inline in the same file
+    #   093/094: single hardcoded table and column each, no variables at all
+    #   095: (table, column) pairs from the module-level COLUMNS tuple; the
+    #        micros name is derived from that column by _micros_name, so every
+    #        identifier originates in this file and none is reachable by a
+    #        caller, a request, or a database value
+    "migrations/versions/092_drop_residency_and_sovereignty.py",  # noqa: residency-guard
+    "migrations/versions/095_float_money_cutover_to_micros.py",
+    #   097: same COLUMNS tuple, same closed set of identifiers
+    "migrations/versions/097_drop_float_cad_columns.py",
 }
 
 # SQL keywords must be UPPERCASE — this is the codebase convention for all real

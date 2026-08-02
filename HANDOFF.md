@@ -1,11 +1,120 @@
 # Xcelsior MVP 2.0 Production Cutover Handoff
 
-Last updated: 2026-07-30 (America/Toronto)
+Last updated: 2026-08-01 (America/Toronto)
 
 This is the authoritative restart document for the next agent. The user wants
 the started Track B/control-plane/data-architecture work finished as one
 production-ready MVP 2.0 checkpoint, then deployed and cut over without leaving
 indefinite legacy/shadow modes.
+
+## MCP enterprise adoption — built (2026-08-01)
+
+The last feature before MVP 2.0. Implemented from
+[docs/mcp-enterprise-adoption-plan.md](docs/mcp-enterprise-adoption-plan.md);
+§9 of that document is the itemised delivery record and is the thing to read
+before touching any of it.
+
+**What landed.** Phases X0 (protocol contract and OAuth front door), X1 (tool
+surface hardening), X2 (submission readiness), X6 (enterprise operations) and
+X7 (adoption engine), plus X5's one-click installs. Highlights that change
+production behaviour:
+
+- **The connector was not connectable.** Every 401 lacked `WWW-Authenticate`,
+  so no client could discover where to authenticate — the failure looks like an
+  ordinary 401 in our logs and "couldn't connect" in the client. Fixed, and
+  checked on every deploy by `scripts/deploy.sh`.
+- **The RFC 8707 resource identifier moved** from the origin to
+  `https://mcp.xcelsior.ca/mcp`. Migration 091 ships alongside; tokens carrying
+  the old origin keep working until **2026-11-30** and are then rejected like
+  any other wrong-audience token. `XCELSIOR_MCP_LEGACY_AUDIENCE_SUNSET` is the
+  dial.
+- **A consent screen now sits in front of every third-party client.** First-party
+  apps are unaffected. `oauth_consent_grants` (migration 091) records the grant,
+  per client, per scope set, per resource, revocable.
+- **The public connector serves 30 tools, not 37.** Host and control-plane tools
+  moved to an unlisted operator profile and are no longer *registered* on the
+  customer profile, so they cannot be listed or called by name.
+- **Tool output is now filtered on the way out**, both `structuredContent` and
+  the rendered text.
+
+**Migration 091** adds provenance and containment columns to `oauth_clients` and
+creates `oauth_consent_grants`. Round-tripped `091 → 090 → 091` on a disposable
+database.
+
+**Gate state** (all re-run after the fixes below, 2026-08-01): ruff clean,
+pyright 0 errors, **4649 pytest passed / 7 skipped**, **mcp vitest 17 files /
+151 passed + 1 skipped — including both E2E suites**, frontend tsc clean +
+226 vitest passed + production build, `docker build` of the MCP image,
+`docker compose config`, `npm audit --omit=dev` 0 vulnerabilities, all 9
+workflow files valid YAML.
+
+The real-stack E2E is in that count now; it was excluded before because it did
+not pass. Two `eslint` errors remain in
+`frontend/public/site-assets/reference/support.js` — a vendored marketing asset
+from commit `0b235f6`, not touched by this work and not part of the app bundle.
+They are left alone deliberately rather than fixed in passing.
+
+**Three pre-existing bugs found and fixed.** The real-stack E2E was failing
+before this work started (verified by stashing every change and reproducing on a
+clean tree). Chasing it to green fixed two production bugs, both on the path a
+directory reviewer walks:
+
+1. **Agent-key tenant resolution** (`oauth_service.py`). Quick Connect machine
+   tokens resolved their workspace from a live user lookup only and dropped
+   `team_id`, so `_canonical_owner_id` fell back to the *user id* and filed
+   plans under a tenant the owner's browser never resolves to — approval
+   returned `404 plan_not_found`. `_agent_key_workspace` now prefers the live
+   customer/team, falls back to the key's stored tenant, and tells a team tenant
+   apart from a customer tenant.
+2. **Agent keys 401'd as invalid API keys** (`routes/_deps.py`). `xcel_ai_…`
+   agent keys also match the serverless prefix `xcel_`, so a prefix test alone
+   sent every Quick Connect credential to the serverless validator. Guarded with
+   `looks_like_agent_key`; the regression test was confirmed to fail with the
+   guard removed.
+3. **E2E fixture host was never admissible** (test-only). Migration 082 made
+   `admission_state` authoritative and has the trigger overwrite
+   `payload->>'admitted'`; the fixture set only the payload flag, so every
+   placement returned `no_eligible_host` — which had been masking the two above.
+
+`mcp/tests/e2e/real-stack.test.ts` now passes all thirteen steps, three
+consecutive runs, with no leftover listeners.
+
+**The published OpenAPI spec was regenerating from itself.**
+`api.py` reassigns `app.openapi` to serve the previously generated
+`public/openapi.json`, and `scripts/generate_public_openapi.py` called exactly
+that — so the generator's input was its own last output. Three consequences,
+all live in the checked-in spec: the "public developer surface only" note had
+accumulated **ten copies**; component order was reshuffled every run
+(~900 lines of diff per regeneration, which is why nobody read them); and
+allowlisted operations never picked up model changes, leaving **five schemas
+stale** — `ServerlessEndpointCreate` was missing seven fields the API actually
+accepts (`execution_mode`, `lora_adapters`, `managed_engine`,
+`queue_timeout_sec`, `source_ref`, `source_ref_branch`, `source_type`).
+
+The generator now reaches the schema through `FastAPI.openapi(app)`, which
+bypasses the instance override and builds from the live routes; component
+emission is sorted; and the note is idempotent. **The curated surface is
+unchanged** — still 70 paths / 79 operations, since the double allowlist
+(Fern overrides ∩ `CLIENT_OPERATION_ALLOWLIST`) governs what publishes. The fix
+is purely additive: no field or path was lost.
+
+`tests/test_public_openapi.py` had compared only the *operation set* and tag
+names, which is how five stale schemas sat under a green check. It now asserts
+whole-document equality against a fresh generation, that the generator does not
+read its own output (verified to fail when the loop is reintroduced), that
+components are sorted, and that the note appears exactly once.
+
+**What is deliberately not done.** Anything needing a provider account: the
+Anthropic and OpenAI submissions, verified business identity, the
+portal-issued `XCELSIOR_MCP_OPENAI_APPS_CHALLENGE` token, and proof that a
+specific provider's egress reaches us. A cloud runner proves foreign-network
+reachability and nothing more. The checklist is
+[docs/mcp-submission-readiness.md](docs/mcp-submission-readiness.md).
+
+**Before deploying:** run `scripts/seed_reviewer_account.py` with a real
+password on production, and read [runbooks/mcp-edge.md](runbooks/mcp-edge.md)
+§0 — the sixty-second triage — so the first incident is not the first time
+anyone opens it.
 
 ## Progress since this handoff (2026-07-31)
 
@@ -559,7 +668,6 @@ the SQL boolean false.
 The same `users` table uses integer flags for:
 
 - `notifications_enabled`
-- `canada_only_routing`
 - `mfa_enabled`
 - `email_verified`
 - `is_admin`

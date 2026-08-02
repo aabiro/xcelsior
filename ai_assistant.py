@@ -651,7 +651,7 @@ def _build_tools() -> list[dict]:
                     "tier": {
                         "type": "string",
                         "description": "SLA tier",
-                        "enum": ["community", "secure", "sovereign"],
+                        "enum": ["community", "secure", "dedicated"],
                     },
                 },
                 "required": [],
@@ -1744,8 +1744,11 @@ def _tool_get_invoices(args: dict, user: dict) -> dict:
     try:
         with _ai_db() as conn:
             rows = conn.execute(
-                "SELECT invoice_id, period_start, period_end, subtotal_cad, tax_amount_cad, "
-                "total_cad, canadian_compute_total_cad, status, created_at "
+                "SELECT invoice_id, period_start, period_end, "
+                "subtotal_micros::double precision / 1000000.0 AS subtotal_cad, "
+                "tax_amount_micros::double precision / 1000000.0 AS tax_amount_cad, "
+                "total_micros::double precision / 1000000.0 AS total_cad, "
+                "status, created_at "
                 "FROM invoices WHERE customer_id = %s ORDER BY created_at DESC LIMIT %s",
                 (user_id, limit),
             ).fetchall()
@@ -1763,7 +1766,11 @@ def _tool_get_payout_history(args: dict, user: dict) -> dict:
         with _ai_db() as conn:
             # Try payout_splits first (detailed), fall back to payout_ledger
             rows = conn.execute(
-                "SELECT payout_id, job_id, amount_cad, platform_fee_cad, provider_payout_cad, status, created_at "
+                "SELECT payout_id, job_id, "
+                "amount_micros::double precision / 1000000.0 AS amount_cad, "
+                "platform_fee_micros::double precision / 1000000.0 AS platform_fee_cad, "
+                "provider_payout_micros::double precision / 1000000.0 AS provider_payout_cad, "
+                "status, created_at "
                 "FROM payout_ledger WHERE provider_id = %s ORDER BY created_at DESC LIMIT %s",
                 (user_id, limit),
             ).fetchall()
@@ -1949,7 +1956,9 @@ def _tool_get_inference_endpoints(_args: dict, user: dict) -> dict:
         with _ai_db() as conn:
             rows = conn.execute(
                 "SELECT endpoint_id, name, mode, model_ref, model_revision, gpu_tier, "
-                "status, total_requests, total_gpu_seconds, total_cost_cad, created_at, updated_at "
+                "status, total_requests, total_gpu_seconds, "
+                "total_cost_micros::double precision / 1000000.0 AS total_cost_cad, "
+                "created_at, updated_at "
                 "FROM serverless_endpoints WHERE owner_id = ANY(%s) AND deleted_at = 0 "
                 "ORDER BY created_at DESC",
                 (owner_ids,),
@@ -2102,7 +2111,8 @@ def _tool_get_crypto_deposits(args: dict, user: dict) -> dict:
     try:
         with _ai_db() as conn:
             rows = conn.execute(
-                "SELECT deposit_id, btc_address, amount_btc, amount_cad, btc_cad_rate, "
+                "SELECT deposit_id, btc_address, amount_btc, "
+                "amount_micros::double precision / 1000000.0 AS amount_cad, btc_cad_rate, "
                 "status, confirmations, txid, created_at, confirmed_at, credited_at "
                 "FROM crypto_deposits WHERE customer_id = %s ORDER BY created_at DESC LIMIT %s",
                 (user_id, limit),
@@ -2801,14 +2811,14 @@ Registering: {gpu} / Tier: {tier} / Verified: {verified} / Rate: {rate}/hr CAD
 {("Host ID: " + host_id) if host_id else "Registration in progress..."}
 
 WHAT HAPPENS DURING REGISTRATION:
-1. Xcelsior API creates a host record in the marketplace DB (GPU specs, pricing, jurisdiction, tier)
+1. Xcelsior API creates a host record in the marketplace DB (GPU specs, pricing, tier)
 2. The wizard writes the worker config: `~/.xcelsior/config.toml` and `~/.xcelsior/.env`
 3. systemd unit `xcelsior-worker.service` is installed and started
 4. Worker opens an outbound WebSocket to the scheduler — host goes "online"
 5. Host appears on {_BASE_DOMAIN}/marketplace within 2–5 minutes
 
 FILES WRITTEN TO THE PROVIDER'S SYSTEM:
-- `~/.xcelsior/config.toml` — host_id, gpu config, pricing tier, jurisdiction settings
+- `~/.xcelsior/config.toml` — host_id, gpu config, pricing tier
 - `~/.xcelsior/.env` — API key, host_id, rate, worker env vars (keep this private)
 - `/etc/systemd/system/xcelsior-worker.service` — systemd unit installed as root
 
@@ -2877,18 +2887,18 @@ THE THREE TIERS EXPLAINED:
 **Secure tier — +15% earnings premium**
 - Requirement: runc isolation passing (containers run in a hardened runc runtime, not just Docker's shim)
 - What runc provides: kernel namespace isolation, seccomp filtering, no privilege escalation
-- Renters see: "⛹ Secure" badge on listing — enterprise clients specifically filter for this
+- Renters see: "⛹ Secure" badge on listing — dedicated clients specifically filter for this
 - This tier earns 15% above whatever rate is set
 
-**Sovereign tier — +40% earnings premium (enterprise only)**
+**Dedicated tier — +40% earnings premium**
 - Requirement: air-gapped or dedicated-hardware setup, no shared infrastructure, physical access controls
 - Must be pre-approved by Xcelsior — contact partners@xcelsior.ca
-- Renters see: "🛡 Sovereign" badge — used by government/healthcare/finance workloads
+- Renters see: "🛡 Dedicated" badge — used by government/healthcare/finance workloads
 - Cannot be self-assigned via wizard
 
 WHEN GATE PASSED:
 - Tell them their exact tier and what it means in practice.
-- If Secure: "Your setup passed runc isolation. You'll earn 15% above your base rate on all jobs. Enterprise renters will be able to book you."
+- If Secure: "Your setup passed runc isolation. You'll earn 15% above your base rate on all jobs. Dedicated renters will be able to book you."
 - If Community: "You're qualified for the marketplace at standard rates. Once you've built a track record, you can upgrade to Secure tier by configuring runc."
 
 WHEN GATE FAILED (security runtime check):
@@ -2935,7 +2945,7 @@ WHAT WAS ACCOMPLISHED:
 - Host visible at {_BASE_DOMAIN}/marketplace within a few minutes
 
 FILES ON THEIR SYSTEM (summarise these if they ask):
-- `~/.xcelsior/config.toml` — host_id, GPU config, pricing, jurisdiction
+- `~/.xcelsior/config.toml` — host_id, GPU config, pricing
 - `~/.xcelsior/.env` — API key and worker env vars (keep private, do not commit to git)
 - `/etc/systemd/system/xcelsior-worker.service` — the worker daemon
 
@@ -3055,7 +3065,7 @@ HOW TO READ A GPU LISTING:
 - `tflops`: FP16 TFLOPS = XCU score — higher = faster training/inference
 - `rate_cad`: $/hr CAD on-demand price
 - `spot_rate_cad`: $/hr CAD interruptible spot price (if available)
-- `tier`: Community / Secure / Sovereign — security level
+- `tier`: Community / Secure / Dedicated — security level
 - `location`: datacenter or residential, city/province
 - `uptime_pct`: host's historical uptime — aim for >99% for reliable workloads
 
@@ -3074,7 +3084,7 @@ WHEN BROWSE FAILED OR RETURNED NO RESULTS:
   - Call `search_marketplace` with broader criteria to find alternatives.
 
 IF MARKETPLACE LOOKS UNHEALTHY:
-- Few listings total: platform may be experiencing high demand. Mention launch dates for new hardware from Xcelsior newsletter (partners@xcelsior.ca for enterprise).
+- Few listings total: platform may be experiencing high demand. Mention launch dates for new hardware from Xcelsior newsletter (partners@xcelsior.ca for dedicated).
 - All listings offline: worker outage — contact support@xcelsior.ca
 
 Always offer to help them pick from whatever is available."""
@@ -3710,8 +3720,8 @@ When a user wants to provide GPUs, guide them step-by-step:
    The AI Onboarding Wizard asks whether they want to rent, provide, or both — then handles
    hardware detection, pending host registration, pricing, and worker service setup.
    The host remains unlisted until authoritative worker verification admits it.
-5. Recommend completing their profile and jurisdiction settings for better reputation.
-6. Mention SLA tiers (community → secure → sovereign) and how higher tiers earn more.
+5. Recommend completing their profile and verification for better reputation.
+6. Mention SLA tiers (community → secure → dedicated) and how higher tiers earn more.
 
 WORKER INSTALLATION GUIDE (provide when users ask how to install the worker):
 
@@ -3730,7 +3740,7 @@ required before it can accept marketplace work.
 It will prompt for:
 - API key (from Dashboard → Settings → API & SSH)
 - Pricing preference (auto-competitive or manual $/hr)
-- SLA tier selection (community, secure, sovereign)
+- SLA tier selection (community, secure, dedicated)
 - Systemd service auto-install (y/n)
 
 SDK commands after setup:
@@ -3831,7 +3841,7 @@ WIZARD CONTEXT: {page_context}
             tab_awareness = {
                 "overview": "the Overview tab — showing KPI cards (jobs, spend, GPU hours, utilisation), spend trend, jobs trend, utilisation chart, insights cards, and sparklines",
                 "compute": "the Compute tab — showing GPU performance radar, duration histogram, GPU hours chart, utilisation trend, GPU performance table, and peak days",
-                "financial": "the Financial tab — showing cumulative spend, cost per hour trend, wallet activity, top GPU spend bar chart, province donut chart, sovereignty chart, and top entities table",
+                "financial": "the Financial tab — showing cumulative spend, cost per hour trend, wallet activity, top GPU spend bar chart, and top entities table",
                 "provider": "the Provider tab — showing provider revenue trend, host utilisation, jobs served, total revenue, GPU hours, and average utilisation stats",
             }
             tab_desc = tab_awareness.get(
@@ -3863,7 +3873,6 @@ You have access to ALL of the following data from their live dashboard:
 7. **GPU Hours** — daily GPU hour consumption
 8. **Duration Histogram** — job duration distribution (buckets: 0-5min, 5-15min, etc)
 9. **Hourly Heatmap** — job activity by day-of-week × hour-of-day
-10. **Data Sovereignty** — Canadian vs international job/spend split
 11. **GPU Performance** — per-model breakdown: jobs, utilisation, cost/hr, duration, hours, efficiency score
 12. **Top GPU Spend** — bar chart of spend by GPU model
 13. **Province Distribution** — donut chart of spend by province
@@ -3904,7 +3913,7 @@ Tailor your responses to be relevant to what they're looking at.
 
     identity_name = "Hexara" if is_wizard else "Xcel"
 
-    return f"""You are {identity_name}, the Xcelsior AI assistant — a knowledgeable, friendly, and efficient assistant for {_BASE_DOMAIN}, Canada's distributed GPU compute marketplace.
+    return f"""You are {identity_name}, the Xcelsior AI assistant — a knowledgeable, friendly, and efficient assistant for {_BASE_DOMAIN}, the global distributed GPU compute marketplace.
 {wizard_identity}
 
 IDENTITY:

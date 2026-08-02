@@ -135,7 +135,8 @@ def get_platform_rate(
 
         with pg_connection() as conn:
             row = conn.execute(
-                """SELECT base_rate_cad FROM gpu_pricing
+                """SELECT base_rate_micros::double precision / 1000000.0 AS base_rate_cad
+                     FROM gpu_pricing
                    WHERE gpu_model = %s AND tier = %s AND pricing_mode = %s
                      AND active = TRUE
                    ORDER BY vram_gb ASC

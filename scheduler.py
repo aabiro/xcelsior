@@ -29,7 +29,7 @@ from db import (
     DB_BACKEND,
 )
 
-# v2.1 modules — event sourcing, verification, jurisdiction, billing, reputation
+# v2.1 modules — event sourcing, verification, billing, reputation
 from events import (
     JobState,
     EventType,
@@ -38,14 +38,6 @@ from events import (
     get_state_machine,
 )
 from verification import get_verification_engine
-from jurisdiction import (
-    filter_hosts_by_jurisdiction,
-    classify_host_trust_tier,
-    JurisdictionConstraint,
-    HostJurisdiction,
-    TrustTier,
-    generate_residency_trace,
-)
 from billing import get_billing_engine
 from reputation import get_reputation_engine
 
@@ -666,19 +658,6 @@ def _allocate_candidates(job, hosts, jobs: list[dict] | None = None):
         return []
     candidates = admitted_candidates
 
-    job_tier = job.get("tier", "free") or "free"
-    requires_isolation = job_tier in ("sovereign", "regulated", "secure")
-    if requires_isolation:
-        isolated = [h for h in candidates if h.get("recommended_runtime", "runc") != "runc"]
-        if isolated:
-            candidates = isolated
-        else:
-            log.warning(
-                "ALLOCATE: tier=%s prefers gVisor/Kata isolation but no isolated "
-                "hosts available — falling back to hardened runc (job=%s)",
-                job_tier,
-                job.get("name", "?"),
-            )
 
     return candidates
 
@@ -921,12 +900,6 @@ def allocate_binpack(job, hosts, user_province=None, volume_host_ids=None):
         else:
             return None  # Gang scheduling: all GPUs must be on one host
 
-    # Isolation tier filter
-    job_tier = job.get("tier", "free") or "free"
-    if job_tier in ("sovereign", "regulated", "secure"):
-        isolated = [h for h in candidates if h.get("recommended_runtime", "runc") != "runc"]
-        if isolated:
-            candidates = isolated
 
     jobs = list_jobs()
     candidates = _filter_spot_capacity(job, candidates, jobs)
@@ -990,18 +963,19 @@ def _evict_stale_throttles():
             del d[k]
 
 
-def process_queue_binpack(canada_only=None, province=None):
+def process_queue_binpack(region=None):
     """Process job queue using best-fit-decreasing order.
 
     Sorts queued jobs by vram_needed_gb descending (largest first)
     to minimize fragmentation, then allocates using bin-pack scoring.
+
+    ``region`` narrows the fleet for latency, and is the only geographic input.
+    It is optional and has no default: the whole global fleet is eligible.
     """
     _evict_stale_throttles()
     hosts = list_hosts()
-    if canada_only:
-        hosts = [h for h in hosts if h.get("country", "").upper() == "CA"]
-    if province:
-        hosts = [h for h in hosts if h.get("province", "").upper() == province.upper()]
+    if region:
+        hosts = [h for h in hosts if (h.get("region") or "").lower() == region.lower()]
 
     jobs = [j for j in list_jobs() if j.get("status") == "queued"]
     # Phase 4 partition: skip jobs the transactional scheduler owns.
@@ -4639,32 +4613,22 @@ def marketplace_stats():
     }
 
 
-# ── Phase 18: Canada-Only Toggle ─────────────────────────────────────
-
-CANADA_ONLY = os.environ.get("XCELSIOR_CANADA_ONLY", "").lower() in ("1", "true", "yes")
-
-# Canadian IP ranges (major blocks). Not exhaustive — a real GeoIP DB would be better.
-# For now we use a simple approach: tag hosts with a country on registration.
-
-
-def set_canada_only(enabled):
-    """Toggle Canada-only mode at runtime."""
-    global CANADA_ONLY
-    CANADA_ONLY = enabled
-    log.info("CANADA-ONLY MODE %s", "ENABLED" if enabled else "DISABLED")
-
-
-def register_host_ca(
+def register_host_located(
     host_id,
     ip,
     gpu_model,
     total_vram_gb,
     free_vram_gb,
     cost_per_hour=0.20,
-    country="CA",
+    country="",
     province="",
 ):
-    """Register a host with country tag. Defaults to Canada because why wouldn't it."""
+    """Register a host, recording where it is.
+
+    Location is metadata: it appears on the invoice line and lets a caller
+    filter for latency. It is not a placement constraint and carries no
+    default — a host in Frankfurt is as valid as one in Toronto.
+    """
     entry = register_host(
         host_id,
         ip,
@@ -4693,25 +4657,14 @@ def register_host_ca(
     return entry
 
 
-def list_hosts_filtered(active_only=True, canada_only=None):
-    """
-    List hosts with optional Canada filter.
-    If canada_only is None, uses the global CANADA_ONLY setting.
-    """
-    canada = canada_only if canada_only is not None else CANADA_ONLY
-    hosts = list_hosts(active_only=active_only)
-    if canada:
-        return [h for h in hosts if h.get("country", "").upper() == "CA"]
-    return hosts
+def list_hosts_filtered(active_only=True):
+    """List hosts. Kept as a thin alias; geography is not a filter."""
+    return list_hosts(active_only=active_only)
 
 
-def process_queue_filtered(canada_only=None):
-    """
-    Process queue respecting Canada-only mode.
-    Only assigns to Canadian hosts when the toggle is on.
-    """
-    canada = canada_only if canada_only is not None else CANADA_ONLY
-    hosts = list_hosts_filtered(active_only=True, canada_only=canada)
+def process_queue_filtered():
+    """Process the queue against the whole fleet."""
+    hosts = list_hosts_filtered(active_only=True)
     assigned = []
 
     queued = list_jobs(status="queued")
@@ -5484,37 +5437,23 @@ def allocate_compute_aware(job, hosts):
     return allocate(job, hosts)
 
 
-# ── v2.1: Jurisdiction-Aware Allocation ───────────────────────────────
+# ── Host allocation ───────────────────────────────────────────────────
 
 
-def allocate_jurisdiction_aware(job, hosts, constraint=None):
-    """Allocate with jurisdiction filtering + trust tier + verification.
+def allocate_best_host(job, hosts):
+    """Pick the best host for a job on merit alone.
 
-    Layers (per REPORT_FEATURE_FINAL.md):
-    1. Filter by jurisdiction constraint (Canada-only, province, trust tier)
-    2. Filter by verification status (only verified hosts)
-    3. Sort by compute efficiency (XCU/$/hr)
-    4. Apply reputation boost (higher-tier hosts preferred)
+    1. Prefer verified hosts
+    2. Require the VRAM to fit
+    3. Rank by compute efficiency (XCU per $/hr), weighted by reputation
+
+    Geography is not a factor. Xcelsior is a global marketplace: capacity is
+    selected on price, availability, hardware, and host reputation.
     """
     if not hosts:
         return None
 
-    # 1. Jurisdiction filter
-    if constraint:
-        # ``filter_hosts_by_jurisdiction`` expects a (hosts, jurisdictions, constraint)
-        # triple. There is no ``HostJurisdictionStore`` in the repo — jurisdiction
-        # metadata is built ad-hoc by callers when present. Pass an empty mapping
-        # so ``host_meets_constraint`` falls back to the host payload fields
-        # (``country``/``province``), which is the correct behaviour when no
-        # explicit jurisdiction record has been registered for the host.
-        hosts = filter_hosts_by_jurisdiction(hosts, {}, constraint)
-        if not hosts:
-            log.warning(
-                "ALLOCATE no hosts match jurisdiction constraint for job=%s", job.get("name", "?")
-            )
-            return None
-
-    # 2. Verification filter — only use verified hosts for production
+    # 1. Verification filter — only use verified hosts for production
     try:
         ve = get_verification_engine()
         verified_ids = set(ve.get_verified_hosts())
@@ -5525,13 +5464,13 @@ def allocate_jurisdiction_aware(job, hosts, constraint=None):
     except Exception:
         pass
 
-    # 3. VRAM filter (with driver-overhead tolerance)
+    # 2. VRAM filter (with driver-overhead tolerance)
     _needed = job.get("vram_needed_gb", 0) or 0
     candidates = [h for h in hosts if _vram_fits(h, _needed)]
     if not candidates:
         return None
 
-    # 4. Sort by compute efficiency * reputation boost
+    # 3. Sort by compute efficiency * reputation boost
     def score_host(h):
         compute = h.get("compute_score") or estimate_compute_score(h.get("gpu_model", ""))
         price = h.get("cost_per_hour", 0.20) or 0.20
@@ -5549,35 +5488,22 @@ def allocate_jurisdiction_aware(job, hosts, constraint=None):
 
     best = max(candidates, key=score_host)
     log.info(
-        "ALLOCATE (jurisdiction-aware) job=%s -> host=%s (%s, %sGB free, country=%s)",
+        "ALLOCATE job=%s -> host=%s (%s, %sGB free)",
         job.get("name", "?"),
         best["host_id"],
         best.get("gpu_model"),
         best.get("free_vram_gb"),
-        best.get("country", "?"),
     )
     return best
 
 
-def process_queue_sovereign(canada_only=None, province=None, trust_tier=None):
-    """Process queue with full jurisdiction + verification + reputation.
+def process_queue_ranked():
+    """Process the queue with verification + reputation-weighted ranking.
 
-    From REPORT_FEATURE_FINAL.md + REPORT_MARKETING_FINAL.md:
-    - Jurisdiction-aware host selection
     - Verified hosts preferred
     - Reputation-boosted ordering
     - Event-sourced state transitions
     """
-    canada = canada_only if canada_only is not None else CANADA_ONLY
-
-    constraint = None
-    if canada or province or trust_tier:
-        constraint = JurisdictionConstraint(
-            canada_only=canada,
-            province=province,
-            trust_tier=TrustTier(trust_tier) if trust_tier else None,
-        )
-
     hosts = list_hosts(active_only=True)
     assigned = []
 
@@ -5591,7 +5517,7 @@ def process_queue_sovereign(canada_only=None, province=None, trust_tier=None):
         if not hosts:
             break
 
-        host = allocate_jurisdiction_aware(job, hosts, constraint)
+        host = allocate_best_host(job, hosts)
         if not host:
             continue
 

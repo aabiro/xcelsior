@@ -18,14 +18,12 @@ export function registerOperatorTools(server: McpServer, client: XcelsiorApiClie
   ] as const;
   for (const [name, , inputSchema, path] of tools) {
     server.registerTool(name, {
-      description: `${name.replaceAll("_", " ")} through the versioned control-plane API.`,
       inputSchema, outputSchema: output,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     }, async (args: Record<string, unknown>) => mutate(name, path(args), args));
   }
 
   server.registerTool("retry_agent_command", {
-    description: "Retry a failed or dead-letter worker command while preserving its identity and audit history.",
     inputSchema: z.object({ command_id: z.string().uuid(), ...base }),
     outputSchema: output,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -36,7 +34,6 @@ export function registerOperatorTools(server: McpServer, client: XcelsiorApiClie
   ));
 
   server.registerTool("evict_host_workloads", {
-    description: "Prepare or execute the separately authorized destructive host eviction action.",
     inputSchema: z.object({ host_id: z.string().min(1).max(160), reason: z.string().min(1).max(500), confirm: z.boolean().default(false), plan_id: z.string().max(160).optional(), ...base }),
     outputSchema: output,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },

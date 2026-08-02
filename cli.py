@@ -47,10 +47,9 @@ from scheduler import (
     get_marketplace,
     marketplace_bill,
     marketplace_stats,
-    register_host_ca,
+    register_host_located,
     list_hosts_filtered,
     process_queue_filtered,
-    set_canada_only,
     add_to_pool,
     remove_from_pool,
     load_autoscale_pool,
@@ -297,9 +296,9 @@ def cmd_token_gen(args):
     print(f"  XCELSIOR_API_TOKEN={token}")
 
 
-def cmd_host_add_ca(args):
-    """Register a host with country tag."""
-    entry = register_host_ca(
+def cmd_host_add_located(args):
+    """Register a host, recording where it is."""
+    entry = register_host_located(
         args.id,
         args.ip,
         args.gpu,
@@ -307,38 +306,13 @@ def cmd_host_add_ca(args):
         args.free_vram,
         args.rate,
         country=args.country,
-        province=getattr(args, "province", "ON"),
+        province=getattr(args, "region", ""),
     )
     prov = entry.get("province", "")
     print(
-        f"Host registered: {entry['host_id']} | {entry['ip']} | {entry['gpu_model']} | {entry.get('country', 'CA')}{(' ' + prov) if prov else ''} | ${entry['cost_per_hour']}/hr"
+        f"Host registered: {entry['host_id']} | {entry['ip']} | {entry['gpu_model']} | "
+        f"{entry.get('country') or '—'}{(' ' + prov) if prov else ''} | ${entry['cost_per_hour']}/hr"
     )
-
-
-def cmd_hosts_ca(args):
-    """List Canadian hosts only."""
-    hosts = list_hosts_filtered(canada_only=True, active_only=not args.all)
-    if not hosts:
-        print("No Canadian hosts.")
-        return
-    for h in hosts:
-        print(
-            f"  [{h['status']:>6}] {h['host_id']} | {h['ip']} | {h['gpu_model']} | {h.get('country', '?')} | {h['free_vram_gb']}GB free | ${h['cost_per_hour']}/hr"
-        )
-
-
-def cmd_canada(args):
-    """Toggle or check Canada-only mode."""
-    if args.on:
-        set_canada_only(True)
-        print("Canada-only mode: ON")
-    elif args.off:
-        set_canada_only(False)
-        print("Canada-only mode: OFF")
-    else:
-        from scheduler import CANADA_ONLY
-
-        print(f"Canada-only mode: {'ON' if CANADA_ONLY else 'OFF'}")
 
 
 def cmd_pool(args):
@@ -695,42 +669,6 @@ def cmd_leaderboard(args):
             print(
                 f"  {i}. {entry.get('entity_id', '?')} — "
                 f"{entry.get('tier', '?')} ({entry.get('total_score', 0)} pts)"
-            )
-
-
-def cmd_compliance(args):
-    """Show province compliance matrix and tax rates."""
-    from billing import PROVINCE_TAX_RATES
-    from jurisdiction import PROVINCE_COMPLIANCE, Province
-
-    if console is not None:
-        table = Table(title="Province Compliance Matrix")
-        table.add_column("Province")
-        table.add_column("Tax Rate", justify="right")
-        table.add_column("Residency Req.", justify="center")
-        table.add_column("PIA Required", justify="center")
-        for prov, rate in sorted(PROVINCE_TAX_RATES.items()):
-            comp = PROVINCE_COMPLIANCE.get(Province(prov), {})
-            residency = comp.get("residency_required", False)
-            pia = comp.get("pia_required", False)
-            table.add_row(
-                prov,
-                f"{rate*100:.1f}%",
-                "[green]Yes[/green]" if residency else "No",
-                "[green]Yes[/green]" if pia else "No",
-            )
-        console.print(table)
-    else:
-        print("Province Compliance Matrix:")
-        print(f"  {'Province':<6} {'Tax Rate':>10} {'Residency':>12} {'PIA Required':>14}")
-        print(f"  {'─'*6} {'─'*10} {'─'*12} {'─'*14}")
-        for prov, rate in sorted(PROVINCE_TAX_RATES.items()):
-            comp = PROVINCE_COMPLIANCE.get(Province(prov), {})
-            residency = comp.get("residency_required", False)
-            pia = comp.get("pia_required", False)
-            print(
-                f"  {prov:<6} {rate*100:>9.1f}% {'Yes' if residency else 'No':>12} "
-                f"{'Yes' if pia else 'No':>14}"
             )
 
 
@@ -1296,27 +1234,18 @@ def main():
     p_tgen = sub.add_parser("token-gen", help="Generate a secure API token")
     p_tgen.set_defaults(func=cmd_token_gen)
 
-    # xcelsior host-add-ca
-    p_haddca = sub.add_parser("host-add-ca", help="Register a host with country tag")
+    # xcelsior host-add-located
+    p_haddca = sub.add_parser("host-add-located", help="Register a host, recording its location")
     p_haddca.add_argument("--id", required=True, help="Host ID")
     p_haddca.add_argument("--ip", required=True, help="Host IP")
     p_haddca.add_argument("--gpu", required=True, help="GPU model")
     p_haddca.add_argument("--vram", type=float, required=True, help="Total VRAM (GB)")
     p_haddca.add_argument("--free-vram", type=float, default=None, help="Free VRAM (GB)")
     p_haddca.add_argument("--rate", type=float, default=0.20, help="Cost per hour")
-    p_haddca.add_argument("--country", default="CA", help="Country code (default CA)")
-    p_haddca.add_argument(
-        "--province",
-        default="ON",
-        choices=CA_PROVINCES,
-        help="Province/territory code (default ON)",
-    )
-    p_haddca.set_defaults(func=cmd_host_add_ca)
+    p_haddca.add_argument("--country", default="", help="ISO country code, e.g. CA, US, DE")
+    p_haddca.add_argument("--region", default="", help="Region or sub-national code, e.g. ON, CA-west")
+    p_haddca.set_defaults(func=cmd_host_add_located)
 
-    # xcelsior hosts-ca
-    p_hostsca = sub.add_parser("hosts-ca", help="List Canadian hosts only")
-    p_hostsca.add_argument("--all", action="store_true", help="Include dead hosts")
-    p_hostsca.set_defaults(func=cmd_hosts_ca)
 
     # xcelsior host-profile [profile]
     p_hprofile = sub.add_parser("host-profile", help="Show reusable provider host profiles")
@@ -1354,11 +1283,6 @@ def main():
     p_haccept.add_argument("--json", action="store_true", help="Print report JSON")
     p_haccept.set_defaults(func=cmd_host_accept)
 
-    # xcelsior canada
-    p_canada = sub.add_parser("canada", help="Toggle or check Canada-only mode")
-    p_canada.add_argument("--on", action="store_true", help="Enable Canada-only")
-    p_canada.add_argument("--off", action="store_true", help="Disable Canada-only")
-    p_canada.set_defaults(func=cmd_canada)
 
     # xcelsior pool
     p_pool = sub.add_parser("pool", help="List autoscale pool")
@@ -1505,9 +1429,6 @@ def main():
     p_lb.add_argument("--limit", type=int, default=10, help="Number of entries")
     p_lb.set_defaults(func=cmd_leaderboard)
 
-    # xcelsior compliance
-    p_comp = sub.add_parser("compliance", help="Show province compliance matrix and tax rates")
-    p_comp.set_defaults(func=cmd_compliance)
 
     # ── v2.2 CLI Commands ─────────────────────────────────────────────
 
@@ -1592,7 +1513,7 @@ def main():
         sys.exit(1)
 
     # Default free_vram to total vram for host-add commands
-    if args.command in ("host-add", "host-add-ca") and args.free_vram is None:
+    if args.command in ("host-add", "host-add-located") and args.free_vram is None:
         args.free_vram = args.vram
 
     args.func(args)

@@ -3,16 +3,16 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { XcelsiorApiClient } from "../client/api.js";
 import { apiProblem, formatApiError } from "../client/errors.js";
 import { jsonText, structuredResult } from "../lib/format.js";
-import { TOOL_SCOPES, userHasScope } from "../auth/scopes.js";
+import { TOOL_SCOPES, userHasScope, scopeUnion, describeScopeRequirement } from "../auth/scopes.js";
 import type { AuthUser } from "../auth/bearer.js";
 
 function scopeDenied(tool: string, user: AuthUser | undefined) {
-  const required = TOOL_SCOPES[tool] || ["api"];
+  const required = TOOL_SCOPES[tool];
   if (!userHasScope(user?.scopes, required)) {
     return jsonText({
       error: "insufficient_scope",
-      required,
-      message: `This tool requires one of: ${required.join(", ")}`,
+      required: scopeUnion(required),
+      message: `This tool requires ${describeScopeRequirement(required)}`,
     });
   }
   return null;
@@ -26,7 +26,6 @@ export function registerServerlessTools(
   server.registerTool(
     "list_serverless_endpoints",
     {
-      description: "List your serverless inference endpoints.",
       inputSchema: z.object({}),
     },
     async () => {
@@ -44,8 +43,6 @@ export function registerServerlessTools(
   server.registerTool(
     "create_serverless_endpoint",
     {
-      description:
-        "Create a serverless inference endpoint. Set confirm:true to deploy; confirm:false returns a preview.",
       inputSchema: z.object({
         name: z.string().min(1).max(128),
         model_ref: z.string().describe("HuggingFace model id or image ref"),
@@ -95,8 +92,6 @@ export function registerServerlessTools(
   server.registerTool(
     "should_i_run_pel_job",
     {
-      description:
-        "PEL/admin guardrail before serverless spend: wallet + token/GPU estimate (row 12).",
       inputSchema: z.object({
         endpoint_id: z.string().optional(),
         model_ref: z.string().optional(),
@@ -121,7 +116,6 @@ export function registerServerlessTools(
   server.registerTool(
     "run_serverless_job",
     {
-      description: "Enqueue an async inference job on a serverless endpoint.",
       inputSchema: z.object({
         endpoint_id: z.string(),
         input: z.record(z.unknown()).default({}),
@@ -145,7 +139,6 @@ export function registerServerlessTools(
   server.registerTool(
     "get_serverless_job_status",
     {
-      description: "Poll status for a serverless async job.",
       inputSchema: z.object({
         endpoint_id: z.string(),
         job_id: z.string(),

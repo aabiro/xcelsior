@@ -1,3 +1,4 @@
+<!-- residency-guard: documents-removal — dated audit of the pre-pivot site -->
 # Xcelsior — Post-Recovery Site Audit Report
 
 Date: **2026-06-06** (verification run)  

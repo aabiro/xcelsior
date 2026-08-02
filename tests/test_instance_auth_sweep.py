@@ -103,17 +103,11 @@ def test_instance_log_stream_forbidden_cross_account(two_users):
         ("POST", "/queue/process"),
         ("POST", "/failover"),
         ("POST", "/api/v2/scheduler/process-binpack"),
-        ("POST", "/queue/process/ca"),
-        ("POST", "/api/queue/process-sovereign"),
     ],
 )
 def test_scheduler_triggers_forbidden_for_regular_user(two_users, method, path):
     _, user_b = two_users
-    body = (
-        {"canada_only": True}
-        if "sovereign" in path
-        else None
-    )
+    body = None
     r = client.request(method, path, json=body, headers=user_b["headers"])
     assert r.status_code == 403, f"{method} {path} -> {r.status_code}"
 

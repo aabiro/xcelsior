@@ -17,8 +17,8 @@ const products = [
 ] as const;
 
 const foundations = [
-  { icon: "bot", title: "features.jurisdiction_title", desc: "features.jurisdiction_desc", cat: "features.cat_jurisdiction" },
-  { icon: "terminal", title: "features.cloud_act_title", desc: "features.cloud_act_desc", cat: "features.cat_jurisdiction" },
+  { icon: "bot", title: "features.mcp_connect_title", desc: "features.mcp_connect_desc", cat: "features.cat_agents" },
+  { icon: "terminal", title: "features.cloud_act_title", desc: "features.cloud_act_desc", cat: "features.cat_agents" },
   { icon: "gpu", title: "features.marketplace_title", desc: "features.marketplace_desc", cat: "features.cat_compute" },
   { icon: "bolt", title: "features.spot_title", desc: "features.spot_desc", cat: "features.cat_compute" },
   { icon: "activity", title: "features.telemetry_title", desc: "features.telemetry_desc", cat: "features.cat_compute" },
@@ -27,7 +27,7 @@ const foundations = [
   { icon: "check-circle", title: "features.compliance_title", desc: "features.compliance_desc", cat: "features.cat_trust" },
   { icon: "dollar", title: "features.billing_title", desc: "features.billing_desc", cat: "features.cat_billing" },
   { icon: "users", title: "features.payouts_title", desc: "features.payouts_desc", cat: "features.cat_billing" },
-  { icon: "sparkle", title: "features.ai_title", desc: "features.ai_desc", cat: "features.cat_jurisdiction" },
+  { icon: "sparkle", title: "features.ai_title", desc: "features.ai_desc", cat: "features.cat_agents" },
 ] as const;
 
 function ThemeIcon({ name }: { name: string }) {

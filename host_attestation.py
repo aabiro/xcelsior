@@ -156,7 +156,7 @@ def h100_partner_pipeline() -> dict[str, Any]:
 
 
 def platform_ops_plan() -> dict[str, Any]:
-    """18-month platform ops plan (row 9) — product/ops focus, no residency positioning."""
+    """18-month platform ops plan (row 9) — product and operations focus."""
     return {
         "horizon_months": 18,
         "ownership": {

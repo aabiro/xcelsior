@@ -43,7 +43,6 @@ x-api-environment: &api-env
   # Phase 5: hosts allowed to speak the /agent/v2 fenced protocol
   # (csv of host_ids, or "*"). Empty = every agent stays on v1.
   XCELSIOR_AGENT_V2_HOSTS: ${XCELSIOR_AGENT_V2_HOSTS:-}
-  XCELSIOR_CANADA_ONLY: ${XCELSIOR_CANADA_ONLY:-false}
   XCELSIOR_PLATFORM_CUT: ${XCELSIOR_PLATFORM_CUT:-0.20}
   XCELSIOR_CAD_USD_RATE: ${XCELSIOR_CAD_USD_RATE:-0.73}
   XCELSIOR_SMTP_HOST: ${XCELSIOR_SMTP_HOST:-}
@@ -196,7 +195,6 @@ x-api-environment: &api-env
   XCELSIOR_STORAGE_SECRET_ACCESS_KEY: ${XCELSIOR_STORAGE_SECRET_ACCESS_KEY:-}
   XCELSIOR_STORAGE_PRESIGN_EXPIRY: ${XCELSIOR_STORAGE_PRESIGN_EXPIRY:-3600}
   XCELSIOR_STORAGE_MAX_UPLOAD_MB: ${XCELSIOR_STORAGE_MAX_UPLOAD_MB:-500}
-  XCELSIOR_STORAGE_RESIDENCY: ${XCELSIOR_STORAGE_RESIDENCY:-CA}
   # Serverless inference (feature flag + autoscaler/reaper tuning)
   XCELSIOR_SERVERLESS_ENABLED: ${XCELSIOR_SERVERLESS_ENABLED:-false}
   XCELSIOR_SERVERLESS_ALLOWLIST: ${XCELSIOR_SERVERLESS_ALLOWLIST:-}
@@ -363,7 +361,6 @@ services:
       XCELSIOR_RECONCILE_ACTION_STALE_FENCE_CONTAINER: ${XCELSIOR_RECONCILE_ACTION_STALE_FENCE_CONTAINER:-report_only}
       XCELSIOR_RECONCILE_ACTION_ATTEMPT_CONTAINER_MISSING: ${XCELSIOR_RECONCILE_ACTION_ATTEMPT_CONTAINER_MISSING:-report_only}
       XCELSIOR_RECONCILE_ACTION_ORPHANED_ALLOCATION: ${XCELSIOR_RECONCILE_ACTION_ORPHANED_ALLOCATION:-report_only}
-      XCELSIOR_CANADA_ONLY: ${XCELSIOR_CANADA_ONLY:-false}
       XCELSIOR_PLATFORM_CUT: ${XCELSIOR_PLATFORM_CUT:-0.20}
       XCELSIOR_SMTP_HOST: ${XCELSIOR_SMTP_HOST:-}
       XCELSIOR_SMTP_PORT: ${XCELSIOR_SMTP_PORT:-587}
@@ -454,7 +451,21 @@ services:
       XCELSIOR_API_URL: ${XCELSIOR_API_URL:-http://127.0.0.1:9500}
       XCELSIOR_MCP_API_URL: ${XCELSIOR_MCP_API_URL:-http://127.0.0.1:9500}
       XCELSIOR_MCP_PUBLIC_URL: ${XCELSIOR_MCP_PUBLIC_URL:-https://mcp.xcelsior.ca/mcp}
-      XCELSIOR_MCP_RESOURCE_AUDIENCE: ${XCELSIOR_MCP_RESOURCE_AUDIENCE:-https://mcp.xcelsior.ca}
+      # RFC 8707 resource identifier: the exact URL a user pastes into a
+      # connector, path included. The bare origin is the pre-migration value
+      # and is accepted only until the sunset below.
+      XCELSIOR_MCP_RESOURCE_AUDIENCE: ${XCELSIOR_MCP_RESOURCE_AUDIENCE:-https://mcp.xcelsior.ca/mcp}
+      XCELSIOR_MCP_LEGACY_RESOURCE_AUDIENCE: ${XCELSIOR_MCP_LEGACY_RESOURCE_AUDIENCE:-https://mcp.xcelsior.ca}
+      XCELSIOR_MCP_LEGACY_AUDIENCE_SUNSET: ${XCELSIOR_MCP_LEGACY_AUDIENCE_SUNSET:-2026-11-30T00:00:00Z}
+      # `customer` is the public, directory-listed surface. The operator
+      # surface is the same image deployed with `operator` at an unlisted host.
+      XCELSIOR_MCP_TOOL_PROFILE: ${XCELSIOR_MCP_TOOL_PROFILE:-customer}
+      # ChatGPT company-knowledge search/fetch. Optional and off by default so
+      # the directory-reviewed surface does not change without a decision.
+      XCELSIOR_MCP_COMPANY_KNOWLEDGE: ${XCELSIOR_MCP_COMPANY_KNOWLEDGE:-0}
+      XCELSIOR_DOCS_URL: ${XCELSIOR_DOCS_URL:-https://docs.xcelsior.ca}
+      # Set once the OpenAI submission portal issues a verification token.
+      XCELSIOR_MCP_OPENAI_APPS_CHALLENGE: ${XCELSIOR_MCP_OPENAI_APPS_CHALLENGE:-}
       XCELSIOR_OAUTH_ISSUER: ${XCELSIOR_OAUTH_ISSUER:-https://xcelsior.ca}
       XCELSIOR_OAUTH_JWKS_URL: ${XCELSIOR_OAUTH_JWKS_URL:-https://xcelsior.ca/.well-known/jwks.json}
       XCELSIOR_MCP_MAX_WATCHES_PER_PRINCIPAL: ${XCELSIOR_MCP_MAX_WATCHES_PER_PRINCIPAL:-3}

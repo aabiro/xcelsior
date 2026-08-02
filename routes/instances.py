@@ -78,7 +78,7 @@ MAX_CONCURRENT_INSTANCES_PER_USER = int(os.environ.get("MAX_CONCURRENT_INSTANCES
 _TEAM_PLAN_CONCURRENCY_CAPS = {
     "free": int(os.environ.get("XCELSIOR_TEAM_CONCURRENCY_FREE", "5")),
     "pro": int(os.environ.get("XCELSIOR_TEAM_CONCURRENCY_PRO", "25")),
-    "enterprise": int(os.environ.get("XCELSIOR_TEAM_CONCURRENCY_ENTERPRISE", "100")),
+    "dedicated": int(os.environ.get("XCELSIOR_TEAM_CONCURRENCY_DEDICATED", "100")),
 }
 
 _ACTIVE_STATUSES = {"queued", "assigned", "starting", "running"}
@@ -868,7 +868,7 @@ def api_submit_instance(j: JobIn, request: Request):
                     detail="Spot instances are temporarily unavailable. Please use on-demand or try again later.",
                 )
 
-        if j.pricing_mode == "spot" and j.tier in ("premium", "sovereign"):
+        if j.pricing_mode == "spot" and j.tier in ("premium", "dedicated"):
             raise HTTPException(
                 status_code=400,
                 detail="Spot instances use the standard service tier only",
@@ -1130,7 +1130,7 @@ def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
 
             with _get_pg_pool().connection() as conn:
                 row = conn.execute(
-                    """SELECT MIN(base_rate_cad) FROM gpu_pricing
+                    """SELECT MIN(base_rate_micros)::double precision / 1000000.0 FROM gpu_pricing
                        WHERE tier = %s AND pricing_mode = 'on_demand' AND active = TRUE""",
                     (tier,),
                 ).fetchone()
@@ -1186,7 +1186,7 @@ def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
                 # connection for subsequent callers.
                 with conn.cursor(row_factory=dict_row) as cur:
                     cur.execute(
-                        """SELECT COALESCE(SUM(amount_cad), 0) AS total
+                        """SELECT COALESCE(SUM(amount_micros), 0)::double precision / 1000000.0 AS total
                            FROM billing_cycles
                            WHERE job_id = ANY(%s) AND gpu_model = 'storage' AND tier = 'volume'""",
                         (volume_ids,),
@@ -2440,15 +2440,10 @@ def api_list_tiers():
 
 
 @router.post("/api/v2/scheduler/process-binpack", tags=["Jobs"])
-def api_process_queue_binpack(
-    request: Request, canada_only: bool = False, province: str = ""
-):
+def api_process_queue_binpack(request: Request, region: str = ""):
     """Process job queue using best-fit-decreasing bin packing (admin only)."""
     _require_admin(request)
-    assigned = process_queue_binpack(
-        canada_only=canada_only or None,
-        province=province or None,
-    )
+    assigned = process_queue_binpack(region=region or None)
     return {"ok": True, "assigned": assigned, "count": len(assigned)}
 
 

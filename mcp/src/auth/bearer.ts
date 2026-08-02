@@ -28,7 +28,7 @@ export function extractBearer(req: IncomingMessage): string | null {
 export async function validateBearer(
   apiUrl: string,
   bearer: string,
-  expectedAudience?: string,
+  expectedAudiences?: string[],
 ): Promise<AuthUser | null> {
   try {
     const client = new Client({ baseUrl: apiUrl, bearer });
@@ -38,9 +38,11 @@ export async function validateBearer(
     if (!principal || (principal as { ok?: boolean }).ok === false) return null;
     const tenant = principal.workspace_id || principal.customer_id;
     if (!tenant) return null;
-    if (expectedAudience) {
+    if (expectedAudiences?.length) {
       const audiences = Array.isArray(principal.audience) ? principal.audience : [principal.audience];
-      if (!audiences.includes(expectedAudience)) return null;
+      // RFC 8707 audience binding stays a hard gate through the resource-identifier
+      // migration: the accepted set is narrow and dated, never "any audience".
+      if (!expectedAudiences.some((expected) => audiences.includes(expected))) return null;
     }
     return principal;
   } catch {

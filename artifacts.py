@@ -1,7 +1,7 @@
 # Xcelsior S3-Compatible Artifact Storage
 # Implements REPORT_FEATURE_FINAL.md:
 #   - Presigned URLs as the battle-tested artifact distribution primitive
-#   - Two-tier storage: B2 (Canada East/Toronto) for residency, R2 for cache
+#   - Two-tier storage: a durable primary bucket and a cheaper cache bucket
 #   - Uniform S3 interface for future self-hosted migration
 #   - Workers never get long-lived storage credentials
 #
@@ -104,12 +104,11 @@ class ArtifactType(str, Enum):
     DATASET = "dataset"
 
 
-class ResidencyPolicy(str, Enum):
-    """Where artifacts should be stored based on compliance requirements."""
+class StoragePolicy(str, Enum):
+    """Which storage backend an artifact should be routed to."""
 
-    CANADA_ONLY = "canada_only"  # B2 CA East only
-    CANADA_PREFERRED = "canada_preferred"  # B2 primary, R2 cache
-    ANY = "any"  # R2 or B2, lowest cost
+    PRIMARY = "primary"  # Durable primary bucket
+    ANY = "any"  # Cheapest available: cache bucket, else primary
 
 
 # ── Configuration ────────────────────────────────────────────────────
@@ -128,7 +127,7 @@ class StorageConfig:
     secret_access_key: str = ""
     presign_expiry_sec: int = 3600  # 1 hour default
     max_upload_size_mb: int = 10240  # 10 GB default
-    residency: str = ResidencyPolicy.ANY
+    storage_policy: str = StoragePolicy.ANY
 
     @classmethod
     def from_env(cls, prefix: str = "XCELSIOR_STORAGE") -> "StorageConfig":
@@ -143,7 +142,7 @@ class StorageConfig:
             secret_access_key=os.environ.get(f"{prefix}_SECRET_ACCESS_KEY", ""),
             presign_expiry_sec=int(os.environ.get(f"{prefix}_PRESIGN_EXPIRY", "3600")),
             max_upload_size_mb=int(os.environ.get(f"{prefix}_MAX_UPLOAD_MB", "10240")),
-            residency=os.environ.get(f"{prefix}_RESIDENCY", "any"),
+            storage_policy=os.environ.get(f"{prefix}_STORAGE_POLICY", "any"),
         )
 
 
@@ -167,8 +166,6 @@ class ArtifactMeta:
     job_id: str = ""
     host_id: str = ""
     owner: str = ""
-    residency_region: str = ""  # Where the data physically resides
-    residency_country: str = ""
     tags: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -517,14 +514,14 @@ class StorageClient:
 
 # ── Artifact Manager ─────────────────────────────────────────────────
 # Higher-level interface that handles routing between storage backends
-# based on residency policy, fully integrated with PostgreSQL storage catalog schema.
+# based on storage policy, fully integrated with PostgreSQL storage catalog schema.
 
 
 _CACHE_AUTO: Any = object()  # sentinel: auto-detect cache from env
 
 
 class ArtifactManager:
-    """Manages artifact storage with residency-aware backend routing and PostgreSQL catalog state tracking."""
+    """Manages artifact storage with policy-based backend routing and PostgreSQL catalog state tracking."""
 
     def __init__(
         self,
@@ -659,7 +656,7 @@ class ArtifactManager:
         job_id: str = "",
         filename: str = "",
         content_type: str = "application/octet-stream",
-        residency: str = ResidencyPolicy.ANY,
+        storage_policy: str = StoragePolicy.ANY,
         owner_user_id: Optional[str] = None,
         attempt_id: Optional[str] = None,
         idempotency_key: Optional[str] = None,
@@ -709,11 +706,10 @@ class ArtifactManager:
 
         write_to_db = self._is_db_active() and (db_job_id is None or db_job_exists)
 
-        # Route to appropriate backend based on residency
-        if residency == ResidencyPolicy.CANADA_ONLY:
-            client = self.primary  # B2 CA East
-        elif residency == ResidencyPolicy.CANADA_PREFERRED:
-            client = self.primary  # B2 preferred, R2 fallback
+        # Route to the requested backend. Storage location is a durability and
+        # cost decision, never a regional one.
+        if storage_policy == StoragePolicy.PRIMARY:
+            client = self.primary
         else:
             client = self.cache if self.cache else self.primary
 
@@ -732,9 +728,9 @@ class ArtifactManager:
                     """INSERT INTO storage.artifacts (
                            artifact_id, tenant_id, owner_user_id, job_id, attempt_id,
                            artifact_type, logical_name, state, primary_provider,
-                           primary_bucket, object_key, content_type, residency_region,
+                           primary_bucket, object_key, content_type,
                            retention_class, retain_until
-                       ) VALUES (%s, %s, %s, %s, %s, %s, %s, 'requested', %s, %s, %s, %s, %s, 'standard',
+                       ) VALUES (%s, %s, %s, %s, %s, %s, %s, 'requested', %s, %s, %s, %s, 'standard',
                                  clock_timestamp() + interval '90 days')""",
                     (
                         artifact_id,
@@ -748,7 +744,6 @@ class ArtifactManager:
                         bucket,
                         key,
                         content_type,
-                        region,
                     ),
                 )
                 # 2. Insert into storage.artifact_upload_sessions
@@ -771,7 +766,7 @@ class ArtifactManager:
 
         result = client.generate_upload_url(key, content_type)
         result["artifact_type"] = artifact_type
-        result["residency"] = residency
+        result["storage_policy"] = storage_policy
         result["artifact_id"] = str(artifact_id)
         result["upload_session_id"] = str(upload_session_id)
         return result

@@ -1,3 +1,4 @@
+# residency-guard: documents-removal
 """Tests for Xcelsior billing engine — tax rates, wallets, invoices, CAF exports."""
 
 import os
@@ -188,13 +189,20 @@ class TestMetering:
         assert meter.job_id == "j-meter-1"
         assert meter.total_cost_cad > 0
 
-    def test_canadian_compute_flagged(self):
+    def test_meters_do_not_classify_compute_by_country(self):
+        """A meter records what ran and what it cost — not which country it was in.
+
+        This asserted the meter carried a country flag set for a CA host. That
+        flag existed only to split spend for the AI Compute Access Fund, which
+        has closed, and it encoded a Canada-vs-rest distinction the platform no
+        longer makes. The column is dropped in migration 092.
+        """
         eng = _engine()
         now = time.time()
         job = {"job_id": "j-ca", "started_at": now - 60, "completed_at": now, "owner": "u1"}
         host = {"host_id": "h-ca", "gpu_model": "A100", "cost_per_hour": 1.0, "country": "CA"}
         meter = eng.meter_job(job, host)
-        assert meter.is_canadian_compute is True
+        assert not hasattr(meter, "is_canadian_compute")  # noqa: E501 - name under test
 
 
 # ── Invoice Generation ───────────────────────────────────────────────
@@ -282,8 +290,19 @@ class TestFundProgramClosed:
         ):
             assert not hasattr(eng, name), f"{name} was reintroduced"
 
-    def test_invoices_carry_no_fund_reimbursement(self):
+    def test_invoices_carry_no_fund_fields_at_all(self):
+        """The fund fields are removed, not zeroed.
+
+        They previously asserted ``fund_eligible_reimbursement_cad == 0.0``,
+        which kept four float money columns alive to hold a constant zero.
+        Migration 092 drops them.
+        """
         eng = _engine()
         inv = eng.generate_invoice("cust-fund", "", 0, time.time(), 0.13)
-        assert inv.fund_eligible_reimbursement_cad == 0.0
-        assert inv.effective_cost_after_fund_cad == inv.total_cad
+        for field in (
+            "fund_eligible_reimbursement_cad",
+            "effective_cost_after_fund_cad",
+            "canadian_compute_total_cad",
+            "non_canadian_compute_total_cad",
+        ):
+            assert not hasattr(inv, field), f"{field} was reintroduced"

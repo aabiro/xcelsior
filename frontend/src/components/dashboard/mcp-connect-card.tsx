@@ -5,6 +5,7 @@ import { Copy, Check, RefreshCw, Loader2, Terminal } from "lucide-react";
 import { PillToggle } from "@/components/dashboard/pill-toggle";
 import { useLocale } from "@/lib/locale";
 import * as api from "@/lib/api";
+import { MCP_CONNECTOR_URL, oneClickInstalls } from "@/lib/mcp";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -79,6 +80,62 @@ export function McpConnectCard() {
   return (
     <div className="mcp-connect-card glow-card glass relative mx-auto w-full max-w-2xl rounded-[22px] p-6 sm:p-8">
       <div className="brand-line mb-6 rounded-full" />
+
+      {/* The default path: paste the URL, sign in, approve. Shown above the
+          token prompt because a person should not have to hold a credential to
+          connect an assistant — the token below is for automation. */}
+      <div className="mb-6 rounded-xl border border-accent-cyan/30 bg-accent-cyan/5 p-4">
+        <p className="text-sm font-semibold text-text-primary">{t("dash.mcp.oauth_title")}</p>
+        <p className="mt-1 text-xs leading-relaxed text-text-secondary">
+          {t("dash.mcp.oauth_body")}
+        </p>
+        <div className="mt-3 flex items-center gap-2">
+          <code className="flex-1 truncate rounded-lg border border-border/60 bg-surface px-3 py-2 font-mono text-xs text-text-primary">
+            {MCP_CONNECTOR_URL}
+          </code>
+          <button
+            type="button"
+            onClick={() => {
+              void navigator.clipboard.writeText(MCP_CONNECTOR_URL);
+              toast.success(t("dash.mcp.copied"));
+            }}
+            aria-label={t("dash.mcp.oauth_copy")}
+            title={t("dash.mcp.oauth_copy")}
+            className="rounded-lg border border-border/60 p-2 text-text-muted transition-colors hover:text-text-primary"
+          >
+            <Copy className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {oneClickInstalls().map((install) =>
+            install.href ? (
+              <a
+                key={install.id}
+                href={install.href}
+                className="rounded-full border border-border/60 px-3 py-1.5 text-xs text-text-secondary transition-colors hover:text-text-primary"
+              >
+                {t("dash.mcp.install_in")} {install.label}
+              </a>
+            ) : (
+              <button
+                key={install.id}
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard.writeText(install.command ?? "");
+                  toast.success(t("dash.mcp.copied"));
+                }}
+                className="rounded-full border border-border/60 px-3 py-1.5 text-xs text-text-secondary transition-colors hover:text-text-primary"
+              >
+                {install.label}
+              </button>
+            ),
+          )}
+        </div>
+      </div>
+
+      <p className="mb-4 text-center text-[11px] uppercase tracking-wider text-text-muted">
+        {t("dash.mcp.automation_heading")}
+      </p>
 
       <div className="mb-6 flex justify-center">
         <PillToggle

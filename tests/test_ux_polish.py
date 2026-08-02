@@ -1,7 +1,7 @@
 """Tests for UX Polish & Profile Enhancements (v2.8.0).
 
 Covers:
-- Data export endpoint (PIPEDA right)
+- Data export endpoint
 - Artifact expiry/TTL endpoint
 - Reputation score breakdown endpoint
 - Enhanced profile (avatar, member since)
@@ -152,7 +152,7 @@ def _create_test_user():
 
 
 class TestDataExportEndpoint:
-    """Test the PIPEDA data export endpoint."""
+    """Test the data export endpoint."""
 
     def test_data_export_requires_auth(self):
         r = client.get("/api/auth/me/data-export")
@@ -216,7 +216,7 @@ class TestArtifactExpiryEndpoint:
                 "job_id": "ux-expiry-job",
                 "artifact_type": "log_bundle",
                 "size_bytes": 1024,
-                "residency_policy": "canada_only",
+                "storage_policy": "primary",
             },
         )
         if upload_r.status_code != 200:

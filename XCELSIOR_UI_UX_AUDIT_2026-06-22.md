@@ -1,3 +1,4 @@
+<!-- residency-guard: documents-removal — dated audit of the pre-pivot site copy -->
 # Xcelsior UI / UX Audit Report
 
 Prepared for: Aaryn  

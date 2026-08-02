@@ -162,7 +162,7 @@ of the last edit to this file.
   writer maintain the 054 columns; the canary partition + authoritative
   tick own queued→assigned for scoped jobs when mode=canary/active.
   All four legacy queue walkers (`process_queue`, `_binpack`, `_filtered`,
-  sovereign) skip `_control_plane_owns_job` exactly as claim SQL scopes;
+  ranked) skip `_control_plane_owns_job` exactly as claim SQL scopes;
   under `active` legacy walkers assign nothing. Inline API/serverless/
   inference `process_queue()` calls remain as wake paths but are
   partition-safe (owned work is never dual-written). **Operator residual:**
@@ -246,7 +246,7 @@ of the last edit to this file.
   (gpu_model ∈ canary set, or payload `{"scheduler": "v2"}` opt-in)
   selects exactly the jobs `SchedulerConfig.owns_job` matches, and all
   four legacy queue walkers (`process_queue`, `_filtered`,
-  `_binpack`, jurisdiction) skip that same set; `process_assigned`
+  `_binpack`, ranked) skip that same set; `process_assigned`
   skips attempt-owned jobs (agent start command owns their containers,
   no SSH double-start). Kill switch:
   `XCELSIOR_SCHEDULER_CLAIMS_ENABLED=false` stops claims, sweeps

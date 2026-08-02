@@ -23,11 +23,6 @@ paths:
       x-fern-ignore: true
       x-fern-sdk-group-name: hosts
       x-fern-sdk-method-name: check
-  /hosts/ca:
-    get:
-      x-fern-sdk-group-name: hosts
-      x-fern-sdk-method-name: listCanadian
-      x-fern-ignore: true
   /compute-scores:
     get:
       x-fern-sdk-group-name: hosts
@@ -467,11 +462,6 @@ paths:
       x-fern-sdk-group-name: teams
       x-fern-sdk-method-name: updateMemberRole
       x-fern-ignore: true
-  /api/compliance/provinces:
-    get:
-      x-fern-sdk-group-name: compliance
-      x-fern-sdk-method-name: getProvinces
-      x-fern-ignore: true
   /api/compliance/status:
     get:
       x-fern-sdk-group-name: compliance
@@ -482,16 +472,6 @@ paths:
       x-fern-sdk-group-name: compliance
       x-fern-sdk-method-name: getTaxRates
       x-fern-ignore: true
-  /api/compliance/trust-tier-requirements:
-    get:
-      x-fern-sdk-group-name: compliance
-      x-fern-sdk-method-name: getTrustTierRequirements
-      x-fern-ignore: true
-  /api/compliance/quebec-pia-check:
-    post:
-      x-fern-ignore: true
-      x-fern-sdk-group-name: compliance
-      x-fern-sdk-method-name: quebecPiaCheck
   /api/artifacts:
     get:
       x-fern-sdk-group-name: artifacts
@@ -1031,40 +1011,11 @@ paths:
       x-fern-ignore: true
       x-fern-sdk-group-name: autoscale
       x-fern-sdk-method-name: cycle
-  /api/jurisdiction/hosts:
-    post:
-      x-fern-sdk-group-name: jurisdiction
-      x-fern-sdk-method-name: filterHosts
-      x-fern-ignore: true
-  /api/jurisdiction/residency-trace/{job_id}:
-    get:
-      x-fern-sdk-group-name: jurisdiction
-      x-fern-sdk-method-name: getResidencyTrace
-      x-fern-ignore: true
   /api/trust-tiers:
     get:
-      x-fern-sdk-group-name: jurisdiction
+      x-fern-sdk-group-name: reputation
       x-fern-sdk-method-name: getTrustTiers
       x-fern-ignore: true
-  /canada:
-    get:
-      x-fern-ignore: true
-      x-fern-sdk-group-name: jurisdiction
-      x-fern-sdk-method-name: getCanadaStatus
-    put:
-      x-fern-ignore: true
-      x-fern-sdk-group-name: jurisdiction
-      x-fern-sdk-method-name: setCanadaStatus
-  /queue/process/ca:
-    post:
-      x-fern-ignore: true
-      x-fern-sdk-group-name: jurisdiction
-      x-fern-sdk-method-name: processQueueCanada
-  /api/queue/process-sovereign:
-    post:
-      x-fern-ignore: true
-      x-fern-sdk-group-name: jurisdiction
-      x-fern-sdk-method-name: processQueueSovereign
   /api/v2/volumes:
     get:
       x-fern-sdk-group-name: volumes

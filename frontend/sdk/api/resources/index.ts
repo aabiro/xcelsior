@@ -19,8 +19,6 @@ export * as inference from "./inference/index.js";
 export * as infrastructure from "./infrastructure/index.js";
 export * from "./instances/client/requests/index.js";
 export * as instances from "./instances/index.js";
-export * from "./jurisdiction/client/requests/index.js";
-export * as jurisdiction from "./jurisdiction/index.js";
 export * from "./marketplace/client/requests/index.js";
 export * as marketplace from "./marketplace/index.js";
 export * from "./marketplaceV2/client/requests/index.js";

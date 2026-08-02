@@ -41,12 +41,5 @@ describe("evaluateShouldIRunThis", () => {
     expect(result.reasons.some((r) => r.includes("max_hourly_cad"))).toBe(true);
   });
 
-  it("includes jurisdiction note when require_canada is set", () => {
-    const result = evaluateShouldIRunThis(
-      { gpu_model: "RTX 4090", duration_hours: 1, require_canada: true },
-      estimate,
-      50,
-    );
-    expect(result.jurisdiction_note).toContain("Canadian");
-  });
+
 });

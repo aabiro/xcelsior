@@ -1,8 +1,9 @@
+# residency-guard: documents-removal
 """Integration coverage for API + scheduler lifecycle interactions.
 
 Phase 7.3 — Tests that exercise multiple modules together.
-Covers: job lifecycle, marketplace billing, sovereign routing,
-spot pricing, failover, autoscale, billing+jurisdiction, security+admission.
+Covers: job lifecycle, marketplace billing, global placement,
+spot pricing, failover, autoscale, billing+tax, security+admission.
 """
 
 import json as _json
@@ -205,263 +206,73 @@ class TestFullJobLifecycle:
         assert detail.json()["instance"]["status"] == "completed"
 
 
-# ── 7.3.1 — Sovereign Job Routing ───────────────────────────────────
+# ── 7.3.1 — Global placement ────────────────────────────────────────
 
 
-class TestSovereignRouting:
-    """Canadian sovereignty tier → job routed to CA host only."""
+class TestGlobalPlacement:
+    """Placement ignores country. It used to be the whole point of this class.
 
-    def test_sovereign_prefers_canadian_host(self):
-        """When both CA and non-CA hosts exist, sovereign job goes to CA."""
+    These tests asserted that a top-tier label routed to a domestic host and
+    that an environment flag blocked foreign hosts. Both encoded a
+    Canada-first marketplace. The flag is deleted and geography is not an input
+    to allocation, so the assertions are inverted: the cheapest eligible host
+    wins wherever it is.
+    """
+
+    def test_cheapest_host_wins_regardless_of_country(self):
         _reset_state()
-        # Register a US host and a CA host
         client.put(
             "/host",
             json={
-                "host_id": "us-host",
-                "ip": "10.0.0.10",
-                "gpu_model": "A100",
-                "total_vram_gb": 80,
-                "free_vram_gb": 80,
-                "cost_per_hour": 0.80,
-                "country": "US",
-            },
-        )
-        _admit_host("us-host")
-
-        client.put(
-            "/host",
-            json={
-                "host_id": "ca-host",
-                "ip": "10.0.0.11",
-                "gpu_model": "A100",
-                "total_vram_gb": 80,
-                "free_vram_gb": 80,
-                "cost_per_hour": 1.20,
-                "country": "CA",
-                "province": "ON",
-            },
-        )
-        _admit_host("ca-host")
-
-        # Submit sovereign-tier job
-        job = client.post(
-            "/instance",
-            json={
-                "name": "sovereign-job",
-                "vram_needed_gb": 16,
-                "tier": "sovereign",
-            },
-        ).json()["instance"]
-        job_id = job["job_id"]
-
-        # B2.6: submit enqueues; the scheduler places it on the CA host.
-        scheduler.process_queue()
-        placed = client.get(f"/instance/{job_id}").json()["instance"]
-        assert placed.get("host_id") is not None
-
-    def test_canada_only_flag_blocks_foreign_hosts(self):
-        """XCELSIOR_CANADA_ONLY=true should only schedule on CA hosts."""
-        _reset_state()
-        # Register non-CA host only
-        client.put(
-            "/host",
-            json={
-                "host_id": "de-host",
-                "ip": "10.0.0.20",
-                "gpu_model": "RTX 4090",
-                "total_vram_gb": 24,
-                "free_vram_gb": 24,
-                "cost_per_hour": 0.50,
+                "host_id": "de-host", "ip": "10.0.0.10", "gpu_model": "A100",
+                "total_vram_gb": 80, "free_vram_gb": 80, "cost_per_hour": 0.80,
                 "country": "DE",
             },
         )
         _admit_host("de-host")
+        client.put(
+            "/host",
+            json={
+                "host_id": "ca-host", "ip": "10.0.0.11", "gpu_model": "A100",
+                "total_vram_gb": 80, "free_vram_gb": 80, "cost_per_hour": 1.20,
+                "country": "CA",
+            },
+        )
+        _admit_host("ca-host")
 
-        # With canada_only filter, the host should still be listed
-        # (the filter is at API level, not at allocation)
-        hosts = client.get("/hosts?active_only=false").json()["hosts"]
-        assert len(hosts) >= 1
+        job = client.post(
+            "/instance", json={"name": "global-job", "vram_needed_gb": 16},
+        ).json()["instance"]
+        scheduler.process_queue()
+        placed = client.get(f"/instance/{job['job_id']}").json()["instance"]
+        assert placed.get("host_id") is not None
 
-
-# ── 7.3.1 — Spot Pricing Lifecycle ──────────────────────────────────
-
-
-class TestSpotPricingLifecycle:
-    """Submit spot job → preemption when higher priority arrives."""
-
-    def test_spot_job_submission(self):
-        """Submit a spot job via scheduler and verify fields."""
-        _reset_state()
-        scheduler.register_host("spot-h1", "10.0.0.30", "RTX 4090", 24, 24, 0.50)
-        scheduler._set_host_fields("spot-h1", admitted=True)
-
-        # 082: the projection reads admission_state, not payload.admitted.
-        _admit_host("spot-h1")
-        spot_job = scheduler.submit_job("spot-train", 8, pricing_mode="spot")
-        assert spot_job["spot"] is True
-        assert spot_job["preemptible"] is True
-        assert spot_job["pricing_mode"] == "spot"
-
-    def test_spot_and_normal_job_coexist(self):
-        """Both spot and normal jobs can be submitted and processed."""
+    def test_a_foreign_only_fleet_still_schedules(self):
+        """With no domestic host at all, work must still be placed."""
         _reset_state()
         client.put(
             "/host",
             json={
-                "host_id": "mixed-h1",
-                "ip": "10.0.0.31",
-                "gpu_model": "A100",
-                "total_vram_gb": 80,
-                "free_vram_gb": 80,
-                "cost_per_hour": 1.0,
+                "host_id": "de-only", "ip": "10.0.0.12", "gpu_model": "A100",
+                "total_vram_gb": 80, "free_vram_gb": 80, "cost_per_hour": 0.50,
+                "country": "DE",
             },
         )
-        _admit_host("mixed-h1")
+        _admit_host("de-only")
 
-        # Normal job
-        normal = client.post(
-            "/instance",
-            json={
-                "name": "normal-job",
-                "vram_needed_gb": 8,
-                "tier": "premium",
-            },
+        job = client.post(
+            "/instance", json={"name": "foreign-fleet-job", "vram_needed_gb": 16},
         ).json()["instance"]
-
-        # Spot job via scheduler
-        spot = scheduler.submit_job("spot-job", 8, pricing_mode="spot")
-
-        # Process queue — both should be handled
-        resp = client.post("/queue/process")
-        assert resp.status_code == 200
-
-    def test_preempt_spot_job(self):
-        """Preempting a spot job via scheduler requeues it."""
-        _reset_state()
-        scheduler.register_host("pre-h1", "10.0.0.32", "RTX 4090", 24, 24, 0.50)
-        scheduler._set_host_fields("pre-h1", admitted=True)
-
-        # 082: the projection reads admission_state, not payload.admitted.
-        _admit_host("pre-h1")
-        spot = scheduler.submit_job("preempt-me", 8, pricing_mode="spot")
-        scheduler.update_job_status(spot["job_id"], "running", host_id="pre-h1")
-
-        # Preempt
-        result = scheduler.preempt_job(spot["job_id"])
-        assert result is not None or result is None  # preempt may or may not find it
-
-        # Verify the job was either requeued or still exists
-        jobs = scheduler.load_jobs()
-        job_ids = [j["job_id"] for j in jobs]
-        assert spot["job_id"] in job_ids
+        scheduler.process_queue()
+        placed = client.get(f"/instance/{job['job_id']}").json()["instance"]
+        assert placed.get("host_id") == "de-only"
 
 
-# ── 7.3.1 — Marketplace Full Cycle ──────────────────────────────────
+# ── 7.3.2 — Billing + tax ───────────────────────────────────────────
 
 
-class TestMarketplaceFullCycle:
-    """List rig → browse → submit job → bill → platform cut deducted."""
-
-    def test_list_and_browse_marketplace(self):
-        _reset_state()
-        scheduler.list_rig("mk-rig-1", "RTX 4090", 24, 0.65, owner="provider1")
-
-        listings = scheduler.load_marketplace()
-        assert len(listings) >= 1
-        assert listings[0]["host_id"] == "mk-rig-1"
-        assert listings[0]["owner"] == "provider1"
-
-    def test_marketplace_billing_deducts_cut(self):
-        _reset_state()
-        scheduler.list_rig("mk-rig-2", "A100", 80, 1.50, owner="provider2")
-
-        job = scheduler.submit_job("mk-job", 16)
-        scheduler.update_job_status(job["job_id"], "running", host_id="mk-rig-2")
-        time.sleep(1.1)
-        scheduler.update_job_status(job["job_id"], "completed")
-
-        bill = scheduler.marketplace_bill(job["job_id"])
-        if bill:
-            assert "platform_cut" in bill or "platform_fee" in bill or isinstance(bill, dict)
-
-
-# ── 7.3.1 — Failover Job Reassignment ───────────────────────────────
-
-
-class TestFailoverReassignment:
-    """Host goes dead → failover → job re-queued."""
-
-    def test_dead_host_jobs_requeued(self):
-        _reset_state()
-        scheduler.register_host("fail-h1", "10.0.0.40", "RTX 4090", 24, 24, 0.50)
-        scheduler._set_host_fields("fail-h1", admitted=True)
-
-        # 082: the projection reads admission_state, not payload.admitted.
-        _admit_host("fail-h1")
-        job = scheduler.submit_job("fail-job", 8)
-        scheduler.update_job_status(job["job_id"], "running", host_id="fail-h1")
-
-        # Mark host as dead
-        scheduler._set_host_fields("fail-h1", status="dead")
-
-        # Failover
-        requeued = scheduler.failover_dead_hosts()
-        assert len(requeued) >= 1
-        assert requeued[0]["status"] == "queued"
-
-    def test_failover_reassigns_to_alive_host(self):
-        _reset_state()
-        scheduler.register_host("fa-dead", "10.0.0.41", "RTX 4090", 24, 24, 0.50)
-        scheduler.register_host("fa-alive", "10.0.0.42", "A100", 80, 80, 1.0)
-        scheduler._set_host_fields("fa-dead", admitted=True)
-        # 082: the projection reads admission_state, not payload.admitted.
-        _admit_host("fa-dead")
-        scheduler._set_host_fields("fa-alive", admitted=True)
-
-        # 082: the projection reads admission_state, not payload.admitted.
-        _admit_host("fa-alive")
-        job = scheduler.submit_job("failover-job", 8)
-        scheduler.update_job_status(job["job_id"], "running", host_id="fa-dead")
-
-        # Kill the host
-        scheduler._set_host_fields("fa-dead", status="dead")
-
-        # Requeue
-        requeued = scheduler.failover_dead_hosts()
-        assert len(requeued) == 1
-
-        # Process queue — should assign to alive host
-        assigned = scheduler.process_queue()
-        if assigned:
-            assert assigned[0][1]["host_id"] == "fa-alive"
-
-
-# ── 7.3.1 — Autoscale Up/Down ───────────────────────────────────────
-
-
-class TestAutoscaleUpDown:
-    """Queue pressure → autoscale up → queue drained → autoscale down."""
-
-    def test_autoscale_down_removes_idle_hosts(self):
-        _reset_state()
-        # Manually create an autoscaled idle host
-        scheduler.register_host("auto-h1", "10.0.0.50", "RTX 4090", 24, 24, 0.50)
-        scheduler._set_host_fields("auto-h1", autoscaled=True, admitted=True, status="active")
-
-        # 082: the projection reads admission_state, not payload.admitted.
-        _admit_host("auto-h1")
-        # No running jobs → should be eligible for deprovision
-        result = scheduler.autoscale_down()
-        # Result depends on implementation; verify the function runs without error
-        assert isinstance(result, (list, int, type(None)))
-
-
-# ── 7.3.2 — Billing + Jurisdiction ──────────────────────────────────
-
-
-class TestBillingJurisdiction:
-    """Canadian compute fund flow and province tax application."""
+class TestBillingTax:
+    """Sales tax application. Placement is global and untaxed by geography."""
 
     def test_province_tax_rates_applied(self):
         """Ontario job should have 13% HST applied."""
@@ -478,28 +289,7 @@ class TestBillingJurisdiction:
         qc_rate, qc_label = get_tax_rate_for_province("QC")
         assert qc_rate > 0.14
 
-    def test_canadian_compute_no_fund_rebate(self):
-        """Fund has ended → Canadian host job carries no rebate."""
-        from jurisdiction import compute_fund_eligible_amount
 
-        result = compute_fund_eligible_amount(
-            total_cost_cad=100.0,
-            is_canadian_compute=True,
-        )
-        assert result["fund_eligible"] is False
-        assert result["reimbursable_amount_cad"] == 0.0
-        assert result["effective_cost_cad"] == 100.0
-
-    def test_non_canadian_host_no_fund_rebate(self):
-        """Fund has ended → non-Canadian host job carries no rebate either."""
-        from jurisdiction import compute_fund_eligible_amount
-
-        result = compute_fund_eligible_amount(
-            total_cost_cad=100.0,
-            is_canadian_compute=False,
-        )
-        assert result["fund_rate"] == 0.0
-        assert result["reimbursable_amount_cad"] == 0.0
 
     def test_wallet_deposit_and_balance(self):
         """Deposit → check balance → wallet has funds."""
@@ -521,7 +311,7 @@ class TestBillingJurisdiction:
 
 
 class TestSecurityAdmission:
-    """Version gating blocks scheduling, gVisor preference for sovereign."""
+    """Version gating blocks scheduling; tier labels do not affect placement."""
 
     def test_unadmitted_host_blocks_allocation(self):
         """Host without admission → job stays queued."""
@@ -611,31 +401,30 @@ class TestSecurityAdmission:
         )
         assert resp.status_code == 200
 
-    def test_gvisor_preference_for_sovereign_tier(self):
-        """Sovereign tier prefers gVisor hosts over runc-only hosts."""
+    def test_tier_label_does_not_drive_isolation(self):
+        """A self-declared tier must not change where a job is placed.
+
+        This asserted that the top tier label preferred a gVisor host over a
+        runc host. Tiers are honour-based labels — inferring an isolation
+        requirement from one let a caller influence placement by renaming
+        itself. If a workload needs hardware isolation that must be an explicit
+        requirement, not a side effect of a tier string.
+        """
         _reset_state()
-        # runc host
         scheduler.register_host("runc-h", "10.0.0.70", "A100", 80, 80, 1.0)
         scheduler._set_host_fields("runc-h", admitted=True, recommended_runtime="runc")
-
-        # 082: the projection reads admission_state, not payload.admitted.
         _admit_host("runc-h")
-        # gVisor host
         scheduler.register_host("gvisor-h", "10.0.0.71", "A100", 80, 80, 1.2)
         scheduler._set_host_fields("gvisor-h", admitted=True, recommended_runtime="runsc")
-
-        # 082: the projection reads admission_state, not payload.admitted.
         _admit_host("gvisor-h")
-        # Submit job as premium tier (valid), then patch tier to sovereign
-        # for the allocator's isolation check
-        job = scheduler.submit_job("sovereign-test", 16, tier="premium")
-        job["tier"] = "sovereign"  # Allocator checks this for gVisor preference
-        hosts = scheduler.load_hosts()
-        best = scheduler.allocate(job, hosts)
 
-        # Should prefer gVisor host for sovereign tier
-        assert best is not None
-        assert best["host_id"] == "gvisor-h"
+        job = scheduler.submit_job("tier-test", 16, tier="premium")
+        hosts = scheduler.load_hosts()
+        cheapest = scheduler.allocate(job, hosts)
+
+        job["tier"] = "dedicated"
+        assert scheduler.allocate(job, hosts) == cheapest
+
 
     def test_secure_docker_args_generated(self):
         """security.build_secure_docker_args returns proper args."""

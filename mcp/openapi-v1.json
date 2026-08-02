@@ -301,6 +301,24 @@
       }
     },
     "/api/v1/mcp/tool-audit": {
+      "get": {
+        "tags": [
+          "Control plane v1"
+        ],
+        "summary": "Api V1 Mcp Tool Audit Export",
+        "description": "Customer-visible export of this tenant's own MCP tool-call audit trail.\n\nThe trail was already recorded per call \u2014 principal, tenant, scopes, a hash\nof the redacted arguments, the action plan, the upstream route and status,\ntrace id, latency, and outcome. An audit trail a customer cannot read is a\nlog file, not an assurance: this is what makes \"every agent action is\naudited\" checkable by the person whose account it is, which is what an\nenterprise security review actually asks for (adoption plan X6.30).\n\nStrictly tenant-scoped. There is no cross-tenant view here at any privilege\nlevel \u2014 an operator investigating an incident uses the operator surface,\nwhich is separately authorized and separately audited.",
+        "operationId": "api_v1_mcp_tool_audit_export_api_v1_mcp_tool_audit_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
           "Control plane v1"
@@ -334,6 +352,26 @@
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mcp/activation-funnel": {
+      "get": {
+        "tags": [
+          "Control plane v1"
+        ],
+        "summary": "Api V1 Mcp Activation Funnel",
+        "description": "Connector activation funnel, with per-surface attribution.\n\nAdoption plan X7.33/X7.34. The stages are the ones a connector actually\npasses through, computed from durable records rather than estimated:\n\n  authorized       \u2192 a user approved the connector (`oauth_consent_grants`)\n  first_tool_call  \u2192 that tenant made at least one MCP tool call\n  first_success    \u2192 at least one of those calls succeeded\n  first_write      \u2192 they used a tool that changes something\n  first_paid       \u2192 they ran a workload that was billed\n\n**The two stages above `authorized` are deliberately not here.** Discovery\nhits and 401 challenges are counted at the MCP edge as Prometheus counters\n(`xcelsior_mcp_auth_failures_total`, `xcelsior_mcp_active_transports`) and\nread in Grafana. Persisting a database row per unauthenticated request would\nmake an unauthenticated endpoint a write amplifier \u2014 the top of this funnel\nbelongs in a metrics pipeline, not in Postgres, and saying so is more useful\nthan a number we would have to fabricate.\n\nPlatform-wide, so admin-only: a tenant's own activity is the audit export.",
+        "operationId": "api_v1_mcp_activation_funnel_api_v1_mcp_activation_funnel_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           }
@@ -2002,19 +2040,6 @@
         ],
         "title": "BuildIn"
       },
-      "CanadaToggle": {
-        "properties": {
-          "enabled": {
-            "type": "boolean",
-            "title": "Enabled"
-          }
-        },
-        "type": "object",
-        "required": [
-          "enabled"
-        ],
-        "title": "CanadaToggle"
-      },
       "CaslConsentRequest": {
         "properties": {
           "purpose": {
@@ -2573,16 +2598,6 @@
           "spot": {
             "type": "boolean",
             "title": "Spot",
-            "default": false
-          },
-          "sovereignty": {
-            "type": "boolean",
-            "title": "Sovereignty",
-            "default": false
-          },
-          "is_canadian": {
-            "type": "boolean",
-            "title": "Is Canadian",
             "default": false
           }
         },
@@ -3388,25 +3403,6 @@
         ],
         "title": "JobIn"
       },
-      "JurisdictionFilterRequest": {
-        "properties": {
-          "canada_only": {
-            "type": "boolean",
-            "title": "Canada Only",
-            "default": true
-          },
-          "province": {
-            "type": "string",
-            "title": "Province"
-          },
-          "trust_tier": {
-            "type": "string",
-            "title": "Trust Tier"
-          }
-        },
-        "type": "object",
-        "title": "JurisdictionFilterRequest"
-      },
       "LeaseAuthorityRequest": {
         "properties": {
           "lease_id": {
@@ -3516,9 +3512,9 @@
             "title": "Request Type",
             "default": "subpoena"
           },
-          "jurisdiction": {
+          "requesting_country": {
             "type": "string",
-            "title": "Jurisdiction",
+            "title": "Requesting Country",
             "default": "CA"
           },
           "authority": {
@@ -3633,11 +3629,6 @@
             "maxLength": 32,
             "title": "Region",
             "default": ""
-          },
-          "canada_only": {
-            "type": "boolean",
-            "title": "Canada Only",
-            "default": false
           },
           "spot_available": {
             "type": "boolean",
@@ -4018,27 +4009,6 @@
         },
         "type": "object",
         "title": "ObservedWorkload"
-      },
-      "PIACheckRequest": {
-        "properties": {
-          "data_origin_province": {
-            "type": "string",
-            "title": "Data Origin Province",
-            "default": "QC"
-          },
-          "processing_province": {
-            "type": "string",
-            "title": "Processing Province",
-            "default": "ON"
-          },
-          "data_contains_pi": {
-            "type": "boolean",
-            "title": "Data Contains Pi",
-            "default": false
-          }
-        },
-        "type": "object",
-        "title": "PIACheckRequest"
       },
       "PasskeyAuthenticateCompleteRequest": {
         "properties": {
@@ -5396,25 +5366,6 @@
         "type": "object",
         "title": "SocialOAuthInitBody"
       },
-      "SovereignQueueRequest": {
-        "properties": {
-          "canada_only": {
-            "type": "boolean",
-            "title": "Canada Only",
-            "default": true
-          },
-          "province": {
-            "type": "string",
-            "title": "Province"
-          },
-          "trust_tier": {
-            "type": "string",
-            "title": "Trust Tier"
-          }
-        },
-        "type": "object",
-        "title": "SovereignQueueRequest"
-      },
       "StatusUpdate": {
         "properties": {
           "status": {
@@ -5659,10 +5610,10 @@
             "title": "Artifact Type",
             "default": "job_output"
           },
-          "residency_policy": {
+          "storage_policy": {
             "type": "string",
-            "title": "Residency Policy",
-            "default": "canada_only"
+            "title": "Storage Policy",
+            "default": "any"
           }
         },
         "type": "object",

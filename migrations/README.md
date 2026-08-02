@@ -1,3 +1,4 @@
+<!-- residency-guard: documents-removal -->
 # Migration ledger
 
 Authoritative rules and numbering history for this Alembic chain.
@@ -70,7 +71,7 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `090_privacy_tables_companion_parity.py`.**
+**Repository head: `097_drop_float_cad_columns.py`.**
 (`079_settlement_meters_reprice.py` was head through the settlement reprice;
 `080` added authoritative provider settlement; `081` the durable per-sink
 privacy deletion workflow; `082` authoritative host admission and signed
@@ -94,7 +95,33 @@ a `tenant_id`; they had been treated as tenant-exempt on the grounds that a
 deletion subject must stay unlinkable, which conflated tenant with identity.
 The companion keeps the tenant and pseudonymises the identity — the tenant is
 the workspace, not the person, and erasure still blanks `subject_email` and
-`subject_user_id`.)
+`subject_user_id`.
+`092`–`094` are the global-marketplace cutover. `092` drops the columns that
+only existed to record or price a location: `gpu_pricing.sovereignty_premium`
+(every row `0.0`), `usage_meters.is_canadian_compute`, and the four float CAD
+invoice columns the closed AI Compute Access Fund fed, and renames the
+`sovereign` pricing tier to `dedicated` — the ladder is `community` → `secure`
+→ `dedicated`, each rung naming what the capacity *is*. `093` drops
+`storage.artifacts.residency_region`, since storage routing is a durability and
+cost decision. `097` drops the last 26 float CAD columns and the mirror triggers, after
+verifying float and micros agreed on every row — the schema now holds no float
+money at all. `096` drops `users.canada_only_routing`, the last per-user setting that
+restricted placement by country. `095` mirrors the last 26 float CAD columns
+into integer micros, holding the
+pair in step with a trigger so an unconverted writer cannot leave micros stale;
+`096` drops the floats once code reads micros. `094` renames
+`legal_requests.jurisdiction` to `requesting_country`: that column records which authority demanded data, which
+is worth keeping, but the old name kept it surfacing in searches for the
+placement model these migrations removed.
+
+`091` is the connector-adoption migration: `oauth_clients` gains the
+provenance and containment columns a dynamically identified client needs
+(`registration_source`, a `resource_audience` pin so a self-registered
+client can never mint a general API token, and `registration_expires_at`
+so an unused registration disappears instead of accumulating), the RFC 7591
+metadata fields a registration response has to echo back, and the new
+`oauth_consent_grants` table that makes a user's approval of a connector a
+durable, revocable record rather than a transient UI moment.)
 (`069_action_plans_mcp_policy_audit.py` was head through Track B B2.1; B3.1
 added `070`, binding `serverless_workers` to their fenced attempt; B3.2 added
 `071`, the per-endpoint spend ceiling; B4.1 added `072`, the partitioned

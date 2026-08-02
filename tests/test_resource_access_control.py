@@ -238,23 +238,3 @@ def test_v1_inference_poll_forbidden_cross_account(two_users):
     assert r.status_code == 403
 
 
-def test_residency_trace_forbidden_cross_account(two_users):
-    user_a, user_b = two_users
-    created = client.post(
-        "/instance",
-        json={"name": "residency-a", "vram_needed_gb": 1},
-        headers=user_a["headers"],
-    )
-    if created.status_code == 200:
-        job_id = created.json()["instance"]["job_id"]
-    else:
-        listed = client.get("/instances", headers=user_a["headers"])
-        assert listed.status_code == 200, listed.text[:200]
-        instances = listed.json().get("instances") or []
-        assert instances, "need an owned instance for residency IDOR test"
-        job_id = instances[0]["job_id"]
-    r = client.get(
-        f"/api/jurisdiction/residency-trace/{job_id}",
-        headers=user_b["headers"],
-    )
-    assert r.status_code == 403

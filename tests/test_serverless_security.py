@@ -224,3 +224,65 @@ class TestWebhookBodyCap:
         assert posted
         assert len(posted[0]) <= WEBHOOK_MAX_BODY_BYTES
         repo.soft_delete_endpoint(ep["endpoint_id"], owner)
+
+class TestAgentKeyPrefixCollision:
+    """An agent key must never be mistaken for a serverless endpoint key.
+
+    Serverless endpoint keys are prefixed `xcel_`; agent keys — the Quick
+    Connect credential the docs tell every MCP user to paste — are prefixed
+    `xcel_ai_`. One is a prefix of the other, so a `startswith` dispatch sends
+    every agent key into the serverless-key validator, which rejects it and
+    raises 401 *before* the session path is tried. That broke the entire
+    serverless surface (`run_serverless_job`, `get_serverless_job_status`) for
+    exactly the credential we hand out.
+    """
+
+    def test_the_prefixes_really_do_collide(self):
+        # If this ever stops being true the guard below is dead weight — but
+        # changing either prefix invalidates already-issued credentials, so
+        # the collision is the condition we live with, not one we remove.
+        from oauth_service import AGENT_KEY_PREFIX, looks_like_agent_key
+
+        sample = f"{AGENT_KEY_PREFIX}{uuid.uuid4().hex}"
+        assert sample.startswith(KEY_PREFIX)
+        assert looks_like_agent_key(sample)
+
+    def test_agent_key_reaches_the_endpoint_instead_of_401(self, user_headers):
+        from db import AgentKeyStore, UserStore
+        from oauth_service import issue_agent_api_key
+
+        created = client.post(
+            "/api/v2/serverless/endpoints",
+            headers=user_headers,
+            json={
+                "name": f"agent-key-{uuid.uuid4().hex[:8]}",
+                "mode": "custom",
+                "docker_image": "xcelsior/serverless-base:cuda12.4-py3.12",
+            },
+        )
+        assert created.status_code == 200, created.text
+        endpoint_id = created.json()["endpoint"]["endpoint_id"]
+
+        me = client.get("/api/auth/me", headers=user_headers).json()
+        user = me.get("user") or me
+        full_user = UserStore.get_user(str(user["email"])) or user
+        bundle = issue_agent_api_key(
+            user=dict(full_user),
+            client_id=f"cli-{uuid.uuid4().hex[:8]}",
+            scopes=["inference:read", "inference:write"],
+            name="prefix collision probe",
+        )
+        try:
+            response = client.post(
+                f"/v1/serverless/{endpoint_id}/run",
+                headers={"Authorization": f"Bearer {bundle['access_token']}"},
+                json={"input": {"prompt": "health check"}},
+            )
+        finally:
+            AgentKeyStore.revoke(bundle["key_id"], str(full_user["user_id"]))
+
+        # The assertion is narrow on purpose: the run may legitimately fail for
+        # business reasons (no workers, no funds). What must never happen is
+        # being turned away at the door as a malformed serverless API key.
+        assert response.status_code != 401, response.text
+        assert "Invalid API key" not in response.text

@@ -93,6 +93,27 @@ docs/*
 !docs/AI_ML_MASTER_INDEX_XCELSIOR.md
 !docs/PXL_REGISTRY_SECTION_10_MIRROR.md
 !docs/MASTER_INDEX_SECTION_10_XCELSIOR.synced.md
+# MCP enterprise adoption: the plan of record and the documents the tracked
+# HANDOFF.md links to. Without these exceptions `docs/*` swallows them, and a
+# tracked handoff points at files that do not exist for anyone who clones.
+!docs/mcp-enterprise-adoption-plan.md
+!docs/mcp-submission-readiness.md
+!docs/mcp-tool-versioning.md
+!docs/mcp-quickstarts.md
+# Tool-surface track: the curated-surface plan X1 depends on, the provider axis,
+# and the research prompt that produces the tool enumeration.
+!docs/mcp-tool-surface-plan.md
+!docs/mcp-provider-axis-plan.md
+!docs/mcp-tool-surface-research-prompt.md
+!docs/mcp-tool-surface-synthesis.md
+!docs/mcp_tools_chatgpt.md
+!docs/mcp_tools_gemini.md
+!docs/mcp_tools_grok.md
+# `docs/*` excludes the `docs/generated/` directory itself, and git will not
+# descend into an excluded directory — so the directory must be un-ignored
+# before a negation on a file inside it can match.
+!docs/generated/
+!docs/generated/endpoint-inventory.md
 
 # ── Editor / OS ──────────────────────────────────────────────────────
 .vscode/settings.json

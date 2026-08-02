@@ -40,12 +40,12 @@ def ln_rows():
                 """INSERT INTO ln_deposits
                    (deposit_id, customer_id, tenant_id, label, bolt11,
                     payment_hash, amount_msat, amount_sats, amount_btc,
-                    amount_cad, btc_cad_rate, status, created_at, expires_at)
+                    amount_micros, btc_cad_rate, status, created_at, expires_at)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     deposit_id, cust, cust, f"lbl-{deposit_id}", "bolt",
                     payment_hash or f"hash-{deposit_id}",
-                    1_000_000, 1000, 0.00001, amount_cad, 100_000.0, status,
+                    1_000_000, 1000, 0.00001, round(amount_cad * 1_000_000), 100_000.0, status,
                     time.time(), time.time() + 3600,
                 ),
             )

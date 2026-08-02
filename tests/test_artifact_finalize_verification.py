@@ -45,9 +45,9 @@ def upload_session():
                 """INSERT INTO storage.artifacts
                    (artifact_id, tenant_id, artifact_type, logical_name, state,
                     primary_provider, primary_bucket, object_key, content_type,
-                    residency_region, retention_class)
+                    retention_class)
                    VALUES (%s, %s, 'output', %s, 'requested', 'local', 'test',
-                           %s, 'application/octet-stream', 'ca-central',
+                           %s, 'application/octet-stream',
                            'standard')""",
                 (artifact_id, f"tenant-{uuid.uuid4().hex[:8]}",
                  f"obj-{artifact_id}", f"output/{artifact_id}.bin"),

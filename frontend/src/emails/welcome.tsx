@@ -20,7 +20,7 @@ export default function WelcomeEmail({
 
       <Section style={baseStyles.card}>
         <Text style={{ ...baseStyles.text, margin: "0 0 8px" }}>
-          <span style={baseStyles.gold}>✓</span> Full PIPEDA & Law 25
+          <span style={baseStyles.gold}>✓</span> Global GPU marketplace
           compliance
         </Text>
         <Text style={{ ...baseStyles.text, margin: "0 0 8px" }}>

@@ -2,7 +2,7 @@ import os
 import time
 import uuid
 import pytest
-from artifacts import get_artifact_manager, ArtifactType, ResidencyPolicy
+from artifacts import get_artifact_manager, ArtifactType, StoragePolicy
 from control_plane.db import control_plane_transaction
 
 pytestmark = pytest.mark.anyio
@@ -87,8 +87,8 @@ def test_janitor_processes_artifact_deletion_job(test_setup):
             """INSERT INTO storage.artifacts (
                 artifact_id, tenant_id, job_id, artifact_type, logical_name,
                 state, primary_provider, primary_bucket, object_key, content_type,
-                size_bytes, residency_region, retention_class, created_at, available_at
-               ) VALUES (%s, %s, %s, 'job_output', 'to_delete.bin', 'available', 'local', 'local-bucket', %s, 'binary', 10, 'canada_only', 'standard', clock_timestamp(), clock_timestamp())""",
+                size_bytes, retention_class, created_at, available_at
+               ) VALUES (%s, %s, %s, 'job_output', 'to_delete.bin', 'available', 'local', 'local-bucket', %s, 'binary', 10, 'standard', clock_timestamp(), clock_timestamp())""",
             (art_id, tenant_id, job_id, key),
         )
         conn.execute(

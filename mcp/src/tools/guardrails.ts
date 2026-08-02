@@ -4,16 +4,16 @@ import type { XcelsiorApiClient } from "../client/api.js";
 import { formatApiError } from "../client/errors.js";
 import { jsonText } from "../lib/format.js";
 import { evaluateShouldIRunThis } from "../lib/guardrails.js";
-import { TOOL_SCOPES, userHasScope } from "../auth/scopes.js";
+import { TOOL_SCOPES, userHasScope, scopeUnion, describeScopeRequirement } from "../auth/scopes.js";
 import type { AuthUser } from "../auth/bearer.js";
 
 function scopeDenied(tool: string, user: AuthUser | undefined) {
-  const required = TOOL_SCOPES[tool] || ["api"];
+  const required = TOOL_SCOPES[tool];
   if (!userHasScope(user?.scopes, required)) {
     return jsonText({
       error: "insufficient_scope",
-      required,
-      message: `This tool requires one of: ${required.join(", ")}`,
+      required: scopeUnion(required),
+      message: `This tool requires ${describeScopeRequirement(required)}`,
     });
   }
   return null;
@@ -27,24 +27,11 @@ export function registerGuardrailTools(
   server.registerTool(
     "should_i_run_this",
     {
-      description:
-        "Composite guardrail: estimate cost, check wallet balance, and return approval guidance before spend. " +
-        "Call this instead of estimate_job_cost when you are about to launch — it answers whether the job is " +
-        "affordable, not just what it costs.",
       inputSchema: z.object({
         gpu_model: z.string().default("RTX 4090"),
         duration_hours: z.number().min(0).max(8760).default(1),
         spot: z.boolean().default(false),
         max_hourly_cad: z.number().positive().optional().describe("Reject if hourly rate exceeds this"),
-        require_residency: z
-          .string()
-          .max(32)
-          .optional()
-          .describe(
-            "Region or jurisdiction code the workload must stay within (e.g. 'ca-east'). Omit when the " +
-              "workload has no residency requirement. Call list_available_gpus to see which regions " +
-              "currently have capacity.",
-          ),
       }),
     },
     async (args) => {

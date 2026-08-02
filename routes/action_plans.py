@@ -142,7 +142,7 @@ def api_get_launch_plan(plan_id: str, request: Request):
             "hosts:evict": "hosts:read",
         }
         accepted = required | {read_equivalents[s] for s in required if s in read_equivalents}
-        if "api" not in held and not held.intersection(accepted):
+        if not held.intersection(accepted):
             _require_scope(user, next(iter(accepted), "instances:read"))
     return result
 

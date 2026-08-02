@@ -7,7 +7,7 @@ import { useLocale } from "@/lib/locale";
 
 const kpis = [
   ["home.stat_price_kicker", "home.stat_price"],
-  ["home.stat_pipeda_kicker", "home.stat_pipeda"],
+  ["home.stat_agents_kicker", "home.stat_agents"],
   ["home.stat_ai_kicker", "home.stat_ai"],
 ] as const;
 
@@ -20,13 +20,13 @@ const features = [
   ["gpu", "home.feat_marketplace_title", "home.feat_marketplace_desc"],
   ["shield-check", "home.feat_trust_title", "home.feat_trust_desc"],
   ["activity", "home.feat_telemetry_title", "home.feat_telemetry_desc"],
-  ["bolt", "home.feat_jurisdiction_title", "home.feat_jurisdiction_desc"],
+  ["bolt", "home.feat_serverless_title", "home.feat_serverless_desc"],
   ["dollar", "home.feat_spot_title", "home.feat_spot_desc"],
   ["sparkle", "home.feat_ai_title", "home.feat_ai_desc"],
 ] as const;
 
 const comparisonRows = [
-  ["home.cmp_pipeda", "home.cmp_pipeda_x", "home.cmp_pipeda_aws", "home.cmp_pipeda_vast", "home.cmp_pipeda_rp"],
+  ["home.cmp_agents", "home.cmp_agents_x", "home.cmp_agents_aws", "home.cmp_agents_vast", "home.cmp_agents_rp"],
   ["home.cmp_price", "home.cmp_price_x", "home.cmp_price_aws", "home.cmp_price_vast", "home.cmp_price_rp"],
   ["home.cmp_cad", "home.cmp_cad_x", "home.cmp_cad_aws", "home.cmp_cad_vast", "home.cmp_cad_rp"],
   ["home.cmp_verification", "home.cmp_verification_x", "home.cmp_verification_aws", "home.cmp_verification_vast", "home.cmp_verification_rp"],
