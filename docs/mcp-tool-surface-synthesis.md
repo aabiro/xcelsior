@@ -319,14 +319,11 @@ improves completion:
 |---:|---|---|
 | 1 | **Spend runway monitor + auto-pause** (Grok 1, Gemini 2, ChatGPT 8 — all three converged) | Wallet depletion against projected completion, acting *before* zero rather than reporting after it. This is the capability that makes unattended agent spend safe enough to allow at all — without it, every other autonomous feature is something a user has to sit and watch. All three passes independently reached for it. |
 | 2 | **Multi-job pipeline in one approval** (Grok 4) | `train → evaluate → serve` as a dependency graph, approved **once**. The only idea here that turns the approval gate from the product's main friction into its main leverage, and pipelines are the natural shape of agent work — the exact thing a dashboard user does by hand, three times, watching each stage. |
-| 3 | **Checkpoint-aware spot migration** (Grok 2, ChatGPT 2) | Snapshot, stop, relaunch cheaper, verify placement. Converts the marketplace's defining weakness — interruptibility — into the reason to choose it. Nobody buys spot capacity because it is cheap; they avoid it because it dies. This removes the reason to avoid it. |
-| 4 | **Reputation- and SLA-aware placement** (Grok 5) | *"Prefer verified hosts above 99.5% uptime even at 15% more"*, over `simulate_instance_placement`, reputation, and SLA targets. Sells data a single-tenant cloud structurally cannot have, because it has no independent hosts to compare. Cheapest-wins is a race every competitor can run; **trustworthy-per-dollar** is one only a marketplace can. |
-| 5 | **Provider yield optimizer** (ChatGPT 3) | Admission state, reputation, SLA, spot preview → a recommended floor price. Gives a solo provider an automated revenue manager, and is the single thing most likely to make the supply-side connector worth installing. Ranked below the consumer four only because it serves the smaller half of the marketplace. |
-| 6 | **Reusable environment snapshot** (Gemini 5) | Configure one node to perfection, commit it, launch a sweep of identical ones. Removes the most token-expensive and error-prone part of agent-driven training — rebuilding CUDA and dependency state by hand, per node, in prose. |
-
-Runner-up: **artifact → persistent volume promotion** (Grok 3) — treat a
-training run's output as durable storage without leaving the conversation. Clean
-and composes well with 3 and 6; it is simply a smaller idea than the six above.
+| 3 | **Artifact → persistent volume promotion** (Grok 3) | A finished run's weights and checkpoints live in artifact storage on a **90-day retention clock** (`retain_until`, and a presigned-URL TTL on top). A volume has no clock. This is the one call that turns a result into state — and it is the substrate the two above stand on: a pipeline is three disconnected jobs unless stage *n*'s output is mountable by stage *n+1*, and a checkpoint strategy is theatre unless the checkpoint outlives the instance that wrote it. Ranked here because capabilities that make other capabilities possible are worth more than their own surface area suggests. |
+| 4 | **Checkpoint-aware spot migration** (Grok 2, ChatGPT 2) | Snapshot, stop, relaunch cheaper, verify placement. Converts the marketplace's defining weakness — interruptibility — into the reason to choose it. Nobody buys spot capacity because it is cheap; they avoid it because it dies. This removes the reason to avoid it. |
+| 5 | **Reputation- and SLA-aware placement** (Grok 5) | *"Prefer verified hosts above 99.5% uptime even at 15% more"*, over `simulate_instance_placement`, reputation, and SLA targets. Sells data a single-tenant cloud structurally cannot have, because it has no independent hosts to compare. Cheapest-wins is a race every competitor can run; **trustworthy-per-dollar** is one only a marketplace can. |
+| 6 | **Provider yield optimizer** (ChatGPT 3) | Admission state, reputation, SLA, spot preview → a recommended floor price. Gives a solo provider an automated revenue manager, and is the single thing most likely to make the supply-side connector worth installing. Ranked below the consumer capabilities only because it serves the smaller half of the marketplace. |
+| 7 | **Reusable environment snapshot** (Gemini 5) | Configure one node to perfection, commit it, launch a sweep of identical ones. Removes the most token-expensive and error-prone part of agent-driven training — rebuilding CUDA and dependency state by hand, per node, in prose. |
 
 **Not ranked, because they are a different kind of decision:** Gemini's
 cloudburst autoscaling (1) and HPC/Slurm multi-node provisioning (4). Multi-node
@@ -352,9 +349,15 @@ substance.
 
 **The test for this list:** is the capability better *because* an agent is
 driving it? A spend envelope that acts at 3am, a pipeline approved once instead
-of three times, a migration that beats a preemption, a preference for
+of three times, a result promoted off its retention clock before anyone
+remembers to download it, a migration that beats a preemption, a preference for
 trustworthy capacity evaluated per launch — each is worse or impossible when a
 human does it by hand. Paperwork is not.
+
+Note how tightly 2, 3 and 4 interlock: the pipeline needs durable state between
+stages, the migration needs somewhere a checkpoint survives, and promotion is
+what supplies both. Shipped together they are one story — *your work does not
+evaporate* — which is worth more than three features shipped apart.
 
 ---
 
