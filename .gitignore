@@ -105,6 +105,10 @@ docs/*
 !docs/mcp-tool-surface-plan.md
 !docs/mcp-provider-axis-plan.md
 !docs/mcp-tool-surface-research-prompt.md
+!docs/mcp-tool-surface-synthesis.md
+!docs/mcp_tools_chatgpt.md
+!docs/mcp_tools_gemini.md
+!docs/mcp_tools_grok.md
 # `docs/*` excludes the `docs/generated/` directory itself, and git will not
 # descend into an excluded directory — so the directory must be un-ignored
 # before a negation on a file inside it can match.
