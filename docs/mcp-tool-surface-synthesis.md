@@ -317,15 +317,44 @@ improves completion:
 
 | Rank | Capability | Why |
 |---:|---|---|
-| 1 | **Spend runway monitor + auto-pause** (Grok 1, Gemini 2, ChatGPT 8 — all three converged) | Wallet depletion vs. projected job completion, acting before zero. Turns "never wake up broke" into a product property. Wires `billing:write` honestly. |
-| 2 | **Checkpoint-aware spot migration** (Grok 2, ChatGPT 2) | Snapshot, stop, relaunch cheaper, verify placement. Converts the marketplace's interruptibility from a liability into the reason to use it. |
-| 3 | **Procurement evidence packet** (ChatGPT 4) | Attestation, platform posture, trust tiers, invoice history, and audit references compiled into one browser-downloadable pack. Builds directly on §2's attestation tool and turns a security questionnaire from weeks of email into a single call. ChatGPT's version also compiled a location trace; that part is dropped. |
-| 4 | **Provider yield optimizer** (ChatGPT 3) | Admission + reputation + SLA + spot preview → a recommended floor. Gives a solo provider a revenue manager, and makes the provider listing worth installing. |
-| 5 | **Failure-to-refund resolution** (ChatGPT 5) | Timeline, logs, lease, events, eligibility → a refund plan. Turns a support ticket into an auditable workflow. |
-| 6 | **Reusable environment snapshot** (Gemini 5) | Configure once, launch a sweep of identical nodes. The highest-leverage idea Gemini contributed. |
+| 1 | **Spend runway monitor + auto-pause** (Grok 1, Gemini 2, ChatGPT 8 — all three converged) | Wallet depletion against projected completion, acting *before* zero rather than reporting after it. This is the capability that makes unattended agent spend safe enough to allow at all — without it, every other autonomous feature is something a user has to sit and watch. All three passes independently reached for it. |
+| 2 | **Multi-job pipeline in one approval** (Grok 4) | `train → evaluate → serve` as a dependency graph, approved **once**. The only idea here that turns the approval gate from the product's main friction into its main leverage, and pipelines are the natural shape of agent work — the exact thing a dashboard user does by hand, three times, watching each stage. |
+| 3 | **Checkpoint-aware spot migration** (Grok 2, ChatGPT 2) | Snapshot, stop, relaunch cheaper, verify placement. Converts the marketplace's defining weakness — interruptibility — into the reason to choose it. Nobody buys spot capacity because it is cheap; they avoid it because it dies. This removes the reason to avoid it. |
+| 4 | **Reputation- and SLA-aware placement** (Grok 5) | *"Prefer verified hosts above 99.5% uptime even at 15% more"*, over `simulate_instance_placement`, reputation, and SLA targets. Sells data a single-tenant cloud structurally cannot have, because it has no independent hosts to compare. Cheapest-wins is a race every competitor can run; **trustworthy-per-dollar** is one only a marketplace can. |
+| 5 | **Provider yield optimizer** (ChatGPT 3) | Admission state, reputation, SLA, spot preview → a recommended floor price. Gives a solo provider an automated revenue manager, and is the single thing most likely to make the supply-side connector worth installing. Ranked below the consumer four only because it serves the smaller half of the marketplace. |
+| 6 | **Reusable environment snapshot** (Gemini 5) | Configure one node to perfection, commit it, launch a sweep of identical ones. Removes the most token-expensive and error-prone part of agent-driven training — rebuilding CUDA and dependency state by hand, per node, in prose. |
 
-Deliberately deferred: HPC/Slurm provisioning and cloudburst (Gemini 1, 4) — both
-need architecture and cost-policy review well beyond a tool definition.
+Runner-up: **artifact → persistent volume promotion** (Grok 3) — treat a
+training run's output as durable storage without leaving the conversation. Clean
+and composes well with 3 and 6; it is simply a smaller idea than the six above.
+
+**Not ranked, because they are a different kind of decision:** Gemini's
+cloudburst autoscaling (1) and HPC/Slurm multi-node provisioning (4). Multi-node
+training in particular is what serious teams actually need and would be a real
+differentiator — but both commit the platform to cross-cloud capacity and
+scheduling policy, which is a product decision to take deliberately rather than
+a tool to add.
+
+### Two ideas cut from this list, and the rule that cut them
+
+An earlier draft ranked ChatGPT's **failure-to-refund resolution** (timeline,
+logs, lease health, eligibility → a refund plan) and its **procurement evidence
+packet** (attestation, posture, trust tiers, invoices compiled into one
+download). Both are sound. Neither belongs here.
+
+A billing product owes its customers refund handling through the dashboard
+regardless. A vendor owes a buyer a security questionnaire answer regardless.
+Shipping either as an *agent* capability moves an existing obligation to a new
+surface — it does not make the obligation better, and nobody chooses a GPU
+marketplace because its refund flow is scriptable. They are tools to add when a
+customer asks, and the attestation read in §2 already covers the packet's
+substance.
+
+**The test for this list:** is the capability better *because* an agent is
+driving it? A spend envelope that acts at 3am, a pipeline approved once instead
+of three times, a migration that beats a preemption, a preference for
+trustworthy capacity evaluated per launch — each is worse or impossible when a
+human does it by hand. Paperwork is not.
 
 ---
 
