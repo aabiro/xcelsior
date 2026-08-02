@@ -105,6 +105,7 @@ docs/*
 !docs/mcp-tool-surface-plan.md
 !docs/mcp-provider-axis-plan.md
 !docs/mcp-tool-surface-research-prompt.md
+!docs/generated/endpoint-inventory.md
 
 # ── Editor / OS ──────────────────────────────────────────────────────
 .vscode/settings.json
