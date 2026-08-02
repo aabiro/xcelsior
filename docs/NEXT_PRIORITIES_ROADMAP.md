@@ -306,7 +306,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
 
 - [x] `npm run analyze` wired (`@next/bundle-analyzer`, `ANALYZE=true`) (2026-06-08)
 - [x] Split i18n: marketing loads `en-public` only; dashboard keys lazy on `/dashboard` (2026-06-08)
-- [x] Marketing route content deferred (`features`, `about`, `download`, `sovereignty`, `support`, `blog`, `pricing`, `gpu-availability`) (2026-06-08)
+- [x] Marketing route content deferred (`features`, `about`, `download`, `support`, `blog`, `pricing`, `gpu-availability`) (2026-06-08)
 - [x] GPU availability page split — no chart lib; fetch-only (2026-06-08)
 
 ### 5.4 Infrastructure

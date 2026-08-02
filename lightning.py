@@ -284,7 +284,7 @@ def create_deposit(customer_id: str, amount_cad: float) -> dict:
             """INSERT INTO ln_deposits
                (deposit_id, customer_id, tenant_id, currency,
                 label, bolt11, payment_hash,
-                amount_msat, amount_sats, amount_btc, amount_cad, btc_cad_rate,
+                amount_msat, amount_sats, amount_btc, amount_micros, btc_cad_rate,
                 amount_cad_minor, btc_cad_rate_exact,
                 status, created_at, expires_at, created_at_ts, expires_at_ts)
                VALUES (%s, %s, %s, 'CAD', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
@@ -302,7 +302,7 @@ def create_deposit(customer_id: str, amount_cad: float) -> dict:
                 amount_msat,
                 amount_sats,
                 amount_btc,
-                amount_cad,
+                round(amount_cad * 1_000_000),
                 rate,
                 amount_cad_minor,
                 rate_exact,
@@ -339,7 +339,7 @@ def check_deposit(deposit_id: str) -> dict | None:
 
     with pg_transaction() as conn:
         dep = _fetch_one(
-            conn, "SELECT * FROM ln_deposits WHERE deposit_id = %s", (deposit_id,)
+            conn, "SELECT *, amount_micros::double precision / 1000000.0 AS amount_cad FROM ln_deposits WHERE deposit_id = %s", (deposit_id,)
         )
         if not dep:
             return None
@@ -416,13 +416,13 @@ def mark_credited(deposit_id: str, wallet_ledger_entry_id: str | None = None) ->
 def get_pending_deposits() -> list[dict]:
     """Get all pending (unpaid) Lightning deposits for confirmation checking."""
     with pg_transaction() as conn:
-        return _fetch_all(conn, "SELECT * FROM ln_deposits WHERE status = 'pending'")
+        return _fetch_all(conn, "SELECT *, amount_micros::double precision / 1000000.0 AS amount_cad FROM ln_deposits WHERE status = 'pending'")
 
 
 def get_paid_uncredited() -> list[dict]:
     """Get all paid but not yet credited deposits."""
     with pg_transaction() as conn:
-        return _fetch_all(conn, "SELECT * FROM ln_deposits WHERE status = 'paid'")
+        return _fetch_all(conn, "SELECT *, amount_micros::double precision / 1000000.0 AS amount_cad FROM ln_deposits WHERE status = 'paid'")
 
 
 def get_customer_deposits(customer_id: str, limit: int = 20) -> list[dict]:
@@ -430,7 +430,7 @@ def get_customer_deposits(customer_id: str, limit: int = 20) -> list[dict]:
     with pg_transaction() as conn:
         return _fetch_all(
             conn,
-            "SELECT * FROM ln_deposits WHERE customer_id = %s "
+            "SELECT *, amount_micros::double precision / 1000000.0 AS amount_cad FROM ln_deposits WHERE customer_id = %s "
             "ORDER BY created_at DESC LIMIT %s",
             (customer_id, limit),
         )

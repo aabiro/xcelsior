@@ -71,7 +71,6 @@ describe("LaunchInstanceModal spot flow", () => {
       total_with_tax: 0.25,
       base_rate_cad: 0.22,
       priority_multiplier: 1,
-      sovereignty_premium: 0,
       multi_gpu_discount: 0,
     });
     apiMocks.launchInstance.mockResolvedValue({

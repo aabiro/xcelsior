@@ -32,7 +32,7 @@ from serverless.metering import (
     get_gpu_rate_per_hour,
     token_cost_metadata,
 )
-from serverless.repo import ServerlessRepo
+from serverless.repo import EndpointCreate, ServerlessRepo
 from serverless.service import ServerlessService, _preset_startup_command
 from serverless.speculative_gate import (
     MIN_SAMPLES,
@@ -413,3 +413,50 @@ class TestTokenBillingClosure:
             write_json_artifact("live-speculative-proxy-evidence.json", spec_evidence)
 
         client.delete(f"/api/v2/serverless/endpoints/{ep_id}", headers=headers)
+
+class TestNullableCounterAccrual:
+    """`NULL + x` is NULL, and Postgres will not warn you about it.
+
+    `serverless_endpoints.unbilled_token_cost_cad` is nullable with no default,
+    so a freshly created endpoint starts at NULL. `SET col = col + %s` therefore
+    wrote NULL back on the first accrual and every one after it, and
+    `peek_endpoint_token_cost` coerced that NULL to `0.0`. The blended meter saw
+    no token cost, `max(gpu, token)` collapsed to the GPU slice alone, and every
+    preset LLM endpoint was undercharged for its tokens — silently, because
+    nothing errored.
+
+    These assert the accumulate-from-NULL case directly, on a brand-new
+    endpoint, which is the only state where the bug was reachable.
+    """
+
+    def _fresh_endpoint(self):
+        repo = ServerlessRepo()
+        ep = repo.create_endpoint(
+            EndpointCreate(
+                owner_id=f"null-accrual-{uuid.uuid4().hex[:6]}",
+                name=f"null-accrual-{uuid.uuid4().hex[:6]}",
+                mode="preset",
+                model_ref="Qwen/Qwen3-8B",
+                managed_engine="vllm",
+                gpu_tier="RTX 4090",
+                region="ca-east",
+                gpu_count=1,
+                min_workers=0,
+            )
+        )
+        return repo, str(ep["endpoint_id"])
+
+    def test_token_cost_accrues_from_null(self):
+        repo, ep_id = self._fresh_endpoint()
+        repo.accrue_endpoint_token_cost(ep_id, 0.25)
+        assert repo.peek_endpoint_token_cost(ep_id) == pytest.approx(0.25)
+        repo.accrue_endpoint_token_cost(ep_id, 0.75)
+        assert repo.peek_endpoint_token_cost(ep_id) == pytest.approx(1.0)
+
+    def test_endpoint_totals_accrue_from_null(self):
+        repo, ep_id = self._fresh_endpoint()
+        repo.increment_endpoint_totals(ep_id, requests=2, gpu_seconds=30, cost_cad=1.5)
+        row = repo.get_endpoint(ep_id)
+        assert float(row["total_cost_cad"] or 0) == pytest.approx(1.5)
+        assert int(row["total_requests"] or 0) == 2
+        assert int(row["total_gpu_seconds"] or 0) == 30

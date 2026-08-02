@@ -76,20 +76,6 @@ def provider_ctx():
     return {"provider_id": provider_id, "headers": headers}
 
 
-def test_compliance_provinces():
-    r = client.get("/api/compliance/provinces")
-    assert r.status_code == 200
-    assert "provinces" in r.json()
-    assert "ON" in r.json()["provinces"]
-
-
-def test_compliance_detect_province():
-    r = client.get(
-        "/api/compliance/detect-province",
-        headers={"CF-IPCountry": "CA", "CF-Region": "ON"},
-    )
-    assert r.status_code == 200
-    assert r.json().get("province") == "ON"
 
 
 def test_compliance_tax_rates():
@@ -98,25 +84,6 @@ def test_compliance_tax_rates():
     assert "rates" in r.json()
     assert "ON" in r.json()["rates"]
 
-
-def test_compliance_trust_tier_requirements():
-    r = client.get("/api/compliance/trust-tier-requirements")
-    assert r.status_code == 200
-    assert "tiers" in r.json()
-    assert len(r.json()["tiers"]) >= 1
-
-
-def test_compliance_quebec_pia_check():
-    r = client.post(
-        "/api/compliance/quebec-pia-check",
-        json={
-            "data_origin_province": "QC",
-            "processing_province": "ON",
-            "data_contains_pi": True,
-        },
-    )
-    assert r.status_code == 200
-    assert "pia_required" in r.json()
 
 
 def test_provider_gst_threshold(provider_ctx):

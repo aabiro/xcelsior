@@ -33,6 +33,12 @@ _JOB_WRITER_ALLOWLIST: dict[str, str] = {
     "routes/inference.py": "inference API endpoints — request/response inference, not an interactive instance",
     "ai_assistant.py": "AI assistant _tool_launch_job — a thin convenience wrapper over the REST launch surface",
     "cli.py": "local operator/dev CLI — not a network surface",
+    "scripts/seed_reviewer_account.py": (
+        "one-shot operator script that plants sample instances on the connector "
+        "reviewer's own tenant — not a network surface, and deliberately does "
+        "not go through the launch service because a demo account must never "
+        "consume real capacity or bill a real host"
+    ),
 }
 
 # The low-level ``jobs`` row insert must live only in the persistence authority.

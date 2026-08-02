@@ -491,7 +491,6 @@ def delete_authoritative_subject(
                    -- (wallets.auto_topup_enabled and casl_consent.active are
                    -- real booleans and are assigned as such elsewhere.)
                    notifications_enabled = 0,
-                   canada_only_routing = 1,
                    preferences = '{}'::jsonb,
                    mfa_enabled = 0,
                    email_verified = 0,

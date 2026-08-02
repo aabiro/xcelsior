@@ -226,43 +226,43 @@
         },
         {
           "price_id": "price_1TyD2oQ42F8F9fI33mXbwzSY",
-          "lookup_key": "xc:a10:24:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:a10:24:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.65,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD2pQ42F8F9fI3fbZJ24w1",
-          "lookup_key": "xc:a10:24:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:a10:24:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.26,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD2qQ42F8F9fI3VuEt5DAG",
-          "lookup_key": "xc:a10:24:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:a10:24:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.52,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD2qQ42F8F9fI3JwzsPjE0",
-          "lookup_key": "xc:a10:24:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:a10:24:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.455,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD2rQ42F8F9fI3RZzZONpw",
-          "lookup_key": "xc:a10:24:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:a10:24:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.3575,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -356,43 +356,43 @@
         },
         {
           "price_id": "price_1TyD30Q42F8F9fI3Mi2HW48a",
-          "lookup_key": "xc:a100:40:sxm:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:a100:40:sxm:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 1.35,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD30Q42F8F9fI3HRs0rQZy",
-          "lookup_key": "xc:a100:40:sxm:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:a100:40:sxm:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.54,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD31Q42F8F9fI3TRboiRor",
-          "lookup_key": "xc:a100:40:sxm:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:a100:40:sxm:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 1.08,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD32Q42F8F9fI3UgFTqmpB",
-          "lookup_key": "xc:a100:40:sxm:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:a100:40:sxm:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.945,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD32Q42F8F9fI3sm7FaAkY",
-          "lookup_key": "xc:a100:40:sxm:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:a100:40:sxm:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.7425,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -486,43 +486,43 @@
         },
         {
           "price_id": "price_1TyD3BQ42F8F9fI34GN5Aa75",
-          "lookup_key": "xc:a100:40:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:a100:40:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 1.15,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD3CQ42F8F9fI3RZncFnvj",
-          "lookup_key": "xc:a100:40:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:a100:40:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.46,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD3CQ42F8F9fI3rQAvCTNQ",
-          "lookup_key": "xc:a100:40:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:a100:40:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.92,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD3DQ42F8F9fI3xrEZkeZa",
-          "lookup_key": "xc:a100:40:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:a100:40:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.805,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD3DQ42F8F9fI3n5bkmHJ9",
-          "lookup_key": "xc:a100:40:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:a100:40:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.6325,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -616,43 +616,43 @@
         },
         {
           "price_id": "price_1TyD3MQ42F8F9fI3qBakr1nk",
-          "lookup_key": "xc:a100:80:sxm:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:a100:80:sxm:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 1.85,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD3NQ42F8F9fI3nJTWI13i",
-          "lookup_key": "xc:a100:80:sxm:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:a100:80:sxm:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.74,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD3NQ42F8F9fI3ZKPnqwLj",
-          "lookup_key": "xc:a100:80:sxm:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:a100:80:sxm:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 1.48,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD3OQ42F8F9fI35rx0pz8o",
-          "lookup_key": "xc:a100:80:sxm:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:a100:80:sxm:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 1.295,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD3OQ42F8F9fI3x4MpOsUH",
-          "lookup_key": "xc:a100:80:sxm:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:a100:80:sxm:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 1.0175,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -746,43 +746,43 @@
         },
         {
           "price_id": "price_1TyD3XQ42F8F9fI3NdkKfNln",
-          "lookup_key": "xc:a100:80:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:a100:80:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 1.55,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD3YQ42F8F9fI307X8IVcs",
-          "lookup_key": "xc:a100:80:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:a100:80:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.62,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD3ZQ42F8F9fI3OYWYrqbR",
-          "lookup_key": "xc:a100:80:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:a100:80:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 1.24,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD3ZQ42F8F9fI3qDKYEiKA",
-          "lookup_key": "xc:a100:80:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:a100:80:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 1.085,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD3aQ42F8F9fI3b5GUNJxq",
-          "lookup_key": "xc:a100:80:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:a100:80:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.8525,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -876,43 +876,43 @@
         },
         {
           "price_id": "price_1TyD3iQ42F8F9fI3xT8drc2Y",
-          "lookup_key": "xc:a16:16:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:a16:16:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.6,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD3jQ42F8F9fI3aUOS7jxt",
-          "lookup_key": "xc:a16:16:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:a16:16:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.24,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD3kQ42F8F9fI3czJBvGHl",
-          "lookup_key": "xc:a16:16:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:a16:16:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.48,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD3kQ42F8F9fI3bNC4ilTw",
-          "lookup_key": "xc:a16:16:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:a16:16:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.42,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD3lQ42F8F9fI3QD2ax7Xa",
-          "lookup_key": "xc:a16:16:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:a16:16:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.33,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -1006,43 +1006,43 @@
         },
         {
           "price_id": "price_1TyD3tQ42F8F9fI3xrRqYx87",
-          "lookup_key": "xc:a30:24:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:a30:24:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.75,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD3uQ42F8F9fI3jAZ9Rcky",
-          "lookup_key": "xc:a30:24:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:a30:24:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.3,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD3vQ42F8F9fI3h1Th1j7V",
-          "lookup_key": "xc:a30:24:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:a30:24:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.6,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD3vQ42F8F9fI32hYLJWaz",
-          "lookup_key": "xc:a30:24:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:a30:24:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.525,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD3wQ42F8F9fI3Ii9d1k2y",
-          "lookup_key": "xc:a30:24:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:a30:24:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.4125,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -1136,43 +1136,43 @@
         },
         {
           "price_id": "price_1TyD44Q42F8F9fI3cwB3k1jl",
-          "lookup_key": "xc:a40:48:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:a40:48:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 1.1,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD45Q42F8F9fI3sm5n52ee",
-          "lookup_key": "xc:a40:48:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:a40:48:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.44,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD46Q42F8F9fI3N2wWaBct",
-          "lookup_key": "xc:a40:48:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:a40:48:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.88,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD46Q42F8F9fI3u2Eeje6G",
-          "lookup_key": "xc:a40:48:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:a40:48:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.77,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD47Q42F8F9fI3fHpFnBLy",
-          "lookup_key": "xc:a40:48:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:a40:48:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.605,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -1266,43 +1266,43 @@
         },
         {
           "price_id": "price_1TyD4CQ42F8F9fI3eZ1lZy74",
-          "lookup_key": "xc:b200:192:oam:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:b200:192:oam:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 9.5,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD4DQ42F8F9fI3AgPmwFLq",
-          "lookup_key": "xc:b200:192:oam:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:b200:192:oam:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 3.8,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD4DQ42F8F9fI3of6nUHY8",
-          "lookup_key": "xc:b200:192:oam:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:b200:192:oam:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 7.6,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD4DQ42F8F9fI3GBj9GXrL",
-          "lookup_key": "xc:b200:192:oam:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:b200:192:oam:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 6.65,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD4EQ42F8F9fI3ZqmrqCxY",
-          "lookup_key": "xc:b200:192:oam:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:b200:192:oam:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 5.225,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -1396,43 +1396,43 @@
         },
         {
           "price_id": "price_1TyD4MQ42F8F9fI3umyJnxv0",
-          "lookup_key": "xc:h100:80:sxm:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:h100:80:sxm:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 3.1,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD4NQ42F8F9fI3WGn3JjS1",
-          "lookup_key": "xc:h100:80:sxm:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:h100:80:sxm:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 1.24,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD4OQ42F8F9fI3w3X9usFg",
-          "lookup_key": "xc:h100:80:sxm:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:h100:80:sxm:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 2.48,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD4OQ42F8F9fI3AAbWdxU5",
-          "lookup_key": "xc:h100:80:sxm:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:h100:80:sxm:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 2.17,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD4PQ42F8F9fI3gi0lgGQf",
-          "lookup_key": "xc:h100:80:sxm:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:h100:80:sxm:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 1.705,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -1526,43 +1526,43 @@
         },
         {
           "price_id": "price_1TyD4XQ42F8F9fI3wmCNhfV7",
-          "lookup_key": "xc:h100:80:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:h100:80:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 2.6,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD4YQ42F8F9fI3QrskwLVq",
-          "lookup_key": "xc:h100:80:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:h100:80:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 1.04,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD4ZQ42F8F9fI3WLcEJ6Is",
-          "lookup_key": "xc:h100:80:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:h100:80:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 2.08,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD4ZQ42F8F9fI32mxeSSnm",
-          "lookup_key": "xc:h100:80:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:h100:80:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 1.82,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD4aQ42F8F9fI3gScHnnmU",
-          "lookup_key": "xc:h100:80:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:h100:80:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 1.43,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -1656,43 +1656,43 @@
         },
         {
           "price_id": "price_1TyD4iQ42F8F9fI32M8SIUvS",
-          "lookup_key": "xc:h100-nvl:94:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:h100-nvl:94:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 2.9,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD4jQ42F8F9fI3BrfuqxaF",
-          "lookup_key": "xc:h100-nvl:94:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:h100-nvl:94:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 1.16,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD4kQ42F8F9fI3FxlWec2Q",
-          "lookup_key": "xc:h100-nvl:94:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:h100-nvl:94:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 2.32,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD4kQ42F8F9fI3EA94UVeC",
-          "lookup_key": "xc:h100-nvl:94:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:h100-nvl:94:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 2.03,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD4lQ42F8F9fI3Q2kAE2qT",
-          "lookup_key": "xc:h100-nvl:94:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:h100-nvl:94:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 1.595,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -1786,43 +1786,43 @@
         },
         {
           "price_id": "price_1TyD4tQ42F8F9fI3ufp3Bv20",
-          "lookup_key": "xc:h200:141:sxm:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:h200:141:sxm:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 4.2,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD4uQ42F8F9fI3W00KHFOw",
-          "lookup_key": "xc:h200:141:sxm:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:h200:141:sxm:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 1.68,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD4vQ42F8F9fI324UKhgTp",
-          "lookup_key": "xc:h200:141:sxm:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:h200:141:sxm:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 3.36,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD4vQ42F8F9fI3ZH16M7aU",
-          "lookup_key": "xc:h200:141:sxm:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:h200:141:sxm:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 2.94,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD4wQ42F8F9fI3yg8oSFGZ",
-          "lookup_key": "xc:h200:141:sxm:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:h200:141:sxm:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 2.31,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -1916,43 +1916,43 @@
         },
         {
           "price_id": "price_1TyD54Q42F8F9fI311UGz3Ml",
-          "lookup_key": "xc:l4:24:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:l4:24:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.6,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD55Q42F8F9fI30cKwTGFf",
-          "lookup_key": "xc:l4:24:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:l4:24:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.24,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD55Q42F8F9fI37q9ZRZTf",
-          "lookup_key": "xc:l4:24:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:l4:24:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.48,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD56Q42F8F9fI33yrDi1ui",
-          "lookup_key": "xc:l4:24:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:l4:24:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.42,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD56Q42F8F9fI3kF6yOy7k",
-          "lookup_key": "xc:l4:24:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:l4:24:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.33,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -2046,43 +2046,43 @@
         },
         {
           "price_id": "price_1TyD5FQ42F8F9fI3lvCpO8Pv",
-          "lookup_key": "xc:l40:48:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:l40:48:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 1.45,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD5GQ42F8F9fI3ZetjYNNM",
-          "lookup_key": "xc:l40:48:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:l40:48:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.58,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD5GQ42F8F9fI3d1aCeqCQ",
-          "lookup_key": "xc:l40:48:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:l40:48:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 1.16,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD5HQ42F8F9fI3jYPcKUyj",
-          "lookup_key": "xc:l40:48:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:l40:48:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 1.015,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD5IQ42F8F9fI3VsSKwstk",
-          "lookup_key": "xc:l40:48:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:l40:48:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.7975,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -2176,43 +2176,43 @@
         },
         {
           "price_id": "price_1TyD5QQ42F8F9fI3KPgI2wTY",
-          "lookup_key": "xc:l40s:48:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:l40s:48:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 1.55,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD5RQ42F8F9fI3ZJ2P2os7",
-          "lookup_key": "xc:l40s:48:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:l40s:48:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.62,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD5RQ42F8F9fI3Wwhy8seN",
-          "lookup_key": "xc:l40s:48:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:l40s:48:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 1.24,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD5SQ42F8F9fI3CAcQaRXb",
-          "lookup_key": "xc:l40s:48:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:l40s:48:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 1.085,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD5TQ42F8F9fI3TPhRu9tt",
-          "lookup_key": "xc:l40s:48:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:l40s:48:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.8525,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -2306,43 +2306,43 @@
         },
         {
           "price_id": "price_1TyD5bQ42F8F9fI3i62oRNJl",
-          "lookup_key": "xc:mi210:64:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:mi210:64:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 1.3,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD5bQ42F8F9fI37m7JgJ7N",
-          "lookup_key": "xc:mi210:64:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:mi210:64:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.52,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD5cQ42F8F9fI3dolnxoqB",
-          "lookup_key": "xc:mi210:64:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:mi210:64:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 1.04,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD5cQ42F8F9fI30m2T2Asb",
-          "lookup_key": "xc:mi210:64:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:mi210:64:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.91,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD5dQ42F8F9fI3d9LU7ILF",
-          "lookup_key": "xc:mi210:64:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:mi210:64:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.715,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -2436,43 +2436,43 @@
         },
         {
           "price_id": "price_1TyD5mQ42F8F9fI3cWEIjT9E",
-          "lookup_key": "xc:mi250x:128:oam:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:mi250x:128:oam:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 2.6,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD5nQ42F8F9fI31gffJ7dj",
-          "lookup_key": "xc:mi250x:128:oam:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:mi250x:128:oam:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 1.04,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD5oQ42F8F9fI32ZCtOwuR",
-          "lookup_key": "xc:mi250x:128:oam:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:mi250x:128:oam:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 2.08,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD5oQ42F8F9fI34l1PUfUN",
-          "lookup_key": "xc:mi250x:128:oam:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:mi250x:128:oam:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 1.82,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD5pQ42F8F9fI3qgyyFMKP",
-          "lookup_key": "xc:mi250x:128:oam:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:mi250x:128:oam:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 1.43,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -2566,43 +2566,43 @@
         },
         {
           "price_id": "price_1TyD5xQ42F8F9fI3UxS0VEOx",
-          "lookup_key": "xc:mi300x:192:oam:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:mi300x:192:oam:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 4.2,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD5yQ42F8F9fI39Hv2dp43",
-          "lookup_key": "xc:mi300x:192:oam:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:mi300x:192:oam:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 1.68,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD5zQ42F8F9fI3B09zepOX",
-          "lookup_key": "xc:mi300x:192:oam:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:mi300x:192:oam:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 3.36,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD5zQ42F8F9fI39fRH4h94",
-          "lookup_key": "xc:mi300x:192:oam:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:mi300x:192:oam:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 2.94,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD60Q42F8F9fI3qQgLoHLj",
-          "lookup_key": "xc:mi300x:192:oam:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:mi300x:192:oam:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 2.31,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -2696,43 +2696,43 @@
         },
         {
           "price_id": "price_1TyD68Q42F8F9fI3FAMlZlDG",
-          "lookup_key": "xc:rtx-2060:6:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2060:6:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.08,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD69Q42F8F9fI3SbS3Emc5",
-          "lookup_key": "xc:rtx-2060:6:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2060:6:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.032,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD6AQ42F8F9fI3VzKbAQmf",
-          "lookup_key": "xc:rtx-2060:6:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2060:6:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.064,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD6AQ42F8F9fI3r3ysrauf",
-          "lookup_key": "xc:rtx-2060:6:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2060:6:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.056,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD6BQ42F8F9fI3lOfWCIiW",
-          "lookup_key": "xc:rtx-2060:6:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2060:6:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.044,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -2826,43 +2826,43 @@
         },
         {
           "price_id": "price_1TyD6KQ42F8F9fI3mzbO3y90",
-          "lookup_key": "xc:rtx-2060-super:8:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2060-super:8:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.1,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD6KQ42F8F9fI3ETAR8MwZ",
-          "lookup_key": "xc:rtx-2060-super:8:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2060-super:8:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.04,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD6LQ42F8F9fI3LaFhqkER",
-          "lookup_key": "xc:rtx-2060-super:8:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2060-super:8:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.08,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD6MQ42F8F9fI3iJaaERvV",
-          "lookup_key": "xc:rtx-2060-super:8:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2060-super:8:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.07,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD6MQ42F8F9fI33a27WDft",
-          "lookup_key": "xc:rtx-2060-super:8:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2060-super:8:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.055,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -2956,43 +2956,43 @@
         },
         {
           "price_id": "price_1TyD6VQ42F8F9fI3LJHF3QN1",
-          "lookup_key": "xc:rtx-2070:8:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2070:8:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.11,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD6WQ42F8F9fI3UrNimjOU",
-          "lookup_key": "xc:rtx-2070:8:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2070:8:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.044,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD6XQ42F8F9fI388ttlSxS",
-          "lookup_key": "xc:rtx-2070:8:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2070:8:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.088,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD6XQ42F8F9fI355QSPRPG",
-          "lookup_key": "xc:rtx-2070:8:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2070:8:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.077,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD6YQ42F8F9fI3RUi0x5hw",
-          "lookup_key": "xc:rtx-2070:8:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2070:8:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.0605,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -3086,43 +3086,43 @@
         },
         {
           "price_id": "price_1TyD6gQ42F8F9fI3rOM3t2RG",
-          "lookup_key": "xc:rtx-2070-super:8:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2070-super:8:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.12,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD6hQ42F8F9fI3NOhPIvzS",
-          "lookup_key": "xc:rtx-2070-super:8:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2070-super:8:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.048,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD6iQ42F8F9fI3UJrU0wkF",
-          "lookup_key": "xc:rtx-2070-super:8:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2070-super:8:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.096,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD6iQ42F8F9fI3ROaWKRP7",
-          "lookup_key": "xc:rtx-2070-super:8:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2070-super:8:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.084,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD6jQ42F8F9fI3lM3S4g8h",
-          "lookup_key": "xc:rtx-2070-super:8:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2070-super:8:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.066,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -3216,43 +3216,43 @@
         },
         {
           "price_id": "price_1TyD6tQ42F8F9fI3nfaspNhU",
-          "lookup_key": "xc:rtx-2080:8:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2080:8:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.14,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD6uQ42F8F9fI3GyuRbdXp",
-          "lookup_key": "xc:rtx-2080:8:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2080:8:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.056,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD6uQ42F8F9fI3sewIc0S0",
-          "lookup_key": "xc:rtx-2080:8:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2080:8:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.112,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD6vQ42F8F9fI3XQ4hsQFj",
-          "lookup_key": "xc:rtx-2080:8:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2080:8:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.098,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD6vQ42F8F9fI349TX8uJT",
-          "lookup_key": "xc:rtx-2080:8:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2080:8:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.077,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -3346,43 +3346,43 @@
         },
         {
           "price_id": "price_1TyD74Q42F8F9fI3Mctlk8bG",
-          "lookup_key": "xc:rtx-2080-super:8:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2080-super:8:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.15,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD74Q42F8F9fI3xodMqzua",
-          "lookup_key": "xc:rtx-2080-super:8:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2080-super:8:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.06,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD75Q42F8F9fI3XUV7nhra",
-          "lookup_key": "xc:rtx-2080-super:8:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2080-super:8:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.12,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD75Q42F8F9fI3hR0VLBXT",
-          "lookup_key": "xc:rtx-2080-super:8:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2080-super:8:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.105,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD76Q42F8F9fI3htMkBjsT",
-          "lookup_key": "xc:rtx-2080-super:8:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2080-super:8:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.0825,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -3476,43 +3476,43 @@
         },
         {
           "price_id": "price_1TyD7FQ42F8F9fI3y4oz0l0f",
-          "lookup_key": "xc:rtx-2080-ti:11:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2080-ti:11:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.18,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD7FQ42F8F9fI3WT1YSrsN",
-          "lookup_key": "xc:rtx-2080-ti:11:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2080-ti:11:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.072,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD7GQ42F8F9fI3R12am211",
-          "lookup_key": "xc:rtx-2080-ti:11:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2080-ti:11:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.144,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD7GQ42F8F9fI3yLmvFsAf",
-          "lookup_key": "xc:rtx-2080-ti:11:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2080-ti:11:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.126,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD7HQ42F8F9fI33dUpz4ax",
-          "lookup_key": "xc:rtx-2080-ti:11:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-2080-ti:11:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.099,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -3606,43 +3606,43 @@
         },
         {
           "price_id": "price_1TyD7PQ42F8F9fI3xNADnXZu",
-          "lookup_key": "xc:rtx-3060:12:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3060:12:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.12,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD7QQ42F8F9fI3r87VOMJR",
-          "lookup_key": "xc:rtx-3060:12:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3060:12:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.048,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD7RQ42F8F9fI3ltN0h9A3",
-          "lookup_key": "xc:rtx-3060:12:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3060:12:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.096,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD7RQ42F8F9fI3lh45gYj7",
-          "lookup_key": "xc:rtx-3060:12:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3060:12:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.084,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD7SQ42F8F9fI3DsP4b0G0",
-          "lookup_key": "xc:rtx-3060:12:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3060:12:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.066,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -3736,43 +3736,43 @@
         },
         {
           "price_id": "price_1TyD7bQ42F8F9fI30Yo635ze",
-          "lookup_key": "xc:rtx-3060-ti:8:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3060-ti:8:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.14,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD7bQ42F8F9fI3Hqo20XPh",
-          "lookup_key": "xc:rtx-3060-ti:8:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3060-ti:8:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.056,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD7cQ42F8F9fI3EPvy0FrB",
-          "lookup_key": "xc:rtx-3060-ti:8:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3060-ti:8:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.112,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD7cQ42F8F9fI3QzD989xL",
-          "lookup_key": "xc:rtx-3060-ti:8:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3060-ti:8:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.098,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD7dQ42F8F9fI3vBpkgcpO",
-          "lookup_key": "xc:rtx-3060-ti:8:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3060-ti:8:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.077,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -3866,43 +3866,43 @@
         },
         {
           "price_id": "price_1TyD7mQ42F8F9fI3YOaBgCW4",
-          "lookup_key": "xc:rtx-3070:8:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3070:8:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.15,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD7mQ42F8F9fI3RjBhCX2g",
-          "lookup_key": "xc:rtx-3070:8:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3070:8:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.06,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD7nQ42F8F9fI3RuknPBLN",
-          "lookup_key": "xc:rtx-3070:8:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3070:8:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.12,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD7oQ42F8F9fI3D1ua8CWw",
-          "lookup_key": "xc:rtx-3070:8:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3070:8:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.105,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD7oQ42F8F9fI3RRz1GLmV",
-          "lookup_key": "xc:rtx-3070:8:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3070:8:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.0825,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -3996,43 +3996,43 @@
         },
         {
           "price_id": "price_1TyD7xQ42F8F9fI3JnZsZRzy",
-          "lookup_key": "xc:rtx-3070-ti:8:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3070-ti:8:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.17,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD7xQ42F8F9fI3NnpMdRKa",
-          "lookup_key": "xc:rtx-3070-ti:8:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3070-ti:8:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.068,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD7yQ42F8F9fI3uqxqLr0s",
-          "lookup_key": "xc:rtx-3070-ti:8:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3070-ti:8:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.136,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD7zQ42F8F9fI3m69AoovY",
-          "lookup_key": "xc:rtx-3070-ti:8:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3070-ti:8:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.119,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD7zQ42F8F9fI3OBbT8knv",
-          "lookup_key": "xc:rtx-3070-ti:8:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3070-ti:8:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.0935,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -4126,43 +4126,43 @@
         },
         {
           "price_id": "price_1TyD87Q42F8F9fI3S6g6vQnU",
-          "lookup_key": "xc:rtx-3080:10:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3080:10:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.18,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD88Q42F8F9fI3ww0cV5sY",
-          "lookup_key": "xc:rtx-3080:10:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3080:10:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.072,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD89Q42F8F9fI3Iq9Hrot8",
-          "lookup_key": "xc:rtx-3080:10:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3080:10:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.144,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD89Q42F8F9fI3hyS4sg0X",
-          "lookup_key": "xc:rtx-3080:10:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3080:10:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.126,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD8AQ42F8F9fI3ctDGNrYB",
-          "lookup_key": "xc:rtx-3080:10:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3080:10:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.099,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -4256,43 +4256,43 @@
         },
         {
           "price_id": "price_1TyD8IQ42F8F9fI3ExsGFjZb",
-          "lookup_key": "xc:rtx-3080:12:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3080:12:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.2,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD8JQ42F8F9fI3cnw21TF0",
-          "lookup_key": "xc:rtx-3080:12:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3080:12:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.08,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD8KQ42F8F9fI3O8JMYE83",
-          "lookup_key": "xc:rtx-3080:12:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3080:12:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.16,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD8KQ42F8F9fI36aXBUoEx",
-          "lookup_key": "xc:rtx-3080:12:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3080:12:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.14,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD8LQ42F8F9fI3RhdzTVbU",
-          "lookup_key": "xc:rtx-3080:12:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3080:12:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.11,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -4386,43 +4386,43 @@
         },
         {
           "price_id": "price_1TyD8TQ42F8F9fI3IdGAVNwc",
-          "lookup_key": "xc:rtx-3080-ti:12:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3080-ti:12:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.24,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD8UQ42F8F9fI3FbszY588",
-          "lookup_key": "xc:rtx-3080-ti:12:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3080-ti:12:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.096,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD8VQ42F8F9fI3XZJPlp0P",
-          "lookup_key": "xc:rtx-3080-ti:12:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3080-ti:12:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.192,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD8VQ42F8F9fI3L7pmC6fk",
-          "lookup_key": "xc:rtx-3080-ti:12:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3080-ti:12:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.168,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD8WQ42F8F9fI39L3uofxB",
-          "lookup_key": "xc:rtx-3080-ti:12:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3080-ti:12:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.132,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -4516,43 +4516,43 @@
         },
         {
           "price_id": "price_1TyD8eQ42F8F9fI3IRMmZpyQ",
-          "lookup_key": "xc:rtx-3090:24:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3090:24:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.28,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD8fQ42F8F9fI3ibEAGA3H",
-          "lookup_key": "xc:rtx-3090:24:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3090:24:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.112,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD8gQ42F8F9fI34Tr0ZbRw",
-          "lookup_key": "xc:rtx-3090:24:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3090:24:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.224,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD8gQ42F8F9fI3BpV8eKmQ",
-          "lookup_key": "xc:rtx-3090:24:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3090:24:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.196,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD8hQ42F8F9fI3rn1Qlbef",
-          "lookup_key": "xc:rtx-3090:24:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3090:24:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.154,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -4646,43 +4646,43 @@
         },
         {
           "price_id": "price_1TyD8pQ42F8F9fI3Qj52DPB1",
-          "lookup_key": "xc:rtx-3090-ti:24:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3090-ti:24:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.32,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD8qQ42F8F9fI3N0XVMeyo",
-          "lookup_key": "xc:rtx-3090-ti:24:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3090-ti:24:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.128,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD8rQ42F8F9fI3lx0NQh1R",
-          "lookup_key": "xc:rtx-3090-ti:24:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3090-ti:24:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.256,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD8rQ42F8F9fI3lFKVjLgV",
-          "lookup_key": "xc:rtx-3090-ti:24:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3090-ti:24:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.224,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD8sQ42F8F9fI3yqmcYZdv",
-          "lookup_key": "xc:rtx-3090-ti:24:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-3090-ti:24:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.176,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -4776,43 +4776,43 @@
         },
         {
           "price_id": "price_1TyD91Q42F8F9fI37rDEo7P1",
-          "lookup_key": "xc:rtx-4000-ada:20:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4000-ada:20:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.8,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD91Q42F8F9fI3Ref6XopU",
-          "lookup_key": "xc:rtx-4000-ada:20:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4000-ada:20:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.32,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD92Q42F8F9fI3pY7H0zf6",
-          "lookup_key": "xc:rtx-4000-ada:20:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4000-ada:20:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.64,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD92Q42F8F9fI3iKwCxS8P",
-          "lookup_key": "xc:rtx-4000-ada:20:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4000-ada:20:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.56,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD93Q42F8F9fI3Dm7kCukc",
-          "lookup_key": "xc:rtx-4000-ada:20:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4000-ada:20:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.44,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -4906,43 +4906,43 @@
         },
         {
           "price_id": "price_1TyD9CQ42F8F9fI3qUiAg0Uc",
-          "lookup_key": "xc:rtx-4060:8:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4060:8:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.14,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD9CQ42F8F9fI364w3VPTt",
-          "lookup_key": "xc:rtx-4060:8:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4060:8:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.056,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD9DQ42F8F9fI3FQyMHuT5",
-          "lookup_key": "xc:rtx-4060:8:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4060:8:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.112,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD9DQ42F8F9fI3G5AWu61J",
-          "lookup_key": "xc:rtx-4060:8:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4060:8:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.098,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD9EQ42F8F9fI3Gvdd6aIT",
-          "lookup_key": "xc:rtx-4060:8:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4060:8:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.077,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -5036,43 +5036,43 @@
         },
         {
           "price_id": "price_1TyD9NQ42F8F9fI3XA9ToWlX",
-          "lookup_key": "xc:rtx-4060-ti:8:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4060-ti:8:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.17,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD9NQ42F8F9fI38UnXN3Mq",
-          "lookup_key": "xc:rtx-4060-ti:8:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4060-ti:8:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.068,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD9OQ42F8F9fI3iEoGxP4v",
-          "lookup_key": "xc:rtx-4060-ti:8:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4060-ti:8:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.136,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD9OQ42F8F9fI3u76OC1MB",
-          "lookup_key": "xc:rtx-4060-ti:8:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4060-ti:8:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.119,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD9PQ42F8F9fI3pZ4YbpmM",
-          "lookup_key": "xc:rtx-4060-ti:8:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4060-ti:8:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.0935,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -5166,43 +5166,43 @@
         },
         {
           "price_id": "price_1TyD9XQ42F8F9fI3xAYERLhn",
-          "lookup_key": "xc:rtx-4060-ti:16:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4060-ti:16:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.2,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD9YQ42F8F9fI38drPdrvE",
-          "lookup_key": "xc:rtx-4060-ti:16:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4060-ti:16:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.08,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD9ZQ42F8F9fI3NPwIJwsB",
-          "lookup_key": "xc:rtx-4060-ti:16:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4060-ti:16:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.16,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD9ZQ42F8F9fI32DP9Mx5r",
-          "lookup_key": "xc:rtx-4060-ti:16:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4060-ti:16:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.14,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD9aQ42F8F9fI3K4bEhxV1",
-          "lookup_key": "xc:rtx-4060-ti:16:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4060-ti:16:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.11,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -5296,43 +5296,43 @@
         },
         {
           "price_id": "price_1TyD9jQ42F8F9fI3UhA7NKng",
-          "lookup_key": "xc:rtx-4070:12:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4070:12:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.24,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD9jQ42F8F9fI3XnfaGT80",
-          "lookup_key": "xc:rtx-4070:12:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4070:12:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.096,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD9kQ42F8F9fI3lCwSYdsp",
-          "lookup_key": "xc:rtx-4070:12:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4070:12:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.192,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD9lQ42F8F9fI3oyafcAPe",
-          "lookup_key": "xc:rtx-4070:12:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4070:12:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.168,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD9lQ42F8F9fI3LO1lLGcy",
-          "lookup_key": "xc:rtx-4070:12:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4070:12:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.132,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -5426,43 +5426,43 @@
         },
         {
           "price_id": "price_1TyD9uQ42F8F9fI312AlPoLG",
-          "lookup_key": "xc:rtx-4070-super:12:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4070-super:12:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.26,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyD9uQ42F8F9fI3B8RNu5hd",
-          "lookup_key": "xc:rtx-4070-super:12:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4070-super:12:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.104,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyD9vQ42F8F9fI3l2te8Jpm",
-          "lookup_key": "xc:rtx-4070-super:12:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4070-super:12:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.208,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyD9vQ42F8F9fI3D4AWzeFw",
-          "lookup_key": "xc:rtx-4070-super:12:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4070-super:12:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.182,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyD9wQ42F8F9fI3mG5xx39U",
-          "lookup_key": "xc:rtx-4070-super:12:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4070-super:12:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.143,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -5556,43 +5556,43 @@
         },
         {
           "price_id": "price_1TyDA4Q42F8F9fI3LA4vhPkF",
-          "lookup_key": "xc:rtx-4070-ti:12:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4070-ti:12:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.28,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyDA5Q42F8F9fI3mC97RgkT",
-          "lookup_key": "xc:rtx-4070-ti:12:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4070-ti:12:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.112,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyDA6Q42F8F9fI3nX8J2a3e",
-          "lookup_key": "xc:rtx-4070-ti:12:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4070-ti:12:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.224,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyDA6Q42F8F9fI31YS6IkFb",
-          "lookup_key": "xc:rtx-4070-ti:12:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4070-ti:12:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.196,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyDA7Q42F8F9fI3pPG8l9gD",
-          "lookup_key": "xc:rtx-4070-ti:12:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4070-ti:12:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.154,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -5686,43 +5686,43 @@
         },
         {
           "price_id": "price_1TyDAFQ42F8F9fI35zZKLjrb",
-          "lookup_key": "xc:rtx-4070-ti-super:16:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4070-ti-super:16:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.32,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyDAGQ42F8F9fI3WyuLNEbA",
-          "lookup_key": "xc:rtx-4070-ti-super:16:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4070-ti-super:16:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.128,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyDAHQ42F8F9fI3mglxjyTh",
-          "lookup_key": "xc:rtx-4070-ti-super:16:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4070-ti-super:16:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.256,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyDAHQ42F8F9fI3imf6NI35",
-          "lookup_key": "xc:rtx-4070-ti-super:16:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4070-ti-super:16:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.224,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyDAJQ42F8F9fI3q1069Esn",
-          "lookup_key": "xc:rtx-4070-ti-super:16:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4070-ti-super:16:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.176,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -5816,43 +5816,43 @@
         },
         {
           "price_id": "price_1TyDASQ42F8F9fI3lFBRxNv4",
-          "lookup_key": "xc:rtx-4080:16:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4080:16:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.38,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyDATQ42F8F9fI3ghlxyCRa",
-          "lookup_key": "xc:rtx-4080:16:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4080:16:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.152,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyDATQ42F8F9fI3aBK4hBNy",
-          "lookup_key": "xc:rtx-4080:16:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4080:16:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.304,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyDAUQ42F8F9fI3DyRbz5xx",
-          "lookup_key": "xc:rtx-4080:16:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4080:16:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.266,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyDAUQ42F8F9fI3dGnFpMoC",
-          "lookup_key": "xc:rtx-4080:16:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4080:16:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.209,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -5946,43 +5946,43 @@
         },
         {
           "price_id": "price_1TyDAdQ42F8F9fI30scSjX9g",
-          "lookup_key": "xc:rtx-4080-super:16:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4080-super:16:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.4,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyDAeQ42F8F9fI3RJbiEzbO",
-          "lookup_key": "xc:rtx-4080-super:16:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4080-super:16:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.16,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyDAeQ42F8F9fI3ZLegVafr",
-          "lookup_key": "xc:rtx-4080-super:16:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4080-super:16:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.32,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyDAfQ42F8F9fI3NllBkcHm",
-          "lookup_key": "xc:rtx-4080-super:16:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4080-super:16:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.28,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyDAfQ42F8F9fI3DQlRgpLI",
-          "lookup_key": "xc:rtx-4080-super:16:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4080-super:16:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.22,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -6076,43 +6076,43 @@
         },
         {
           "price_id": "price_1TyDAoQ42F8F9fI3ynljrElM",
-          "lookup_key": "xc:rtx-4090:24:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4090:24:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.49,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyDAoQ42F8F9fI33EwWATu0",
-          "lookup_key": "xc:rtx-4090:24:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4090:24:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.196,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyDApQ42F8F9fI3buvk9aV7",
-          "lookup_key": "xc:rtx-4090:24:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4090:24:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.392,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyDApQ42F8F9fI34ydgGpHs",
-          "lookup_key": "xc:rtx-4090:24:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4090:24:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.343,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyDAqQ42F8F9fI3K958lLqN",
-          "lookup_key": "xc:rtx-4090:24:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4090:24:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.2695,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -6206,43 +6206,43 @@
         },
         {
           "price_id": "price_1TyDAzQ42F8F9fI3w5i2Z9B7",
-          "lookup_key": "xc:rtx-4090:24:pcie:hf1:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4090:24:pcie:hf1:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.55,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyDB0Q42F8F9fI33DrjCJ1R",
-          "lookup_key": "xc:rtx-4090:24:pcie:hf1:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4090:24:pcie:hf1:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.22,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyDB0Q42F8F9fI3paYuYaxy",
-          "lookup_key": "xc:rtx-4090:24:pcie:hf1:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4090:24:pcie:hf1:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.44,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyDB1Q42F8F9fI3HAanHkPZ",
-          "lookup_key": "xc:rtx-4090:24:pcie:hf1:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4090:24:pcie:hf1:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.385,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyDB1Q42F8F9fI31APy2mG9",
-          "lookup_key": "xc:rtx-4090:24:pcie:hf1:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-4090:24:pcie:hf1:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.3025,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -6336,43 +6336,43 @@
         },
         {
           "price_id": "price_1TyDBAQ42F8F9fI3QBiTjUzj",
-          "lookup_key": "xc:rtx-5000-ada:32:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5000-ada:32:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 1.3,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyDBAQ42F8F9fI3o29zRNlO",
-          "lookup_key": "xc:rtx-5000-ada:32:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5000-ada:32:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.52,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyDBBQ42F8F9fI3K9DXoiHD",
-          "lookup_key": "xc:rtx-5000-ada:32:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5000-ada:32:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 1.04,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyDBCQ42F8F9fI33rGO1u2r",
-          "lookup_key": "xc:rtx-5000-ada:32:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5000-ada:32:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.91,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyDBCQ42F8F9fI3Vbs1wlvL",
-          "lookup_key": "xc:rtx-5000-ada:32:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5000-ada:32:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.715,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -6466,43 +6466,43 @@
         },
         {
           "price_id": "price_1TyDBLQ42F8F9fI3MWlfrZUs",
-          "lookup_key": "xc:rtx-5060:8:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5060:8:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.2,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyDBMQ42F8F9fI3Y23OYS9K",
-          "lookup_key": "xc:rtx-5060:8:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5060:8:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.08,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyDBNQ42F8F9fI3IIFY9ujP",
-          "lookup_key": "xc:rtx-5060:8:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5060:8:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.16,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyDBNQ42F8F9fI3famxfcy9",
-          "lookup_key": "xc:rtx-5060:8:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5060:8:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.14,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyDBOQ42F8F9fI3A6fxBpZn",
-          "lookup_key": "xc:rtx-5060:8:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5060:8:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.11,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -6596,43 +6596,43 @@
         },
         {
           "price_id": "price_1TyDBWQ42F8F9fI3Gm5ytd96",
-          "lookup_key": "xc:rtx-5060-ti:16:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5060-ti:16:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.28,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyDBXQ42F8F9fI3NOTEgj99",
-          "lookup_key": "xc:rtx-5060-ti:16:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5060-ti:16:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.112,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyDBYQ42F8F9fI30a9MQE2U",
-          "lookup_key": "xc:rtx-5060-ti:16:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5060-ti:16:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.224,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyDBYQ42F8F9fI3yzEX4d1S",
-          "lookup_key": "xc:rtx-5060-ti:16:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5060-ti:16:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.196,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyDBZQ42F8F9fI3NR1h79Kn",
-          "lookup_key": "xc:rtx-5060-ti:16:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5060-ti:16:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.154,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -6726,43 +6726,43 @@
         },
         {
           "price_id": "price_1TyDBhQ42F8F9fI3ocDRZRp6",
-          "lookup_key": "xc:rtx-5070:12:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5070:12:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.36,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyDBiQ42F8F9fI31M5SwJiS",
-          "lookup_key": "xc:rtx-5070:12:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5070:12:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.144,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyDBjQ42F8F9fI3bBpVO4Tv",
-          "lookup_key": "xc:rtx-5070:12:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5070:12:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.288,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyDBjQ42F8F9fI3e68Oa4ro",
-          "lookup_key": "xc:rtx-5070:12:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5070:12:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.252,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyDBkQ42F8F9fI3cpc6UurS",
-          "lookup_key": "xc:rtx-5070:12:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5070:12:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.198,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -6856,43 +6856,43 @@
         },
         {
           "price_id": "price_1TyDBsQ42F8F9fI3yjYlpPS6",
-          "lookup_key": "xc:rtx-5070-ti:16:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5070-ti:16:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.42,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyDBtQ42F8F9fI3TpQrvH5R",
-          "lookup_key": "xc:rtx-5070-ti:16:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5070-ti:16:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.168,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyDBuQ42F8F9fI3c0MPYX2O",
-          "lookup_key": "xc:rtx-5070-ti:16:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5070-ti:16:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.336,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyDBuQ42F8F9fI3dUa8eT1G",
-          "lookup_key": "xc:rtx-5070-ti:16:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5070-ti:16:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.294,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyDBvQ42F8F9fI3Tj3ybpNq",
-          "lookup_key": "xc:rtx-5070-ti:16:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5070-ti:16:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.231,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -6986,43 +6986,43 @@
         },
         {
           "price_id": "price_1TyDC3Q42F8F9fI3U1jyCIEJ",
-          "lookup_key": "xc:rtx-5080:16:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5080:16:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.52,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyDC4Q42F8F9fI3AvV1cTlV",
-          "lookup_key": "xc:rtx-5080:16:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5080:16:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.208,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyDC5Q42F8F9fI3rKpVxp1x",
-          "lookup_key": "xc:rtx-5080:16:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5080:16:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.416,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyDC5Q42F8F9fI3omhrJWhR",
-          "lookup_key": "xc:rtx-5080:16:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5080:16:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.364,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyDC6Q42F8F9fI3zlTejuYU",
-          "lookup_key": "xc:rtx-5080:16:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5080:16:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.286,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -7116,43 +7116,43 @@
         },
         {
           "price_id": "price_1TyDCFQ42F8F9fI3L3VEgKVF",
-          "lookup_key": "xc:rtx-5090:32:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5090:32:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.85,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyDCGQ42F8F9fI3kq6j0XZ9",
-          "lookup_key": "xc:rtx-5090:32:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5090:32:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.34,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyDCGQ42F8F9fI3DyTvUMzi",
-          "lookup_key": "xc:rtx-5090:32:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5090:32:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.68,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyDCHQ42F8F9fI34hEyJGfe",
-          "lookup_key": "xc:rtx-5090:32:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5090:32:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.595,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyDCIQ42F8F9fI3yeH823tl",
-          "lookup_key": "xc:rtx-5090:32:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-5090:32:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.4675,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -7246,43 +7246,43 @@
         },
         {
           "price_id": "price_1TyDCQQ42F8F9fI3AuRwtAWR",
-          "lookup_key": "xc:rtx-6000-ada:48:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-6000-ada:48:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 1.85,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyDCRQ42F8F9fI3LzVmVrd7",
-          "lookup_key": "xc:rtx-6000-ada:48:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-6000-ada:48:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.74,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyDCSQ42F8F9fI3cCDXcHQJ",
-          "lookup_key": "xc:rtx-6000-ada:48:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-6000-ada:48:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 1.48,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyDCSQ42F8F9fI3Ao82r6pz",
-          "lookup_key": "xc:rtx-6000-ada:48:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-6000-ada:48:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 1.295,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyDCTQ42F8F9fI32RqGPzuT",
-          "lookup_key": "xc:rtx-6000-ada:48:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-6000-ada:48:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 1.0175,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -7376,43 +7376,43 @@
         },
         {
           "price_id": "price_1TyDCcQ42F8F9fI3b1XytyyR",
-          "lookup_key": "xc:rtx-a4000:16:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-a4000:16:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.55,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyDCcQ42F8F9fI3wuFxGj0f",
-          "lookup_key": "xc:rtx-a4000:16:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-a4000:16:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.22,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyDCdQ42F8F9fI3I8z8IFTq",
-          "lookup_key": "xc:rtx-a4000:16:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-a4000:16:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.44,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyDCeQ42F8F9fI37wI0Qfam",
-          "lookup_key": "xc:rtx-a4000:16:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-a4000:16:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.385,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyDCeQ42F8F9fI3xCwpSoBK",
-          "lookup_key": "xc:rtx-a4000:16:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-a4000:16:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.3025,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -7506,43 +7506,43 @@
         },
         {
           "price_id": "price_1TyDCnQ42F8F9fI3MOr93yMk",
-          "lookup_key": "xc:rtx-a5000:24:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-a5000:24:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.9,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyDCoQ42F8F9fI3LfhR6Qgl",
-          "lookup_key": "xc:rtx-a5000:24:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-a5000:24:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.36,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyDCpQ42F8F9fI3zJZLxLYh",
-          "lookup_key": "xc:rtx-a5000:24:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-a5000:24:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.72,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyDCpQ42F8F9fI3StvWuPnB",
-          "lookup_key": "xc:rtx-a5000:24:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-a5000:24:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.63,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyDCqQ42F8F9fI3bxMUarh1",
-          "lookup_key": "xc:rtx-a5000:24:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-a5000:24:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.495,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -7636,43 +7636,43 @@
         },
         {
           "price_id": "price_1TyDCzQ42F8F9fI3cqEaYBFa",
-          "lookup_key": "xc:rtx-a6000:48:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-a6000:48:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 1.05,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyDCzQ42F8F9fI3UcrHVXjV",
-          "lookup_key": "xc:rtx-a6000:48:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-a6000:48:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.42,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyDD0Q42F8F9fI3SgSUfhJk",
-          "lookup_key": "xc:rtx-a6000:48:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-a6000:48:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.84,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyDD0Q42F8F9fI3XqbXz51T",
-          "lookup_key": "xc:rtx-a6000:48:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-a6000:48:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.735,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyDD2Q42F8F9fI3KJFDquAa",
-          "lookup_key": "xc:rtx-a6000:48:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rtx-a6000:48:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.5775,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -7766,43 +7766,43 @@
         },
         {
           "price_id": "price_1TyDDCQ42F8F9fI3vsiBNX8e",
-          "lookup_key": "xc:rx-7900-xt:20:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rx-7900-xt:20:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.22,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyDDDQ42F8F9fI346BKiLmW",
-          "lookup_key": "xc:rx-7900-xt:20:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rx-7900-xt:20:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.088,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyDDDQ42F8F9fI3F5yizrNW",
-          "lookup_key": "xc:rx-7900-xt:20:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rx-7900-xt:20:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.176,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyDDEQ42F8F9fI3cFZiecU0",
-          "lookup_key": "xc:rx-7900-xt:20:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rx-7900-xt:20:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.154,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyDDFQ42F8F9fI3AiHjMxHX",
-          "lookup_key": "xc:rx-7900-xt:20:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rx-7900-xt:20:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.121,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -7896,43 +7896,43 @@
         },
         {
           "price_id": "price_1TyDDOQ42F8F9fI3PhCRKTDQ",
-          "lookup_key": "xc:rx-7900-xtx:24:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:rx-7900-xtx:24:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.26,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyDDOQ42F8F9fI3NL5MCIi1",
-          "lookup_key": "xc:rx-7900-xtx:24:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:rx-7900-xtx:24:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.104,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyDDPQ42F8F9fI3OmdW8K2y",
-          "lookup_key": "xc:rx-7900-xtx:24:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rx-7900-xtx:24:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.208,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyDDQQ42F8F9fI382deVxk1",
-          "lookup_key": "xc:rx-7900-xtx:24:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:rx-7900-xtx:24:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.182,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyDDQQ42F8F9fI3oUreqq8L",
-          "lookup_key": "xc:rx-7900-xtx:24:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:rx-7900-xtx:24:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.143,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -8026,43 +8026,43 @@
         },
         {
           "price_id": "price_1TyDDaQ42F8F9fI35rL7qRtW",
-          "lookup_key": "xc:t4:16:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:t4:16:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.32,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyDDaQ42F8F9fI3TMbbDklH",
-          "lookup_key": "xc:t4:16:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:t4:16:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.128,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyDDbQ42F8F9fI3AR3BhnGD",
-          "lookup_key": "xc:t4:16:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:t4:16:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.256,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyDDbQ42F8F9fI3dyJs2UXJ",
-          "lookup_key": "xc:t4:16:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:t4:16:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.224,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyDDcQ42F8F9fI3SChG58dB",
-          "lookup_key": "xc:t4:16:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:t4:16:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.176,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -8156,43 +8156,43 @@
         },
         {
           "price_id": "price_1TyDDlQ42F8F9fI3b36fkTdl",
-          "lookup_key": "xc:v100:16:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:v100:16:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.7,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyDDmQ42F8F9fI3TeM1J7Pe",
-          "lookup_key": "xc:v100:16:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:v100:16:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.28,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyDDnQ42F8F9fI3iEt8tNcu",
-          "lookup_key": "xc:v100:16:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:v100:16:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.56,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyDDnQ42F8F9fI3U4eVZ8ns",
-          "lookup_key": "xc:v100:16:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:v100:16:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.49,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyDDoQ42F8F9fI3R9FW87Un",
-          "lookup_key": "xc:v100:16:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:v100:16:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.385,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     },
@@ -8286,43 +8286,43 @@
         },
         {
           "price_id": "price_1TyDDwQ42F8F9fI33TG4IukM",
-          "lookup_key": "xc:v100:32:pcie:hf0:sovereign:on-demand",
-          "tier": "sovereign",
+          "lookup_key": "xc:v100:32:pcie:hf0:dedicated:on-demand",
+          "tier": "dedicated",
           "mode": "on_demand",
           "rate_cad_per_hr": 0.9,
-          "nickname": "Sovereign \u00b7 On-Demand"
+          "nickname": "Dedicated \u00b7 On-Demand"
         },
         {
           "price_id": "price_1TyDDxQ42F8F9fI3r5QE15Dt",
-          "lookup_key": "xc:v100:32:pcie:hf0:sovereign:spot",
-          "tier": "sovereign",
+          "lookup_key": "xc:v100:32:pcie:hf0:dedicated:spot",
+          "tier": "dedicated",
           "mode": "spot",
           "rate_cad_per_hr": 0.36,
-          "nickname": "Sovereign \u00b7 Spot"
+          "nickname": "Dedicated \u00b7 Spot"
         },
         {
           "price_id": "price_1TyDDyQ42F8F9fI360X7XGXs",
-          "lookup_key": "xc:v100:32:pcie:hf0:sovereign:reserved-1mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:v100:32:pcie:hf0:dedicated:reserved-1mo",
+          "tier": "dedicated",
           "mode": "reserved_1mo",
           "rate_cad_per_hr": 0.72,
-          "nickname": "Sovereign \u00b7 Reserved 1 Month"
+          "nickname": "Dedicated \u00b7 Reserved 1 Month"
         },
         {
           "price_id": "price_1TyDDyQ42F8F9fI3dJsVJ9Gm",
-          "lookup_key": "xc:v100:32:pcie:hf0:sovereign:reserved-3mo",
-          "tier": "sovereign",
+          "lookup_key": "xc:v100:32:pcie:hf0:dedicated:reserved-3mo",
+          "tier": "dedicated",
           "mode": "reserved_3mo",
           "rate_cad_per_hr": 0.63,
-          "nickname": "Sovereign \u00b7 Reserved 3 Months"
+          "nickname": "Dedicated \u00b7 Reserved 3 Months"
         },
         {
           "price_id": "price_1TyDDzQ42F8F9fI3riwQ7H3e",
-          "lookup_key": "xc:v100:32:pcie:hf0:sovereign:reserved-1yr",
-          "tier": "sovereign",
+          "lookup_key": "xc:v100:32:pcie:hf0:dedicated:reserved-1yr",
+          "tier": "dedicated",
           "mode": "reserved_1yr",
           "rate_cad_per_hr": 0.495,
-          "nickname": "Sovereign \u00b7 Reserved 1 Year"
+          "nickname": "Dedicated \u00b7 Reserved 1 Year"
         }
       ]
     }

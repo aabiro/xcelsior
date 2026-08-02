@@ -127,7 +127,7 @@ class InferenceEngine:
                     max_batch_size, max_concurrent, min_workers, max_workers,
                     scaledown_window_sec, status,
                     docker_image, mode, health_endpoint, api_format, region,
-                    total_cost_cad,
+                    total_cost_micros,
                     created_at, updated_at)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active',
                            %s, %s, %s, %s, %s,
@@ -378,7 +378,8 @@ class InferenceEngine:
     def get_endpoint(self, endpoint_id: str) -> Optional[dict]:
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT * FROM inference_endpoints WHERE endpoint_id = %s",
+                "SELECT *, total_cost_micros::double precision / 1000000.0 AS total_cost_cad "
+                "FROM inference_endpoints WHERE endpoint_id = %s",
                 (endpoint_id,),
             ).fetchone()
             return dict(row) if row else None
@@ -386,7 +387,8 @@ class InferenceEngine:
     def list_endpoints(self, owner_id: str) -> list[dict]:
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT * FROM inference_endpoints WHERE owner_id = %s AND status != 'deleted' ORDER BY created_at DESC",
+                "SELECT *, total_cost_micros::double precision / 1000000.0 AS total_cost_cad "
+                "FROM inference_endpoints WHERE owner_id = %s AND status != 'deleted' ORDER BY created_at DESC",
                 (owner_id,),
             ).fetchall()
             return [dict(r) for r in rows]
@@ -408,7 +410,8 @@ class InferenceEngine:
         """
         with self._conn() as conn:
             ep = conn.execute(
-                "SELECT * FROM inference_endpoints WHERE endpoint_id = %s",
+                "SELECT *, total_cost_micros::double precision / 1000000.0 AS total_cost_cad "
+                "FROM inference_endpoints WHERE endpoint_id = %s",
                 (endpoint_id,),
             ).fetchone()
             if not ep:
@@ -476,7 +479,8 @@ class InferenceEngine:
         """Get usage statistics for an endpoint."""
         with self._conn() as conn:
             ep = conn.execute(
-                "SELECT * FROM inference_endpoints WHERE endpoint_id = %s",
+                "SELECT *, total_cost_micros::double precision / 1000000.0 AS total_cost_cad "
+                "FROM inference_endpoints WHERE endpoint_id = %s",
                 (endpoint_id,),
             ).fetchone()
             if not ep:

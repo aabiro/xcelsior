@@ -4,7 +4,6 @@ Covers:
 - Slurm API endpoints (submit, status, cancel, profiles)
 - Spot bid submission endpoint
 - SLA hosts-summary endpoint
-- Residency trace endpoint
 - Dashboard HTML structure (Slurm tab, responsive CSS, spot bid form, SLA display)
 """
 
@@ -277,7 +276,7 @@ class TestSpotInstance:
         assert r.status_code == 422
 
     def test_spot_instance_premium_tier_rejected(self):
-        """Spot cannot use premium/sovereign tiers."""
+        """Spot cannot use premium/dedicated tiers."""
         r = client.post(
             "/instance",
             json={
@@ -357,38 +356,8 @@ class TestSLAEnforce:
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Residency Trace Tests
 # ══════════════════════════════════════════════════════════════════════
 
-
-class TestResidencyTrace:
-    """Tests for GET /api/jurisdiction/residency-trace/{job_id}."""
-
-    def setup_method(self):
-        _seed_wallet()
-
-    def test_trace_nonexistent_job(self):
-        r = client.get("/api/jurisdiction/residency-trace/nonexistent-job")
-        assert r.status_code == 404
-
-    def test_trace_existing_job(self):
-        _register_host("trace-host")
-        jr = _submit_job("trace-test-job")
-        assert jr.status_code == 200
-        job_id = jr.json()["instance"]["job_id"]
-        # Assign & complete the job
-        client.post("/queue/process")
-        r = client.get(f"/api/jurisdiction/residency-trace/{job_id}")
-        assert r.status_code == 200
-        d = r.json()
-        assert d.get("ok") is True
-        assert "trace" in d
-        assert d["job_id"] == job_id
-
-
-# ══════════════════════════════════════════════════════════════════════
-# Dashboard HTML Structure Tests
-# ══════════════════════════════════════════════════════════════════════
 
 
 class TestDashboardHTML:
@@ -444,10 +413,6 @@ class TestDashboardHTML:
         assert "sla-credit-table" in self.html
         assert "sla-hosts-summary" in self.html
 
-    def test_residency_trace_ui(self):
-        assert 'id="residency-trace-jobid"' in self.html
-        assert 'id="residency-trace-result"' in self.html
-        assert "fetchResidencyTrace()" in self.html
 
     def test_responsive_media_queries(self):
         assert "@media (max-width: 1024px)" in self.html
@@ -471,8 +436,6 @@ class TestDashboardHTML:
     def test_sla_js_function(self):
         assert "fetchSLAHostsSummary" in self.html
 
-    def test_residency_trace_js_function(self):
-        assert "fetchResidencyTrace" in self.html
 
     def test_slurm_in_refresh(self):
         assert "fetchSlurmProfiles()" in self.html

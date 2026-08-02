@@ -2,7 +2,7 @@ import os
 import time
 import uuid
 import pytest
-from artifacts import get_artifact_manager, ArtifactType, ResidencyPolicy
+from artifacts import get_artifact_manager, ArtifactType, StoragePolicy
 from control_plane.db import control_plane_transaction
 
 # Ensure we run tests on postgres dev database cloned for tests
@@ -45,7 +45,7 @@ def test_artifact_upload_and_finalize_lifecycle(test_setup):
         job_id=job_id,
         filename="model.bin",
         content_type="application/octet-stream",
-        residency=ResidencyPolicy.CANADA_ONLY,
+        storage_policy=StoragePolicy.PRIMARY,
     )
 
     assert "url" in req

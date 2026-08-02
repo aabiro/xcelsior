@@ -161,7 +161,7 @@ export function ComputeTabEmpty() {
     <AnalyticsTabEmpty
       icon={Cpu}
       title="No compute activity yet"
-      description="GPU utilization, jurisdiction splits, and performance breakdowns appear once you run workloads."
+      description="GPU utilization and performance breakdowns appear once you run workloads."
       steps={[
         {
           n: 1,

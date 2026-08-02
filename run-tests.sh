@@ -7,7 +7,7 @@
 #   ./run-tests.sh quick        Run fast unit tests only (~15s)
 #   ./run-tests.sh ai           Run AI assistant tests
 #   ./run-tests.sh billing      Run billing + payment tests
-#   ./run-tests.sh security     Run security + privacy + jurisdiction
+#   ./run-tests.sh security     Run security + privacy
 #   ./run-tests.sh slurm        Run Slurm/HPC tests
 #   ./run-tests.sh api          Run API + integration tests
 #   ./run-tests.sh infra        Run scheduler, db, events, worker
@@ -94,7 +94,6 @@ case "${TARGET}" in
         PYTEST_ARGS=(
             tests/test_security.py
             tests/test_privacy.py
-            tests/test_jurisdiction.py
             tests/test_verification.py
             tests/test_billing_security_sweep.py
             tests/test_instance_auth_sweep.py

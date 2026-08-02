@@ -2,7 +2,7 @@
 
 Drives the *shipped* legacy entry points (``process_queue``,
 ``process_queue_binpack``, ``process_queue_filtered``,
-``process_queue_sovereign``, ``process_assigned``) against a real Postgres
+``process_queue_ranked``, ``process_assigned``) against a real Postgres
 with the transactional scheduler in canary/active mode. Proves:
 
 1. Owned jobs are never assigned by legacy queue walkers.
@@ -256,7 +256,7 @@ class TestLegacyQueueSkipsOwnedJobs:
     def test_all_legacy_walkers_skip_owned(
         self, fleet, reset_cp_config, monkeypatch
     ):
-        """binpack / filtered / sovereign walkers honor the same partition."""
+        """binpack / filtered / ranked walkers honor the same partition."""
         marker = uuid.uuid4().hex[:8]
         model = f"RTX-{marker}"
         host_id = f"h-{marker}-1"
@@ -274,8 +274,8 @@ class TestLegacyQueueSkipsOwnedJobs:
         for walker in (
             sched.process_queue,
             sched.process_queue_binpack,
-            lambda: sched.process_queue_filtered(canada_only=False),
-            lambda: sched.process_queue_sovereign(canada_only=False),
+            lambda: sched.process_queue_filtered(),
+            lambda: sched.process_queue_ranked(),
         ):
             walker()
             assert _job_row(job_id)["status"] == "queued", walker

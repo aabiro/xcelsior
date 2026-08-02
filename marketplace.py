@@ -152,7 +152,6 @@ class MarketplaceEngine:
         min_vram_gb: float = 0,
         max_price_cents: int = 0,
         region: str = "",
-        canada_only: bool = False,
         spot_available: bool = False,
         sort_by: str = "price",  # price, vram, reliability
         limit: int = 50,
@@ -176,8 +175,6 @@ class MarketplaceEngine:
         if region:
             conditions.append("region = %s")
             params.append(region)
-        if canada_only:
-            conditions.append("province != ''")
 
         where = " AND ".join(conditions)
 
@@ -446,7 +443,7 @@ class MarketplaceEngine:
             conn.execute(
                 """INSERT INTO reservations
                    (reservation_id, customer_id, gpu_model, gpu_count,
-                    period_months, discount_pct, monthly_rate_cad,
+                    period_months, discount_pct, monthly_rate_micros,
                     starts_at, ends_at, status, created_at)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s)""",
                 (
@@ -456,7 +453,8 @@ class MarketplaceEngine:
                     gpu_count,
                     period_months,
                     discount_pct,
-                    monthly_rate_cad,
+                    # Stored as integer micros; CAD is the boundary unit only.
+                    round(monthly_rate_cad * 1_000_000),
                     starts_at,
                     ends_at,
                     now,

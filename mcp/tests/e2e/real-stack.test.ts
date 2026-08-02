@@ -3,14 +3,18 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { toolsInProfile } from "../../src/tools/profiles.js";
 
 const enabled = process.env.XCELSIOR_MCP_REAL_STACK_E2E === "1";
 const apiUrl = (process.env.XCELSIOR_MCP_E2E_API_URL || "http://127.0.0.1:18980").replace(/\/$/, "");
 const mcpPort = Number(process.env.XCELSIOR_MCP_E2E_PORT || "18981");
+// +1 is the blue/green replica; +2 is the unlisted operator surface.
+const operatorPort = mcpPort + 2;
 const redisUrl = process.env.XCELSIOR_MCP_E2E_REDIS_URL || "redis://127.0.0.1:6387/0";
 const manageRedis = process.env.XCELSIOR_MCP_E2E_MANAGE_REDIS !== "0";
 const externalRedisContainer = process.env.XCELSIOR_MCP_E2E_REDIS_CONTAINER || "";
-const resource = "https://mcp.xcelsior.ca";
+// The canonical RFC 8707 identifier is the connector URL, path included.
+const resource = "https://mcp.xcelsior.ca/mcp";
 const marker = `mcp-sdk-e2e-${randomUUID().slice(0, 8)}`;
 
 type Session = { browser: string; machine: string; customer: string; clientId: string };
@@ -18,6 +22,7 @@ type ToolResult = { structuredContent?: Record<string, any>; content?: unknown; 
 
 let mcp: ChildProcess;
 let mcpBlue: ChildProcess;
+let mcpOperator: ChildProcess;
 let redis: ChildProcess;
 let tenantA: Session;
 let tenantB: Session;
@@ -218,14 +223,67 @@ beforeAll(async () => {
   ({ client: clientBlue, transport: transportBlue } = await sdkClient(
     tenantA.machine, "real-stack-blue", mcpPort + 1,
   ));
-}, 30_000);
+
+  // The operator surface is a *separate deployment* of the same image
+  // (adoption plan §4a), not a scope check on the public one — operator tools
+  // are never registered under the customer profile, so a token holding
+  // `hosts:operate` still cannot see them at `mcpPort`. Step 13 exercises the
+  // real thing: same build, `XCELSIOR_MCP_TOOL_PROFILE=operator`, unlisted host.
+  mcpOperator = spawn(process.execPath, ["--import", "tsx", "src/index.ts"], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      XCELSIOR_MCP_API_URL: apiUrl,
+      XCELSIOR_MCP_RESOURCE_AUDIENCE: resource,
+      XCELSIOR_MCP_PUBLIC_URL: `http://127.0.0.1:${operatorPort}/mcp`,
+      XCELSIOR_MCP_REDIS_URL: redisUrl,
+      XCELSIOR_MCP_TOOL_PROFILE: "operator",
+      MCP_RATE_LIMIT_BACKEND: "redis",
+      MCP_RATE_LIMIT_REQUIRE_REDIS: "true",
+      MCP_RATE_LIMIT_PER_MIN: "2000",
+      MCP_HOST: "127.0.0.1",
+      MCP_PORT: String(operatorPort),
+      MCP_PATH: "/mcp",
+      OTEL_EXPORTER_OTLP_ENDPOINT: "",
+    },
+    stdio: "pipe",
+  });
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    try {
+      if ((await fetch(`http://127.0.0.1:${operatorPort}/readyz`)).ok) break;
+    } catch { /* booting */ }
+    if (mcpOperator.exitCode !== null) {
+      throw new Error(`operator MCP exited during startup (${mcpOperator.exitCode})`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}, 40_000);
 
 afterAll(async () => {
   if (!enabled) return;
   await transportA?.close().catch(() => undefined);
   await transportBlue?.close().catch(() => undefined);
-  mcp?.kill("SIGTERM");
-  mcpBlue?.kill("SIGTERM");
+  // Wait for each replica to actually exit, escalating if it will not go.
+  // Signalling without waiting leaves listeners holding their ports after the
+  // run reports done, so a back-to-back second run dies on startup with
+  // EADDRINUSE and looks like a product bug rather than a dirty teardown.
+  await Promise.all([
+    ["primary", mcp], ["blue", mcpBlue], ["operator", mcpOperator],
+  ].map(([name, child]) => new Promise<void>((resolve) => {
+    const proc = child as ChildProcess | undefined;
+    if (!proc || proc.exitCode !== null || proc.signalCode !== null) return resolve();
+    const escalate = setTimeout(() => {
+      console.warn(`[e2e] ${name} MCP ignored SIGTERM; sending SIGKILL`);
+      proc.kill("SIGKILL");
+    }, 5_000);
+    const give_up = setTimeout(resolve, 10_000);
+    proc.once("exit", () => {
+      clearTimeout(escalate);
+      clearTimeout(give_up);
+      resolve();
+    });
+    proc.kill("SIGTERM");
+  })));
   fixture("cleanup", marker);
   if (manageRedis && redis && redis.exitCode === null) redis.kill("SIGTERM");
 });
@@ -240,7 +298,17 @@ describe.runIf(enabled)("§26.4 real MCP + API + PostgreSQL + Redis", () => {
       clientA.listTools(), clientBlue.listTools(), clientA.listTools(), clientBlue.listTools(),
     ]);
     expect(replicaLists.every((value) => value.tools.length === listed.tools.length)).toBe(true);
-    expect(listed.tools.length).toBeGreaterThanOrEqual(35);
+    // The public connector serves the customer profile, so the count is the
+    // profile's — asserting a raw floor would either drift or, worse, pass
+    // because operator tools leaked back in and made up the difference.
+    const expected = toolsInProfile("customer");
+    expect(listed.tools.map((tool) => tool.name).sort()).toEqual(expected);
+    for (const operatorTool of ["drain_host", "evict_host_workloads", "get_scheduler_health"]) {
+      expect(
+        listed.tools.some((tool) => tool.name === operatorTool),
+        `${operatorTool} leaked onto the public connector`,
+      ).toBe(false);
+    }
     for (const tool of listed.tools) {
       expect(tool.inputSchema, tool.name).toBeTruthy();
       expect(tool.outputSchema, tool.name).toBeTruthy();
@@ -365,6 +433,23 @@ describe.runIf(enabled)("§26.4 real MCP + API + PostgreSQL + Redis", () => {
       name: "must-not-launch", confirm: false,
     });
     expect(denied.code || denied.error).toBe("insufficient_scope");
+
+    // A *partial* match must be denied too, and this is the case the surface
+    // missed. `run_training_job` requires instances:write AND billing:read;
+    // the old check was `required.some(...)`, so a token holding only
+    // `billing:read` — a pure read scope — satisfied a spending write. GT3
+    // asks for this proven with real tokens against the live server, not a
+    // mock, because the mock is what passed while production did not.
+    const partialToken = await createMachineToken(
+      tenantA.browser, `${marker}-partial`, ["billing:read"],
+    );
+    const partial = await sdkClient(partialToken, "real-stack-partial-scope");
+    const escalation = await call(partial.client, "run_training_job", {
+      name: "must-not-launch", gpu_model: "RTX 4090", git_repo: "https://example.com/x.git",
+    });
+    expect(escalation.code || escalation.error, JSON.stringify(escalation))
+      .toBe("insufficient_scope");
+    await partial.transport.close();
     await readOnly.transport.close();
     const other = await sdkClient(tenantB.machine, "real-stack-b");
     const hidden = await call(other.client, "get_instance", { job_id: worker.job_id });
@@ -405,7 +490,28 @@ describe.runIf(enabled)("§26.4 real MCP + API + PostgreSQL + Redis", () => {
     const operatorToken = await createMachineToken(tenantA.browser, `${marker}-operator`, [
       "instances:read", "hosts:read", "hosts:operate", "hosts:evict", "control_plane:read",
     ]);
-    const operator = await sdkClient(operatorToken, "real-stack-operator");
+    // Operator scopes alone are not enough: the public connector does not
+    // register these tools at all, so holding `hosts:operate` still cannot
+    // reach them there. That is the trust boundary, asserted rather than
+    // assumed — a token this privileged pointed at the public surface must
+    // still come back "not found".
+    const publicOperator = await sdkClient(operatorToken, "real-stack-operator-public");
+    const refused = await publicOperator.client.callTool({
+      name: "drain_host",
+      arguments: { host_id: worker.host_id, reason: "must not be reachable here" },
+    }) as ToolResult;
+    expect(refused.isError, JSON.stringify(refused)).toBe(true);
+    expect(JSON.stringify(refused.content)).toMatch(/not found/i);
+    await publicOperator.transport.close();
+
+    const operator = await sdkClient(operatorToken, "real-stack-operator", operatorPort);
+    const operatorTools = new Set(
+      (await operator.client.listTools()).tools.map((tool) => tool.name),
+    );
+    expect(operatorTools.has("drain_host")).toBe(true);
+    expect(operatorTools.has("evict_host_workloads")).toBe(true);
+    // The operator surface is a superset — it still serves tenant workflows.
+    expect(operatorTools.has("list_instances")).toBe(true);
     const capacity = await call(operator.client, "get_host_capacity", { host_id: worker.host_id });
     const version = Number(capacity.version ?? capacity.host?.version ?? worker.host_version);
     const drained = await call(operator.client, "drain_host", {
@@ -443,9 +549,18 @@ describe.runIf(enabled)("§26.4 real MCP + API + PostgreSQL + Redis", () => {
 
     // One replica may restart without interrupting the shared service.
     await transportA.close();
-    mcp.kill("SIGTERM");
+    const stopping = mcp;
+    stopping.kill("SIGTERM");
     const surviving = await call(clientBlue, "get_instance", { job_id: worker.job_id });
     expect(surviving.ok).toBe(true);
+    // SIGTERM is a request, not an instant. Rebinding the port before the old
+    // process releases it fails with EADDRINUSE, and the replacement dies on
+    // startup — which reads as "restart is broken" rather than "the test raced".
+    await new Promise<void>((resolve) => {
+      if (stopping.exitCode !== null || stopping.signalCode !== null) return resolve();
+      const timer = setTimeout(resolve, 10_000);
+      stopping.once("exit", () => { clearTimeout(timer); resolve(); });
+    });
     mcp = spawn(process.execPath, ["--import", "tsx", "src/index.ts"], {
       cwd: process.cwd(),
       env: {

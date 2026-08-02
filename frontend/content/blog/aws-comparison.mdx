@@ -37,7 +37,6 @@ Let's walk through a concrete example. You're fine-tuning a 7B parameter model o
 **Requirements:**
 - 4x A100 80GB
 - ~200 hours of training time
-- Data must stay in Canadian jurisdiction (PIPEDA requirement)
 
 **AWS (p4d.24xlarge, ca-central-1):**
 - You're forced into the full `p4d.24xlarge` (8x A100) since AWS doesn't offer 4-GPU configs
@@ -47,8 +46,8 @@ Let's walk through a concrete example. You're fine-tuning a 7B parameter model o
 **Xcelsior:**
 - Select exactly 4x A100 80GB, pay only for what you need
 - 200 hours × $7.56 CAD = **$1,512 CAD**
-- Full Canadian jurisdiction, no CLOUD Act risk
-- PIPEDA and Law 25 compliant by default
+- Transparent, CAD-native pricing with no egress fees
+- Scoped credentials and human-approved action plans by default
 
 **Savings: $8,930 → $1,512 (83% reduction)**
 
@@ -76,7 +75,7 @@ And with reserved instances, you're locked in. On Xcelsior, you scale up and dow
 Price matters. But the real value proposition is price **plus** compliance:
 
 - **Legal protection**: Your model weights and training data are under Canadian law only
-- **Compliance**: Built-in PIPEDA, Law 25, and CPPA readiness
+- **Controls**: Scoped access, approval before anything destructive, and an exportable audit trail
 - **Flexibility**: Pay by the hour, no long-term commitments
 - **Currency**: No CAD→USD conversion losses
 

@@ -61,7 +61,6 @@ export default function CompliancePage() {
 
   // Province matrix
   const [provinces, setProvinces] = useState<Province[]>([]);
-  const [quebecPia, setQuebecPia] = useState<{ required: boolean; reason: string } | null>(null);
 
   // SLA
   const [slaTiers, setSlaTiers] = useState<SlaTier[]>([]);
@@ -97,9 +96,6 @@ export default function CompliancePage() {
       }));
       setProvinces(provinceList);
     }).catch((e) => console.error("Failed to load tax rates", e));
-    api.checkQuebecPia({ data_origin_province: "QC", processing_province: "QC", data_contains_pi: true })
-      .then((d) => setQuebecPia({ required: d.pia_required, reason: d.reason }))
-      .catch((e) => console.error("Failed to check Quebec PIA", e));
 
     // SLA data, transform Record to array
     api.fetchSlaTargets().then((d) => {
@@ -247,21 +243,6 @@ export default function CompliancePage() {
       {/* ── Province Tax Matrix Tab ── */}
       {tab === "provinces" && (
         <>
-          {quebecPia && (
-            <div className={`flex items-start gap-3 rounded-lg border p-4 ${
-              quebecPia.required ? "border-accent-gold/30 bg-accent-gold/5" : "border-emerald/30 bg-emerald/5"
-            }`}>
-              {quebecPia.required ? (
-                <AlertTriangle className="h-5 w-5 text-accent-gold mt-0.5" />
-              ) : (
-                <CheckCircle className="h-5 w-5 text-emerald mt-0.5" />
-              )}
-              <div>
-                <p className="text-sm font-medium">{quebecPia.required ? t("dash.comp.pia_required") : t("dash.comp.pia_not_required")}</p>
-                <p className="text-xs text-text-secondary mt-0.5">{quebecPia.reason}</p>
-              </div>
-            </div>
-          )}
 
           <Card>
             <CardHeader>

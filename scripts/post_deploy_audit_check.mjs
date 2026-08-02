@@ -26,7 +26,6 @@ const ROUTES_200 = [
   { id: "route-home", name: "GET /", path: "/" },
   { id: "route-features", name: "GET /features", path: "/features" },
   { id: "route-pricing", name: "GET /pricing", path: "/pricing" },
-  { id: "route-sovereignty", name: "GET /sovereignty", path: "/sovereignty" },
   { id: "route-about", name: "GET /about", path: "/about" },
   { id: "route-blog", name: "GET /blog", path: "/blog" },
   {

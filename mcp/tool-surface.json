@@ -1,0 +1,978 @@
+{
+  "$comment": "Published MCP tool surface. Regenerate with `npm run surface:update` in the same commit as the change. A breaking change requires a toolVersion bump — see docs/mcp-tool-versioning.md.",
+  "generatedFor": "customer",
+  "tools": [
+    {
+      "name": "cancel_instance",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "instances:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "job_id": {
+          "type": "string",
+          "optional": false
+        },
+        "confirm": {
+          "type": "boolean",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "create_instance",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "instances:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "name": {
+          "type": "string",
+          "optional": false
+        },
+        "vram_needed_gb": {
+          "type": "number",
+          "optional": true
+        },
+        "num_gpus": {
+          "type": "number",
+          "optional": true
+        },
+        "gpu_model": {
+          "type": "string",
+          "optional": true
+        },
+        "host_id": {
+          "type": "string",
+          "optional": true
+        },
+        "image": {
+          "type": "string",
+          "optional": true
+        },
+        "git_repo": {
+          "type": "string",
+          "optional": true
+        },
+        "init_script": {
+          "type": "string",
+          "optional": true
+        },
+        "pricing_mode": {
+          "type": "enum",
+          "optional": true,
+          "values": [
+            "on_demand",
+            "spot"
+          ]
+        },
+        "interactive": {
+          "type": "boolean",
+          "optional": true
+        },
+        "confirm": {
+          "type": "boolean",
+          "optional": true
+        },
+        "plan_id": {
+          "type": "string",
+          "optional": true
+        },
+        "idempotency_key": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "create_serverless_endpoint",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "inference:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "name": {
+          "type": "string",
+          "optional": false
+        },
+        "model_ref": {
+          "type": "string",
+          "optional": false
+        },
+        "gpu_tier": {
+          "type": "string",
+          "optional": true
+        },
+        "gpu_count": {
+          "type": "number",
+          "optional": true
+        },
+        "region": {
+          "type": "string",
+          "optional": true
+        },
+        "min_workers": {
+          "type": "number",
+          "optional": true
+        },
+        "max_workers": {
+          "type": "number",
+          "optional": true
+        },
+        "confirm": {
+          "type": "boolean",
+          "optional": true
+        },
+        "plan_id": {
+          "type": "string",
+          "optional": true
+        },
+        "idempotency_key": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "estimate_job_cost",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "billing:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "gpu_model": {
+          "type": "string",
+          "optional": true
+        },
+        "duration_hours": {
+          "type": "number",
+          "optional": true
+        },
+        "spot": {
+          "type": "boolean",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "explain_instance_placement",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "instances:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "job_id": {
+          "type": "string",
+          "optional": false
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "get_active_lease",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "instances:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "job_id": {
+          "type": "string",
+          "optional": false
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "get_instance",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "instances:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "job_id": {
+          "type": "string",
+          "optional": false
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "get_instance_logs",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "instances:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "job_id": {
+          "type": "string",
+          "optional": false
+        },
+        "limit": {
+          "type": "number",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "get_instance_timeline",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "instances:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "job_id": {
+          "type": "string",
+          "optional": false
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "get_mcp_action_status",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "hosts:read",
+        "inference:read",
+        "instances:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "plan_id": {
+          "type": "string",
+          "optional": false
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "get_pricing_reference",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "gpu:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {},
+      "hasOutputSchema": true
+    },
+    {
+      "name": "get_serverless_job_status",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "inference:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "endpoint_id": {
+          "type": "string",
+          "optional": false
+        },
+        "job_id": {
+          "type": "string",
+          "optional": false
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "get_spot_prices",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "marketplace:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "input": {},
+      "hasOutputSchema": true
+    },
+    {
+      "name": "get_wallet_balance",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "billing:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "customer_id": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "list_available_gpus",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "gpu:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "input": {
+        "region": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "list_instances",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "instances:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "status": {
+          "type": "string",
+          "optional": true
+        },
+        "cursor": {
+          "type": "string",
+          "optional": true
+        },
+        "limit": {
+          "type": "number",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "list_invoices",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "billing:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "customer_id": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "list_serverless_endpoints",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "inference:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {},
+      "hasOutputSchema": true
+    },
+    {
+      "name": "list_tiers",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "gpu:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {},
+      "hasOutputSchema": true
+    },
+    {
+      "name": "reconcile_instance",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "instances:operate"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "job_id": {
+          "type": "string",
+          "optional": false
+        },
+        "expected_version": {
+          "type": "number",
+          "optional": false
+        },
+        "idempotency_key": {
+          "type": "string",
+          "optional": false
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "retry_instance",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "instances:operate"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "job_id": {
+          "type": "string",
+          "optional": false
+        },
+        "expected_version": {
+          "type": "number",
+          "optional": false
+        },
+        "idempotency_key": {
+          "type": "string",
+          "optional": false
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "run_serverless_job",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "inference:write"
+      ],
+      "idempotency": "none",
+      "retry": "none",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input": {
+        "endpoint_id": {
+          "type": "string",
+          "optional": false
+        },
+        "input": {
+          "type": "record",
+          "optional": true
+        },
+        "webhook": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "run_training_job",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "billing:read",
+        "instances:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "name": {
+          "type": "string",
+          "optional": false
+        },
+        "gpu_model": {
+          "type": "string",
+          "optional": true
+        },
+        "vram_needed_gb": {
+          "type": "number",
+          "optional": true
+        },
+        "num_gpus": {
+          "type": "number",
+          "optional": true
+        },
+        "image": {
+          "type": "string",
+          "optional": true
+        },
+        "git_repo": {
+          "type": "string",
+          "optional": true
+        },
+        "init_script": {
+          "type": "string",
+          "optional": true
+        },
+        "pricing_mode": {
+          "type": "enum",
+          "optional": true,
+          "values": [
+            "on_demand",
+            "spot"
+          ]
+        },
+        "host_id": {
+          "type": "string",
+          "optional": true
+        },
+        "confirm": {
+          "type": "boolean",
+          "optional": true
+        },
+        "wait_timeout_seconds": {
+          "type": "number",
+          "optional": true
+        },
+        "log_tail": {
+          "type": "number",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "schedule_under_budget",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "gpu:read",
+        "instances:write",
+        "marketplace:read"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "max_hourly_cad": {
+          "type": "number",
+          "optional": false
+        },
+        "gpu_model": {
+          "type": "string",
+          "optional": true
+        },
+        "vram_needed_gb": {
+          "type": "number",
+          "optional": true
+        },
+        "num_gpus": {
+          "type": "number",
+          "optional": true
+        },
+        "pricing_mode": {
+          "type": "enum",
+          "optional": true,
+          "values": [
+            "on_demand",
+            "spot"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "optional": true
+        },
+        "confirm": {
+          "type": "boolean",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "search_marketplace",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "marketplace:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "input": {
+        "gpu_model": {
+          "type": "string",
+          "optional": true
+        },
+        "min_vram_gb": {
+          "type": "number",
+          "optional": true
+        },
+        "region": {
+          "type": "string",
+          "optional": true
+        },
+        "min_reputation": {
+          "type": "number",
+          "optional": true
+        },
+        "sort_by": {
+          "type": "enum",
+          "optional": true,
+          "values": [
+            "price",
+            "region",
+            "reputation",
+            "vram"
+          ]
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "should_i_run_pel_job",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "billing:read",
+        "inference:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "endpoint_id": {
+          "type": "string",
+          "optional": true
+        },
+        "model_ref": {
+          "type": "string",
+          "optional": true
+        },
+        "estimated_input_tokens": {
+          "type": "number",
+          "optional": true
+        },
+        "estimated_output_tokens": {
+          "type": "number",
+          "optional": true
+        },
+        "duration_hours": {
+          "type": "number",
+          "optional": true
+        },
+        "gpu_tier": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "should_i_run_this",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "billing:read",
+        "instances:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "gpu_model": {
+          "type": "string",
+          "optional": true
+        },
+        "duration_hours": {
+          "type": "number",
+          "optional": true
+        },
+        "spot": {
+          "type": "boolean",
+          "optional": true
+        },
+        "max_hourly_cad": {
+          "type": "number",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "simulate_instance_placement",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "gpu:read",
+        "instances:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "spec": {
+          "type": "record",
+          "optional": false
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "terminate_instance",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "instances:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "job_id": {
+          "type": "string",
+          "optional": false
+        },
+        "confirm": {
+          "type": "boolean",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "watch_instance",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "instances:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "job_id": {
+          "type": "string",
+          "optional": false
+        },
+        "duration_minutes": {
+          "type": "number",
+          "optional": true
+        },
+        "poll_interval_seconds": {
+          "type": "number",
+          "optional": true
+        },
+        "log_tail": {
+          "type": "number",
+          "optional": true
+        },
+        "cursor": {
+          "type": "string",
+          "optional": true
+        },
+        "return_on_phase": {
+          "type": "array",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    }
+  ]
+}

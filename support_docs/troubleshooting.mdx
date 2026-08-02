@@ -21,7 +21,7 @@ This page covers the issues people hit most often. If none of it matches what yo
 Queued means the scheduler has accepted the job but has not yet found a host that satisfies its requirements. This is normal and usually brief. It persists when:
 
 - No host currently has enough free VRAM for your request.
-- You have constrained placement (for example, Canada-only routing) and no matching host is free.
+- You have constrained placement (for example a region filter) and no matching host is free.
 - Your balance dropped below the threshold needed to start.
 
 Jobs are assigned automatically when capacity frees up; you do not need to resubmit.

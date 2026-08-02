@@ -36,8 +36,6 @@
   .refresh-note { color: #444; font-size: 11px; margin-top: 8px; }
   .canada-badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px; background: #1a0a0a; color: #ff3333; }
   .tier-community { background: #1a1a1a; color: #888; }
-  .tier-residency { background: #0a1a2e; color: #64b5f6; }
-  .tier-sovereignty { background: #1a0a2e; color: #ce93d8; }
   .tier-regulated { background: #2e1a0a; color: #ffb74d; }
   .rep-new_user { color: #888; }
   .rep-new-user { color: #888; }
@@ -288,10 +286,6 @@
   .sla-credit-table td.pct-good { color: #4caf50; }
   .sla-credit-table td.pct-warn { color: #ff9800; }
   .sla-credit-table td.pct-bad { color: #f44336; }
-  .residency-trace-panel { background: #0a0a0a; border: 1px solid #222; border-radius: 6px; padding: 14px; font-size: 12px; }
-  .residency-trace-panel .rt-field { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #1a1a1a; }
-  .residency-trace-panel .rt-label { color: #888; }
-  .residency-trace-panel .rt-value { color: #e0e0e0; font-weight: bold; }
   /* Responsive design */
   @media (max-width: 1024px) {
     .grid { grid-template-columns: 1fr; }
@@ -526,7 +520,6 @@
 <div class="btn-row">
   <button class="btn" onclick="refresh()">Refresh</button>
   <button class="btn" onclick="processQueue()">Process Queue</button>
-  <button class="btn" onclick="processQueueSovereign()">🍁 Sovereign Queue</button>
   <button class="btn" onclick="billAll()">Bill All</button>
   <button class="btn" onclick="pingHosts()">Ping Hosts</button>
   <button class="btn" onclick="runFailover()">Failover</button>
@@ -650,16 +643,6 @@
     </div>
   </div>
   <div class="card full">
-    <h2>📍 Residency Trace</h2>
-    <div style="padding:8px">
-      <div style="display:flex;gap:8px;margin-bottom:10px">
-        <input id="residency-trace-jobid" type="text" placeholder="Enter Job ID" style="flex:1;background:#0a0a0a;border:1px solid #333;color:#e0e0e0;padding:6px 8px;border-radius:4px;font-family:inherit;font-size:12px">
-        <button class="btn" onclick="fetchResidencyTrace()">🔍 Trace</button>
-      </div>
-      <div id="residency-trace-result" style="font-size:12px;color:#aaa">Enter a Job ID to view data residency compliance trace.</div>
-    </div>
-  </div>
-  <div class="card full">
     <h2>Event Log <span style="font-size:11px;color:#666">(SSE live stream)</span></h2>
     <div id="event-log" style="max-height:200px;overflow-y:auto;font-size:12px;color:#888;"></div>
   </div>
@@ -712,17 +695,12 @@
     </table>
   </div>
   <div class="card">
-    <h2>Jurisdiction Overview</h2>
-    <div id="jurisdiction-info" style="font-size:13px;color:#aaa;"></div>
-  </div>
-  <div class="card">
     <h2>SLA Targets</h2>
     <table>
       <thead><tr><th>Tier</th><th>Target Uptime</th><th>Description</th></tr></thead>
       <tbody id="sla-targets-table">
         <tr><td><span class="tier tier-standard">Community</span></td><td>99.0%</td><td>Best-effort availability</td></tr>
         <tr><td><span class="tier tier-premium">Secure</span></td><td>99.5%</td><td>Verified + monitored hosts</td></tr>
-        <tr><td><span class="tier tier-urgent">Sovereign</span></td><td>99.9%</td><td>Canada-only + compliance</td></tr>
       </tbody>
     </table>
     <div style="margin-top:8px">
@@ -758,7 +736,6 @@
     <div style="padding:8px">
       <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
         <button class="btn btn-secondary" onclick="fetchComplianceData()" style="font-size:11px">↻ Refresh Compliance</button>
-        <button class="btn btn-secondary" onclick="runQuebecPIA()" style="font-size:11px">🔍 Quebec PIA Check</button>
       </div>
       <div style="margin-bottom:16px">
         <h3 style="font-size:12px;color:#ff3333;margin-bottom:8px;text-transform:uppercase">Province Compliance Matrix</h3>
@@ -778,7 +755,6 @@
           <tbody id="compliance-tier-req-table"><tr><td colspan="4" style="text-align:center;color:#555">Loading...</td></tr></tbody>
         </table>
       </div>
-      <div id="quebec-pia-result" style="display:none;margin-top:12px;background:#0a1a0a;border:1px solid #1a3a1a;border-radius:4px;padding:12px;font-size:12px"></div>
       <div style="margin-top:16px">
         <h3 style="font-size:12px;color:#ff3333;margin-bottom:8px;text-transform:uppercase">GST Registration Threshold</h3>
         <div id="gst-threshold-display" style="min-height:40px;font-size:12px;color:#666">Click refresh to load GST data.</div>
@@ -812,7 +788,6 @@
       </select>
       <input id="est-hours" type="number" value="1" min="0.1" step="0.5" style="width:60px;background:#1a1a1a;color:#e0e0e0;border:1px solid #333;padding:4px;font-family:inherit;"> hrs
       <label style="font-size:12px"><input type="checkbox" id="est-spot"> Spot</label>
-      <label style="font-size:12px"><input type="checkbox" id="est-sov" checked> 🍁 Canada</label>
       <button class="btn" onclick="estimateCost()" style="margin-left:8px">Estimate</button>
       <div id="est-result" style="margin-top:8px;font-size:13px;color:#aaa;"></div>
     </div>
@@ -1172,7 +1147,7 @@
   <div class="card">
     <h2>Privacy & Consent</h2>
     <div style="padding:8px">
-      <p style="font-size:12px;color:#888;margin-bottom:10px">Manage your data preferences per PIPEDA.</p>
+      <p style="font-size:12px;color:#888;margin-bottom:10px">Manage your data preferences.</p>
       <div style="display:flex;flex-direction:column;gap:8px">
         <label style="font-size:12px;display:flex;align-items:center;gap:8px"><input type="checkbox" id="consent-telemetry" checked> Allow telemetry collection</label>
         <label style="font-size:12px;display:flex;align-items:center;gap:8px"><input type="checkbox" id="consent-cross-border"> Allow cross-border data transfer</label>
@@ -1250,7 +1225,7 @@
     <h2 style="color:#f44336">⚠️ Danger Zone</h2>
     <div style="padding:8px">
       <div style="margin-bottom:16px">
-        <p style="font-size:12px;color:#888;margin-bottom:8px">Export all your personal data (PIPEDA right to access).</p>
+        <p style="font-size:12px;color:#888;margin-bottom:8px">Export all your personal data.</p>
         <button class="btn btn-secondary" id="data-export-btn" onclick="requestDataExport()" style="width:100%">📥 Request Data Export</button>
         <div id="data-export-status" style="display:none;font-size:11px;color:#4caf50;margin-top:6px;text-align:center"></div>
       </div>
@@ -1328,7 +1303,7 @@
       <button class="btn btn-secondary" onclick="showUploadArtifact()" style="font-size:11px">📤 Upload</button>
     </div>
     <table>
-      <thead><tr><th>Artifact ID</th><th>Type</th><th>Job</th><th>Size</th><th>Residency</th><th>Created</th><th>Expires</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Artifact ID</th><th>Type</th><th>Job</th><th>Size</th><th>Storage</th><th>Created</th><th>Expires</th><th>Actions</th></tr></thead>
       <tbody id="artifacts-table"><tr><td colspan="8" style="text-align:center;color:#555">Enter a Job ID to view artifacts</td></tr></tbody>
     </table>
   </div>
@@ -1344,9 +1319,8 @@
           <option value="log_bundle">Log Bundle</option>
         </select>
       </div>
-      <div class="form-group"><label>Residency Policy</label>
-        <select id="art-upload-residency">
-          <option value="canada_only" selected>🍁 Canada Only</option>
+      <div class="form-group"><label>Storage Policy</label>
+        <select id="art-upload-storage-policy">
           <option value="global">Global</option>
           <option value="region_locked">Region Locked</option>
         </select>
@@ -1358,9 +1332,9 @@
   <div class="card">
     <h2>Storage Regions</h2>
     <div style="padding:8px;font-size:12px;color:#aaa">
-      <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #1a1a1a"><span style="font-size:16px">🍁</span><span><strong>B2 CA-East</strong> — Montreal, QC<br><span style="color:#666">Primary storage for Canadian residency</span></span></div>
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #1a1a1a"><span style="font-size:16px">🍁</span><span><strong>Primary bucket</strong><br><span style="color:#666">Durable object storage</span></span></div>
       <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #1a1a1a"><span style="font-size:16px">🌐</span><span><strong>R2 Global</strong> — Cloudflare edge<br><span style="color:#666">Zero-egress global distribution</span></span></div>
-      <div style="display:flex;align-items:center;gap:8px;padding:6px 0"><span style="font-size:16px">📋</span><span><strong>Residency Routing</strong><br><span style="color:#666">Artifacts auto-routed based on job jurisdiction</span></span></div>
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 0"><span style="font-size:16px">📋</span><span><strong>Policy Routing</strong><br><span style="color:#666">Artifacts routed by durability and cost</span></span></div>
     </div>
   </div>
 </div>
@@ -1451,8 +1425,6 @@
     <h2>🔧 System Controls</h2>
     <div style="padding:4px">
       <div class="admin-toggle">
-        <label>🍁 Canada-Only Mode</label>
-        <label class="switch"><input type="checkbox" id="admin-canada-only" onchange="toggleCanadaOnly()"><span class="slider"></span></label>
       </div>
       <div class="admin-toggle">
         <label>🔒 Maintenance Mode</label>
@@ -1606,8 +1578,7 @@
     <ul class="checklist" id="profile-checklist">
       <li class="pending" id="chk-role"><span class="check-icon">⬜</span> Choose your role</li>
       <li class="pending" id="chk-email"><span class="check-icon">⬜</span> Verify email address</li>
-      <li class="pending" id="chk-province"><span class="check-icon">⬜</span> Set province / jurisdiction</li>
-      <li class="pending" id="chk-apikey"><span class="check-icon">⬜</span> Generate an API key</li>
+            <li class="pending" id="chk-apikey"><span class="check-icon">⬜</span> Generate an API key</li>
       <li class="pending" id="chk-deposit"><span class="check-icon">⬜</span> Add credits to wallet</li>
       <li class="pending" id="chk-sshkey"><span class="check-icon">⬜</span> Add an SSH key</li>
     </ul>
@@ -1835,9 +1806,7 @@
         <div class="form-group"><label>Trust Tier</label>
           <select id="sj-trust" onchange="updateCostEstimate()">
             <option value="community" selected>Community — Any host</option>
-            <option value="residency">Residency — 🍁 Canada-resident hosts</option>
-            <option value="sovereignty">Sovereignty — Canadian-owned only</option>
-            <option value="regulated">Regulated — Compliance-verified</option>
+                                    <option value="regulated">Regulated — Compliance-verified</option>
           </select>
         </div>
       </div>
@@ -2107,9 +2076,9 @@ async function fetchTransparency() {
     const d = await r.json();
     const s = d.summary || {};
     const byType = s.by_type || {};
-    const byJurisdiction = s.by_jurisdiction || {};
+    const byRequestingCountry = s.by_requesting_country || {};
     const typeRows = Object.entries(byType).map(([k,v]) => `<span style="color:#ff3333">${k}</span>: ${v}`).join(' · ') || 'None';
-    const jurisdRows = Object.entries(byJurisdiction).map(([k,v]) => `<span style="color:#4caf50">${k}</span>: ${v}`).join(' · ') || 'None';
+    const jurisdRows = Object.entries(byRequestingCountry).map(([k,v]) => `<span style="color:#4caf50">${k}</span>: ${v}`).join(' · ') || 'None';
 
     // Simple bar chart for request types
     const maxVal = Math.max(1, ...Object.values(byType));
@@ -2130,7 +2099,7 @@ async function fetchTransparency() {
         <div>📊 Data disclosures: <strong style="color:#e0e0e0">${s.data_disclosures || 0}</strong></div>
       </div>
       ${bars ? '<div style="margin-top:8px"><div style="font-size:10px;color:#555;text-transform:uppercase;margin-bottom:4px">By Type</div>' + bars + '</div>' : ''}
-      <div style="margin-top:8px;font-size:11px;color:#555">By Jurisdiction: ${jurisdRows}</div>
+      <div style="margin-top:8px;font-size:11px;color:#555">By requesting country: ${jurisdRows}</div>
       <div style="margin-top:6px;font-size:10px;color:#333">Canary: ${d.canary || 'Xcelsior has not received any national security letters or secret court orders.'}</div>
     `;
   } catch(e) {
@@ -2167,24 +2136,6 @@ async function fetchTrustTiers() {
     ).join('') || '<tr><td colspan="3" style="color:#555">No tier data</td></tr>';
   } catch(e) {
     document.getElementById('trust-tier-table').innerHTML = '<tr><td colspan="3" style="color:#555">Trust tiers unavailable</td></tr>';
-  }
-}
-
-async function fetchJurisdiction() {
-  try {
-    const r = await fetch(`${API}/hosts?active_only=false`);
-    const d = await r.json();
-    const hosts = d.hosts || [];
-    const ca = hosts.filter(h => (h.country || '').toUpperCase() === 'CA');
-    const total = hosts.length;
-    document.getElementById('jurisdiction-info').innerHTML = `
-      <p><strong>Total Hosts:</strong> ${total}</p>
-      <p><strong>🍁 Canadian Hosts:</strong> ${ca.length} (${total ? ((ca.length / total) * 100).toFixed(0) : 0}%)</p>
-      <p><strong>Provinces:</strong> ${[...new Set(ca.map(h => h.province || 'Unknown'))].join(', ') || 'N/A'}</p>
-      <p style="margin-top:8px;font-size:11px;color:#666">Canada-first routing applies 10% sovereignty premium.<br>AI Compute Access Fund reimburses 67% for Canadian providers.</p>
-    `;
-  } catch(e) {
-    document.getElementById('jurisdiction-info').innerHTML = '<p style="color:#555">Jurisdiction data unavailable</p>';
   }
 }
 
@@ -2226,14 +2177,13 @@ async function estimateCost() {
   const gpu = document.getElementById('est-gpu').value;
   const hours = parseFloat(document.getElementById('est-hours').value) || 1;
   const spot = document.getElementById('est-spot').checked;
-  const sovereign = document.getElementById('est-sov').checked;
   const resultEl = document.getElementById('est-result');
   resultEl.innerHTML = 'Estimating...';
   try {
     const r = await fetch(`${API}/api/pricing/estimate`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({gpu_model: gpu, hours: hours, spot: spot, canada_only: sovereign})
+      body: JSON.stringify({gpu_model: gpu, hours: hours, spot: spot})
     });
     const d = await r.json();
     resultEl.innerHTML = `
@@ -2242,7 +2192,6 @@ async function estimateCost() {
       ${d.fund_rebate ? `<br><span class="fund-highlight">Fund Rebate: -$${d.fund_rebate.toFixed(2)}</span>` : ''}
       ${d.effective_cost ? `<br>Effective: $${d.effective_cost.toFixed(2)} CAD` : ''}
       ${spot ? '<br><span style="color:#ff9800">⚡ Spot pricing applied</span>' : ''}
-      ${sovereign ? '<br><span style="color:#ff3333">🍁 Sovereignty premium applied</span>' : ''}
     `;
   } catch(e) {
     resultEl.innerHTML = '<span style="color:#f44">Estimate failed</span>';
@@ -2459,7 +2408,7 @@ function updateCostEstimate() {
   const tier = document.getElementById('sj-tier').value;
   const trust = document.getElementById('sj-trust').value;
   const rates = { free: 0, standard: 0.10, premium: 0.45, urgent: 1.20 };
-  const trustMultiplier = { community: 1.0, residency: 1.1, sovereignty: 1.3, regulated: 1.5 };
+  const trustMultiplier = { community: 1.0, secure: 1.0, dedicated: 1.0 };
   const base = rates[tier] || 0.10;
   const mult = trustMultiplier[trust] || 1.0;
   const est = base * mult;
@@ -2626,22 +2575,11 @@ async function fetchEventLog() {
   }
 }
 
-// ── Sovereign queue ──────────────────────────────────────────────────
-async function processQueueSovereign() {
-  try {
-    await fetch(`${API}/api/queue/process-sovereign`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({canada_only: true})
-    });
-  } catch(e) {}
-  refresh();
-}
 
 async function refresh() {
   await Promise.all([
     fetchHosts(), fetchJobs(), fetchBilling(), fetchMarketplace(), fetchPool(), fetchSpotPrices(), fetchComputeScores(),
-    fetchVerification(), fetchReputation(), fetchTrustTiers(), fetchJurisdiction(), fetchTransparency(),
+    fetchVerification(), fetchReputation(), fetchTrustTiers(), fetchTransparency(),
     fetchPricing(), fetchFundStats(), fetchEventLog(), fetchEarnings(),
     fetchTransactionHistoryFiltered(), fetchAnalytics(), fetchMarketplaceStats(), fetchInvoices(),
     fetchSlurmProfiles(), fetchSpotPriceHistory(), fetchActiveCommitments(),
@@ -3213,8 +3151,8 @@ async function fetchJobArtifactsInDetail(jobId) {
       const d = await r.json();
       const arts = d.artifacts || [];
       if (!arts.length) { el.innerHTML = '<span style="color:#555">No artifacts for this job.</span>'; return; }
-      el.innerHTML = `<table style="width:100%"><thead><tr><th>ID</th><th>Type</th><th>Size</th><th>Residency</th><th>Actions</th></tr></thead><tbody>` +
-        arts.map(a => `<tr><td style="font-size:10px">${(a.artifact_id || '').slice(0,8)}…</td><td>${a.artifact_type}</td><td>${formatBytes(a.size_bytes)}</td><td>${a.residency_policy || '—'}</td><td><button class="btn btn-secondary" style="padding:1px 6px;font-size:10px" onclick="downloadArtifact('${a.artifact_id}')">⬇</button></td></tr>`).join('') +
+      el.innerHTML = `<table style="width:100%"><thead><tr><th>ID</th><th>Type</th><th>Size</th><th>Storage</th><th>Actions</th></tr></thead><tbody>` +
+        arts.map(a => `<tr><td style="font-size:10px">${(a.artifact_id || '').slice(0,8)}…</td><td>${a.artifact_type}</td><td>${formatBytes(a.size_bytes)}</td><td>${a.storage_policy || '—'}</td><td><button class="btn btn-secondary" style="padding:1px 6px;font-size:10px" onclick="downloadArtifact('${a.artifact_id}')">⬇</button></td></tr>`).join('') +
         `</tbody></table>`;
     } else { el.innerHTML = '<span style="color:#555">No artifacts.</span>'; }
   } catch(e) { el.innerHTML = '<span style="color:#555">Artifacts not available.</span>'; }
@@ -3550,7 +3488,7 @@ async function fetchArtifacts() {
         const cls = days > 30 ? 'expiry-ok' : days > 7 ? 'expiry-warn' : 'expiry-crit';
         expiryHtml = `<span class="expiry-badge ${cls}">${days}d left</span>`;
       }
-      return `<tr><td style="font-family:monospace;font-size:10px">${(a.artifact_id||'').slice(0,12)}...</td><td>${a.artifact_type||'—'}</td><td>${a.job_id||'—'}</td><td>${sizeStr}</td><td>${a.residency_policy||'—'}</td><td>${date}</td><td>${expiryHtml}</td><td><button class="btn btn-secondary" onclick="downloadArtifact('${a.job_id}','${a.artifact_id}')" style="font-size:10px;padding:2px 6px">⬇</button></td></tr>`;
+      return `<tr><td style="font-family:monospace;font-size:10px">${(a.artifact_id||'').slice(0,12)}...</td><td>${a.artifact_type||'—'}</td><td>${a.job_id||'—'}</td><td>${sizeStr}</td><td>${a.storage_policy||'—'}</td><td>${date}</td><td>${expiryHtml}</td><td><button class="btn btn-secondary" onclick="downloadArtifact('${a.job_id}','${a.artifact_id}')" style="font-size:10px;padding:2px 6px">⬇</button></td></tr>`;
     }).join('');
     document.getElementById('stat-art-size').textContent = formatBytes(totalSize);
   } catch(e) { showToast('Error loading artifacts', 'error'); }
@@ -3582,7 +3520,7 @@ async function uploadArtifact() {
       body: JSON.stringify({
         job_id: document.getElementById('art-upload-job').value.trim(),
         artifact_type: document.getElementById('art-upload-type').value,
-        residency_policy: document.getElementById('art-upload-residency').value,
+        storage_policy: document.getElementById('art-upload-storage-policy').value,
         size_bytes: parseInt(document.getElementById('art-upload-size').value) || 1048576
       })
     });
@@ -3592,14 +3530,6 @@ async function uploadArtifact() {
   } catch(e) { showToast('Upload error', 'error'); }
 }
 
-// ── Admin Panel ──────────────────────────────────────────────────────
-async function toggleCanadaOnly() {
-  const enabled = document.getElementById('admin-canada-only').checked;
-  try {
-    await fetch(`${API}/canada`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ enabled }) });
-    showToast(`Canada-only mode ${enabled ? 'enabled' : 'disabled'}`, enabled ? 'success' : 'warning');
-  } catch(e) { showToast('Failed to toggle', 'error'); }
-}
 
 async function adminSpotUpdate() {
   await fetch(`${API}/spot-prices/update`, { method: 'POST' });
@@ -3654,7 +3584,6 @@ async function recordLegalRequest() {
         request_type: document.getElementById('legal-type').value,
         requesting_agency: document.getElementById('legal-agency').value,
         description: document.getElementById('legal-desc').value,
-        jurisdiction: 'CA'
       })
     });
     const d = await r.json();
@@ -3695,7 +3624,6 @@ async function loadAdminPanel() {
   try {
     const r = await fetch(`${API}/canada`);
     const d = await r.json();
-    document.getElementById('admin-canada-only').checked = !!d.enabled;
   } catch(e) {}
 }
 
@@ -3995,25 +3923,6 @@ async function fetchComplianceData() {
   fetchGSTThreshold();
 }
 
-async function runQuebecPIA() {
-  try {
-    const r = await fetch(`${API}/api/compliance/quebec-pia-check`, {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ provider_id: document.getElementById('set-customer-id')?.value || 'test', data_types: ['personal', 'usage', 'billing'] })
-    });
-    const d = await r.json();
-    const el = document.getElementById('quebec-pia-result');
-    el.style.display = '';
-    if (d.compliant || d.passed) {
-      el.style.borderColor = '#1a3a1a';
-      el.innerHTML = `<span style="color:#4caf50;font-weight:bold">✅ Quebec PIA: Compliant</span><br><span style="color:#888;font-size:11px">${d.detail || d.message || 'All checks passed.'}</span>`;
-    } else {
-      el.style.borderColor = '#3a1a1a';
-      el.style.background = '#1a0a0a';
-      el.innerHTML = `<span style="color:#f44336;font-weight:bold">⚠️ Quebec PIA: Issues Found</span><br><span style="color:#888;font-size:11px">${d.detail || d.message || d.issues?.join(', ') || 'Review required.'}</span>`;
-    }
-  } catch(e) { showToast('PIA check error: ' + e.message, 'error'); }
-}
 
 
 // ── Docker Image Autocomplete ────────────────────────────────────────
@@ -4841,24 +4750,6 @@ async function fetchSLAHostsSummary() {
   }
 }
 
-// ── Residency Trace ─────────────────────────────────────────────────
-async function fetchResidencyTrace() {
-  const jobId = document.getElementById('residency-trace-jobid').value.trim();
-  if (!jobId) { showToast('Enter a Job ID', 'error'); return; }
-  const el = document.getElementById('residency-trace-result');
-  el.innerHTML = 'Loading trace…';
-  try {
-    const r = await fetch(`${API}/api/jurisdiction/residency-trace/${encodeURIComponent(jobId)}`);
-    const d = await r.json();
-    if (!r.ok) { el.innerHTML = `<span style="color:#f44336">${d.detail || 'Not found'}</span>`; return; }
-    const trace = d.trace || {};
-    el.innerHTML = `<div class="residency-trace-panel">
-      ${Object.entries(trace).map(([k, v]) => `<div class="rt-field"><span class="rt-label">${k.replace(/_/g, ' ')}</span><span class="rt-value">${typeof v === 'object' ? JSON.stringify(v) : v}</span></div>`).join('')}
-    </div>`;
-  } catch(e) {
-    el.innerHTML = '<span style="color:#f44336">Failed to fetch residency trace</span>';
-  }
-}
 
 // ── Profile Enhancement ──────────────────────────────────────────────
 async function loadEnhancedProfile() {

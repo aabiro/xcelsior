@@ -4,18 +4,18 @@ import { PrivacyContent } from "./content";
 export const metadata: Metadata = {
   title: "Privacy Policy",
   description:
-    "How Xcelsior Compute Inc. collects, uses, and protects your personal information under PIPEDA and Canadian provincial privacy law.",
+    "How Xcelsior Compute Inc. collects, uses, and protects your personal information.",
   alternates: { canonical: "https://xcelsior.ca/privacy" },
   openGraph: {
     title: "Privacy Policy | Xcelsior",
     description:
-      "How Xcelsior protects your personal information under PIPEDA and Canadian privacy law.",
+      "How Xcelsior protects your personal information.",
     url: "https://xcelsior.ca/privacy",
   },
   twitter: {
     title: "Privacy Policy | Xcelsior",
     description:
-      "How Xcelsior protects your personal information under PIPEDA and Canadian privacy law.",
+      "How Xcelsior protects your personal information.",
   },
 };
 

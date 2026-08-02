@@ -33,7 +33,7 @@ from db import _GPU_PRICING_BASE, _generate_gpu_pricing_rows  # noqa: E402
 TIER_LABELS = {
     "standard": "Standard",
     "premium": "Premium",
-    "sovereign": "Sovereign",
+    "dedicated": "Dedicated",
 }
 
 MODE_LABELS = {

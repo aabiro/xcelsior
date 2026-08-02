@@ -648,9 +648,9 @@ class TestSlaTerms:
         result = _TOOL_HANDLERS["get_sla_terms"]({"tier": "secure"}, _user())
         assert result["tier"] == "secure"
 
-    def test_sovereign(self):
-        result = _TOOL_HANDLERS["get_sla_terms"]({"tier": "sovereign"}, _user())
-        assert result["tier"] == "sovereign"
+    def test_dedicated_tier(self):
+        result = _TOOL_HANDLERS["get_sla_terms"]({"tier": "dedicated"}, _user())
+        assert result["tier"] == "dedicated"
 
     def test_default(self):
         result = _TOOL_HANDLERS["get_sla_terms"]({}, _user())

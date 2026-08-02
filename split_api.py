@@ -34,7 +34,6 @@ TAG_TO_MODULE = {
     "SLA": "sla",
     "Providers": "providers",
     "Artifacts": "artifacts",
-    "Jurisdiction": "jurisdiction",
     "Compliance": "compliance",
     "Privacy": "privacy",
     "Transparency": "transparency",
@@ -499,20 +498,6 @@ def scan_imports_needed(code_text):
         ],
         "verification": [
             ("verification", ["get_verification_engine"]),
-        ],
-        "jurisdiction": [
-            (
-                "jurisdiction",
-                [
-                    "TrustTier",
-                    "JurisdictionConstraint",
-                    "generate_residency_trace",
-                    "get_jurisdiction_engine",
-                    "TRUST_TIERS",
-                    "RESIDENCY_REQUIREMENTS",
-                    "PROVINCE_DATA_RESIDENCY",
-                ],
-            ),
         ],
         "billing": [
             ("billing", ["get_billing_engine", "get_tax_rate_for_province", "PROVINCE_TAX_RATES"]),

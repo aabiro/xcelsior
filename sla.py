@@ -2,7 +2,7 @@
 # Automated SLA monitoring, credit calculation, and enforcement.
 #
 # Per REPORT_FEATURE_1.md (Report #1.B):
-# - Tiered uptime targets: Community 99.0%, Secure 99.5%, Sovereign 99.9%
+# - Tiered uptime targets: Community 99.0%, Secure 99.5%, Dedicated 99.9%
 # - Automated credit calculation based on monthly uptime percentage
 # - Downtime tracking via missed heartbeats and telemetry gaps
 # - Host auto-demotion on persistent SLA breach
@@ -27,7 +27,7 @@ DB_PATH = os.environ.get("XCELSIOR_SLA_DB", "xcelsior_sla.db")
 class SLATier(str, Enum):
     COMMUNITY = "community"  # Consumer hardware, best-effort
     SECURE = "secure"  # Data-center grade, SOC 2 path
-    SOVEREIGN = "sovereign"  # Canadian-owned, data residency guarantee
+    DEDICATED = "dedicated"  # Dedicated hardware, highest availability commitment
 
 
 @dataclass
@@ -62,8 +62,8 @@ SLA_TARGETS: dict[SLATier, SLATarget] = {
         heartbeat_grace_sec=60,
         max_thermal_c=85,
     ),
-    SLATier.SOVEREIGN: SLATarget(
-        tier=SLATier.SOVEREIGN,
+    SLATier.DEDICATED: SLATarget(
+        tier=SLATier.DEDICATED,
         availability_pct=99.9,
         latency_ttft_ms=50,
         throughput_floor_pct=95.0,
@@ -307,7 +307,7 @@ class SLAEngine:
 
         Args:
             host_id: The host to evaluate
-            tier: SLA tier (community/secure/sovereign)
+            tier: SLA tier (community/secure/dedicated)
             month: YYYY-MM format
             monthly_spend_cad: The customer's total spend on this host for the month
         """
@@ -360,12 +360,12 @@ class SLAEngine:
             conn.execute(
                 """INSERT INTO sla_monthly
                    (host_id, month, tier, total_seconds, downtime_seconds,
-                    incidents, credit_pct, credit_cad, enforced)
+                    incidents, credit_pct, credit_micros, enforced)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT (host_id, month) DO UPDATE SET
                      tier = EXCLUDED.tier, total_seconds = EXCLUDED.total_seconds,
                      downtime_seconds = EXCLUDED.downtime_seconds, incidents = EXCLUDED.incidents,
-                     credit_pct = EXCLUDED.credit_pct, credit_cad = EXCLUDED.credit_cad,
+                     credit_pct = EXCLUDED.credit_pct, credit_micros = EXCLUDED.credit_micros,
                      enforced = EXCLUDED.enforced""",
                 (
                     host_id,
@@ -375,7 +375,8 @@ class SLAEngine:
                     downtime_sec,
                     incidents,
                     record.credit_pct,
-                    record.credit_cad,
+                    # Integer micros in storage; the record keeps CAD for callers.
+                    round(record.credit_cad * 1_000_000),
                     1,
                 ),
             )

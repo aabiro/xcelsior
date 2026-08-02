@@ -566,7 +566,7 @@ def capture_all() -> dict[str, Any]:
         row = rows.get(str(rank))
         if row and row.get("status") == "verified":
             row["non_goal_waiver"] = (
-                "sovereignty/residency deprioritized per plan non-goals; structural schema/tests only"
+                "structural schema/tests only"
             )
             row.setdefault("evidence_tier", "structural_non_goal_waived")
 

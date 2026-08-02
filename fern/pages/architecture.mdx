@@ -40,10 +40,9 @@ slug: architecture
 | `billing.py` | CAD pricing, 13-province GST/HST, wallets, escrow, Stripe Connect |
 | `events.py` | Append-only event store, tamper-evident hashing, state machine |
 | `verification.py` | GPU fingerprint verification, re-verification scheduling |
-| `jurisdiction.py` | Trust tiers, residency traces, CLOUD Act analysis |
-| `artifacts.py` | B2/R2 artifact storage, residency-aware routing, presigned URLs |
+| `artifacts.py` | B2/R2 artifact storage, policy-based routing, presigned URLs |
 | `reputation.py` | Multi-factor scoring, 7-day grace decay, Bronze→Platinum tiers |
-| `privacy.py` | PIPEDA/Law 25 consent, data retention, PIA triggers |
+| `privacy.py` | Consent, data retention, export and erasure |
 | `db.py` | PostgreSQL + SQLite dual-write, connection pooling, LISTEN/NOTIFY |
 
 ## Data Flow

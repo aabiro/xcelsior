@@ -139,13 +139,67 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Api V1 Mcp Tool Audit Export
+         * @description Customer-visible export of this tenant's own MCP tool-call audit trail.
+         *
+         *     The trail was already recorded per call — principal, tenant, scopes, a hash
+         *     of the redacted arguments, the action plan, the upstream route and status,
+         *     trace id, latency, and outcome. An audit trail a customer cannot read is a
+         *     log file, not an assurance: this is what makes "every agent action is
+         *     audited" checkable by the person whose account it is, which is what an
+         *     enterprise security review actually asks for (adoption plan X6.30).
+         *
+         *     Strictly tenant-scoped. There is no cross-tenant view here at any privilege
+         *     level — an operator investigating an incident uses the operator surface,
+         *     which is separately authorized and separately audited.
+         */
+        get: operations["api_v1_mcp_tool_audit_export_api_v1_mcp_tool_audit_get"];
         put?: never;
         /**
          * Api V1 Mcp Tool Audit
          * @description Persist a redacted MCP audit and its delivery intent atomically.
          */
         post: operations["api_v1_mcp_tool_audit_api_v1_mcp_tool_audit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mcp/activation-funnel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api V1 Mcp Activation Funnel
+         * @description Connector activation funnel, with per-surface attribution.
+         *
+         *     Adoption plan X7.33/X7.34. The stages are the ones a connector actually
+         *     passes through, computed from durable records rather than estimated:
+         *
+         *       authorized       → a user approved the connector (`oauth_consent_grants`)
+         *       first_tool_call  → that tenant made at least one MCP tool call
+         *       first_success    → at least one of those calls succeeded
+         *       first_write      → they used a tool that changes something
+         *       first_paid       → they ran a workload that was billed
+         *
+         *     **The two stages above `authorized` are deliberately not here.** Discovery
+         *     hits and 401 challenges are counted at the MCP edge as Prometheus counters
+         *     (`xcelsior_mcp_auth_failures_total`, `xcelsior_mcp_active_transports`) and
+         *     read in Grafana. Persisting a database row per unauthenticated request would
+         *     make an unauthenticated endpoint a write amplifier — the top of this funnel
+         *     belongs in a metrics pipeline, not in Postgres, and saying so is more useful
+         *     than a number we would have to fabricate.
+         *
+         *     Platform-wide, so admin-only: a tenant's own activity is the audit export.
+         */
+        get: operations["api_v1_mcp_activation_funnel_api_v1_mcp_activation_funnel_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -889,11 +943,6 @@ export interface components {
              */
             push: boolean;
         };
-        /** CanadaToggle */
-        CanadaToggle: {
-            /** Enabled */
-            enabled: boolean;
-        };
         /** CaslConsentRequest */
         CaslConsentRequest: {
             /** Purpose */
@@ -1151,16 +1200,6 @@ export interface components {
              * @default false
              */
             spot: boolean;
-            /**
-             * Sovereignty
-             * @default false
-             */
-            sovereignty: boolean;
-            /**
-             * Is Canadian
-             * @default false
-             */
-            is_canadian: boolean;
         };
         /** FinalizeRequest */
         FinalizeRequest: {
@@ -1482,18 +1521,6 @@ export interface components {
             /** Template Image Id */
             template_image_id?: string | null;
         };
-        /** JurisdictionFilterRequest */
-        JurisdictionFilterRequest: {
-            /**
-             * Canada Only
-             * @default true
-             */
-            canada_only: boolean;
-            /** Province */
-            province?: string;
-            /** Trust Tier */
-            trust_tier?: string;
-        };
         /** LeaseAuthorityRequest */
         LeaseAuthorityRequest: {
             /** Lease Id */
@@ -1544,10 +1571,10 @@ export interface components {
              */
             request_type: string;
             /**
-             * Jurisdiction
+             * Requesting Country
              * @default CA
              */
-            jurisdiction: string;
+            requesting_country: string;
             /**
              * Authority
              * @default
@@ -1611,11 +1638,6 @@ export interface components {
              * @default
              */
             region: string;
-            /**
-             * Canada Only
-             * @default false
-             */
-            canada_only: boolean;
             /**
              * Spot Available
              * @default false
@@ -1731,24 +1753,6 @@ export interface components {
             details?: {
                 [key: string]: unknown;
             } | null;
-        };
-        /** PIACheckRequest */
-        PIACheckRequest: {
-            /**
-             * Data Origin Province
-             * @default QC
-             */
-            data_origin_province: string;
-            /**
-             * Processing Province
-             * @default ON
-             */
-            processing_province: string;
-            /**
-             * Data Contains Pi
-             * @default false
-             */
-            data_contains_pi: boolean;
         };
         /** PasskeyAuthenticateCompleteRequest */
         PasskeyAuthenticateCompleteRequest: {
@@ -2447,18 +2451,6 @@ export interface components {
              */
             redirect: string;
         };
-        /** SovereignQueueRequest */
-        SovereignQueueRequest: {
-            /**
-             * Canada Only
-             * @default true
-             */
-            canada_only: boolean;
-            /** Province */
-            province?: string;
-            /** Trust Tier */
-            trust_tier?: string;
-        };
         /** StatusUpdate */
         StatusUpdate: {
             /** Status */
@@ -2543,10 +2535,10 @@ export interface components {
              */
             artifact_type: string;
             /**
-             * Residency Policy
-             * @default canada_only
+             * Storage Policy
+             * @default any
              */
-            residency_policy: string;
+            storage_policy: string;
         };
         /**
          * V1InferenceRequest
@@ -3071,6 +3063,26 @@ export interface operations {
             };
         };
     };
+    api_v1_mcp_tool_audit_export_api_v1_mcp_tool_audit_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     api_v1_mcp_tool_audit_api_v1_mcp_tool_audit_post: {
         parameters: {
             query?: never;
@@ -3100,6 +3112,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_mcp_activation_funnel_api_v1_mcp_activation_funnel_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };

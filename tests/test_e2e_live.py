@@ -532,9 +532,9 @@ run_test("Slurm profiles", _e2e_slurm_profiles)
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# 14. JURISDICTION
+# 14. COMPLIANCE
 # ═══════════════════════════════════════════════════════════════════════
-print("\n═══ 14. JURISDICTION ═══")
+print("\n═══ 14. COMPLIANCE ═══")
 
 
 def _e2e_canada_routing():

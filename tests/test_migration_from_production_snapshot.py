@@ -66,7 +66,7 @@ LEGACY_STATUS_PROJECTION: dict[str, tuple[str, str]] = {
     "terminated": ("stopped", "stopped"),
 }
 
-# Money-bearing rows seeded into billing_cycles.amount_cad; the sum must
+# Money-bearing rows seeded into billing_cycles.amount_micros; the sum must
 # survive the upgrade exactly (companion §16.1 "money totals").
 #
 # These are `double precision` in the current schema. Companion §4.4 rule 6
@@ -382,7 +382,7 @@ def test_production_shaped_upgrade_to_head(seeded_snapshot_db):
         )
 
         # ── money totals survive exactly ──
-        total = conn.execute("SELECT sum(amount_cad) FROM billing_cycles").fetchone()
+        total = conn.execute("SELECT sum(amount_micros)::double precision / 1000000.0 FROM billing_cycles").fetchone()
         assert total is not None
         assert abs(total[0] - sum(SEEDED_AMOUNT_CAD)) < 1e-9, (
             f"billing total changed during upgrade: seeded "

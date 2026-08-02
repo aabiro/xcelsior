@@ -166,7 +166,6 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /api/billing/gst-threshold/{provider_id}` — `api_provider_gst_threshold`  ✓ test_compliance_endpoints_coverage.py
 - [x] `GET /api/compliance/detect-province` — `api_detect_province`  ✓ test_compliance_endpoints_coverage.py
 - [x] `GET /api/compliance/provinces` — `api_compliance_provinces`  ✓ test_compliance_endpoints_coverage.py
-- [x] `POST /api/compliance/quebec-pia-check` — `api_quebec_pia_check`  ✓ test_compliance_endpoints_coverage.py
 - [x] `GET /api/compliance/status` — `api_compliance_status`
 - [x] `GET /api/compliance/tax-rates` — `api_tax_rates`  ✓ test_compliance_endpoints_coverage.py
 - [x] `GET /api/compliance/trust-tier-requirements` — `api_trust_tier_requirements`  ✓ test_compliance_endpoints_coverage.py
@@ -219,13 +218,13 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /api/hosts/register` — `api_register_host_web`  ✓ test_hosts_endpoints_coverage.py
 - [x] `GET /compute-score/{host_id}` — `api_get_compute_score`
 - [x] `GET /compute-scores` — `api_list_compute_scores`  ✓ test_hosts_endpoints_coverage.py
-- [x] `PUT /host` — `api_register_host`  ✓ test_jurisdiction_endpoints_coverage.py
+- [x] `PUT /host` — `api_register_host`  ✓ test_hosts_endpoints_coverage.py
 - [x] `GET /host/{host_id}` — `api_get_host`  ✓ test_hosts_endpoints_coverage.py
 - [x] `DELETE /host/{host_id}` — `api_remove_host`  ✓ test_hosts_endpoints_coverage.py
 - [x] `POST /host/{host_id}/drain` — `api_drain_host`  ✓ test_hosts_endpoints_coverage.py
 - [x] `GET /host/{host_id}/maintenance` — `api_host_maintenance`  ✓ test_hosts_endpoints_coverage.py
 - [x] `POST /host/{host_id}/undrain` — `api_undrain_host`  ✓ test_hosts_endpoints_coverage.py
-- [x] `GET /hosts` — `api_list_hosts`  ✓ test_jurisdiction_endpoints_coverage.py
+- [x] `GET /hosts` — `api_list_hosts`  ✓ test_hosts_endpoints_coverage.py
 - [x] `POST /hosts/check` — `api_check_hosts`  ✓ test_hosts_endpoints_coverage.py
 
 ### `routes/inference.py` (0 untested)
@@ -274,22 +273,13 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /instances/{job_id}/terminate` — `api_terminate_instance`  ✓ test_instances_endpoints_coverage.py
 - [x] `POST /instances/{job_id}/unlock` — `api_unlock_instance`  ✓ test_instances_endpoints_coverage.py
 - [x] `GET /internal/route/{slug}/{port}` — `api_internal_route`
-- [x] `POST /queue/process` — `api_process_queue`  ✓ test_jurisdiction_endpoints_coverage.py
+- [x] `POST /queue/process` — `api_process_queue`  ✓ test_hosts_endpoints_coverage.py
 - [x] `GET /tiers` — `api_list_tiers`
 - [x] `GET /user-images` — `api_list_user_images`
 - [x] `PATCH /user-images/{image_id}` — `api_patch_user_image`
 - [x] `DELETE /user-images/{image_id}` — `api_delete_user_image`
 - [x] `POST /user-images/{image_id}/complete` — `api_user_image_complete`
 
-### `routes/jurisdiction.py` (0 untested)
-- [x] `POST /api/jurisdiction/hosts` — `api_jurisdiction_hosts`  ✓ test_jurisdiction_endpoints_coverage.py
-- [x] `GET /api/jurisdiction/residency-trace/{job_id}` — `api_residency_trace`
-- [x] `POST /api/queue/process-sovereign` — `api_process_queue_sovereign`  ✓ test_jurisdiction_endpoints_coverage.py
-- [x] `GET /api/trust-tiers` — `api_trust_tiers`
-- [x] `GET /canada` — `api_canada_status`
-- [x] `PUT /canada` — `api_set_canada`
-- [x] `GET /hosts/ca` — `api_list_canadian_hosts`
-- [x] `POST /queue/process/ca` — `api_process_queue_ca`  ✓ test_jurisdiction_endpoints_coverage.py
 
 ### `routes/marketplace.py` (0 untested)
 - [x] `POST /api/v2/marketplace/allocate` — `api_marketplace_allocate`

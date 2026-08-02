@@ -121,7 +121,7 @@ def test_hosts_compute_scores():
     assert isinstance(r.json().get("scores"), dict)
 
 
-def _machine_token_for_user(user_headers: dict, *, scopes: str = "api") -> str:
+def _machine_token_for_user(user_headers: dict, *, scopes: str = "hosts:read hosts:write") -> str:
     created = client.post(
         "/api/oauth/clients",
         headers=user_headers["headers"],
@@ -130,7 +130,7 @@ def _machine_token_for_user(user_headers: dict, *, scopes: str = "api") -> str:
             "client_type": "confidential",
             "redirect_uris": [],
             "grant_types": ["client_credentials"],
-            "scopes": ["api", "hosts:read", "hosts:write"],
+            "scopes": ["hosts:read", "hosts:write"],
         },
     )
     assert created.status_code == 200, created.text
@@ -277,7 +277,7 @@ def test_worker_oauth_can_patch_instance_status(user_headers):
     assert resp.status_code == 200, resp.text
     job_id = resp.json()["instance"]["job_id"]
 
-    machine_token = _machine_token_for_user(user_headers, scopes="api hosts:write")
+    machine_token = _machine_token_for_user(user_headers, scopes="hosts:read hosts:write")
     patch = client.patch(
         f"/instance/{job_id}",
         json={"status": "starting", "host_id": "tower-test"},

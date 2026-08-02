@@ -9,7 +9,6 @@ export interface MarketplaceSearchParams {
     min_vram_gb?: number;
     max_price_cents?: number;
     region?: string;
-    canada_only?: boolean;
     sort_by?: string;
     limit?: number;
 }

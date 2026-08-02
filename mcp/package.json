@@ -16,6 +16,7 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "surface:update": "tsx scripts/update-tool-surface.ts",
     "generate:api": "openapi-typescript openapi-v1.json -o src/client/generated/api.d.ts",
     "check:api": "npm run generate:api && git diff --exit-code -- openapi-v1.json src/client/generated/api.d.ts"
   },

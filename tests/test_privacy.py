@@ -1,4 +1,4 @@
-"""Tests for Xcelsior privacy module — PII redaction, retention lifecycle, consent, Law 25."""
+"""Tests for Xcelsior privacy module — PII redaction, retention lifecycle, consent."""
 
 import json
 import os
@@ -21,7 +21,6 @@ from privacy import (
     redact_env_vars,
     redact_job_record,
     redact_pii,
-    requires_quebec_pia,
     sanitize_log_output,
 )
 
@@ -232,7 +231,7 @@ class TestSanitizeLogOutput:
 
 
 class TestPrivacyConfig:
-    """Verify Law 25 default settings."""
+    """Verify the strict-by-default privacy settings."""
 
     def test_defaults_are_strict(self):
         cfg = PrivacyConfig()
@@ -447,30 +446,5 @@ class TestRetentionSummary:
         assert summary["policies"]["logs"]["retention_days"] == 7
 
 
-# ── Québec Law 25 Cross-Border Assessment ─────────────────────────────
 
 
-class TestQuebecPIA:
-    def test_non_qc_origin_no_pia(self):
-        result = requires_quebec_pia("ON", "BC", data_contains_pi=True)
-        assert result["pia_required"] is False
-
-    def test_qc_origin_no_pi_no_pia(self):
-        result = requires_quebec_pia("QC", "ON", data_contains_pi=False)
-        assert result["pia_required"] is False
-        assert result["recommendation"] is not None
-
-    def test_qc_to_qc_no_pia(self):
-        result = requires_quebec_pia("QC", "QC", data_contains_pi=True)
-        assert result["pia_required"] is False
-
-    def test_qc_to_on_with_pi_requires_pia(self):
-        result = requires_quebec_pia("QC", "ON", data_contains_pi=True)
-        assert result["pia_required"] is True
-        assert "Law 25" in result["reason"]
-        assert "max_penalty" in result
-        assert "law_reference" in result
-
-    def test_case_insensitive(self):
-        result = requires_quebec_pia("qc", "on", data_contains_pi=True)
-        assert result["pia_required"] is True

@@ -203,13 +203,6 @@ function serializeAnalytics(
       sections.push(`Top 5 slots: ${top5.map(d => `${dowNames[d.dow]} ${d.hour}:00 (${d.count} jobs)`).join(" | ")}`);
     }
 
-    // ── Jurisdiction split
-    if (enhanced.sovereignty) {
-      const sov = enhanced.sovereignty;
-      sections.push(`\n=== JURISDICTION SPLIT ===`);
-      sections.push(`Canadian: ${sov.canadian_jobs} jobs (${sov.canadian_pct.toFixed(1)}%), $${sov.canadian_spend.toFixed(2)} spend`);
-      sections.push(`International: ${sov.total_jobs - sov.canadian_jobs} jobs (${(100 - sov.canadian_pct).toFixed(1)}%), $${sov.international_spend.toFixed(2)} spend`);
-    }
 
     // ── GPU performance comparison
     if (enhanced.gpu_performance?.length) {
@@ -416,7 +409,6 @@ export function AnalyticsAiPanel({
       count += (enhanced.wallet_activity?.length ?? 0);
       count += (enhanced.peak_days?.length ?? 0);
       count += (enhanced.provider_daily?.length ?? 0);
-      if (enhanced.sovereignty) count += 5;
       if (enhanced.provider_summary) count += 4;
     }
     return count;

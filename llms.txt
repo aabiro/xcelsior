@@ -22,11 +22,11 @@ Headscale (mesh networking), Docker + gVisor (container isolation).
 on-demand for checkpointable workloads. Serverless inference is billed per
 million tokens with no idle cost.
 
-**Regions and residency**: Placement is region-aware. Workloads with a data
-residency or jurisdiction requirement pass that constraint explicitly and the
-scheduler enforces it — including province-level filtering and PIPEDA / Quebec
-Law 25 / BC FIPPA / Ontario PHIPA constraints where those apply. Residency is a
-per-workload option, not a platform-wide restriction.
+**Regions**: Xcelsior is a global marketplace. Capacity comes from independent
+hosts worldwide and is selected on price, availability, GPU model, and host
+reputation. Filter by region when a workload needs low latency to a specific
+place; otherwise the whole marketplace is available. The platform does not
+guarantee that a workload stays in any particular country.
 
 ## Three ways to drive the platform
 
@@ -183,13 +183,11 @@ Public endpoints (no auth): `/`, `/docs`, `/openapi.json`, `/dashboard`,
 - `POST /api/providers/{provider_id}/incorporation` — Link incorporation file
 - `POST /api/providers/webhook` — Stripe webhook handler
 
-### Jurisdiction & Compliance
-- `POST /api/jurisdiction/hosts` — Filter hosts by jurisdiction constraints
-- `GET /api/compliance/provinces` — Province compliance matrix
-- `GET /api/compliance/tax-rates` — GST/HST rates by province
-- `POST /api/compliance/quebec-pia-check` — Quebec Law 25 PIA check
+### Compliance
+- `GET /api/compliance/status` — Platform controls and posture
+- `GET /api/compliance/tax-rates` — Sales tax rates
 
-### Privacy (PIPEDA)
+### Privacy
 - `POST /api/privacy/config` — Set org privacy config (privacy officer, retention)
 - `POST /api/privacy/consent` — Record consent
 - `DELETE /api/privacy/consent/{entity_id}/{consent_type}` — Revoke consent
@@ -265,7 +263,7 @@ TypeScript SDK: `client.serverless.createEndpoint()`, `.runJob()`, `.chatComplet
   "name": "llama-finetune",
   "vram_needed_gb": 20.0,
   "priority": 5,
-  "tier": "sovereign"
+  "tier": "dedicated"
 }
 ```
 
@@ -288,7 +286,7 @@ TypeScript SDK: `client.serverless.createEndpoint()`, `.runJob()`, `.chatComplet
 |------|-----------|----------|
 | community | 99.0% | R&D, experimentation |
 | secure | 99.5% | Production inference |
-| sovereign | 99.9% | Government, regulated data |
+| dedicated | 99.9% | Production workloads needing the highest availability |
 
 ## Reputation Tiers
 

@@ -3,8 +3,8 @@
 #   - Default-minimal logging for job payloads; explicit opt-in for sensitive fields
 #   - Privacy officer designation in org/provider settings
 #   - Job metadata redaction and retention policies
-#   - Québec Law 25: identification/location/profiling disabled by default
-#   - PIPEDA 10 fair information principles as built-in controls
+#   - Identification, location, and profiling disabled by default
+#   - Fair information principles as built-in controls
 #
 # Design principle: privacy governance is encoded in code, not policy documents.
 
@@ -22,11 +22,11 @@ from typing import Optional
 log = logging.getLogger("xcelsior")
 
 
-# ── Privacy Settings (defaults = maximum confidentiality per Law 25) ──
+# ── Privacy Settings (defaults = maximum confidentiality) ──
 
 
 class PrivacyLevel(str, Enum):
-    """Privacy level for data handling. Default is STRICT per Québec Law 25."""
+    """Privacy level for data handling. Defaults to STRICT."""
 
     STRICT = "strict"  # Maximum confidentiality, all PII redacted
     STANDARD = "standard"  # Reasonable safeguards, minimal PII retained
@@ -48,7 +48,7 @@ class DataCategory(str, Enum):
 
 
 # ── Retention Policies ────────────────────────────────────────────────
-# PIPEDA principle: "Limiting Use, Disclosure, and Retention —
+# Principle: "Limiting Use, Disclosure, and Retention —
 # keeping data only as long as required for the identified job."
 
 # Default retention periods in seconds
@@ -90,7 +90,7 @@ RETENTION_POLICIES = {
     },
     DataCategory.LOCATION: {
         "retention_sec": 90 * 86400,  # 90 days
-        "description": "Location data retained 90 days for residency traces",
+        "description": "Location data retained 90 days",
         "redact_on_completion": False,
     },
     DataCategory.CHAT_MESSAGES: {
@@ -148,7 +148,7 @@ ALWAYS_REDACT_ENV_VARS = frozenset(
 class PrivacyConfig:
     """Per-organization or per-job privacy configuration.
 
-    Defaults to STRICT per Québec Law 25 guidance:
+    Defaults to STRICT:
     "default settings provide the highest level of confidentiality,
      and identification/location/profiling functions cannot be
      enabled by default."
@@ -156,12 +156,12 @@ class PrivacyConfig:
 
     privacy_level: str = PrivacyLevel.STRICT
 
-    # PIPEDA Accountability: privacy officer designation
+    # Accountability: privacy officer designation
     privacy_officer_name: str = ""
     privacy_officer_email: str = ""
     privacy_officer_designated: bool = False
 
-    # Québec Law 25: identification/location/profiling OFF by default
+    # Identification, location, and profiling OFF by default
     enable_identification: bool = False  # Link jobs to named individuals
     enable_location_tracking: bool = False  # Detailed geolocation beyond country
     enable_profiling: bool = False  # Usage pattern analysis
@@ -295,7 +295,7 @@ def sanitize_log_output(log_text: str, max_length: int = 10000) -> str:
 
 
 class DataLifecycleManager:
-    """Manages data retention and purging per PIPEDA principles.
+    """Manages data retention and purging per privacy principles.
 
     "Organizations must protect personal information with appropriate
      safeguards and destroy it when no longer needed."
@@ -634,7 +634,7 @@ class DataLifecycleManager:
         consent_type: str,
         details: Optional[dict] = None,
     ) -> str:
-        """Record explicit consent (PIPEDA principle: Consent)."""
+        """Record explicit consent."""
         import uuid
 
         consent_id = str(uuid.uuid4())[:12]
@@ -670,7 +670,7 @@ class DataLifecycleManager:
         return (row["cnt"] or 0) > 0
 
     def get_consents(self, entity_id: str) -> list[dict]:
-        """Get all consent records for an entity (PIPEDA: Individual Access)."""
+        """Get all consent records for an entity."""
         with self._conn() as conn:
             rows = conn.execute(
                 """SELECT * FROM consent_records
@@ -757,55 +757,6 @@ def get_lifecycle_manager() -> DataLifecycleManager:
     return _lifecycle_manager
 
 
-# ── Québec Law 25 Cross-Border Assessment ─────────────────────────────
-# Before communicating personal information outside Québec, an enterprise
-# must conduct a PIA. This helper determines if a cross-border flag is needed.
-
-
-def requires_quebec_pia(
-    data_origin_province: str,
-    processing_province: str,
-    data_contains_pi: bool = False,
-) -> dict:
-    """Check if Québec Law 25 cross-border PIA assessment is required.
-
-    Returns assessment dict with required/reason/recommendation.
-    """
-    origin = data_origin_province.upper()
-    target = processing_province.upper()
-
-    if origin != "QC":
-        return {
-            "pia_required": False,
-            "reason": "Data does not originate from Québec",
-            "recommendation": None,
-        }
-
-    if not data_contains_pi:
-        return {
-            "pia_required": False,
-            "reason": "No personal information identified in workload",
-            "recommendation": "Verify workload does not contain PI",
-        }
-
-    if target == "QC":
-        return {
-            "pia_required": False,
-            "reason": "Processing stays within Québec",
-            "recommendation": None,
-        }
-
-    return {
-        "pia_required": True,
-        "reason": (
-            f"Québec Law 25 requires PIA for cross-border transfer "
-            f"(QC → {target}). Enterprise must assess sensitivity, purpose, "
-            f"safeguards, and legal framework of destination."
-        ),
-        "recommendation": "Use quebec_only routing or obtain written agreement",
-        "max_penalty": "$25,000,000 or 4% of worldwide turnover",
-        "law_reference": "Act respecting the protection of personal information in the private sector, s. 17",
-    }
 
 
 # ── Cryptographic Shredding ──────────────────────────────────────────
@@ -825,7 +776,7 @@ except ImportError:
 
 
 class CryptoShredder:
-    """Per-user encryption key manager for PIPEDA right-to-erasure."""
+    """Per-user encryption key manager for right-to-erasure."""
 
     def __init__(self, db_path=None):
         self._db_path = db_path

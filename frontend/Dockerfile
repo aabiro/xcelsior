@@ -34,7 +34,7 @@ RUN --mount=type=cache,target=/app/.next/cache \
 FROM node:22-alpine AS runner
 
 LABEL org.opencontainers.image.title="Xcelsior Frontend" \
-      org.opencontainers.image.description="Next.js frontend for Xcelsior — Canadian sovereign GPU marketplace" \
+      org.opencontainers.image.description="Next.js frontend for Xcelsior — global GPU marketplace" \
       org.opencontainers.image.url="https://xcelsior.ca" \
       org.opencontainers.image.source="https://github.com/aabiro/xcelsior" \
       org.opencontainers.image.vendor="Xcelsior" \

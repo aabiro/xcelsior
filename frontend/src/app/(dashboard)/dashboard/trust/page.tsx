@@ -18,20 +18,20 @@ import { useLocale } from "@/lib/locale";
 
 const TIER_ICONS: Record<string, LucideIcon> = {
   community: Globe,
-  residency: MapPin,
-  sovereignty: Shield,
+  secure: Shield,
+  dedicated: Shield,
   regulated: Lock,
 };
 
 const TIER_COLORS: Record<string, string> = {
   community: "bg-ice-blue/10 border-ice-blue/20 text-ice-blue",
-  residency: "bg-emerald/10 border-emerald/20 text-emerald",
-  sovereignty: "bg-accent-gold/10 border-accent-gold/20 text-accent-gold",
+  secure: "bg-emerald/10 border-emerald/20 text-emerald",
+  dedicated: "bg-accent-gold/10 border-accent-gold/20 text-accent-gold",
   regulated: "bg-accent-red/10 border-accent-red/20 text-accent-red",
 };
 
 const TIER_LABELS: Record<string, string> = {
-  sovereignty: "Enterprise",
+  dedicated: "Dedicated",
 };
 
 export default function TrustPage() {
