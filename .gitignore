@@ -105,6 +105,7 @@ docs/*
 !docs/mcp-tool-surface-plan.md
 !docs/mcp-provider-axis-plan.md
 !docs/mcp-tool-surface-research-prompt.md
+!docs/mcp-agent-native-implementation-plan.md
 !docs/mcp-tool-surface-synthesis.md
 !docs/mcp_tools_chatgpt.md
 !docs/mcp_tools_gemini.md
