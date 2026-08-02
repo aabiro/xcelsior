@@ -100,6 +100,11 @@ docs/*
 !docs/mcp-submission-readiness.md
 !docs/mcp-tool-versioning.md
 !docs/mcp-quickstarts.md
+# Tool-surface track: the curated-surface plan X1 depends on, the provider axis,
+# and the research prompt that produces the tool enumeration.
+!docs/mcp-tool-surface-plan.md
+!docs/mcp-provider-axis-plan.md
+!docs/mcp-tool-surface-research-prompt.md
 
 # ── Editor / OS ──────────────────────────────────────────────────────
 .vscode/settings.json

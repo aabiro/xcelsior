@@ -603,7 +603,26 @@ vantage and reports `BLOCKED(env)` rather than green when it cannot.
 [.github/workflows/mcp-conformance.yml](../.github/workflows/mcp-conformance.yml)
 schedules it daily.
 
-### X1 — tool surface hardening ✅
+### X1 — tool surface hardening ✅ / expansion ❌ — **GX1 does not close**
+
+> **Status corrected 2026-08-01.** This section previously read ✅ outright.
+> That was wrong. X1 has two halves and only one was built.
+>
+> - **Hardening — delivered** (items 9–14 below): profiles, annotation truth,
+>   descriptions, hygiene, evals, drift check.
+> - **Expansion — not started.** X1 above names
+>   [mcp-tool-surface-plan.md](./mcp-tool-surface-plan.md) as its detailed plan
+>   and states that **gates GT0–GT4 there are prerequisites to GX1**. Those
+>   gates cover the curated surface going **37 → ~91 actions** and the entire
+>   §4 payments architecture (URL Mode Elicitation, spend envelopes). None of
+>   it is built.
+>
+> The surface went 37 → **39** in this work — the two opt-in company-knowledge
+> tools — plus classification of what already existed. So **GX1 cannot be
+> claimed**, and the zero-coverage domains that plan identifies (storage,
+> compliance, teams, payouts) are still zero. The unused scopes it names
+> (`billing:write`, `events:read`, `mcp_actions:approve`) are still wired to no
+> tool.
 
 - **9. Two profiles from one codebase.** Operator tools are not *registered* under the customer profile, so they cannot appear in `tools/list` or be called by name. Asserted on the wire in both E2E suites.
 - **10. GAP 6 resolved, both halves.** `openWorldHint` is now true for the three live-marketplace reads. `drain_host` was reviewed and deliberately **left non-destructive**: the versioned endpoint it calls returns *"new placements stopped; running workloads untouched"* — the destructive counterpart is `evict_host_workloads`, which is flagged. Documented in `contracts.ts` and pinned by test.
@@ -805,8 +824,12 @@ Copilot CLI. **GA4:** both paths reach an authenticated session.
 **A6. Reviewer/demo account** *(X2.16)* — already scripted
 (`scripts/seed_reviewer_account.py`). Useful for A1/A2 regardless of submission.
 
-> **MVP 2.0 promotion gate (amended):** GA1 · GA2 · GA3 · GA4 · GX0 · GX1 · GX6 ·
-> GX7. Directory listings are explicitly *not* in it.
+> **MVP 2.0 promotion gate (amended):** GA1 · GA2 · GA3 · GA4 · GX0 · GX6 · GX7,
+> **plus GT0–GT4 and GX1** from [mcp-tool-surface-plan.md](./mcp-tool-surface-plan.md).
+> Directory listings are explicitly *not* in it — but the tool surface is. GX1
+> was previously listed here as already met; it is not (see §9), and the
+> expansion it depends on is the largest remaining piece of engineering work in
+> this whole plan.
 
 ### Track B — deferred, needs a legal entity or a customer
 
@@ -835,11 +858,16 @@ the onboarding is theirs to drive, not ours.
 Microsoft publisher + Partner Center enrolment respectively. Both are
 post-revenue moves.
 
-### Correction to X5.21's premise
+### Retracted: my "correction" to X5.21 was wrong
 
-X5.21 warns that Gemini Enterprise's ≤100-action cap will truncate us and that a
-subset must be curated. **At the current surface that premise is false**: the
-server defines 39 tool contracts — 30 in the customer profile, 37 with operator,
-39 with company-knowledge enabled. There is no truncation risk today. Re-check
-this if the surface grows past ~80, and do not curate a subset to solve a
-problem that does not exist.
+An earlier revision of this section claimed X5.21's ≤100-action warning was a
+false premise, on the grounds that the server defines only 39 tool contracts.
+**That was wrong, and it is retracted.** X5.21 is sized against the *target*
+surface in [mcp-tool-surface-plan.md §5](./mcp-tool-surface-plan.md), which is
+**~91 actions** — deliberately "under the 100-action Gemini cap with headroom."
+The cap warning is correct and the curation instruction stands.
+
+The error came from measuring the surface as built (39) instead of the surface
+as planned (~91), which inverted the conclusion: it read a *deferred expansion*
+as a *nonexistent risk*. Anyone reasoning about the tool count must read the
+surface plan's domain budget first.
