@@ -1,0 +1,296 @@
+# Xcelsior — agent-native implementation plan
+
+**Status:** plan of record for building the tool surface.
+**Written:** 2026-08-02. Approved on the strength of one sentence, which is
+also this plan's acceptance test.
+
+> An agent SSH'd into the GPU, talking to the platform at the same time,
+> driving the controllers that run the environment. **You never have to leave
+> the terminal.**
+
+Everything below exists to make that sentence literally true, and to keep it
+true. A phase ships only when the sentence is more true than it was before, and
+when a test would fail if it stopped being true.
+
+**Companions:** [mcp-tool-surface-synthesis.md](./mcp-tool-surface-synthesis.md)
+(what to build and why), [mcp-tool-surface-plan.md](./mcp-tool-surface-plan.md)
+(gates GT0–GT4), [mcp-provider-axis-plan.md](./mcp-provider-axis-plan.md),
+[mcp-enterprise-adoption-plan.md](./mcp-enterprise-adoption-plan.md).
+
+---
+
+## 0. What has to be true for the claim to hold
+
+The sentence has four load-bearing clauses. Three are the phases; the fourth is
+the reason this plan is not just a feature list.
+
+| Clause | What it requires | State today |
+|---|---|---|
+| *"SSH'd into the GPU"* | launch → running → **connected**, without a dashboard | endpoints exist, unreachable as tools (§0.1) |
+| *"talking to the platform at the same time"* | the same session drives instances, spend, and state | the tool surface's whole job |
+| *"driving the controllers"* | approval, drain, retry, reconcile — governed, not raw | approval machinery exists; operator split done |
+| *"never have to leave"* | **every dead end has a lever inside the terminal** | **this is where it breaks today** (§0.2) |
+
+### 0.1 The access endpoints are authenticated but not authorized
+
+`auto-launch`, `expose`, `stream-ticket` and `ssh/keygen` all sit behind
+`_require_auth` — authentication, not authorization. There is no
+`_require_scope` on any of them. Exposing them as tools today would mean either
+bypassing the scope model or inventing the scopes at the tool layer, and a scope
+enforced in one layer only is the exact defect the `api` wildcard was.
+
+**Consequence:** scopes come first, in P0, or the access phase builds on sand.
+
+### 0.2 The money levers are browser-only, and that is the claim's weak point
+
+This is the caveat, made concrete:
+
+| Rail | Guard | Agent-reachable? |
+|---|---|---|
+| Crypto deposit | `_require_scope` | **yes** |
+| Lightning deposit | `_require_scope` | **yes** |
+| PayPal create-order | `_require_scope` | **yes** |
+| Stripe payment-intent | `_require_scope` | yes, but returns a **client secret**, not a page |
+| Stripe **setup-intent** (save a card) | `_get_current_user` | **no** |
+| Stripe **portal-session** (manage cards) | `_get_current_user` | **no** |
+
+So today: an agent can fund a wallet with crypto or Lightning and *cannot* add
+or manage a card without a browser the user opens themselves. "Never leave the
+terminal" is false for the single most common funding path.
+
+Worse, the Stripe intent endpoints return a `client_secret` intended for
+browser-side Stripe code. Handing that to a tool does not make a payment flow —
+it leaks a credential into model context. **A first-party hosted payment page is
+a prerequisite, not a nice-to-have.** That is P1, and nothing about card
+payments ships before it.
+
+---
+
+## 1. How every phase is gated
+
+Same shape each time, because the failures this codebase has actually produced
+were failures of *evidence*, not of intent.
+
+**Each phase ships with:**
+
+1. **Behaviour tests, named for the behaviour.** `test_agent_key_cannot_exceed_its_scopes`, not `test_scopes_2`. The name is the specification.
+2. **A confirmed-failing check.** Every regression test is run against the code *before* the fix and shown to fail. A test that has never failed is a guess.
+3. **A live-credential path.** At least one assertion per phase runs a real token against the real server. GT3's rule: *a mock is what passed while production did not.*
+4. **A refusal test.** What the phase makes *impossible* — the scope it denies, the plan it will not execute, the state it will not accept.
+5. **An eval delta.** `scripts/mcp_tool_eval.py` re-run at the new tool count. First-tool accuracy must not regress, and unsafe-write selection must not rise.
+
+**Honesty rules, written down because they were broken before:**
+
+- **No budget may be raised to make a test pass.** Ratchets go down or the change does not land. `MAX_LEGACY_FLOAT_CAD_COLUMNS` reached 0 that way.
+- **A guard may not be narrowed to make it pass.** The repo-wide vocabulary guard scanned ten filename suffixes and reported clean while four blog posts and a published docs page were full of what it was hunting. It now scans every file and proves it does with planted probe files.
+- **A test that asserts a bug is a bug.** `"does not grant legacy api unless it is explicitly present"` asserted the opposite of its own name for months.
+- **Green does not mean done.** State what was *not* run, and what a passing suite does not cover.
+
+---
+
+## P0 — Foundations: scopes, one registry, and the drift gates
+*Nothing else is safe to build until the surface cannot drift.*
+
+**Backend**
+
+- **Scope the access endpoints.** New scopes: `instances:connect` (auto-launch, expose, stream-ticket), `ssh:manage` (keygen, pubkey registration). Applied with `_require_scope`, at both layers.
+- **Scope the billing levers.** `setup-intent` and `portal-session` move from `_get_current_user` to `_require_scope(billing:write)` so they *can* become tools in P1.
+- **One policy registry.** `contracts.ts`, `scopes.ts`, annotations, descriptions and `tool-surface.json` are five hand-maintained files that must agree. Invert it: one registry is the source, the rest are generated. The 37-vs-39 drift ChatGPT spotted becomes unrepresentable rather than merely detected.
+- **GT0 endpoint inventory classification.** Every one of the 528 operations tagged `covered` / `gap` / `internal` / `redundant`, with a reason. Zero unclassified.
+
+**Frontend** — none. This phase is invisible on purpose.
+
+**Gate P0**
+- Every access and billing endpoint named above refuses a token missing its new scope, asserted with a real token against a live server.
+- Regenerating the registry produces byte-identical output; a hand edit to a generated file fails the build.
+- `test_no_runtime_ddl`-style inventory test: zero unclassified endpoints.
+- Eval baseline captured at 39 tools. This is the number every later phase is compared against.
+
+---
+
+## P1 — The money levers: make "never leave" true for payments
+*The claim's weakest clause, fixed first.*
+
+**Backend**
+
+- **`pay.xcelsior.ca` hosted page.** Resolves the Stripe intent server-side from an authenticated first-party session and renders the Payment Element. The `client_secret` never leaves the server. This is the piece that does not exist and blocks everything card-shaped.
+- **URL Mode Elicitation (SEP-1036)** for: add payment method, deposit, manage cards, and later payout onboarding. Capability-negotiated, never assumed.
+- **The fallback is the primary path until proven otherwise.** Client support is documented `not yet` for Microsoft and **UNVERIFIED everywhere else**. When `elicitation.url` is absent, return `completed: false`, `operation_executed: false`, and prose that opens with *"Not completed."* A fallback that reads like success is worse than an error.
+- **Success comes only from the processor.** Signed webhook, verified state. `accept` means the user consented to navigate — never that the flow succeeded.
+- **Spend envelope (capability 1).** Auto-top-up + depletion projection + a pause action, with caps approved in advance. This is what makes unattended spend safe at all.
+
+**Frontend**
+
+- The hosted payment page itself: fast, obviously first-party, works on a phone, and states plainly what is being authorised and for how much.
+- A **"return to your terminal"** completion state. The browser is a detour, not a destination; the page should say so and get out of the way.
+- Wallet and envelope state visible in-dashboard, so the same limits an agent respects are legible to a human.
+
+**Gate P1**
+- Three client conditions tested end to end: URL-capable, form-only, no-elicitation. All three either complete or say plainly that they did not.
+- **No secret in any surface:** automated assertion that card data, `client_secret`, and processor tokens appear in no tool result, log, trace, audit row, or error string. Canary-tested with fake PANs.
+- Replaying any funding call with the same idempotency key produces exactly one charge.
+- Raising a spend cap requires approval; lowering one does not. Both asserted.
+- An envelope-funded charge is traceable to its approving plan in one query.
+
+---
+
+## P2 — Access: launch → connected, without a browser
+*The first half of the sentence.*
+
+**Backend**
+
+- **`open_instance_access`** — returns a short-lived, first-party connection for a running instance: browser terminal ticket, or the SSH endpoint plus the fingerprint to verify.
+- **`register_ssh_key`** — registers the caller's *public* key. The private key never exists server-side and never enters model context. This is what keeps `routes/ssh.py` on the exclusion list while still making the workflow possible: the agent already has a key; it needs the platform to accept it, not to mint one.
+- **`watch_instance`** already exists and stays the waiting primitive.
+
+**Frontend**
+
+- Connection details in the instance view that match exactly what the tool returns — same host, same fingerprint, same expiry. A human and an agent looking at the same instance must see the same truth.
+
+**Gate P2**
+- A scripted journey — launch, wait, connect, run a command, terminate — completes using **only tool calls**, against a live staging tenant. A journey that needs a raw HTTP call or a dashboard click fails the gate.
+- Connection material is short-lived and single-use; a replayed ticket is refused.
+- No private key material appears in any tool result. Asserted, not assumed.
+
+---
+
+## P3 — Durable state: artifact → volume promotion
+*Capability 3. The substrate under P4 and P5.*
+
+**Backend**
+
+- **`promote_artifact_to_volume`** — a finished run's weights and checkpoints move from artifact storage (90-day `retain_until`, presigned TTL) onto a volume, which has no clock.
+- Volume create / attach / detach / snapshot as tools, with detach behind approval since it can disrupt a running workload.
+
+**Frontend**
+
+- On a completed instance: *"this output expires in N days"* with the promote action beside it. The retention clock should be visible to the human too — it is currently invisible, which is how work gets lost.
+
+**Gate P3**
+- Promotion is idempotent under retry; a repeated call produces one volume, not two.
+- The retention clock is asserted: an artifact past `retain_until` is gone, a promoted volume is not.
+- Round-trip: train → promote → mount in a *new* instance → read the weights. Tool calls only.
+
+---
+
+## P4 — The pipeline: one approval for a dependency graph
+*Capability 2. The idea that turns the approval gate into leverage.*
+
+**Backend**
+
+- A **dependency primitive**: a plan that carries a graph of stages, approved once, executed in order, with failure semantics that are explicit (halt / continue / retry-stage).
+- `train → evaluate → serve` as the reference journey, using P3's promotion between stages.
+
+**Frontend**
+
+- A pipeline view showing the graph, which stage is live, and one approval covering all of it — with the total committed spend stated *before* approval, not after.
+
+**Gate P4**
+- One approval, three stages, one audit chain. Asserted end to end.
+- A mid-pipeline failure does not silently continue; the declared failure semantics are what happens.
+- The approved graph is server-bound: editing any stage after approval invalidates it. Asserted by attempting exactly that.
+- Spend is bounded by what was approved. A pipeline cannot exceed its own quote.
+
+---
+
+## P5 — Spot migration and placement preference
+*Capabilities 4 and 5. The marketplace's own advantages.*
+
+**Backend**
+
+- **Checkpoint-aware migration:** snapshot → stop → relaunch cheaper → verify placement, using P3 for the checkpoint.
+- **Reputation- and SLA-aware placement:** *"prefer verified hosts above 99.5% uptime even at 15% more"* over `simulate_instance_placement`, reputation, and SLA targets.
+
+**Frontend**
+
+- Placement preference as a first-class launch control, showing the price/reliability trade-off it implies before launch.
+- Migration history on the instance timeline: what moved, when, why, and what it saved.
+
+**Gate P5**
+- A migrated job resumes from its checkpoint, proven by comparing state before and after — not by the absence of an error.
+- A placement preference that cannot be satisfied **refuses clearly** rather than silently falling back to the cheapest host. This is the failure mode that would quietly destroy trust.
+- Preference is honoured in the audit trail: the chosen host's reputation and SLA at time of placement are recorded.
+
+---
+
+## P6 — The provider surface
+*Per [mcp-provider-axis-plan.md](./mcp-provider-axis-plan.md). Capability 6.*
+
+**Backend**
+
+- Separate deployment profile, separate listing. Supply-side journeys: register a host, admission evidence, publish capacity, set a spot floor, read earnings, request payout.
+- **Payout onboarding via URL elicitation**, reusing P1's machinery. KYC never enters model context; completion comes from `account.updated`, never from the browser return.
+- **Provider yield optimizer** — admission, reputation, SLA and spot preview into a recommended floor.
+
+**Frontend**
+
+- Provider dashboard parity: the same earnings and payout state the tools return.
+- Onboarding that survives interruption — a provider who closes the tab mid-KYC can resume.
+
+**Gate P6**
+- A provider journey — register → admit → publish → earn → payout — completes through tools plus the browser handoffs, on a live staging tenant.
+- A payout is bound to job, amount, currency, destination state, and idempotency key. Replay produces one payout.
+- Returning from `return_url` proves nothing: asserted by returning without completing and checking the state is still `pending_requirements`.
+
+---
+
+## P7 — Environment snapshot and sweep
+*Capability 7.*
+
+**Backend** — commit a configured instance to a reusable image; launch N identical nodes from it.
+**Frontend** — image library with provenance: what it was built from, when, by which run.
+
+**Gate P7** — a sweep of N nodes from one snapshot is byte-identical in environment; a snapshot records its lineage.
+
+---
+
+## 2. Keeping drift off
+
+Drift is what this codebase has actually suffered from — a spec regenerating
+from its own output, five files that must agree by hand, a guard narrowed until
+it passed. Four mechanisms, each already proven here:
+
+| Mechanism | Proven by | Applied to |
+|---|---|---|
+| **Generate, never hand-maintain** | the OpenAPI generator read its own output for months; five schemas drifted | P0's registry: contracts, scopes, annotations, descriptions, manifest |
+| **Whole-document equality** | comparing only the operation set is how five stale schemas passed | tool surface snapshot, published spec |
+| **Ratchets that reach zero** | 418 banned-vocabulary hits → 0; 30 float money columns → 0 | scope coverage, unclassified endpoints, eval regressions |
+| **Guards that prove their own reach** | the vocabulary guard plants a probe file of each type it claims to read | any future vocabulary or policy guard |
+
+And one rule with no mechanism, only discipline: **when a check fails, fix the
+thing — not the check.** Every serious defect in this codebase's recent history
+was reachable because a check had been softened rather than satisfied.
+
+---
+
+## 3. Sequence, and what it depends on
+
+```
+P0  scopes + registry + inventory     ← everything; nothing is safe before it
+ │
+P1  money levers + hosted page        ← makes "never leave" true for payments
+ │   (spend envelope rides along)
+ │
+P2  access: launch → connected        ← makes "never leave" true for the terminal
+ │
+P3  artifact → volume promotion       ← the substrate
+ ├──────────────┬───────────────┐
+ │              │               │
+P4 pipeline   P5 migration +   P7 snapshot + sweep
+ │              placement
+ │
+P6  provider surface (own listing, reuses P1's URL machinery)
+```
+
+P4 and P5 both need P3. P6 needs P1. Everything needs P0.
+
+---
+
+## 4. What this plan does not promise
+
+Stated here so no one has to discover it late:
+
+- **URL elicitation client support is unverified.** Microsoft documents *"not yet"*; every other directory client is undocumented. If no client honours it, P1's fallback becomes the permanent path — usable, but one extra step. The plan is built so that outcome is a degradation, not a failure.
+- **No public MCP server is known to have completed Stripe Connect onboarding this way.** P6 would be early. That is a reason for the conspicuous fallback, not a reason to wait.
+- **The tool-count threshold is unmeasured.** No published evidence isolates one. P0 captures the baseline and every phase re-measures; the number is ours to find.
+- **CI is billing-locked.** Every gate in this plan runs locally until that changes. A green push is unverified, and this plan does not pretend otherwise.
