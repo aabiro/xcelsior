@@ -29,7 +29,7 @@ the reason this plan is not just a feature list.
 | *"SSH'd into the GPU"* | launch → running → **connected**, without a dashboard | endpoints exist, unreachable as tools (§0.1) |
 | *"talking to the platform at the same time"* | the same session drives instances, spend, and state | the tool surface's whole job |
 | *"driving the controllers"* | approval, drain, retry, reconcile — governed, not raw | approval machinery exists; operator split done |
-| *"never have to leave"* | **every dead end has a lever inside the terminal** | **this is where it breaks today** (§0.2) |
+| *"never have to leave"* | **every dead end has a lever inside the terminal** | closer than it looked — spending already works off-session (§0.2); the gap is a *declined* charge (§0.3) |
 
 ### 0.1 The access endpoints are authenticated but not authorized
 
@@ -41,30 +41,63 @@ enforced in one layer only is the exact defect the `api` wildcard was.
 
 **Consequence:** scopes come first, in P0, or the access phase builds on sand.
 
-### 0.2 The money levers are browser-only, and that is the claim's weak point
+### 0.2 The money levers: what actually needs a browser, and what does not
 
-This is the caveat, made concrete:
+The first draft of this section said card payments needed a hosted page before
+an agent could touch them. That was too broad, and the distinction matters
+because it changes what ships first.
 
-| Rail | Guard | Agent-reachable? |
+**Charging a card that is already on file is an ordinary API call.** The
+platform already does exactly this in `check_low_balance_and_topup`
+([billing.py:3602](../billing.py#L3602)):
+
+```python
+pi = _stripe_mod.PaymentIntent.create(
+    amount=amount_cents, currency="cad",
+    customer=w["stripe_customer_id"],
+    payment_method=w["stripe_payment_method_id"],
+    off_session=True, confirm=True,
+)
+```
+
+That is a merchant-initiated off-session charge. No browser, no `client_secret`,
+no card data anywhere near the caller. *"I'm running low, put $10 on my
+account"* is that same call with a manual trigger instead of a threshold — and
+*"use my Visa, not the Amex"* is one more argument. **It needs no elicitation at
+all.**
+
+So the real split:
+
+| Action | Needs a browser? | Why |
 |---|---|---|
-| Crypto deposit | `_require_scope` | **yes** |
-| Lightning deposit | `_require_scope` | **yes** |
-| PayPal create-order | `_require_scope` | **yes** |
-| Stripe payment-intent | `_require_scope` | yes, but returns a **client secret**, not a page |
-| Stripe **setup-intent** (save a card) | `_get_current_user` | **no** |
-| Stripe **portal-session** (manage cards) | `_get_current_user` | **no** |
+| Top up on a saved card | **no** | off-session MIT; the machinery already runs nightly |
+| Choose which saved card | **no** | `payment_method_id` is an argument, not a secret |
+| Deposit via crypto / Lightning / PayPal | **no** | already `_require_scope` |
+| Read balance, history, forecasts | **no** | plain reads |
+| **Add a new card** | **yes** | PAN collection. Private by design, and it should stay that way |
+| **Recover from an SCA challenge** | **yes** | the issuer demands the cardholder, in person |
 
-So today: an agent can fund a wallet with crypto or Lightning and *cannot* add
-or manage a card without a browser the user opens themselves. "Never leave the
-terminal" is false for the single most common funding path.
+Only the last two need a page, and the last one is not a convenience — it is a
+correctness requirement, because of the defect below.
 
-Worse, the Stripe intent endpoints return a `client_secret` intended for
-browser-side Stripe code. Handing that to a tool does not make a payment flow —
-it leaks a credential into model context. **A first-party hosted payment page is
-a prerequisite, not a nice-to-have.** That is P1, and nothing about card
-payments ships before it.
+### 0.3 SCA failure is unhandled, and it silently drains wallets
 
----
+An off-session charge can be refused with `authentication_required`: the card's
+issuer requires the cardholder to authenticate before that payment completes.
+The correct response is to bring them back on-session, once, to satisfy the
+challenge.
+
+**Nothing in this codebase handles that.** There is no `authentication_required`
+branch, no `CardError` handling, no `requires_action` or `next_action` inspection
+anywhere. The failure lands in a generic `except Exception`, increments an error
+counter, and writes a log line nobody reads.
+
+The customer-visible consequence: for any card whose issuer demands SCA,
+**auto-top-up silently does not work**, and the wallet runs to zero while the
+platform believes top-up is configured. The account then hard-stops mid-job.
+This is a live defect independent of the agent surface, and it is the single
+strongest argument for building the hosted page — not so an agent can take a
+card number, but so a *declined* charge has somewhere to send the human.
 
 ## 1. How every phase is gated
 
@@ -94,7 +127,7 @@ were failures of *evidence*, not of intent.
 **Backend**
 
 - **Scope the access endpoints.** New scopes: `instances:connect` (auto-launch, expose, stream-ticket), `ssh:manage` (keygen, pubkey registration). Applied with `_require_scope`, at both layers.
-- **Scope the billing levers.** `setup-intent` and `portal-session` move from `_get_current_user` to `_require_scope(billing:write)` so they *can* become tools in P1.
+- **Scope the billing levers.** `setup-intent` and `portal-session` move from `_get_current_user` to `_require_scope(billing:write)`. The manual top-up path P1 adds is `billing:write` from the start — it charges a real card, so it is never reachable by a read-scoped credential.
 - **One policy registry.** `contracts.ts`, `scopes.ts`, annotations, descriptions and `tool-surface.json` are five hand-maintained files that must agree. Invert it: one registry is the source, the rest are generated. The 37-vs-39 drift ChatGPT spotted becomes unrepresentable rather than merely detected.
 - **GT0 endpoint inventory classification.** Every one of the 528 operations tagged `covered` / `gap` / `internal` / `redundant`, with a reason. Zero unclassified.
 
@@ -108,31 +141,68 @@ were failures of *evidence*, not of intent.
 
 ---
 
-## P1 — The money levers: make "never leave" true for payments
-*The claim's weakest clause, fixed first.*
+## P1 — The money levers: make "never leave" true for spending
+*The claim's weakest clause, and mostly cheaper than it first looked.*
 
-**Backend**
+**Backend — the part that needs no browser at all**
 
-- **`pay.xcelsior.ca` hosted page.** Resolves the Stripe intent server-side from an authenticated first-party session and renders the Payment Element. The `client_secret` never leaves the server. This is the piece that does not exist and blocks everything card-shaped.
-- **URL Mode Elicitation (SEP-1036)** for: add payment method, deposit, manage cards, and later payout onboarding. Capability-negotiated, never assumed.
-- **The fallback is the primary path until proven otherwise.** Client support is documented `not yet` for Microsoft and **UNVERIFIED everywhere else**. When `elicitation.url` is absent, return `completed: false`, `operation_executed: false`, and prose that opens with *"Not completed."* A fallback that reads like success is worse than an error.
-- **Success comes only from the processor.** Signed webhook, verified state. `accept` means the user consented to navigate — never that the flow succeeded.
-- **Spend envelope (capability 1).** Auto-top-up + depletion projection + a pause action, with caps approved in advance. This is what makes unattended spend safe at all.
+- **`top_up_wallet(amount, payment_method_id?)`** — an off-session charge
+  against a card already on file, reusing the code path auto-top-up already
+  runs. Approval-gated because it moves money, idempotency-keyed so a retry
+  cannot double-charge, and bounded by the spend envelope below.
+- **`list_payment_methods`** — brand, last four, expiry, default. Enough to say
+  *"use the Visa"*; nothing that is a secret.
+- **`configure_auto_topup`** — threshold, amount, period cap. Raising a cap
+  requires approval; lowering one does not.
+- **Spend envelope (capability 1)** — depletion projection against projected job
+  completion, with a pause action. The thing that makes unattended spend safe
+  rather than merely possible.
+
+**Backend — the part that genuinely needs a browser**
+
+- **`pay.xcelsior.ca` hosted page.** Resolves the intent server-side from an
+  authenticated first-party session and renders Stripe's Payment Element. The
+  `client_secret` never leaves the server. Used for **adding a new card** and
+  for **SCA recovery** — not for ordinary top-ups.
+- **Fix the SCA gap (§0.3) first.** Catch `authentication_required`, persist the
+  pending intent, and surface a resume action. This is a live bug on the
+  dashboard path today; the agent surface just makes it visible.
+- **URL Mode Elicitation (SEP-1036)** for those two flows only. Capability-
+  negotiated, never assumed. Client support is documented `not yet` for
+  Microsoft and **UNVERIFIED elsewhere**, so the fallback is the primary path
+  until proven otherwise: `completed: false`, `operation_executed: false`, and
+  prose that opens with *"Not completed."*
+- **Success comes only from the processor.** Signed webhook, verified state.
+  `accept` means the user consented to navigate, never that the flow succeeded.
 
 **Frontend**
 
-- The hosted payment page itself: fast, obviously first-party, works on a phone, and states plainly what is being authorised and for how much.
-- A **"return to your terminal"** completion state. The browser is a detour, not a destination; the page should say so and get out of the way.
-- Wallet and envelope state visible in-dashboard, so the same limits an agent respects are legible to a human.
+- The hosted page: fast, obviously first-party, works on a phone, and states
+  plainly what is being authorised and for how much.
+- A **"return to your terminal"** completion state. The browser is a detour, not
+  a destination.
+- An SCA-pending state in the wallet UI, so a challenge that was never completed
+  is visible rather than silent.
+- Wallet, envelope, and auto-top-up state legible to a human — the same limits
+  the agent respects.
 
 **Gate P1**
-- Three client conditions tested end to end: URL-capable, form-only, no-elicitation. All three either complete or say plainly that they did not.
-- **No secret in any surface:** automated assertion that card data, `client_secret`, and processor tokens appear in no tool result, log, trace, audit row, or error string. Canary-tested with fake PANs.
-- Replaying any funding call with the same idempotency key produces exactly one charge.
+- A top-up on a saved card completes **with no browser and no elicitation**,
+  asserted with a real token against a live server. This is the phase's headline
+  behaviour and the first point at which the claim is true for spending.
+- Replaying any funding call with the same idempotency key produces exactly one
+  charge. Asserted for manual top-up, auto-top-up, and the crypto rails.
+- An `authentication_required` decline produces a **resumable pending state**, a
+  visible UI state, and a tool result that says the charge did not happen —
+  never a generic error. Asserted by forcing the decline with a Stripe test
+  card, not by mocking it.
+- Three client conditions for the two browser flows: URL-capable, form-only, and
+  no-elicitation. All three either complete or say plainly that they did not.
+- **No secret in any surface:** card data, `client_secret`, and processor tokens
+  appear in no tool result, log, trace, audit row, or error string. Canary-tested
+  with fake PANs.
 - Raising a spend cap requires approval; lowering one does not. Both asserted.
 - An envelope-funded charge is traceable to its approving plan in one query.
-
----
 
 ## P2 — Access: launch → connected, without a browser
 *The first half of the sentence.*
@@ -268,8 +338,8 @@ was reachable because a check had been softened rather than satisfied.
 ```
 P0  scopes + registry + inventory     ← everything; nothing is safe before it
  │
-P1  money levers + hosted page        ← makes "never leave" true for payments
- │   (spend envelope rides along)
+P1  money levers + SCA recovery       ← top-up needs no browser; only adding a
+ │   (spend envelope rides along)         card and recovering a decline do
  │
 P2  access: launch → connected        ← makes "never leave" true for the terminal
  │
