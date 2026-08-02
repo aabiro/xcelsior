@@ -63,7 +63,7 @@ npx @xcelsior-gpu/wizard@latest
 
 1. **Providers** register GPU hosts via the worker agent. Hosts undergo automated admission gating (driver versions, security checks).
 2. **Submitters** submit AI/ML jobs specifying VRAM requirements, priority, and isolation tier.
-3. **The scheduler** matches jobs to admitted hosts based on capacity, trust tier, and any residency constraint the workload declares.
+3. **The scheduler** matches jobs to admitted hosts on capacity, price, and host reputation.
 4. **Billing** handles CAD-native pricing with 13-province GST/HST, wallet credits, and Stripe Connect payouts.
 
 ## Stack
@@ -97,4 +97,4 @@ npx @xcelsior-gpu/wizard@latest
 - [Pricing](https://xcelsior.ca/pricing), live GPU rates in CAD, on-demand and spot
 - [MCP Setup](https://xcelsior.ca/mcp), connect Claude, Cursor, or any MCP client in a couple of minutes
 - [Blog](https://xcelsior.ca/blog), guides on cost optimization, spot strategy, and agent workflows
-- [Compliance & Data Residency](/compliance), residency controls, privacy APIs, and the sovereignty tiers
+- [Trust & Controls](/compliance), scoped access, human-approved action plans, the audit trail, and privacy APIs

@@ -84,7 +84,7 @@ const PRICING_MODES = [
 const TIERS = [
   { value: "standard", label: "Standard", desc: "Best effort, no SLA" },
   { value: "premium", label: "Premium", desc: "99.9% uptime guarantee" },
-  { value: "sovereign", label: "Enterprise", desc: "Canada-only, Canadian-jurisdiction operator" },
+  { value: "dedicated", label: "Dedicated", desc: "Highest support and uptime commitment" },
 ];
 
 const PRIORITIES = [
@@ -178,7 +178,6 @@ export function LaunchInstanceModal({
     total_with_tax: number;
     base_rate_cad: number;
     priority_multiplier: number;
-    sovereignty_premium: number;
     multi_gpu_discount: number;
   } | null>(null);
 

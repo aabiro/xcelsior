@@ -33,7 +33,7 @@ In practice, security problems in compute infrastructure usually come from a few
 - runtime environments that are too permissive
 - unclear network boundaries
 - weak auditability
-- inconsistent handling of privacy and jurisdiction requirements
+- inconsistent handling of privacy and access-control requirements
 
 The issue is rarely one catastrophic flaw. It is usually an accumulation of assumptions.
 
@@ -78,19 +78,19 @@ That layered approach matters because different controls solve different classes
 
 No single layer is enough. Together, they form a more serious defensive posture.
 
-## Security Also Means Jurisdiction, Privacy, and Policy Enforcement
+## Security Also Means Privacy and Policy Enforcement
 
 For many teams, “security” is treated as if it only means technical hardening.
 
 In reality, security and trust also depend on where workloads run, what legal environment applies, how data handling rules are enforced, and whether the platform can support those constraints without hand-waving.
 
-That is why Xcelsior’s architecture ties platform behavior to privacy- and jurisdiction-aware controls. The current platform direction includes scheduler-level enforcement related to Canadian data handling requirements, with PIPEDA and Quebec Law 25 integrated into how compute is routed and managed rather than left as external documentation alone.
+That is why Xcelsior’s architecture ties platform behaviour to enforced controls rather than documentation: credentials are scoped to what they need, anything destructive or costly waits on human approval of a specific server-bound plan, and every action lands in a tamper-evident audit trail.
 
 This is a major shift in mindset.
 
 Instead of treating compliance as a PDF that follows the system, the platform itself should be aware of compliance constraints. That does not eliminate legal complexity, but it does make the infrastructure more aligned with the environments where real organizations actually operate.
 
-Xcelsior is Canada-first in how we think about trust, legal posture, and compliance-aware platform design. But the core idea is broader than Canada. Teams everywhere benefit from infrastructure that understands where workloads should run, what policies apply, and how those controls are enforced at the platform layer instead of being left to manual process.
+Xcelsior is built in Canada, and the marketplace is global. Teams everywhere benefit from infrastructure where the policies that matter are enforced at the platform layer instead of being left to manual process.
 
 ## Auditability Is Part of Security
 

@@ -111,10 +111,42 @@ CLIENT_OPERATION_ALLOWLIST = {
     ("/api/events/{entity_type}/{entity_id}", "get"),
 }
 
+PUBLIC_SURFACE_NOTE = (
+    "This published OpenAPI document contains the public developer surface only. "
+    "Account settings, internal worker, admin, maintenance, and callback endpoints "
+    "are intentionally omitted."
+)
+
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from fastapi import FastAPI
+
 from api import app
+
+
+def _live_app_schema() -> dict:
+    """The app's *real* OpenAPI schema — not the curated file the app serves.
+
+    ``api.py`` reassigns ``app.openapi`` to a function that reads this script's
+    own previous output back off disk (that is how ``/openapi.json`` serves the
+    curated spec at runtime). Calling ``app.openapi()`` here therefore fed the
+    generator its own last output, and the generator became a fixpoint on a
+    file rather than a projection of the application:
+
+    - the "public developer surface only" note was appended once per run, so
+      the published spec had accumulated ten copies of it;
+    - component ordering was reshuffled on every run, churning ~900 lines of
+      diff and making any spec-drift check meaningless;
+    - and worst, an allowlisted operation whose request or response model
+      changed in the app never updated here, because the app was no longer the
+      source. The spec could silently drift from the API it documents.
+
+    ``FastAPI.openapi`` is reached through the class, which bypasses the
+    instance attribute and builds the schema from the live routes exactly as
+    FastAPI itself would.
+    """
+    return copy.deepcopy(FastAPI.openapi(app))
 
 # Title-case words that should render as proper acronyms / brand casing in the
 # docs sidebar (Fern uses the operation `summary` as the endpoint title).
@@ -215,8 +247,14 @@ def _prune_components(spec: dict) -> None:
 
     kept: dict[str, dict] = {}
     seen: set[tuple[str, str]] = set()
-    while refs:
-        section, name = refs.pop()
+    # A sorted worklist, not `set.pop()`. Set iteration order over strings
+    # varies with PYTHONHASHSEED, which differs per process, so the traversal
+    # emitted components in a different order on every run — semantically
+    # identical output that rewrote ~900 lines of the file each time and made a
+    # spec-drift check unable to tell a real change from reshuffled noise.
+    pending = sorted(refs)
+    while pending:
+        section, name = pending.pop()
         if (section, name) in seen:
             continue
         seen.add((section, name))
@@ -224,7 +262,9 @@ def _prune_components(spec: dict) -> None:
         if name not in section_items:
             continue
         kept.setdefault(section, {})[name] = section_items[name]
-        _walk_refs(section_items[name], refs)
+        nested: set[tuple[str, str]] = set()
+        _walk_refs(section_items[name], nested)
+        pending.extend(sorted(nested - seen))
 
     # Keep security schemes referenced from global or operation-level security blocks.
     security_names: set[str] = set()
@@ -242,10 +282,14 @@ def _prune_components(spec: dict) -> None:
                     security_names.update(security_block.keys())
     if security_names and (components.get("securitySchemes") or {}):
         kept.setdefault("securitySchemes", {})
-        for name in security_names:
+        for name in sorted(security_names):
             scheme = components["securitySchemes"].get(name)
             if scheme is not None:
                 kept["securitySchemes"][name] = scheme
+
+    # Emit each section in a stable order so the file is diffable.
+    for section, items in kept.items():
+        kept[section] = {name: items[name] for name in sorted(items)}
 
     if kept:
         spec["components"] = kept
@@ -254,7 +298,7 @@ def _prune_components(spec: dict) -> None:
 
 
 def build_public_spec() -> dict:
-    full_spec = copy.deepcopy(app.openapi())
+    full_spec = _live_app_schema()
     allowlist = _load_allowlist()
 
     filtered_paths: dict[str, dict] = {}
@@ -298,12 +342,10 @@ def build_public_spec() -> dict:
 
     info = full_spec.setdefault("info", {})
     description = str(info.get("description", "")).strip()
-    if description:
-        info["description"] = (
-            f"{description}\n\n"
-            "This published OpenAPI document contains the public developer surface only. "
-            "Account settings, internal worker, admin, maintenance, and callback endpoints are intentionally omitted."
-        )
+    # Appending unconditionally is what let the note pile up when the generator
+    # was reading its own output. Keep it idempotent regardless of the source.
+    if description and PUBLIC_SURFACE_NOTE not in description:
+        info["description"] = f"{description}\n\n{PUBLIC_SURFACE_NOTE}"
 
     # Declare a bearer-token security scheme so the Fern API playground renders
     # an Authorization input and attaches `Authorization: Bearer <token>` to

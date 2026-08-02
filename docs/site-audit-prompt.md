@@ -5,8 +5,8 @@ A reusable, agent-agnostic prompt for a full discovery audit of the Xcelsior sit
 stack and goals.
 
 ## Project context (so the audit is on-target)
-- **Product:** Xcelsior — "Sovereign GPU Compute for Canada". B2B/developer SaaS; routes AI workloads
-  to admission-gated GPU hosts over a private mesh. PIPEDA / data-sovereignty positioning, CAD-native billing.
+- **Product:** Xcelsior — a global GPU compute marketplace. B2B/developer SaaS; routes AI workloads
+  to admission-gated GPU hosts over a private mesh. Global marketplace positioning: price, availability, and developer experience. CAD-native billing.
 - **Frontend:** Next.js 16 (App Router + React Server Components), React 19, Tailwind v4, **Serwist PWA**
   (service worker + `~offline` page). Lives in `frontend/`. Dev: `npm run dev` → http://localhost:3000.
 - **Backend:** Python (FastAPI/gunicorn, alembic, Postgres, Redis). API at xcelsior.ca / docs at docs.xcelsior.ca (Fern).
@@ -32,12 +32,11 @@ You have the chrome-devtools MCP server available, which drives a real Chrome br
   - /                  (landing)
   - /features
   - /pricing           (CAD pricing — verify currency + plan clarity)
-  - /sovereignty       (compliance/positioning)
   - /about
   - /blog              (+ open one post)
   - /support
   - /download
-  - /privacy , /terms  (PIPEDA / legal)
+  - /privacy , /terms  (legal)
   - /gpu-availability  (real-time data page)
 - Auth flow routes (render + validation, logged-out): /login, /register, /forgot-password, /reset-password, /setup-2fa, /verify-email, /accept-invite
 - Gated: /dashboard (note redirect when logged-out; audit authed separately — see below)
@@ -80,7 +79,7 @@ Color contrast vs WCAG AA; images missing alt; buttons/links/icons without acces
 - Cookies (esp. auth/session): Secure + HttpOnly + SameSite.
 - No secrets/tokens/API keys exposed in JS bundles, RSC payloads, network responses, or URLs.
 - Auth pages over HTTPS; OAuth callback handles errors; password/2FA flows don't leak.
-- PIPEDA/sovereignty: privacy + terms reachable and linked; any third-party that ships data offshore is worth flagging given the Canadian-data positioning.
+- Legal: privacy + terms reachable and linked, and the copy must not promise that a workload stays in any particular country — capacity is global.
 
 ### 9. Conversion / marketing UX
 Pricing clarity (CAD shown, plans/limits legible, CTA obvious), signup funnel (/register) friction, hero/value-prop above the fold, working CTAs, no dead links, consistent nav/footer.

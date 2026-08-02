@@ -42,7 +42,7 @@ Network access is tightly controlled:
 
 ### gVisor (Preferred)
 
-For `secure`, `regulated`, and `sovereign` tier jobs:
+For `secure` and `dedicated` tier jobs:
 - Kernel syscall interception via Sentry
 - Separate kernel implementation
 - No direct host kernel access from containers
@@ -69,7 +69,7 @@ For `community` tier jobs:
 | `community` | runc | Standard egress rules | Basic logging |
 | `secure` | gVisor preferred | Strict egress | Enhanced logging |
 | `regulated` | gVisor required | Province-locked | Full audit trail |
-| `sovereign` | gVisor required | Province-locked | Tamper-evident logs |
+| `dedicated` | gVisor required | Dedicated hardware | Tamper-evident logs |
 
 ## Incident Response
 
@@ -81,6 +81,5 @@ The platform automatically handles security events:
 
 ## Learn More
 
-- [Compliance & Data Residency](/compliance), sovereignty tiers, province pinning, and the privacy APIs
+- [Trust & Controls](/compliance), scoped access, human-approved action plans, and the audit trail
 - [Trust & Reputation](/trust), how hosts earn their tier and what happens when they slip
-- [PIPEDA Compliant GPU Cloud](https://xcelsior.ca/blog/pipeda-compliant-gpu-cloud), compliance guide for AI workloads

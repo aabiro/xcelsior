@@ -22,7 +22,7 @@ _MANIFEST_PATH = _ROOT / "config" / "stripe_catalog.json"
 _TIER_LABELS = {
     "standard": "Standard",
     "premium": "Premium",
-    "sovereign": "Sovereign",
+    "dedicated": "Dedicated",
 }
 
 _MODE_LABELS = {

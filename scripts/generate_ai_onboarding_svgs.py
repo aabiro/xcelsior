@@ -48,7 +48,7 @@ SLIDES = {
   {LOGO_MARK}
   {SPARKLE_MARK}
   <text x="240" y="200" text-anchor="middle" fill="#e2e8f0" font-family="system-ui,sans-serif" font-size="22" font-weight="700">Xcel AI</text>
-  <text x="240" y="228" text-anchor="middle" fill="#94a3b8" font-family="system-ui,sans-serif" font-size="13">Your sovereign compute copilot</text>
+  <text x="240" y="228" text-anchor="middle" fill="#94a3b8" font-family="system-ui,sans-serif" font-size="13">Your compute copilot</text>
 </svg>""",
     "actions.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 280" fill="none">
   <defs>{GRAD}</defs>

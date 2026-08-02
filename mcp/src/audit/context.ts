@@ -3,11 +3,14 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AuthUser } from "../auth/bearer.js";
 import type { XcelsiorApiClient } from "../client/api.js";
 import {
-  actionFlow, idempotentReplays, toolCalls, toolDuration,
+  actionFlow, hygieneRedactions, idempotentReplays, toolCalls, toolDuration,
   watchDuration, workloadOutcomes,
 } from "../observability/metrics.js";
+import { scrubResponse, scrubText } from "../lib/hygiene.js";
 import { traced } from "../observability/tracing.js";
 import { DEFAULT_OUTPUT_SCHEMA, TOOL_CONTRACTS } from "../tools/contracts.js";
+import { TOOL_DESCRIPTIONS } from "../tools/descriptions.js";
+import { toolIsVisible, type ToolProfile } from "../tools/profiles.js";
 import { withApiCapture, type ApiCallRecord } from "../client/request-context.js";
 
 const FORBIDDEN = /token|secret|password|credential|environment|env|init_script|registry_password/i;
@@ -28,12 +31,97 @@ function redact(value: unknown): unknown {
   return value;
 }
 
+/**
+ * Strip auth material, debug payloads, and undisclosed user fields from a tool
+ * result before it leaves the process.
+ *
+ * Applied here rather than in each tool because "each tool remembers" is
+ * exactly the assumption that fails: a new tool, or an upstream response that
+ * grows a field, would otherwise leak by default. The `content` text is
+ * regenerated from the scrubbed structure when it was a JSON serialisation of
+ * it, so the two halves of the result cannot disagree — a scrubbed
+ * `structuredContent` beside an unscrubbed text blob would leak anyway, since
+ * most clients show the text.
+ */
+function applyResponseHygiene(name: string, result: unknown): unknown {
+  if (!result || typeof result !== "object") return result;
+  const record = result as {
+    content?: Array<{ type?: string; text?: string }>;
+    structuredContent?: Record<string, unknown>;
+  };
+  const removed: string[] = [];
+
+  let structured = record.structuredContent;
+  let structuredWasJsonText = false;
+  let originalJson = "";
+  if (structured && typeof structured === "object") {
+    originalJson = safeStringify(structured);
+    const report = scrubResponse(structured);
+    removed.push(...report.removed);
+    structured = report.value as Record<string, unknown>;
+    structuredWasJsonText = true;
+  }
+
+  const content = record.content?.map((item) => {
+    if (item?.type !== "text" || typeof item.text !== "string") return item;
+    if (structuredWasJsonText && item.text === originalJson) {
+      return { ...item, text: safeStringify(structured) };
+    }
+    const { text, masked } = scrubText(item.text);
+    if (masked) removed.push("content.text");
+    return { ...item, text };
+  });
+
+  if (!removed.length) return result;
+  hygieneRedactions.inc({ tool: name }, removed.length);
+  // Loud on purpose. The filter working is not the same as the tool being
+  // correct — something upstream handed us a field that must never be modelled.
+  process.stderr.write(
+    `[xcelsior-mcp] response hygiene removed ${removed.length} field(s) from ${name}: ` +
+      `${removed.join(", ")}\n`,
+  );
+  return { ...record, ...(content ? { content } : {}), ...(structured ? { structuredContent: structured } : {}) };
+}
+
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * A tool that declares annotations must declare the ones its contract states.
+ *
+ * Throwing rather than merging: a divergent local annotation is a genuine
+ * disagreement about what the tool does, and silently preferring either side
+ * hides it. This fires at registration, so it fails the build and the E2E, not
+ * a reviewer's spot check.
+ */
+function assertAnnotationsMatchContract(
+  name: string,
+  declared: unknown,
+  contract: Record<string, boolean>,
+): void {
+  if (!declared || typeof declared !== "object") return;
+  const mismatched = Object.entries(declared as Record<string, unknown>)
+    .filter(([key, value]) => key in contract && contract[key] !== value)
+    .map(([key, value]) => `${key}: declared ${value}, contract ${contract[key]}`);
+  if (mismatched.length) {
+    throw new Error(
+      `Tool ${name} declares annotations that contradict its contract — ${mismatched.join("; ")}`,
+    );
+  }
+}
+
 /** Wrap tool registration once so every current and future tool is audited. */
 export function installToolAudit(
   server: McpServer,
   client: XcelsiorApiClient,
   user: AuthUser | undefined,
   transport: "streamable_http" | "stdio",
+  profile: ToolProfile = "customer",
 ): void {
   const target = server as unknown as {
     registerTool: (name: string, config: unknown, callback: (...args: unknown[]) => Promise<unknown>) => unknown;
@@ -42,12 +130,29 @@ export function installToolAudit(
   target.registerTool = (name, toolConfig, callback) => {
     const contract = TOOL_CONTRACTS[name];
     if (!contract) throw new Error(`Tool ${name} has no production contract or required scope`);
+    const description = TOOL_DESCRIPTIONS[name];
+    if (!description) {
+      throw new Error(
+        `Tool ${name} has no reviewed description in src/tools/descriptions.ts — a reviewer ` +
+          `calls every tool and compares behaviour to what the description promised`,
+      );
+    }
+    // Out-of-profile tools are never registered, so they cannot appear in
+    // tools/list and cannot be called by name either — a filter applied only to
+    // the listing would leave the tool callable by anyone who guessed it.
+    if (!toolIsVisible(name, profile, user?.scopes)) return undefined;
     const version = contract.version;
     const config = toolConfig as Record<string, unknown>;
+    assertAnnotationsMatchContract(name, config.annotations, contract.annotations);
     return original(name, {
       ...config,
+      description,
       outputSchema: config.outputSchema ?? DEFAULT_OUTPUT_SCHEMA,
-      annotations: { ...contract.annotations, ...((config.annotations as object | undefined) ?? {}) },
+      // The contract wins. Annotations are what a directory reviewer checks
+      // against real behaviour, so they have exactly one source of truth; a
+      // per-tool override that disagreed used to win silently, which is how an
+      // annotation drifts away from what the tool does.
+      annotations: { ...contract.annotations },
       _meta: {
         ...((config._meta as object | undefined) ?? {}),
         "xcelsior/toolVersion": version,
@@ -71,6 +176,7 @@ export function installToolAudit(
             return callback(...args);
           }),
         );
+        result = applyResponseHygiene(name, result);
         const structured = (result as { structuredContent?: Record<string, unknown> })?.structuredContent;
         if (structured?.ok === false || structured?.error) outcome = "error";
         return result;

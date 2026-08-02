@@ -1446,7 +1446,7 @@ wait \"\$fe_pid\"
           CID=\$(sed -n 's/^XCELSIOR_MCP_CLIENT_ID=//p' .env | tail -1); \
           CSEC=\$(sed -n 's/^XCELSIOR_MCP_CLIENT_SECRET=//p' .env | tail -1); \
           AUD=\$(sed -n 's/^XCELSIOR_MCP_RESOURCE_AUDIENCE=//p' .env | tail -1); \
-          AUD=\${AUD:-https://mcp.xcelsior.ca}; \
+          AUD=\${AUD:-https://mcp.xcelsior.ca/mcp}; \
           test -n \"\$CID\" && test -n \"\$CSEC\"; \
           TOKEN=\$(curl -sS --max-time 10 -X POST http://127.0.0.1:$live_port_api/oauth/token \
             -H 'Content-Type: application/x-www-form-urlencoded' \
@@ -1481,9 +1481,18 @@ wait \"\$fe_pid\"
     # Keep the old replica alive until the canonical edge proves it can reach
     # the promoted colour. A bad route/certificate/upstream swap restores the
     # saved configs while the previous image is still serving.
+    # Protected-resource metadata must be reachable *and* an unauthenticated
+    # initialize must carry the RFC 9728 challenge that points at it. Without
+    # the header a connector reports "couldn't connect" while our logs show an
+    # ordinary 401 — nothing looks broken on either side, so it is checked here
+    # on every deploy rather than left to a reviewer to discover.
     ssh_cmd "curl -fsS --max-time 10 \
         https://mcp.xcelsior.ca/.well-known/oauth-protected-resource \
-        | grep -q 'resource'" \
+        | grep -q 'resource' && \
+      curl -sS --max-time 10 -o /dev/null -D - -X POST https://mcp.xcelsior.ca/mcp \
+        -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+        --data '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}' \
+        | grep -qi '^www-authenticate:.*resource_metadata='" \
         || {
             ssh_cmd "for f in /etc/nginx/sites-available/xcelsior /etc/nginx/sites-available/mcp-xcelsior; do \
                 [ -f \"\$f.pre-mcp-swap\" ] && sudo mv \"\$f.pre-mcp-swap\" \"\$f\"; \

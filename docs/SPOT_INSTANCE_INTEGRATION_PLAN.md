@@ -131,7 +131,7 @@ POST /instance { pricing_mode: "spot", gpu_model, tier, ... }
         │
         ├─► Allocation path A — direct host match
         │     • Host must have spot_capacity (new host payload flag, default true)
-        │     • Bill at gpu_pricing spot row × priority × sovereignty × multi-GPU
+        │     • Bill at gpu_pricing spot row × priority × multi-GPU
         │
         └─► Allocation path B — marketplace offer
               • Offer must have spot_enabled=true
@@ -170,7 +170,7 @@ On preempt: SIGTERM → grace (30s) → docker stop → status=preempted → aut
 
 - [ ] Confirm preemption grace period: `XCELSIOR_PREEMPTION_GRACE_SEC` default **30s** (keep)
 - [ ] Confirm auto-requeue on preempt: **yes**, same `pricing_mode=spot`, preserve volumes
-- [ ] Confirm spot jobs cannot use premium/sovereign SLA tiers (spot = standard tier only) — or document exception
+- [ ] Confirm spot jobs cannot use premium/dedicated SLA tiers (spot = standard tier only) — or document exception
 - [ ] Confirm wallet hold uses **spot rate × estimated hours** at launch (not on-demand)
 
 **Phase 0 exit:** Signed decision doc; grep inventory attached; no open questions on bidding retirement.
@@ -269,7 +269,7 @@ Today: `scheduler.py` (`spot_prices.json`) **and** `marketplace.py` (`spot_price
 
 - [ ] Extend `submit_job(..., pricing_mode='on_demand'|'spot')`:
   - [ ] `pricing_mode=spot` → `tier='spot'`, `preemptible=True`, `priority=0` (keep tier mapping)
-  - [ ] Reject `pricing_mode=spot` with `tier in ('premium', 'sovereign')` → 400
+  - [ ] Reject `pricing_mode=spot` with `tier in ('premium', 'dedicated')` → 400
   - [ ] Wallet preflight uses spot quote × num_gpus
 - [ ] Remove queue skip logic `max_bid >= spot price`
 - [ ] Replace with: spot jobs queue normally; scheduled when host has **spot capacity** (see 3.2)

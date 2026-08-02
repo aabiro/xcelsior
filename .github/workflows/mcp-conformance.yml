@@ -1,0 +1,51 @@
+# GX0 / GX2 external-vantage conformance.
+#
+# Adoption plan §4c: discovery, the 401 challenge, the OAuth round trip, and
+# TLS must be proven from *outside* the Xcelsior/headscale network. The
+# requirement is independent execution, not a specific machine — a scheduled
+# GitHub Actions job is the first choice precisely because it needs no
+# permanent VM and its egress is provably not ours.
+#
+# Honest limitation, restated here so nobody reads a green run as more than it
+# is: this proves reachability from a foreign network, which catches broad WAF
+# and TLS-chain failures. It does not prove that Anthropic's, OpenAI's, or
+# xAI's specific egress is allowed. Only a real provider connection or a
+# provider-side probe closes that assertion (GX2).
+name: MCP connector conformance
+
+on:
+  schedule:
+    # Daily, off the hour so it does not pile onto the top-of-hour runner surge.
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Canonical connector URL to probe"
+        required: false
+        default: "https://mcp.xcelsior.ca/mcp"
+
+permissions:
+  contents: read
+
+jobs:
+  gx0:
+    runs-on: ubuntu-latest
+    # Protected environment: the reviewer credentials that unlock the consent
+    # leg live here, not in repository-wide secrets.
+    environment: mcp-conformance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install httpx
+      - name: GX0 conformance
+        env:
+          GX0_BASE: ${{ inputs.base_url || 'https://mcp.xcelsior.ca/mcp' }}
+          GX0_EMAIL: ${{ secrets.MCP_CONFORMANCE_EMAIL }}
+          GX0_PASSWORD: ${{ secrets.MCP_CONFORMANCE_PASSWORD }}
+        run: |
+          python scripts/gx0_conformance.py \
+            --base "$GX0_BASE" \
+            --email "${GX0_EMAIL:-}" \
+            --password "${GX0_PASSWORD:-}"

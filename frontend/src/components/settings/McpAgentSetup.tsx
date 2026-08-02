@@ -12,7 +12,7 @@ import { SettingsSection } from "@/components/settings/settings-layout";
 import { OAuthSecretRevealModal } from "@/components/settings/oauth-secret-reveal-modal";
 import { ScopeChipRow } from "@/components/settings/credential-scope-panel";
 import { CodeBlock } from "@/components/ui/code-block";
-import { mcpUrl, configJson, configPath } from "@/lib/mcp";
+import { MCP_CONNECTOR_URL, MCP_RESOURCE, mcpHealthUrl, configJson, configPath } from "@/lib/mcp";
 import { useLocale } from "@/lib/locale";
 import * as api from "@/lib/api";
 import type { OAuthClientInfo } from "@/lib/api";
@@ -30,8 +30,6 @@ const MCP_SCOPES = [
   "inference:read",
   "inference:write",
 ] as const;
-
-const MCP_RESOURCE = "https://mcp.xcelsior.ca";
 
 const STEPS = ["create", "copy", "token", "paste"] as const;
 
@@ -154,11 +152,12 @@ export function McpAgentSetup({
     }
     setTesting(true);
     try {
-      // MCP health lives at /mcp/health (nginx proxies it to the MCP service in
-      // prod; the server also matches /mcp/health directly in local dev).
-      // The old code stripped /mcp and hit the API root /health by mistake.
-      const url = `${mcpUrl()}/health`;
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${bearer}` } });
+      // Probed through the same-origin compatibility route, not the canonical
+      // connector host: that host serves no CORS headers, so a browser fetch
+      // would be blocked before reaching us and would look like an outage.
+      const res = await fetch(mcpHealthUrl(), {
+        headers: { Authorization: `Bearer ${bearer}` },
+      });
       const body = (await res.json()) as { status?: string };
       const base = process.env.NEXT_PUBLIC_API_URL || "";
       const tokenRes = await fetch(`${base}/api/auth/introspect`, {
@@ -193,6 +192,37 @@ export function McpAgentSetup({
           className="h-auto w-full"
         />
       </div>
+
+      {/* The default path. Pasting a URL and signing in is what a person does;
+          minting a machine token is what a pipeline does. Leading with the
+          wizard taught every human to use the automation credential. */}
+      <div className="mb-8 rounded-xl border border-accent-cyan/30 bg-accent-cyan/5 p-5">
+        <p className="text-sm font-semibold text-text-primary">
+          {t("dash.settings.mcp.oauth_title")}
+        </p>
+        <p className="mt-1 text-sm text-text-secondary">
+          {t("dash.settings.mcp.oauth_body")}
+        </p>
+        <div className="mt-3 flex gap-2">
+          <Input readOnly value={MCP_CONNECTOR_URL} className="font-mono text-xs" />
+          <Button
+            size="icon"
+            variant="outline"
+            aria-label={t("dash.settings.mcp.oauth_copy_url")}
+            onClick={() => copyText("connector", MCP_CONNECTOR_URL)}
+          >
+            {copied === "connector" ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+          </Button>
+        </div>
+        <p className="mt-2 text-xs text-text-muted">{t("dash.settings.mcp.oauth_hint")}</p>
+      </div>
+
+      <p className="mb-3 text-xs font-medium uppercase tracking-wider text-text-muted">
+        {t("dash.settings.mcp.automation_heading")}
+      </p>
+      <p className="mb-5 text-sm text-text-secondary">
+        {t("dash.settings.mcp.automation_body")}
+      </p>
 
       <div className="grid gap-8 lg:grid-cols-[1fr_1fr]">
         <div className="space-y-4">

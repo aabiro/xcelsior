@@ -90,7 +90,7 @@ export function HomeBelowFold() {
             <FeatureCard i={0} icon={Server} title={t("home.feat_marketplace_title")} description={t("home.feat_marketplace_desc")} />
             <FeatureCard i={1} icon={BadgeCheck} title={t("home.feat_trust_title")} description={t("home.feat_trust_desc")} />
             <FeatureCard i={2} icon={BarChart3} title={t("home.feat_telemetry_title")} description={t("home.feat_telemetry_desc")} />
-            <FeatureCard i={3} icon={Globe} title={t("home.feat_jurisdiction_title")} description={t("home.feat_jurisdiction_desc")} />
+            <FeatureCard i={3} icon={Globe} title={t("home.feat_serverless_title")} description={t("home.feat_serverless_desc")} />
             <FeatureCard i={4} icon={DollarSign} title={t("home.feat_spot_title")} description={t("home.feat_spot_desc")} />
             <FeatureCard i={5} icon={Sparkles} title={t("home.feat_ai_title")} description={t("home.feat_ai_desc")} />
           </m.div>
@@ -151,7 +151,7 @@ export function HomeBelowFold() {
                 </tr>
               </thead>
               <tbody className="text-text-secondary">
-                <CompRow feature={t("home.cmp_pipeda")} xcelsior={t("home.cmp_pipeda_x")} aws={t("home.cmp_pipeda_aws")} vast={t("home.cmp_pipeda_vast")} runpod={t("home.cmp_pipeda_rp")} />
+                <CompRow feature={t("home.cmp_agents")} xcelsior={t("home.cmp_agents_x")} aws={t("home.cmp_agents_aws")} vast={t("home.cmp_agents_vast")} runpod={t("home.cmp_agents_rp")} />
                 <CompRow feature={t("home.cmp_price")} xcelsior={t("home.cmp_price_x")} aws={t("home.cmp_price_aws")} vast={t("home.cmp_price_vast")} runpod={t("home.cmp_price_rp")} />
                 <CompRow feature={t("home.cmp_cad")} xcelsior={t("home.cmp_cad_x")} aws={t("home.cmp_cad_aws")} vast={t("home.cmp_cad_vast")} runpod={t("home.cmp_cad_rp")} />
                 <CompRow feature={t("home.cmp_verification")} xcelsior={t("home.cmp_verification_x")} aws={t("home.cmp_verification_aws")} vast={t("home.cmp_verification_vast")} runpod={t("home.cmp_verification_rp")} />

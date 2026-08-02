@@ -7,7 +7,7 @@ classifications, and the sinks it fans out to. Two invariants it enforces:
      may never be part of an event contract — audit rows are redacted, and a
      secret must not be persisted or fanned out. `validate_contract` rejects it.
   2. **Every sink mapping is classified.** A downstream sink cannot receive an
-     event without a declared data classification, so residency/redaction
+     event without a declared data classification, so redaction
      decisions are never made by omission. `validate_sink_mapping` rejects a
      missing/unknown classification.
 

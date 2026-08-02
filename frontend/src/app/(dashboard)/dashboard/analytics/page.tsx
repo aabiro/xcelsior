@@ -23,7 +23,7 @@ import { TeamContextBanner } from "@/components/team/team-context-banner";
 import {
   SpendTrendChart, JobsTrendChart, UtilizationChart,
   CumulativeSpendChart, CostPerHourChart, GpuHoursChart,
-  DurationHistogramChart, JurisdictionSplitChart, TopGpuChart,
+  DurationHistogramChart, TopGpuChart,
   ProvinceDonutChart, GpuPerformanceRadar, HourlyHeatmap,
   ProviderRevenueTrendChart, WalletActivityChart,
   TopEntitiesTable, GpuPerformanceTable, PeakDaysCards,
@@ -152,23 +152,6 @@ function generateInsights(
     }
   }
 
-  // Jurisdiction split
-  const caPct = enhanced?.sovereignty?.canadian_pct ?? 0;
-  if (caPct > 0 && caPct >= 90) {
-    insights.push({
-      type: "positive",
-      title: "Strong Canadian compute share",
-      detail: `${caPct.toFixed(0)}% of your compute runs on Canadian infrastructure.`,
-      metric: `${caPct.toFixed(0)}% Canadian`,
-    });
-  } else if (caPct > 0 && caPct < 50) {
-    insights.push({
-      type: "info",
-      title: "Mostly international compute",
-      detail: `Only ${caPct.toFixed(0)}% of jobs run on Canadian GPUs. Consider Canadian hosts for lower latency to North American traffic.`,
-      metric: `${caPct.toFixed(0)}% Canadian`,
-    });
-  }
 
   // Peak usage pattern
   const peakDays = enhanced?.peak_days ?? [];
@@ -422,11 +405,6 @@ export default function AnalyticsPage() {
   const jobsOverTime = useMemo(() => analytics.map((r: any) => ({ date: r.period, count: r.job_count })), [analytics]);
   const spendOverTime = useMemo(() => analytics.map((r: any) => ({ date: r.period, spend: r.total_cost_cad })), [analytics]);
   const utilOverTime = useMemo(() => analytics.map((r: any) => ({ date: r.period, util: Number(r.avg_gpu_utilization_pct ?? 0) })), [analytics]);
-  const jurisdictionOverTime = useMemo(() => analytics.map((r: any) => ({
-    date: r.period,
-    canadian: Number(r.canadian_jobs ?? 0),
-    international: Number(r.international_jobs ?? 0),
-  })), [analytics]);
 
   const topGpuSeries = useMemo(() => gpuBreakdown
     .map((r: any) => ({ name: String(r.period || "Unknown"), spend: Number(r.total_cost_cad ?? 0), jobs: Number(r.job_count ?? 0), hours: Number(r.total_gpu_hours ?? 0) }))
@@ -473,7 +451,6 @@ export default function AnalyticsPage() {
   const totalGpuHours = Number(summary.total_gpu_hours ?? 0);
   const avgCostPerJob = totalJobs > 0 ? totalSpend / totalJobs : 0;
   const avgJobDuration = totalJobs > 0 ? totalGpuHours / totalJobs : 0;
-  const canadianPct = enhanced?.sovereignty?.canadian_pct ?? 0;
   const topGpu = topGpuSeries[0]?.name ?? "-";
 
   // CSV export of the analytics data
@@ -819,7 +796,6 @@ export default function AnalyticsPage() {
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <StatCard label="Avg Cost/Job" value={<CountUp value={avgCostPerJob} prefix="$" />} icon={ArrowUpRight} />
                   <StatCard label="Avg Job Duration" value={<CountUp value={avgJobDuration} suffix="h" />} icon={Activity} />
-                  <StatCard label="Canadian Compute" value={<CountUp value={canadianPct} suffix="%" />} icon={Shield} />
                   <StatCard label="Top GPU" value={<span className="text-sm font-mono">{topGpu}</span>} icon={ChartArea} />
                 </div>
               </FadeIn>
@@ -863,9 +839,6 @@ export default function AnalyticsPage() {
                 <StaggerItem>
                   <StatCard label="Avg Utilization" value={<CountUp value={Number(summary.avg_gpu_utilization_pct ?? 0)} suffix="%" />} icon={Gauge} glow="violet" />
                 </StaggerItem>
-                <StaggerItem>
-                  <StatCard label="Canadian %" value={<CountUp value={canadianPct} suffix="%" />} icon={Globe} glow="gold" />
-                </StaggerItem>
               </StaggerList>
 
               <FadeIn delay={0.15}>
@@ -878,7 +851,6 @@ export default function AnalyticsPage() {
               <FadeIn delay={0.2}>
                 <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                   <DurationHistogramChart data={enhanced?.duration_histogram ?? []} />
-                  <JurisdictionSplitChart data={jurisdictionOverTime} />
                 </div>
               </FadeIn>
 
@@ -908,22 +880,6 @@ export default function AnalyticsPage() {
                 </StaggerItem>
                 <StaggerItem>
                   <StatCard label="Avg Cost/Job" value={<CountUp value={avgCostPerJob} prefix="$" />} icon={ArrowUpRight} glow="cyan" />
-                </StaggerItem>
-                <StaggerItem>
-                  <StatCard
-                    label="CA Spend"
-                    value={<CountUp value={enhanced?.sovereignty?.canadian_spend ?? 0} prefix="$" />}
-                    icon={Shield}
-                    glow="emerald"
-                  />
-                </StaggerItem>
-                <StaggerItem>
-                  <StatCard
-                    label="Int'l Spend"
-                    value={<CountUp value={enhanced?.sovereignty?.international_spend ?? 0} prefix="$" />}
-                    icon={Globe}
-                    glow="violet"
-                  />
                 </StaggerItem>
               </StaggerList>
 

@@ -61,7 +61,7 @@ job_strategy = st.fixed_dictionaries(
         "vram_needed_gb": st.floats(
             min_value=0.0, max_value=40.0, allow_nan=False, allow_infinity=False
         ),
-        "tier": st.sampled_from(["free", "community", "pro", "sovereign", "regulated", "secure"]),
+        "tier": st.sampled_from(["free", "community", "pro", "secure", "dedicated"]),
     }
 )
 

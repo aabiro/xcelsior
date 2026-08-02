@@ -32,15 +32,21 @@ def place(job_id: str, gpu_model: str) -> None:
         "free_vram_gb": 48.0,
         "total_vram_gb": 48.0,
         "cost_per_hour": 1.0,
-        "admitted": True,
         "last_seen": time.time(),
     }
     pool = _get_pg_pool()
     with pool.connection() as conn:
+        # `admission_state` is the authority, not the payload's `admitted` flag.
+        # Migration 082 replaced the projection trigger: it now derives
+        # `administrative_state` from this column and *overwrites*
+        # `payload->>'admitted'` from it. A fixture that only set the payload
+        # flag was silently un-admitted on insert, so every placement returned
+        # `no_eligible_host` — the host existed, looked admitted in its own
+        # payload, and could never be scheduled onto.
         conn.execute(
             """
-            INSERT INTO hosts (host_id, status, registered_at, payload)
-            VALUES (%s, 'active', %s, %s)
+            INSERT INTO hosts (host_id, status, registered_at, payload, admission_state)
+            VALUES (%s, 'active', %s, %s, 'admitted')
             """,
             (host_id, time.time(), json.dumps(host)),
         )

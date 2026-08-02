@@ -974,7 +974,6 @@ export async function downloadInvoice(
 
 export async function estimatePrice(data: {
   gpu_model: string; duration_hours: number; spot?: boolean;
-  sovereignty?: boolean; is_canadian?: boolean;
 }) {
   // Mirrors reputation.estimate_job_cost(). The AI Compute Access Fund has
   // ended, so fund_rate / fund_reimbursable_cad / savings_pct are always 0 and
@@ -982,7 +981,7 @@ export async function estimatePrice(data: {
   return apiFetch<{
     ok: boolean; gpu_model: string; duration_hours: number;
     rate_cad_per_hour: number; gross_cost_cad: number; currency: string;
-    is_canadian_compute: boolean; spot: boolean; sovereignty_premium: boolean;
+    spot: boolean;
     host_tier: string; fund_eligible: boolean; fund_rate: number;
     fund_label: string; fund_reimbursable_cad: number;
     effective_cost_cad: number; savings_pct: number;
@@ -1375,10 +1374,6 @@ export interface EnhancedAnalytics {
   daily_gpu_hours: { date: string; hours: number }[];
   hourly_heatmap: { dow: number; hour: number; count: number }[];
   top_entities: { entity: string; job_count: number; total_cost: number; gpu_hours: number }[];
-  sovereignty: {
-    total_jobs: number; canadian_jobs: number; canadian_pct: number;
-    canadian_spend: number; international_spend: number;
-  };
   gpu_performance: {
     gpu_model: string; jobs: number; avg_util: number; avg_duration_min: number;
     total_cost: number; gpu_hours: number; avg_cost_per_hour: number;
@@ -1513,7 +1508,7 @@ export async function fetchTransparencyReport(months = 12) {
       challenged: number;
       pending: number;
       by_type: Record<string, number>;
-      by_jurisdiction: Record<string, number>;
+  by_requesting_country: Record<string, number>;
     };
     cloud_act_note: string;
   }>(`/api/transparency/report?months=${months}`);
@@ -1559,7 +1554,6 @@ export async function fetchPricingRates(params: {
     num_gpus: number;
     base_rate_cad: number;
     priority_multiplier: number;
-    sovereignty_premium: number;
     multi_gpu_discount: number;
     effective_rate_per_gpu: number;
     total_per_hour: number;
@@ -1977,11 +1971,6 @@ export async function fetchTaxRates() {
   return apiFetch<{ ok: boolean; rates: Record<string, { rate: number; description: string; gst: number; pst: number; hst: number }> }>("/api/compliance/tax-rates");
 }
 
-export async function checkQuebecPia(data: { data_origin_province: string; processing_province: string; data_contains_pi: boolean }) {
-  return apiFetch<{ ok: boolean; pia_required: boolean; reason: string }>(
-    "/api/compliance/quebec-pia-check", { method: "POST", body: JSON.stringify(data) },
-  );
-}
 
 export async function fetchSlaTargets() {
   return apiFetch<{ ok: boolean; tiers: Record<string, { uptime_pct: number; credit_pct_10: number; credit_pct_25: number; credit_pct_100: number }> }>(
@@ -2070,7 +2059,7 @@ export async function updateMemberRole(teamId: string, email: string, role: stri
 }
 
 // ── Artifacts ─────────────────────────────────────────────────────────
-export async function uploadArtifact(data: { job_id: string; filename: string; artifact_type: string; residency_policy?: string }) {
+export async function uploadArtifact(data: { job_id: string; filename: string; artifact_type: string; storage_policy?: string }) {
   return apiFetch<{ ok: boolean; upload_url: string; artifact_id: string }>(
     "/api/artifacts/upload", { method: "POST", body: JSON.stringify(data) },
   );
@@ -2791,7 +2780,7 @@ export interface ArtifactEntry {
   filename: string;
   artifact_type: string;
   size_bytes?: number;
-  residency_policy?: string;
+  storage_policy?: string;
   created_at: string;
 }
 
@@ -3030,7 +3019,6 @@ export async function searchMarketplaceV2(params: {
   min_vram_gb?: number;
   max_price_cents?: number;
   region?: string;
-  canada_only?: boolean;
   sort_by?: string;
   limit?: number;
 }) {

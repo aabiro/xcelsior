@@ -7,7 +7,7 @@
 #
 # Per REPORT_XCELSIOR_TECHNICAL_FINAL.md:
 # - Budget-capped cloud burst (never overspend)
-# - Prefer community GPUs (lower cost, sovereignty)
+# - Prefer community GPUs (lower cost)
 # - Drain cloud instances when community catches up
 # - Track cloud spend for billing transparency
 
@@ -167,7 +167,8 @@ class CloudBurstEngine:
 
             # Count active burst instances
             burst = conn.execute(
-                "SELECT COUNT(*) as cnt, COALESCE(SUM(budget_spent_cad), 0) as spent FROM cloud_burst_instances WHERE status IN ('provisioning', 'running')",
+                "SELECT COUNT(*) as cnt, COALESCE(SUM(budget_spent_micros), 0) / 1000000.0 as spent "
+                "FROM cloud_burst_instances WHERE status IN ('provisioning', 'running')",
             ).fetchone()
 
         queue_depth = queued["cnt"] or 0
@@ -233,7 +234,7 @@ class CloudBurstEngine:
             conn.execute(
                 """INSERT INTO cloud_burst_instances
                    (instance_id, cloud_provider, instance_type, region,
-                    gpu_model, gpu_count, cost_per_hour_cad,
+                    gpu_model, gpu_count, cost_per_hour_micros,
                     status, cloud_instance_id, started_at)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
@@ -243,7 +244,7 @@ class CloudBurstEngine:
                     type_info["region"],
                     type_info["gpu_model"],
                     type_info["gpu_count"],
-                    type_info["cost_per_hour_cad"],
+                    round(type_info["cost_per_hour_cad"] * 1_000_000),
                     status,
                     cloud_instance_id or "",
                     now,
@@ -610,7 +611,7 @@ class CloudBurstEngine:
                 return
 
             runtime_hours = (now - inst["started_at"]) / 3600
-            total_cost = round(runtime_hours * inst["cost_per_hour_cad"], 2)
+            total_cost = round(runtime_hours * (inst["cost_per_hour_micros"] or 0) / 1_000_000, 2)
 
             # Actually terminate the cloud VM
             cloud_id = inst.get("cloud_instance_id", "")
@@ -620,9 +621,9 @@ class CloudBurstEngine:
 
             conn.execute(
                 """UPDATE cloud_burst_instances
-                   SET status = 'terminated', terminated_at = %s, budget_spent_cad = %s
+                   SET status = 'terminated', terminated_at = %s, budget_spent_micros = %s
                    WHERE instance_id = %s""",
-                (now, total_cost, instance_id),
+                (now, round(total_cost * 1_000_000), instance_id),
             )
 
         log.info(
@@ -725,10 +726,10 @@ class CloudBurstEngine:
             ).fetchall()
             for inst in running:
                 hours = (now - inst["started_at"]) / 3600
-                cost = round(hours * inst["cost_per_hour_cad"], 2)
+                cost = round(hours * (inst["cost_per_hour_micros"] or 0) / 1_000_000, 2)
                 conn.execute(
-                    "UPDATE cloud_burst_instances SET budget_spent_cad = %s WHERE instance_id = %s",
-                    (cost, inst["instance_id"]),
+                    "UPDATE cloud_burst_instances SET budget_spent_micros = %s WHERE instance_id = %s",
+                    (round(cost * 1_000_000), inst["instance_id"]),
                 )
                 total += cost
         return total
@@ -736,7 +737,7 @@ class CloudBurstEngine:
     def get_burst_status(self) -> dict:
         with self._conn() as conn:
             rows = conn.execute(
-                """SELECT status, COUNT(*) as cnt, COALESCE(SUM(budget_spent_cad), 0) as spent
+                """SELECT status, COUNT(*) as cnt, COALESCE(SUM(budget_spent_micros), 0) / 1000000.0 as spent
                    FROM cloud_burst_instances GROUP BY status""",
             ).fetchall()
 

@@ -68,6 +68,12 @@ export const BRAND_ASSETS = {
   textTagMedLight: `${BRAND_SYSTEM_BASE}/text-tag-med-light.svg`,
   textUrlMedDark: `${BRAND_SYSTEM_BASE}/text-url-med-dark.svg`,
   textUrlMedLight: `${BRAND_SYSTEM_BASE}/text-url-med-light.svg`,
+  docsLockupIconDark: `${BRAND_SYSTEM_BASE}/docs-lockup-icon-dark.svg`,
+  docsLockupIconLight: `${BRAND_SYSTEM_BASE}/docs-lockup-icon-light.svg`,
+  docsLockupDark: `${BRAND_SYSTEM_BASE}/docs-lockup-dark.svg`,
+  docsLockupLight: `${BRAND_SYSTEM_BASE}/docs-lockup-light.svg`,
+  docsLockupMonoDark: `${BRAND_SYSTEM_BASE}/docs-lockup-mono-dark.svg`,
+  docsLockupMonoLight: `${BRAND_SYSTEM_BASE}/docs-lockup-mono-light.svg`,
 } as const;
 
 export const BRAND_PNG_ASSETS = {

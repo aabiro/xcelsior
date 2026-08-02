@@ -29,19 +29,19 @@ from control_plane.launch.canonicalize import canonicalize, spec_hash
 ROUTES_DIR = pathlib.Path(__file__).resolve().parent.parent / "routes"
 
 # The only request handlers permitted to run the queue walker: they *are* the
-# on-demand queue processor (admin / jurisdiction triggers), not a launch path.
+# on-demand queue processor (admin triggers), not a launch path.
 # Adding a launch/submission handler here would be a design regression, so the
 # list is deliberately small and named.
 _QUEUE_RUNNER_ALLOWLIST = {
     "api_process_queue",
     "api_process_queue_binpack",
     "api_process_queue_ca",
-    "api_process_queue_sovereign",
+    "api_process_queue_binpack",
 }
 _SCHEDULER_INLINE_CALLS = {
     "process_queue",
     "process_queue_binpack",
-    "process_queue_sovereign",
+    "process_queue_ranked",
     "process_queue_filtered",
 }
 

@@ -113,8 +113,6 @@ def test_sla_targets_public_reference():
 
 
 _HOST_READS = [
-    ("GET", "/hosts/ca", None),
-    ("POST", "/api/jurisdiction/hosts", {"canada_only": True}),
 ]
 
 
@@ -126,8 +124,9 @@ def test_host_inventory_reads_require_auth(method, path, body, auth_required):
 
 
 def test_host_inventory_reads_allowed_for_authenticated_user(two_users):
+    """`/hosts/ca` is gone — inventory is one global list, not a per-country one."""
     _, user_b = two_users
-    r = client.get("/hosts/ca", headers=user_b["headers"])
+    r = client.get("/hosts", headers=user_b["headers"])
     assert r.status_code == 200
     assert "hosts" in r.json()
 

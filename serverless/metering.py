@@ -268,7 +268,7 @@ def get_gpu_rate_per_hour(gpu_tier: str, region: str) -> float:
         # platform on-demand catalog used for quotes and reservation checks.
         row = conn.execute(
             """
-            SELECT MIN(base_rate_cad) AS price FROM gpu_pricing
+            SELECT MIN(base_rate_micros)::double precision / 1000000.0 AS price FROM gpu_pricing
             WHERE gpu_model = %s AND tier = 'standard'
               AND pricing_mode = 'on_demand' AND active = true
             """,
@@ -416,8 +416,8 @@ def charge_serverless_execution(
             INSERT INTO billing_cycles
                 (cycle_id, job_id, customer_id, host_id, resource_type,
                  period_start, period_end, duration_seconds, rate_per_hour,
-                 gpu_model, tier, tier_multiplier, amount_cad, status, created_at,
-                 token_cost_cad, model_ref)
+                 gpu_model, tier, tier_multiplier, amount_micros, status, created_at,
+                 token_cost_micros, model_ref)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
@@ -433,10 +433,10 @@ def charge_serverless_execution(
                 str(endpoint.get("gpu_tier") or "serverless"),
                 "on-demand",
                 1.0,
-                amount_cad,
+                round(float(amount_cad) * 1_000_000),
                 status,
                 now,
-                round(float(token_cost_cad or 0.0), 6),
+                round(float(token_cost_cad or 0.0) * 1_000_000),
                 str(endpoint.get("model_ref") or ""),
             ),
         )

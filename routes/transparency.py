@@ -37,7 +37,7 @@ def _transparency_db():
 
 class LegalRequestRecord(BaseModel):
     request_type: str = "subpoena"  # subpoena, warrant, mlat, production_order, informal
-    jurisdiction: str = "CA"
+    requesting_country: str = "CA"
     authority: str = ""
     scope: str = ""
     notes: str = ""
@@ -57,13 +57,13 @@ def api_record_legal_request(req: LegalRequestRecord, request: Request):
         request_id = str(uuid.uuid4())[:12]
         conn.execute(
             """INSERT INTO legal_requests
-               (request_id, received_at, request_type, jurisdiction, authority, scope, notes)
+               (request_id, received_at, request_type, requesting_country, authority, scope, notes)
                VALUES (%s, %s, %s, %s, %s, %s, %s)""",
             (
                 request_id,
                 time.time(),
                 req.request_type,
-                req.jurisdiction,
+                req.requesting_country,
                 req.authority,
                 req.scope,
                 req.notes,
@@ -78,7 +78,7 @@ def api_record_legal_request(req: LegalRequestRecord, request: Request):
             entity_type="legal",
             entity_id=request_id,
             actor="admin",
-            data={"request_type": req.request_type, "jurisdiction": req.jurisdiction},
+            data={"request_type": req.request_type, "requesting_country": req.requesting_country},
         )
     )
 
@@ -145,10 +145,10 @@ def api_transparency_report(request: Request, months: int = 12):
     for r in requests_list:
         t = r.get("request_type", "unknown")
         by_type[t] = by_type.get(t, 0) + 1
-    by_jurisdiction = {}
+    by_requesting_country = {}
     for r in requests_list:
-        j = r.get("jurisdiction", "unknown")
-        by_jurisdiction[j] = by_jurisdiction.get(j, 0) + 1
+        j = r.get("requesting_country", "unknown")
+        by_requesting_country[j] = by_requesting_country.get(j, 0) + 1
 
     return {
         "ok": True,
@@ -160,12 +160,12 @@ def api_transparency_report(request: Request, months: int = 12):
             "challenged": challenged,
             "pending": total - complied - challenged,
             "by_type": by_type,
-            "by_jurisdiction": by_jurisdiction,
+            "by_requesting_country": by_requesting_country,
             "data_disclosures": len(disclosures_list),
         },
         "cloud_act_note": (
             "Xcelsior is a Canadian-controlled entity. All data resides in Canadian "
-            "jurisdiction. Foreign legal process requires MLAT through Canadian courts. "
+            "requesting_country. Foreign legal process requires MLAT through Canadian courts. "
             "No US CLOUD Act compelled disclosure has been made."
         ),
         "requests": requests_list,

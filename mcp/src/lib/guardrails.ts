@@ -3,8 +3,6 @@ export interface ShouldIRunInput {
   duration_hours: number;
   spot?: boolean;
   max_hourly_cad?: number;
-  /** Region or jurisdiction code the workload must stay within. Omitted when unconstrained. */
-  require_residency?: string;
 }
 
 export interface ShouldIRunResult {
@@ -13,7 +11,6 @@ export interface ShouldIRunResult {
   estimated_cost: Record<string, unknown>;
   wallet_balance_cad: number;
   hourly_rate_cad: number;
-  jurisdiction_note?: string;
 }
 
 export function evaluateShouldIRunThis(
@@ -43,16 +40,6 @@ export function evaluateShouldIRunThis(
     );
   }
 
-  // Residency is a per-workload constraint, not a platform default. Report it back as an explicit
-  // instruction to verify, rather than asserting that any particular region satisfies it.
-  let jurisdiction_note: string | undefined;
-  const residency = input.require_residency?.trim();
-  if (residency) {
-    jurisdiction_note =
-      `This workload requires ${residency} residency. Pass that region constraint explicitly to ` +
-      `create_instance and confirm the selected host reports a matching jurisdiction before launching. ` +
-      `Do not assume the default region satisfies it.`;
-  }
 
   return {
     approved: reasons.length === 0,
@@ -60,6 +47,5 @@ export function evaluateShouldIRunThis(
     estimated_cost: estimate,
     wallet_balance_cad: walletBalanceCad,
     hourly_rate_cad: hourly,
-    jurisdiction_note,
   };
 }

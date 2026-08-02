@@ -35,7 +35,7 @@ const instance = await client.instances.create({
   name: "llama-inference",
   vramNeededGb: 24,
   priority: 5,
-  tier: "sovereign",
+  tier: "dedicated",
 });
 console.log(`Instance ${instance.jobId} created`);
 

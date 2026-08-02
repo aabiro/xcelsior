@@ -259,7 +259,7 @@ def _get_pg_pool() -> Any:
 #
 # Pricing is derived from a compact base table: one canonical short name
 # + variant tuple + standard on-demand rate per row. Tiers (standard /
-# premium / sovereign) and pricing modes (on_demand / spot / reserved)
+# premium / dedicated) and pricing modes (on_demand / spot / reserved)
 # are expanded at seed time via deterministic multipliers.
 #
 # Canonical names MUST match frontend/src/lib/gpu-models.ts exactly.
@@ -344,11 +344,9 @@ _GPU_PRICING_BASE: list[tuple[str, int, str, bool, float]] = [
 ]
 
 # Deterministic expansion of base rates into the full tier × mode matrix.
-# Sovereign premium dropped (was 1.43 = premium × 1.10): we compete on price/DX,
-# not a sovereignty surcharge, so the sovereign tier no longer costs more than
-# standard. The tier string is retained (referenced by sla.py, scheduler, Stripe
-# catalog) but carries no price premium.
-_TIER_MULT = {"standard": 1.0, "premium": 1.30, "sovereign": 1.0}
+# The dedicated tier carries no price premium: we compete on price and developer
+# experience. It is a support and SLA tier, not a location claim.
+_TIER_MULT = {"standard": 1.0, "premium": 1.30, "dedicated": 1.0}
 _MODE_MULT = {
     "on_demand": 1.0,
     "spot": 0.40,
@@ -356,7 +354,6 @@ _MODE_MULT = {
     "reserved_3mo": 0.70,  # 30% off — matches billing API 3_month commitment
     "reserved_1yr": 0.55,
 }
-_TIER_SOVEREIGNTY = {"standard": 0.0, "premium": 0.0, "sovereign": 0.0}
 
 
 def _generate_gpu_pricing_rows() -> list[tuple]:
@@ -374,9 +371,8 @@ def _generate_gpu_pricing_rows() -> list[tuple]:
                         high_freq,
                         tier,
                         mode,
-                        rate,
+                        round(rate * 1_000_000),
                         1.0,  # priority_multiplier
-                        _TIER_SOVEREIGNTY[tier],  # sovereignty_premium
                         0.0,  # spot_discount (already in mode_mult)
                         0.05,
                         0.10,  # multi-GPU discounts
@@ -408,10 +404,10 @@ def _seed_gpu_pricing(cur):
         cur.execute(
             """INSERT INTO gpu_pricing
                (gpu_model, vram_gb, form_factor, high_frequency,
-                tier, pricing_mode, base_rate_cad,
-                priority_multiplier, sovereignty_premium, spot_discount,
+                tier, pricing_mode, base_rate_micros,
+                priority_multiplier, spot_discount,
                 multi_gpu_discount_4, multi_gpu_discount_8)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                ON CONFLICT (gpu_model, vram_gb, form_factor, high_frequency,
                             tier, pricing_mode) DO NOTHING""",
             row,
@@ -553,7 +549,7 @@ class DatabaseOps:
                 """
                 INSERT INTO jobs(
                     job_id, status, priority, submitted_at, host_id,
-                    pricing_mode, spot_rate_cad, payload
+                    pricing_mode, spot_rate_micros, payload
                 )
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT(job_id) DO UPDATE SET
@@ -562,7 +558,7 @@ class DatabaseOps:
                     submitted_at = EXCLUDED.submitted_at,
                     host_id = EXCLUDED.host_id,
                     pricing_mode = EXCLUDED.pricing_mode,
-                    spot_rate_cad = EXCLUDED.spot_rate_cad,
+                    spot_rate_micros = EXCLUDED.spot_rate_micros,
                     payload = EXCLUDED.payload
                 """,
                 (
@@ -572,7 +568,7 @@ class DatabaseOps:
                     submitted_at,
                     host_id,
                     pricing_mode,
-                    spot_rate_cad,
+                    None if spot_rate_cad is None else round(spot_rate_cad * 1_000_000),
                     Jsonb(job),
                 ),
             )
@@ -1165,7 +1161,6 @@ class UserStore:
             "reset_token",
             "reset_token_expires",
             "notifications_enabled",
-            "canada_only_routing",
             "preferences",
             "mfa_enabled",
             "email_verified",
@@ -2386,9 +2381,20 @@ class OAuthStore:
                     team_id,
                     is_system_managed,
                     created_at,
-                    updated_at
+                    updated_at,
+                    registration_source,
+                    resource_audience,
+                    registration_expires_at,
+                    client_uri,
+                    logo_uri,
+                    policy_uri,
+                    tos_uri,
+                    software_id,
+                    software_version,
+                    contacts
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (client_id) DO UPDATE SET
                     client_name = EXCLUDED.client_name,
                     client_type = EXCLUDED.client_type,
@@ -2401,7 +2407,17 @@ class OAuthStore:
                     created_by_email = EXCLUDED.created_by_email,
                     is_first_party = EXCLUDED.is_first_party,
                     is_system_managed = EXCLUDED.is_system_managed,
-                    updated_at = EXCLUDED.updated_at
+                    updated_at = EXCLUDED.updated_at,
+                    registration_source = EXCLUDED.registration_source,
+                    resource_audience = EXCLUDED.resource_audience,
+                    registration_expires_at = EXCLUDED.registration_expires_at,
+                    client_uri = EXCLUDED.client_uri,
+                    logo_uri = EXCLUDED.logo_uri,
+                    policy_uri = EXCLUDED.policy_uri,
+                    tos_uri = EXCLUDED.tos_uri,
+                    software_id = EXCLUDED.software_id,
+                    software_version = EXCLUDED.software_version,
+                    contacts = EXCLUDED.contacts
                 """,
                 (
                     client["client_id"],
@@ -2420,6 +2436,16 @@ class OAuthStore:
                     int(client.get("is_system_managed", 0)),
                     client.get("created_at", time.time()),
                     client.get("updated_at", time.time()),
+                    client.get("registration_source", "manual"),
+                    client.get("resource_audience"),
+                    client.get("registration_expires_at"),
+                    client.get("client_uri"),
+                    client.get("logo_uri"),
+                    client.get("policy_uri"),
+                    client.get("tos_uri"),
+                    client.get("software_id"),
+                    client.get("software_version"),
+                    Jsonb(list(client.get("contacts") or [])),
                 ),
             )
 
@@ -2631,6 +2657,157 @@ class OAuthStore:
                 "DELETE FROM oauth_refresh_tokens WHERE session_token = %s",
                 (session_token,),
             )
+
+    # ── Dynamic client registration lifecycle (RFC 7591) ──────────────
+
+    @staticmethod
+    def touch_registration(client_id: str, expires_at) -> None:
+        """Push a dynamic registration's expiry out because it was just used.
+
+        Expiry exists to garbage-collect registrations nobody ever completed a
+        flow with — an open registration endpoint accumulates those. A client in
+        active use must never expire underneath a working connector, so every
+        successful authorization renews it.
+        """
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                UPDATE oauth_clients
+                   SET registration_expires_at = %s, updated_at = %s
+                 WHERE client_id = %s AND registration_expires_at IS NOT NULL
+                """,
+                (expires_at, time.time(), client_id),
+            )
+
+    @staticmethod
+    def purge_expired_registrations(now=None) -> int:
+        """Delete dynamic registrations whose window elapsed unused."""
+        from datetime import UTC, datetime
+
+        cutoff = now or datetime.now(UTC)
+        with auth_connection() as conn:
+            cur = conn.execute(
+                """
+                DELETE FROM oauth_clients
+                 WHERE registration_expires_at IS NOT NULL
+                   AND registration_expires_at < %s
+                   AND is_first_party = 0
+                """,
+                (cutoff,),
+            )
+            return cur.rowcount or 0
+
+    @staticmethod
+    def count_registrations_since(since: float, *, source: str = "dcr") -> int:
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT count(*) AS registrations FROM oauth_clients "
+                "WHERE registration_source = %s AND created_at >= %s",
+                (source, since),
+            ).fetchone()
+            return int(row["registrations"]) if row else 0
+
+
+class ConsentStore:
+    """Recorded user consent for a third-party OAuth client.
+
+    A connector's authorization is a decision the user made once and can undo;
+    treating it as a transient UI moment would mean re-prompting on every
+    reconnect and having nothing to show — or revoke — afterwards. The row is
+    the authority: `/oauth/authorize` skips the prompt only when a live grant
+    already covers the exact scopes and resource being requested.
+    """
+
+    @staticmethod
+    def get(user_id: str, client_id: str, resource: str = "") -> dict | None:
+        with auth_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM oauth_consent_grants
+                 WHERE user_id = %s AND client_id = %s AND resource = %s
+                   AND revoked_at IS NULL
+                """,
+                (user_id, client_id, resource or ""),
+            ).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def record(
+        *,
+        grant_id: str,
+        tenant_id: str,
+        user_id: str,
+        email: str,
+        client_id: str,
+        scopes: list[str],
+        resource: str = "",
+        surface: str = "unknown",
+    ) -> None:
+        from psycopg.types.json import Jsonb
+
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO oauth_consent_grants (
+                    grant_id, tenant_id, user_id, email, client_id, resource,
+                    scopes, surface
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (user_id, client_id, resource) DO UPDATE SET
+                    scopes = EXCLUDED.scopes,
+                    tenant_id = EXCLUDED.tenant_id,
+                    email = EXCLUDED.email,
+                    surface = EXCLUDED.surface,
+                    granted_at = now(),
+                    revoked_at = NULL
+                """,
+                (
+                    grant_id,
+                    tenant_id,
+                    user_id,
+                    email,
+                    client_id,
+                    resource or "",
+                    Jsonb(sorted(set(scopes))),
+                    surface or "unknown",
+                ),
+            )
+
+    @staticmethod
+    def touch(user_id: str, client_id: str, resource: str = "") -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                UPDATE oauth_consent_grants SET last_used_at = now()
+                 WHERE user_id = %s AND client_id = %s AND resource = %s
+                """,
+                (user_id, client_id, resource or ""),
+            )
+
+    @staticmethod
+    def list_for_user(user_id: str) -> list[dict]:
+        with auth_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM oauth_consent_grants
+                 WHERE user_id = %s AND revoked_at IS NULL
+                 ORDER BY granted_at DESC
+                """,
+                (user_id,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    @staticmethod
+    def revoke(user_id: str, client_id: str) -> int:
+        """Withdraw consent for every resource this user granted this client."""
+        with auth_connection() as conn:
+            cur = conn.execute(
+                """
+                UPDATE oauth_consent_grants SET revoked_at = now()
+                 WHERE user_id = %s AND client_id = %s AND revoked_at IS NULL
+                """,
+                (user_id, client_id),
+            )
+            return cur.rowcount or 0
 
 
 class AgentKeyStore:

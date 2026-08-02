@@ -206,7 +206,11 @@ def test_tenant_scoped_tables_index_tenant_first():
 # down: a new float money column fails here, and finishing a table's conversion
 # requires lowering the bound in the same commit. That makes the debt a visible
 # countdown instead of a comment nobody revisits.
-MAX_LEGACY_FLOAT_CAD_COLUMNS = 30
+# Zero, and it stays zero. 095 mirrored the last 26 float CAD columns into
+# integer micros, every read and write moved, and 097 dropped the floats after
+# verifying the two representations agreed on every row. This is no longer a
+# budget to be negotiated: a new float money column is a straight failure.
+MAX_LEGACY_FLOAT_CAD_COLUMNS = 0
 
 
 def test_legacy_float_money_only_shrinks():
@@ -263,9 +267,26 @@ def test_no_float_cad_column_shadows_a_micros_column():
                      ORDER BY 1, 2"""
             ).fetchall()
         ]
-    assert not shadows, (
-        "a _cad column shadows a _micros/_minor column for the same amount; "
-        f"one of the two is a stale projection: {shadows}"
+    # 095 deliberately creates 26 such pairs as a transition: micros is mirrored
+    # from the float by a BEFORE INSERT OR UPDATE trigger so the two cannot
+    # diverge, which is precisely what made the 087 pairs dangerous. A shadow is
+    # therefore tolerated *only* while its mirror trigger exists. 096 drops the
+    # floats and the triggers together, and this list empties itself.
+    with _get_pg_pool().connection() as conn:
+        mirrored = {
+            r[0]
+            for r in conn.execute(
+                """SELECT REPLACE(tgname, 'trg_mirror_', '')
+                     FROM pg_trigger WHERE tgname LIKE 'trg_mirror_%'"""
+            ).fetchall()
+        }
+    unguarded = [
+        s for s in shadows
+        if s.split(".", 1)[1].removesuffix("_cad") + "_micros" not in mirrored
+    ]
+    assert not unguarded, (
+        "a _cad column shadows a _micros/_minor column with no mirror trigger, "
+        f"so the two can drift — one is a stale projection: {unguarded}"
     )
 
 
@@ -314,7 +335,17 @@ def test_companion_conformance_prose_matches_the_database():
     # drift apart from each other either.
     assert columns == MAX_LEGACY_FLOAT_CAD_COLUMNS
 
-    sentence = f"{_spell(columns).capitalize()} `_cad` columns across {_spell(tables)} legacy tables"
+    # At zero the debt sentence would read "0 columns across 0 tables", which is
+    # true and useless. The cutover is finished, so the prose has to say that
+    # instead — and this still fails if a float money column ever reappears,
+    # because the branch above it flips back to the counted sentence.
+    if columns == 0:
+        sentence = "No float money columns remain"
+    else:
+        sentence = (
+            f"{_spell(columns).capitalize()} `_cad` columns across "
+            f"{_spell(tables)} legacy tables"
+        )
     assert sentence in COMPANION_DOC.read_text(), (
         f"the companion's §4.4 conformance prose no longer matches the "
         f"database. Expected it to say:\n  {sentence!r}\n"

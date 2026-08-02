@@ -1,17 +1,22 @@
 import "./observability/setup.js";
 import http from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { loadConfig } from "./config.js";
+import { acceptedAudiences, loadConfig } from "./config.js";
 import { createMcpServer } from "./server.js";
 import { createApiClient, extractBearer, validateBearer } from "./auth/bearer.js";
+import { buildWwwAuthenticate } from "./auth/challenge.js";
 import { acquireWatchSlot, checkRateLimit, checkToolLimit, rateLimitReady, recordAuthFailure } from "./rate-limit.js";
 import { createHash } from "node:crypto";
 import { activeTransports, authFailures, metricsRegistry, rateFailures } from "./observability/metrics.js";
 import { log } from "./observability/logging.js";
 import { TOOL_CONTRACTS } from "./tools/contracts.js";
 import { TOOL_SCOPES } from "./auth/scopes.js";
+import { scopesForProfile, toolsInProfile } from "./tools/profiles.js";
 
 const config = loadConfig();
+const PROFILE_OPTIONS = { companyKnowledge: config.companyKnowledge };
+const PROFILE_SCOPES = scopesForProfile(config.toolProfile, PROFILE_OPTIONS);
+const PROFILE_TOOLS = toolsInProfile(config.toolProfile, PROFILE_OPTIONS);
 
 function readBody(req: http.IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
@@ -30,9 +35,29 @@ function readBody(req: http.IncomingMessage): Promise<unknown> {
   });
 }
 
-function json(res: http.ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { "Content-Type": "application/json" });
+function json(res: http.ServerResponse, status: number, body: unknown, headers?: http.OutgoingHttpHeaders): void {
+  res.writeHead(status, { "Content-Type": "application/json", ...headers });
   res.end(JSON.stringify(body));
+}
+
+/**
+ * 401 with the RFC 9728 challenge. Both unauthenticated branches go through
+ * here so neither can ever answer without telling the client where to
+ * authenticate — the failure the adoption plan calls BLOCKER 1.
+ */
+function unauthorized(
+  res: http.ServerResponse,
+  body: { error: string; message: string },
+  challenge?: { error: "invalid_token"; description: string },
+): void {
+  json(res, 401, body, {
+    "WWW-Authenticate": buildWwwAuthenticate({
+      realm: config.authRealm,
+      resourceMetadataUrl: config.resourceMetadataUrl,
+      error: challenge?.error,
+      errorDescription: challenge?.description,
+    }),
+  });
 }
 
 async function handleMcp(
@@ -43,21 +68,30 @@ async function handleMcp(
   const bearer = extractBearer(req);
   if (!bearer) {
     authFailures.inc();
-    json(res, 401, {
+    unauthorized(res, {
       error: "unauthorized",
-      message: "Authorization: Bearer <xoa_token> required. Create an MCP client at Xcelsior dashboard settings.",
+      message:
+        `Authorization required. Discover how to authenticate at ${config.resourceMetadataUrl}, ` +
+        "or use an Xcelsior agent key from dashboard settings for automation.",
     });
     return;
   }
 
-  const user = await validateBearer(config.apiUrl, bearer, config.resourceAudience);
+  const user = await validateBearer(config.apiUrl, bearer, acceptedAudiences(config));
   if (!user) {
     authFailures.inc();
     const abuse = await recordAuthFailure(createHash("sha256").update(bearer).digest("hex").slice(0, 24), config.rateLimit);
-    json(res, abuse.ok ? 401 : abuse.status, {
-      error: abuse.ok ? "invalid_token" : abuse.code,
-      message: abuse.ok ? "Bearer token invalid or expired." : abuse.message,
-    });
+    if (abuse.ok) {
+      unauthorized(
+        res,
+        { error: "invalid_token", message: "Bearer token invalid, expired, or bound to another resource." },
+        { error: "invalid_token", description: "Bearer token invalid, expired, or bound to another resource." },
+      );
+    } else {
+      // Past the abuse threshold this is a 429, not a 401 — a challenge header
+      // on a rate-limit response would just invite a retry loop.
+      json(res, abuse.status, { error: abuse.code, message: abuse.message });
+    }
     return;
   }
   const principalKey = user.subject || user.user_id || user.email || user.customer_id || "";
@@ -85,7 +119,11 @@ async function handleMcp(
   }
 
   const client = createApiClient(config.apiUrl, bearer);
-  const mcp = createMcpServer(client, user);
+  const mcp = createMcpServer(client, user, "streamable_http", config.toolProfile, {
+    companyKnowledge: config.companyKnowledge
+      ? { siteUrl: config.siteUrl, docsUrl: config.docsUrl }
+      : false,
+  });
   // Stateless mode: each request is self-contained (no Mcp-Session-Id round-trip),
   // so the client's `initialize` POST gets an immediate JSON response instead of
   // hanging on a session-scoped stream we tear down per request.
@@ -113,18 +151,45 @@ const httpServer = http.createServer(async (req, res) => {
   const path = url.pathname;
 
   if (path === "/.well-known/oauth-protected-resource" || path === "/.well-known/oauth-protected-resource/mcp") {
+    // RFC 9728. `resource` is the exact identifier tokens must be bound to and
+    // the value a connector echoes back as the `resource` parameter, so it has
+    // to be the connector URL a user pastes — path and all — not the origin.
     json(res, 200, {
       resource: config.resourceAudience,
       authorization_servers: [config.oauthIssuer],
       jwks_uri: config.oauthJwksUrl,
       bearer_methods_supported: ["header"],
-      scopes_supported: [
-        "instances:read", "instances:write", "instances:operate", "inference:read",
-        "inference:write", "billing:read", "gpu:read", "hosts:read", "hosts:operate",
-        "hosts:evict", "control_plane:read", "control_plane:operate", "mcp_actions:approve",
-      ],
+      // The profile's real scope set, derived from the tool registry, so a new
+      // tool cannot advertise a scope the resource never mentions.
+      scopes_supported: PROFILE_SCOPES,
+      resource_name: "Xcelsior GPU Cloud",
       resource_documentation: `${config.apiUrl}/docs/mcp`,
+      resource_policy_uri: `${config.apiUrl}/privacy`,
+      resource_tos_uri: `${config.apiUrl}/terms`,
     });
+    return;
+  }
+
+  if (path === "/.well-known/openai-apps-challenge") {
+    // OpenAI's domain-verification probe. The body must be the bare token the
+    // submission portal issued — no JSON envelope, no list, no trailing
+    // newline. Configuration-backed on purpose: the token does not exist until
+    // the portal issues it, and a hardcoded one would either be a lie now or
+    // stale later. Until it is set, 404 is the honest answer.
+    if (!config.openaiAppsChallenge) {
+      json(res, 404, {
+        error: "not_configured",
+        message:
+          "No OpenAI apps challenge token is configured. Set " +
+          "XCELSIOR_MCP_OPENAI_APPS_CHALLENGE to the token the submission portal issued.",
+      });
+      return;
+    }
+    res.writeHead(200, {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-store",
+    });
+    res.end(config.openaiAppsChallenge);
     return;
   }
 
@@ -136,6 +201,7 @@ const httpServer = http.createServer(async (req, res) => {
       api_url: config.apiUrl,
       protocol: "2025-11-25",
       resource_audience: config.resourceAudience,
+      tool_profile: config.toolProfile,
     });
     return;
   }
@@ -146,6 +212,8 @@ const httpServer = http.createServer(async (req, res) => {
       ok: complete && configured,
       tool_registry_complete: complete,
       tool_count: Object.keys(TOOL_CONTRACTS).length,
+      tool_profile: config.toolProfile,
+      profile_tool_count: PROFILE_TOOLS.length,
       configured,
     });
     return;

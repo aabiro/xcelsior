@@ -474,39 +474,7 @@ export function DurationHistogramChart({ data }: { data: { bucket: string; count
   );
 }
 
-// ── 8. Jurisdiction Split ───────────────────────────────────────────────
 
-export function JurisdictionSplitChart({ data }: { data: { date: string; canadian: number; international: number }[] }) {
-  if (!data?.length) return null;
-  const totalCA = data.reduce((s, d) => s + d.canadian, 0);
-  const totalInt = data.reduce((s, d) => s + d.international, 0);
-  const caPct = totalCA + totalInt > 0 ? Math.round((totalCA / (totalCA + totalInt)) * 100) : 0;
-  return (
-    <ChartCard
-      title="Jurisdiction Split"
-      subtitle="Canadian vs International compute"
-      badge={<MetricRing value={caPct} color={CHART_COLORS.cyan} size={40} strokeWidth={4} label={`${caPct}%`} />}
-    >
-      <div className="h-56">
-        <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
-          <AreaChart data={data} margin={{ top: 5, right: 5, bottom: 0, left: -10 }}>
-            <defs>
-              <GradientDef id="caGrad" color={CHART_COLORS.cyan} opacity={0.3} />
-              <GradientDef id="intlGrad" color={CHART_COLORS.gold} opacity={0.2} />
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
-            <XAxis dataKey="date" tick={axisStyle} stroke={axisStroke} tickFormatter={formatShortDate} tickLine={false} />
-            <YAxis tick={axisStyle} stroke={axisStroke} allowDecimals={false} tickLine={false} axisLine={false} />
-            <Tooltip content={<CustomTooltip />} />
-            <Area type="monotone" dataKey="canadian" stackId="sov" stroke={CHART_COLORS.cyan} fill="url(#caGrad)" strokeWidth={2} name="Canadian" animationDuration={1200} />
-            <Area type="monotone" dataKey="international" stackId="sov" stroke={CHART_COLORS.gold} fill="url(#intlGrad)" strokeWidth={2} name="International" animationDuration={1200} />
-            <Legend wrapperStyle={{ fontSize: 10 }} />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
-    </ChartCard>
-  );
-}
 
 // ── 9. Top GPU Models ─────────────────────────────────────────────────
 

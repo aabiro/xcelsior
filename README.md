@@ -5,7 +5,7 @@
 ### Canada-Grounded AI Compute — Cheapest Compliant Compute in Canada
 
 **Route AI workloads to admission-gated GPU hosts over a private mesh —
-with PIPEDA compliance, 4-layer container security, and CAD-native billing.**
+with 4-layer container security and CAD-native billing.**
 
 [![CI](https://github.com/aabiro/xcelsior/actions/workflows/ci.yml/badge.svg)](https://github.com/aabiro/xcelsior/actions/workflows/ci.yml)
 [![Frontend CI](https://github.com/aabiro/xcelsior/actions/workflows/frontend.yml/badge.svg)](https://github.com/aabiro/xcelsior/actions/workflows/frontend.yml)
@@ -60,10 +60,10 @@ graph TB
 
 | | |
 |---|---|
-| **Data Sovereignty** | All compute stays in Canada. PIPEDA + Quebec Law 25 enforced at the scheduler level. |
+| **Global supply** | Capacity from independent hosts worldwide, ranked on price, availability, hardware, and host reputation. |
 | **4-Layer Security** | Version gating → least-privilege Docker → egress firewall → gVisor / Kata sandbox. |
 | **CAD-Native Billing** | 13-province GST/HST, Stripe Connect payouts, AI Compute Fund (CAF) rebate export. |
-| **Reputation Engine** | Multi-factor scoring with 7-day grace decay. Bronze → Silver → Gold → Platinum → Diamond → Sovereign tiers. |
+| **Reputation Engine** | Multi-factor scoring with 7-day grace decay. Bronze → Silver → Gold → Platinum → Diamond tiers. |
 | **Private Mesh** | Headscale overlay network — GPU workers never exposed to the public internet. |
 | **Admission Gating** | Hosts must pass version checks + GPU fingerprinting before receiving any work. |
 | **Spot Instances** | Interruptible GPUs at published spot rates (no bidding). Capacity-based preemption when on-demand needs capacity. |
@@ -157,11 +157,10 @@ worker_agent.py   Pull-based GPU agent, telemetry, Docker execution
 security.py       4-layer defense: version gating → gVisor/Kata
 billing.py        CAD pricing, 13-province tax, escrow, CAF export
 events.py         Append-only event store, tamper-evident hashing
-reputation.py     Multi-factor scoring, Bronze→Sovereign tiers
-privacy.py        PIPEDA / Quebec Law 25, data retention, consent
+reputation.py     Multi-factor scoring, Bronze→Diamond tiers
+privacy.py        data retention, consent, export and erasure
 verification.py   GPU fingerprint verification, re-verification scheduling
-jurisdiction.py   Trust tiers, residency tracing, CLOUD Act analysis
-artifacts.py      Two-tier B2/R2 storage, residency-aware routing
+artifacts.py      Two-tier B2/R2 storage, policy-based routing
 db.py             PostgreSQL ↔ SQLite dual-write, LISTEN/NOTIFY
 cli.py            Full CLI for jobs, hosts, billing, marketplace
 ai_assistant.py   Hexara AI assistant with tool-calling & onboarding wizards

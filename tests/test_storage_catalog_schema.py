@@ -82,9 +82,9 @@ def _mkartifact(cleanup, tenant_id="tenant-1", job_id=None, attempt_id=None,
             """INSERT INTO storage.artifacts (
                    artifact_id, tenant_id, job_id, attempt_id, artifact_type,
                    logical_name, state, primary_provider, primary_bucket,
-                   object_key, content_type, residency_region, retention_class
+                   object_key, content_type, retention_class
                ) VALUES (%s, %s, %s, %s, 'model_weights', %s, %s, %s, %s, %s,
-                         'application/octet-stream', 'ca-central-1', 'standard')""",
+                         'application/octet-stream', 'standard')""",
             (artifact_id, tenant_id, job_id, attempt_id, logical_name, state, provider, bucket, key),
         )
         conn.commit()

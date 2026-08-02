@@ -43,9 +43,9 @@ def artifact():
                 """INSERT INTO storage.artifacts
                    (artifact_id, tenant_id, artifact_type, logical_name, state,
                     primary_provider, primary_bucket, object_key, content_type,
-                    residency_region, retention_class, legal_hold, retain_until)
+                retention_class, legal_hold, retain_until)
                    VALUES (%s, %s, 'output', %s, %s, 'local', 'test',
-                           %s, 'application/octet-stream', 'ca-central',
+                           %s, 'application/octet-stream',
                            'standard', %s,
                            CASE WHEN %s::int IS NULL THEN NULL
                                 ELSE clock_timestamp()

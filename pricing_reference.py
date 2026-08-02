@@ -42,7 +42,7 @@ def _pricing_row(row) -> dict[str, Any]:
 
 
 def _canonical_rates_by_model(rows: list) -> dict[str, dict[str, Any]]:
-    """Pick lowest-VRAM variant per model; collect standard/premium/sovereign rates."""
+    """Pick lowest-VRAM variant per model; collect standard/premium/dedicated rates."""
     canonical_vram: dict[str, int] = {}
     by_model: dict[str, dict[str, dict[str, float]]] = defaultdict(lambda: defaultdict(dict))
 
@@ -63,7 +63,7 @@ def _canonical_rates_by_model(rows: list) -> dict[str, dict[str, Any]]:
     for model, tiers in by_model.items():
         standard = tiers.get("standard", {})
         premium = tiers.get("premium", {})
-        sovereign = tiers.get("sovereign", {})
+        dedicated = tiers.get("dedicated", {})
         on_demand = standard.get("on_demand", 0.0)
         spot = standard.get("spot", 0.0)
         if on_demand <= 0 and not spot:
@@ -78,7 +78,7 @@ def _canonical_rates_by_model(rows: list) -> dict[str, dict[str, Any]]:
             "premium_rate_cad": round(premium.get("on_demand", on_demand * 1.3), 4),
             "subsidized_starter_cad": round(spot or on_demand * 0.4, 4),
             "min_rate_cad": round(spot or on_demand * 0.4, 4),
-            "max_rate_cad": round(sovereign.get("on_demand", on_demand * 1.43), 4),
+            "max_rate_cad": round(dedicated.get("on_demand", on_demand * 1.43), 4),
         }
         out[model] = entry
     return out
@@ -91,7 +91,8 @@ def build_gpu_pricing_reference() -> dict[str, dict[str, Any]]:
     try:
         with pg_connection() as conn:
             rows = conn.execute(
-                """SELECT gpu_model, vram_gb, tier, pricing_mode, base_rate_cad
+                """SELECT gpu_model, vram_gb, tier, pricing_mode,
+                          base_rate_micros::double precision / 1000000.0 AS base_rate_cad
                    FROM gpu_pricing
                    WHERE active = TRUE
                    ORDER BY gpu_model, vram_gb ASC, tier, pricing_mode"""
@@ -133,7 +134,8 @@ def get_on_demand_rate(gpu_model: str, *, tier: str = "standard") -> float:
     try:
         with pg_connection() as conn:
             row = conn.execute(
-                """SELECT base_rate_cad FROM gpu_pricing
+                """SELECT base_rate_micros::double precision / 1000000.0 AS base_rate_cad
+                     FROM gpu_pricing
                    WHERE gpu_model = %s AND tier = %s AND pricing_mode = 'on_demand'
                      AND active = TRUE
                    ORDER BY vram_gb ASC
@@ -156,7 +158,8 @@ def get_reserved_rate(gpu_model: str, commitment_type: str, *, tier: str = "stan
     try:
         with pg_connection() as conn:
             row = conn.execute(
-                """SELECT base_rate_cad FROM gpu_pricing
+                """SELECT base_rate_micros::double precision / 1000000.0 AS base_rate_cad
+                     FROM gpu_pricing
                    WHERE gpu_model = %s AND tier = %s AND pricing_mode = %s
                      AND active = TRUE
                    ORDER BY vram_gb ASC

@@ -38,7 +38,7 @@ const REMEDIATION = [
   { id: "F-011", sev: "P2", commit: "5fc95d3", prod: true, fix: "Mobile pricing affordance (partial)" },
   { id: "F-012", sev: "P2", commit: "5fc95d3", prod: true, fix: "SW update flow improvements" },
   { id: "F-013", sev: "P2", commit: "5fc95d3", prod: true, fix: "aria-expanded, body scroll lock" },
-  { id: "F-014", sev: "P2", commit: "181ad74", prod: true, fix: "Contrast: Beta, sovereignty badge, support CTA" },
+  { id: "F-014", sev: "P2", commit: "181ad74", prod: true, fix: "Contrast: Beta badge, support CTA" },
   { id: "F-015", sev: "P2", commit: "181ad74", prod: true, fix: "H1 spacing (hero_line1 trailing space)" },
   { id: "F-016", sev: "P2", commit: "5fc95d3", prod: true, fix: "Terms required + a11y errors" },
   { id: "F-017", sev: "P2", commit: "181ad74", prod: true, fix: "Privacy third-party disclosure (GTM, CF)" },

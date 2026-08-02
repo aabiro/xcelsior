@@ -71,7 +71,7 @@ When a job is assigned:
 3. Starts a Docker container with GPU passthrough
 4. Applies isolation based on job tier:
    - `community` → standard runc
-   - `secure`/`regulated`/`sovereign` → gVisor (runsc)
+   - `secure`/`dedicated` → gVisor (runsc)
 5. Monitors execution, streams logs
 6. Uploads output artifacts on completion
 

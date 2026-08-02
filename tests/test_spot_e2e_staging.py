@@ -114,7 +114,7 @@ class TestStagingChecklistMigration040:
         text = path.read_text()
         assert 'revision = "040"' in text
         assert "pricing_mode" in text
-        assert "spot_rate_cad" in text
+        assert "spot_rate_cad" in text  # 040 added it under this name
         assert "max_bid" in text
 
     @pg
@@ -126,11 +126,11 @@ class TestStagingChecklistMigration040:
                 SELECT column_name
                 FROM information_schema.columns
                 WHERE table_schema = 'public' AND table_name = 'jobs'
-                  AND column_name IN ('pricing_mode', 'spot_rate_cad')
+                  AND column_name IN ('pricing_mode', 'spot_rate_micros')
                 """
             ).fetchall()
         cols = {r["column_name"] if isinstance(r, dict) else r[0] for r in rows}
-        assert cols == {"pricing_mode", "spot_rate_cad"}
+        assert cols == {"pricing_mode", "spot_rate_micros"}
 
 
 class TestStagingChecklistSpotMetering:

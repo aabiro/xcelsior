@@ -66,7 +66,7 @@ OPENAPI_TAGS = [
     {"name": "Jobs", "description": "Job submission, scheduling, and lifecycle management."},
     {
         "name": "Billing",
-        "description": "Wallet management, invoicing, CAF exports, refunds. Credit-first CAD billing.",
+        "description": "Wallet management, invoicing, refunds. Credit-first billing in CAD.",
     },
     {"name": "Marketplace", "description": "Rig listings, browsing, and marketplace billing."},
     {
@@ -87,23 +87,19 @@ OPENAPI_TAGS = [
     },
     {
         "name": "Providers",
-        "description": "Stripe Connect onboarding, Canadian company registration, payouts.",
+        "description": "Stripe Connect onboarding, business verification, payouts.",
     },
     {
         "name": "Artifacts",
         "description": "Presigned upload/download URLs for model weights, checkpoints, outputs.",
     },
     {
-        "name": "Jurisdiction",
-        "description": "Canada-first scheduling, province filtering, data residency traces.",
-    },
-    {
         "name": "Compliance",
-        "description": "Province compliance matrix, tax rates, Quebec PIA checks.",
+        "description": "Tax rates and platform controls for procurement review.",
     },
     {
         "name": "Privacy",
-        "description": "PIPEDA consent management, retention policies, privacy officer config.",
+        "description": "Consent management, retention policies, data export and erasure.",
     },
     {
         "name": "Transparency",
@@ -561,11 +557,13 @@ app = FastAPI(
     title="Xcelsior",
     version="2.3.0",
     description=(
-        "Distributed GPU orchestration platform for AI/ML workloads. "
-        "Canadian-first data sovereignty (PIPEDA/Law 25), automated trust scoring, "
-        "Stripe Connect marketplace billing, and real-time GPU telemetry.\n\n"
+        "Distributed GPU marketplace for AI/ML workloads. Rent capacity from independent "
+        "hosts worldwide, or supply your own. Spot and on-demand pricing, automated trust "
+        "scoring, Stripe Connect marketplace billing, and real-time GPU telemetry.\n\n"
         "**Authentication**: Bearer token via `Authorization: Bearer <token>` header.\n\n"
-        "**Regions**: Canada-first with province-level filtering (ON, QC, BC, AB, etc.).\n\n"
+        "**Regions**: global. Capacity is selected on price, availability, GPU model, and "
+        "host reputation — not on geography. Filter by region when your workload needs low "
+        "latency to a specific place; otherwise the whole marketplace is available to you.\n\n"
         "**SDK**: Generate idiomatic Python/TypeScript SDKs with [Fern](https://buildwithfern.com).\n\n"
         "**LLM Integration**: See `/llms.txt` for AI agent–optimized documentation."
     ),
@@ -842,16 +840,27 @@ class ReadOnlyScopeMiddleware(BaseHTTPMiddleware):
 app.add_middleware(ReadOnlyScopeMiddleware)
 
 
-class ComplianceGateMiddleware:
-    """Enforce Canadian compliance at the API boundary.
+class ConsentGateMiddleware:
+    """Require billing consent before work that will charge a customer.
 
     Pure ASGI implementation — avoids BaseHTTPMiddleware's response-buffering
     which causes "Response content longer than Content-Length" on streaming
     endpoints (SSE, large downloads).
+
+    This used to be a location gate as well: it read an ``x-province`` header
+    into request state and stamped location and compliance-version headers
+    onto *every* response. Xcelsior is a
+    global marketplace — capacity comes from independent hosts worldwide — so
+    those headers asserted something untrue of most requests. Injecting them
+    also forced ``transfer-encoding: chunked`` on every response, because the
+    wrapper had to strip ``Content-Length`` to make room. Removing them removes
+    that cost too.
+
+    Consent-before-billing stays. It is not a regional rule; charging
+    someone who has not agreed to be charged is wrong everywhere.
     """
 
     CONSENT_REQUIRED_PATHS = {"/api/jobs", "/api/v2/marketplace/allocate"}
-    RESIDENCY_PATHS = {"/api/jobs", "/api/v2/scheduler/process-binpack"}
 
     def __init__(self, app):
         self.app = app
@@ -876,40 +885,27 @@ class ComplianceGateMiddleware:
                     if not cm.has_consent(customer_id, "billing"):
                         response = JSONResponse(
                             status_code=403,
-                            content={"error": "CASL consent required for billing purpose"},
+                            content={"error": "Billing consent required before charging"},
                         )
                         await response(scope, receive, send)
                         return
                 except Exception as e:
                     log.debug("Consent check skipped: %s", e)
 
-        # Attach province + redact_pii to request state so route handlers can read them.
         # scope["state"] follows the ASGI spec — it is always a plain dict.
         # Starlette's Request.state wraps it via State(_state=scope["state"]),
         # so setting dict keys here is reflected in request.state.<attr>.
-        province = raw_headers.get(b"x-province", b"").decode().upper()
         if "state" not in scope:
             scope["state"] = {}
-        scope["state"]["province"] = province if (province and path in self.RESIDENCY_PATHS) else ""
         scope["state"]["redact_pii"] = True
 
-        # Wrap send to inject compliance headers without buffering the body.
-        # Must strip Content-Length so uvicorn doesn't reject the extra header bytes.
-        async def send_with_compliance(message):
-            if message["type"] == "http.response.start":
-                hdrs = [
-                    (k, v) for k, v in message.get("headers", []) if k.lower() != b"content-length"
-                ]
-                hdrs.append((b"x-data-residency", b"CA"))
-                hdrs.append((b"x-compliance-version", b"PIPEDA-2024"))
-                hdrs.append((b"transfer-encoding", b"chunked"))
-                message = {**message, "headers": hdrs}
-            await send(message)
-
-        await self.app(scope, receive, send_with_compliance)
+        # No send wrapper: with those headers gone there is nothing to
+        # inject, so responses keep their Content-Length instead of being forced
+        # to chunked encoding.
+        await self.app(scope, receive, send)
 
 
-app.add_middleware(ComplianceGateMiddleware)
+app.add_middleware(ConsentGateMiddleware)
 
 
 class AgentIngressMiddleware:

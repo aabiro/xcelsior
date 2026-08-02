@@ -1,4 +1,4 @@
-"""Tests for Xcelsior artifact storage — presigned URLs, residency routing, local backend."""
+"""Tests for Xcelsior artifact storage — presigned URLs, policy routing, local backend."""
 
 import os
 import tempfile
@@ -14,7 +14,7 @@ from artifacts import (
     ArtifactManager,
     ArtifactMeta,
     ArtifactType,
-    ResidencyPolicy,
+    StoragePolicy,
     StorageBackend,
     StorageClient,
     StorageConfig,
@@ -34,7 +34,7 @@ class TestStorageConfig:
         assert cfg.bucket == "xcelsior-artifacts"
         assert cfg.presign_expiry_sec == 3600
         assert cfg.max_upload_size_mb == 10240
-        assert cfg.residency == ResidencyPolicy.ANY
+        assert cfg.storage_policy == StoragePolicy.ANY
 
     def test_from_env(self, monkeypatch):
         monkeypatch.setenv("XCELSIOR_STORAGE_BACKEND", "b2")
@@ -42,14 +42,14 @@ class TestStorageConfig:
         monkeypatch.setenv("XCELSIOR_STORAGE_BUCKET", "my-bucket")
         monkeypatch.setenv("XCELSIOR_STORAGE_REGION", "ca-central-1")
         monkeypatch.setenv("XCELSIOR_STORAGE_PRESIGN_EXPIRY", "7200")
-        monkeypatch.setenv("XCELSIOR_STORAGE_RESIDENCY", "canada_only")
+        monkeypatch.setenv("XCELSIOR_STORAGE_STORAGE_POLICY", "primary")
         cfg = StorageConfig.from_env("XCELSIOR_STORAGE")
         assert cfg.backend == "b2"
         assert cfg.local_dir == "/data/artifacts"
         assert cfg.bucket == "my-bucket"
         assert cfg.region == "ca-central-1"
         assert cfg.presign_expiry_sec == 7200
-        assert cfg.residency == "canada_only"
+        assert cfg.storage_policy == "primary"
 
     def test_from_env_custom_prefix(self, monkeypatch):
         monkeypatch.setenv("MYPREFIX_BACKEND", "r2")
@@ -83,10 +83,10 @@ class TestEnums:
         assert ArtifactType.LOG.value == "log"
         assert ArtifactType.DATASET.value == "dataset"
 
-    def test_residency_policies(self):
-        assert ResidencyPolicy.CANADA_ONLY.value == "canada_only"
-        assert ResidencyPolicy.CANADA_PREFERRED.value == "canada_preferred"
-        assert ResidencyPolicy.ANY.value == "any"
+    def test_storage_policies(self):
+        assert StoragePolicy.PRIMARY.value == "primary"
+        assert StoragePolicy.ANY.value == "any"
+        assert StoragePolicy.ANY.value == "any"
 
 
 # ── ArtifactMeta ─────────────────────────────────────────────────────
@@ -111,13 +111,11 @@ class TestArtifactMeta:
             sha256="abc123",
             job_id="job-1",
             host_id="host-1",
-            residency_country="CA",
         )
         d = meta.to_dict()
         assert d["artifact_id"] == "art-1"
         assert d["key"] == "model_weights/job-1/weights.bin"
         assert d["size_bytes"] == 1024
-        assert d["residency_country"] == "CA"
         assert isinstance(d["tags"], dict)
 
     def test_tags_mutable(self):
@@ -219,7 +217,7 @@ class TestLocalBackend:
 
 
 class TestArtifactManager:
-    """Test high-level artifact management with residency routing."""
+    """Test high-level artifact management with policy routing."""
 
     @pytest.fixture(autouse=True)
     def setup_manager(self, tmp_path, monkeypatch):
@@ -257,16 +255,16 @@ class TestArtifactManager:
         key = self.manager._make_key("telemetry")
         assert key.startswith("telemetry/")
 
-    def test_request_upload_canada_only_uses_primary(self):
+    def test_request_upload_primary_uses_primary(self):
         result = self.manager.request_upload(
             artifact_type="model_weights",
             job_id="job-1",
             filename="model.bin",
-            residency=ResidencyPolicy.CANADA_ONLY,
+            storage_policy=StoragePolicy.PRIMARY,
         )
         assert result["backend"] == "local"
         assert result["artifact_type"] == "model_weights"
-        assert result["residency"] == ResidencyPolicy.CANADA_ONLY
+        assert result["storage_policy"] == StoragePolicy.PRIMARY
         # Verify the URL points to primary dir
         assert self._primary_dir in result["url"]
 
@@ -275,16 +273,16 @@ class TestArtifactManager:
             artifact_type="job_output",
             job_id="job-2",
             filename="output.tar.gz",
-            residency=ResidencyPolicy.ANY,
+            storage_policy=StoragePolicy.ANY,
         )
         # With cache available, ANY should route to cache
         assert self._cache_dir in result["url"]
 
-    def test_request_upload_canada_preferred_uses_primary(self):
+    def test_request_upload_default_uses_primary(self):
         result = self.manager.request_upload(
             artifact_type="checkpoint",
             job_id="job-3",
-            residency=ResidencyPolicy.CANADA_PREFERRED,
+            storage_policy=StoragePolicy.PRIMARY,
         )
         assert self._primary_dir in result["url"]
 
@@ -359,11 +357,11 @@ class TestArtifactManagerNoCache:
         os.makedirs(d, exist_ok=True)
         return d
 
-    def test_any_residency_falls_back_to_primary(self):
+    def test_any_policy_falls_back_to_primary(self):
         result = self.manager.request_upload(
             artifact_type="dataset",
             job_id="job-1",
-            residency=ResidencyPolicy.ANY,
+            storage_policy=StoragePolicy.ANY,
         )
         assert self._dir in result["url"]
 

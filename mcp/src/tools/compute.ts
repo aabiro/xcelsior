@@ -3,16 +3,16 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { XcelsiorApiClient } from "../client/api.js";
 import { apiProblem, formatApiError } from "../client/errors.js";
 import { jsonText, structuredResult } from "../lib/format.js";
-import { TOOL_SCOPES, userHasScope } from "../auth/scopes.js";
+import { TOOL_SCOPES, userHasScope, scopeUnion, describeScopeRequirement } from "../auth/scopes.js";
 import type { AuthUser } from "../auth/bearer.js";
 
 function scopeDenied(tool: string, user: AuthUser | undefined) {
-  const required = TOOL_SCOPES[tool] || ["api"];
+  const required = TOOL_SCOPES[tool];
   if (!userHasScope(user?.scopes, required)) {
     return jsonText({
       error: "insufficient_scope",
-      required,
-      message: `This tool requires one of: ${required.join(", ")}`,
+      required: scopeUnion(required),
+      message: `This tool requires ${describeScopeRequirement(required)}`,
     });
   }
   return null;
@@ -26,7 +26,6 @@ export function registerComputeTools(
   server.registerTool(
     "list_instances",
     {
-      description: "List your GPU instances (jobs). Optionally filter by status.",
       inputSchema: z.object({
         status: z
           .string()
@@ -62,7 +61,6 @@ export function registerComputeTools(
   server.registerTool(
     "get_instance",
     {
-      description: "Get details for a single instance by job_id.",
       inputSchema: z.object({
         job_id: z.string().describe("Instance job ID"),
       }),
@@ -82,7 +80,6 @@ export function registerComputeTools(
   server.registerTool(
     "get_instance_logs",
     {
-      description: "Get buffered log lines for an instance (non-streaming).",
       inputSchema: z.object({
         job_id: z.string(),
         limit: z.number().int().min(1).max(500).default(100),
@@ -103,8 +100,6 @@ export function registerComputeTools(
   server.registerTool(
     "create_instance",
     {
-      description:
-        "Preview or execute a server-bound GPU launch plan. Approval is authoritative; confirm only expresses caller intent.",
       inputSchema: z.object({
         name: z.string().min(1).max(128),
         vram_needed_gb: z.number().min(0).default(0),
@@ -178,7 +173,6 @@ export function registerComputeTools(
   server.registerTool(
     "cancel_instance",
     {
-      description: "Cancel a queued or running instance. Requires confirm:true.",
       inputSchema: z.object({
         job_id: z.string(),
         confirm: z.boolean().default(false),
@@ -206,7 +200,6 @@ export function registerComputeTools(
   server.registerTool(
     "terminate_instance",
     {
-      description: "Permanently terminate an instance (irreversible). Requires confirm:true.",
       inputSchema: z.object({
         job_id: z.string(),
         confirm: z.boolean().default(false),

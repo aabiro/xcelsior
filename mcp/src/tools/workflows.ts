@@ -4,16 +4,16 @@ import type { XcelsiorApiClient } from "../client/api.js";
 import { formatApiError } from "../client/errors.js";
 import { jsonText } from "../lib/format.js";
 import { waitForInstance } from "../lib/polling.js";
-import { TOOL_SCOPES, userHasScope } from "../auth/scopes.js";
+import { TOOL_SCOPES, userHasScope, scopeUnion, describeScopeRequirement } from "../auth/scopes.js";
 import type { AuthUser } from "../auth/bearer.js";
 
 function scopeDenied(tool: string, user: AuthUser | undefined) {
-  const required = TOOL_SCOPES[tool] || ["api"];
+  const required = TOOL_SCOPES[tool];
   if (!userHasScope(user?.scopes, required)) {
     return jsonText({
       error: "insufficient_scope",
-      required,
-      message: `This tool requires one of: ${required.join(", ")}`,
+      required: scopeUnion(required),
+      message: `This tool requires ${describeScopeRequirement(required)}`,
     });
   }
   return null;
@@ -35,8 +35,6 @@ export function registerWorkflowTools(
   server.registerTool(
     "run_training_job",
     {
-      description:
-        "Launch a training instance (git_repo + init_script), wait until running, return connection info and log tail.",
       inputSchema: z.object({
         name: z.string().min(1).max(128),
         gpu_model: z.string().default("RTX 4090"),
@@ -126,8 +124,6 @@ export function registerWorkflowTools(
   server.registerTool(
     "schedule_under_budget",
     {
-      description:
-        "Find available GPU capacity under a max hourly CAD rate, then optionally create an instance.",
       inputSchema: z.object({
         max_hourly_cad: z.number().positive(),
         gpu_model: z.string().optional(),

@@ -4,10 +4,9 @@ instances:
 title: Xcelsior Docs
 
 logo:
-  light: ./assets/lockup-dark.svg
-  dark: ./assets/lockup-light.svg
+  dark: ./assets/docs-lockup-icon-light.svg
   href: https://xcelsior.ca
-  height: 24
+  height: 26
 
 colors:
   accent-primary:
@@ -91,7 +90,7 @@ navigation:
             path: ./pages/billing.mdx
           - page: Trust & Reputation
             path: ./pages/trust.mdx
-          - page: Compliance & Residency
+          - page: Trust & Controls
             path: ./pages/compliance.mdx
       - section: Infrastructure
         contents:

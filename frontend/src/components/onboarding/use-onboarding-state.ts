@@ -53,7 +53,6 @@ export function useOnboardingState(user: OnboardingUser, pathname: string) {
 
     try {
       const prefs = await fetchJson<{
-        canada_only_routing?: boolean;
         preferences?: { onboarding?: Record<string, boolean> };
       }>("/api/users/me/preferences");
 
@@ -63,8 +62,8 @@ export function useOnboardingState(user: OnboardingUser, pathname: string) {
       const autoDetected: Record<string, boolean> = {};
 
       autoDetected.profile = !!(user.name && user.name.trim().length > 0);
-      autoDetected.jurisdiction = !!(
-        serverOnboarding.jurisdiction || prefs?.canada_only_routing
+      autoDetected.mcp_connect = !!(
+        serverOnboarding.mcp_connect
       );
       autoDetected.browse = !!(
         serverOnboarding.browse || pathname.startsWith("/dashboard/marketplace")

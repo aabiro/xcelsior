@@ -18,8 +18,7 @@ import { getTeamContext } from "@/lib/team-context";
 import { TeamContextBanner } from "@/components/team/team-context-banner";
 
 const REGIONS = [
-  { value: "canada_only", label: "Canada only (strict residency)" },
-  { value: "canada_preferred", label: "Canada preferred (cache elsewhere)" },
+  { value: "primary", label: "Primary (durable)" },
   { value: "any", label: "Any region (lowest cost)" },
 ];
 
@@ -50,7 +49,7 @@ export default function ArtifactsPage() {
   const [showUpload, setShowUpload] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [region, setRegion] = useState("canada_only");
+  const [region, setRegion] = useState("any");
   const [expiryDays, setExpiryDays] = useState("30");
   const [artifactType, setArtifactType] = useState("model_weights");
   const [uploading, setUploading] = useState(false);
@@ -99,7 +98,7 @@ export default function ArtifactsPage() {
         job_id: "",
         filename: uploadFile.name,
         artifact_type: artifactType,
-        residency_policy: region,
+        storage_policy: region,
       });
 
       // Step 2: Upload file to presigned URL
@@ -202,7 +201,7 @@ export default function ArtifactsPage() {
             {/* Options */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div className="space-y-1.5">
-                <Label className="text-xs">Data Residency Region</Label>
+                <Label className="text-xs">Storage Policy</Label>
                 <Select value={region} onChange={(e) => setRegion(e.target.value)}>
                   {REGIONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
                 </Select>
@@ -282,9 +281,9 @@ export default function ArtifactsPage() {
                   <div className="flex items-center gap-2 text-xs text-text-muted flex-wrap">
                     {a.job_id && <span>Job: {a.job_id.slice(0, 8)}</span>}
                     {a.size_bytes != null && <span>· {formatSize(a.size_bytes)}</span>}
-                    {a.residency_policy && (
+                    {a.storage_policy && (
                       <span className="flex items-center gap-0.5">
-                        · <MapPin className="h-3 w-3" /> {a.residency_policy}
+                        · <MapPin className="h-3 w-3" /> {a.storage_policy}
                       </span>
                     )}
                     {a.artifact_type && <span>· {a.artifact_type}</span>}

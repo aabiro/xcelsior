@@ -109,7 +109,7 @@ class ServerlessRepo:
         with self._conn() as conn:
             if spec.action_plan_id:
                 existing = conn.execute(
-                    "SELECT * FROM serverless_endpoints WHERE action_plan_id = %s",
+                    "SELECT *, spend_limit_micros::double precision / 1000000.0 AS spend_limit_cad, total_cost_micros::double precision / 1000000.0 AS total_cost_cad, unbilled_token_cost_micros::double precision / 1000000.0 AS unbilled_token_cost_cad FROM serverless_endpoints WHERE action_plan_id = %s",
                     (spec.action_plan_id,),
                 ).fetchone()
                 if existing:
@@ -189,7 +189,7 @@ class ServerlessRepo:
             if owner_id:
                 row = conn.execute(
                     """
-                    SELECT * FROM serverless_endpoints
+                    SELECT *, spend_limit_micros::double precision / 1000000.0 AS spend_limit_cad, total_cost_micros::double precision / 1000000.0 AS total_cost_cad, unbilled_token_cost_micros::double precision / 1000000.0 AS unbilled_token_cost_cad FROM serverless_endpoints
                     WHERE endpoint_id = %s AND owner_id = %s AND deleted_at = 0
                     """,
                     (endpoint_id, owner_id),
@@ -197,7 +197,7 @@ class ServerlessRepo:
             else:
                 row = conn.execute(
                     """
-                    SELECT * FROM serverless_endpoints
+                    SELECT *, spend_limit_micros::double precision / 1000000.0 AS spend_limit_cad, total_cost_micros::double precision / 1000000.0 AS total_cost_cad, unbilled_token_cost_micros::double precision / 1000000.0 AS unbilled_token_cost_cad FROM serverless_endpoints
                     WHERE endpoint_id = %s AND deleted_at = 0
                     """,
                     (endpoint_id,),
@@ -208,7 +208,7 @@ class ServerlessRepo:
         with self._conn() as conn:
             rows = conn.execute(
                 """
-                SELECT * FROM serverless_endpoints
+                SELECT *, spend_limit_micros::double precision / 1000000.0 AS spend_limit_cad, total_cost_micros::double precision / 1000000.0 AS total_cost_cad, unbilled_token_cost_micros::double precision / 1000000.0 AS unbilled_token_cost_cad FROM serverless_endpoints
                 WHERE owner_id = %s AND deleted_at = 0
                 ORDER BY created_at DESC
                 """,
@@ -584,7 +584,7 @@ class ServerlessRepo:
                     output_tokens = %s,
                     cached_tokens = %s,
                     ttft_ms = %s,
-                    cost_cad = %s,
+                    cost_micros = %s,
                     updated_at = %s
                 WHERE job_id = %s
                 """,
@@ -599,7 +599,7 @@ class ServerlessRepo:
                     output_tokens,
                     cached_tokens,
                     ttft_ms,
-                    cost_cad,
+                    round(float(cost_cad) * 1_000_000),
                     now,
                     job_id,
                 ),
@@ -1080,7 +1080,7 @@ class ServerlessRepo:
         with self._conn() as conn:
             rows = conn.execute(
                 """
-                SELECT * FROM serverless_endpoints
+                SELECT *, spend_limit_micros::double precision / 1000000.0 AS spend_limit_cad, total_cost_micros::double precision / 1000000.0 AS total_cost_cad, unbilled_token_cost_micros::double precision / 1000000.0 AS unbilled_token_cost_cad FROM serverless_endpoints
                 WHERE deleted_at = 0
                   AND status NOT IN (%s, %s)
                 ORDER BY created_at ASC
@@ -1101,13 +1101,13 @@ class ServerlessRepo:
             conn.execute(
                 """
                 UPDATE serverless_endpoints
-                SET total_requests = total_requests + %s,
-                    total_gpu_seconds = total_gpu_seconds + %s,
-                    total_cost_cad = total_cost_cad + %s,
+                SET total_requests = COALESCE(total_requests, 0) + %s,
+                    total_gpu_seconds = COALESCE(total_gpu_seconds, 0) + %s,
+                    total_cost_micros = COALESCE(total_cost_micros, 0) + %s,
                     updated_at = %s
                 WHERE endpoint_id = %s
                 """,
-                (requests, gpu_seconds, cost_cad, time.time(), endpoint_id),
+                (requests, gpu_seconds, round(float(cost_cad) * 1_000_000), time.time(), endpoint_id),
             )
 
     def accrue_endpoint_token_cost(self, endpoint_id: str, cost_cad: float) -> None:
@@ -1118,11 +1118,16 @@ class ServerlessRepo:
             conn.execute(
                 """
                 UPDATE serverless_endpoints
-                   SET unbilled_token_cost_cad = unbilled_token_cost_cad + %s,
+                   -- COALESCE, not a bare add: the column is nullable with no
+                   -- default, so a new endpoint starts NULL and `NULL + cost`
+                   -- is NULL. Every token accrual on a fresh endpoint was
+                   -- silently discarded, which zeroed the blended meter's token
+                   -- half and undercharged every preset LLM endpoint.
+                   SET unbilled_token_cost_micros = COALESCE(unbilled_token_cost_micros, 0) + %s,
                        updated_at = %s
                  WHERE endpoint_id = %s
                 """,
-                (float(cost_cad), time.time(), endpoint_id),
+                (round(float(cost_cad) * 1_000_000), time.time(), endpoint_id),
             )
 
     def token_usage_already_recorded(self, endpoint_id: str, idempotency_key: str) -> bool:
@@ -1160,7 +1165,8 @@ class ServerlessRepo:
                 f"""
                 SELECT ledger_id, endpoint_id, idempotency_key,
                        input_tokens, output_tokens, cached_tokens,
-                       ttft_ms, latency_ms, cost_cad, created_at
+                       ttft_ms, latency_ms,
+                       cost_micros::double precision / 1000000.0 AS cost_cad, created_at
                   FROM serverless_token_ledger
                  WHERE {' AND '.join(clauses)}
                  ORDER BY created_at DESC
@@ -1191,7 +1197,7 @@ class ServerlessRepo:
                 INSERT INTO serverless_token_ledger
                     (ledger_id, endpoint_id, idempotency_key,
                      input_tokens, output_tokens, cached_tokens,
-                     ttft_ms, latency_ms, cost_cad, created_at)
+                     ttft_ms, latency_ms, cost_micros, created_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (endpoint_id, idempotency_key) DO NOTHING
                 """,
@@ -1204,7 +1210,7 @@ class ServerlessRepo:
                     int(meta.get("cached_tokens") or 0),
                     max(0, int(ttft_ms or meta.get("ttft_ms") or 0)),
                     max(0, int(latency_ms or meta.get("latency_ms") or 0)),
-                    float(meta.get("total_token_cost_cad") or 0.0),
+                    round(float(meta.get("total_token_cost_cad") or 0.0) * 1_000_000),
                     now,
                 ),
             )
@@ -1216,7 +1222,7 @@ class ServerlessRepo:
         with self._conn() as conn:
             row = conn.execute(
                 """
-                SELECT unbilled_token_cost_cad AS v
+                SELECT unbilled_token_cost_micros::double precision / 1000000.0 AS v
                 FROM serverless_endpoints
                 WHERE endpoint_id = %s
                 """,
@@ -1235,13 +1241,13 @@ class ServerlessRepo:
             row = conn.execute(
                 """
                 WITH old AS (
-                    SELECT unbilled_token_cost_cad AS v
+                    SELECT unbilled_token_cost_micros::double precision / 1000000.0 AS v
                     FROM serverless_endpoints
                     WHERE endpoint_id = %s
                     FOR UPDATE
                 )
                 UPDATE serverless_endpoints e
-                   SET unbilled_token_cost_cad = 0, updated_at = %s
+                   SET unbilled_token_cost_micros = 0, updated_at = %s
                   FROM old
                  WHERE e.endpoint_id = %s
                 RETURNING old.v
@@ -1370,13 +1376,13 @@ class ServerlessRepo:
             conn.execute(
                 """
                 INSERT INTO serverless_cache_savings
-                    (savings_id, endpoint_id, saved_cost_cad, similarity, created_at)
+                    (savings_id, endpoint_id, saved_cost_micros, similarity, created_at)
                 VALUES (%s, %s, %s, %s, %s)
                 """,
                 (
                     f"scs-{uuid.uuid4().hex[:12]}",
                     endpoint_id,
-                    float(saved_cost_cad),
+                    round(float(saved_cost_cad) * 1_000_000),
                     float(similarity),
                     time.time(),
                 ),
