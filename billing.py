@@ -43,6 +43,12 @@ CAD_USD_RATE = float(os.environ.get("XCELSIOR_CAD_USD_RATE", "0.73"))
 # distribution platform operators can impose collection obligations."
 # Digital services in Canada are subject to GST/HST. Rates vary by province.
 
+# How long an unresolved auto-top-up intent holds its wallet back from another
+# charge. Longer than the 300s sweep so a confirmation that is merely slow never
+# races a second charge, short enough that an intent abandoned by Stripe does not
+# disable top-up for the rest of the day.
+_TOPUP_INFLIGHT_SECONDS = 900
+
 GST_RATE = 0.05  # Federal GST: 5%
 
 PROVINCE_TAX_RATES = {
@@ -3559,6 +3565,7 @@ class BillingEngine:
 
         # Backoff schedule in seconds: attempt 1→60s, 2→300s, 3→1800s
         TOPUP_BACKOFF_SCHEDULE = [60, 300, 1800]
+        inflight_cutoff = time.time() - _TOPUP_INFLIGHT_SECONDS
 
         topped_up = 0
         warnings = 0
@@ -3567,14 +3574,29 @@ class BillingEngine:
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
+            # A charge does not raise the balance — only Stripe's confirmation
+            # does, minutes later. So a wallet that was just topped up still
+            # satisfies every condition below, and the next sweep would charge
+            # the card again. At a 300s cadence that is 288 charges a day
+            # against one threshold breach. `NOT EXISTS` holds the wallet back
+            # while an intent is unresolved; the cutoff releases it if an intent
+            # is abandoned so a stuck row cannot disable top-up forever.
             wallets = conn.execute(
-                """SELECT * FROM wallets
-                   WHERE status = 'active'
-                     AND auto_topup_enabled = true
-                     AND balance_micros <= auto_topup_threshold_micros
-                     AND stripe_payment_method_id != ''
-                     AND stripe_customer_id != ''
-                     AND auto_topup_failures < 3""",
+                """SELECT w.* FROM wallets w
+                   WHERE w.status = 'active'
+                     AND w.auto_topup_enabled = true
+                     AND w.balance_micros <= w.auto_topup_threshold_micros
+                     AND w.stripe_payment_method_id != ''
+                     AND w.stripe_customer_id != ''
+                     AND w.auto_topup_failures < 3
+                     AND NOT EXISTS (
+                           SELECT 1 FROM payment_intents p
+                            WHERE p.customer_id = w.customer_id
+                              AND p.status IN ('created', 'processing',
+                                               'requires_action')
+                              AND p.created_at > %s
+                         )""",
+                (inflight_cutoff,),
             ).fetchall()
 
         now = time.time()
@@ -3599,6 +3621,16 @@ class BillingEngine:
                 # charged amount exact; float * 100 did not.
                 amount_cents = int(w["auto_topup_amount_micros"]) // 10_000
                 # Off-session saved PM: do not hardcode payment_method_types.
+                #
+                # The idempotency key is the last line of defence against
+                # double-charging. The balance does not move until Stripe
+                # confirms, so a wallet stays eligible for the whole interval
+                # between the charge and the confirmation. In-flight suppression
+                # in the query above is the primary guard; this makes a
+                # duplicate impossible even if that guard is bypassed, because
+                # Stripe returns the *original* intent for a repeated key.
+                # Bucketed by sweep interval so a genuinely later top-up gets a
+                # new key.
                 pi = _stripe_mod.PaymentIntent.create(
                     amount=amount_cents,
                     currency="cad",
@@ -3612,6 +3644,10 @@ class BillingEngine:
                         "product_type": "wallet_deposit",
                         "xcelsior_sku": "xcelsior-compute-credits",
                     },
+                    idempotency_key=(
+                        f"autotopup:{customer_id}:{amount_cents}:"
+                        f"{int(now // _TOPUP_INFLIGHT_SECONDS)}"
+                    ),
                 )
                 log.info(
                     "Auto-topup PaymentIntent created for %s: %s ($%.2f)",
@@ -3623,6 +3659,29 @@ class BillingEngine:
 
                 with pool.connection() as conn:
                     conn.row_factory = dict_row
+                    # Register the intent. `_handle_payment_succeeded` matches
+                    # the confirmation event against this row to decide who to
+                    # credit; without it the customer is charged and the credit
+                    # is silently dropped. It is also what marks the charge
+                    # in-flight so the next sweep leaves this wallet alone.
+                    conn.execute(
+                        """INSERT INTO payment_intents
+                             (intent_id, customer_id, amount_cents, currency,
+                              status, stripe_intent_id, description, created_at)
+                           VALUES (%s, %s, %s, 'cad', 'created', %s, %s, %s)
+                           ON CONFLICT (stripe_intent_id)
+                             WHERE stripe_intent_id IS NOT NULL
+                               AND stripe_intent_id <> ''
+                           DO NOTHING""",
+                        (
+                            f"pi_topup_{uuid.uuid4().hex[:16]}",
+                            customer_id,
+                            amount_cents,
+                            pi.id,
+                            "Automatic wallet top-up",
+                            now,
+                        ),
+                    )
                     conn.execute(
                         "UPDATE wallets SET last_topup_attempt_at = %s, auto_topup_failures = 0 WHERE customer_id = %s",
                         (now, customer_id),
