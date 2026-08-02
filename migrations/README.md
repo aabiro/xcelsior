@@ -71,7 +71,7 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `097_drop_float_cad_columns.py`.**
+**Repository head: `098_unique_stripe_intent_id.py`.**
 (`079_settlement_meters_reprice.py` was head through the settlement reprice;
 `080` added authoritative provider settlement; `081` the durable per-sink
 privacy deletion workflow; `082` authoritative host admission and signed
@@ -103,7 +103,11 @@ invoice columns the closed AI Compute Access Fund fed, and renames the
 `sovereign` pricing tier to `dedicated` — the ladder is `community` → `secure`
 → `dedicated`, each rung naming what the capacity *is*. `093` drops
 `storage.artifacts.residency_region`, since storage routing is a durability and
-cost decision. `097` drops the last 26 float CAD columns and the mirror triggers, after
+cost decision. `098` makes `payment_intents.stripe_intent_id` unique, because the
+Stripe confirmation handler resolves who to credit through that column with a
+bare `fetchone()` — two rows sharing an id would make the credited customer and
+amount a coin flip. Partial, so rows written before Stripe returns an id do not
+all collide on the empty string. `097` drops the last 26 float CAD columns and the mirror triggers, after
 verifying float and micros agreed on every row — the schema now holds no float
 money at all. `096` drops `users.canada_only_routing`, the last per-user setting that
 restricted placement by country. `095` mirrors the last 26 float CAD columns
