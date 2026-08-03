@@ -66,6 +66,16 @@ CONNECTOR_ALLOWED_SCOPES: tuple[str, ...] = (
     "inference:write",
     "events:read",
     "mcp_actions:approve",
+    "instances:connect",
+    "ssh:read",
+    "ssh:write",
+    "volumes:read",
+    "volumes:write",
+    "artifacts:read",
+    "artifacts:write",
+    "notifications:read",
+    "reputation:read",
+    "sla:read",
 )
 
 #: What a client that asks for nothing in particular gets. Read-biased on

@@ -559,6 +559,59 @@ def test_viewer_cannot_create_oauth_client(team_roles):
     assert "viewer" in blocked.text.lower()
 
 
+def test_team_admin_cannot_mint_themselves_platform_operator_scopes(team_roles):
+    """Registration is the only place operator delegation can be refused.
+
+    `control_plane_v1._require_host_operator` authorizes a machine principal on
+    its scope alone — it never reaches the admin branch for a
+    client-credentials token. So a client registered with `hosts:evict` and
+    exchanged at the token endpoint *is* a platform operator.
+
+    `POST /api/oauth/clients` passed `scopes` through untouched, and being a
+    team admin is not being a platform admin. This is the reachable path: no
+    operator endpoint is called, because the credential must never be issued in
+    the first place.
+    """
+    for scope in ("hosts:evict", "hosts:operate", "control_plane:operate"):
+        blocked = client.post(
+            "/api/oauth/clients",
+            headers=team_roles["admin"]["headers"],
+            json={**_OAUTH_CLIENT_BODY, "scopes": [scope]},
+        )
+        assert blocked.status_code == 400, (
+            f"{scope} was delegable to a non-platform-admin: "
+            f"{blocked.status_code} {blocked.text[:200]}"
+        )
+        assert scope in blocked.text
+
+
+def test_unknown_scope_is_refused_at_registration(team_roles):
+    """A typo must fail here, not as a 403 on every later call."""
+    blocked = client.post(
+        "/api/oauth/clients",
+        headers=team_roles["admin"]["headers"],
+        json={**_OAUTH_CLIENT_BODY, "scopes": ["instance:read"]},
+    )
+    assert blocked.status_code == 400, blocked.text[:200]
+    assert "instance:read" in blocked.text
+
+
+def test_ordinary_scopes_remain_registrable(team_roles):
+    """The guard must not break the flow it protects."""
+    ok = client.post(
+        "/api/oauth/clients",
+        headers=team_roles["admin"]["headers"],
+        json={**_OAUTH_CLIENT_BODY, "scopes": ["instances:read", "ssh:write"]},
+    )
+    assert ok.status_code == 200, ok.text[:200]
+    created = ok.json()["client"]
+    assert set(created["scopes"]) == {"instances:read", "ssh:write"}
+    client.delete(
+        f"/api/oauth/clients/{created['client_id']}",
+        headers=team_roles["admin"]["headers"],
+    )
+
+
 def test_viewer_cannot_launch_team_instance(team_roles):
     blocked = client.post(
         "/instance",

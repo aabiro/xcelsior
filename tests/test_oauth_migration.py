@@ -84,67 +84,104 @@ def clean_oauth_migration_state():
 
 
 class TestOAuthMigrationSecurity:
-    def test_machine_client_cannot_access_mfa(self):
-        token = _register_and_get_token("mfa-machine@xcelsior.ca")
-
+    def _machine_token(self, email: str, scopes: list[str]) -> str:
+        """A client-credentials token holding exactly *scopes*."""
+        token = _register_and_get_token(email)
         created = client.post(
             "/api/oauth/clients",
             headers={"Authorization": f"Bearer {token}"},
             json={
-                "client_name": "MFA Test Machine",
+                "client_name": f"machine-{email}",
+                "client_type": "confidential",
+                "redirect_uris": [],
+                "grant_types": ["client_credentials"],
+                "scopes": scopes,
+            },
+        )
+        assert created.status_code == 200, created.text[:300]
+        payload = created.json()["client"]
+        token_resp = client.post(
+            "/oauth/token",
+            data={
+                "grant_type": "client_credentials",
+                "client_id": payload["client_id"],
+                "client_secret": payload["client_secret"],
+                "scope": " ".join(scopes),
+            },
+        )
+        assert token_resp.status_code == 200, token_resp.text[:300]
+        return token_resp.json()["access_token"]
+
+    def test_the_api_wildcard_scope_cannot_be_registered(self):
+        """`api` short-circuited every per-tool check. It is gone from the
+        vocabulary, so asking for it now fails where the mistake is made.
+
+        These security tests used to register clients with `scopes: ["api"]` and
+        assert the resulting token was still refused. That framing outlived the
+        wildcard: `api` is no longer a scope any client can hold.
+        """
+        token = _register_and_get_token("wildcard-machine@xcelsior.ca")
+        refused = client.post(
+            "/api/oauth/clients",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "client_name": "Wildcard Machine",
                 "client_type": "confidential",
                 "redirect_uris": [],
                 "grant_types": ["client_credentials"],
                 "scopes": ["api"],
             },
-        ).json()["client"]
-
-        token_resp = client.post(
-            "/oauth/token",
-            data={
-                "grant_type": "client_credentials",
-                "client_id": created["client_id"],
-                "client_secret": created["client_secret"],
-                "scope": "api",
-            },
         )
-        machine_token = token_resp.json()["access_token"]
+        assert refused.status_code == 400, refused.text[:300]
+        assert "api" in refused.text
 
-        # Access MFA
+    def test_machine_client_cannot_access_mfa(self):
+        """Account security is not delegable to a machine credential."""
+        machine_token = self._machine_token(
+            "mfa-machine@xcelsior.ca", ["instances:read"]
+        )
         r = client.get(
             "/api/auth/mfa/methods", headers={"Authorization": f"Bearer {machine_token}"}
         )
-        assert r.status_code == 403
+        assert r.status_code == 403, r.text[:200]
 
     def test_machine_client_cannot_access_ssh_keys_by_default(self):
-        token = _register_and_get_token("ssh-machine@xcelsior.ca")
+        """`ssh:read` is now grantable — but only when actually granted.
 
-        created = client.post(
-            "/api/oauth/clients",
-            headers={"Authorization": f"Bearer {token}"},
-            json={
-                "client_name": "SSH Test Machine",
-                "client_type": "confidential",
-                "redirect_uris": [],
-                "grant_types": ["client_credentials"],
-                "scopes": ["api"],
-            },
-        ).json()["client"]
-
-        token_resp = client.post(
-            "/oauth/token",
-            data={
-                "grant_type": "client_credentials",
-                "client_id": created["client_id"],
-                "client_secret": created["client_secret"],
-                "scope": "api",
-            },
+        Before this was a scope no client could hold, so the endpoint was
+        unreachable by construction. It is reachable now, which makes this the
+        real test: a machine credential without `ssh:read` is still refused.
+        """
+        machine_token = self._machine_token(
+            "ssh-machine@xcelsior.ca", ["instances:read"]
         )
-        machine_token = token_resp.json()["access_token"]
-
-        # Access SSH keys (requires interactive user by default)
         r = client.get("/api/ssh/keys", headers={"Authorization": f"Bearer {machine_token}"})
-        assert r.status_code == 403
+        assert r.status_code == 403, r.text[:200]
+
+    def test_ssh_keys_refuse_oauth_machine_tokens_even_with_the_scope(self):
+        """Two locks, not one — and the scope is the second.
+
+        Granting `ssh:read` is not sufficient: `routes/ssh.py` guards these
+        endpoints with `_require_user_grant`, which rejects `client_credentials`
+        outright on the grounds that an SSH key is account security rather than
+        ordinary user-owned state. `allow_api_key=True` means an *agent API key*
+        (`auth_type="agent_api_key"`) is admitted and then scope-checked, while
+        an OAuth client-credentials token is refused before the scope is ever
+        consulted.
+
+        That split is deliberate on the security side and load-bearing on the
+        product side: it decides which credential the `register_ssh_key` tool
+        can use. Asserted here so the decision is visible rather than
+        rediscovered — if `_require_user_grant` is ever relaxed for these
+        routes, this fails and the change has to be argued for.
+        """
+        machine_token = self._machine_token(
+            "ssh-granted@xcelsior.ca", ["instances:read", "ssh:read"]
+        )
+        r = client.get("/api/ssh/keys", headers={"Authorization": f"Bearer {machine_token}"})
+        assert r.status_code == 403, r.text[:200]
+        assert "Interactive user authentication required" in r.text
+
 
     def test_api_keys_permanently_rejected(self, monkeypatch):
         """API keys are permanently disabled — auth with one must return 401."""

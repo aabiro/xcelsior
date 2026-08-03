@@ -1276,6 +1276,9 @@ MCP_QUICK_CONNECT_SCOPES = [
     "instances:read",
     "instances:write",
     "instances:operate",
+    "instances:connect",
+    "ssh:read",
+    "ssh:write",
     "billing:read",
     "gpu:read",
     "marketplace:read",
@@ -1415,12 +1418,103 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     "inference:write": "Create serverless endpoints and run inference jobs",
     "events:read": "Read your account's activity events",
     "mcp_actions:approve": "Approve pending action plans on your behalf",
-    "hosts:read": "See platform host capacity (operator)",
+    "instances:connect": "Open a connection to your running instances — terminal, SSH, and exposed ports",
+    "volumes:read": "See your persistent volumes and their contents",
+    "volumes:write": "Create, attach, resize, and delete your persistent volumes",
+    "artifacts:read": "See and download the artifacts your jobs produced",
+    "artifacts:write": "Upload, promote, and delete your job artifacts",
+    "chat:read": "See your assistant conversations",
+    "chat:write": "Send messages to the assistant",
+    "notifications:read": "See your notifications",
+    "notifications:write": "Change your notification settings and dismiss alerts",
+    "marketplace:write": "List, update, and withdraw your marketplace offers",
+    "providers:read": "See your provider account, capacity, and payouts",
+    "providers:write": "Manage your provider account and payout settings",
+    "reputation:read": "See reputation scores for hosts and providers",
+    "reputation:write": "Submit reputation feedback for a completed job",
+    "sla:read": "See service-level reports and the credits you are owed",
+    "verification:write": "Submit identity and provider verification documents",
+    "teams:write": "Manage team members, roles, and invitations",
+    "mfa:read": "See whether multi-factor authentication is enabled",
+    "mfa:write": "Enroll, regenerate, and remove multi-factor authentication",
+    "privacy:read": "See your data-export and deletion requests",
+    "privacy:write": "Request an export or deletion of your data",
+    "ssh:read": "See the SSH public keys registered to your account",
+    "ssh:write": "Register and remove SSH public keys on your account",
+    # Provider authority, not platform authority: every `hosts:write` site is
+    # paired with the ownership check in `routes/hosts._require_host_operator`,
+    # so it reaches only hosts the caller owns. Deliberately not "(operator)" —
+    # a provider registering their own capacity must not need an admin.
+    "hosts:write": "Register and update the hosts you provide",
+    "transparency:read": "See the platform transparency ledger (operator)",
+    "transparency:write": "Record legal requests in the transparency ledger (operator)",
+    # Dual-use, and deliberately left delegable. `GET /hosts` returns the whole
+    # fleet, which reads as operator information — but the same scope gates a
+    # provider's own admission status and heartbeat, and every worker agent is
+    # registered by a non-admin provider. Making it admin-only breaks provider
+    # onboarding, and it was freely grantable before the delegation check
+    # existed, so restricting it here would be a silent behaviour change
+    # unrelated to the escalation being fixed.
+    #
+    # The fleet-wide listing is a real exposure and is tracked separately: the
+    # fix is to split own-hosts from fleet-wide rather than to reclassify this.
+    "hosts:read": "See host capacity, including hosts you provide",
     "hosts:operate": "Drain and undrain platform hosts (operator)",
     "hosts:evict": "Evict workloads from platform hosts (operator)",
     "control_plane:read": "See platform control-plane health (operator)",
     "control_plane:operate": "Retry platform control-plane commands (operator)",
 }
+
+#: Scopes conferring authority over the *platform* rather than over the
+#: caller's own resources. Derived from the descriptions above so the two
+#: cannot drift: a scope is operator authority exactly when its consent text
+#: says so.
+OPERATOR_SCOPES: frozenset[str] = frozenset(
+    scope for scope, text in SCOPE_DESCRIPTIONS.items() if "(operator)" in text
+)
+
+
+def assert_scopes_delegable(scopes: list[str], *, creator: dict | None) -> None:
+    """Refuse a client registration that asks for more than its creator may give.
+
+    `_require_host_operator` authorizes a machine principal on its scope alone —
+    correctly, since a machine has no role to inspect. That makes registration
+    the only point where operator authority can be withheld: a non-admin who can
+    register a client holding `hosts:evict` and exchange it for a
+    client-credentials token has promoted themselves to platform operator
+    without ever touching an admin check.
+
+    `CONNECTOR_ALLOWED_SCOPES` already encodes this policy for self-registered
+    connectors ("operator authority absent by construction"). This applies the
+    same rule to first-party creation, which passed `scopes` through untouched.
+
+    Unknown scopes are refused for a different reason: a client registered with
+    a typo can be created and exchanged for a token, then refused by every
+    endpoint it calls — a 403 naming a scope its owner believes they granted.
+    Failing at registration puts the error where the mistake is.
+    """
+    requested = [str(s).strip() for s in scopes if str(s).strip()]
+
+    unknown = sorted({s for s in requested if s not in SCOPE_DESCRIPTIONS})
+    if unknown:
+        raise OAuthGrantError(
+            "invalid_scope",
+            f"Unknown scope(s): {', '.join(unknown)}",
+        )
+
+    is_admin = bool(creator) and (
+        creator.get("is_admin") in (True, 1, "1", "true", "True")
+        or creator.get("role") == "admin"
+    )
+    if is_admin:
+        return
+
+    operator = sorted({s for s in requested if s in OPERATOR_SCOPES})
+    if operator:
+        raise OAuthGrantError(
+            "invalid_scope",
+            f"Only a platform admin may grant operator scope(s): {', '.join(operator)}",
+        )
 
 
 def describe_scope(scope: str) -> str:

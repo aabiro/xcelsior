@@ -19,10 +19,17 @@ import type { OAuthClientInfo } from "@/lib/api";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
+// Mirrors MCP_QUICK_CONNECT_SCOPES in oauth_service.py. The two are checked
+// against each other by tests/test_scope_vocabulary_is_grantable.py — a scope
+// added on one side and not the other produces a token that cannot do what this
+// screen says it can.
 const MCP_SCOPES = [
   "instances:read",
   "instances:write",
   "instances:operate",
+  "instances:connect",
+  "ssh:read",
+  "ssh:write",
   "billing:read",
   "gpu:read",
   "marketplace:read",
