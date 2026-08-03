@@ -5,6 +5,8 @@ from __future__ import annotations
 import enum
 import logging
 import os
+
+import env_config
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass
@@ -73,7 +75,12 @@ class QueueFullError(Exception):
 
 
 def _is_production() -> bool:
-    return os.environ.get("XCELSIOR_ENV", "").strip().lower() == "production"
+    """Strict policy everywhere except an explicit dev/test context.
+
+    An exact match on "production" gave staging — and any misspelling — the
+    lenient policy.
+    """
+    return not env_config.is_relaxed_env()
 
 
 def rate_limit_policy() -> RateLimitPolicy:

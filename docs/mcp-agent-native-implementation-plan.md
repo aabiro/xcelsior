@@ -99,6 +99,31 @@ This is a live defect independent of the agent surface, and it is the single
 strongest argument for building the hosted page — not so an agent can take a
 card number, but so a *declined* charge has somewhere to send the human.
 
+### 0.4 Staging must be provisioned before P2 and P6 can run
+
+P0 found that a missing or misspelled `XCELSIOR_ENV` disabled authentication,
+exposed a signing secret that lives in the source tree, and made stored secrets
+recoverable — four security decisions each defaulting to development. Resolution
+now fails closed, and the startup gate enforces everywhere except an explicitly
+named dev/test context.
+
+**Staging is deliberately not exempt.** It holds real data, so it may not fall
+back to the committed JWT secret or the deterministic Fernet key. It is also not
+production: `routes/agent.py` grants staging an escape hatch it refuses to the
+production VPS, and that distinction is audited, so `is_relaxed_env()` and
+`is_production()` are not complements.
+
+The consequence lands on this plan directly. **Gate P2 and Gate P6 both require
+journeys against a live staging tenant**, and under the new rules that tenant
+refuses to boot without a real asymmetric signing key
+(`XCELSIOR_OAUTH_JWT_KEYS_JSON`) and a real `XCELSIOR_SECRETS_KEY`. Provision
+both before P2, not at the gate: it is a small task now and a blocked acceptance
+test later, and P2 is the phase that makes this plan's headline sentence true.
+
+Scope note: the environment work was necessary and is outside P0 as written. It
+ends at the four controls, the startup gate, and the guard on the pattern. It is
+not a general secrets-management project.
+
 ## 1. How every phase is gated
 
 Same shape each time, because the failures this codebase has actually produced
@@ -126,9 +151,25 @@ were failures of *evidence*, not of intent.
 
 **Backend**
 
-- **Scope the access endpoints.** New scopes: `instances:connect` (auto-launch, expose, stream-ticket), `ssh:manage` (keygen, pubkey registration). Applied with `_require_scope`, at both layers.
+- **Scope the access endpoints.** `instances:connect` (auto-launch, expose, stream-ticket), applied with `_require_scope` at both layers.
+- **Deviation, recorded deliberately: `ssh:manage` is superseded by `ssh:read` / `ssh:write`.** This document is the vocabulary of record, so the change is stated here rather than left to differ between the plan and the code.
+
+  This plan named one scope covering "keygen, pubkey registration". Those are different privileges: `/ssh/keygen` mints the *platform's* host-access **private** key server-side, while registration accepts a **public** key the caller already holds. Bundling them would put a private-key-minting endpoint behind a scope an agent is meant to carry — the opposite of P2's own reasoning, *the agent already has a key; it needs the platform to accept it, not to mint one.*
+
+  Splitting them dissolves the name. `/ssh/keygen` becomes admin-only and is never scope-granted at all, so nothing is left for `ssh:manage` to *manage* — the remaining privilege is exactly "read and write my own public keys", which `ssh:read` / `ssh:write` already named at the enforcement sites in `routes/ssh.py`. Adopting `ssh:manage` would have renamed working enforcement to match a bundle that no longer exists.
+
+  **`ssh:manage` is therefore retired, not deferred.** It appears in no scope list, no route, and no tool contract.
 - **Scope the billing levers.** `setup-intent` and `portal-session` move from `_get_current_user` to `_require_scope(billing:write)`. The manual top-up path P1 adds is `billing:write` from the start — it charges a real card, so it is never reachable by a read-scoped credential.
-- **One policy registry.** `contracts.ts`, `scopes.ts`, annotations, descriptions and `tool-surface.json` are five hand-maintained files that must agree. Invert it: one registry is the source, the rest are generated. The 37-vs-39 drift ChatGPT spotted becomes unrepresentable rather than merely detected.
+- **One policy registry — narrowed, because two of the five were already generated.** `TOOL_CONTRACTS` is computed **at import time** from `TOOL_SCOPES` in `contracts.ts`, and no script writes that file. Those two therefore cannot drift; it is a structural guarantee, not a convention. Recorded here so nobody re-does it.
+
+  The remaining work is the three that *are* hand-maintained or script-written: **descriptions, annotations, and `tool-surface.json`** — the last written by `npm run surface:update`, which is a script someone must remember to run. That is precisely the OpenAPI-generator shape, where a generated artifact drifts because regeneration is a step rather than a guarantee.
+
+  **The gate still applies to all five.** Regenerating produces byte-identical output and a hand edit to a generated file fails the build — including for contracts and scopes, whose guarantee is otherwise undocumented and one refactor from gone.
+- **Tool count: 39 total, and the decomposition is load-bearing.** `TOOL_SCOPES` holds 39. `mcp/tool-surface.json` publishes **30** — the customer profile — because it excludes **7 operator tools** (`drain_host`, `undrain_host`, `evict_host_workloads`, `get_host_capacity`, `get_scheduler_health`, `list_reconciliation_findings`, `retry_agent_command`) and **2 company-knowledge tools** (`search`, `fetch`).
+
+  Checking only the published snapshot verifies 30 of 39 and silently skips the operator tools — the ones carrying `hosts:evict`. **Moving the total requires restating the eval baseline in this document in the same commit**, because every later phase's eval delta is measured against it and a stale baseline invalidates every future gate comparison. `tests/test_tool_scope_registry_completeness.py` enforces the number and the decomposition.
+- **Host visibility is split, not reclassified.** `GET /hosts` returned the whole fleet to anyone holding `hosts:read` — a scope every provider needs so their worker agent can report its own admission status, which made competitors' capacity readable by anyone who registered a rig. Reclassifying `hosts:read` as operator authority was tried and reverted: providers are not admins, and it broke onboarding. `hosts:read` now answers *your* hosts; platform-wide visibility moved behind `hosts:fleet`, described "(operator)" so a non-admin cannot delegate it.
+  - **Known boundary, deliberately not chased here:** ownership resolves through the OAuth client's *individual* creator, matching `_require_host_operator`. Once hosts belong to an organisation rather than a person, that anchor is wrong. It belongs with P6 and the enterprise adoption plan, not P0.
 - **GT0 endpoint inventory classification.** Every one of the 528 operations tagged `covered` / `gap` / `internal` / `redundant`, with a reason. Zero unclassified.
 
 **Frontend** — none. This phase is invisible on purpose.
@@ -137,7 +178,8 @@ were failures of *evidence*, not of intent.
 - Every access and billing endpoint named above refuses a token missing its new scope, asserted with a real token against a live server.
 - Regenerating the registry produces byte-identical output; a hand edit to a generated file fails the build.
 - `test_no_runtime_ddl`-style inventory test: zero unclassified endpoints.
-- Eval baseline captured at 39 tools. This is the number every later phase is compared against.
+- **Eval baseline — two numbers, not one.** `scripts/mcp_tool_eval.py` grades what `tools/list` *publishes*, which is the **30-tool customer profile**, not the 39-entry registry. Labelling the baseline "39 tools" conflates the registry total with the graded surface, and a later phase comparing a 39-labelled baseline against a 30-tool run would read a description regression as a count change. Record both: registry total 39, eval surface 30, plus first-tool accuracy and unsafe-write selection as the baseline pair.
+- **Blocked, not skipped:** the eval reads tool definitions from a live server by design (*"a reviewer's model sees exactly what `tools/list` publishes"*), so it needs `XCELSIOR_MCP_TOKEN` and `ANTHROPIC_API_KEY`. Without them it reports `BLOCKED(env)` and exits 0 — a gate that cannot run is never green, and this one has not run.
 
 ---
 

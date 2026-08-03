@@ -8,6 +8,8 @@
 #   Layer 4: (Optional) Sandboxed runtimes (gVisor/Kata)
 
 import base64
+
+import env_config
 import json
 import logging
 import os
@@ -30,8 +32,12 @@ def _get_fernet():
     if _fernet is None:
         key = _SECRETS_KEY
         if not key:
-            env = os.environ.get("XCELSIOR_ENV", "dev").lower()
-            if env in ("production", "prod"):
+            # Asked `env in ("production", "prod")` while AUTH_REQUIRED asked
+            # the inverse, so a typo could be production for one and not the
+            # other. The question here is "may we fall back to an insecure
+            # default", which is false everywhere except an explicit dev/test
+            # context — staging included, since it holds real data.
+            if not env_config.is_relaxed_env():
                 raise RuntimeError(
                     "XCELSIOR_SECRETS_KEY must be set in production. "
                     'Generate one with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
@@ -42,8 +48,12 @@ def _get_fernet():
         try:
             _fernet = Fernet(key.encode() if isinstance(key, str) else key)
         except (ValueError, TypeError) as exc:
-            env = os.environ.get("XCELSIOR_ENV", "dev").lower()
-            if env in ("production", "prod"):
+            # Asked `env in ("production", "prod")` while AUTH_REQUIRED asked
+            # the inverse, so a typo could be production for one and not the
+            # other. The question here is "may we fall back to an insecure
+            # default", which is false everywhere except an explicit dev/test
+            # context — staging included, since it holds real data.
+            if not env_config.is_relaxed_env():
                 raise RuntimeError(
                     "XCELSIOR_SECRETS_KEY is invalid — must be 32 url-safe base64-encoded bytes."
                 ) from exc

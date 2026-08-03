@@ -145,8 +145,16 @@ def api_set_alert_config(cfg: AlertConfig, request: Request):
 
 @router.post("/ssh/keygen", tags=["Infrastructure"])
 def api_generate_ssh_key(request: Request):
-    """Generate an Ed25519 SSH keypair for host access."""
-    _require_auth(request)
+    """Generate an Ed25519 SSH keypair for host access.
+
+    Admin-only, and deliberately **not** scope-gated. This mints the
+    *platform's* host-access private key server-side — infrastructure, not a
+    user capability. Putting it behind a scope an agent is meant to hold would
+    hand an agent the ability to mint platform credentials, which is the
+    opposite of P2's reasoning that the agent already has a key and needs the
+    platform to accept it, not to mint one.
+    """
+    _require_admin(request)
     path = generate_ssh_keypair()
     pub = get_public_key(path)
     return {"ok": True, "key_path": path, "public_key": pub}

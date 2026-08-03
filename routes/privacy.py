@@ -52,11 +52,14 @@ def api_retention_summary(request: Request):
 @router.post("/api/privacy/purge-expired", tags=["Privacy"])
 def api_purge_expired(request: Request):
     """Purge all expired retention records (daily maintenance)."""
-    from routes._deps import _require_scope, _get_current_user
+    from routes._deps import _require_auth, _require_scope
 
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "privacy:write")
+    # Establish the caller before deciding what they may do. This used to read
+    # `user = _get_current_user(...)` / `if user:`, which ran the scope check
+    # only for callers who had already authenticated — so an anonymous request
+    # skipped authorization entirely and mutated state.
+    user = _require_auth(request)
+    _require_scope(user, "privacy:write")
     lm = get_lifecycle_manager()
     count = lm.purge_expired()
     return {"ok": True, "purged": count}
@@ -83,11 +86,14 @@ class PrivacyConfigRequest(BaseModel):
 @router.post("/api/privacy/config", tags=["Privacy"])
 def api_save_privacy_config(req: PrivacyConfigRequest, request: Request):
     """Save privacy configuration for an organization."""
-    from routes._deps import _require_scope, _get_current_user
+    from routes._deps import _require_auth, _require_scope
 
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "privacy:write")
+    # Establish the caller before deciding what they may do. This used to read
+    # `user = _get_current_user(...)` / `if user:`, which ran the scope check
+    # only for callers who had already authenticated — so an anonymous request
+    # skipped authorization entirely and mutated state.
+    user = _require_auth(request)
+    _require_scope(user, "privacy:write")
     lm = get_lifecycle_manager()
     config = PrivacyConfig(
         privacy_level=req.privacy_level,
@@ -132,11 +138,14 @@ class LifecycleConsentRequest(BaseModel):
 @router.post("/api/privacy/consent", tags=["Privacy"])
 def api_record_consent(req: LifecycleConsentRequest, request: Request):
     """Record explicit consent (privacy principle: Consent)."""
-    from routes._deps import _require_scope, _get_current_user
+    from routes._deps import _require_auth, _require_scope
 
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "privacy:write")
+    # Establish the caller before deciding what they may do. This used to read
+    # `user = _get_current_user(...)` / `if user:`, which ran the scope check
+    # only for callers who had already authenticated — so an anonymous request
+    # skipped authorization entirely and mutated state.
+    user = _require_auth(request)
+    _require_scope(user, "privacy:write")
     lm = get_lifecycle_manager()
     consent_id = lm.record_consent(req.entity_id, req.consent_type, req.details)
     return {"ok": True, "consent_id": consent_id}
@@ -145,11 +154,14 @@ def api_record_consent(req: LifecycleConsentRequest, request: Request):
 @router.delete("/api/privacy/consent/{entity_id}/{consent_type}", tags=["Privacy"])
 def api_revoke_consent(entity_id: str, consent_type: str, request: Request):
     """Revoke consent (privacy: individuals can withdraw consent)."""
-    from routes._deps import _require_scope, _get_current_user
+    from routes._deps import _require_auth, _require_scope
 
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "privacy:write")
+    # Establish the caller before deciding what they may do. This used to read
+    # `user = _get_current_user(...)` / `if user:`, which ran the scope check
+    # only for callers who had already authenticated — so an anonymous request
+    # skipped authorization entirely and mutated state.
+    user = _require_auth(request)
+    _require_scope(user, "privacy:write")
     lm = get_lifecycle_manager()
     lm.revoke_consent(entity_id, consent_type)
     return {"ok": True, "revoked": consent_type}

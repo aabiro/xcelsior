@@ -158,30 +158,44 @@ class TestOAuthMigrationSecurity:
         r = client.get("/api/ssh/keys", headers={"Authorization": f"Bearer {machine_token}"})
         assert r.status_code == 403, r.text[:200]
 
-    def test_ssh_keys_refuse_oauth_machine_tokens_even_with_the_scope(self):
-        """Two locks, not one — and the scope is the second.
+    def test_ssh_keys_admit_an_oauth_machine_token_holding_the_scope(self):
+        """Superseded deliberately, and rewritten rather than deleted.
 
-        Granting `ssh:read` is not sufficient: `routes/ssh.py` guards these
-        endpoints with `_require_user_grant`, which rejects `client_credentials`
-        outright on the grounds that an SSH key is account security rather than
-        ordinary user-owned state. `allow_api_key=True` means an *agent API key*
-        (`auth_type="agent_api_key"`) is admitted and then scope-checked, while
-        an OAuth client-credentials token is refused before the scope is ever
-        consulted.
+        This test previously asserted the opposite: that `routes/ssh.py` refused
+        `client_credentials` even with `ssh:read`, because `_require_user_grant`
+        rejects machine tokens outright. That was the real behaviour and worth
+        pinning at the time.
 
-        That split is deliberate on the security side and load-bearing on the
-        product side: it decides which credential the `register_ssh_key` tool
-        can use. Asserted here so the decision is visible rather than
-        rediscovered — if `_require_user_grant` is ever relaxed for these
-        routes, this fails and the change has to be argued for.
+        It was changed on purpose. Gate P2 requires launch → wait → connect →
+        run → terminate using **only tool calls**, and an OAuth-connected agent
+        that cannot register its public key cannot complete it. Registering a
+        *public* key is not the same act as changing a password: the agent
+        already holds the private half, so the platform is accepting an
+        assertion about a key the caller controls.
+
+        The narrowing is confined to the SSH key routes via
+        `_require_user_or_scoped_machine`; the account-security surface keeps
+        `_require_user_grant`, which
+        `tests/test_ssh_key_registration_credentials.py` asserts separately.
         """
         machine_token = self._machine_token(
             "ssh-granted@xcelsior.ca", ["instances:read", "ssh:read"]
         )
         r = client.get("/api/ssh/keys", headers={"Authorization": f"Bearer {machine_token}"})
-        assert r.status_code == 403, r.text[:200]
-        assert "Interactive user authentication required" in r.text
+        assert r.status_code == 200, r.text[:200]
 
+    def test_ssh_keys_still_refuse_a_machine_token_without_the_scope(self):
+        """The refusal that keeps the change narrow.
+
+        Admitting machine credentials is only safe because the scope is
+        actually required. Without this, the supersession above would read as
+        "machine tokens may now reach SSH keys".
+        """
+        machine_token = self._machine_token(
+            "ssh-unscoped@xcelsior.ca", ["instances:read"]
+        )
+        r = client.get("/api/ssh/keys", headers={"Authorization": f"Bearer {machine_token}"})
+        assert r.status_code == 403, r.text[:200]
 
     def test_api_keys_permanently_rejected(self, monkeypatch):
         """API keys are permanently disabled — auth with one must return 401."""

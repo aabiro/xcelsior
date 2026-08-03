@@ -24,6 +24,25 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
+# ── Concurrency lock ─────────────────────────────────────────────────────
+# The suite shares one PostgreSQL database (`xcelsior_pytest`). Two runs at
+# once deadlock on `jobs` and delete each other's fixture rows, producing
+# failures that look exactly like test pollution — hours were spent bisecting
+# for a polluter that was a second copy of this script. Contention is now
+# impossible rather than merely discouraged.
+#
+# XCELSIOR_TEST_NO_LOCK=1 opts out for a deliberate parallel run against a
+# different database.
+if [[ "${XCELSIOR_TEST_NO_LOCK:-}" != "1" ]]; then
+    exec 9>"/tmp/xcelsior-pytest.lock"
+    if ! flock -n 9; then
+        echo "✗ another test run holds /tmp/xcelsior-pytest.lock" >&2
+        echo "  Concurrent runs share xcelsior_pytest and corrupt each other." >&2
+        echo "  Wait for it, or set XCELSIOR_TEST_NO_LOCK=1 with a separate DB." >&2
+        exit 2
+    fi
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
@@ -211,4 +230,15 @@ case "${TARGET}" in
 esac
 
 # ── Run ──────────────────────────────────────────────────────────────────
-python -m pytest "${PYTEST_ARGS[@]}" "${EXTRA_ARGS[@]}" -q --tb=short -p no:sugar -p no:rich
+# Full output always lands in a file. Piping this command through `tail`
+# truncated a background run's log to ten lines and hid five of fourteen
+# failures, which was then diagnosed from the fragment that survived.
+XCELSIOR_TEST_LOG="${XCELSIOR_TEST_LOG:-/tmp/xcelsior-pytest-$(date +%Y%m%d-%H%M%S).log}"
+echo "▸ full output: $XCELSIOR_TEST_LOG"
+set +e
+python -m pytest "${PYTEST_ARGS[@]}" "${EXTRA_ARGS[@]}" -q --tb=short -p no:sugar -p no:rich \
+    2>&1 | tee "$XCELSIOR_TEST_LOG"
+status=${PIPESTATUS[0]}
+set -e
+echo "▸ full output: $XCELSIOR_TEST_LOG"
+exit "$status"
