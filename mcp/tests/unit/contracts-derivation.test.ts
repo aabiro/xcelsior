@@ -55,6 +55,31 @@ describe("TOOL_CONTRACTS is derived, not maintained", () => {
     }
   });
 
+  it("derives annotations from the classification sets, not per-tool literals", () => {
+    // Annotations are computed in `contracts.ts` from READ_ONLY, DESTRUCTIVE
+    // and OPEN_WORLD. That is the fifth of P0's five artifacts and the reason
+    // it needs no generator — but, like the scope derivation, the guarantee
+    // was asserted nowhere.
+    //
+    // The invariants below are the ones a hand-written annotation block would
+    // break first. A tool cannot be simultaneously read-only and destructive,
+    // and a read-only tool is idempotent by construction; if either ever
+    // disagrees, annotations have stopped being derived and a client is being
+    // told something the contract does not guarantee.
+    for (const [name, contract] of Object.entries(TOOL_CONTRACTS)) {
+      const { readOnlyHint, destructiveHint, idempotentHint } = contract.annotations;
+      expect(
+        readOnlyHint && destructiveHint,
+        `${name}: annotated both read-only and destructive`,
+      ).toBe(false);
+      if (readOnlyHint) {
+        expect(idempotentHint, `${name}: read-only but not idempotent`).toBe(true);
+        expect(contract.idempotency, name).toBe("read");
+        expect(contract.retry, name).toBe("safe");
+      }
+    }
+  });
+
   it("never advertises a tool as requiring nothing", () => {
     const empty = Object.entries(TOOL_CONTRACTS)
       .filter(([, contract]) => contract.requiredScopes.length === 0)
