@@ -166,8 +166,10 @@ def render(rows: list[dict[str, str]]) -> str:
         out.append("| Method | Path | Auth dependency | Summary | class | notes |")
         out.append("|---|---|---|---|---|---|")
         for row in module_rows:
-            klass = "covered" if _normalise_path(row["path"]) in mcp_paths else ""
-            note = "MCP server calls this path" if klass else ""
+            if _normalise_path(row["path"]) in mcp_paths:
+                klass, note = "covered", "MCP server calls this path"
+            else:
+                klass, note = MODULE_CLASS.get(module, ("", ""))
             out.append(
                 f"| {row['method']} | `{row['path']}` | {row['auth']} "
                 f"| {row['summary']} | {klass} | {note} |"
@@ -176,6 +178,32 @@ def render(rows: list[dict[str, str]]) -> str:
     return "\n".join(out) + "\n"
 
 
+
+
+#: Modules whose *every* operation shares one classification, with the reason.
+#: Applied per module rather than per row because that is the granularity at
+#: which the judgement is actually true — "every route in `routes/agent.py` is a
+#: worker-agent callback" is a statement someone can check, whereas 18 identical
+#: per-row reasons would be the same claim pretending to be 18 judgements.
+#:
+#: A module appears here only when it is homogeneous. Mixed modules —
+#: `serverless` (user-facing endpoints alongside worker callbacks), `billing`,
+#: `instances`, `health` — are deliberately absent: splitting them is per-row
+#: work and product judgement, not pattern-matching.
+MODULE_CLASS: dict[str, tuple[str, str]] = {
+    "agent": ("internal", "worker-agent callbacks, authenticated by the fleet secret"),
+    "agent_v2": ("internal", "worker-agent v2 callbacks; not a user surface"),
+    "host_admission": ("internal", "host admission handshake between platform and worker"),
+    "admin": ("internal", "platform admin console; operator surface, not the tool surface"),
+    "autoscale": ("internal", "scheduler-driven capacity control, no caller outside the platform"),
+    "cloudburst": ("internal", "burst provisioning, driven by the scheduler"),
+    "volumes": ("gap", "P3 promotes artifacts to volumes; none of it is reachable as a tool"),
+    "artifacts": ("gap", "P3 needs artifact read and promotion; no tool exposes them"),
+    "ssh": ("gap", "P2's register_ssh_key depends on these; scoped but not yet a tool"),
+    "spot": ("gap", "P5 placement and migration need spot data as tools"),
+    "reputation": ("gap", "P5 reputation-aware placement needs these as tools"),
+    "sla": ("gap", "P5 SLA-aware placement needs these as tools"),
+}
 
 #: Paths the MCP server actually calls, extracted from `mcp/src/**/*.ts`.
 #: `covered` is derived from this rather than entered by hand — a class column
