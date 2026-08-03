@@ -1,4 +1,3 @@
-<!-- residency-guard: documents-removal — records why the residency model was deleted -->
 # Xcelsior MCP tool surface — combined plan
 
 **Status:** plan of record for the tool-surface track, superseding the domain
@@ -61,16 +60,23 @@ the trust boundary must stay structural and never become "just a scope check."
 1. **`{ allOf?, anyOf? }` replaces flat arrays.** `allOf` is cumulative and is
    the default; `anyOf` is reserved for the three tools whose subject may live
    in several domains (`get_mcp_action_status`, `search`, `fetch`).
-2. **`api` removed from all 41 contracts.** It survives only as a *legacy broad
-   grant* — it is the DCR default ([routes/auth.py:463](../routes/auth.py#L463)),
-   so refusing it outright would revoke live credentials. It now satisfies
-   tenant scopes and **never** an operator scope, so a tenant automation token
-   can no longer reach `hosts:evict` or `mcp_actions:approve`.
+2. **`api` is gone from the scope vocabulary entirely.** The first pass kept it
+   as a "legacy broad grant" on the reasoning that it was the DCR default and
+   revoking it would break live clients. That was hedging against a case the
+   platform owner had already ruled out — there are no such credentials — so it
+   was removed outright: struck from the `McpScope` enum, from `grants()`, from
+   `_require_scope`, and as the client-registration default. A client that
+   registers without naming scopes now receives **none**. There is no value a
+   caller can hold that means "everything".
 3. **`_require_scope` now covers agent keys**, via an explicit machine-credential
    set rather than `grant_type` alone.
 4. **The `|| ["api"]` fallback is gone.** Eight call sites resolved an
    unregistered tool to "requires only the broad grant" — fail-open on the one
    path that must fail closed. An unknown tool now denies.
+5. **A third bypass surfaced during the cutover.** `routes/action_plans.py` held
+   `if "api" not in held`, in the approval path of all places. It was found only
+   because a worker test failed, so the regression test now greps *every* route
+   module for that pattern class rather than the one file that was known about.
 
 **One correction worth recording.** My first attempt keyed enforcement off "has
 explicit scopes", which broke 122 tests. Interactive sessions authenticated by
@@ -104,14 +110,14 @@ production did not.
 |---|---|---|
 | **ChatGPT** (70K) | The authorization finding. Counting each deployment's budget independently. The `add_payment_method` blocker. Refusing to invent a degradation threshold. Not exposing `approve` to the model. | Slightly over-built at 84 contracts; six compliance tools is more than the journeys need. |
 | **Grok** (14K) | Ruthless consolidation — fold compliance into tools that already take the parameter. Cleanest competitive capability list. Honest self-assessment ("85% right"). | Cites some endpoints loosely ("estimate paths in billing"); tables are illustrative, not complete. |
-| **Gemini** (37K) | The strategic challenge to data sovereignty, and composite tools that collapse multi-hop sequences into one call. | Internally contradictory: argues 20–30 tools cause "catastrophic collapse", then ships 91. Overstates BFCL. Marks `fund_compute_wallet` destructive, which is wrong. |
+| **Gemini** (37K) | The strategic challenge to the whole geography-as-a-feature premise, and composite tools that collapse multi-hop sequences into one call. | Internally contradictory: argues 20–30 tools cause "catastrophic collapse", then ships 91. Overstates BFCL. Marks `fund_compute_wallet` destructive, which is wrong. |
 
 ### The disagreement worth resolving
 
 | Question | ChatGPT | Grok | Gemini | **Decision** |
 |---|---|---|---|---|
 | Total contracts | 84 across 4 surfaces | ~70 | 91 flat | **~78 across 4 surfaces**, flagship ≤60 |
-| Compliance domain | keep 6 | fold to 3 | **delete entirely** | **keep 2** (see §2) |
+| Compliance domain | keep 6 | fold to 3 | **delete entirely** | **keep 2**, and not a midpoint — a different question (see §2) |
 | Provider boundary | Shape C | Shape A | Shape A | **A and C are not alternatives** (see §3) |
 | Degradation threshold | no defensible number; measure | ~15–25 | 20–30 "collapse" | **measure it** — ChatGPT is right |
 
@@ -124,65 +130,80 @@ someone else's number, and it measures *our* tools against *our* prompts.
 
 ---
 
-## 2. Compliance: zero residency tools. Grok and Gemini were right; I was wrong.
+## 2. Compliance: two tools, and they are about trust, not geography
 
-I originally wrote that Gemini was "half right" — correct that the Canadian AI
-Compute Access Fund had closed, wrong to delete residency, because PIPEDA and
-Law 25 are live procurement questions and "prove where my training ran" is a
-differentiator. **That was wrong on the facts and wrong on the strategy, and it
-is retracted.**
+All three passes budgeted a "Compliance" domain and all three filled it
+differently. Read together, they converge on an answer none of them stated
+outright: **the useful question is "can I trust this platform with my
+workload?", not "where will it run?"** — and only the first is one a
+marketplace of independent hosts can answer honestly.
 
-Wrong on the facts: the platform had already decided this. The `_cad` duplication
-had been cleaned up behind the pivot, and the sovereignty premium had already
-been zeroed in code (`_TIER_SOVEREIGNTY` mapped every tier to `0.0`). I read a
-half-finished migration as an argument for keeping the thing being migrated away
-from.
+### What each pass proposed, and what survives
 
-Wrong on the strategy, and this is the part that matters. A residency guarantee
-is not a feature of a marketplace whose supply is independent hosts in arbitrary
-countries. Selling one means either refusing most of your own supply or making a
-promise you cannot keep. `privacy.s6_p3` said *"personal information of BC
-residents remains in Canada at all times"* — with global hosts that is not a
-positioning choice, it is a false statement in a live privacy policy. The
-sovereignty tier also charged a **premium** for it, so the platform was billing
-extra for a guarantee it structurally could not honour.
+| Pass | Proposed | Verdict |
+|---|---|---|
+| ChatGPT | six tools: eligible-capacity search, a location trace, posture, a transfer check, retention posture, privacy actions | two survive; four asked where work would run |
+| Grok | fold into `should_i_run_this`/`estimate_job_cost`, plus an attestation read and a personal-data export | the mechanism is right; the two additions survive |
+| Gemini | delete the domain entirely, reclaim the budget for storage and serverless | right that the domain was mostly geography, wrong that nothing is left |
 
-### What was removed
+Strip the placement questions out and **ChatGPT and Grok independently land on
+the same two capabilities**: an attestation/posture read, and a personal-data
+right. That convergence — from two passes that agreed on very little else — is
+the strongest signal in the three documents, and it is what the domain becomes.
 
-| Removed | Why it could not stay |
-|---|---|
-| `jurisdiction.py`, `routes/jurisdiction.py` | Canada-only province routing, Law 25/PIIDPA/FOIPPA/PHIPA constraints, residency traces, the closed fund |
-| `require_residency` on MCP tools | A caller-supplied string that changed placement |
-| `sovereignty_premium`, `SOVEREIGNTY_PREMIUM_PCT`, tier `pricing_multiplier` | Charged more for a guarantee the supply model cannot make |
-| `is_canadian_compute`, the four fund invoice columns | Recorded a Canada-vs-rest split for a program that ended |
-| `x-data-residency: CA`, `x-compliance-version` | Asserted CA residency on **every** response, including work running abroad |
-| `XCELSIOR_CANADA_ONLY`, "Canada-Only Routing" setting | The gate itself |
-| Tier-driven gVisor isolation | Let a caller influence placement by renaming its own tier |
+### The two
 
-### The two compliance tools that remain, and why they are the right two
+**1. `get_platform_attestation`** — what a security review actually asks for,
+answered from records rather than prose.
 
-Not a compromise between six and zero — a different question. The surviving
-tools answer *"can I trust this platform with my workload?"*, which every buyer
-asks, rather than *"where will it run?"*, which this marketplace deliberately
-does not answer.
+- `GET /api/billing/attestation` · `GET /api/compliance/status` ·
+  `GET /api/trust-tiers` · `GET /api/compliance/tax-rates`
+- Scope: `compliance:read` *(new)* · read-only · no approval
+- Answers: what controls does the platform enforce, what is the host trust
+  model, is the operator tax-registered, what is the current posture.
 
-1. **`get_platform_controls`** — scoped tokens, human-approved action plans on
-   destructive and spending operations, per-tool rate limits, the audit trail,
-   and tax registration. This is what a security review actually asks for, and
-   it is true regardless of geography.
-2. **`get_workload_audit_trail`** — for a given workload: who authorised it,
-   which plan was approved, what ran, on which host, and what it cost. It
-   reports **where it did run** as a fact after the event. It never promises
-   where it *will* run.
+ChatGPT's reasoning for collapsing several catalog reads into one holds:
+*"One evidence-oriented tool is better than six catalog reads."* A buyer wants
+a single answer they can paste into a questionnaire, not four endpoints to
+join themselves.
 
-That distinction is the whole design. A trace is evidence; a residency
-constraint is a promise. We can produce the first honestly and cannot produce
-the second, so the surface offers exactly one of them.
+**2. `request_privacy_action`** — export or erase a person's data, and track
+the request to completion.
 
-Tax stays and is not compliance theatre: GST/HST is a real obligation of a
-Canadian company, computed from the customer's billing address, and it is
-unrelated to where a GPU sits. "Built in Canada" in the footer is a fact about
-the company, not a claim about anyone's data.
+- `GET /api/auth/me/data-export` · `POST /api/v2/privacy/erase` ·
+  `GET /api/v2/privacy/erase/{request_id}`
+- Scope: `privacy:write` *(new)* · erasure requires approval · **URL
+  elicitation** for the export
+- The export must download in the browser. Personal data must never be copied
+  into a model transcript — which is exactly the case §4's URL-mode work
+  exists for, so this tool inherits that machinery rather than inventing a
+  second path.
+
+Both are obligations of the operator as a company. Neither is a claim about
+where a GPU sits, so neither breaks when supply is global.
+
+### What deliberately does not consume a slot
+
+**The audit trail.** ChatGPT put `get_instance_audit_trail`
+(`GET /api/audit/instance/{job_id}`, `GET /api/v1/mcp/tool-audit`) in
+**monitoring**, not compliance, and that placement is correct. "What happened
+to my workload" is an observability question every user has, not a regulatory
+one a subset has. Filing it under compliance would have hidden the product's
+strongest auditability story behind a domain most users never open.
+
+**Retention posture.** ChatGPT's `get_data_retention_posture` is a reasonable
+tool that did not make the cut at two. Its reads are already reachable through
+the attestation tool's posture payload; promote it only if a journey needs
+retention configuration on its own.
+
+**The geography tools.** Eligible-capacity search, a location trace, and a
+cross-border transfer check all answer "where", and the platform no longer
+answers that. A trace is evidence *after* the fact and a placement constraint
+is a promise *before* it; a marketplace whose supply is independent hosts in
+arbitrary countries can produce the first and cannot honour the second.
+
+Tax is not compliance theatre and stays: it is computed from the customer's
+billing address and is unrelated to where a GPU sits.
 
 
 ## 3. The provider boundary: A and C are the same decision at different layers
@@ -296,22 +317,54 @@ improves completion:
 
 | Rank | Capability | Why |
 |---:|---|---|
-| 1 | **Spend runway monitor + auto-pause** (Grok 1, Gemini 2, ChatGPT 8 — all three converged) | Wallet depletion vs. projected job completion, acting before zero. Turns "never wake up broke" into a product property. Wires `billing:write` honestly. |
-| 2 | **Checkpoint-aware spot migration** (Grok 2, ChatGPT 2) | Snapshot, stop, relaunch cheaper, verify placement. Converts the marketplace's interruptibility from a liability into the reason to use it. |
-| 3 | **Residency-locked launch + trace** (ChatGPT 1) | The compliance differentiator §2 keeps, made executable rather than documentary. |
-| 4 | **Provider yield optimizer** (ChatGPT 3) | Admission + reputation + SLA + spot preview → a recommended floor. Gives a solo provider a revenue manager, and makes the provider listing worth installing. |
-| 5 | **Failure-to-refund resolution** (ChatGPT 5) | Timeline, logs, lease, events, eligibility → a refund plan. Turns a support ticket into an auditable workflow. |
-| 6 | **Reusable environment snapshot** (Gemini 5) | Configure once, launch a sweep of identical nodes. The highest-leverage idea Gemini contributed. |
+| 1 | **Spend runway monitor + auto-pause** (Grok 1, Gemini 2, ChatGPT 8 — all three converged) | Wallet depletion against projected completion, acting *before* zero rather than reporting after it. This is the capability that makes unattended agent spend safe enough to allow at all — without it, every other autonomous feature is something a user has to sit and watch. All three passes independently reached for it. |
+| 2 | **Multi-job pipeline in one approval** (Grok 4) | `train → evaluate → serve` as a dependency graph, approved **once**. The only idea here that turns the approval gate from the product's main friction into its main leverage, and pipelines are the natural shape of agent work — the exact thing a dashboard user does by hand, three times, watching each stage. |
+| 3 | **Artifact → persistent volume promotion** (Grok 3) | A finished run's weights and checkpoints live in artifact storage on a **90-day retention clock** (`retain_until`, and a presigned-URL TTL on top). A volume has no clock. This is the one call that turns a result into state — and it is the substrate the two above stand on: a pipeline is three disconnected jobs unless stage *n*'s output is mountable by stage *n+1*, and a checkpoint strategy is theatre unless the checkpoint outlives the instance that wrote it. Ranked here because capabilities that make other capabilities possible are worth more than their own surface area suggests. |
+| 4 | **Checkpoint-aware spot migration** (Grok 2, ChatGPT 2) | Snapshot, stop, relaunch cheaper, verify placement. Converts the marketplace's defining weakness — interruptibility — into the reason to choose it. Nobody buys spot capacity because it is cheap; they avoid it because it dies. This removes the reason to avoid it. |
+| 5 | **Reputation- and SLA-aware placement** (Grok 5) | *"Prefer verified hosts above 99.5% uptime even at 15% more"*, over `simulate_instance_placement`, reputation, and SLA targets. Sells data a single-tenant cloud structurally cannot have, because it has no independent hosts to compare. Cheapest-wins is a race every competitor can run; **trustworthy-per-dollar** is one only a marketplace can. |
+| 6 | **Provider yield optimizer** (ChatGPT 3) | Admission state, reputation, SLA, spot preview → a recommended floor price. Gives a solo provider an automated revenue manager, and is the single thing most likely to make the supply-side connector worth installing. Ranked below the consumer capabilities only because it serves the smaller half of the marketplace. |
+| 7 | **Reusable environment snapshot** (Gemini 5) | Configure one node to perfection, commit it, launch a sweep of identical ones. Removes the most token-expensive and error-prone part of agent-driven training — rebuilding CUDA and dependency state by hand, per node, in prose. |
 
-Deliberately deferred: HPC/Slurm provisioning and cloudburst (Gemini 1, 4) — both
-need architecture and cost-policy review well beyond a tool definition.
+**Not ranked, because they are a different kind of decision:** Gemini's
+cloudburst autoscaling (1) and HPC/Slurm multi-node provisioning (4). Multi-node
+training in particular is what serious teams actually need and would be a real
+differentiator — but both commit the platform to cross-cloud capacity and
+scheduling policy, which is a product decision to take deliberately rather than
+a tool to add.
+
+### Two ideas cut from this list, and the rule that cut them
+
+An earlier draft ranked ChatGPT's **failure-to-refund resolution** (timeline,
+logs, lease health, eligibility → a refund plan) and its **procurement evidence
+packet** (attestation, posture, trust tiers, invoices compiled into one
+download). Both are sound. Neither belongs here.
+
+A billing product owes its customers refund handling through the dashboard
+regardless. A vendor owes a buyer a security questionnaire answer regardless.
+Shipping either as an *agent* capability moves an existing obligation to a new
+surface — it does not make the obligation better, and nobody chooses a GPU
+marketplace because its refund flow is scriptable. They are tools to add when a
+customer asks, and the attestation read in §2 already covers the packet's
+substance.
+
+**The test for this list:** is the capability better *because* an agent is
+driving it? A spend envelope that acts at 3am, a pipeline approved once instead
+of three times, a result promoted off its retention clock before anyone
+remembers to download it, a migration that beats a preemption, a preference for
+trustworthy capacity evaluated per launch — each is worse or impossible when a
+human does it by hand. Paperwork is not.
+
+Note how tightly 2, 3 and 4 interlock: the pipeline needs durable state between
+stages, the migration needs somewhere a checkpoint survives, and promotion is
+what supplies both. Shipped together they are one story — *your work does not
+evaporate* — which is worth more than three features shipped apart.
 
 ---
 
 ## 6. Sequence
 
 ```
-S0  Authorization fix (§0)          ← stop-ship; nothing proceeds past this
+S0  Authorization fix (§0)          ← DONE 2026-08-02; was the stop-ship
  │
 S1  Single-source registry (§5.2)   ← makes the expansion maintainable
  │
