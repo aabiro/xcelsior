@@ -161,7 +161,7 @@ were failures of *evidence*, not of intent.
 **Backend — the part that genuinely needs a browser**
 
 - **`pay.xcelsior.ca` hosted page.** Resolves the intent server-side from an
-  authenticated first-party session and renders Stripe's Payment Element. The
+  authenticated first-party session and renders Stripe's **embedded** Payment Element. The
   `client_secret` never leaves the server. Used for **adding a new card** and
   for **SCA recovery** — not for ordinary top-ups.
 - **Fix the SCA gap (§0.3) first.** Catch `authentication_required`, persist the
@@ -177,7 +177,7 @@ were failures of *evidence*, not of intent.
 
 **Frontend**
 
-- The hosted page: fast, obviously first-party, works on a phone, and states
+- The hosted page: fast, obviously **embedded** first-party, works on a phone, and states
   plainly what is being authorised and for how much.
 - A **"return to your terminal"** completion state. The browser is a detour, not
   a destination.

@@ -72,6 +72,7 @@ from oauth_service import (
     REFRESH_TOKEN_TTL_SEC,
     OAuthGrantError,
     approve_device_code,
+    assert_scopes_delegable,
     authenticate_client,
     build_deprecation_headers,
     canonical_mcp_resource,
@@ -502,8 +503,11 @@ def oauth_authorization_server_metadata(request: Request):
             "instances:read",
             "instances:write",
             "instances:operate",
+            "instances:connect",
             "billing:read",
             "billing:write",
+            "ssh:read",
+            "ssh:write",
             "hosts:read",
             "hosts:write",
             "hosts:operate",
@@ -1143,6 +1147,14 @@ def api_create_oauth_client(body: OAuthClientCreateRequest, request: Request):
         raise HTTPException(400, "client_type must be public or confidential")
     if body.is_first_party and not _is_platform_admin(user):
         raise HTTPException(403, "Only admins can create first-party OAuth clients")
+    # Scopes were passed straight through to the client row. A machine
+    # principal is authorized on its scope alone (control_plane_v1
+    # `_require_host_operator`), so an unfiltered registration let any user mint
+    # themselves `hosts:evict` and act as a platform operator.
+    try:
+        assert_scopes_delegable(list(body.scopes), creator=user)
+    except OAuthGrantError as exc:
+        raise HTTPException(400, str(exc)) from exc
     workspace_customer_id = _oauth_workspace_customer_id(user)
     team_id = _oauth_workspace_team_id(user)
     client = create_oauth_client(
