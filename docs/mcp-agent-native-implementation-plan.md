@@ -160,11 +160,22 @@ were failures of *evidence*, not of intent.
 
   **`ssh:manage` is therefore retired, not deferred.** It appears in no scope list, no route, and no tool contract.
 - **Scope the billing levers.** `setup-intent` and `portal-session` move from `_get_current_user` to `_require_scope(billing:write)`. The manual top-up path P1 adds is `billing:write` from the start — it charges a real card, so it is never reachable by a read-scoped credential.
-- **One policy registry — narrowed, because two of the five were already generated.** `TOOL_CONTRACTS` is computed **at import time** from `TOOL_SCOPES` in `contracts.ts`, and no script writes that file. Those two therefore cannot drift; it is a structural guarantee, not a convention. Recorded here so nobody re-does it.
+- **One policy registry — done, and smaller than this plan assumed.** The five artifacts were never five hand-maintained files. `TOOL_SCOPES` is the source. `TOOL_CONTRACTS` **and the annotations** are computed at import time in `contracts.ts` — from `TOOL_SCOPES` and from the `READ_ONLY` / `DESTRUCTIVE` / `OPEN_WORLD` sets — with no script writing that file, so neither can drift. Descriptions are hand-written prose, which cannot be generated from anything; `tests/unit/descriptions.test.ts` gates them on completeness and content instead, which is the stronger check for prose.
 
-  The remaining work is the three that *are* hand-maintained or script-written: **descriptions, annotations, and `tool-surface.json`** — the last written by `npm run surface:update`, which is a script someone must remember to run. That is precisely the OpenAPI-generator shape, where a generated artifact drifts because regeneration is a step rather than a guarantee.
+  What was genuinely missing was **assertions that those guarantees hold**, and gates on the two artifacts a script writes:
 
-  **The gate still applies to all five.** Regenerating produces byte-identical output and a hand edit to a generated file fails the build — including for contracts and scopes, whose guarantee is otherwise undocumented and one refactor from gone.
+  | Artifact | How it is protected |
+  |---|---|
+  | `TOOL_SCOPES` | the source of truth |
+  | `TOOL_CONTRACTS` | derived at import; pinned by **reference** equality, so a copy fails |
+  | annotations | derived at import; pinned by invariant (nothing is both read-only and destructive) |
+  | descriptions | completeness + content: trigger, impact, and read-only / mutating / destructive each self-declaring |
+  | `tool-surface.json` | whole-document equality against a fresh generation |
+  | public OpenAPI | whole-document equality (pre-existing) |
+  | endpoint inventory | whole-document equality against a fresh generation |
+
+  Each gate was verified by planting the drift it exists to catch, not by observing that it passed. The `tool-surface.json` gate needed two attempts: the first two probes were planted in the direction `diffSurface` already treated as breaking, and only a probe in the direction drift actually occurs — the code gains a scope and `npm run surface:update` is forgotten — showed the old checks passing while the published surface under-stated a tool's required scopes.
+
 - **Tool count: 39 total, and the decomposition is load-bearing.** `TOOL_SCOPES` holds 39. `mcp/tool-surface.json` publishes **30** — the customer profile — because it excludes **7 operator tools** (`drain_host`, `undrain_host`, `evict_host_workloads`, `get_host_capacity`, `get_scheduler_health`, `list_reconciliation_findings`, `retry_agent_command`) and **2 company-knowledge tools** (`search`, `fetch`).
 
   Checking only the published snapshot verifies 30 of 39 and silently skips the operator tools — the ones carrying `hosts:evict`. **Moving the total requires restating the eval baseline in this document in the same commit**, because every later phase's eval delta is measured against it and a stale baseline invalidates every future gate comparison. `tests/test_tool_scope_registry_completeness.py` enforces the number and the decomposition.
