@@ -1330,6 +1330,22 @@ class StripeConnectManager:
                     )
 
     def _handle_payment_succeeded(self, data: dict, event_id: str):
+        """Credit the wallet for a confirmed charge.
+
+        This is the only place a card payment turns into wallet balance, which
+        makes a missed match here indistinguishable from theft: the customer is
+        charged and receives nothing.
+
+        The local `payment_intents` row is the normal way to identify who to
+        credit, but it must not be the *only* way. It is written after Stripe
+        confirms the charge, so a fast webhook can arrive before the insert
+        commits, and a crash between the two loses the row permanently. The
+        event itself carries everything needed — `metadata.customer_id` and the
+        confirmed `amount` — so it is used whenever the row is absent.
+
+        Both paths share one idempotency key, derived from the event id, so a
+        redelivery credits once no matter which path handled the original.
+        """
         si_id = data["id"]
         with self._conn() as conn:
             conn.execute(
@@ -1340,24 +1356,55 @@ class StripeConnectManager:
                 "SELECT customer_id, amount_cents FROM payment_intents WHERE stripe_intent_id=%s",
                 (si_id,),
             ).fetchone()
+
         if row:
-            from billing import get_billing_engine
-
-            amount_cad = round(row["amount_cents"] / 100.0, 2)
-            engine = get_billing_engine()
-            # Idempotent deposit using event_id as idempotency_key
-            engine.deposit(
-                row["customer_id"],
-                amount_cad,
-                description=f"Stripe deposit {si_id}",
-                idempotency_key=f"stripe:{event_id}",
+            customer_id, amount_cents = row["customer_id"], row["amount_cents"]
+            source = "payment_intents"
+        else:
+            metadata = data.get("metadata") or {}
+            customer_id = (metadata.get("customer_id") or "").strip()
+            amount_cents = data.get("amount_received") or data.get("amount") or 0
+            if not customer_id or metadata.get("product_type") != "wallet_deposit":
+                # Not a wallet deposit of ours — a Connect charge, or an intent
+                # created outside this system. Nothing to credit.
+                log.debug("payment_intent.succeeded %s matched no wallet deposit", si_id)
+                return
+            source = "event metadata"
+            log.warning(
+                "No payment_intents row for %s; crediting %s from %s. The intent "
+                "was not registered at charge time — check the top-up path.",
+                si_id,
+                customer_id,
+                source,
             )
-            log.info("Wallet credited: %s +$%.2f from %s", row["customer_id"], amount_cad, si_id)
 
-            # If wallet was suspended and balance is now positive, reactivate
-            wallet = engine.get_wallet(row["customer_id"])
-            if wallet.get("status") == "suspended" and wallet.get("balance_cad", 0) > 0:
-                engine.reactivate_wallet(row["customer_id"])
+        if not amount_cents:
+            log.error("Refusing to credit %s for %s: amount is zero", customer_id, si_id)
+            return
+
+        from billing import get_billing_engine
+
+        amount_cad = round(amount_cents / 100.0, 2)
+        engine = get_billing_engine()
+        # Idempotent deposit using event_id as idempotency_key
+        engine.deposit(
+            customer_id,
+            amount_cad,
+            description=f"Stripe deposit {si_id}",
+            idempotency_key=f"stripe:{event_id}",
+        )
+        log.info(
+            "Wallet credited: %s +$%.2f from %s (via %s)",
+            customer_id,
+            amount_cad,
+            si_id,
+            source,
+        )
+
+        # If wallet was suspended and balance is now positive, reactivate
+        wallet = engine.get_wallet(customer_id)
+        if wallet.get("status") == "suspended" and wallet.get("balance_cad", 0) > 0:
+            engine.reactivate_wallet(customer_id)
 
     def _handle_payment_failed(self, data: dict):
         si_id = data["id"]
