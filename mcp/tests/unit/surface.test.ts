@@ -63,6 +63,29 @@ describe("published tool surface", () => {
     ).toBe(snapshot.tools.length);
   });
 
+  it("equals a fresh generation in full, not merely in count", () => {
+    // The assertions above accept an *additive* change: `changes.every(c =>
+    // !c.breaking)` passes when a description is reworded or a scope is added
+    // to an existing tool, and `current.length === snapshot.tools.length`
+    // cannot see either. So a snapshot could go stale — advertising the wrong
+    // required scopes for a published tool — while this file stayed green.
+    //
+    // That is the failure `tests/test_public_openapi.py` documents on the
+    // Python side: comparing only the operation set answered "are the right
+    // tools published?" and never "does the snapshot still describe them
+    // correctly?", under which five schemas silently drifted.
+    //
+    // P0's gate is byte-identical regeneration. This is that gate for the
+    // published surface; the breaking-change checks above remain, because they
+    // give a far more actionable failure when the cause *is* a version bump.
+    expect(
+      current,
+      "tool-surface.json differs from a fresh generation. Run " +
+        "`npm run surface:update` and commit the result in the same commit as " +
+        "the change that caused it.",
+    ).toEqual(snapshot.tools);
+  });
+
   it("snapshots the customer profile only", () => {
     const names = new Set(current.map((tool) => tool.name));
     for (const operatorTool of ["drain_host", "evict_host_workloads", "get_scheduler_health"]) {
