@@ -80,24 +80,41 @@ So the real split:
 Only the last two need a page, and the last one is not a convenience — it is a
 correctness requirement, because of the defect below.
 
-### 0.3 SCA failure is unhandled, and it silently drains wallets
+### 0.3 What auditing that path turned up
 
-An off-session charge can be refused with `authentication_required`: the card's
-issuer requires the cardholder to authenticate before that payment completes.
-The correct response is to bring them back on-session, once, to satisfy the
-challenge.
+Checking whether the top-up code really worked off-session surfaced two defects.
+Both were live, neither had anything to do with the agent surface, and one was
+much worse than the thing being looked for.
 
-**Nothing in this codebase handles that.** There is no `authentication_required`
-branch, no `CardError` handling, no `requires_action` or `next_action` inspection
-anywhere. The failure lands in a generic `except Exception`, increments an error
-counter, and writes a log line nobody reads.
+**Fixed in #15 — the card was charged and the wallet was never credited.**
+`check_low_balance_and_topup` created the intent and never registered it in
+`payment_intents`, but that table is how `_handle_payment_succeeded` — the only
+place a card payment becomes balance — resolves who to credit. No row, so the
+confirmation fell through and the inbox marked the event processed. It failed
+silently in every direction, and it compounded: the balance is what makes a
+wallet eligible, the balance never moved, and a *successful* charge set no
+cooldown, so a 300s sweep could charge one card 288 times a day. Now the intent
+is registered, the handler credits from event metadata when the row is missing,
+and an unresolved intent suppresses the next sweep behind a Stripe idempotency
+key. Migration 098 makes `stripe_intent_id` unique.
 
-The customer-visible consequence: for any card whose issuer demands SCA,
-**auto-top-up silently does not work**, and the wallet runs to zero while the
-platform believes top-up is configured. The account then hard-stops mid-job.
-This is a live defect independent of the agent surface, and it is the single
-strongest argument for building the hosted page — not so an agent can take a
-card number, but so a *declined* charge has somewhere to send the human.
+**Still open — SCA (`authentication_required`) is handled nowhere.** An
+off-session charge can be refused because the issuer requires the cardholder to
+authenticate before that payment completes; the correct response is to bring
+them back on-session, once. There is no `authentication_required` branch, no
+`CardError` handling, no `requires_action` or `next_action` inspection anywhere.
+The refusal lands in a generic `except Exception` and increments a counter.
+
+So for any card whose issuer demands SCA, **auto-top-up still does not work** —
+the wallet runs to zero while the platform believes top-up is configured, and
+the account hard-stops mid-job. This is the remaining defect, and it is the real
+argument for the hosted page: not so an agent can take a card number, but so a
+*declined* charge has somewhere to send the human. P1 owns it.
+
+The lesson for the rest of this plan: the money path looked healthy from every
+metric it emitted. `topped_up` incremented, the log announced the intent,
+failures reset to zero, the inbox read `processed`. Phases below assert
+**outcomes** — a balance that moved — rather than that a call was made.
 
 ## 1. How every phase is gated
 
@@ -163,17 +180,41 @@ were failures of *evidence*, not of intent.
 - **`pay.xcelsior.ca` hosted page.** Resolves the intent server-side from an
   authenticated first-party session and renders Stripe's Payment Element. The
   `client_secret` never leaves the server. Used for **adding a new card** and
-  for **SCA recovery** — not for ordinary top-ups.
-- **Fix the SCA gap (§0.3) first.** Catch `authentication_required`, persist the
-  pending intent, and surface a resume action. This is a live bug on the
-  dashboard path today; the agent surface just makes it visible.
+  for **SCA recovery** — not for ordinary top-ups. A page is unavoidable for
+  3DS: the modern card challenge returns `next_action.use_stripe_sdk`, which
+  needs Stripe.js to run it. `redirect_to_url` exists only for some payment
+  methods, so there is no Stripe-hosted URL to simply open.
+- **Fix the SCA gap (§0.3) first**, because the recovery flow is what the page
+  is *for*. Catch `authentication_required`, persist the pending intent against
+  the wallet, and mint a resume handle.
 - **URL Mode Elicitation (SEP-1036)** for those two flows only. Capability-
   negotiated, never assumed. Client support is documented `not yet` for
   Microsoft and **UNVERIFIED elsewhere**, so the fallback is the primary path
   until proven otherwise: `completed: false`, `operation_executed: false`, and
-  prose that opens with *"Not completed."*
-- **Success comes only from the processor.** Signed webhook, verified state.
-  `accept` means the user consented to navigate, never that the flow succeeded.
+  prose that opens with *"Not completed."* The server cannot open a browser — it
+  is remote, with no reach into the user's machine. The client asks and opens on
+  consent, which is why `accept` means *the user agreed to navigate* and never
+  that the payment succeeded.
+- **The resume link is a credential.** Short-lived, single-use, bound to the
+  authenticated user, and carrying an opaque handle the server exchanges for the
+  intent. Never the `client_secret`, never in model context. A leaked link must
+  not let a third party authenticate a charge on someone's card.
+- **The webhook is the return path, not the browser.** The browser is the
+  unreliable half: the tab gets closed, the challenge is finished on a phone, the
+  network drops after 3DS but before the redirect. The tool call parks on the
+  pending record and is released by the signed `payment_intent.succeeded` event,
+  which `stripe_event_inbox` already verifies, dedupes by event id, and retries
+  with backoff — this is wiring, not new infrastructure. The parked call keeps
+  itself alive with `notifications/progress`, and on expiry returns
+  `completed: false` plus a `check_topup_status` handle. Not a failure; *not
+  yet*.
+- **Success comes only from the processor, and says so.** The tool result
+  carries the verified Stripe event id, so a claim that money moved traces to a
+  processor event rather than to the agent's inference.
+- **Open question, to resolve against Stripe's docs at implementation time, not
+  by assumption:** whether SCA recovery reuses the failed off-session
+  PaymentIntent or requires a fresh on-session one. The guidance differs by
+  case.
 
 **Frontend**
 
@@ -190,12 +231,20 @@ were failures of *evidence*, not of intent.
 - A top-up on a saved card completes **with no browser and no elicitation**,
   asserted with a real token against a live server. This is the phase's headline
   behaviour and the first point at which the claim is true for spending.
+- **Every charge that succeeds credits the wallet**, asserted by delivering the
+  event Stripe would send and requiring the balance to move — for manual top-up,
+  auto-top-up, and the crypto rails. §0.3 is why this is stated as an outcome:
+  the old path passed every check it had while crediting nothing.
 - Replaying any funding call with the same idempotency key produces exactly one
   charge. Asserted for manual top-up, auto-top-up, and the crypto rails.
 - An `authentication_required` decline produces a **resumable pending state**, a
   visible UI state, and a tool result that says the charge did not happen —
   never a generic error. Asserted by forcing the decline with a Stripe test
   card, not by mocking it.
+- **The webhook is what credits, and the browser is not.** Two assertions, both
+  required: abandoning the page after the challenge completes still credits
+  exactly once when the event arrives; and a browser return with no webhook
+  credits nothing and reports nothing as complete.
 - Three client conditions for the two browser flows: URL-capable, form-only, and
   no-elicitation. All three either complete or say plainly that they did not.
 - **No secret in any surface:** card data, `client_secret`, and processor tokens
