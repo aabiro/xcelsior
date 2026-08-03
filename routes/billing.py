@@ -2076,10 +2076,18 @@ def api_billing_get_topup(request: Request):
 
 @router.post("/api/billing/portal-session", tags=["Billing"])
 def api_billing_portal_session(request: Request):
-    """Create a Stripe Customer Portal session for the authenticated wallet owner."""
+    """Create a Stripe Customer Portal session for the authenticated wallet owner.
+
+    Requires `billing:write`. The portal lets its holder change payment methods,
+    read invoices, and cancel subscriptions, so a credential narrowed to
+    `billing:read` — issued so an agent can watch spend — must not reach it.
+    """
+    from routes._deps import _require_scope
+
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "billing:write")
     be = get_billing_engine()
     customer_id = _analytics_customer_scope(user)
     try:
@@ -2097,10 +2105,16 @@ def api_billing_setup_intent(request: Request):
 
     Returns a client_secret for Stripe Elements `confirmCardSetup`. The saved
     card can then be selected for wallet auto-top-up.
+
+    Requires `billing:write`. Saving a card is the entry point to charging it
+    off-session later, so this is not reachable by a read-scoped credential.
     """
+    from routes._deps import _require_scope
+
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "billing:write")
     be = get_billing_engine()
     customer_id = _analytics_customer_scope(user)
     try:
