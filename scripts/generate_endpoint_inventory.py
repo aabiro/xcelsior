@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import inspect
 import os
+import re
 import pathlib
 import sys
 
@@ -150,11 +151,14 @@ def render(rows: list[dict[str, str]]) -> str:
         "a guard. `none found` means exactly that — verify by hand before "
         "concluding an endpoint is public.",
         "",
-        "`class` is deliberately blank: filling it is the audit, and it must be "
-        "`covered` / `gap` / `internal` / `redundant` with a reason. GT0 closes "
-        "only when zero rows are unclassified.",
+        "`class` is `covered` where the MCP server is observed to call the path "
+        "— derived from `mcp/src/**/*.ts`, not entered by hand, so it cannot go "
+        "stale when a tool changes what it calls. Every other row is blank and "
+        "needs a judgement: `gap` / `internal` / `redundant`, with a reason. "
+        "GT0 closes only when zero rows are unclassified.",
         "",
     ]
+    mcp_paths = mcp_referenced_paths()
     for module in sorted(by_module):
         module_rows = by_module[module]
         out.append(f"## `routes/{module}.py` — {len(module_rows)} operations")
@@ -162,12 +166,51 @@ def render(rows: list[dict[str, str]]) -> str:
         out.append("| Method | Path | Auth dependency | Summary | class | notes |")
         out.append("|---|---|---|---|---|---|")
         for row in module_rows:
+            klass = "covered" if _normalise_path(row["path"]) in mcp_paths else ""
+            note = "MCP server calls this path" if klass else ""
             out.append(
                 f"| {row['method']} | `{row['path']}` | {row['auth']} "
-                f"| {row['summary']} |  |  |"
+                f"| {row['summary']} | {klass} | {note} |"
             )
         out.append("")
     return "\n".join(out) + "\n"
+
+
+
+#: Paths the MCP server actually calls, extracted from `mcp/src/**/*.ts`.
+#: `covered` is derived from this rather than entered by hand — a class column
+#: filled from a person's memory of the tool surface goes stale the first time a
+#: tool changes what it calls, and nothing would notice.
+MCP_SRC = pathlib.Path(__file__).resolve().parent.parent / "mcp" / "src"
+
+_PATH_LITERAL = re.compile(r'[`"](/[^`"\n]{2,80})[`"]')
+
+
+def _normalise_path(path: str) -> str:
+    """`/api/x/{job_id}` and `/api/x/${id}` compare equal."""
+    collapsed = re.sub(r"\$\{[^}]*\}", "{id}", path)
+    collapsed = re.sub(r"\{[^}]*\}", "{id}", collapsed)
+    return collapsed.rstrip("/") or "/"
+
+
+def mcp_referenced_paths() -> set[str]:
+    """Every API path the MCP server references, normalised.
+
+    Returns an empty set if the tree is absent, and the caller treats that as
+    "cannot derive" rather than "nothing is covered" — reporting 516 gaps
+    because a directory moved would be worse than reporting none.
+    """
+    if not MCP_SRC.exists():
+        return set()
+    found: set[str] = set()
+    for source in MCP_SRC.rglob("*.ts"):
+        if "generated" in source.parts:
+            continue
+        for match in _PATH_LITERAL.finditer(source.read_text(errors="ignore")):
+            candidate = _normalise_path(match.group(1))
+            if candidate.startswith("/") and " " not in candidate:
+                found.add(candidate)
+    return found
 
 
 def main() -> None:
