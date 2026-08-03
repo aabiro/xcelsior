@@ -11,6 +11,8 @@ import time
 import threading as _threading
 import urllib.parse
 from collections import defaultdict, deque
+
+import env_config
 from typing import Any
 
 from fastapi import HTTPException, Request, WebSocket
@@ -51,8 +53,12 @@ except Exception:
 
 # ── Environment & Auth Config ─────────────────────────────────────────
 
-XCELSIOR_ENV = os.environ.get("XCELSIOR_ENV", "dev").lower()
-AUTH_REQUIRED = XCELSIOR_ENV not in {"dev", "development", "test"}
+# Resolved through `env_config`, which treats an unset, empty, or unrecognised
+# value as production. The previous default was "dev", so a missing env var
+# turned authentication off and `_require_auth` returned a synthetic principal
+# with is_admin=True to anonymous callers.
+XCELSIOR_ENV = env_config.resolve_env()
+AUTH_REQUIRED = not env_config.is_relaxed_env()
 RATE_LIMIT_REQUESTS = int(os.environ.get("XCELSIOR_RATE_LIMIT_REQUESTS", "300"))
 RATE_LIMIT_WINDOW_SEC = int(os.environ.get("XCELSIOR_RATE_LIMIT_WINDOW_SEC", "60"))
 _RATE_BUCKETS: dict[str, deque] = defaultdict(deque)
@@ -1279,6 +1285,40 @@ def _require_scope(user: dict, *required: str) -> None:
             f"Insufficient scope — required: {', '.join(required)}; "
             f"granted: {', '.join(sorted(granted))}",
         )
+
+
+def _require_user_or_scoped_machine(request: Request, *scopes: str) -> dict:
+    """An interactive user, or a machine credential holding *scopes*.
+
+    `_require_user_grant` refuses `client_credentials` outright, on the sound
+    principle that a machine token should not change account security settings.
+    Applied to SSH *public key* registration it was too broad, and it blocked
+    the workflow Gate P2 exists to prove: an agent that already holds a private
+    key needs the platform to accept the matching public key, not to mint one.
+    Registering a public key asserts something about a key the caller already
+    controls; it is not the same act as changing a password or enrolling MFA.
+
+    So this is deliberately narrower than relaxing `_require_user_grant`:
+
+    * only the routes that opt in are affected — MFA, password, sessions and
+      account deletion keep the stricter guard;
+    * a machine credential must hold every scope named here, and those scopes
+      are non-default, so a connector that asked for nothing cannot reach it;
+    * the caller is returned intact, so the route can record *which* credential
+      acted.
+
+    Interactive sessions and agent API keys are admitted as before; the change
+    is that a scoped `client_credentials` principal is no longer refused.
+    """
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    auth_type = str(user.get("auth_type", ""))
+    if auth_type == "client_credentials":
+        if not scopes:  # pragma: no cover - a caller error, not a request error
+            raise HTTPException(403, "Interactive user authentication required")
+        _require_scope(user, *scopes)
+    return user
 
 
 def _require_write_access(request: Request):

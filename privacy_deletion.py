@@ -11,6 +11,8 @@ import hashlib
 import hmac
 import logging
 import os
+
+import env_config
 import secrets
 import socket
 import uuid
@@ -155,11 +157,7 @@ def _reference_secret() -> bytes:
     oauth_secret = os.environ.get("XCELSIOR_OAUTH_JWT_SECRET", "").strip()
     if oauth_secret:
         return oauth_secret.encode()
-    if os.environ.get("XCELSIOR_ENV", "").strip().lower() in {
-        "prod",
-        "production",
-        "staging",
-    }:
+    if not env_config.is_relaxed_env():
         raise PrivacyDeletionError(
             "XCELSIOR_PRIVACY_REFERENCE_SECRET is required in deployed environments"
         )

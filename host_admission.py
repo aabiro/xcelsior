@@ -22,6 +22,8 @@ import hashlib
 import hmac
 import json
 import os
+
+import env_config
 import re
 import secrets
 import uuid
@@ -181,8 +183,9 @@ def _compatibility_secret() -> bytes:
     raw = (os.environ.get("XCELSIOR_COMPAT_SESSION_SECRET") or "").strip()
     if raw:
         return raw.encode("utf-8")
-    environment = (os.environ.get("XCELSIOR_ENV") or "dev").strip().lower()
-    if environment == "production":
+    # `== "production"` let staging and any typo fall through to a derived
+    # fallback secret. The requirement is "not an explicit dev context".
+    if not env_config.is_relaxed_env():
         raise AdmissionConfigurationError(
             "XCELSIOR_COMPAT_SESSION_SECRET is required in production"
         )

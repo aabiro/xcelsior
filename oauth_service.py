@@ -8,6 +8,8 @@ import hmac
 import json
 import logging
 import os
+
+import env_config
 import secrets
 import threading
 import time
@@ -78,7 +80,7 @@ CLIENT_CREDENTIALS_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_CLIENT_CREDENTIA
 ACCESS_TOKEN_PREFIX = os.environ.get("XCELSIOR_OAUTH_ACCESS_TOKEN_PREFIX", "xoa_")
 AUTH_CACHE_BACKEND = os.environ.get(
     "XCELSIOR_AUTH_CACHE_BACKEND",
-    "memory" if os.environ.get("XCELSIOR_ENV", "dev").lower() == "test" else "redis",
+    "memory" if env_config.resolve_env() == "test" else "redis",
 ).lower()
 AUTH_REDIS_URL = os.environ.get("XCELSIOR_AUTH_REDIS_URL", "redis://localhost:6379/0")
 # NOTE: XCELSIOR_AUTH_CACHE_PREFIX is retired. The key namespace is now
@@ -809,8 +811,10 @@ def _get_jwt_signing_keys() -> tuple[str, dict[str, dict[str, str]]]:
     active_kid = os.environ.get("XCELSIOR_OAUTH_ACTIVE_KID", "default")
     secret = os.environ.get("XCELSIOR_OAUTH_JWT_SECRET", "")
     if not secret:
-        env = os.environ.get("XCELSIOR_ENV", "dev").lower()
-        if env in {"test", "dev", "development"}:
+        # A signing secret that lives in this file must never be reachable by
+        # default. `is_relaxed_env()` is false unless XCELSIOR_ENV explicitly
+        # names a development context.
+        if env_config.is_relaxed_env():
             secret = "xcelsior-dev-jwt-secret"
         else:
             raise OAuthGrantError(
@@ -856,7 +860,7 @@ def issue_client_credentials_jwt(
     ).hexdigest()
     key = keys[active_kid]
     asymmetric = bool(key.get("private_key_pem"))
-    if not asymmetric and os.environ.get("XCELSIOR_ENV", "dev").lower() not in {"test", "dev", "development"}:
+    if not asymmetric and not env_config.is_relaxed_env():
         raise OAuthGrantError("server_error", "Production OAuth signing must use an asymmetric key", status_code=500)
     header = {"alg": "RS256" if asymmetric else "HS256", "typ": "JWT", "kid": active_kid}
     payload = {
@@ -936,7 +940,7 @@ def validate_client_credentials_jwt(token: str) -> dict[str, Any] | None:
                 return None
             public.verify(signature, signing_input.encode(), padding.PKCS1v15(), hashes.SHA256())
         else:
-            if os.environ.get("XCELSIOR_ENV", "dev").lower() not in {"test", "dev", "development"}:
+            if not env_config.is_relaxed_env():
                 return None
             expected_sig = hmac.new(key["secret"].encode(), signing_input.encode(), hashlib.sha256).digest()
             if not hmac.compare_digest(expected_sig, signature):
@@ -1446,6 +1450,7 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     # so it reaches only hosts the caller owns. Deliberately not "(operator)" —
     # a provider registering their own capacity must not need an admin.
     "hosts:write": "Register and update the hosts you provide",
+    "hosts:fleet": "See every host on the platform, not only your own (operator)",
     "transparency:read": "See the platform transparency ledger (operator)",
     "transparency:write": "Record legal requests in the transparency ledger (operator)",
     # Dual-use, and deliberately left delegable. `GET /hosts` returns the whole

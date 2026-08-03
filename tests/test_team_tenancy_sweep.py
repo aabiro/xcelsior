@@ -559,7 +559,8 @@ def test_viewer_cannot_create_oauth_client(team_roles):
     assert "viewer" in blocked.text.lower()
 
 
-def test_team_admin_cannot_mint_themselves_platform_operator_scopes(team_roles):
+@pytest.mark.enforced_auth
+def test_team_admin_cannot_mint_themselves_platform_operator_scopes(team_roles, auth_enforced):
     """Registration is the only place operator delegation can be refused.
 
     `control_plane_v1._require_host_operator` authorizes a machine principal on
@@ -572,6 +573,10 @@ def test_team_admin_cannot_mint_themselves_platform_operator_scopes(team_roles):
     operator endpoint is called, because the credential must never be issued in
     the first place.
     """
+    import routes._deps as deps
+
+    assert deps.AUTH_REQUIRED is True, "this proof is void without enforced auth"
+
     for scope in ("hosts:evict", "hosts:operate", "control_plane:operate"):
         blocked = client.post(
             "/api/oauth/clients",
@@ -585,7 +590,8 @@ def test_team_admin_cannot_mint_themselves_platform_operator_scopes(team_roles):
         assert scope in blocked.text
 
 
-def test_unknown_scope_is_refused_at_registration(team_roles):
+@pytest.mark.enforced_auth
+def test_unknown_scope_is_refused_at_registration(team_roles, auth_enforced):
     """A typo must fail here, not as a 403 on every later call."""
     blocked = client.post(
         "/api/oauth/clients",
@@ -596,7 +602,8 @@ def test_unknown_scope_is_refused_at_registration(team_roles):
     assert "instance:read" in blocked.text
 
 
-def test_ordinary_scopes_remain_registrable(team_roles):
+@pytest.mark.enforced_auth
+def test_ordinary_scopes_remain_registrable(team_roles, auth_enforced):
     """The guard must not break the flow it protects."""
     ok = client.post(
         "/api/oauth/clients",

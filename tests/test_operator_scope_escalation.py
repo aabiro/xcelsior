@@ -54,6 +54,7 @@ import oauth_service
 #: non-admin provider — so admin-gating it breaks onboarding. See the note on
 #: its description; the fix for the fleet-wide half is to split the scope.
 OPERATOR_SCOPES = [
+    "hosts:fleet",
     "transparency:read",
     "transparency:write",
     "hosts:operate",

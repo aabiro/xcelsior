@@ -97,18 +97,58 @@ def test_legacy_auth_device_flow():
 
 
 def test_ssh_pubkey_aliases():
+    """Both aliases stay readable without a credential, deliberately.
+
+    `get_public_key()` returns the **platform's** host-access public key — the
+    one added to hosts' `authorized_keys`. No user key material, so no
+    enumeration surface. Pinned here so that admin-gating `/ssh/keygen` does
+    not sweep the public half up by association and break host provisioning for
+    no security gain.
+    """
     for path in ("/ssh/pubkey", "/api/ssh/pubkey"):
         r = client.get(path)
         assert r.status_code == 200
         assert "public_key" in r.json()
 
 
-def test_ssh_keygen_requires_auth():
+@pytest.mark.enforced_auth
+def test_ssh_keygen_requires_auth(auth_enforced):
+    """An unauthenticated caller is refused.
+
+    This accepted `200` as a pass, so it could not fail — the endpoint being
+    wide open and the endpoint being locked both satisfied it.
+
+    Removing `200` alone was not enough, and the first attempt failed for the
+    reason its own docstring named: with `AUTH_REQUIRED` relaxed suite-wide,
+    `_require_auth` hands an anonymous caller a synthetic principal carrying
+    `is_admin: True`, so `_require_admin` passes and keygen returns 200. The
+    test has to enforce the control it depends on, which is what
+    `auth_enforced` and the `enforced_auth` marker exist for — the marker is
+    checked by a hook at test-body time, so no fixture ordering can revert it.
+    """
     r = client.post("/ssh/keygen")
-    assert r.status_code in (401, 403, 200)
+    assert r.status_code in (401, 403), r.text[:200]
 
 
-def test_ssh_keygen_authenticated():
+def test_ssh_keygen_refuses_an_ordinary_authenticated_user():
+    """Superseded deliberately: authentication is no longer enough.
+
+    This asserted that any logged-in user could call `/ssh/keygen` and get a
+    200. That was the real behaviour and worth pinning — but the endpoint mints
+    the **platform's** host-access private key server-side, which is
+    infrastructure rather than a user capability. §0.1 of the agent-native plan
+    names it as one of four endpoints that were authenticated but not
+    authorized.
+
+    It is now admin-only, and deliberately *not* scope-gated: putting it behind
+    a scope an agent is meant to hold would hand an agent the ability to mint
+    platform credentials.
+
+    **Secondary pin.** `tests/test_instance_connect_scope.py` is authoritative
+    and asserts both halves — `_require_admin` present *and* `_require_scope`
+    absent. This one covers the reachable HTTP path. Strengthen or relax them
+    together; changing one alone leaves the other silently disagreeing.
+    """
     import uuid
 
     email = f"healthcov-{uuid.uuid4().hex[:8]}@xcelsior.ca"
@@ -121,9 +161,9 @@ def test_ssh_keygen_authenticated():
     )
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
     r = client.post("/ssh/keygen", headers=headers)
-    assert r.status_code == 200
-    assert r.json().get("ok") is True
-    assert r.json().get("public_key")
+    assert r.status_code == 403, r.text[:200]
+
+
 
 
 def test_build_dockerfile_preview():

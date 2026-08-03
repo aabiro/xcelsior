@@ -2450,7 +2450,13 @@ def api_process_queue_binpack(request: Request, region: str = ""):
 @router.post("/api/instances/{job_id}/stream-ticket")
 def api_instance_stream_ticket(job_id: str, request: Request) -> dict:
     """Issue a short-lived one-time WebSocket ticket for instance streaming."""
+    from routes._deps import _require_scope
+
     user = _require_auth(request)
+    # Authentication is not authorization (§0.1). A ticket opens a live stream
+    # into the instance, so a credential narrowed to `instances:read` must not
+    # reach it. Ownership is still checked below — the scope is additional.
+    _require_scope(user, "instances:connect")
     _check_job_access(user, job_id)
     ticket = _issue_ws_ticket(
         user,
@@ -3462,7 +3468,12 @@ def api_instances_auto_launch_get(job_id: str, request: Request):
           }
         }
     """
+    from routes._deps import _require_scope
+
     user = _require_auth(request)
+    # Returns the generated service credentials (Jupyter token, passwords)
+    # for the instance — reaching into it, not merely reading about it.
+    _require_scope(user, "instances:connect")
     owner_id = _canonical_owner_id(user)
     is_admin = bool(user.get("is_admin"))
 
@@ -3657,7 +3668,12 @@ def api_instances_expose(job_id: str, body: _ExposeIn, request: Request):
     Tailscale address — useful for debugging, never reached directly
     by end users.
     """
+    from routes._deps import _require_scope
+
     user = _require_auth(request)
+    # Publishes a container port to the public internet. A read-scoped
+    # credential must not be able to do that (§0.1).
+    _require_scope(user, "instances:connect")
     owner_id = _canonical_owner_id(user)
     is_admin = bool(user.get("is_admin"))
 

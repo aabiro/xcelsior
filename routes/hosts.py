@@ -88,6 +88,50 @@ def _resolve_host_owner_from_user(user: dict) -> str:
     return str(user.get("user_id") or user.get("sub") or user.get("email") or "")
 
 
+#: Fleet-wide host visibility. Operator authority: `hosts:read` is held by
+#: every provider running a worker agent, so it cannot also mean "read every
+#: host on the platform".
+FLEET_READ_SCOPE = "hosts:fleet"
+
+
+def visible_hosts(user: dict, hosts: list[dict]) -> list[dict]:
+    """The subset of *hosts* that *user* may see.
+
+    `GET /hosts` returned the entire fleet to anyone holding `hosts:read` —
+    capacity, GPU models, owners, admission state. That scope is granted to
+    every provider so their worker agent can report its own admission status,
+    which made competitors' capacity readable by anyone who registered a rig.
+
+    Reclassifying `hosts:read` as operator authority was tried and reverted: it
+    breaks provider onboarding, because providers are not admins. The split is
+    additive instead — `hosts:read` answers *your* hosts, and platform-wide
+    visibility moved behind `hosts:fleet`, which only an admin may
+    delegate.
+
+    Admins keep fleet visibility without holding the scope, matching every
+    other operator gate here ("admin, or a machine principal with the scope").
+
+    Ownership resolves through the OAuth client's creator as well as the
+    principal itself, so a worker credential still sees the host it was created
+    to run — that path is what makes provisioning work.
+    """
+    if _is_platform_admin(user):
+        return list(hosts)
+    if FLEET_READ_SCOPE in set(user.get("scopes") or ()):
+        return list(hosts)
+
+    caller_ids = _caller_owner_ids(user)
+    creator = _oauth_client_creator(user)
+    if creator:
+        caller_ids |= _caller_owner_ids(creator)
+        creator_user_id = str(creator.get("user_id") or creator.get("sub") or "").strip()
+        if creator_user_id:
+            caller_ids.add(creator_user_id)
+
+    # An unowned row is nobody's host, not everybody's.
+    return [h for h in hosts if caller_ids & _host_owner_ids(h)]
+
+
 def _require_host_operator(user: dict, host_id: str) -> None:
     if _is_platform_admin(user):
         return
@@ -954,7 +998,8 @@ def api_list_hosts(request: Request, active_only: bool = True):
     """List all hosts."""
     user = _require_auth(request)
     _require_scope(user, "hosts:read")
-    return {"hosts": [enrich_host_for_api(h) for h in list_hosts(active_only=active_only)]}
+    hosts = visible_hosts(user, list_hosts(active_only=active_only))
+    return {"hosts": [enrich_host_for_api(h) for h in hosts]}
 
 
 @router.get("/host/{host_id}/maintenance", tags=["Hosts"])

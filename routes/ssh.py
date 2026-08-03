@@ -172,10 +172,12 @@ def _trigger_reinject_for_user(user: dict) -> int:
 @router.post("/api/ssh/keys", tags=["SSH Keys"])
 async def api_add_ssh_key(request: Request):
     """Upload a user SSH public key. Like GitHub/AWS key management."""
-    from routes._deps import _require_scope
+    from routes._deps import _require_user_or_scoped_machine
 
-    user = _require_user_grant(request, allow_api_key=True)
-    _require_scope(user, "ssh:write")
+    # An OAuth-connected agent must be able to register the public key it
+    # already holds, or Gate P2's "only tool calls" journey is unreachable for
+    # that credential type. The private key never exists server-side.
+    user = _require_user_or_scoped_machine(request, "ssh:write")
     body = await request.json()
     name = body.get("name", "").strip() or "default"
     public_key = body.get("public_key", "").strip()
@@ -209,6 +211,11 @@ async def api_add_ssh_key(request: Request):
         "public_key": normalized,
         "fingerprint": fingerprint,
         "created_at": time.time(),
+        # Bind the key to the credential that registered it. A key an agent
+        # added is otherwise indistinguishable from one a human pasted into the
+        # dashboard, which makes both audit and revocation guesswork.
+        "registered_by_client_id": (user.get("client_id") or "").strip() or None,
+        "registered_by_auth_type": str(user.get("auth_type") or "session"),
     }
     UserStore.add_ssh_key(key_data)
     # "Just works" UX: push the new key into every running interactive
@@ -225,11 +232,18 @@ async def api_add_ssh_key(request: Request):
 @router.get("/api/ssh/keys", tags=["SSH Keys"])
 def api_list_ssh_keys(request: Request):
     """List the authenticated user's SSH public keys."""
-    from routes._deps import _require_scope
+    from routes._deps import _require_user_or_scoped_machine
 
-    user = _require_user_grant(request, allow_api_key=True)
-    _require_scope(user, "ssh:read")
+    user = _require_user_or_scoped_machine(request, "ssh:read")
     keys = UserStore.list_ssh_keys(user["email"])
+    # Own keys, not all keys — the same rule as host visibility and deletion.
+    # An agent needs its own keys to avoid registering a duplicate and to know
+    # which id to rotate; it does not need the user's full list, whose comment
+    # fields routinely carry hostnames and usernames. Interactive sessions are
+    # unaffected: a human managing their own account sees everything.
+    if str(user.get("auth_type", "")) == "client_credentials":
+        client_id = (user.get("client_id") or "").strip()
+        keys = [k for k in keys if (k.get("registered_by_client_id") or "") == client_id]
     return {
         "ok": True,
         "keys": [
@@ -247,9 +261,24 @@ def api_list_ssh_keys(request: Request):
 
 @router.delete("/api/ssh/keys/{key_id}", tags=["SSH Keys"])
 def api_delete_ssh_key(key_id: str, request: Request):
-    """Delete a user SSH public key by ID."""
-    user = _require_user_grant(request, allow_api_key=True)
-    deleted = UserStore.delete_ssh_key(user["email"], key_id)
+    """Delete a user SSH public key by ID.
+
+    An interactive user may delete any of their keys. A machine credential may
+    delete only the keys **it** registered, identified by
+    `registered_by_client_id` — own keys, not all keys, mirroring the host
+    visibility split. That closes the hygiene gap where an agent could add keys
+    and never rotate them, without letting it revoke the key its owner pasted
+    into the dashboard.
+    """
+    from routes._deps import _require_user_or_scoped_machine
+
+    user = _require_user_or_scoped_machine(request, "ssh:write")
+    only_client = None
+    if str(user.get("auth_type", "")) == "client_credentials":
+        only_client = (user.get("client_id") or "").strip()
+        if not only_client:
+            raise HTTPException(403, "Client credential has no client_id to scope deletion by")
+    deleted = UserStore.delete_ssh_key(user["email"], key_id, only_client_id=only_client)
     if not deleted:
         raise HTTPException(404, "SSH key not found")
     # Revoke from running instances so the deleted key can no longer connect.

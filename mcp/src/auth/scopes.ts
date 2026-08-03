@@ -10,6 +10,7 @@ export type McpScope =
   | "events:read"
   | "gpu:read"
   | "hosts:evict"
+  | "hosts:fleet"
   | "hosts:operate"
   | "hosts:read"
   | "hosts:write"

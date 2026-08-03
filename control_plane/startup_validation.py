@@ -27,6 +27,7 @@ sees the drift without their laptop refusing to boot.
 from __future__ import annotations
 
 import os
+import env_config
 from dataclasses import dataclass
 from typing import Callable, Literal
 
@@ -70,7 +71,29 @@ def _truthy(name: str, default: str = "") -> bool:
 
 
 def is_production() -> bool:
-    return (os.environ.get("XCELSIOR_ENV") or "").strip().lower() == "production"
+    """Is this the production deployment itself?
+
+    Kept for callers that genuinely mean production. Do not use it to decide
+    whether to *enforce* — see `enforcement_enabled`.
+    """
+    return env_config.is_production()
+
+
+def enforcement_enabled(raw: str | None = None) -> bool:
+    """Should an error finding refuse the boot?
+
+    This used to be `is_production()`, implemented as an exact match on the
+    literal "production". `prod`, `staging`, a typo, or an unset variable all
+    returned False, so every error finding — SQLite backend, unauthenticated
+    agent mode, no asymmetric signing key — degraded to a log line. The gate
+    meant to catch fail-open configuration was fail-open on the same variable.
+
+    Enforcement is now the default and only an explicitly relaxed environment
+    is exempt. Staging enforces deliberately: it holds real data, and the P2/P6
+    acceptance journeys run against it, so a missing signing key should stop the
+    boot rather than surface mid-gate.
+    """
+    return not env_config.is_relaxed_env(raw)
 
 
 # ── Individual checks ─────────────────────────────────────────────────
@@ -135,7 +158,7 @@ def _check_oauth_signing() -> Finding | None:
 
     keys_json = (os.environ.get("XCELSIOR_OAUTH_JWT_KEYS_JSON") or "").strip()
     secret = (os.environ.get("XCELSIOR_OAUTH_JWT_SECRET") or "").strip()
-    if os.environ.get("XCELSIOR_ENV", "dev").lower() in {"test", "dev", "development"} and secret:
+    if env_config.is_relaxed_env() and secret:
         return None
     if keys_json:
         try:
@@ -156,6 +179,42 @@ def _check_oauth_signing() -> Finding | None:
             "secrets are forbidden in production."
         ),
     )
+
+
+def _check_secrets_key() -> Finding | None:
+    """`XCELSIOR_SECRETS_KEY` must exist and be usable before traffic starts.
+
+    Without it `security.py` fell back to a deterministic key derived from a
+    constant in the source tree, and a *malformed* key raised only at the first
+    encrypt or decrypt — long after boot and far from the cause.
+    """
+    if env_config.is_relaxed_env():
+        return None
+    raw = (os.environ.get("XCELSIOR_SECRETS_KEY") or "").strip()
+    remediation = (
+        "Set XCELSIOR_SECRETS_KEY to 32 url-safe base64-encoded bytes. "
+        'Generate one with: python -c "from cryptography.fernet import '
+        'Fernet; print(Fernet.generate_key().decode())"'
+    )
+    if not raw:
+        return Finding(
+            code="secrets_key",
+            severity="error",
+            message="XCELSIOR_SECRETS_KEY is not set; stored secrets would use an insecure fallback",
+            remediation=remediation,
+        )
+    try:
+        from cryptography.fernet import Fernet
+
+        Fernet(raw.encode())
+    except (ValueError, TypeError):
+        return Finding(
+            code="secrets_key",
+            severity="error",
+            message="XCELSIOR_SECRETS_KEY is set but is not a valid Fernet key",
+            remediation=remediation,
+        )
+    return None
 
 
 def _check_agent_authentication() -> Finding | None:
@@ -431,6 +490,7 @@ CHECKS: tuple[Callable[[], "Finding | None"], ...] = (
     _check_database_tls,
     _check_runtime_ddl,
     _check_oauth_signing,
+    _check_secrets_key,
     _check_privacy_deletion_credentials,
     _check_agent_authentication,
     _check_agent_gateway_secret,
@@ -471,7 +531,7 @@ def validate_startup(*, enforce: bool | None = None) -> list[Finding]:
     surfaces the same findings without refusing to start.
     """
     findings = collect_findings()
-    should_enforce = is_production() if enforce is None else enforce
+    should_enforce = enforcement_enabled() if enforce is None else enforce
     if should_enforce and not _truthy("XCELSIOR_SKIP_STARTUP_VALIDATION"):
         errors = [f for f in findings if f.severity == "error"]
         if errors:
@@ -485,7 +545,7 @@ def startup_report() -> dict:
     errors = [f for f in findings if f.severity == "error"]
     return {
         "ok": not errors,
-        "environment": (os.environ.get("XCELSIOR_ENV") or "").strip().lower() or "unset",
-        "enforced": is_production(),
+        "environment": env_config.resolve_env(),
+        "enforced": enforcement_enabled(),
         "findings": [f.as_dict() for f in findings],
     }

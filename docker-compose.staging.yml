@@ -1,0 +1,37 @@
+# Staging overlay for Xcelsior.
+#
+# Usage:
+#   docker compose --env-file .env.staging -f docker-compose.yml -f docker-compose.staging.yml up -d api
+# or:
+#   ./scripts/run_staging_compose.sh up -d api
+#
+# Loads crypto/session secrets from .env.staging (generated / merged from
+# .env.staging.secrets). Forces XCELSIOR_ENV=staging so enforcement stays on
+# but staging retains its audited agent escape hatch.
+
+services:
+  api:
+    env_file:
+      - .env.staging
+    environment:
+      XCELSIOR_ENV: staging
+      XCELSIOR_AGENT_HOST_TOKENS: ${XCELSIOR_AGENT_HOST_TOKENS:-allow}
+
+  api-blue:
+    env_file:
+      - .env.staging
+    environment:
+      XCELSIOR_ENV: staging
+      XCELSIOR_AGENT_HOST_TOKENS: ${XCELSIOR_AGENT_HOST_TOKENS:-allow}
+
+  bg-worker:
+    env_file:
+      - .env.staging
+    environment:
+      XCELSIOR_ENV: staging
+
+  scheduler:
+    env_file:
+      - .env.staging
+    environment:
+      XCELSIOR_ENV: staging

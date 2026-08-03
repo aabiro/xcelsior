@@ -6,6 +6,8 @@ import re
 import time
 from collections import defaultdict
 
+import env_config
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -172,7 +174,12 @@ def _require_agent_auth(request: Request, *, host_id: str | None = None) -> dict
         trusted_gateway_enabled,
     )
 
-    env = os.environ.get("XCELSIOR_ENV", "").lower()
+    # `== "production"` matched only that exact spelling, so "prod",
+    # "staging", or a typo skipped the hard-refuse block below and fell through
+    # to weaker handling. `is_production()` is true for all of them, and the
+    # test bypass now requires the literal value rather than merely not being
+    # production.
+    env = env_config.resolve_env()
     raw_headers = {k.lower(): v for k, v in request.headers.items()}
     # Blueprint §19.2: strip client-injected worker identity unless the
     # private gateway proved itself with the shared secret. Public ingress
@@ -233,7 +240,7 @@ def _require_agent_auth(request: Request, *, host_id: str | None = None) -> dict
         )
 
     # 1. Hard refuse in production — escape hatches do NOT apply.
-    if env == "production":
+    if env_config.is_production():
         user = _get_current_user(request)
         if not user:
             raise HTTPException(401, "Authentication required")
