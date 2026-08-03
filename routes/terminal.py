@@ -37,6 +37,8 @@ import asyncio
 from collections import defaultdict
 import json
 import os
+
+import env_config
 import re as _re
 import secrets
 import socket
@@ -172,7 +174,10 @@ _MAX_MALFORMED_CONTROL_FRAMES: int = int(
 )
 _REQUIRE_PINNED_HOST_KEYS: bool = os.environ.get(
     "XCELSIOR_TERMINAL_REQUIRE_PINNED_HOST_KEYS",
-    "true" if os.environ.get("XCELSIOR_ENV", "dev").lower() in {"prod", "production"} else "false",
+    # Host-key pinning defaulted on only for the exact spellings "prod" and
+    # "production", so staging or a typo silently disabled MITM protection on
+    # the terminal. Now on everywhere except an explicit dev/test context.
+    "false" if env_config.is_relaxed_env() else "true",
 ).lower() not in {"0", "false", "no", "off"}
 
 

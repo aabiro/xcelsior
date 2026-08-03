@@ -1599,8 +1599,9 @@ class UserStore:
     def add_ssh_key(key_data: dict) -> None:
         with auth_connection() as conn:
             conn.execute(
-                "INSERT INTO user_ssh_keys (id, email, user_id, name, public_key, fingerprint, created_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                "INSERT INTO user_ssh_keys (id, email, user_id, name, public_key, "
+                "fingerprint, created_at, registered_by_client_id, registered_by_auth_type) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (
                     key_data["id"],
                     key_data["email"],
@@ -1609,6 +1610,8 @@ class UserStore:
                     key_data["public_key"],
                     key_data["fingerprint"],
                     key_data.get("created_at", time.time()),
+                    key_data.get("registered_by_client_id"),
+                    key_data.get("registered_by_auth_type"),
                 ),
             )
 
@@ -1622,12 +1625,30 @@ class UserStore:
             return [dict(r) for r in rows]
 
     @staticmethod
-    def delete_ssh_key(email: str, key_id: str) -> bool:
+    def delete_ssh_key(
+        email: str, key_id: str, *, only_client_id: str | None = None
+    ) -> bool:
+        """Delete one of *email*'s keys.
+
+        `only_client_id` narrows the delete to keys that client registered. A
+        machine credential may rotate the keys it added and nothing else — the
+        same own-versus-all shape as host visibility. Without it an agent could
+        add keys forever and never remove one, so rotation was impossible from
+        the terminal; with an unbounded delete it could revoke the human's
+        dashboard key instead.
+        """
         with auth_connection() as conn:
-            cur = conn.execute(
-                "DELETE FROM user_ssh_keys WHERE id = %s AND email = %s",
-                (key_id, email),
-            )
+            if only_client_id is None:
+                cur = conn.execute(
+                    "DELETE FROM user_ssh_keys WHERE id = %s AND email = %s",
+                    (key_id, email),
+                )
+            else:
+                cur = conn.execute(
+                    "DELETE FROM user_ssh_keys WHERE id = %s AND email = %s "
+                    "AND registered_by_client_id = %s",
+                    (key_id, email, only_client_id),
+                )
             return cur.rowcount > 0
 
     @staticmethod

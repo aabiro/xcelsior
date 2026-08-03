@@ -135,10 +135,41 @@ def _pin_test_auth_env(monkeypatch):
     monkeypatch.setattr(deps, "XCELSIOR_ENV", "test")
     monkeypatch.setattr(auth_mod, "XCELSIOR_ENV", "test")
     monkeypatch.setattr(oauth_mod, "AUTH_CACHE_BACKEND", "memory")
-    monkeypatch.setattr(deps, "AUTH_REQUIRED", False)
+    # Measurement switch: XCELSIOR_TEST_ENFORCE_AUTH=1 pins the control on so
+    # the true blast radius of inverting this default can be counted rather
+    # than guessed. Default stays False until the ratchet lands.
+    monkeypatch.setattr(
+        deps, "AUTH_REQUIRED", os.environ.get("XCELSIOR_TEST_ENFORCE_AUTH") == "1"
+    )
     # test_bitcoin.py sets sqlite at import; CI must stay on migrated Postgres.
     if os.environ.get("CI"):
         monkeypatch.setenv("XCELSIOR_DB_BACKEND", "postgres")
+
+
+@pytest.fixture
+def auth_enforced(_pin_test_auth_env):
+    """Run a test with authentication actually enforced.
+
+    `_pin_test_auth_env` is autouse and sets `AUTH_REQUIRED = False` for every
+    test in the suite, so `_require_auth` hands an anonymous caller a synthetic
+    principal with `is_admin: True`. Any authorization test that does not undo
+    that is measuring the fixture, not the endpoint — it cannot fail.
+
+    Declaring `_pin_test_auth_env` as a dependency is load-bearing: it forces
+    this fixture to run *after* the autouse one. A plugin-level fixture that
+    merely set the flag was silently reverted, and a run reported as "verified
+    under enforced auth" had in fact executed with auth off.
+
+    Use this on every test whose subject is authentication or authorization.
+    """
+    import routes._deps as deps
+
+    original = deps.AUTH_REQUIRED
+    deps.AUTH_REQUIRED = True
+    try:
+        yield
+    finally:
+        deps.AUTH_REQUIRED = original
 
 
 @pytest.fixture(scope="module")
@@ -228,3 +259,105 @@ def _clear_module_test_client_cookies():
         except Exception:
             pass
 
+
+# ── Precondition enforcement ─────────────────────────────────────────────
+#
+# Three consecutive measurements in this codebase passed for reasons unrelated
+# to what they claimed to check: a fixture silently reverted by an autouse one,
+# a log truncated below the evidence, and a parametrized function that accepted
+# a value and evaluated the ambient environment instead.
+#
+# The one thing that worked was a test asserting its own precondition in its own
+# body, after every fixture had run. This generalises that, and the polarity is
+# the point: **enforcement is the default**, and relaxation is an explicit,
+# countable opt-out.
+#
+# An opt-in marker cannot ratchet — there is no denominator, so a new test can
+# silently join the unenforced majority and nothing notices. With the default
+# inverted, the opt-out list *is* the measurement, and it only goes down.
+#
+# A hook rather than a fixture, because a fixture can be reordered by an autouse
+# one; `pytest_runtest_call` runs immediately before the test body and nothing
+# reorders it.
+
+#: The relaxations the suite may grant, each with the probe that says whether it
+#: is currently in force. Keyed by the name used in `relaxed_auth(...)`.
+_RELAXATIONS = {
+    # Anonymous callers receive a synthetic principal with is_admin=True.
+    "auth_required": lambda: __import__(
+        "routes._deps", fromlist=["AUTH_REQUIRED"]
+    ).AUTH_REQUIRED,
+    # The committed dev JWT secret and symmetric signing are reachable.
+    "asymmetric_signing": lambda: not __import__("env_config").is_relaxed_env(),
+    # The deterministic Fernet key is reachable.
+    "secrets_key": lambda: bool(os.environ.get("XCELSIOR_SECRETS_KEY", "").strip()),
+    # The production configuration gate degrades to log lines.
+    "startup_gate": lambda: __import__(
+        "control_plane.startup_validation", fromlist=["enforcement_enabled"]
+    ).enforcement_enabled(),
+}
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "relaxed_auth(*controls, reason=...): this test needs one or more "
+        "security relaxations. Every use is counted by the ratchet in "
+        "tests/test_enforcement_ratchet.py and may only decrease.",
+    )
+    config.addinivalue_line(
+        "markers",
+        "enforced_auth: legacy alias; enforcement is now the default and this "
+        "marker is a no-op kept so existing tests still read as intentional.",
+    )
+
+
+#: Controls the whole suite currently runs with relaxed. **This is the ratchet.**
+#:
+#: Per-test markers were the wrong granularity: these relaxations come from
+#: `_pin_test_auth_env` and `XCELSIOR_ENV=test`, so every one of ~4,700 tests
+#: experiences all of them. Annotating each would produce 4,700 identical
+#: markers carrying no information and no way to tell progress from noise.
+#:
+#: Counted and pinned by `tests/test_enforcement_ratchet.py`, which allows this
+#: set to shrink and never to grow. Removing an entry is the unit of progress:
+#: it means the suite now runs with that control genuinely on.
+#:
+#: `secrets_key` is deliberately absent — `.env.test` provides a real Fernet
+#: key, so that control is already enforcing.
+SUITE_RELAXATIONS = frozenset({
+    "auth_required",       # _pin_test_auth_env sets AUTH_REQUIRED = False
+    "asymmetric_signing",  # XCELSIOR_ENV=test permits the symmetric dev secret
+    "startup_gate",        # the production configuration gate only warns
+})
+
+
+def pytest_runtest_call(item):
+    """Refuse a test that experiences a relaxation nobody declared.
+
+    The suite-wide baseline is `SUITE_RELAXATIONS`. A test may declare more with
+    `@pytest.mark.relaxed_auth(...)`, but anything outside both is a control
+    that quietly went off — which is how the anonymous-admin principal survived
+    unnoticed across the whole suite.
+    """
+    marker = item.get_closest_marker("relaxed_auth")
+    allowed = set(marker.args) if marker else set()
+    allowed |= SUITE_RELAXATIONS
+    unknown = allowed - set(_RELAXATIONS)
+    if unknown:
+        raise AssertionError(
+            f"{item.nodeid} declares unknown relaxation(s) {sorted(unknown)}; "
+            f"valid names: {sorted(_RELAXATIONS)}"
+        )
+    violations = [
+        name
+        for name, probe in _RELAXATIONS.items()
+        if name not in allowed and not probe()
+    ]
+    if violations:
+        raise AssertionError(
+            f"{item.nodeid} runs with these controls relaxed but does not "
+            f"declare them: {violations}. Either enforce them, or mark the "
+            f"test `@pytest.mark.relaxed_auth({', '.join(repr(v) for v in violations)}, "
+            'reason="...")` — which adds to a ratchet that may only decrease.'
+        )
