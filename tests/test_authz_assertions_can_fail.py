@@ -36,12 +36,51 @@ AUTHZ_REFUSALS = {401, 403}
 _TUPLE = re.compile(r"status_code\s+in\s+\(([^)]*)\)")
 
 
+def _executable_lines(source: str) -> list[tuple[int, str]]:
+    """Lines that run, with comments and docstrings removed.
+
+    A guard that reads prose flags the documentation *of* the defect it hunts.
+    This one failed on line 12 of `test_ratchets_are_literals.py`, which quotes
+    `assert r.status_code in (401, 403, 200)` while explaining why that shape is
+    forbidden.
+
+    Every text-scanning guard in this suite has had to learn the same lesson
+    separately — the vocabulary guard on prose describing the words it bans, the
+    conditional-scope guard on a comment quoting the pattern it forbids, and
+    this one on its own explanation. The rule that follows: a text-scanning
+    guard needs *two* probes, one proving it catches the defect and one proving
+    it ignores a description of the defect. Both are below.
+
+    Tracked by counting triple-quote delimiters rather than parsing, because the
+    only thing needed is "is this line inside a string literal", and a full AST
+    walk would lose the line-level reporting that makes failures actionable.
+    """
+    lines: list[tuple[int, str]] = []
+    in_docstring = False
+    for n, raw in enumerate(source.splitlines(), 1):
+        stripped = raw.strip()
+        fences = stripped.count('"""') + stripped.count("'''")
+        if in_docstring:
+            if fences % 2 == 1:
+                in_docstring = False
+            continue
+        if fences % 2 == 1:
+            in_docstring = True
+            continue
+        if fences >= 2:  # a one-line docstring; nothing executable on it
+            continue
+        if stripped.startswith("#"):
+            continue
+        lines.append((n, raw))
+    return lines
+
+
 def _mixed_authz_assertions() -> list[tuple[str, int, list[int], str]]:
     found = []
     for path in sorted(TESTS.glob("*.py")):
         if path.name == pathlib.Path(__file__).name:
             continue
-        for n, line in enumerate(path.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
+        for n, line in _executable_lines(path.read_text(encoding="utf-8", errors="ignore")):
             match = _TUPLE.search(line)
             if not match:
                 continue
@@ -81,6 +120,31 @@ def test_the_scanner_does_not_flag_a_legitimate_tolerance():
     match = _TUPLE.search(tolerant)
     codes = {int(c) for c in re.findall(r"\b([1-5]\d\d)\b", match.group(1))}
     assert not (codes & AUTHZ_REFUSALS)
+
+
+def test_the_scanner_reads_code_and_not_prose():
+    """Documentation of the defect must not read as the defect.
+
+    Both halves asserted: a docstring quoting the forbidden shape is skipped,
+    and an identical line outside a docstring is still caught. Skipping prose
+    is only safe if it does not also skip code.
+    """
+    documented = (
+        'def f():\n'
+        '    """Explains that\n'
+        '    assert r.status_code in (401, 403, 200)\n'
+        '    is forbidden.\n'
+        '    """\n'
+        '    return 1\n'
+    )
+    assert not [
+        line for _, line in _executable_lines(documented) if _TUPLE.search(line)
+    ], "a docstring quoting the defect was read as code"
+
+    real = 'def f():\n    assert r.status_code in (401, 403, 200)\n'
+    assert [
+        line for _, line in _executable_lines(real) if _TUPLE.search(line)
+    ], "skipping prose also skipped an actual assertion"
 
 
 def test_the_scanner_does_not_flag_a_pure_refusal_tuple():

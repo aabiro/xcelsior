@@ -115,6 +115,13 @@ docs/*
 # before a negation on a file inside it can match.
 !docs/generated/
 !docs/generated/endpoint-inventory.md
+# Review records. `docs/*` ignores every new document until someone remembers
+# to exempt it, which nearly cost the review of a 13-commit security branch its
+# place in the repository — the same shape as a regeneration step nobody runs.
+# The directory is un-ignored wholesale rather than file by file, so the next
+# review record exists by default instead of by recollection.
+!docs/review/
+!docs/review/*.md
 
 # ── Editor / OS ──────────────────────────────────────────────────────
 .vscode/settings.json
