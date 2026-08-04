@@ -12,6 +12,8 @@ import hmac
 import logging
 import os
 import secrets
+
+import env_config
 import socket
 import uuid
 from dataclasses import dataclass
@@ -155,11 +157,9 @@ def _reference_secret() -> bytes:
     oauth_secret = os.environ.get("XCELSIOR_OAUTH_JWT_SECRET", "").strip()
     if oauth_secret:
         return oauth_secret.encode()
-    if os.environ.get("XCELSIOR_ENV", "").strip().lower() in {
-        "prod",
-        "production",
-        "staging",
-    }:
+    # The set omitted `preprod` and, more importantly, treated an unset or
+    # misspelled value as development — falling through to a derived secret.
+    if not env_config.is_relaxed_env():
         raise PrivacyDeletionError(
             "XCELSIOR_PRIVACY_REFERENCE_SECRET is required in deployed environments"
         )

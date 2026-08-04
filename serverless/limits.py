@@ -6,6 +6,8 @@ import enum
 import logging
 import os
 import time
+
+import env_config
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -73,7 +75,13 @@ class QueueFullError(Exception):
 
 
 def _is_production() -> bool:
-    return os.environ.get("XCELSIOR_ENV", "").strip().lower() == "production"
+    """Should rate limiting behave as it does on a real deployment?
+
+    An exact match on "production" meant `prod`, `staging`, a typo, or an unset
+    variable all took the development path. The question here is "may we relax
+    this", so it is answered by `env_config`.
+    """
+    return not env_config.is_relaxed_env()
 
 
 def rate_limit_policy() -> RateLimitPolicy:

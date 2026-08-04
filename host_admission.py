@@ -23,6 +23,8 @@ import hmac
 import json
 import os
 import re
+
+import env_config
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -181,10 +183,12 @@ def _compatibility_secret() -> bytes:
     raw = (os.environ.get("XCELSIOR_COMPAT_SESSION_SECRET") or "").strip()
     if raw:
         return raw.encode("utf-8")
-    environment = (os.environ.get("XCELSIOR_ENV") or "dev").strip().lower()
-    if environment == "production":
+    # Defaulting to "dev" and matching "production" exactly meant an unset
+    # variable, `prod`, or staging all returned the development constant below.
+    if not env_config.is_relaxed_env():
         raise AdmissionConfigurationError(
-            "XCELSIOR_COMPAT_SESSION_SECRET is required in production"
+            "XCELSIOR_COMPAT_SESSION_SECRET is required outside development "
+            f"(XCELSIOR_ENV resolved to {env_config.resolve_env()!r})"
         )
     return b"xcelsior-development-only-compatibility-secret"
 

@@ -344,9 +344,23 @@ def test_billing_payment_rate_limit(auth, monkeypatch):
 
 def test_wallet_deposit_blocked_in_production(two_users, monkeypatch):
     """Production must not credit wallets without payment proof (Stripe/PayPal/crypto)."""
+    import types
+
     import routes.billing as billing_mod
 
-    monkeypatch.setattr(billing_mod, "XCELSIOR_ENV", "production")
+    # Replaces *billing's reference* to the resolver, not the resolver itself.
+    #
+    # `monkeypatch.setenv("XCELSIOR_ENV", "production")` looks more honest but
+    # tests something else: symmetric JWT verification is now also gated on
+    # `is_relaxed_env()`, so a production environment correctly rejects this
+    # fixture's dev-signed token and the request 401s before it ever reaches the
+    # deposit policy. That is the system working — and it would make this test
+    # pass for a reason unrelated to wallet deposits.
+    monkeypatch.setattr(
+        billing_mod,
+        "env_config",
+        types.SimpleNamespace(is_relaxed_env=lambda *a, **k: False),
+    )
     user_a, _ = two_users
     r = client.post(
         f"/api/billing/wallet/{user_a['customer_id']}/deposit",

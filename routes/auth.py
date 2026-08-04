@@ -4,6 +4,8 @@ import base64
 import hmac
 import os
 import re
+
+import env_config
 import secrets
 import time
 import uuid
@@ -2025,7 +2027,10 @@ async def facebook_deauthorize(request: Request):
                 ).digest()
                 if not hmac.compare_digest(sig, expected_sig):
                     log.warning("Facebook deauthorize signature verification failed")
-                    if os.environ.get("XCELSIOR_ENV") == "production":
+                    # An exact match on "production" meant a failed signature
+                    # was merely logged on staging, on `prod`, or with the
+                    # variable unset.
+                    if not env_config.is_relaxed_env():
                         raise HTTPException(400, "Invalid signed request signature")
         except Exception as e:
             log.error("Error parsing Facebook deauthorize signed request: %s", e)
@@ -2080,7 +2085,10 @@ async def facebook_delete_data(request: Request):
                 ).digest()
                 if not hmac.compare_digest(sig, expected_sig):
                     log.warning("Facebook delete-data signature verification failed")
-                    if os.environ.get("XCELSIOR_ENV") == "production":
+                    # An exact match on "production" meant a failed signature
+                    # was merely logged on staging, on `prod`, or with the
+                    # variable unset.
+                    if not env_config.is_relaxed_env():
                         raise HTTPException(400, "Invalid signed request signature")
         except Exception as e:
             log.error("Error parsing Facebook delete-data signed request: %s", e)
