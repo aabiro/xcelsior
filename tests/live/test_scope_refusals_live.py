@@ -56,14 +56,48 @@ HEADERS = {
     "Accept": "application/json",
 }
 
-pytestmark = pytest.mark.skipif(
-    not (BASE and TOKEN),
-    reason="live gate: set XCELSIOR_LIVE_BASE_URL (or XCELSIOR_STAGING_URL) and XCELSIOR_NONADMIN_TOKEN",
-)
+#: Skipping lives on the fixture, not the module, so `assert_refusal_came_from
+#: _the_origin` is still exercised in runs with no live credentials — including
+#: ordinary CI. A guard against a false pass that only runs during a real
+#: dispatch is a guard that is absent exactly when it is cheapest to break.
+_NEEDS_LIVE = "live gate: set XCELSIOR_LIVE_BASE_URL (or XCELSIOR_STAGING_URL) and XCELSIOR_NONADMIN_TOKEN"
+
+
+#: Markers that identify a 403 as the edge's, not the application's. Cloudflare's
+#: browser-integrity block answers `error code: 1010` as plain text with a
+#: `cf-ray` header, and nothing from the origin looks like that.
+_EDGE_MARKERS = ("error code:", "cloudflare", "attention required", "<!doctype html")
+
+
+def assert_refusal_came_from_the_origin(response) -> None:
+    """A 403 only means "authorization refused" if the origin produced it.
+
+    The status code alone cannot distinguish an authorization refusal from an
+    edge rule that never reached the application — and on 2026-08-04 an edge rule
+    is exactly what a first live run met. Where the response body names the scope
+    the distinction is self-evident; where it does not (the update path answers
+    with a bare detail message) it has to be asserted, or this test passes on a
+    Cloudflare block and reports the guard working.
+    """
+    body = (response.text or "")[:500].lower()
+    for marker in _EDGE_MARKERS:
+        assert marker not in body, (
+            f"the 403 came from the edge, not the application ({marker!r} in the "
+            "body) — the request never reached the origin, so this proves nothing "
+            f"about authorization. Body: {response.text[:200]!r}"
+        )
+    assert "cf-ray" not in {k.lower() for k in response.headers} or response.headers.get(
+        "content-type", ""
+    ).startswith("application/json"), (
+        "the 403 carries edge headers and a non-JSON body — treat as an edge "
+        f"block rather than a refusal. Headers: {dict(response.headers)}"
+    )
 
 
 @pytest.fixture(scope="module")
 def client():
+    if not (BASE and TOKEN):
+        pytest.skip(_NEEDS_LIVE)
     with httpx.Client(
         base_url=BASE,
         headers={**HEADERS, "Authorization": f"Bearer {TOKEN}"},
@@ -73,7 +107,7 @@ def client():
         yield c
 
 
-@pytest.fixture(scope="module", autouse=True)
+@pytest.fixture(scope="module")
 def caller_is_a_non_admin(client):
     """Refuse to run at all on an admin token. A false pass here is expensive.
 
@@ -95,8 +129,14 @@ def caller_is_a_non_admin(client):
 
 
 @pytest.fixture
-def benign_client_id(client):
-    """A client the caller is genuinely allowed to create. Removed afterwards."""
+def benign_client_id(client, caller_is_a_non_admin):
+    """A client the caller is genuinely allowed to create. Removed afterwards.
+
+    Depends on `caller_is_a_non_admin` rather than leaving it `autouse`: chained
+    here it still runs before anything touches production (every live test below
+    takes this fixture), while the edge-detector tests at the bottom — which need
+    no credentials — are not dragged into a skip by it.
+    """
     r = client.post(
         "/api/oauth/clients",
         json={
@@ -164,6 +204,7 @@ def test_update_refuses_an_operator_scope(client, benign_client_id):
             "guarded is not sufficient; this is the second writer."
         )
     assert r.status_code == 403, f"expected 403, got {r.status_code}: {r.text[:200]!r}"
+    assert_refusal_came_from_the_origin(r)
 
 
 def test_the_benign_scope_still_works_after_both_refusals(client, benign_client_id):
@@ -180,3 +221,33 @@ def test_the_benign_scope_still_works_after_both_refusals(client, benign_client_
         f"a benign scope update failed (HTTP {r.status_code}) — the refusals "
         f"above may be an outage rather than a guard. Body: {r.text[:200]!r}"
     )
+
+
+# ── The edge detector, driven both ways ───────────────────────────────
+# No credentials needed, so this runs everywhere.
+
+
+def test_an_edge_block_is_not_accepted_as_a_refusal():
+    """The exact response that met the first live run on 2026-08-04."""
+    edge = httpx.Response(403, text="error code: 1010\n", headers={"cf-ray": "8f0-YYZ"})
+    with pytest.raises(AssertionError, match="came from the edge"):
+        assert_refusal_came_from_the_origin(edge)
+
+
+def test_an_html_challenge_page_is_not_accepted_as_a_refusal():
+    challenge = httpx.Response(
+        403,
+        text="<!DOCTYPE html><title>Attention Required! | Cloudflare</title>",
+        headers={"content-type": "text/html"},
+    )
+    with pytest.raises(AssertionError):
+        assert_refusal_came_from_the_origin(challenge)
+
+
+def test_the_application_refusal_is_accepted():
+    """The other direction: a real origin refusal must pass cleanly."""
+    origin = httpx.Response(
+        403,
+        json={"detail": "These scopes may only be granted by a platform administrator: hosts:evict"},
+    )
+    assert_refusal_came_from_the_origin(origin)
