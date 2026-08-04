@@ -258,6 +258,27 @@ x-api-environment: &api-env
   # two secrets above were. Mapped so the setting is real, and so
   # `tests/test_startup_env_is_wired.py` needs no exemption list.
   XCELSIOR_VOLUME_PRIVILEGE: ${XCELSIOR_VOLUME_PRIVILEGE:-host_ssh}
+  # ── Set in .env, reaching no container until now ──────────────────────
+  # Every one of these was configured with a real value and read by code that
+  # never saw it. `/api/connect/webhooks` answered 503 to every Stripe delivery
+  # because its signing secret was not here — the handler fails closed on a
+  # missing secret, so the endpoint has been dead rather than open.
+  XCELSIOR_STRIPE_THIN_WEBHOOK_SECRET: ${XCELSIOR_STRIPE_THIN_WEBHOOK_SECRET:-}
+  XCELSIOR_STRIPE_CONNECT_WEBHOOK_SECRET: ${XCELSIOR_STRIPE_CONNECT_WEBHOOK_SECRET:-}
+  XCELSIOR_STRIPE_SANDBOX_WEBHOOK_SECRET: ${XCELSIOR_STRIPE_SANDBOX_WEBHOOK_SECRET:-}
+  # Replies to platform mail went nowhere: ALERT_CONFIG["reply_to"] read ''.
+  XCELSIOR_EMAIL_REPLY_TO: ${XCELSIOR_EMAIL_REPLY_TO:-}
+  # volumes.py enforced the 2000 GB default, not the configured 100 GB cap.
+  XCELSIOR_MAX_TOTAL_STORAGE_GB: ${XCELSIOR_MAX_TOTAL_STORAGE_GB:-2000}
+  # artifacts.py had no R2 endpoint, so artifact caching was off.
+  XCELSIOR_CACHE_ENDPOINT_URL: ${XCELSIOR_CACHE_ENDPOINT_URL:-}
+  # bitcoin.py: deposits addressed the default wallet, and a status probe that
+  # was meant to give up after 1.5s could hang for 20.
+  XCELSIOR_BTC_RPC_WALLET: ${XCELSIOR_BTC_RPC_WALLET:-}
+  XCELSIOR_BTC_STATUS_RPC_TIMEOUT: ${XCELSIOR_BTC_STATUS_RPC_TIMEOUT:-20}
+  # The API runs legacy queue walkers during rollout, so it reads these too.
+  XCELSIOR_AUTOSCALE: ${XCELSIOR_AUTOSCALE:-}
+  XCELSIOR_AUTOSCALE_PROVIDER: ${XCELSIOR_AUTOSCALE_PROVIDER:-}
 
 # ── Shared API volumes ───────────────────────────────────────────────
 # Phase 10: API/bg-worker do NOT mount host /exports (no privileged volume
@@ -345,6 +366,9 @@ services:
       # Companion §4.2/§4.3: own connection identity, and (once an
       # operator sets the DSN) its own least-privilege role.
       XCELSIOR_SERVICE: scheduler
+      XCELSIOR_AUTOSCALE: ${XCELSIOR_AUTOSCALE:-}
+      XCELSIOR_AUTOSCALE_PROVIDER: ${XCELSIOR_AUTOSCALE_PROVIDER:-}
+      XCELSIOR_EMAIL_REPLY_TO: ${XCELSIOR_EMAIL_REPLY_TO:-}
       XCELSIOR_POSTGRES_DSN_SCHEDULER: ${XCELSIOR_POSTGRES_DSN_SCHEDULER:-}
       XCELSIOR_API_TOKEN: ${XCELSIOR_API_TOKEN}
       XCELSIOR_DB_BACKEND: ${XCELSIOR_DB_BACKEND:-postgres}
