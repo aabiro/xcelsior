@@ -38,6 +38,8 @@ from collections import defaultdict
 import json
 import os
 import re as _re
+
+import env_config
 import secrets
 import socket
 import subprocess
@@ -170,9 +172,15 @@ _MAX_RESIZE_ROWS: int = int(os.environ.get("XCELSIOR_TERMINAL_MAX_RESIZE_ROWS", 
 _MAX_MALFORMED_CONTROL_FRAMES: int = int(
     os.environ.get("XCELSIOR_TERMINAL_MAX_MALFORMED_CONTROL_FRAMES", "5")
 )
+# SSH host-key pinning is MITM protection on the terminal. The default was
+# `env in {"prod", "production"}`, so staging, a typo, or an unset variable all
+# left it **off** — the environments most likely to be misconfigured were the
+# ones that silently lost the protection. It is now on everywhere except an
+# explicitly named development environment, and can still be forced either way
+# by setting the variable directly.
 _REQUIRE_PINNED_HOST_KEYS: bool = os.environ.get(
     "XCELSIOR_TERMINAL_REQUIRE_PINNED_HOST_KEYS",
-    "true" if os.environ.get("XCELSIOR_ENV", "dev").lower() in {"prod", "production"} else "false",
+    "false" if env_config.is_relaxed_env() else "true",
 ).lower() not in {"0", "false", "no", "off"}
 
 

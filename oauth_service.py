@@ -9,6 +9,8 @@ import json
 import logging
 import os
 import secrets
+
+import env_config
 import threading
 import time
 import uuid
@@ -79,7 +81,11 @@ CLIENT_CREDENTIALS_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_CLIENT_CREDENTIA
 ACCESS_TOKEN_PREFIX = os.environ.get("XCELSIOR_OAUTH_ACCESS_TOKEN_PREFIX", "xoa_")
 AUTH_CACHE_BACKEND = os.environ.get(
     "XCELSIOR_AUTH_CACHE_BACKEND",
-    "memory" if os.environ.get("XCELSIOR_ENV", "dev").lower() == "test" else "redis",
+    # Behaviour is unchanged — the old `.get("XCELSIOR_ENV", "dev") == "test"`
+    # already resolved to redis when unset. Routed through the resolver so no
+    # module reads the variable directly: one raw read is how the next one gets
+    # written.
+    "memory" if env_config.resolve_env() == "test" else "redis",
 ).lower()
 AUTH_REDIS_URL = os.environ.get("XCELSIOR_AUTH_REDIS_URL", "redis://localhost:6379/0")
 # NOTE: XCELSIOR_AUTH_CACHE_PREFIX is retired. The key namespace is now
@@ -810,8 +816,10 @@ def _get_jwt_signing_keys() -> tuple[str, dict[str, dict[str, str]]]:
     active_kid = os.environ.get("XCELSIOR_OAUTH_ACTIVE_KID", "default")
     secret = os.environ.get("XCELSIOR_OAUTH_JWT_SECRET", "")
     if not secret:
-        env = os.environ.get("XCELSIOR_ENV", "dev").lower()
-        if env in {"test", "dev", "development"}:
+        # `os.environ.get("XCELSIOR_ENV", "dev")` meant an unset variable
+        # selected the literal below — which is committed to this repository, so
+        # anyone with the source could mint tokens.
+        if env_config.is_relaxed_env():
             secret = "xcelsior-dev-jwt-secret"
         else:
             raise OAuthGrantError(
@@ -857,8 +865,10 @@ def issue_client_credentials_jwt(
     ).hexdigest()
     key = keys[active_kid]
     asymmetric = bool(key.get("private_key_pem"))
-    if not asymmetric and os.environ.get("XCELSIOR_ENV", "dev").lower() not in {"test", "dev", "development"}:
-        raise OAuthGrantError("server_error", "Production OAuth signing must use an asymmetric key", status_code=500)
+    if not asymmetric and not env_config.is_relaxed_env():
+        raise OAuthGrantError(
+            "server_error", "Production OAuth signing must use an asymmetric key", status_code=500
+        )
     header = {"alg": "RS256" if asymmetric else "HS256", "typ": "JWT", "kid": active_kid}
     payload = {
         "iss": OAUTH_ISSUER,
@@ -937,7 +947,10 @@ def validate_client_credentials_jwt(token: str) -> dict[str, Any] | None:
                 return None
             public.verify(signature, signing_input.encode(), padding.PKCS1v15(), hashes.SHA256())
         else:
-            if os.environ.get("XCELSIOR_ENV", "dev").lower() not in {"test", "dev", "development"}:
+            # Symmetric verification is a development affordance. An unset
+            # variable used to reach it, so a deployment with no XCELSIOR_ENV
+            # accepted HS256 tokens signed with the committed dev secret.
+            if not env_config.is_relaxed_env():
                 return None
             expected_sig = hmac.new(key["secret"].encode(), signing_input.encode(), hashlib.sha256).digest()
             if not hmac.compare_digest(expected_sig, signature):

@@ -5,6 +5,8 @@ import io
 import os
 import time
 
+import env_config
+
 from money import micros_to_cad
 import uuid
 from datetime import datetime, timezone
@@ -95,7 +97,10 @@ def _analytics_customer_scope(user: dict) -> str:
 
 def _allow_direct_wallet_deposit(user: dict) -> bool:
     """Credit wallet without payment proof — test/dev sandboxes and platform admins only."""
-    if XCELSIOR_ENV in ("test", "dev", "development"):
+    # Was a hand-rolled copy of the relaxed-environment set, which had already
+    # drifted: it omits "local", so a `XCELSIOR_ENV=local` machine could not
+    # deposit. Ask the resolver rather than restating its contents.
+    if env_config.is_relaxed_env():
         return True
     return _is_platform_admin(user)
 
