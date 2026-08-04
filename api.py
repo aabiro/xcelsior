@@ -27,6 +27,14 @@ _install_pii_scrub()
 
 from db import start_pg_listen, UserStore
 
+# Module scope, deliberately. This import used to sit inside the `try` in
+# `lifespan`, where an ImportError — a syntax error, a circular import
+# introduced later, a dependency missing from a slim image — was caught and
+# logged, and the process went on to serve traffic having run no configuration
+# validation whatsoever. Here, the same failure kills the process at import
+# time, which is the correct outcome for a deployment that cannot check itself.
+from control_plane.startup_validation import validate_startup
+
 from scheduler import (
     list_jobs,
     API_TOKEN,
@@ -403,26 +411,30 @@ def _stop_background_tasks():
 async def lifespan(app):
     """FastAPI lifespan: start background tasks on startup, stop on shutdown."""
     # ── Production configuration gate (blueprint §30) ──────────────────
-    # Runs before anything else: a replica that would serve traffic with
-    # a SQLite backend, an unauthenticated agent mode, or process-local
-    # MCP rate limiting must fail the deploy, not discover it in prod.
-    # Outside production this only logs, so a dev machine still boots.
-    try:
-        from control_plane.startup_validation import validate_startup
-
-        for finding in validate_startup():
-            log.warning(
-                "STARTUP %s [%s]: %s — %s",
-                finding.severity.upper(),
-                finding.code,
-                finding.message,
-                finding.remediation,
-            )
-    except Exception as exc:
-        if type(exc).__name__ == "StartupValidationError":
-            log.critical("STARTUP VALIDATION FAILED: %s", exc)
-            raise
-        log.warning("startup validation could not run: %s", exc)
+    # Runs before anything else: a replica that would serve traffic with a
+    # SQLite backend, an unauthenticated agent mode, or process-local MCP rate
+    # limiting must fail the deploy, not discover it in prod.
+    #
+    # Enforcement is `not env_config.is_relaxed_env()`, so this refuses the boot
+    # on staging as well as production; only an explicitly named development
+    # environment gets findings-as-log-lines.
+    #
+    # Deliberately uncaught. This was wrapped in `try: ... except Exception`
+    # that re-raised only when `type(exc).__name__ == "StartupValidationError"`
+    # — a class-name string comparison, the same shape as the
+    # `XCELSIOR_ENV == "production"` checks removed elsewhere on this branch.
+    # Anything else, including an ImportError from the import that sat in the
+    # same block, became a warning and the boot continued unvalidated. A
+    # validator that could not run is not a validator that passed, so nothing
+    # catches it now and there is no `except` body left to weaken.
+    for finding in validate_startup():
+        log.warning(
+            "STARTUP %s [%s]: %s — %s",
+            finding.severity.upper(),
+            finding.code,
+            finding.message,
+            finding.remediation,
+        )
 
     # ── Support documentation corpus ───────────────────────────────────
     # Without this the ai_docs table stays empty and Xcel AI answers every
