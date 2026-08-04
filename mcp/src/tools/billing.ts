@@ -95,4 +95,29 @@ export function registerBillingTools(
       }
     },
   );
+
+  server.registerTool(
+    "list_payment_methods",
+    {
+      // No arguments. The route resolves the customer from the caller's own
+      // credential, so there is no `customer_id` to pass and no way to ask for
+      // somebody else's cards — unlike the routes above, which accept one and
+      // check ownership server-side.
+      inputSchema: z.object({}),
+    },
+    async () => {
+      const denied = scopeDenied("list_payment_methods", user);
+      if (denied) return denied;
+      try {
+        // Returns brand, last four, expiry and which is default. No PAN, no
+        // client_secret, no Stripe token — the plan's "no secret in any
+        // surface" gate covers this response, and the endpoint is what the
+        // dashboard already renders from.
+        const data = await client.get("/api/billing/payment-methods");
+        return jsonText(data);
+      } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
 }
