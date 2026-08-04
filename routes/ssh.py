@@ -248,7 +248,17 @@ def api_list_ssh_keys(request: Request):
 @router.delete("/api/ssh/keys/{key_id}", tags=["SSH Keys"])
 def api_delete_ssh_key(key_id: str, request: Request):
     """Delete a user SSH public key by ID."""
+    from routes._deps import _require_scope
+
     user = _require_user_grant(request, allow_api_key=True)
+    # Registration requires `ssh:write` and listing requires `ssh:read`, and this
+    # required nothing — so deletion, the only destructive one of the three, was
+    # the only one a narrowed machine credential could reach. It also calls
+    # `_trigger_reinject_for_user` below, which revokes the key from running
+    # instances, so an under-scoped caller could lock a user out of their own
+    # machines. Same verb asymmetry `tests/test_conditional_scope_guard.py`
+    # exists to catch, arriving through a missing line rather than a wrong one.
+    _require_scope(user, "ssh:write")
     deleted = UserStore.delete_ssh_key(user["email"], key_id)
     if not deleted:
         raise HTTPException(404, "SSH key not found")
