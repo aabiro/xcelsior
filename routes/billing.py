@@ -2038,9 +2038,19 @@ class AutoTopupConfig(BaseModel):
 @router.post("/api/v2/billing/auto-topup", tags=["Billing"])
 def api_billing_configure_topup(body: AutoTopupConfig, request: Request):
     """Configure wallet auto-top-up via Stripe."""
+    # Sets the threshold and amount that charge a saved card unattended. A
+    # session alone is not authority to change what gets charged.
+    #
+    # The explicit `if not user` refusal is kept rather than replaced with
+    # `_require_auth`: that helper returns a synthetic admin principal when
+    # `AUTH_REQUIRED` is false, so swapping it in would have *weakened* this
+    # route on a development box, from refusing anonymous callers to admitting
+    # them as admin. The defect here was missing authorization, not the
+    # authentication style.
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "billing:write")
     be = get_billing_engine()
     customer_id = _analytics_customer_scope(user)
     be.configure_auto_topup(
@@ -2059,6 +2069,7 @@ def api_billing_get_topup(request: Request):
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "billing:read")
     be = get_billing_engine()
     customer_id = _analytics_customer_scope(user)
     wallet = be.get_wallet(customer_id)
@@ -2082,9 +2093,12 @@ def api_billing_get_topup(request: Request):
 @router.post("/api/billing/portal-session", tags=["Billing"])
 def api_billing_portal_session(request: Request):
     """Create a Stripe Customer Portal session for the authenticated wallet owner."""
+    # The portal is full billing management in a browser. Minting a session for
+    # it is a write, whatever the HTTP verb of the route that returns the URL.
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "billing:write")
     be = get_billing_engine()
     customer_id = _analytics_customer_scope(user)
     try:
@@ -2103,9 +2117,11 @@ def api_billing_setup_intent(request: Request):
     Returns a client_secret for Stripe Elements `confirmCardSetup`. The saved
     card can then be selected for wallet auto-top-up.
     """
+    # Mints a credential that attaches a payment method to this customer.
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "billing:write")
     be = get_billing_engine()
     customer_id = _analytics_customer_scope(user)
     try:
@@ -2121,9 +2137,12 @@ def api_billing_setup_intent(request: Request):
 @router.get("/api/billing/payment-methods", tags=["Billing"])
 def api_billing_list_payment_methods(request: Request):
     """List the customer's saved card payment methods."""
+    # Brand, last four and expiry — no secret, but it is the funding
+    # configuration, and a read-scoped credential is what should reach it.
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "billing:read")
     be = get_billing_engine()
     customer_id = _analytics_customer_scope(user)
     return {"ok": True, "payment_methods": be.list_payment_methods(customer_id)}
@@ -2132,9 +2151,13 @@ def api_billing_list_payment_methods(request: Request):
 @router.delete("/api/billing/payment-methods/{payment_method_id}", tags=["Billing"])
 def api_billing_detach_payment_method(payment_method_id: str, request: Request):
     """Detach a saved card. Disables auto-top-up if it was the default method."""
+    # Removing the default card silently disables unattended top-up, so the
+    # wallet runs to zero and a running workload hard-stops. A read-scoped
+    # credential must not be able to do that.
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "billing:write")
     be = get_billing_engine()
     customer_id = _analytics_customer_scope(user)
     try:
