@@ -1150,13 +1150,23 @@ class StripeConnectManager:
         This guarantees at-least-once delivery with exactly-once semantics
         because Stripe retries are deduped by event_id primary key.
         """
+        # `outcome` exists so the route can choose a status code without matching
+        # on error prose. Stripe treats any 2xx as delivered: it stops retrying
+        # *and* the event never appears in `GET /v1/events?delivery_success=false`,
+        # which is the documented way to find what you missed. So the difference
+        # between these outcomes is the difference between an event that can be
+        # recovered and one that is silently gone.
         if not STRIPE_ENABLED or not stripe:
-            return {"handled": False, "reason": "Stripe not enabled"}
+            return {"handled": False, "outcome": "stripe_disabled", "reason": "Stripe not enabled"}
 
         verification_candidates = _webhook_secret_candidates()
         if not verification_candidates:
             log.error("No Stripe webhook secret configured — rejecting event")
-            return {"handled": False, "error": "no webhook secret configured"}
+            return {
+                "handled": False,
+                "outcome": "no_secret_configured",
+                "error": "no webhook secret configured",
+            }
 
         event = None
         last_err = None
@@ -1172,7 +1182,11 @@ class StripeConnectManager:
                 len(verification_candidates),
                 last_err,
             )
-            return {"handled": False, "error": str(last_err)}
+            return {
+                "handled": False,
+                "outcome": "signature_invalid",
+                "error": str(last_err),
+            }
 
         # Convert StripeObject to plain dict for safe attribute access
         # str(event) returns JSON reliably across all stripe SDK versions
@@ -1196,7 +1210,12 @@ class StripeConnectManager:
                     event_id,
                     existing["status"],
                 )
-                return {"handled": True, "type": event_type, "dedup": True}
+                return {
+                    "handled": True,
+                    "outcome": "accepted",
+                    "type": event_type,
+                    "dedup": True,
+                }
 
             from psycopg.types.json import Jsonb
 
@@ -1226,7 +1245,12 @@ class StripeConnectManager:
         except Exception as e:
             log.warning("Eager processing failed for %s, will retry: %s", event_id, e)
 
-        return {"handled": True, "type": event_type, "event_id": event_id}
+        return {
+            "handled": True,
+            "outcome": "accepted",
+            "type": event_type,
+            "event_id": event_id,
+        }
 
     def _process_single_event(self, event_id: str) -> bool:
         """Process one event from the inbox. Returns True if processed."""
