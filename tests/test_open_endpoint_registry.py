@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import ast
 import pathlib
+import re
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ROUTES = ROOT / "routes"
@@ -145,6 +146,20 @@ OPEN_ENDPOINTS: dict[str, tuple[str, str]] = {
     "api_agent_verify": ("internal_secret", "agent attestation callback"),
     "api_internal_route": ("internal_secret", "internal routing lookup"),
     "sse_stream": ("internal_secret", "ticket-authenticated event stream"),
+    # ── Stripe Connect: router denies by default; these are its exemptions ──
+    "handle_thin_webhook": (
+        "signed_webhook",
+        "requires a stripe-signature header, rejects when absent, and "
+        "parse_event_notification verifies it against the endpoint secret — "
+        "Stripe sends no bearer, so the signature is the credential",
+    ),
+    "connect_dashboard_page": (
+        "static_document",
+        "returns the _DASHBOARD_HTML constant; renders no account data and "
+        "fetches from the JSON API with the browser's credential",
+    ),
+    "storefront_page": ("static_document", "static HTML shell, no account data rendered"),
+    "success_page": ("static_document", "static post-checkout return page"),
 }
 
 #: Open **and not yet justified**. This is a ratchet: entries leave when they
@@ -162,21 +177,16 @@ OPEN_ENDPOINTS: dict[str, tuple[str, str]] = {
 #: because a buyer has no platform credential. Guessing the authorization model
 #: for a live money surface is how the `hosts:read` reclassification broke
 #: provider onboarding.
-NEEDS_REVIEW: dict[str, str] = {
-    "create_connected_account": "unauthenticated write: creates a Stripe connected account",
-    "list_connected_accounts": "unauthenticated read: enumerates Connect tenants",
-    "get_account_status": "unauthenticated read of account state",
-    "create_onboarding_link": "unauthenticated: mints a Stripe onboarding URL",
-    "create_product": "unauthenticated write to the Stripe catalogue",
-    "list_products": "unauthenticated read of the catalogue",
-    "create_checkout_session": "may be intentionally public — a buyer has no credential",
-    "handle_thin_webhook": "may verify a Stripe signature; scanner does not recognise that as auth",
-    "connect_dashboard_page": "HTML page; data fetched separately",
-    "storefront_page": "HTML page; may be intentionally public",
-    "success_page": "HTML page; post-checkout return",
-}
+NEEDS_REVIEW: dict[str, str] = {}
 
-MAX_UNCLASSIFIED = len(NEEDS_REVIEW)
+#: Renamed from `MAX_UNCLASSIFIED`, which collided with the GT0 ratchet in
+#: `test_gt0_classification_ratchet.py`. Two ceilings with one name, bounding
+#: different sets, is how a number gets quoted against the wrong denominator —
+#: the 39-vs-30 and 528-vs-516 confusions in this codebase were both that.
+#:
+#: This bounds **open endpoints lacking a justification**. GT0's bounds
+#: **inventory rows lacking a classification**. They are unrelated counts.
+MAX_UNJUSTIFIED_OPEN_ENDPOINTS = 0  # was 11: all of stripe_connect_v2, now router-gated
 VALID_CATEGORIES = {
     "oauth_protocol", "pre_auth", "liveness", "signed_webhook",
     "public_catalog", "static_document", "tombstone", "internal_secret",
@@ -208,9 +218,66 @@ def _auth_carrying_functions() -> tuple[set[str], dict[tuple[str, str], set[str]
     return auth, calls, defs
 
 
+def _router_level_guards() -> dict[str, set[str]]:
+    """file -> paths its router-level dependency leaves public.
+
+    A router declared `APIRouter(dependencies=[Depends(guard)])` authorizes
+    every route on it without the handler body containing an auth call, so a
+    scan of handler bodies alone reports all of them as open. That blind spot
+    was created by the `stripe_connect_v2` deny-by-default gate and caught
+    immediately — the registry still listed eleven endpoints as unauthenticated
+    after they had been guarded.
+
+    A guard that exempts by path is read for its exemption set, so the routes
+    that really are still public stay visible rather than being hidden behind
+    the router's dependency.
+
+    **Parsed with AST, not by splitting on `frozenset({`.** The first version
+    did exactly that, and it fails in the dangerous direction: written as a
+    plain set literal, a tuple, or a constant imported from another module, the
+    exemption set parses as empty — and an empty exemption set means every route
+    on that router reads as guarded. False negatives, which is the one direction
+    this scanner is supposed never to go.
+    """
+    guarded: dict[str, set[str]] = {}
+    for path in sorted(ROUTES.glob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:  # pragma: no cover
+            continue
+
+        # Does this module construct a router with router-level dependencies?
+        has_router_dependency = any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "APIRouter"
+            and any(kw.arg == "dependencies" for kw in node.keywords)
+            for node in ast.walk(tree)
+        )
+        if not has_router_dependency:
+            continue
+
+        # Every string constant that looks like a path, anywhere in a
+        # module-level collection. Deliberately broad: over-collecting an
+        # exemption keeps a route *visible* as open, which is the safe error.
+        exempt: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Set, ast.List, ast.Tuple)):
+                for element in node.elts:
+                    if (
+                        isinstance(element, ast.Constant)
+                        and isinstance(element.value, str)
+                        and element.value.startswith("/")
+                    ):
+                        exempt.add(element.value)
+        guarded[path.name] = exempt
+    return guarded
+
+
 def open_handlers() -> dict[str, str]:
     """handler name -> file, for every route reaching no auth call."""
     auth, calls, defs = _auth_carrying_functions()
+    router_guards = _router_level_guards()
     found: dict[str, str] = {}
     for (fname, name), node in defs.items():
         methods = [
@@ -223,8 +290,21 @@ def open_handlers() -> dict[str, str]:
             for m in methods
         ):
             continue
-        if not (calls[(fname, name)] & auth):
-            found[name] = fname
+        if calls[(fname, name)] & auth:
+            continue
+        if fname in router_guards:
+            # Guarded at the router. Only the paths its dependency exempts are
+            # still open, and those are matched by decorator path below.
+            decorated = {
+                d.args[0].value
+                for d in node.decorator_list
+                if isinstance(d, ast.Call) and d.args
+                and isinstance(d.args[0], ast.Constant)
+                and isinstance(d.args[0].value, str)
+            }
+            if not (decorated & router_guards[fname]):
+                continue
+        found[name] = fname
     return found
 
 
@@ -240,12 +320,18 @@ def test_every_open_endpoint_is_classified_or_under_review():
     )
 
 
-def test_the_unclassified_count_does_not_grow():
-    """The ratchet. It may only shrink."""
-    assert len(NEEDS_REVIEW) <= MAX_UNCLASSIFIED, (
-        f"{len(NEEDS_REVIEW)} endpoints await review, up from "
-        f"{MAX_UNCLASSIFIED}. An open endpoint is added by justifying it, "
-        "never by extending this list."
+def test_the_unjustified_open_endpoint_count_does_not_grow():
+    """The ratchet. It may only shrink.
+
+    This asserted `len(NEEDS_REVIEW) <= MAX_UNCLASSIFIED` where the ceiling was
+    `len(NEEDS_REVIEW)` — a number compared to itself, which could never fail.
+    Every prior report that "the ratchet held" was worth nothing. The ceiling is
+    now a recorded literal, so lowering it is what progress means.
+    """
+    assert len(NEEDS_REVIEW) <= MAX_UNJUSTIFIED_OPEN_ENDPOINTS, (
+        f"{len(NEEDS_REVIEW)} open endpoints await justification, up from "
+        f"{MAX_UNJUSTIFIED_OPEN_ENDPOINTS}. An open endpoint leaves this list "
+        "by being justified or guarded, never by the ceiling rising."
     )
 
 
