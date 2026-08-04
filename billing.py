@@ -2908,6 +2908,108 @@ class BillingEngine:
             )
         return out
 
+    def resolve_payment_method(
+        self,
+        customer_id: str,
+        *,
+        payment_method_id: str = "",
+        last4: str = "",
+        brand: str = "",
+    ) -> dict:
+        """Pick the card the caller meant, or explain why it cannot.
+
+        Nobody says `pm_1QxYz...`. They say "my Visa" or "the one ending 4242",
+        so the selector has to be resolvable from what `list_payment_methods`
+        already returns: brand, last four, and which is default.
+
+        Resolution is server-side rather than left to the model. If a user says
+        "Visa" and two Visas are on file, the right answer is to ask which —
+        not to pick one. Charging the wrong card is not undone by an apology.
+
+        Order:
+
+        1. An explicit `payment_method_id`, which must belong to this customer.
+           A card id that is not on the caller's account is refused rather than
+           passed to Stripe.
+        2. A `last4` and/or `brand` selector, which must match exactly one.
+        3. Nothing — use the account's default card, which is the sensible
+           reading of "top up my account".
+
+        Returns `{"ok": True, "payment_method": {...}}` or `{"ok": False,
+        "reason": ..., "candidates": [...]}` so the caller can tell the user
+        what to choose between.
+        """
+        methods = self.list_payment_methods(customer_id)
+        if not methods:
+            return {
+                "ok": False,
+                "reason": "no_saved_cards",
+                "message": (
+                    "No cards are saved on this account. Add one in the "
+                    "dashboard first — cards cannot be added through the API."
+                ),
+                "candidates": [],
+            }
+
+        wanted_id = (payment_method_id or "").strip()
+        if wanted_id:
+            match = next((m for m in methods if m.get("id") == wanted_id), None)
+            if not match:
+                # Deliberately does not distinguish "no such card" from "not
+                # yours": both answer the same way, so this cannot be used to
+                # probe whether a payment method id exists.
+                return {
+                    "ok": False,
+                    "reason": "unknown_payment_method",
+                    "message": "That payment method is not saved on this account.",
+                    "candidates": methods,
+                }
+            return {"ok": True, "payment_method": match}
+
+        wanted_last4 = (last4 or "").strip()[-4:]
+        wanted_brand = (brand or "").strip().lower()
+        if wanted_last4 or wanted_brand:
+            candidates = [
+                m
+                for m in methods
+                if (not wanted_last4 or str(m.get("last4") or "") == wanted_last4)
+                and (not wanted_brand or str(m.get("brand") or "").lower() == wanted_brand)
+            ]
+            if not candidates:
+                return {
+                    "ok": False,
+                    "reason": "no_matching_card",
+                    "message": "No saved card matches that description.",
+                    "candidates": methods,
+                }
+            if len(candidates) > 1:
+                return {
+                    "ok": False,
+                    "reason": "ambiguous_card",
+                    "message": (
+                        "More than one saved card matches. Say which one — the "
+                        "last four digits are enough."
+                    ),
+                    "candidates": candidates,
+                }
+            return {"ok": True, "payment_method": candidates[0]}
+
+        default = next((m for m in methods if m.get("is_default")), None)
+        if default:
+            return {"ok": True, "payment_method": default}
+        if len(methods) == 1:
+            # One card and no default flag is unambiguous.
+            return {"ok": True, "payment_method": methods[0]}
+        return {
+            "ok": False,
+            "reason": "no_default_card",
+            "message": (
+                "No default card is set and more than one is saved. Say which "
+                "one to use — the last four digits are enough."
+            ),
+            "candidates": methods,
+        }
+
     def detach_payment_method(self, customer_id: str, payment_method_id: str) -> dict:
         """Detach a saved card. If it was the auto-top-up default, disable auto-top-up."""
         from stripe_connect import STRIPE_ENABLED, stripe as _stripe_mod
@@ -3551,6 +3653,169 @@ class BillingEngine:
             "errors": errors,
         }
 
+    def _register_payment_intent(
+        self,
+        *,
+        intent_id: str,
+        customer_id: str,
+        amount_cents: int,
+        stripe_intent_id: str,
+        description: str,
+        created_at: float,
+    ) -> None:
+        """Record an intent so the confirmation webhook knows who to credit.
+
+        `_handle_payment_succeeded` matches the Stripe intent id against this
+        table and credits the wallet it finds. Without the row the customer is
+        charged and the credit is silently dropped — the defect `601cb05`
+        fixed, which existed because the only writer of this table was the
+        dashboard path and auto-top-up called Stripe directly.
+
+        `ON CONFLICT DO NOTHING` makes a repeated registration harmless, which
+        matters because a retried charge returns Stripe's *original* intent for
+        the same idempotency key.
+        """
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            conn.execute(
+                """INSERT INTO payment_intents
+                     (intent_id, customer_id, amount_cents, currency,
+                      status, stripe_intent_id, description, created_at)
+                   VALUES (%s, %s, %s, 'cad', 'created', %s, %s, %s)
+                   ON CONFLICT (stripe_intent_id)
+                     WHERE stripe_intent_id IS NOT NULL
+                       AND stripe_intent_id <> ''
+                   DO NOTHING""",
+                (
+                    intent_id,
+                    customer_id,
+                    amount_cents,
+                    stripe_intent_id,
+                    description,
+                    created_at,
+                ),
+            )
+            conn.commit()
+
+    def charge_saved_card(
+        self,
+        customer_id: str,
+        amount_micros: int,
+        *,
+        stripe_customer_id: str,
+        payment_method_id: str,
+        idempotency_key: str,
+        description: str,
+        metadata: dict | None = None,
+    ) -> dict:
+        """Charge a card already on file, off-session, and register the intent.
+
+        One implementation for both callers — the auto-top-up sweep and the
+        manual top-up route. A second copy is how `601cb05` happened: the
+        charge and the `payment_intents` registration have to stay together,
+        and two copies means two places to forget the second half.
+
+        **Order matters and is asserted.** The intent is registered immediately
+        after Stripe accepts the charge and before this returns, so a
+        confirmation webhook that arrives promptly finds the row rather than
+        falling through and dropping the credit.
+
+        Raises whatever Stripe raises. The callers' recovery differs — the
+        sweep counts failures and eventually disables unattended top-up; a
+        manual charge does neither — so the decision belongs to them, not here.
+        """
+        from stripe_connect import STRIPE_ENABLED, stripe as _stripe_mod
+
+        if not STRIPE_ENABLED or not _stripe_mod:
+            raise RuntimeError("Stripe is not enabled on this deployment")
+
+        # 10_000 micros == 1 cent. Integer division keeps the charged amount
+        # exact; float * 100 did not.
+        amount_cents = int(amount_micros) // 10_000
+        if amount_cents <= 0:
+            raise ValueError("amount must be greater than zero")
+
+        # Off-session saved PM: do not hardcode payment_method_types.
+        #
+        # The idempotency key is the last line of defence against
+        # double-charging: Stripe returns the *original* intent for a repeated
+        # key, so a retry cannot produce a second charge.
+        try:
+            intent = _stripe_mod.PaymentIntent.create(
+                amount=amount_cents,
+                currency="cad",
+                customer=stripe_customer_id,
+                payment_method=payment_method_id,
+                off_session=True,
+                confirm=True,
+                metadata={
+                    "customer_id": customer_id,
+                    "product_type": "wallet_deposit",
+                    "xcelsior_sku": "xcelsior-compute-credits",
+                    **(metadata or {}),
+                },
+                idempotency_key=idempotency_key,
+            )
+        except Exception as exc:
+            # An `authentication_required` decline is not the end of the
+            # charge — Stripe has *already created* the PaymentIntent and
+            # attached it to the error. The cardholder can complete the
+            # challenge in a browser, at which point Stripe fires
+            # `payment_intent.succeeded` for that same intent id.
+            #
+            # `_handle_payment_succeeded` credits the wallet only if it can
+            # match that id to a `payment_intents` row. Without this
+            # registration the customer completes the challenge, is charged,
+            # and the credit is silently dropped — `601cb05`'s defect arriving
+            # by the SCA path instead of the auto-top-up one.
+            #
+            # Registered here rather than in either caller so the sweep gets it
+            # too: §0.3 of the plan is about auto-top-up silently not working
+            # for any card whose issuer demands SCA.
+            pending = getattr(getattr(exc, "error", None), "payment_intent", None)
+            pending_id = ""
+            if pending is not None:
+                pending_id = str(
+                    (pending.get("id") if hasattr(pending, "get") else getattr(pending, "id", ""))
+                    or ""
+                )
+            if pending_id:
+                self._register_payment_intent(
+                    intent_id=f"pi_topup_{uuid.uuid4().hex[:16]}",
+                    customer_id=customer_id,
+                    amount_cents=amount_cents,
+                    stripe_intent_id=pending_id,
+                    description=f"{description} (awaiting cardholder verification)",
+                    created_at=time.time(),
+                )
+                log.warning(
+                    "Charge for %s requires cardholder verification; intent %s "
+                    "registered so the credit lands if they complete it",
+                    customer_id,
+                    pending_id,
+                )
+            raise
+
+        self._register_payment_intent(
+            intent_id=f"pi_topup_{uuid.uuid4().hex[:16]}",
+            customer_id=customer_id,
+            amount_cents=amount_cents,
+            stripe_intent_id=intent.id,
+            description=description,
+            created_at=time.time(),
+        )
+
+        return {
+            "ok": True,
+            "stripe_intent_id": intent.id,
+            "amount_cents": amount_cents,
+            "status": getattr(intent, "status", "") or "",
+        }
+
     def check_low_balance_and_topup(self) -> dict:
         """Check all wallets for low balance and trigger auto-top-up if configured.
 
@@ -3612,13 +3877,11 @@ class BillingEngine:
                     continue
 
             try:
-                from stripe_connect import STRIPE_ENABLED, stripe as _stripe_mod
+                from stripe_connect import STRIPE_ENABLED
 
-                if not STRIPE_ENABLED or not _stripe_mod:
+                if not STRIPE_ENABLED:
                     continue
 
-                # 10_000 micros == 1 cent. Integer division keeps the
-                # charged amount exact; float * 100 did not.
                 amount_cents = int(w["auto_topup_amount_micros"]) // 10_000
                 # Off-session saved PM: do not hardcode payment_method_types.
                 #
@@ -3631,57 +3894,37 @@ class BillingEngine:
                 # Stripe returns the *original* intent for a repeated key.
                 # Bucketed by sweep interval so a genuinely later top-up gets a
                 # new key.
-                pi = _stripe_mod.PaymentIntent.create(
-                    amount=amount_cents,
-                    currency="cad",
-                    customer=w["stripe_customer_id"],
-                    payment_method=w["stripe_payment_method_id"],
-                    off_session=True,
-                    confirm=True,
-                    metadata={
-                        "xcelsior_auto_topup": "true",
-                        "customer_id": customer_id,
-                        "product_type": "wallet_deposit",
-                        "xcelsior_sku": "xcelsior-compute-credits",
-                    },
+                # The shared charge, so a fix to the charge-and-register pair
+                # lands on both this sweep and the manual top-up route. The
+                # idempotency key is bucketed by sweep interval, so a genuinely
+                # later top-up gets a new key while a retry within the interval
+                # returns Stripe's original intent.
+                charge = self.charge_saved_card(
+                    customer_id,
+                    int(w["auto_topup_amount_micros"]),
+                    stripe_customer_id=w["stripe_customer_id"],
+                    payment_method_id=w["stripe_payment_method_id"],
                     idempotency_key=(
                         f"autotopup:{customer_id}:{amount_cents}:"
                         f"{int(now // _TOPUP_INFLIGHT_SECONDS)}"
                     ),
+                    description="Automatic wallet top-up",
+                    metadata={"xcelsior_auto_topup": "true"},
                 )
                 log.info(
                     "Auto-topup PaymentIntent created for %s: %s ($%.2f)",
                     customer_id,
-                    pi.id,
+                    charge["stripe_intent_id"],
                     micros_to_cad(w["auto_topup_amount_micros"]),
                 )
                 topped_up += 1
 
+                # The `payment_intents` row is written by `charge_saved_card`,
+                # which is what marks the charge in-flight so the next sweep
+                # leaves this wallet alone. Only the sweep's own bookkeeping
+                # remains here.
                 with pool.connection() as conn:
                     conn.row_factory = dict_row
-                    # Register the intent. `_handle_payment_succeeded` matches
-                    # the confirmation event against this row to decide who to
-                    # credit; without it the customer is charged and the credit
-                    # is silently dropped. It is also what marks the charge
-                    # in-flight so the next sweep leaves this wallet alone.
-                    conn.execute(
-                        """INSERT INTO payment_intents
-                             (intent_id, customer_id, amount_cents, currency,
-                              status, stripe_intent_id, description, created_at)
-                           VALUES (%s, %s, %s, 'cad', 'created', %s, %s, %s)
-                           ON CONFLICT (stripe_intent_id)
-                             WHERE stripe_intent_id IS NOT NULL
-                               AND stripe_intent_id <> ''
-                           DO NOTHING""",
-                        (
-                            f"pi_topup_{uuid.uuid4().hex[:16]}",
-                            customer_id,
-                            amount_cents,
-                            pi.id,
-                            "Automatic wallet top-up",
-                            now,
-                        ),
-                    )
                     conn.execute(
                         "UPDATE wallets SET last_topup_attempt_at = %s, auto_topup_failures = 0 WHERE customer_id = %s",
                         (now, customer_id),
