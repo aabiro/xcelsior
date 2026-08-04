@@ -7,7 +7,7 @@ import time
 
 import env_config
 
-from money import micros_to_cad
+from money import cad_to_micros, micros_to_cad
 import uuid
 from datetime import datetime, timezone
 from typing import Any, cast
@@ -2033,6 +2033,185 @@ class AutoTopupConfig(BaseModel):
     amount_cad: float = 25.0
     threshold_cad: float = 5.0
     stripe_payment_method_id: str = ""
+
+
+#: Stripe decline codes that mean "the cardholder must authenticate", as
+#: distinct from "the charge failed". Taken from Stripe's decline-code table;
+#: `authentication_not_handled` is the one returned when someone retries
+#: without completing the challenge, which is exactly what a user does after
+#: ignoring the first prompt.
+_AUTHENTICATION_DECLINES = frozenset(
+    {
+        "authentication_required",
+        "authentication_not_handled",
+        "mobile_device_authentication_required",
+    }
+)
+
+
+class ManualTopupRequest(BaseModel):
+    """A one-off top-up on a card already saved to the account.
+
+    The card selector is human-shaped on purpose. Nobody says `pm_1QxYz...`;
+    they say "my Visa" or "the one ending 4242". All three selectors are
+    optional — omitting them uses the account's default card, which is the
+    sensible reading of "top up my account".
+    """
+
+    amount_cad: float = Field(gt=0, le=10_000, description="Amount to charge, in CAD")
+    payment_method_id: str = ""
+    card_last4: str = ""
+    card_brand: str = ""
+
+
+@router.post("/api/v2/billing/top-up", tags=["Billing"])
+def api_billing_manual_topup(body: ManualTopupRequest, request: Request):
+    """Charge a saved card now and credit the wallet when Stripe confirms.
+
+    The same off-session charge auto-top-up runs nightly, with a manual trigger
+    instead of a threshold — `charge_saved_card` is shared between them, so the
+    charge and the `payment_intents` registration cannot drift apart.
+
+    **The wallet is not credited here.** Only Stripe's confirmation webhook
+    moves the balance, because the processor is the sole authority on whether
+    money moved. This route reports that the charge was *submitted*.
+    """
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "billing:write")
+
+    be = get_billing_engine()
+    customer_id = _analytics_customer_scope(user)
+
+    selected = be.resolve_payment_method(
+        customer_id,
+        payment_method_id=body.payment_method_id,
+        last4=body.card_last4,
+        brand=body.card_brand,
+    )
+    if not selected.get("ok"):
+        # 409 rather than 400: the request is well-formed, the account state is
+        # what makes it unanswerable. `candidates` is what lets the caller ask
+        # "which one?" with the cards named rather than guessing.
+        raise HTTPException(
+            409,
+            {
+                "charged": False,
+                "reason": selected.get("reason"),
+                "message": selected.get("message"),
+                "candidates": selected.get("candidates") or [],
+            },
+        )
+
+    method = selected["payment_method"]
+    wallet = be.get_wallet(customer_id)
+    stripe_customer_id = (wallet.get("stripe_customer_id") or "").strip()
+    if not stripe_customer_id:
+        raise HTTPException(409, {"charged": False, "reason": "no_stripe_customer"})
+
+    amount_micros = cad_to_micros(body.amount_cad)
+
+    # Idempotency. The client may supply a key; otherwise one is derived from
+    # the customer, amount and card within a short bucket, so a retried request
+    # returns Stripe's original intent rather than charging twice. A genuinely
+    # separate top-up a minute later gets a new key.
+    supplied = (request.headers.get("Idempotency-Key") or "").strip()
+    idempotency_key = supplied or (
+        f"manualtopup:{customer_id}:{amount_micros // 10_000}:"
+        f"{method.get('id')}:{int(time.time() // 300)}"
+    )
+
+    try:
+        charge = be.charge_saved_card(
+            customer_id,
+            amount_micros,
+            stripe_customer_id=stripe_customer_id,
+            payment_method_id=str(method.get("id") or ""),
+            idempotency_key=idempotency_key,
+            description="Wallet top-up",
+            metadata={"xcelsior_manual_topup": "true"},
+        )
+    except Exception as exc:
+        # An SCA challenge is a *decline*, not an error. Saying "error" leaves
+        # the caller to guess whether money moved; the answer is that it did
+        # not, and the charge is resumable by the cardholder in a browser.
+        #
+        # Deliberately does not touch `auto_topup_failures`, does not disable
+        # auto-top-up, and does not stop instances — that is the sweep's
+        # recovery for repeated unattended failures, and one manual decline is
+        # not evidence the card is dead.
+        # Checked on `decline_code` as well as `code`, because that is where
+        # Stripe actually puts it. For a card decline `code` is typically
+        # `card_declined` and `decline_code` carries the specific reason —
+        # Stripe's own guidance is "if the payment failed due to an
+        # authentication_required *decline code*". Matching only on `code`
+        # missed the case this branch exists for.
+        err = getattr(exc, "error", None)
+        code = str(getattr(err, "code", "") or "")
+        decline_code = str(getattr(err, "decline_code", "") or "")
+        # Three decline codes mean "the cardholder must authenticate", not
+        # "this failed". Stripe's decline-code table lists them separately:
+        #
+        #   authentication_required            — needs 3DS
+        #   authentication_not_handled         — they retried without doing it,
+        #                                        so the issuer declined again
+        #   mobile_device_authentication_required
+        #
+        # Handling only the first sends the second down the generic failure
+        # path, which tells a user who simply has not confirmed yet that
+        # something went wrong.
+        if (code in _AUTHENTICATION_DECLINES) or (decline_code in _AUTHENTICATION_DECLINES) or (
+            any(d in str(exc) for d in _AUTHENTICATION_DECLINES)
+        ):
+            # The declined intent is the one the cardholder must confirm.
+            # Stripe attaches it to the error, and `charge_saved_card` has
+            # already registered it so the credit lands when they do. The link
+            # names it so the dashboard resumes *this* payment rather than
+            # guessing which pending intent was meant.
+            pending = getattr(err, "payment_intent", None)
+            pending_id = ""
+            if pending is not None:
+                pending_id = str(
+                    (pending.get("id") if hasattr(pending, "get") else getattr(pending, "id", ""))
+                    or ""
+                )
+            base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca").rstrip("/")
+            resume = f"{base}/dashboard/billing?resume={pending_id}" if pending_id else (
+                f"{base}/dashboard/billing"
+            )
+            raise HTTPException(
+                402,
+                {
+                    "charged": False,
+                    "reason": "authentication_required",
+                    "message": (
+                        "Your bank asked to verify this payment, so the card was "
+                        "NOT charged yet. Open the link to confirm it — the wallet "
+                        "is credited automatically once you do."
+                    ),
+                    "resume_url": resume,
+                    "pending_intent_id": pending_id,
+                },
+            ) from exc
+        log.error("Manual top-up failed for %s: %s", customer_id, exc)
+        raise HTTPException(
+            502, {"charged": False, "reason": "charge_failed", "message": str(exc)}
+        ) from exc
+
+    return {
+        "ok": True,
+        "charged": True,
+        "credited": False,
+        "message": (
+            "Card charged. The wallet is credited when the payment processor "
+            "confirms, usually within a minute."
+        ),
+        "amount_cad": body.amount_cad,
+        "card": {"brand": method.get("brand"), "last4": method.get("last4")},
+        "stripe_intent_id": charge.get("stripe_intent_id"),
+        "status": charge.get("status"),
+    }
 
 
 @router.post("/api/v2/billing/auto-topup", tags=["Billing"])

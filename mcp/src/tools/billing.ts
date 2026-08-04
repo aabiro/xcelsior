@@ -97,6 +97,69 @@ export function registerBillingTools(
   );
 
   server.registerTool(
+    "top_up_wallet",
+    {
+      inputSchema: z.object({
+        amount_cad: z
+          .number()
+          .gt(0)
+          .max(10_000)
+          .describe("Amount to charge in CAD. Confirm this with the user first — it moves money."),
+        // Human selectors, because nobody says `pm_1QxYz...`. Resolution is
+        // server-side: two Visas on file and a request for "the Visa" is
+        // refused with both listed, rather than one being picked. Charging the
+        // wrong card is not undone by an apology.
+        card_last4: z
+          .string()
+          .optional()
+          .describe("Last four digits, e.g. '4242'. Use what the user said."),
+        card_brand: z
+          .string()
+          .optional()
+          .describe("Card brand, e.g. 'visa' or 'mastercard'. Use what the user said."),
+        payment_method_id: z
+          .string()
+          .optional()
+          .describe("Exact Stripe id, if you already have one from list_payment_methods."),
+        idempotency_key: z
+          .string()
+          .optional()
+          .describe(
+            "Pass the SAME key when retrying a call that timed out. Without it a retry may " +
+              "charge a second time.",
+          ),
+      }),
+    },
+    async ({ amount_cad, card_last4, card_brand, payment_method_id, idempotency_key }) => {
+      const denied = scopeDenied("top_up_wallet", user);
+      if (denied) return denied;
+      try {
+        const data = await client.post(
+          "/api/v2/billing/top-up",
+          {
+            amount_cad,
+            card_last4: card_last4 ?? "",
+            card_brand: card_brand ?? "",
+            payment_method_id: payment_method_id ?? "",
+          },
+          // The client already carries idempotency as a first-class option and
+          // sets the header itself; passing a raw header would bypass its
+          // retry policy, which is the thing that makes the key matter.
+          { idempotencyKey: idempotency_key, retry: "idempotent" },
+        );
+        return jsonText(data);
+      } catch (e) {
+        // The route answers 409 for "which card?", 402 for an SCA challenge,
+        // and 502 for a decline. Each body already says `charged: false` and
+        // why, so it is surfaced rather than flattened into "error" — an agent
+        // that cannot tell a challenge from a failure will either retry a
+        // charge that succeeded or abandon one that only needed confirming.
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
+
+  server.registerTool(
     "list_payment_methods",
     {
       // No arguments. The route resolves the customer from the caller's own
