@@ -237,6 +237,27 @@ x-api-environment: &api-env
   # Public worker surface: allow (default) | deny. "deny" is the §22.1
   # cutover — pair it with nginx/snippets/xcelsior-agent-retired.conf.
   XCELSIOR_AGENT_PUBLIC_INGRESS: ${XCELSIOR_AGENT_PUBLIC_INGRESS:-allow}
+  # Two secrets `control_plane/startup_validation.py` refuses production
+  # without. There is no `env_file:` on any service here — every variable
+  # reaches a container only by being named in this anchor — so having them in
+  # `.env` was not enough: they were set on the host and unset in the process
+  # that reads them, and the 2026-08-04 deploy failed its boot on exactly that.
+  #
+  # Compatibility sessions derive host submit tokens from this; unset means a
+  # public development constant and forgeable provider evidence.
+  XCELSIOR_COMPAT_SESSION_SECRET: ${XCELSIOR_COMPAT_SESSION_SECRET:-}
+  # Audit checkpoint signing (`control_plane/audit_checkpoints.py`, reached from
+  # `bg_worker.py` through this same anchor). Unset means checkpoints are signed
+  # with the public development key and the audit trail is forgeable.
+  XCELSIOR_AUDIT_SIGNING_KEYS: ${XCELSIOR_AUDIT_SIGNING_KEYS:-}
+  XCELSIOR_AUDIT_SIGNING_ACTIVE: ${XCELSIOR_AUDIT_SIGNING_ACTIVE:-}
+  # The single-key form the same check accepts as an alternative to the map.
+  XCELSIOR_AUDIT_SIGNING_KEY: ${XCELSIOR_AUDIT_SIGNING_KEY:-}
+  # Default `host_ssh` already passes validation, so this is not a live gap —
+  # but an operator setting it in `.env` would have been ignored exactly as the
+  # two secrets above were. Mapped so the setting is real, and so
+  # `tests/test_startup_env_is_wired.py` needs no exemption list.
+  XCELSIOR_VOLUME_PRIVILEGE: ${XCELSIOR_VOLUME_PRIVILEGE:-host_ssh}
 
 # ── Shared API volumes ───────────────────────────────────────────────
 # Phase 10: API/bg-worker do NOT mount host /exports (no privileged volume
