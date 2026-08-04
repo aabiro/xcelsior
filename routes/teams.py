@@ -25,6 +25,10 @@ router = APIRouter()
 # ── Helper: _send_team_email ──
 
 
+#: One warning per process for an unconfigured mailer — see below.
+_MAILER_UNCONFIGURED_LOGGED = False
+
+
 def _send_team_email(
     to_email: str,
     subject: str,
@@ -43,6 +47,19 @@ def _send_team_email(
 
     cfg = ALERT_CONFIG
     if not cfg.get("email_enabled") or not cfg.get("smtp_host"):
+        # Was a bare `return`. An unconfigured mailer in production is a
+        # misconfiguration, and returning silently meant a user got "check your
+        # email" while nothing was attempted and nothing was logged at any level.
+        # Once per process rather than per send, so it is a signal and not noise.
+        global _MAILER_UNCONFIGURED_LOGGED
+        if not _MAILER_UNCONFIGURED_LOGGED:
+            _MAILER_UNCONFIGURED_LOGGED = True
+            log.warning(
+                "email is not configured (email_enabled=%s smtp_host=%r) — "
+                "no mail will be sent, including address verification",
+                cfg.get("email_enabled"),
+                cfg.get("smtp_host"),
+            )
         return
 
     # Build styled HTML matching the React email templates
