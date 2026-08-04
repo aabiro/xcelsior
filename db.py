@@ -23,6 +23,8 @@ from collections.abc import Mapping
 from contextlib import contextmanager
 from typing import Any, cast
 
+from oauth_delegation import assert_delegable  # scope-write guard, see #16
+
 log = logging.getLogger("xcelsior")
 
 # ── Configuration ─────────────────────────────────────────────────────
@@ -2199,9 +2201,22 @@ class MfaStore:
 
 class OAuthStore:
     @staticmethod
-    def update_client(client_id: str, updates: dict, created_by_email: str | None = None) -> bool:
+    def update_client(
+        client_id: str,
+        updates: dict,
+        created_by_email: str | None = None,
+        *,
+        actor: object,
+    ) -> bool:
         allowed = {"client_name", "redirect_uris", "grant_types", "scopes", "status"}
         fields = {k: v for k, v in updates.items() if k in allowed}
+        # The lock, not the door (#16). Enforced here so a caller cannot omit it
+        # by not knowing about it: registration was guarded and the update path was
+        # not, which left a two-request escalation open after the first fix.
+        # `actor` is required and has no default — a forgotten argument is a
+        # TypeError rather than a silent exemption.
+        assert_delegable(fields.get("scopes"), actor=actor)
+
         if not fields:
             return False
         # Wrap JSONB fields for psycopg3
@@ -2254,8 +2269,16 @@ class OAuthStore:
         workspace_customer_id: str,
         personal_customer_id: str,
         user_email: str,
+        actor: object,
     ) -> bool:
         allowed = {"client_name", "redirect_uris", "grant_types", "scopes", "status"}
+        # The lock, not the door (#16). Enforced here so a caller cannot omit it
+        # by not knowing about it: registration was guarded and the update path was
+        # not, which left a two-request escalation open after the first fix.
+        # `actor` is required and has no default — a forgotten argument is a
+        # TypeError rather than a silent exemption.
+        assert_delegable(updates.get("scopes"), actor=actor)
+
         fields = {k: v for k, v in updates.items() if k in allowed}
         if not fields:
             return False
@@ -2359,8 +2382,15 @@ class OAuthStore:
             )
 
     @staticmethod
-    def create_client(client: dict) -> None:
+    def create_client(client: dict, *, actor: object) -> None:
         from psycopg.types.json import Jsonb
+
+        # The lock, not the door (#16). Enforced here so a caller cannot omit it
+        # by not knowing about it: registration was guarded and the update path was
+        # not, which left a two-request escalation open after the first fix.
+        # `actor` is required and has no default — a forgotten argument is a
+        # TypeError rather than a silent exemption.
+        assert_delegable(client.get("scopes"), actor=actor)
 
         with auth_connection() as conn:
             conn.execute(

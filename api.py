@@ -1064,7 +1064,23 @@ async def request_validation_exception_handler(_: Request, exc: RequestValidatio
     )
 
 
+from oauth_delegation import ScopeDelegationError
 from oauth_service import OAuthGrantError, AuthCacheUnavailableError
+
+
+@app.exception_handler(ScopeDelegationError)
+async def scope_delegation_error_handler(_: Request, exc: ScopeDelegationError):
+    """403, from wherever the store refused.
+
+    `OAuthStore` enforces scope delegation itself (#16) so no route can forget it.
+    That only works if the refusal reaches the caller correctly from *any* route,
+    including one written later — a handler here means a new writer returns 403
+    rather than a 500 that reads as a bug in the platform instead of a refusal.
+    """
+    return JSONResponse(
+        status_code=403,
+        content={"ok": False, "error": {"code": "forbidden", "message": str(exc)}},
+    )
 
 
 @app.exception_handler(OAuthGrantError)
