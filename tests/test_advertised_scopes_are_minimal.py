@@ -101,6 +101,11 @@ def test_the_advertised_set_is_not_empty_or_everything():
     )
 
 
+#: OIDC identity scopes are defined by OpenID Connect, not by this server's
+#: capability vocabulary, and clients render them from their own catalogues.
+OIDC = {"openid", "profile", "email", "offline_access"}
+
+
 def test_every_advertised_scope_has_a_description():
     """A scope a user is asked to grant must be renderable on a consent screen.
 
@@ -109,12 +114,56 @@ def test_every_advertised_scope_has_a_description():
     """
     from oauth_service import SCOPE_DESCRIPTIONS
 
-    #: OIDC identity scopes are defined by OpenID Connect, not by this server's
-    #: capability vocabulary, and clients render them from their own catalogues.
-    OIDC = {"openid", "profile", "email", "offline_access"}
-
     undescribed = sorted(set(_advertised()) - set(SCOPE_DESCRIPTIONS) - OIDC)
     assert not undescribed, (
         f"{undescribed} are advertised but have no entry in SCOPE_DESCRIPTIONS, "
         "so a consent screen can only show the raw string"
+    )
+
+
+def test_every_scope_a_quick_connect_token_carries_has_a_description():
+    """`scopes_supported` is not the only route to a consent screen.
+
+    Quick Connect mints a system-managed client holding `SYSTEM_ALLOWED_SCOPES`,
+    and that token is what users paste into Claude, ChatGPT and Grok. Those
+    scopes never appear in `scopes_supported` — correctly, they are not a
+    baseline ask — so the advertised-scope check above cannot see them.
+
+    It missed the three with the widest reach: `ssh:write`, `ssh:read` and
+    `instances:connect` were all undescribed, so the screen shown at the moment a
+    user hands an agent access to their machines rendered bare identifiers.
+    `ssh:write` is the step that grants shell access; a user approving it has to
+    be told that in a sentence, not in a scope name.
+    """
+    from oauth_delegation import SYSTEM_ALLOWED_SCOPES
+    from oauth_service import SCOPE_DESCRIPTIONS
+
+    #: `api` is a legacy blanket scope carried by seeded first-party clients. It
+    #: is not offered to a user for approval and is on its way out; describing it
+    #: would imply it is a capability someone should grant.
+    LEGACY = {"api"}
+
+    undescribed = sorted(SYSTEM_ALLOWED_SCOPES - set(SCOPE_DESCRIPTIONS) - OIDC - LEGACY)
+    assert not undescribed, (
+        f"{undescribed} can be carried by a token a user is asked to approve, "
+        "but have no description — the consent screen can only show the raw "
+        "identifier"
+    )
+
+
+def test_the_shell_access_consent_names_the_consequence():
+    """`ssh:write` must say what it does, not what it permits.
+
+    A description like "manage SSH keys" is accurate and useless: it describes
+    an API capability rather than the thing the user is agreeing to, which is
+    that someone holding that key can open a shell on their running machines and
+    read what is on them. This asserts the sentence still carries the
+    consequence, because that is exactly the wording a later tidy-up shortens.
+    """
+    from oauth_service import SCOPE_DESCRIPTIONS
+
+    text = SCOPE_DESCRIPTIONS["ssh:write"].lower()
+    assert "shell" in text, "ssh:write's description no longer mentions shell access"
+    assert "data" in text or "access" in text, (
+        "ssh:write's description no longer says what the shell reaches"
     )

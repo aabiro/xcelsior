@@ -1444,6 +1444,23 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     # approve it. Not operator authority: it registers and updates hosts the
     # caller owns, which is what a provider's worker agent needs.
     "hosts:write": "Register and update the GPU hosts you own",
+    # The three scopes every Quick Connect token carries, and the three with the
+    # widest real-world reach — all previously undescribed, so the consent screen
+    # a user sees when pasting a token showed them bare identifiers.
+    #
+    # These say what the capability *does to the user*, not what it permits in
+    # the API. Someone approving `ssh:write` is approving shell access to their
+    # running machines, and the sentence has to say so.
+    "ssh:write": (
+        "Add and remove SSH keys on your account. Anyone holding a key added "
+        "here can open a shell on your running instances, with access to the "
+        "data on them."
+    ),
+    "ssh:read": "See which SSH keys are on your account",
+    "instances:connect": (
+        "Open a terminal on your running instances, and publish their ports to "
+        "the internet"
+    ),
     # Not operator authority: it answers *your* hosts, which is what a provider
     # needs to run their own rig. Platform-wide visibility is `hosts:fleet`.
     # The "(operator)" marker was left over from when this one scope did both.
