@@ -85,6 +85,22 @@ describe("scope enforcement", () => {
     expect(describeScopeRequirement(undefined)).toMatch(/no contract/);
   });
 
+  /**
+   * Tools a Quick Connect token deliberately cannot reach.
+   *
+   * The default connector credential carries `billing:read` and not
+   * `billing:write`, so it can read the funding configuration and not change
+   * it. `top_up_wallet` charges a real card, and the plan of record is explicit
+   * that it "is `billing:write` from the start — it charges a real card, so it
+   * is never reachable by a read-scoped credential"
+   * (docs/mcp-agent-native-implementation-plan.md, P0).
+   *
+   * Listed by name rather than skipped by scope, so adding a second
+   * money-moving tool is a decision someone records here instead of an
+   * exemption that widens quietly.
+   */
+  const NOT_REACHABLE_BY_QUICK_CONNECT = new Set(["top_up_wallet"]);
+
   it("still admits the Quick Connect scope set for every customer tool", () => {
     // Regression guard on the fix itself: tightening allOf must not lock the
     // default connector credential out of the surface it is issued for.
@@ -95,7 +111,21 @@ describe("scope enforcement", () => {
     for (const [name, contract] of Object.entries(TOOL_CONTRACTS)) {
       if (contract.tenantClass === "operator") continue;
       if (name === "search" || name === "fetch") continue;
+      if (NOT_REACHABLE_BY_QUICK_CONNECT.has(name)) continue;
       expect(satisfiesScope(quickConnect, TOOL_SCOPES[name]), name).toBe(true);
+    }
+  });
+
+  it("refuses the money-moving tools to the Quick Connect scope set", () => {
+    // The other half, so the exemption above cannot become a blanket skip. A
+    // tool named here must actually be out of reach — if `billing:write` were
+    // added to the connector default, this fails and the decision surfaces.
+    const quickConnect = [
+      "instances:read", "instances:write", "instances:operate", "billing:read",
+      "gpu:read", "marketplace:read", "inference:read", "inference:write", "events:read",
+    ];
+    for (const name of NOT_REACHABLE_BY_QUICK_CONNECT) {
+      expect(satisfiesScope(quickConnect, TOOL_SCOPES[name]), name).toBe(false);
     }
   });
 });

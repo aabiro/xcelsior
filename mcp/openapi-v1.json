@@ -3603,6 +3603,38 @@
         ],
         "title": "LoginRequest"
       },
+      "ManualTopupRequest": {
+        "properties": {
+          "amount_cad": {
+            "type": "number",
+            "maximum": 10000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Amount Cad",
+            "description": "Amount to charge, in CAD"
+          },
+          "payment_method_id": {
+            "type": "string",
+            "title": "Payment Method Id",
+            "default": ""
+          },
+          "card_last4": {
+            "type": "string",
+            "title": "Card Last4",
+            "default": ""
+          },
+          "card_brand": {
+            "type": "string",
+            "title": "Card Brand",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "amount_cad"
+        ],
+        "title": "ManualTopupRequest",
+        "description": "A one-off top-up on a card already saved to the account.\n\nThe card selector is human-shaped on purpose. Nobody says `pm_1QxYz...`;\nthey say \"my Visa\" or \"the one ending 4242\". All three selectors are\noptional \u2014 omitting them uses the account's default card, which is the\nsensible reading of \"top up my account\"."
+      },
       "MarketplaceSearchParams": {
         "properties": {
           "gpu_model": {

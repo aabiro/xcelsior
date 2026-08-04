@@ -253,6 +253,21 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     "List the account's billing invoices with their periods and amounts in CAD. Use when the " +
     "user asks what they have been charged or wants a specific invoice. Read-only and free.",
 
+  top_up_wallet:
+    "Charge a card already saved on the account and credit the wallet. " +
+    "Use this when the user asks to add funds — 'put $20 on my account', 'top me up' — or when a " +
+    "balance check shows they will run out mid-job. " +
+    "Say the amount in CAD; identify the card the way the user did — 'the Visa', 'the one ending " +
+    "4242' — using card_brand and/or card_last4, or omit both to use their default card. Call " +
+    "list_payment_methods first if you are unsure what is on file. " +
+    "MOVES REAL MONEY: confirm the amount with the user before calling, and never retry a call " +
+    "that timed out without passing the same idempotency key — the charge may already have gone " +
+    "through. If more than one saved card matches, this refuses and lists them rather than " +
+    "guessing; ask which one. If the bank requires verification the card is NOT charged and a link " +
+    "is returned for the user to confirm in a browser. " +
+    "The wallet is credited when the payment processor confirms, moments later — not when this " +
+    "returns, so do not report a new balance you have not read.",
+
   list_payment_methods:
     "List the cards already saved on the account: brand, last four digits, expiry, and which one " +
     "is the default. Use when the user asks what is on file, or before a top-up so you can name " +

@@ -950,6 +950,45 @@
       "hasOutputSchema": true
     },
     {
+      "name": "top_up_wallet",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "billing:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "amount_cad": {
+          "type": "number",
+          "optional": false
+        },
+        "card_last4": {
+          "type": "string",
+          "optional": true
+        },
+        "card_brand": {
+          "type": "string",
+          "optional": true
+        },
+        "payment_method_id": {
+          "type": "string",
+          "optional": true
+        },
+        "idempotency_key": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
       "name": "watch_instance",
       "version": "2.0.0",
       "tenantClass": "tenant",
