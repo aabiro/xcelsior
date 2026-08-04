@@ -1135,6 +1135,52 @@ def _safe_oauth_client_payload(client: dict) -> dict:
     }
 
 
+# ── Operator-scope refusal (stopgap) ──────────────────────────────────
+#
+# Scopes reached the `oauth_clients.scopes` column with no check that the
+# caller was entitled to delegate them. A machine principal is authorized on
+# its scope alone (`control_plane_v1._require_host_operator`), so any principal
+# able to write this column could obtain platform-operator authority.
+#
+# This is deliberately blunt: a literal list and a refusal, applied at the two
+# routes that write the column. It depends on nothing outside this module so it
+# can ship on its own.
+#
+# The durable fix puts the check on the three `OAuthStore` methods that persist
+# the column, so every caller inherits it instead of each route remembering —
+# there are five paths to those three methods, and one of them bypasses the
+# service-layer funnel entirely. See #16. **Delete this block when that lands;
+# do not build on it.**
+_OPERATOR_SCOPES_STOPGAP = frozenset(
+    {
+        "control_plane:operate",
+        "control_plane:read",
+        "hosts:evict",
+        "hosts:fleet",
+        "hosts:operate",
+        "transparency:read",
+        "transparency:write",
+    }
+)
+
+
+def _refuse_undelegatable_scopes(scopes: list[str] | None, user: dict) -> None:
+    """Refuse operator scopes to a principal that is not a platform admin.
+
+    `scopes is None` means the request did not mention scopes — a PATCH that
+    only renames a client, say — and leaves the stored value untouched.
+    """
+    if scopes is None or _is_platform_admin(user):
+        return
+    refused = sorted(set(scopes) & _OPERATOR_SCOPES_STOPGAP)
+    if refused:
+        raise HTTPException(
+            403,
+            "These scopes may only be granted by a platform administrator: "
+            + ", ".join(refused),
+        )
+
+
 @router.post("/api/oauth/clients", tags=["Auth"])
 def api_create_oauth_client(body: OAuthClientCreateRequest, request: Request):
     user = _require_user_grant(request)
@@ -1143,6 +1189,7 @@ def api_create_oauth_client(body: OAuthClientCreateRequest, request: Request):
         raise HTTPException(400, "client_type must be public or confidential")
     if body.is_first_party and not _is_platform_admin(user):
         raise HTTPException(403, "Only admins can create first-party OAuth clients")
+    _refuse_undelegatable_scopes(list(body.scopes), user)
     workspace_customer_id = _oauth_workspace_customer_id(user)
     team_id = _oauth_workspace_team_id(user)
     client = create_oauth_client(
@@ -3134,6 +3181,9 @@ def api_update_oauth_client(client_id: str, body: OAuthClientUpdateRequest, requ
     updates = body.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(400, "No fields to update")
+    # Checked before the admin/non-admin split below, because both branches
+    # write the scopes column.
+    _refuse_undelegatable_scopes(updates.get("scopes"), user)
     from db import OAuthStore
 
     if _is_platform_admin(user):
