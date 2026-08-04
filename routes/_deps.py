@@ -140,6 +140,17 @@ PUBLIC_PATHS = {
     "/api/billing/lightning/rate",
     "/api/billing/paypal/enabled",
     "/api/billing/paypal/webhook",
+    # Stripe Connect thin events. Stripe sends no bearer, so demanding one meant
+    # every delivery got 401 from this middleware before the handler ran — the
+    # endpoint has been unreachable for as long as it has existed, which the
+    # missing signing secret masked (a 503 nobody saw, behind a 401 nobody saw).
+    #
+    # Safe for the same reason the two webhooks above are: the signature *is* the
+    # credential. `routes/stripe_connect_v2.py` refuses without a
+    # `stripe-signature` header (400), verifies it against the endpoint secret via
+    # `parse_event_notification`, and answers 503 rather than proceeding if no
+    # secret is configured. Nothing is trusted here that the handler does not check.
+    "/api/connect/webhooks",
     "/api/v2/serverless/enabled",
 }
 PUBLIC_PATH_PREFIXES = ("/api/auth/", "/api/chat", "/legacy/", "/oauth/", "/static/")
