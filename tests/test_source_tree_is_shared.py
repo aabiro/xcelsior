@@ -1,5 +1,19 @@
 """Static gates walk the tree through one iterator, not eight of their own.
 
+residency-guard: documents-removal
+
+The marker above is carried for a narrow and slightly awkward reason: the ratchet
+below lists gate *filenames*, one of which is `test_no_residency_gating.py`, and
+the residency guard matches the vocabulary in that name. Nothing here discusses
+placement — the match is on an identifier, not on prose.
+
+That is the **seventh** time a text-scanning guard in this suite has caught a
+mention rather than a use. The durable fix is the one applied to the walk detector
+in this very file: match structure, not characters. The residency guard is still
+character-based, so it belongs on
+`docs/review/workaround-elimination-plan.md` rather than being widened here —
+widening it would exempt exactly the files most likely to name the thing it hunts.
+
 Eight modules each rolled their own `rglob("*.py")` with their own exclusions. On
 2026-08-04 four failed at once on macOS AppleDouble sidecars, with an error naming
 neither the sidecar nor the gate's subject. Three were patched individually, which
