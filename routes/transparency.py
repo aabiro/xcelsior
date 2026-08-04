@@ -46,11 +46,14 @@ class LegalRequestRecord(BaseModel):
 @router.post("/api/transparency/legal-request", tags=["Transparency"])
 def api_record_legal_request(req: LegalRequestRecord, request: Request):
     """Record a legal request (subpoena, warrant, MLAT, etc.)."""
-    from routes._deps import _require_scope, _get_current_user
+    from routes._deps import _require_auth, _require_scope
 
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "transparency:write")
+    # `if user: _require_scope(...)` ran the check only for callers who had
+    # already authenticated, so an anonymous caller skipped it and fell through
+    # to the insert below. Authenticate first, unconditionally; the scope check
+    # narrows further but is no longer the only thing standing here.
+    user = _require_auth(request)
+    _require_scope(user, "transparency:write")
     import uuid
 
     with _transparency_db() as conn:
@@ -94,11 +97,12 @@ def api_respond_legal_request(
     notes: str = "",
 ):
     """Record response to a legal request."""
-    from routes._deps import _require_scope, _get_current_user
+    from routes._deps import _require_auth, _require_scope
 
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "transparency:write")
+    # Sets `complied` and `challenged` — the fields the transparency report is
+    # computed from. Same conditional-scope defect as the insert above.
+    user = _require_auth(request)
+    _require_scope(user, "transparency:write")
     with _transparency_db() as conn:
         conn.execute(
             """UPDATE legal_requests
@@ -116,11 +120,11 @@ def api_transparency_report(request: Request, months: int = 12):
     Returns summary of all legal requests and data disclosures.
     Monthly JSON per REPORT_FEATURE_2.md Phase B §3.
     """
-    from routes._deps import _require_scope, _get_current_user
+    from routes._deps import _require_auth, _require_scope
 
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "transparency:read")
+    # Discloses every legal request and data disclosure in the window.
+    user = _require_auth(request)
+    _require_scope(user, "transparency:read")
     with _transparency_db() as conn:
         since = time.time() - (months * 30 * 86400)
 
