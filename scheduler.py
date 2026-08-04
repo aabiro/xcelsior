@@ -1549,13 +1549,19 @@ def check_hosts():
     now = time.time()
 
     for h in hosts:
-        alive = ping_host(h["ip"])
+        # `h["ip"]` raised KeyError on any row registered without one, which
+        # took the whole admin health check down with a 500 rather than
+        # reporting that one host as unreachable. A host with no address cannot
+        # be pinged, so it is dead by definition — but a recent agent heartbeat
+        # still counts, exactly as it does for a host whose ping fails.
+        ip = str(h.get("ip") or "").strip()
+        alive = ping_host(ip) if ip else False
         # Trust recent agent heartbeat even if ping fails
         if not alive:
             last_seen = h.get("last_seen", 0)
             if isinstance(last_seen, (int, float)) and (now - last_seen) < 60:
                 alive = True
-        updates.append((h["host_id"], h["ip"], alive))
+        updates.append((h["host_id"], ip, alive))
         results[h["host_id"]] = "alive" if alive else "dead"
 
     with _atomic_mutation() as conn:

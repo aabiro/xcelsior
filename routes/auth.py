@@ -506,6 +506,7 @@ def oauth_authorization_server_metadata(request: Request):
             "billing:read",
             "billing:write",
             "hosts:read",
+            "hosts:fleet",
             "hosts:write",
             "hosts:operate",
             "hosts:evict",

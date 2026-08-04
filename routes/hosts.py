@@ -88,6 +88,65 @@ def _resolve_host_owner_from_user(user: dict) -> str:
     return str(user.get("user_id") or user.get("sub") or user.get("email") or "")
 
 
+#: Platform-wide host visibility. Operator authority, and only an admin may
+#: delegate it — see `oauth_delegation.OPERATOR_SCOPES`.
+FLEET_READ_SCOPE = "hosts:fleet"
+
+
+def visible_hosts(user: dict, hosts: list[dict]) -> list[dict]:
+    """The subset of *hosts* that *user* may see.
+
+    `GET /hosts` returned the entire fleet to anyone holding `hosts:read` —
+    capacity, GPU models, owners, admission state. That scope is granted to
+    every provider so their worker agent can report its own admission status,
+    which made competitors' capacity readable by anyone who registered a rig.
+
+    Reclassifying `hosts:read` as operator authority breaks provider onboarding,
+    because providers are not admins. The split is additive instead —
+    `hosts:read` answers *your* hosts, and platform-wide visibility moved behind
+    `hosts:fleet`, which only an admin may delegate.
+
+    Admins keep fleet visibility without holding the scope, matching every other
+    operator gate here ("admin, or a machine principal with the scope").
+
+    Ownership resolves through the OAuth client's creator as well as the
+    principal itself, so a worker credential still sees the host it was created
+    to run — that path is what makes provisioning work.
+
+    The failure this prevents is silent: no error and no refusal, just more rows
+    than the caller should see.
+    """
+    if _is_platform_admin(user):
+        return list(hosts)
+    if FLEET_READ_SCOPE in set(user.get("scopes") or ()):
+        return list(hosts)
+
+    caller_ids = _caller_owner_ids(user)
+    creator = _oauth_client_creator(user)
+    if creator:
+        caller_ids |= _caller_owner_ids(creator)
+        creator_user_id = str(creator.get("user_id") or creator.get("sub") or "").strip()
+        if creator_user_id:
+            caller_ids.add(creator_user_id)
+
+    # An unowned row is nobody's host, not everybody's.
+    return [h for h in hosts if caller_ids & _host_owner_ids(h)]
+
+
+def _require_host_visible(user: dict, host: dict) -> None:
+    """404 unless *user* may see *host*.
+
+    404 rather than 403: a 403 confirms the host exists, which is most of what
+    fleet enumeration wanted in the first place.
+
+    Filtering only the list endpoint leaves this open — `GET /host/{id}` and the
+    spot preview each return a single row by id, and the spot preview discloses
+    a provider's pricing floor, which is commercially sensitive on its own.
+    """
+    if not visible_hosts(user, [host]):
+        raise HTTPException(status_code=404, detail="Host not found")
+
+
 def _require_host_operator(user: dict, host_id: str) -> None:
     if _is_platform_admin(user):
         return
@@ -926,6 +985,9 @@ def api_host_spot_preview(host_id: str, request: Request, spot_min_cents: int | 
     if not resolved:
         raise HTTPException(status_code=404, detail=f"Host {host_id} not found")
     host = next(h for h in hosts if h["host_id"] == resolved)
+    # Discloses a provider's pricing floor — sensitive independently of the
+    # rest of the row.
+    _require_host_visible(user, host)
     from spot_pricing import effective_spot_rate_cad, suggested_spot_min_cents
 
     floor = (
@@ -946,15 +1008,17 @@ def api_get_host(host_id: str, request: Request):
     if not resolved:
         raise HTTPException(status_code=404, detail=f"Host {host_id} not found")
     host = next(h for h in hosts if h["host_id"] == resolved)
+    _require_host_visible(user, host)
     return {"ok": True, "host": enrich_host_for_api(host)}
 
 
 @router.get("/hosts", tags=["Hosts"])
 def api_list_hosts(request: Request, active_only: bool = True):
-    """List all hosts."""
+    """List hosts the caller may see."""
     user = _require_auth(request)
     _require_scope(user, "hosts:read")
-    return {"hosts": [enrich_host_for_api(h) for h in list_hosts(active_only=active_only)]}
+    hosts = visible_hosts(user, list_hosts(active_only=active_only))
+    return {"hosts": [enrich_host_for_api(h) for h in hosts]}
 
 
 @router.get("/host/{host_id}/maintenance", tags=["Hosts"])
