@@ -265,7 +265,11 @@ x-api-environment: &api-env
   # missing secret, so the endpoint has been dead rather than open.
   XCELSIOR_STRIPE_THIN_WEBHOOK_SECRET: ${XCELSIOR_STRIPE_THIN_WEBHOOK_SECRET:-}
   XCELSIOR_STRIPE_CONNECT_WEBHOOK_SECRET: ${XCELSIOR_STRIPE_CONNECT_WEBHOOK_SECRET:-}
-  XCELSIOR_STRIPE_SANDBOX_WEBHOOK_SECRET: ${XCELSIOR_STRIPE_SANDBOX_WEBHOOK_SECRET:-}
+  # XCELSIOR_STRIPE_SANDBOX_WEBHOOK_SECRET is already mapped above. It was
+  # added a second time here as a "declared fallback" without checking, and a
+  # duplicate YAML key makes the whole file unparseable to docker — the deploy
+  # failed at the build step with the file unreadable. Left as a comment so the
+  # next person reaching for it finds this instead of re-adding it.
   # Replies to platform mail went nowhere: ALERT_CONFIG["reply_to"] read ''.
   XCELSIOR_EMAIL_REPLY_TO: ${XCELSIOR_EMAIL_REPLY_TO:-}
   # volumes.py enforced the 2000 GB default, not the configured 100 GB cap.
