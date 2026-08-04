@@ -291,6 +291,13 @@ RSYNC_EXCLUDES=(
     --exclude='data'
     --exclude='/artifacts'
     --exclude='.env'
+    # macOS AppleDouble sidecars. `.gitignore` hides them locally, but this is
+    # rsync, not git — so they were shipped to the VPS and baked into the image,
+    # where `compileall` fails on them with "source code string cannot contain
+    # null bytes". Harmless (the step is `|| true` and nothing imports them) but it
+    # is junk in a production artifact, and it is why they kept reappearing in the
+    # tree after being deleted locally.
+    --exclude='._*'
     --exclude='/desktop'
     --exclude='checkpoints'
     --exclude='.cursor'
@@ -817,6 +824,7 @@ done
 
     tar -cf - \
         --exclude='.git' \
+        --exclude='._*' \
         --exclude='__pycache__' \
         --exclude='.pytest_cache' \
         --exclude='venv' \
