@@ -48,11 +48,41 @@ def test_auth_revoke_session_unknown_prefix(user_headers):
     assert r.status_code == 404
 
 
-def test_auth_logout(user_headers):
-    _, headers = user_headers
+def test_auth_logout():
+    """Its own credential, because logout now actually ends the session.
+
+    This shared the module-scoped `user_headers` token. That was harmless while
+    logout deleted a session row nothing read — and the moment revocation started
+    working, three later tests in this file began failing with 401 on a token this
+    one had legitimately destroyed. The tests were depending on logout not working.
+
+    Mints and discards its own session, and asserts the *effect* rather than the
+    response, since the response was `{"ok": true}` throughout the period when it
+    did nothing.
+    """
+    email = f"authcov-logout-{uuid.uuid4().hex[:10]}@xcelsior.ca"
+    client.post(
+        "/api/auth/register",
+        json={"email": email, "password": "StrongPass123!", "name": "Logout Cov"},
+    )
+    login = client.post(
+        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
+    )
+    assert login.status_code == 200
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    assert client.get("/api/auth/me", headers=headers).status_code == 200
+
     r = client.post("/api/auth/logout", headers=headers)
     assert r.status_code == 200
     assert r.json().get("ok") is True
+
+    after = client.get("/api/auth/me", headers=headers)
+    assert after.status_code == 401, (
+        f"the token still works after logout (HTTP {after.status_code}) — logout "
+        "returned ok without revoking anything, which is the defect "
+        "tests/test_revocation_takes_effect.py exists for"
+    )
 
 
 def test_auth_resend_verification(user_headers):
