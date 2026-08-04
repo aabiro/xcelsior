@@ -18,8 +18,15 @@ ARG RUNNER_VERSION=2.321.0
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Only what the static gates need.
+# `libicu74` and `libssl3` are the runner's own .NET 6 dependencies. Installed
+# here explicitly rather than left to `bin/installdependencies.sh`, which runs
+# later in this file — after the apt lists have been removed — and therefore
+# cannot install anything. The container built cleanly and then refused to start
+# with "Libicu's dependencies is missing for Dotnet Core 6.0", which is the kind
+# of defect only launching it finds.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl git jq \
+        libicu74 libssl3 \
         python3.12 python3.12-venv python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
@@ -36,7 +43,6 @@ RUN arch="$(dpkg --print-architecture)" \
         "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-${rarch}-${RUNNER_VERSION}.tar.gz" \
     && tar xzf runner.tar.gz \
     && rm runner.tar.gz \
-    && ./bin/installdependencies.sh \
     && chown -R runner:runner /home/runner
 
 USER runner
