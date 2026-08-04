@@ -498,6 +498,22 @@ def oauth_authorization_server_metadata(request: Request):
             "client_secret_basic",
             "none",
         ],
+        # Deliberately NOT every scope this server enforces.
+        #
+        # Per the MCP authorization spec, `scopes_supported` "is intended to
+        # represent the minimal set of scopes necessary for basic
+        # functionality", and a client that receives no `scope` in a
+        # `WWW-Authenticate` challenge falls back to requesting *everything*
+        # listed here. Publishing the operator scopes therefore meant an
+        # ordinary MCP client's first connection asked the user to grant
+        # `hosts:evict` and `control_plane:operate` — platform-operator
+        # authority, for a chat client. The spec names this as a common mistake
+        # under Scope Minimization.
+        #
+        # Operator scopes are still real, still enforced, and still described in
+        # `SCOPE_DESCRIPTIONS` so a consent screen can render them when an admin
+        # deliberately grants one. They are simply not advertised as a baseline.
+        # `tests/test_advertised_scopes_are_minimal.py` asserts the disjointness.
         "scopes_supported": [
             "profile",
             "email",
@@ -508,12 +524,7 @@ def oauth_authorization_server_metadata(request: Request):
             "billing:read",
             "billing:write",
             "hosts:read",
-            "hosts:fleet",
             "hosts:write",
-            "hosts:operate",
-            "hosts:evict",
-            "control_plane:read",
-            "control_plane:operate",
             "mcp_actions:approve",
             "gpu:read",
             "marketplace:read",
