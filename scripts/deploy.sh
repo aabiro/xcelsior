@@ -1275,7 +1275,19 @@ deploy_docker() {
         log "Building API + frontend images in parallel on remote (BuildKit cache=${DEPLOY_BUILD_CACHE})..."
         local build_args
         build_args=$(collect_frontend_build_args)
-        ssh_cmd "cd /opt/xcelsior && set -e
+        # Serial unless the target has headroom. Building the API set and the
+        # Next.js image concurrently on a small host makes the kernel choose,
+        # and it chooses the largest resident process — which is the API that is
+        # still serving traffic. That is what killed production on 2026-08-04,
+        # 98 seconds before the migration step ran, and it reports as
+        # `Exited (137)` with `OOMKilled=false` because the cgroup never
+        # triggered. Minutes of wall clock is the cheaper side of that trade.
+        local avail_mb
+        avail_mb=$(ssh_cmd "awk '/MemAvailable/ {print int(\$2/1024)}' /proc/meminfo" 2>/dev/null || echo 0)
+        local parallel_floor="${XCELSIOR_DEPLOY_PARALLEL_BUILD_MIN_MB:-6144}"
+        if [[ "${avail_mb:-0}" -ge "$parallel_floor" ]]; then
+            log "Target reports ${avail_mb}MB available (>= ${parallel_floor}MB) — building in parallel"
+            ssh_cmd "cd /opt/xcelsior && set -e
 $build_prefix
 api_pid=''
 fe_pid=''
@@ -1284,7 +1296,15 @@ fe_pid=''
 wait \"\$api_pid\"
 wait \"\$fe_pid\"
 " || error "Parallel docker build failed"
-        success "API + frontend images built (parallel)"
+        else
+            warn "Target reports ${avail_mb}MB available (< ${parallel_floor}MB) — building serially to avoid OOM-killing the live API"
+            ssh_cmd "cd /opt/xcelsior && set -e
+$build_prefix
+docker compose --profile blue build api api-blue scheduler-worker bg-worker ssh-gateway ssh-gateway-blue
+docker compose build $build_args frontend
+" || error "Serial docker build failed"
+        fi
+        success "API + frontend images built"
     elif [[ "$DEPLOY_BUILD_API" == true ]]; then
         log "Building API + scheduler-worker + bg-worker images (BuildKit cache=${DEPLOY_BUILD_CACHE})..."
         ssh_cmd "cd /opt/xcelsior && $build_prefix docker compose --profile blue build api api-blue scheduler-worker bg-worker ssh-gateway ssh-gateway-blue" || error "API/scheduler-worker/bg-worker/ssh-gateway build failed"
@@ -1300,6 +1320,13 @@ wait \"\$fe_pid\"
     else
         log "Image build inputs unchanged — skipping docker image rebuilds"
     fi
+
+    # A successful build is a fact worth recording before anything that can abort.
+    # `persist_deploy_inputs` used to run only after the whole deploy succeeded, so
+    # a migration failure discarded the hashes and the next attempt rebuilt both
+    # images — reproducing the concurrent build that had just killed the API. Every
+    # retry re-widened the window it was trying to escape.
+    persist_deploy_inputs
 
     # Run Alembic migrations (P3/C8 — fatal; silent-warn hides broken schema).
     # If this fails, aborting is far safer than running new code against an
