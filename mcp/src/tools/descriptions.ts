@@ -253,6 +253,13 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     "List the account's billing invoices with their periods and amounts in CAD. Use when the " +
     "user asks what they have been charged or wants a specific invoice. Read-only and free.",
 
+  list_payment_methods:
+    "List the cards already saved on the account: brand, last four digits, expiry, and which one " +
+    "is the default. Use when the user asks what is on file, or before a top-up so you can name " +
+    "the card — 'the Visa ending 4242' — rather than guessing. Read-only and free. " +
+    "Cards are added by the user in the dashboard, never here; this reads what is already there " +
+    "and returns no card number and no secret.",
+
   // ── Company knowledge (optional; only registered when enabled) ──────────
   search:
     "Search Xcelsior's published knowledge — product documentation, the platform overview, the " +

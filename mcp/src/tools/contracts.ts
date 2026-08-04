@@ -7,6 +7,7 @@ const READ_ONLY = new Set([
   "list_tiers", "list_instances", "get_instance", "get_instance_logs", "watch_instance",
   "should_i_run_this", "should_i_run_pel_job", "get_serverless_job_status",
   "list_serverless_endpoints", "get_wallet_balance", "estimate_job_cost", "list_invoices",
+  "list_payment_methods",
   "explain_instance_placement", "simulate_instance_placement", "get_instance_timeline",
   "get_active_lease", "get_scheduler_health", "get_host_capacity",
   "list_reconciliation_findings", "get_mcp_action_status",
