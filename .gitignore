@@ -76,6 +76,13 @@ plan.md
 
 # ── Reports (generated, not tracked) ─────────────────────────────────
 docs/*
+# Review and incident records, un-ignored as a directory rather than file by
+# file. `docs/*` swallowed every new document until someone remembered to add an
+# exemption below, which is a list that has to be maintained to keep working —
+# the same shape as a regeneration step nobody runs. An incident write-up that
+# silently is not in the repository is worth less than no write-up, because it
+# reads as done.
+!docs/review/
 !docs/site-audit-prompt.md
 !docs/site-audit-report-2026-06-04.md
 !docs/site-audit-report-2026-06-04-reaudit.md
