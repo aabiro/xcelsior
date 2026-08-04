@@ -270,14 +270,19 @@ def api_delete_ssh_key(key_id: str, request: Request):
     and never rotate them, without letting it revoke the key its owner pasted
     into the dashboard.
     """
-    from routes._deps import _require_user_or_scoped_machine
+    from routes._deps import _MACHINE_AUTH_TYPES, _require_user_or_scoped_machine
 
     user = _require_user_or_scoped_machine(request, "ssh:write")
+    # Both machine credential classes, not `client_credentials` alone. Agent keys
+    # carry `auth_type: "agent_api_key"` and a `client_id` (oauth_service.py), so
+    # testing the one literal let an agent key through unscoped *and* unrestricted
+    # — able to delete a key its owner pasted into the dashboard. Two spellings of
+    # one rule, which is the defect this file already carried once.
     only_client = None
-    if str(user.get("auth_type", "")) == "client_credentials":
+    if str(user.get("auth_type", "")) in _MACHINE_AUTH_TYPES:
         only_client = (user.get("client_id") or "").strip()
         if not only_client:
-            raise HTTPException(403, "Client credential has no client_id to scope deletion by")
+            raise HTTPException(403, "Machine credential has no client_id to scope deletion by")
     deleted = UserStore.delete_ssh_key(user["email"], key_id, only_client_id=only_client)
     if not deleted:
         raise HTTPException(404, "SSH key not found")

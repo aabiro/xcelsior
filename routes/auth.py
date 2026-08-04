@@ -1149,14 +1149,20 @@ def api_create_oauth_client(body: OAuthClientCreateRequest, request: Request):
         raise HTTPException(400, "client_type must be public or confidential")
     if body.is_first_party and not _is_platform_admin(user):
         raise HTTPException(403, "Only admins can create first-party OAuth clients")
-    # Scopes were passed straight through to the client row. A machine
-    # principal is authorized on its scope alone (control_plane_v1
-    # `_require_host_operator`), so an unfiltered registration let any user mint
-    # themselves `hosts:evict` and act as a platform operator.
+    # Scopes were passed straight through to the client row. A machine principal
+    # is authorized on its scope alone (control_plane_v1 `_require_host_operator`),
+    # so an unfiltered registration let any user mint themselves `hosts:evict` and
+    # act as a platform operator.
+    #
+    # `assert_scopes_delegable` rather than the `main` stopgap it replaces: it
+    # derives the operator set from the `(operator)` annotations in
+    # SCOPE_DESCRIPTIONS, so the set cannot drift from the consent text, and it
+    # also refuses unknown scopes. The two sets were compared before this
+    # replacement — identical, seven scopes each — so nothing reopened.
     try:
         assert_scopes_delegable(list(body.scopes), creator=user)
     except OAuthGrantError as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise HTTPException(getattr(exc, "status_code", 400) or 400, str(exc)) from exc
     workspace_customer_id = _oauth_workspace_customer_id(user)
     team_id = _oauth_workspace_team_id(user)
     client = create_oauth_client(
@@ -3152,6 +3158,15 @@ def api_update_oauth_client(client_id: str, body: OAuthClientUpdateRequest, requ
     updates = body.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(400, "No fields to update")
+    # Checked before the admin/non-admin split below, because both branches
+    # write the scopes column.
+    # The second writer. `scopes` absent means the request did not mention them,
+    # which must not be refused; `[]` is a real (empty) request and is checked.
+    if updates.get("scopes") is not None:
+        try:
+            assert_scopes_delegable(list(updates["scopes"]), creator=user)
+        except OAuthGrantError as exc:
+            raise HTTPException(getattr(exc, "status_code", 400) or 400, str(exc)) from exc
     from db import OAuthStore
 
     if _is_platform_admin(user):

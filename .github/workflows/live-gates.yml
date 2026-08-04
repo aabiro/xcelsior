@@ -1,0 +1,170 @@
+name: Live gates (staging)
+
+# P0's gate requires refusals proven with a real token against a live server —
+# "a mock is what passed while production did not". That cannot run on a push,
+# because it needs a staging tenant and an MCP token bound to that tenant's own
+# audience.
+#
+# Manual dispatch on purpose. A scheduled version of this would go green whenever
+# staging happened to be down and the assertions were skipped, which is the exact
+# shape of a gate that reports clean because it looked in the wrong place.
+#
+# PREREQUISITES — this workflow will refuse to run without them:
+#   XCELSIOR_STAGING_URL       staging API base, reachable from the runner
+#   XCELSIOR_MCP_TOKEN         client_credentials, confidential, nine scopes:
+#                              billing:read gpu:read hosts:read inference:read
+#                              inference:write instances:operate instances:read
+#                              instances:write marketplace:read
+#                              NOT a Quick Connect token — those carry
+#                              instances:connect, ssh:read and ssh:write, which
+#                              would inflate the graded surface.
+#   XCELSIOR_NARROWED_TOKEN    deliberately missing one scope per refusal case
+#   XCELSIOR_NONADMIN_TOKEN    an ordinary NON-ADMIN user session token. Not a
+#                              machine token: the operator-scope refusal keys on
+#                              _is_platform_admin, which returns early for an
+#                              admin, so an admin credential makes every probe
+#                              'succeed' and reports the deployment vulnerable.
+#                              tests/live/test_scope_refusals_live.py asserts the
+#                              identity before probing rather than trusting it.
+#   ANTHROPIC_API_KEY          the eval grades tools/list with a real model
+#
+# The audience must match what staging advertises at
+# /.well-known/oauth-protected-resource. If XCELSIOR_MCP_RESOURCE_AUDIENCE is
+# unset, staging and production share an audience and a staging token is accepted
+# by production — assert that first, below, rather than discovering it later.
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_eval:
+        description: "Also capture the eval baseline (costs Anthropic credits)"
+        type: boolean
+        default: false
+
+jobs:
+  preflight:
+    name: staging is reachable and audience-bound
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      audience: ${{ steps.meta.outputs.audience }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Required secrets are present
+        env:
+          URL: ${{ secrets.XCELSIOR_STAGING_URL }}
+          TOKEN: ${{ secrets.XCELSIOR_MCP_TOKEN }}
+        run: |
+          missing=""
+          [ -n "$URL" ]   || missing="$missing XCELSIOR_STAGING_URL"
+          [ -n "$TOKEN" ] || missing="$missing XCELSIOR_MCP_TOKEN"
+          if [ -n "$missing" ]; then
+            echo "::error::missing secrets:$missing — this gate cannot be faked by skipping"
+            exit 1
+          fi
+
+      - name: Startup findings are zero
+        env:
+          URL: ${{ secrets.XCELSIOR_STAGING_URL }}
+        run: |
+          body=$(curl -sS --max-time 20 "$URL/startupz")
+          echo "$body" | python -c '
+          import json, sys
+          d = json.load(sys.stdin)
+          if not d.get("ok") or d.get("findings"):
+              print(json.dumps(d, indent=2)[:2000])
+              raise SystemExit("staging is not at ok=true / 0 findings")
+          print("startupz ok, 0 findings")'
+
+      # The audience is the authority, not the default. A staging token carrying
+      # production's audience is a production token.
+      - name: Audience is tenant-specific
+        id: meta
+        env:
+          URL: ${{ secrets.XCELSIOR_STAGING_URL }}
+        run: |
+          aud=$(curl -sS --max-time 20 "$URL/.well-known/oauth-protected-resource" \
+                | python -c 'import json,sys; print(json.load(sys.stdin).get("resource",""))')
+          echo "advertised audience: $aud"
+          if [ -z "$aud" ]; then
+            echo "::error::staging advertises no resource audience"; exit 1
+          fi
+          case "$aud" in
+            https://mcp.xcelsior.ca/mcp)
+              echo "::error::staging advertises PRODUCTION's audience — set XCELSIOR_MCP_RESOURCE_AUDIENCE per tenant before minting any token"
+              exit 1 ;;
+          esac
+          echo "audience=$aud" >> "$GITHUB_OUTPUT"
+
+  refusals:
+    name: scope refusals against a real server
+    runs-on: ubuntu-latest
+    needs: preflight
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install httpx pytest
+
+      # Each case is a refusal keyed on the ADJACENT scope plus a matching
+      # positive. A refusal alone passes just as well against a sealed endpoint,
+      # which is the failure that left 24 scopes enforced but ungrantable.
+      - name: Refusal + positive per scoped endpoint
+        env:
+          XCELSIOR_STAGING_URL: ${{ secrets.XCELSIOR_STAGING_URL }}
+          XCELSIOR_MCP_TOKEN: ${{ secrets.XCELSIOR_MCP_TOKEN }}
+          XCELSIOR_NARROWED_TOKEN: ${{ secrets.XCELSIOR_NARROWED_TOKEN }}
+          XCELSIOR_NONADMIN_TOKEN: ${{ secrets.XCELSIOR_NONADMIN_TOKEN }}
+        run: |
+          python -m pytest -q -p no:sugar -p no:rich tests/live/test_scope_refusals_live.py
+
+      - name: Record what was NOT covered live
+        if: always()
+        run: |
+          echo "### Live coverage" >> "$GITHUB_STEP_SUMMARY"
+          echo "Endpoints asserted with a real token are listed above." >> "$GITHUB_STEP_SUMMARY"
+          echo "Everything else in the P0 scope work remains **pytest-only**." >> "$GITHUB_STEP_SUMMARY"
+
+  eval-baseline:
+    name: eval baseline (39 total / 30 published)
+    runs-on: ubuntu-latest
+    needs: preflight
+    if: inputs.run_eval
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      # The eval grades the PUBLISHED surface — 30 tools — while the plan's
+      # baseline is labelled 39 total. Both numbers are real and they measure
+      # different things; a later phase comparing them would read a description
+      # change as a count change.
+      - name: Capture
+        env:
+          XCELSIOR_MCP_TOKEN: ${{ secrets.XCELSIOR_MCP_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          XCELSIOR_STAGING_URL: ${{ secrets.XCELSIOR_STAGING_URL }}
+        run: |
+          python scripts/mcp_tool_eval.py --out eval-baseline.json
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          d = json.load(open("eval-baseline.json"))
+          print("### Eval baseline\n")
+          print(f"- graded surface: **{d.get('tool_count', '?')}** published tools (plan total: 39)")
+          print(f"- first-tool accuracy: **{d.get('first_tool_accuracy', '?')}**")
+          print(f"- unsafe-write selection: **{d.get('unsafe_write_rate', '?')}**")
+          print("\nEvery later phase compares against these two numbers.")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eval-baseline
+          path: eval-baseline.json

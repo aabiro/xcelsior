@@ -48,6 +48,11 @@ def test_requests_calls_have_timeout():
     for dirpath, _dirs, files in os.walk(root):
         for fname in files:
             if fname.endswith(".py"):
+                # macOS AppleDouble sidecars (`._foo.py`) are binary resource
+                # forks written when the tree is reached over a share — not
+                # source, and they fail to decode as UTF-8.
+                if fname.startswith("._"):
+                    continue
                 fpath = os.path.join(dirpath, fname)
                 # Only check files in main repo, not venv/ or .tox/
                 if any(skip in fpath for skip in ("/venv/", "/.tox/", "/site-packages/")):
