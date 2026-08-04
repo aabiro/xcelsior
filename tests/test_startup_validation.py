@@ -283,14 +283,46 @@ def test_a_raising_check_degrades_to_a_warning(clean_env):
 
 
 def test_api_lifespan_runs_the_validator():
-    """Wiring check: the gate must actually be in the startup path."""
-    import inspect
+    """Wiring check: the gate must actually be in the startup path.
 
-    import api
+    **Superseded, not deleted.** This asserted:
 
-    source = inspect.getsource(api.lifespan)
-    assert "validate_startup" in source
-    assert "StartupValidationError" in source
+        source = inspect.getsource(api.lifespan)
+        assert "validate_startup" in source
+        assert "StartupValidationError" in source
+
+    Both substrings were present in a lifespan that caught the refusal and
+    logged it, and both would have survived deleting the `raise` outright, so
+    the check passed whether the boot refused or not — the fourth "cannot fail"
+    assertion found on this branch, guarding the gate that guards the others.
+
+    What replaced it boots the lifespan and asserts the refusal escapes, for a
+    named `StartupValidationError` *and* for any other failure of the validator:
+    `tests/test_startup_gate_refuses_boot.py`. The second case is the one that
+    caught the defect.
+
+    Kept here as the cheap wiring assertion it always was — that the call is
+    present at all — with the behaviour proven next door.
+    """
+    import ast
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    tree = ast.parse((root / "api.py").read_text(encoding="utf-8"))
+    lifespan = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "lifespan"
+    )
+    calls = {
+        node.func.id
+        for node in ast.walk(lifespan)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert "validate_startup" in calls, (
+        "api.lifespan does not call validate_startup — the production "
+        "configuration gate is not in the startup path"
+    )
 
 
 # ── §21.3 health semantics ────────────────────────────────────────────
