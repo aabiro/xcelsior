@@ -137,7 +137,9 @@ were failures of *evidence*, not of intent.
 
 **Backend**
 
-- **Scope the access endpoints.** New scopes: `instances:connect` (auto-launch, expose, stream-ticket), `ssh:manage` (keygen, pubkey registration). Applied with `_require_scope`, at both layers.
+- **Scope the access endpoints.** New scopes: `instances:connect` (auto-launch, expose, stream-ticket), and `ssh:read` / `ssh:write` for key listing and registration. Applied with `_require_scope`, at both layers.
+
+  *This said `ssh:manage`, one scope for both. The implementation split it, and the split is right: read/write separation lets an agent list the keys on an account without being able to add one, and adding a key is the step that grants shell access. `ssh:manage` was never written — it existed only in this sentence — so nothing had to change but the sentence.*
 - **Scope the billing levers.** `setup-intent` and `portal-session` move from `_get_current_user` to `_require_scope(billing:write)`. The manual top-up path P1 adds is `billing:write` from the start — it charges a real card, so it is never reachable by a read-scoped credential.
 - **One policy registry.** `contracts.ts`, `scopes.ts`, annotations, descriptions and `tool-surface.json` are five hand-maintained files that must agree. Invert it: one registry is the source, the rest are generated. The 37-vs-39 drift ChatGPT spotted becomes unrepresentable rather than merely detected.
 - **GT0 endpoint inventory classification.** Every one of the 528 operations tagged `covered` / `gap` / `internal` / `redundant`, with a reason. Zero unclassified.
