@@ -1439,6 +1439,11 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     "inference:write": "Create serverless endpoints and run inference jobs",
     "events:read": "Read your account's activity events",
     "mcp_actions:approve": "Approve pending action plans on your behalf",
+    # Advertised in `scopes_supported` but previously undescribed, so a consent
+    # screen could only render the raw string `hosts:write` and ask the user to
+    # approve it. Not operator authority: it registers and updates hosts the
+    # caller owns, which is what a provider's worker agent needs.
+    "hosts:write": "Register and update the GPU hosts you own",
     # Not operator authority: it answers *your* hosts, which is what a provider
     # needs to run their own rig. Platform-wide visibility is `hosts:fleet`.
     # The "(operator)" marker was left over from when this one scope did both.
