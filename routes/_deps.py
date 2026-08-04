@@ -1215,6 +1215,29 @@ def _require_provider_or_admin(request: Request) -> dict:
     return user
 
 
+#: Credential classes that are API keys rather than interactive sessions.
+#:
+#: This used to be the bare literal ``"api_key"``, tested inline. Agent keys are
+#: minted with ``auth_type: "agent_api_key"`` (``oauth_service.py``), so the
+#: literal never matched one and every ``allow_api_key=False`` caller admitted
+#: them — the thirty routes whose entire purpose is to require an interactive
+#: session, including MFA, password change, privacy consent and account
+#: deletion. The same "one definition, two spellings" shape as
+#: ``_MACHINE_AUTH_TYPES``, so it is a named set here rather than a literal
+#: there.
+_API_KEY_AUTH_TYPES = frozenset({"api_key", "agent_api_key"})
+
+#: The two sets above answer different questions and are deliberately not merged.
+#: `_MACHINE_AUTH_TYPES` asks "are this principal's scopes an authorization
+#: restriction?" — true for `client_credentials`, which is not an API key at all.
+#: `_API_KEY_AUTH_TYPES` asks "is this a key rather than an interactive session?"
+#: — true for legacy `api_key`, which carries no scopes to restrict. They overlap
+#: on `agent_api_key` because an agent key is both. Collapsing them would either
+#: start refusing `client_credentials` from the fourteen routes that opt into
+#: keys, or stop enforcing scopes on the legacy key class. The overlap is why they
+#: look redundant; the difference is why they are not.
+
+
 def _require_user_grant(request: Request, *, allow_api_key: bool = False) -> dict:
     """Require an interactive user session.
 
@@ -1229,7 +1252,7 @@ def _require_user_grant(request: Request, *, allow_api_key: bool = False) -> dic
     auth_type = str(user.get("auth_type", ""))
     if auth_type == "client_credentials":
         raise HTTPException(403, "Interactive user authentication required")
-    if auth_type == "api_key" and not allow_api_key:
+    if auth_type in _API_KEY_AUTH_TYPES and not allow_api_key:
         raise HTTPException(403, "Interactive session authentication required")
     return user
 
@@ -1314,7 +1337,13 @@ def _require_user_or_scoped_machine(request: Request, *scopes: str) -> dict:
     if not user:
         raise HTTPException(401, "Not authenticated")
     auth_type = str(user.get("auth_type", ""))
-    if auth_type == "client_credentials":
+    # `in _MACHINE_AUTH_TYPES`, not `== "client_credentials"`. Agent keys carry
+    # `auth_type: "agent_api_key"` and never the client-credentials literal, so
+    # testing the literal skipped the scope check entirely for them — including
+    # the Quick Connect keys the quickstarts tell users to paste, which are
+    # issued with a deliberately narrowed scope set. `_MACHINE_AUTH_TYPES` exists
+    # so that membership is asked once; this consulted half of it.
+    if auth_type in _MACHINE_AUTH_TYPES:
         if not scopes:  # pragma: no cover - a caller error, not a request error
             raise HTTPException(403, "Interactive user authentication required")
         _require_scope(user, *scopes)

@@ -1516,9 +1516,17 @@ def assert_scopes_delegable(scopes: list[str], *, creator: dict | None) -> None:
 
     operator = sorted({s for s in requested if s in OPERATOR_SCOPES})
     if operator:
+        # 403, not 400. An unknown scope above is a malformed request; this is an
+        # entitlement failure — the request is well formed and the caller may not
+        # make it. The distinction is load-bearing: the live gate
+        # (`tests/live/test_scope_refusals_live.py`) asserts 403 against the
+        # deployed server, and it was a 403 that was verified in production on
+        # 2026-08-04. Collapsing both into 400 would have failed that gate during
+        # this merge, which is what the gate is for.
         raise OAuthGrantError(
             "invalid_scope",
             f"Only a platform admin may grant operator scope(s): {', '.join(operator)}",
+            status_code=403,
         )
 
 

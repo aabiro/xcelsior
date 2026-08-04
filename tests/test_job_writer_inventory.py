@@ -50,6 +50,12 @@ def _iter_py_files():
         rel = path.relative_to(REPO).as_posix()
         if rel.startswith(("tests/", ".venv/", "venv/", "node_modules/", "mcp/")):
             continue
+        # AppleDouble sidecars: macOS writes `._foo.py` next to `foo.py` when the
+        # tree is reached over a network share, and they are binary resource
+        # forks, not source. Left unfiltered they raise UnicodeDecodeError and
+        # this gate fails for a reason that has nothing to do with job writers.
+        if path.name.startswith("._"):
+            continue
         yield path, rel
 
 
