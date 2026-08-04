@@ -44,8 +44,11 @@ enforced in one layer only is the exact defect the `api` wildcard was.
 ### 0.2 The money levers: what actually needs a browser, and what does not
 
 The first draft of this section said card payments needed a hosted page before
-an agent could touch them. That was too broad, and the distinction matters
-because it changes what ships first.
+an agent could touch them. That was too broad twice over, and the distinction
+matters because it changes what ships first. The first correction: charging a
+saved card needs no browser. The second: *adding* a card is not the agent
+surface's job at all — the user does that in the dashboard, and the agent only
+ever references what is already on file.
 
 **Charging a card that is already on file is an ordinary API call.** The
 platform already does exactly this in `check_low_balance_and_topup`
@@ -74,10 +77,18 @@ So the real split:
 | Choose which saved card | **no** | `payment_method_id` is an argument, not a secret |
 | Deposit via crypto / Lightning / PayPal | **no** | already `_require_scope` |
 | Read balance, history, forecasts | **no** | plain reads |
-| **Add a new card** | **yes** | PAN collection. Private by design, and it should stay that way |
+| **Add a new card** | **not our problem** | the user adds cards in the dashboard; the agent only ever references what is already on file |
 | **Recover from an SCA challenge** | **yes** | the issuer demands the cardholder, in person |
 
-Only the last two need a page, and the last one is not a convenience — it is a
+**Adding a card is out of scope for the agent surface entirely.** Not "needs a
+browser we will provide" — simply not a thing the MCP server does. Cards are
+added where card data belongs: a first-party page the user is already looking
+at. The agent reads the resulting list and names one. That removes PAN handling,
+the hosted-page build, and an entire class of consent question, and it costs
+nothing: a user who has never added a card cannot be topped up by an agent
+either way.
+
+So exactly **one** action needs a page, and it is not a convenience — it is a
 correctness requirement, because of the defect below.
 
 ### 0.3 SCA failure is unhandled, and it silently drains wallets
@@ -95,9 +106,9 @@ counter, and writes a log line nobody reads.
 The customer-visible consequence: for any card whose issuer demands SCA,
 **auto-top-up silently does not work**, and the wallet runs to zero while the
 platform believes top-up is configured. The account then hard-stops mid-job.
-This is a live defect independent of the agent surface, and it is the single
-strongest argument for building the hosted page — not so an agent can take a
-card number, but so a *declined* charge has somewhere to send the human.
+This is a live defect independent of the agent surface, and it is the only
+reason a browser appears in P1 at all — not so an agent can take a card number,
+but so a *declined* charge has somewhere to send the human.
 
 ## 1. How every phase is gated
 
@@ -158,29 +169,42 @@ were failures of *evidence*, not of intent.
   completion, with a pause action. The thing that makes unattended spend safe
   rather than merely possible.
 
-**Backend — the part that genuinely needs a browser**
+**Backend — the one flow that genuinely needs a browser**
 
-- **`pay.xcelsior.ca` hosted page.** Resolves the intent server-side from an
-  authenticated first-party session and renders Stripe's Payment Element. The
-  `client_secret` never leaves the server. Used for **adding a new card** and
-  for **SCA recovery** — not for ordinary top-ups.
 - **Fix the SCA gap (§0.3) first.** Catch `authentication_required`, persist the
   pending intent, and surface a resume action. This is a live bug on the
   dashboard path today; the agent surface just makes it visible.
-- **URL Mode Elicitation (SEP-1036)** for those two flows only. Capability-
-  negotiated, never assumed. Client support is documented `not yet` for
-  Microsoft and **UNVERIFIED elsewhere**, so the fallback is the primary path
-  until proven otherwise: `completed: false`, `operation_executed: false`, and
-  prose that opens with *"Not completed."*
-- **Success comes only from the processor.** Signed webhook, verified state.
-  `accept` means the user consented to navigate, never that the flow succeeded.
+- **A resume URL, returned as text.** When a saved-card charge is declined with
+  `authentication_required`, the tool result says the charge did **not** happen
+  and carries a link to the existing dashboard page that completes the
+  challenge. No new hosted page: the dashboard already renders the Payment
+  Element for a pending intent, and the `client_secret` stays server-side there
+  as it does today.
+- **No URL Mode Elicitation.** It was specified for two flows; one of them —
+  adding a card — is gone, and for the other the difference between elicitation
+  and a link is whether the client opens the browser or the user clicks. Client
+  support is documented `not yet` for Microsoft and unverified everywhere else,
+  so the fallback would have been the real path regardless. Specifying a
+  capability that probably will not fire, and gating a phase on three client
+  behaviours to support it, buys one click.
+- **Success comes only from the processor.** Signed webhook, verified state. A
+  user reaching the page means they consented to navigate, never that the flow
+  succeeded.
+
+  With elicitation and card-adding both gone, this is now the **only** completion
+  signal in the phase — which makes `POST /api/providers/webhook` answering `200`
+  to events whose signature it failed to verify a phase-blocking defect rather
+  than a tidy-up. Stripe reads `200` as delivered: no retry, and the event never
+  appears in `GET /v1/events?delivery_success=false`, which is the documented
+  recovery path. It must return `400`.
 
 **Frontend**
 
-- The hosted page: fast, obviously first-party, works on a phone, and states
-  plainly what is being authorised and for how much.
-- A **"return to your terminal"** completion state. The browser is a detour, not
-  a destination.
+- Card management stays where it already is. Adding, removing and defaulting a
+  card is a dashboard job; nothing new is built for the agent.
+- The SCA resume view: states plainly what is being authorised and for how much,
+  works on a phone, and ends with a **"return to your terminal"** state. The
+  browser is a detour, not a destination.
 - An SCA-pending state in the wallet UI, so a challenge that was never completed
   is visible rather than silent.
 - Wallet, envelope, and auto-top-up state legible to a human — the same limits
@@ -196,8 +220,11 @@ were failures of *evidence*, not of intent.
   visible UI state, and a tool result that says the charge did not happen —
   never a generic error. Asserted by forcing the decline with a Stripe test
   card, not by mocking it.
-- Three client conditions for the two browser flows: URL-capable, form-only, and
-  no-elicitation. All three either complete or say plainly that they did not.
+- **The webhook refuses what it cannot verify.** An event with an unverifiable
+  signature returns `400`, so Stripe retries it and it remains visible in
+  `delivery_success=false`. Asserted by posting a body signed with the wrong
+  secret. This is the gate's second headline, because it is the only completion
+  signal the phase has left.
 - **No secret in any surface:** card data, `client_secret`, and processor tokens
   appear in no tool result, log, trace, audit row, or error string. Canary-tested
   with fake PANs.
@@ -289,7 +316,7 @@ were failures of *evidence*, not of intent.
 **Backend**
 
 - Separate deployment profile, separate listing. Supply-side journeys: register a host, admission evidence, publish capacity, set a spot floor, read earnings, request payout.
-- **Payout onboarding via URL elicitation**, reusing P1's machinery. KYC never enters model context; completion comes from `account.updated`, never from the browser return.
+- **Payout onboarding via a returned link**, reusing P1's shape rather than its elicitation — which P1 no longer has. KYC never enters model context; completion comes from `account.updated`, never from the browser return. Since the return is already worthless as a signal, elicitation bought nothing here either: the provider clicks a link, and the webhook decides.
 - **Provider yield optimizer** — admission, reputation, SLA and spot preview into a recommended floor.
 
 **Frontend**
@@ -338,8 +365,8 @@ was reachable because a check had been softened rather than satisfied.
 ```
 P0  scopes + registry + inventory     ← everything; nothing is safe before it
  │
-P1  money levers + SCA recovery       ← top-up needs no browser; only adding a
- │   (spend envelope rides along)         card and recovering a decline do
+P1  money levers + SCA recovery       ← top-up needs no browser; only an SCA
+ │   (spend envelope rides along)         decline does, and it is a link
  │
 P2  access: launch → connected        ← makes "never leave" true for the terminal
  │
@@ -360,7 +387,7 @@ P4 and P5 both need P3. P6 needs P1. Everything needs P0.
 
 Stated here so no one has to discover it late:
 
-- **URL elicitation client support is unverified.** Microsoft documents *"not yet"*; every other directory client is undocumented. If no client honours it, P1's fallback becomes the permanent path — usable, but one extra step. The plan is built so that outcome is a degradation, not a failure.
+- **URL elicitation is no longer used, and that was the right call rather than a concession.** Microsoft documented *"not yet"* and every other directory client was undocumented, so the fallback would have been the real path anyway. Since the only remaining browser detour is an SCA decline — and since a returned link reaches the same page the dashboard already serves — the capability bought one click in exchange for capability negotiation and three client conditions in Gate P1. If client support becomes real and common, adding it later is additive and changes no contract.
 - **No public MCP server is known to have completed Stripe Connect onboarding this way.** P6 would be early. That is a reason for the conspicuous fallback, not a reason to wait.
 - **The tool-count threshold is unmeasured.** No published evidence isolates one. P0 captures the baseline and every phase re-measures; the number is ours to find.
 - **CI is billing-locked.** Every gate in this plan runs locally until that changes. A green push is unverified, and this plan does not pretend otherwise.
