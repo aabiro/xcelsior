@@ -65,6 +65,7 @@ export const TOOL_SCOPES: Record<string, ScopeRequirement> = {
   get_wallet_balance: { allOf: ["billing:read"] },
   estimate_job_cost: { allOf: ["billing:read"] },
   list_invoices: { allOf: ["billing:read"] },
+  list_payment_methods: { allOf: ["billing:read"] },
   // Company knowledge (optional, off by default). These read published
   // documentation and public pricing — no tenant data — so they take the
   // broad read set rather than a scope of their own. A dedicated scope would
