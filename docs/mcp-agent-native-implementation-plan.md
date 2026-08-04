@@ -159,10 +159,33 @@ were failures of *evidence*, not of intent.
 
 **Backend — the part that needs no browser at all**
 
-- **`top_up_wallet(amount, payment_method_id?)`** — an off-session charge
-  against a card already on file, reusing the code path auto-top-up already
-  runs. Approval-gated because it moves money, idempotency-keyed so a retry
-  cannot double-charge, and bounded by the spend envelope below.
+- **`top_up_wallet(amount, card?)`** — an off-session charge against a card
+  already on file, reusing the code path auto-top-up already runs.
+  Idempotency-keyed so a retry cannot double-charge.
+
+  *This said "approval-gated because it moves money". It is not, and the
+  reason is that the consent was already given twice before the tool is
+  reachable:*
+
+  1. *The user added the card in the dashboard — a first-party page, which is
+     the mandate and the only place card data is ever handled.*
+  2. *The user granted `billing:write` deliberately. Quick Connect does not
+     carry it, so the token this product tells people to paste **cannot top up
+     at all**. Obtaining the capability is an explicit act with a consent
+     screen that says what it means.*
+  3. *Stripe enforces what remains — Radar, issuer limits, insufficient funds,
+     SCA. Those are enforcement we cannot tune better than the processor can,
+     and duplicating them means two ceilings that disagree.*
+
+  *A per-transaction approval on top of that re-decides something the user
+  decided twice, and makes "never leave the terminal" false for the most common
+  action in the phase. The failure it would prevent — an agent funding the
+  user's own wallet from the user's own card — moves money **into** the
+  account, not out of it.*
+
+  *`mcp_client_policies.per_action_max_micros` is nullable, and NULL already
+  means "no ceiling". A deployment that wants one sets it; nothing is built
+  here to pre-empt that.*
 - **`list_payment_methods`** — brand, last four, expiry, default. Enough to say
   *"use the Visa"*; nothing that is a secret.
 - **`configure_auto_topup`** — threshold, amount, period cap. Raising a cap
