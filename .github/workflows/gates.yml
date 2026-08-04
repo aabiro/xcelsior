@@ -1,0 +1,326 @@
+name: Gates
+
+# Every gate that can run without a live tenant: the suite with authentication
+# enforced, the environment resolver asserted to fail closed, the generated
+# artifacts checked against a fresh generation, the published MCP surface, and
+# migrations from an empty database.
+#
+# docs/mcp-agent-native-implementation-plan.md records "CI is billing-locked — a
+# green push is unverified"; this workflow is what makes that statement obsolete
+# once billing is restored. It is written to be correct on first enable, not to
+# be tuned in.
+#
+# Deliberately NOT here: the scope-refusal proof against a live server with a
+# real token, and the eval baseline. Both need a running staging tenant and an
+# MCP token bound to a per-tenant audience. See .github/workflows/live-gates.yml
+# — manual dispatch, because a gate that silently no-ops is worse than one that
+# is visibly absent.
+
+on:
+  push:
+    branches: [main, "feat/**", "fix/**"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "22"
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # The Python suite, with authentication enforced.
+  #
+  # AUTH_REQUIRED is False when XCELSIOR_ENV is dev/test, and _require_auth then
+  # hands anonymous callers a synthetic admin principal. conftest pins enforcement
+  # on and SUITE_RELAXATIONS ratchets the opt-outs; this job exists to make that
+  # ratchet load-bearing in CI rather than only on a developer's machine.
+  # ─────────────────────────────────────────────────────────────────────────────
+  pytest:
+    name: pytest (auth enforced)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: xcelsior
+          POSTGRES_PASSWORD: xcelsior
+          POSTGRES_DB: xcelsior_pytest
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U xcelsior"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+          if [ -f pyproject.toml ]; then pip install -e ".[dev]" || pip install -e . || true; fi
+          pip install pytest ruff cryptography
+
+      # Real keys, generated per run. The suite must not fall back to the dev
+      # constants — `xcelsior-dev-jwt-secret` and the deterministic Fernet key
+      # both live in the source tree, and a run that uses them proves nothing
+      # about signing or encryption.
+      - name: Mint ephemeral secrets
+        run: |
+          python - <<'PY' >> "$GITHUB_ENV"
+          import json, secrets, uuid
+          from cryptography.fernet import Fernet
+          from cryptography.hazmat.primitives import serialization
+          from cryptography.hazmat.primitives.asymmetric import rsa
+
+          key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+          kid = f"ci-{uuid.uuid4().hex[:12]}"
+          blob = {
+              "active_kid": kid,
+              "keys": [{
+                  "kid": kid,
+                  "private_key_pem": key.private_bytes(
+                      serialization.Encoding.PEM,
+                      serialization.PrivateFormat.PKCS8,
+                      serialization.NoEncryption(),
+                  ).decode(),
+                  "public_key_pem": key.public_key().public_bytes(
+                      serialization.Encoding.PEM,
+                      serialization.PublicFormat.SubjectPublicKeyInfo,
+                  ).decode(),
+              }],
+          }
+          print("XCELSIOR_OAUTH_JWT_KEYS_JSON<<EOF")
+          print(json.dumps(blob))
+          print("EOF")
+          print(f"XCELSIOR_SECRETS_KEY={Fernet.generate_key().decode()}")
+          print(f"XCELSIOR_COMPAT_SESSION_SECRET={secrets.token_urlsafe(48)}")
+          print(f"XCELSIOR_AGENT_GATEWAY_SECRET={secrets.token_urlsafe(48)}")
+          print(f"XCELSIOR_PRIVACY_REFERENCE_SECRET={secrets.token_urlsafe(48)}")
+          PY
+
+      - name: pytest
+        env:
+          XCELSIOR_ENV: test
+          XCELSIOR_BG_TASKS: "false"
+          XCELSIOR_TEST_NO_LOCK: "1"   # runner is isolated; flock guards a shared dev DB
+          DATABASE_URL: postgresql://xcelsior:xcelsior@localhost:5432/xcelsior_pytest
+          PGSSLMODE: disable
+        run: python -m pytest -q -p no:sugar -p no:rich --maxfail=0
+
+      - name: ruff
+        run: ruff check .
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # The env resolver must fail closed.
+  #
+  # A missing XCELSIOR_ENV once disabled authentication, the JWT secret, the
+  # signing algorithm and the Fernet key simultaneously. This job asserts the
+  # resolver's behaviour directly rather than trusting the unit tests that also
+  # live in the tree — a resolver is exactly the thing whose tests could import a
+  # patched copy of itself and pass.
+  # ─────────────────────────────────────────────────────────────────────────────
+  fail-closed:
+    name: env resolver fails closed
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Unset, empty, typo and staging all resolve to production
+        run: |
+          python - <<'PY'
+          import os, sys
+          sys.path.insert(0, ".")
+          os.environ.pop("XCELSIOR_ENV", None)
+          import env_config
+
+          failures = []
+          for raw in [None, "", "   ", "prodution", "staging", "preprod", "wat"]:
+              if env_config.is_relaxed_env(raw=raw):
+                  failures.append(f"{raw!r} resolved to a relaxed environment")
+          for raw in ["dev", "development", "test", "local"]:
+              if not env_config.is_relaxed_env(raw=raw):
+                  failures.append(f"{raw!r} should be relaxed and is not")
+
+          if failures:
+              print("\n".join(f"  - {f}" for f in failures))
+              raise SystemExit("env_config does not fail closed")
+          print("env_config fails closed for every non-relaxed spelling")
+          PY
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Generated artifacts must equal a fresh generation.
+  #
+  # Run separately from pytest so a stale checked-in file reports as its own red
+  # X. Bundled into the suite it reads as "tests failed", and someone re-runs.
+  # ─────────────────────────────────────────────────────────────────────────────
+  generated-artifacts:
+    name: generated artifacts are current
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: xcelsior
+          POSTGRES_PASSWORD: xcelsior
+          POSTGRES_DB: xcelsior_pytest
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U xcelsior"
+          --health-interval 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pytest
+
+      - name: Inventory, OpenAPI, and the ratchets
+        env:
+          XCELSIOR_ENV: test
+          XCELSIOR_BG_TASKS: "false"
+          DATABASE_URL: postgresql://xcelsior:xcelsior@localhost:5432/xcelsior_pytest
+        run: |
+          python -m pytest -q -p no:sugar -p no:rich \
+            tests/test_generated_artifacts_are_current.py \
+            tests/test_public_openapi.py \
+            tests/test_open_endpoint_registry.py \
+            tests/test_endpoint_classification_ratchet.py \
+            tests/test_enforcement_ratchet.py \
+            tests/test_env_decision_inventory.py \
+            tests/test_authz_assertions_can_fail.py \
+            tests/test_conditional_scope_guard.py \
+            tests/test_tool_scope_registry_completeness.py
+
+      # A regenerated file that differs is caught above. This catches the other
+      # direction: a generator that no longer runs at all, which would let every
+      # assertion above pass on a file nobody re-derived.
+      - name: Regeneration leaves the tree clean
+        run: |
+          python scripts/generate_endpoint_inventory.py
+          if ! git diff --quiet -- docs/generated/endpoint-inventory.md; then
+            echo "::error::endpoint-inventory.md is stale — run scripts/generate_endpoint_inventory.py and commit it"
+            git --no-pager diff -- docs/generated/endpoint-inventory.md | head -60
+            exit 1
+          fi
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # The MCP server: types, unit tests, and the published surface snapshot.
+  # ─────────────────────────────────────────────────────────────────────────────
+  mcp:
+    name: mcp (vitest + tsc + surface)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: mcp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: mcp/package-lock.json
+
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx vitest run
+
+      # tool-surface.json is written by `npm run surface:update` — a step someone
+      # must remember. surface.test.ts asserts whole-document equality, so this is
+      # belt-and-braces against the generator itself changing shape.
+      - name: Published surface is current
+        run: |
+          npm run surface:update
+          cd ..
+          if ! git diff --quiet -- mcp/tool-surface.json; then
+            echo "::error::tool-surface.json is stale — run 'npm run surface:update' and commit it"
+            git --no-pager diff -- mcp/tool-surface.json | head -40
+            exit 1
+          fi
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Migrations apply from empty, and the ledger head matches.
+  # ─────────────────────────────────────────────────────────────────────────────
+  migrations:
+    name: migrations apply from empty
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: xcelsior
+          POSTGRES_PASSWORD: xcelsior
+          POSTGRES_DB: xcelsior_bootstrap
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U xcelsior"
+          --health-interval 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pytest
+      - env:
+          XCELSIOR_ENV: test
+          XCELSIOR_BG_TASKS: "false"
+          DATABASE_URL: postgresql://xcelsior:xcelsior@localhost:5432/xcelsior_bootstrap
+        run: |
+          python -m pytest -q -p no:sugar -p no:rich \
+            tests/test_from_empty_bootstrap.py \
+            tests/test_migration_ledger.py \
+            tests/test_no_runtime_ddl.py || \
+          python -m pytest -q -p no:sugar -p no:rich \
+            tests/test_from_empty_bootstrap.py \
+            tests/test_migration_ledger.py
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # A single required check, so branch protection has one name to point at and
+  # adding a job later does not silently stop being required.
+  # ─────────────────────────────────────────────────────────────────────────────
+  gates:
+    name: gates
+    runs-on: ubuntu-latest
+    needs: [pytest, fail-closed, generated-artifacts, mcp, migrations]
+    if: always()
+    steps:
+      - name: Every gate passed
+        run: |
+          results='${{ join(needs.*.result, ",") }}'
+          echo "upstream: $results"
+          case "$results" in
+            *failure*|*cancelled*)
+              echo "::error::a gate did not pass"
+              exit 1 ;;
+          esac
+          echo "all gates green"
