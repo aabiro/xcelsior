@@ -1812,12 +1812,53 @@ def exchange_device_code(
     )
 
 
+def revoke_access_token(token: str) -> None:
+    """Drop one access token from the cache.
+
+    An opaque access token resolves *only* from the auth cache (see below), so a
+    revocation that does not delete this entry has no effect at all. Logout and
+    session revocation both deleted the session row instead — a row nothing on the
+    request path consults — and both answered `{"ok": true}` while the presented
+    bearer kept working for the remainder of its TTL. Measured against production
+    on 2026-08-04: 30 days.
+    """
+    if token:
+        _cache_delete("access_token", token)
+
+
+def revoke_session(session_token: str) -> None:
+    """Revoke every access token minted from one session.
+
+    Revocation by session prefix cannot delete access-token entries directly: the
+    cache key is a hash of the token, and the caller holds a session token, not the
+    bearers issued from it. So the session is marked instead, and
+    `resolve_opaque_access_token` refuses any payload carrying it. Costs one cache
+    read per authenticated request, on a backend already being read once.
+
+    The marker outlives the longest access token deliberately — a marker that
+    expires before the credential it revokes is a revocation with a gap in it.
+    """
+    if session_token:
+        _cache_set_json(
+            "revoked_session",
+            session_token,
+            {"revoked_at": time.time()},
+            max(BROWSER_SESSION_TTL_SEC, ACCESS_TOKEN_TTL_SEC) + 3600,
+        )
+
+
 def resolve_opaque_access_token(token: str) -> dict[str, Any] | None:
     payload = _cache_get_json("access_token", token)
     if not payload:
         return None
     expires_at = float(payload.get("expires_at", 0) or 0)
     if expires_at <= time.time():
+        _cache_delete("access_token", token)
+        return None
+    # Revocation, not only expiry. Without this the only way an access token stops
+    # working is running out of time.
+    session_token = str(payload.get("session_token") or "")
+    if session_token and _cache_get_json("revoked_session", session_token):
         _cache_delete("access_token", token)
         return None
     return payload
@@ -1917,6 +1958,8 @@ def revoke_refresh_session(session_token: str | None) -> None:
     if current:
         OAuthStore.revoke_refresh_family(str(current["family_id"]))
     UserStore.delete_session(session_token)
+    # Deleting the row is not the revocation — the request path reads the cache.
+    revoke_session(session_token)
 
 
 def reset_auth_cache_for_tests() -> None:
