@@ -106,3 +106,85 @@ def test_no_service_reintroduces_env_file_as_a_substitute():
         "secret set to every listed service. Map variables explicitly, or "
         "update this test with the reasoning if the trade is intended."
     )
+
+
+# ── Duplicate keys, which `yaml.safe_load` hides ───────────────────────
+
+
+def _duplicate_keys(path: Path) -> list[tuple[str, int, int]]:
+    """Every duplicated mapping key, as (key, first line, second line).
+
+    `yaml.safe_load` silently keeps the last of a duplicated pair, so a compose
+    file with two definitions of the same variable parses cleanly in these tests
+    and is **rejected outright** by docker:
+
+        failed to parse docker-compose.yml: yaml: construct errors:
+          line 268: mapping key "XCELSIOR_STRIPE_SANDBOX_WEBHOOK_SECRET"
+          already defined at line 84
+
+    That happened on 2026-08-04: a variable was added to the anchor without
+    checking whether it was already there, every test here passed, and the deploy
+    then failed at the build step because `docker compose` could not read the file
+    at all. The gate that was meant to keep the container's environment honest was
+    blind to the one error that stops the environment existing.
+
+    Merge keys (`<<`) are skipped: repeating one in a mapping is legal YAML and is
+    how this file composes its anchors.
+    """
+    found: list[tuple[str, int, int]] = []
+
+    def walk(node) -> None:
+        if isinstance(node, yaml.MappingNode):
+            seen: dict[str, int] = {}
+            for key, value in node.value:
+                if isinstance(key, yaml.ScalarNode) and key.value != "<<":
+                    line = key.start_mark.line + 1
+                    if key.value in seen:
+                        found.append((key.value, seen[key.value], line))
+                    else:
+                        seen[key.value] = line
+                walk(value)
+        elif isinstance(node, yaml.SequenceNode):
+            for item in node.value:
+                walk(item)
+
+    walk(yaml.compose(path.read_text()))
+    # An anchor merged into four services is visited four times, so the same
+    # duplicate is found repeatedly. Report each once — a gate that prints one
+    # finding four times reads as four problems.
+    return sorted(set(found))
+
+
+def test_compose_has_no_duplicate_keys():
+    dupes = _duplicate_keys(COMPOSE)
+    assert not dupes, (
+        "docker-compose.yml defines the same key twice, which docker refuses to "
+        "parse even though yaml.safe_load accepts it: "
+        + "; ".join(f"{k!r} at lines {a} and {b}" for k, a, b in dupes)
+    )
+
+
+def test_the_duplicate_check_catches_one():
+    """The failing arm, on the exact shape that broke the deploy."""
+    import tempfile
+
+    with tempfile.NamedTemporaryFile("w", suffix=".yml", delete=False) as fh:
+        fh.write("services:\n  api:\n    environment:\n      A: 1\n      A: 2\n")
+        probe = Path(fh.name)
+    try:
+        assert [k for k, _, _ in _duplicate_keys(probe)] == ["A"]
+    finally:
+        probe.unlink()
+
+
+def test_merge_keys_are_not_reported_as_duplicates():
+    """`<<` legitimately repeats; flagging it would make the gate unusable here."""
+    import tempfile
+
+    with tempfile.NamedTemporaryFile("w", suffix=".yml", delete=False) as fh:
+        fh.write("a: &a {x: 1}\nb: &b {y: 2}\nc:\n  <<: *a\n  <<: *b\n")
+        probe = Path(fh.name)
+    try:
+        assert _duplicate_keys(probe) == []
+    finally:
+        probe.unlink()
