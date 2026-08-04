@@ -583,7 +583,16 @@ def test_team_admin_cannot_mint_themselves_platform_operator_scopes(team_roles, 
             headers=team_roles["admin"]["headers"],
             json={**_OAUTH_CLIENT_BODY, "scopes": [scope]},
         )
-        assert blocked.status_code == 400, (
+        # 403, not 400. Changed deliberately when this branch merged `main`: the
+        # refusal that shipped and was verified against production answers 403,
+        # and `tests/live/test_scope_refusals_live.py` asserts that against the
+        # deployed server. The request here is well formed and the caller simply
+        # may not make it, which is an entitlement failure rather than a malformed
+        # one — `test_unknown_scope_is_refused_at_registration` below keeps 400 for
+        # the malformed case, so the two now encode the distinction rather than
+        # flattening both into 400. RFC 7591's 400 convention governs the DCR
+        # endpoint in `oauth_registration.py`, not this first-party management route.
+        assert blocked.status_code == 403, (
             f"{scope} was delegable to a non-platform-admin: "
             f"{blocked.status_code} {blocked.text[:200]}"
         )

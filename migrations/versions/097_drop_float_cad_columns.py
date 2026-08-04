@@ -21,9 +21,18 @@ CAD is never the *stored* representation.
 The downgrade restores the float columns and derives them from micros. It is
 lossy in principle — a double cannot hold every micro value exactly — which is
 the whole reason the cutover happened.
+
+**Per-table transactions**, for the reason recorded in `095` and in
+`migrations/lock_safe.py`: twenty-six `ALTER TABLE ... DROP COLUMN` statements
+holding `ACCESS EXCLUSIVE` on fifteen tables at once cannot coexist with the
+live traffic a blue-green deploy keeps serving. Each table commits on its own,
+so this migration is resumable rather than atomic — sound only because every
+statement is idempotent, which they are.
 """
 
-from alembic import op
+from sqlalchemy import text
+
+from migrations.lock_safe import apply_in_own_transactions
 
 revision = "097"
 down_revision = "096"
@@ -107,27 +116,60 @@ $$ LANGUAGE plpgsql
 """
 
 
-def upgrade() -> None:
-    op.execute(_LN_PROJECTION)
-    for table, column in COLUMNS:
-        micros = _micros_name(column)
+def _drop_float(table: str, column: str):
+    """Retire one float column, its mirror trigger and function. Idempotent."""
+    micros = _micros_name(column)
+
+    def apply(conn) -> None:
         # Last-chance backfill: a row written between 095 and this migration by
         # code that still set only the float would otherwise lose its value.
-        op.execute(
-            f"UPDATE {table} SET {micros} = ROUND({column} * 1000000)::bigint "
-            f"WHERE {column} IS NOT NULL AND {micros} IS NULL"
+        conn.execute(
+            text(
+                f"UPDATE {table} SET {micros} = ROUND({column} * 1000000)::bigint "
+                f"WHERE {column} IS NOT NULL AND {micros} IS NULL"
+            )
         )
-        op.execute(f"DROP TRIGGER IF EXISTS trg_mirror_{micros} ON {table}")
-        op.execute(f"DROP FUNCTION IF EXISTS mirror_{table}_{micros}()")
-        op.execute(f"ALTER TABLE {table} DROP COLUMN IF EXISTS {column}")
+        conn.execute(text(f"DROP TRIGGER IF EXISTS trg_mirror_{micros} ON {table}"))
+        conn.execute(text(f"DROP FUNCTION IF EXISTS mirror_{table}_{micros}()"))
+        conn.execute(text(f"ALTER TABLE {table} DROP COLUMN IF EXISTS {column}"))
+
+    return apply
+
+
+def _restore_float(table: str, column: str):
+    micros = _micros_name(column)
+
+    def apply(conn) -> None:
+        conn.execute(
+            text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} DOUBLE PRECISION")
+        )
+        conn.execute(
+            text(
+                f"UPDATE {table} SET {column} = {micros} / 1000000.0 "
+                f"WHERE {micros} IS NOT NULL"
+            )
+        )
+
+    return apply
+
+
+def upgrade() -> None:
+    # The projection rewrite is the first unit, not a preamble on Alembic's
+    # connection, and the ordering is the reason. Alembic commits its own
+    # transaction *after* this function returns, so an `op.execute` here would
+    # land the new function definition **after** the units below have already
+    # dropped `ln_deposits.amount_cad` — leaving every insert failing with
+    # `record "new" has no field "amount_cad"` for the width of that window.
+    # As its own committed unit it precedes the drop, which is what the
+    # docstring above claims and what the single-transaction version got for
+    # free.
+    units = [("097 ln_deposits projection", lambda conn: conn.execute(text(_LN_PROJECTION)))]
+    units += [(f"097 drop {t}.{c}", _drop_float(t, c)) for t, c in COLUMNS]
+    apply_in_own_transactions(units, tables=[t for t, _ in COLUMNS])
 
 
 def downgrade() -> None:
-    for table, column in COLUMNS:
-        micros = _micros_name(column)
-        op.execute(
-            f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} DOUBLE PRECISION"
-        )
-        op.execute(
-            f"UPDATE {table} SET {column} = {micros} / 1000000.0 WHERE {micros} IS NOT NULL"
-        )
+    apply_in_own_transactions(
+        [(f"097 restore {t}.{c}", _restore_float(t, c)) for t, c in COLUMNS],
+        tables=[t for t, _ in COLUMNS],
+    )
