@@ -450,4 +450,39 @@ async def api_stripe_webhook(request: Request):
         sig_header = request.headers.get("stripe-signature", "")
         mgr = get_stripe_manager()
         result = mgr.handle_webhook(payload, sig_header)
+
+        # This used to return `{"ok": True, **result}` unconditionally, so an
+        # event whose signature could not be verified was answered 200.
+        #
+        # Stripe reads any 2xx as delivered. It stops retrying, and — the part
+        # that makes this unrecoverable rather than merely delayed — the event
+        # never appears in `GET /v1/events?delivery_success=false`, which is the
+        # documented mechanism for finding undelivered events. A rotated or
+        # misrouted signing secret therefore does not delay those events, it
+        # loses them, and the loss is invisible to the only recovery path there
+        # is. Events are retained for 30 days; after that there is nothing to
+        # find at all.
+        #
+        # Mapped from `outcome` rather than from error prose: matching on a
+        # message string is how a security decision comes to depend on someone
+        # typing a literal correctly.
+        outcome = str(result.get("outcome") or "")
+        if outcome == "signature_invalid":
+            # Stripe's own reference implementation returns 400 here. Retried
+            # with exponential backoff for ~3 days, and visible in the
+            # undelivered-event sweep throughout.
+            raise HTTPException(400, "Webhook signature verification failed")
+        if outcome == "no_secret_configured":
+            # Not the sender's fault, and a 400 would tell Stripe the request was
+            # malformed when the deployment is. 503 keeps it retryable, so events
+            # that arrive during the misconfiguration land once it is corrected.
+            # `control_plane.startup_validation` refuses the boot for this, so
+            # reaching here means the gate was skipped or the secret was removed
+            # at runtime.
+            raise HTTPException(503, "Webhook signing secret is not configured")
+        if outcome == "stripe_disabled":
+            # A Stripe destination is pointed at a deployment with Stripe off.
+            # Retryable for the same reason.
+            raise HTTPException(503, "Stripe is not enabled on this deployment")
+
         return {"ok": True, **result}

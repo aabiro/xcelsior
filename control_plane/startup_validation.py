@@ -325,6 +325,44 @@ def _check_agent_gateway_secret() -> Finding | None:
     return None
 
 
+def _check_stripe_webhook_secret() -> Finding | None:
+    """A live Stripe integration with no signing secret loses events silently.
+
+    Without a secret, no event can be verified. `POST /api/providers/webhook`
+    now answers 503 in that state so Stripe retries — but retries only help if
+    someone notices, and nothing else would tell them: the failure looks like
+    "payments are quiet".
+
+    This is worth refusing the boot over rather than warning about, because the
+    events it drops are the ones that confirm money moved. Auto-top-up
+    completion, SCA recovery, and Connect payout onboarding all take their
+    completion signal from a webhook and nowhere else.
+    """
+    try:
+        from stripe_connect import STRIPE_ENABLED, _webhook_secret_candidates
+    except Exception:  # pragma: no cover - import failure is its own finding
+        return None
+
+    if not STRIPE_ENABLED:
+        return None
+    if _webhook_secret_candidates():
+        return None
+    return Finding(
+        code="stripe_webhook_secret_missing",
+        severity="error",
+        message=(
+            "Stripe is enabled but no webhook signing secret is configured — "
+            "no event can be verified, and every one is refused"
+        ),
+        remediation=(
+            "Set XCELSIOR_STRIPE_WEBHOOK_SECRET (and "
+            "XCELSIOR_STRIPE_CONNECT_WEBHOOK_SECRET / "
+            "XCELSIOR_STRIPE_THIN_WEBHOOK_SECRET if those destinations exist) "
+            "to the signing secret from the Stripe dashboard for each endpoint."
+        ),
+    )
+
+
 def _check_compatibility_session_secret() -> Finding | None:
     """Host admission (082) derives submit tokens from this secret.
 
@@ -460,6 +498,7 @@ CHECKS: tuple[Callable[[], "Finding | None"], ...] = (
     _check_agent_gateway_secret,
     _check_host_token_rotation_readiness,
     _check_compatibility_session_secret,
+    _check_stripe_webhook_secret,
     _check_audit_signing_key,
     _check_shared_bearer_migration,
     _check_mcp_rate_limiting,
