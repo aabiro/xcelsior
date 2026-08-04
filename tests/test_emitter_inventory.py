@@ -56,6 +56,11 @@ def _emitter_files() -> set[str]:
         rel = path.relative_to(REPO).as_posix()
         if rel.startswith(("tests/", ".venv/", "venv/", "node_modules/", "mcp/")):
             continue
+        # macOS AppleDouble sidecars (`._foo.py`) are binary resource forks
+        # written when the tree is reached over a share — not source, and they
+        # fail to decode as UTF-8. See test_job_writer_inventory.
+        if path.name.startswith("._"):
+            continue
         try:
             tree = ast.parse(path.read_text(), filename=str(path))
         except SyntaxError:  # pragma: no cover
