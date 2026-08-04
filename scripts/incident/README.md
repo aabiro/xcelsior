@@ -61,9 +61,22 @@ The default file set is the four that currently have open questions attached:
 validation swallow path), `security.py` (committed dev signing secret and
 deterministic encryption key), and `routes/auth.py` (operator-scope refusal).
 
-## Not here
+## The live probe: now here, as a gate
 
-The live scope-refusal probe. It is a working escalation attempt, and it lands
-as `tests/live/test_scope_refusals_live.py` — the file
-`.github/workflows/live-gates.yml` already references — once the fix is
-deployed, rather than shipping a tool ahead of the patch it tests.
+The live scope-refusal probe was held out while the fix was undeployed, rather
+than shipping a working escalation attempt ahead of the patch it tests. **The fix
+was deployed on 2026-08-04 and verified against production**, so the probe has
+landed where it was always going: `tests/live/test_scope_refusals_live.py`, the
+file `.github/workflows/live-gates.yml` references.
+
+It gained two things on the way in, both learned from running it by hand:
+
+- **A `User-Agent`.** Cloudflare answers default Python agents with a 403 carrying
+  `error code: 1010`, before the origin sees the request. That is
+  indistinguishable from an authorization refusal by status code, and it made the
+  first live run fail its own positive control — which is the only reason it
+  wasn't read as a pass.
+- **An identity assertion.** The gate now calls `/api/auth/me` and refuses to run
+  on an admin token. `_refuse_undelegatable_scopes` returns early for an admin by
+  design, so an admin credential makes every probe "succeed", reports the
+  deployment vulnerable, and leaves a real operator-scoped client behind.
