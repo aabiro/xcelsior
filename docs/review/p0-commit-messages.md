@@ -1,0 +1,829 @@
+================================================================================
+COMMIT 8100f27 — fix(auth): close operator-scope escalation, and unseal 24 enforced scopes
+================================================================================
+
+P0 of the agent-native plan. Two defects, both found by building the plan's
+first phase rather than by reading it.
+
+## A non-admin could mint themselves platform-operator authority
+
+`control_plane_v1._require_host_operator` authorizes in one of two ways:
+
+    if str(user.get("grant_type", "")) == "client_credentials":
+        _require_scope(user, scope)          # machine: scope alone
+    elif not _is_platform_admin(user):
+        raise HTTPException(403, ...)        # human: admin alone
+
+For a machine principal, holding the scope *is* the authorization — correctly,
+since a machine has no role to inspect. That is only sound if a non-admin
+cannot obtain such a credential, and `POST /api/oauth/clients` passed `scopes`
+and `grant_types` from the request body straight into the client row, admin
+gating only `is_first_party`.
+
+So: register a confidential client with `scopes=["hosts:evict"]` and
+`grant_types=["client_credentials"]`, exchange it at the token endpoint, and
+drain or evict any host on the platform. Every individual check behaves exactly
+as written; the composition is what fails.
+
+`CONNECTOR_ALLOWED_SCOPES` already encoded this policy for self-registered
+clients — operator authority "absent by construction". First-party creation
+never applied the same rule. `assert_scopes_delegable` now does, at
+registration, which is the only place it can be refused.
+
+Unknown scopes are refused there too. A client registered with `instance:read`
+could be created and exchanged, then rejected by every endpoint it called, with
+a 403 naming a scope its owner believed they had granted.
+
+## 24 scopes were enforced but could never be granted
+
+`_require_scope(user, "ssh:write")` refuses a machine credential lacking the
+scope — but `ssh:write` appeared at its enforcement site and in no grant path
+at all: not in `SCOPE_DESCRIPTIONS`, `CONNECTOR_ALLOWED_SCOPES`,
+`MCP_QUICK_CONNECT_SCOPES`, the RFC 8414 `scopes_supported` metadata, or the
+`McpScope` union. Those endpoints were not protected; they were sealed. No
+token could open them and no amount of granting would help, because the
+authorization server never offered the scope.
+
+`volumes:*`, `artifacts:*`, `providers:*`, `chat:*`, `mfa:*`, `privacy:*`,
+`reputation:*`, `sla:read`, `teams:write`, `verification:write` and
+`marketplace:write` were all in the same state — 22 scopes across 13 route
+modules, including the ones artifact-to-volume promotion and SSH key
+registration depend on.
+
+All are now described once and mirrored into the lists that must agree. Five
+hand-maintained vocabularies became one, with guards that fail on drift:
+enforcement against grantability, consent descriptions against what may be
+requested, `McpScope` against the Python vocabulary, and the Quick Connect
+screen against the token it actually mints.
+
+`transparency:*` is classified operator — it writes the subpoena and warrant
+ledger, which is not the caller's data.
+
+`hosts:read` is deliberately *not* operator, though its description said so.
+Classifying it that way broke worker-agent provisioning: `GET /hosts` is
+fleet-wide, but the same scope gates a provider's own admission status and
+heartbeat, and every worker is registered by a non-admin provider. It was
+freely grantable before this commit, so restricting it here would have been a
+silent behaviour change unrelated to the escalation. The fleet-wide listing is
+a real exposure and wants a scope split, tracked separately.
+
+## Tests
+
+`test_operator_scope_escalation.py` asserts the delegation rule per scope, that
+admins may still delegate, and that ordinary scopes are unaffected. The
+reachable path is covered in `test_team_tenancy_sweep.py`: a *team* admin —
+which is not a platform admin — gets 400 for `hosts:evict`, `hosts:operate` and
+`control_plane:operate`.
+
+`test_scope_vocabulary_is_grantable.py` is the drift guard. It also forbids
+`_require_scope` with a computed argument, since such a call would pass every
+check in the file while being invisible to it.
+
+Two stale tests in `test_oauth_migration.py` registered clients with
+`scopes: ["api"]`, the wildcard removed earlier. They now assert `api` cannot
+be registered at all, which is the stronger claim.
+
+One test was written expecting success and did not get it, which is why it is
+worth keeping: granting `ssh:read` is *not* sufficient, because `routes/ssh.py`
+also guards with `_require_user_grant`, which rejects `client_credentials`
+outright while admitting `agent_api_key`. That split decides which credential
+`register_ssh_key` can use. It is asserted rather than changed — relaxing an
+account-security guard is a decision to argue for, not a side effect.
+
+ruff clean, mcp tsc clean, frontend tsc clean, pytest 4638 passed / 0 failed.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+
+================================================================================
+COMMIT 5a2b819 — fix(auth): P0 foundations — fail-closed env, scope splits, and evidence that can fail
+================================================================================
+
+Everything here came out of building P0 rather than reading it. Grouped by what
+was actually broken.
+
+## A missing env var disabled four security controls at once
+
+`os.environ.get("XCELSIOR_ENV", "dev")` decided authentication, the JWT signing
+secret, the signing algorithm, and the Fernet key for stored secrets — each
+treating *absence* as development. Unset meant `_require_auth` handed anonymous
+callers a synthetic principal with `is_admin: True`, the signing secret fell
+back to the literal `"xcelsior-dev-jwt-secret"` that lives in this repo, and
+stored secrets used a deterministic key derived from a constant.
+
+The checks also disagreed about what production means. `AUTH_REQUIRED` asked
+`not in {dev, development, test}` while `security.py` asked
+`in ("production", "prod")`, so a typo like `prodution` was production for
+authentication and *not* production for encryption, simultaneously.
+
+`env_config` is now the single answer, and it fails closed: unset, empty,
+misspelled, or unknown resolves to production. Only `dev`/`development`/`test`/
+`local` relax anything.
+
+Staging is deliberately neither. It may not use a dev fallback — it holds real
+data — but it keeps the escape hatch `routes/agent.py` grants it and refuses to
+the production VPS, an audited distinction. So `is_relaxed_env()` and
+`is_production()` are not complements, and a test pins the gap.
+
+The gate meant to catch all of this was fail-open too: `startup_validation.
+is_production()` matched the literal `"production"` exactly, so `prod`,
+`staging`, a typo or unset turned every error finding into a log line. It now
+enforces everywhere except an explicitly relaxed context, and a missing or
+malformed `XCELSIOR_SECRETS_KEY` is a boot failure rather than surfacing at the
+first encrypt.
+
+Closing the class found six more sites with the same shape. The worst:
+`routes/terminal.py` left **SSH host-key pinning off** unless the value was
+exactly `prod` or `production`, so staging or a typo disabled MITM protection on
+the terminal. Also social deauthorize signature failures only *rejected* in
+production, and the host-admission and privacy-deletion secrets.
+
+25 environment decisions are now classified enforcing / relaxing / irrelevant
+with zero unclassified. The `== "test"` bypasses stay as direct comparisons on
+purpose: they fail closed by construction, since a typo means the shortcut
+simply does not engage.
+
+## Anonymous callers could write
+
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "privacy:write")
+
+The scope was checked only for callers who had already authenticated, so
+presenting no credential was strictly more powerful than presenting a valid one.
+`POST /api/transparency/legal-request` returned 200 to an anonymous caller and
+inserted into the subpoena ledger; `POST /api/privacy/purge-expired` destroyed
+retention records.
+
+Six handlers fixed. The guard encodes the real rule — *authentication is
+unconditional; scope refinement may be conditional* — via AST rather than string
+matching, because `if user is not None:` would evade a grep. Public reads are
+exempted by name, and a stale exemption or an exempt handler gaining a POST both
+fail.
+
+## Own-versus-all, applied three times
+
+`GET /hosts` returned the whole fleet to anyone holding `hosts:read` — a scope
+every provider needs for their worker agent, which made competitors' capacity
+readable by anyone who registered a rig. Reclassifying it was tried and
+reverted: providers are not admins. Split instead — `hosts:read` answers your
+hosts, `hosts:fleet` is operator-only.
+
+SSH keys follow the same rule: a machine credential deletes only keys carrying
+its own `registered_by_client_id` (migration 099), and lists only its own,
+because a key's comment field conventionally holds `user@hostname`.
+
+## register_ssh_key works for an OAuth agent
+
+`_require_user_grant` refused `client_credentials` outright, so Gate P2's
+"only tool calls" journey was unreachable for that credential type. Narrowed via
+`_require_user_or_scoped_machine` on exactly three SSH routes — asserted as set
+equality, so a fourth cannot join silently. Password, MFA, sessions and account
+deletion keep the stricter guard.
+
+`ssh:manage` is retired rather than deferred: splitting keygen out dissolves the
+bundle, and `/ssh/keygen` is admin-only because it mints the *platform's*
+private key. The plan records the supersession.
+
+## Evidence that can fail
+
+A "verified under enforced auth" run had executed with auth off — an autouse
+fixture silently reverted the fixture meant to turn it on. Fixture ordering is
+not a security boundary, so `pytest_runtest_call` now refuses any test
+experiencing an undeclared relaxation, and `SUITE_RELAXATIONS` is a ratchet at
+3 across all four controls. `secrets_key` is enforcing and serves as the
+calibration proving the probes are not uniformly dark.
+
+`run-tests.sh` takes an flock — two concurrent runs share one database and
+deadlock, which cost hours of bisecting for a polluter that was a second copy of
+the script. Full output always goes to a file; piping a background run through
+`tail` hid five of fourteen failures.
+
+Several tests asserted behaviour this commit deliberately supersedes. Each was
+rewritten with the supersession stated, never deleted. One accepted `200` as a
+pass for "requires auth" and so could not fail at all.
+
+ruff clean, mcp tsc clean, pytest 4749 passed / 0 failed.
+
+**Not done, and not claimed:** no live-credential assertion has run. P0's gate
+requires refusals proven with a real token against a live server, and the eval
+baseline is `BLOCKED(env)` for want of an MCP token. Both are next.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+
+================================================================================
+COMMIT 634fd3a — test(auth): classify every open endpoint, and stop authz assertions passing on success
+================================================================================
+
+Two guards, both closing a class rather than an instance.
+
+## Every endpoint reachable without a credential is now named
+
+"Open" existed in two shapes and each was tracked separately, so neither list
+was complete: handlers with a conditional scope check (`if user:
+_require_scope(...)`), and handlers reaching no auth call at all. Pinning
+`/api/ssh/pubkey` in an ad-hoc test made the second gap obvious — the thing
+tracking open endpoints no longer tracked all of them.
+
+96 endpoints are open. 85 are classified with a category and a reason: the
+OAuth protocol surface, which is unauthenticated by specification; pre-auth
+routes where the caller has no credential yet by definition; liveness probes;
+webhooks where a signature is the credential; the public price and marketplace
+catalogue; published documents; 410 tombstones; and internal callbacks with
+their own shared secret.
+
+The remaining 11 are on a ratchet that may only shrink. All are
+`routes/stripe_connect_v2.py`, whose router is mounted and which is
+unauthenticated: verified by request, `GET /api/connect/accounts` returns 200
+with no credential and the POSTs fail on schema validation rather than
+authorization, so a well-formed body proceeds. The module logs
+`Stripe Connect ENABLED (mode=live)`.
+
+They are left unclassified deliberately. The correct guard differs per endpoint
+— listing connected accounts is operator-shaped, creating one is
+provider-shaped, and `create_checkout_session` may be legitimately public since
+a buyer holds no platform credential. Guessing an authorization model for a live
+money surface is how reclassifying `hosts:read` broke provider onboarding.
+
+**On the derivation.** A fixed seed of auth primitives reported 153 open routes
+because it missed indirection: `api_terminate_instance` authorizes through
+`_authorize_instance_mutation`, `api_deposit` through
+`_require_customer_access`. The scan now computes a transitive closure to a
+fixpoint. Its limitation is written down rather than hidden — a handler calling
+`_require_auth` becomes auth-carrying, so a handler calling *that* reads as
+authenticated. The result is a floor, not a ceiling: it can miss an open route,
+it will not invent one.
+
+The registry rejects a classification whose reason is too short to justify
+anything, which caught three of my own entries reading "410 Gone" and "index".
+
+## An authorization assertion may not accept success
+
+`test_ssh_keygen_requires_auth` read `assert r.status_code in (401, 403, 200)`.
+The endpoint being wide open and being locked both satisfied it, in the coverage
+file for one of the four endpoints §0.1 names as authenticated but not
+authorized.
+
+The sharp class is a tuple containing a success code *and* 401/403 — an
+assertion claiming something about authorization while admitting the outcome
+that disproves it. It is now zero and guarded.
+
+Deliberately **not** swept up: 18 tuples mixing success with 404/503/400/422.
+Those are a legitimate tolerance for a feature that may be disabled in an
+environment. Treating them as the same defect would inflate one real finding
+into nineteen.
+
+Both guards prove their own reach: the registry asserts it still finds
+`api_get_pubkey`, and the authz scanner asserts it detects the original defect
+while not flagging `(200, 404)` or `(401, 403)`.
+
+pytest 4759 passed / 0 failed, ruff clean.
+
+**Not claimed:** still no live-credential assertion. P0's gate needs refusals
+proven with a real token against a live server, and the eval baseline remains
+BLOCKED(env). Both are blocked on staging, which cannot mint a correctly bound
+token until `XCELSIOR_MCP_RESOURCE_AUDIENCE` is set per tenant — it is unset
+everywhere, so staging and production currently share an audience.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+
+================================================================================
+COMMIT 1639aa8 — fix(billing): the payment levers require billing:write, not merely a session
+================================================================================
+
+P0: *`setup-intent` and `portal-session` move from `_get_current_user` to
+`_require_scope(billing:write)`.*
+
+Both authorized with `_get_current_user(...)` and `if not user: raise 401` —
+authentication without authorization, the §0.1 defect applied to money. Any
+principal that could log in could reach a Stripe payment surface, including a
+token deliberately narrowed to `billing:read` so an agent could watch spend
+without touching payment methods.
+
+What each confers, which is why neither is readable-only:
+
+* `setup-intent` returns a `client_secret` for `confirmCardSetup`, and the card
+  it saves becomes selectable for auto-top-up — the entry point to charging that
+  card off-session later.
+* `portal-session` returns a Stripe Customer Portal URL, from which a holder
+  changes payment methods, reads invoices, and cancels subscriptions.
+
+Four properties are pinned, not just the happy path:
+
+- **The adjacent refusal.** `billing:read` does not satisfy `billing:write`, and
+  the error names the missing scope. Refusing `instances:read` would prove
+  little — it shares no surface with billing. These two are the pair a later
+  simplification would collapse.
+- **The matching positive.** Granting the scope opens the door. A refusal alone
+  passes just as well against a sealed endpoint, which is the failure mode that
+  left `ssh:write` enforced-but-ungrantable.
+- **Interactive sessions are unaffected.** `_require_scope` is a no-op for
+  browser principals, so a human still reaches their own billing settings. That
+  is the failure that broke 122 tests when `_require_scope` was first tightened.
+- **Not a silent connector default**, and grantable — so this guards the
+  endpoint rather than sealing it.
+
+Both tests were confirmed failing against the previous code.
+
+P1's manual top-up will be `billing:write` from the start rather than
+inheriting the looser guard: it charges a real card.
+
+pytest 4768 passed / 0 failed, ruff clean.
+
+**Gate status, stated precisely:** P0's access-and-billing scope requirement is
+now complete *in pytest* — access from the `instances:connect` work, billing
+here. The gate is **not closed**. It requires these refusals proven with a real
+token against a live server, and no live-credential assertion has run in this
+sequence. That remains blocked on staging, which cannot mint a correctly bound
+token while `XCELSIOR_MCP_RESOURCE_AUDIENCE` is unset — staging and production
+would share an audience, so a staging token would be accepted by production.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+
+================================================================================
+COMMIT 35da469 — docs(mcp): regenerate the endpoint inventory, and correct a count the prose drifted on
+================================================================================
+
+Two findings, both the same shape as the eval baseline.
+
+**The plan said 528 operations; the generator says 516.** A count written into
+prose drifts from the artifact that produces it, exactly as the eval baseline
+read "39 tools" while grading the 30-tool published surface.
+`scripts/generate_endpoint_inventory.py` is authoritative; the plan now quotes
+it and says so.
+
+**The checked-in inventory was stale against the code.** Regenerating changed 14
+rows, and every one is an endpoint scoped during P0: `setup-intent` and
+`portal-session` gaining `_require_scope`, `/ssh/keygen` moving from
+`_require_auth` to `_require_admin`, `stream-ticket` / `expose` / `auto-launch`
+gaining `instances:connect`, and the privacy writes gaining an unconditional
+`_require_auth`.
+
+Nothing is wrong with the generator. Regeneration is a step someone must
+remember, which is the drift P0.3's byte-identical gate exists to make
+impossible — and this file is a fifth generated artifact that gate has to cover,
+alongside descriptions, annotations and `tool-surface.json`.
+
+The `class` column stays blank. Filling it *is* GT0, and a row is only
+classified when it carries `covered` / `gap` / `internal` / `redundant` **and** a
+reason. 516 rows is real work, not a formatting pass, and claiming it done
+because the file regenerated cleanly would be the opposite of what the gate asks.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+
+================================================================================
+COMMIT 224a55a — test(p0.3): the endpoint inventory must equal a fresh generation
+================================================================================
+
+P0's gate: *regenerating produces byte-identical output; a hand edit to a
+generated file fails the build.*
+
+`docs/generated/endpoint-inventory.md` carries "Do not edit by hand —
+regenerate it" and had nothing enforcing it. It drifted, and the drift was
+found by hand rather than by a check: regenerating changed 14 rows, every one
+an endpoint scoped during P0.
+
+The count was identical before and after — 516 operations either way — so any
+check comparing totals would have passed while 14 rows were wrong. That is the
+same failure `tests/test_public_openapi.py` documents: comparing only the
+operation set answered "are the right endpoints published?" and never "does the
+document still describe them correctly?", under which five schemas silently
+drifted. Whole-document equality is what makes it a drift check.
+
+This matters beyond tidiness because the inventory is the artifact GT0
+classifies. A stale one means the audit runs against endpoints that no longer
+describe the code, and every `class` entered against a moved row is wrong in a
+way nobody would notice.
+
+The generator runs in a subprocess writing to a scratch path. In-process would
+import the FastAPI app and leave it resident for every later test — an earlier
+in-process reload of `routes._deps` broke four unrelated tests in the full suite
+while passing in isolation, so test isolation is not traded for speed here.
+
+The gate proves its own reach: a stale row was planted and it produced a
+line-level diff naming the row, then the file was restored byte-exactly and it
+passed again.
+
+**P0.3 is not finished.** This covers one of the generated artifacts. Also
+required, and not done: `mcp/tool-surface.json`, which `npm run surface:update`
+writes as a step someone must remember; the TypeScript descriptions and
+annotations, which are hand-maintained; and a check that a hand edit to any of
+them fails rather than merely differing. `TOOL_CONTRACTS` needs no generator —
+it is computed at import time from `TOOL_SCOPES` — but the gate should still
+assert that guarantee, which is otherwise undocumented and one refactor from
+gone.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+
+================================================================================
+COMMIT ceca5c5 — test(p0.3): the published tool surface must equal a fresh generation in full
+================================================================================
+
+`tests/unit/surface.test.ts` asserted three things about `tool-surface.json`: no
+unversioned breaking change, that every change is non-breaking, and that the
+tool count matches. Together those admit a real drift.
+
+`diffSurface` compares snapshot → code. When the *code* gains a required scope
+and `npm run surface:update` is forgotten, the change is classified
+`breaking: false` — additionally accepting a scope is the widening direction —
+so `changes.every(c => !c.breaking)` passes, and the count is unchanged. The
+snapshot then advertises fewer required scopes than the route enforces, and
+nothing fails.
+
+The consequence is the defect §0.1 names, arriving through the snapshot rather
+than through code: an agent reads `tools/list`, requests the scopes advertised,
+and is refused by a route requiring one that was never published. Both layers
+must agree, and this was the path by which they could stop agreeing silently.
+
+Whole-document equality closes it. The breaking-change assertions stay, because
+when the cause *is* a version bump they give a far more actionable failure than
+a deep-equality mismatch.
+
+**On the verification.** The first two probes were planted in the wrong
+direction — removing a scope *from the snapshot* reads as `breaking: true`, so
+the existing check caught it and the new assertion looked redundant. Only when
+the drift was planted the way it actually happens — snapshot missing a scope the
+code requires — did the old checks pass and the new one fail alone. A guard
+verified in the convenient direction proves nothing about the direction that
+occurs.
+
+`tool-surface.json` was restored byte-identically after each probe, confirmed
+with `git diff --quiet`.
+
+mcp: 159 passed / 2 skipped, tsc clean.
+
+**P0.3 remains open.** Two of five artifacts now have real gates and the public
+OpenAPI already had one. Still owed: the hand-maintained TypeScript descriptions
+and annotations, and an assertion pinning the import-time derivation of
+`TOOL_CONTRACTS` from `TOOL_SCOPES` — a structural guarantee today, but an
+undocumented one that a refactor could remove without any test noticing.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+
+================================================================================
+COMMIT 481480e — test(p0.3): pin the import-time derivation of TOOL_CONTRACTS from TOOL_SCOPES
+================================================================================
+
+Two of P0's five artifacts already cannot drift: `contracts.ts` computes
+`TOOL_CONTRACTS` at import time from `TOOL_SCOPES`, and no script writes that
+file. That is why P0.3's remaining work was scoped to descriptions, annotations
+and the published snapshot.
+
+But the guarantee was asserted nowhere. A refactor replacing the
+`Object.fromEntries(Object.entries(TOOL_SCOPES).map(...))` with a literal — for
+readability, or to give one tool a bespoke requirement — would remove it, and
+nothing would fail until the two lists disagreed in production. The OpenAPI
+generator read its own output for months on exactly that basis: a derivation
+that was true, and then quietly was not.
+
+The load-bearing assertion is **reference** equality, not deep equality. A
+hand-written copy that happens to match today passes a deep comparison and
+drifts tomorrow; only `toBe` distinguishes "derived from"ic from "currently equal
+to". Verified by planting the refactor — changing `scopeRequirement: requirement`
+to `{ ...requirement }` fails with a message naming the cause, and the file was
+restored byte-identically.
+
+Also pinned: `requiredScopes` is the flattened union of the requirement rather
+than an independently maintained list. That distinction matters because
+`requiredScopes` is advertising metadata while `scopeRequirement` authorizes,
+and flattening `allOf` into a flat list is exactly how the any-one-of bug read.
+
+mcp: 164 passed / 2 skipped, tsc clean.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+
+================================================================================
+COMMIT 6afa12b — feat(gt0): derive `covered` from what the MCP server actually calls
+================================================================================
+
+GT0 asks for every operation tagged `covered` / `gap` / `internal` /
+`redundant` with a reason. One of those four is derivable from evidence, so it
+should not be a judgement call: an endpoint is `covered` exactly when the MCP
+server calls it.
+
+The generator now extracts every API path referenced in `mcp/src/**/*.ts`,
+normalises `${jobId}` and `{job_id}` to a common form, and marks matching rows.
+Filling that column by hand would go stale the first time a tool changed what it
+calls, and nothing would notice — the same failure as an inventory that drifts
+because regeneration is a step someone must remember.
+
+**47 of 516 operations are covered — about 9%.** That number is the point of
+GT0 rather than an aside: the tool surface touches under a tenth of the API, and
+the remaining 469 rows are the actual audit. They stay blank, because `gap`,
+`internal` and `redundant` are judgements about intent that no extraction can
+make, and filling them mechanically would produce a green gate over an audit
+nobody performed.
+
+If `mcp/src` is missing the extractor returns an empty set and the caller treats
+that as "cannot derive" rather than "nothing is covered" — reporting 516 gaps
+because a directory moved would be worse than reporting none.
+
+Two earlier regex passes over the same sources returned 15 and 23 paths before
+this one returned 50: the first missed template literals, the second broke on
+`${encodeURIComponent(cid)}` because parentheses were outside the character
+class. A count that looks plausible is not evidence that an extractor works,
+which is why the byte-identical gate added in 224a55a matters here — the
+inventory is regenerated and compared in full rather than trusted.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+
+================================================================================
+COMMIT 97ef1b2 — test(p0.3): pin the annotation derivation, and correct the scope of what remained
+================================================================================
+
+I repeatedly reported that P0.3's descriptions and annotations were
+"hand-maintained, no generator, not started". Checking rather than repeating it
+shows that was wrong in both halves.
+
+**Annotations are derived.** `contracts.ts` computes `readOnlyHint`,
+`destructiveHint`, `idempotentHint` and `openWorldHint` at import time from the
+`READ_ONLY`, `DESTRUCTIVE` and `OPEN_WORLD` sets — the same structural
+guarantee as `TOOL_CONTRACTS` itself. No generator is needed; what was missing
+was an assertion that the derivation holds.
+
+Added, and phrased as the invariants a hand-written annotation block breaks
+first: a tool cannot be both read-only and destructive, and a read-only tool is
+idempotent with `idempotency: "read"` and `retry: "safe"` by construction. If
+any of those disagree, annotations have stopped being derived and a client is
+being told something the contract does not guarantee.
+
+**Descriptions already have a stronger gate than regeneration would give.**
+`tests/unit/descriptions.test.ts` requires an entry for every tool and nothing
+else, a minimum substance threshold, an explicit trigger, a stated cost or
+impact, a terminating period, and that read-only, mutating and destructive tools
+each say so. Prose cannot be generated from a source of truth; completeness and
+content assertions are the right shape, and they were already there.
+
+So P0's five artifacts are covered: `TOOL_SCOPES` is the source; contracts and
+annotations are derived at import and now pinned; descriptions are gated on
+content; `tool-surface.json` has whole-document equality. The public OpenAPI and
+the endpoint inventory have the same treatment on the Python side.
+
+Correcting an overstatement is worth a commit because the opposite error is
+expensive: a plan that lists finished work as outstanding sends someone to
+rebuild a guarantee that already exists, and they may replace a derivation with
+a hand-maintained copy while doing it.
+
+mcp: 165 passed / 2 skipped, tsc clean.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+
+================================================================================
+COMMIT d298a68 — docs(mcp): record P0.3 as done, with the gate table and how each was verified
+================================================================================
+
+The plan described five hand-maintained files that must agree. They were never
+five: `TOOL_SCOPES` is the source, and both `TOOL_CONTRACTS` and the annotations
+are computed at import time in `contracts.ts` with no script writing that file.
+Descriptions are prose, which cannot be generated from anything, so completeness
+and content assertions are the right shape rather than regeneration.
+
+What was actually missing was assertions that those guarantees hold, plus gates
+on the two artifacts a script writes. All are now in place, and the section
+records which mechanism protects which artifact so nobody rebuilds a guarantee
+that already exists — or replaces a derivation with a hand-maintained copy while
+"adding a generator" to it.
+
+Also recorded: every gate was verified by planting the drift it exists to catch.
+The `tool-surface.json` gate needed two attempts, and that is written down
+because the failure is instructive. The first probes were planted in the
+direction `diffSurface` already treats as breaking, so the existing check caught
+them and the new assertion looked redundant. Only a probe in the direction drift
+actually occurs — the code gains a required scope and `npm run surface:update`
+is forgotten, which `diffSurface` classifies non-breaking — showed the old
+checks passing while the published surface under-stated what a tool requires.
+
+A guard verified in the convenient direction proves nothing about the direction
+that happens.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+
+================================================================================
+COMMIT a537866 — feat(gt0): classify the homogeneous modules; 358 rows still need judgement
+================================================================================
+
+GT0 asks for 516 operations tagged with a reason. 158 are now classified and
+the remaining 358 are not, which is the honest split rather than a finished
+number.
+
+**Per module, not per row.** "Every route in `routes/agent.py` is a worker-agent
+callback" is a claim a reviewer can check in one pass. Eighteen identical per-row
+reasons would be that same claim wearing a disguise, and it would read as
+eighteen judgements when it is one. So the classification is applied at the
+granularity the judgement is actually true at, and the module list carries the
+reason.
+
+Classified:
+
+- `internal` (68) — `agent`, `agent_v2`, `host_admission`, `admin`, `autoscale`,
+  `cloudburst`. Worker callbacks, the admission handshake, the operator console,
+  and scheduler-driven capacity control: machine-to-machine or operator
+  surfaces, none of them candidates for the tool surface.
+- `gap` (43) — `volumes`, `artifacts`, `ssh`, `spot`, `reputation`, `sla`. Each
+  is something a *later phase of this plan* needs and no tool exposes: P3
+  promotes artifacts onto volumes, P2's `register_ssh_key` uses `routes/ssh.py`,
+  and P5's migration and placement need spot, reputation and SLA. Naming them
+  `gap` is not an aspiration — it is this plan's own roadmap read back against
+  the API.
+- `covered` (47) — derived from what the MCP server calls, unchanged.
+
+**Deliberately left unclassified: the mixed modules.** `serverless` (54),
+`auth` (51), `billing` (44), `health` (31), `instances` (26) and the rest all
+contain more than one kind of endpoint — `serverless` alone holds user-facing
+job submission next to worker claim/heartbeat callbacks, and classifying the
+module would mislabel one or the other. Splitting them is per-row work informed
+by product intent, which is what GT0 is for, and pattern-matching it here would
+produce a green gate over an audit nobody performed.
+
+That is the failure mode this whole sequence has been correcting, so the count
+stays at 358 rather than being closed cheaply.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+
+================================================================================
+COMMIT 24db86b — test(gt0): ratchet the unclassified count, and require a reason with every label
+================================================================================
+
+158 of 516 operations are classified. A number in a commit message is not a
+ratchet: without a check the count drifts upward silently — a new route module
+arrives unclassified and the gate looks exactly as far away as it did before
+while actually being further.
+
+Four properties, each chosen for a way this audit could be faked rather than
+finished:
+
+- **The count never rises.** Progress is lowering `MAX_UNCLASSIFIED` in the same
+  commit that classifies rows.
+- **Every classified row carries a reason.** This is the one that stops the
+  remaining 358 being closed by filling the class column and leaving notes
+  blank. The reason is the audit; the label is its summary.
+- **Only GT0's four labels are accepted.** A typo creates a category nobody
+  audits while inflating apparent progress.
+- **The parser must still find the table.** A format change would return zero
+  rows and every assertion above would report perfect compliance — the shape of
+  a guard that passes because it is looking at the wrong place.
+
+Verified by planting both regressions at once: three `internal` rows reverted to
+blank and two rows labelled with no reason. The first two checks failed with
+messages naming the cause; the inventory was restored byte-identically,
+confirmed with `git diff --quiet`.
+
+The remaining 358 are the mixed modules — `serverless`, `auth`, `billing`,
+`health`, `instances` — where a single module label would mislabel half the
+rows. That is per-row work informed by product intent, and it stays open rather
+than being pattern-matched into a green gate.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+
+================================================================================
+COMMIT ae22bb1 — fix(stripe): deny by default on the Connect router
+================================================================================
+
+Eleven endpoints in `routes/stripe_connect_v2.py` were reachable with no
+credential, on a router mounted in `api.py` with a live secret key. `GET
+/api/connect/accounts` answered 200 and enumerated Connect tenants. The POSTs
+failed on schema validation, not authorization — a well-formed body would have
+created a Stripe connected account, minted an onboarding link, or written to
+the platform catalogue.
+
+The gate is a router-level dependency, not eleven handler-level guards, because
+the defect was that an endpoint could be *added* to this router without one. A
+twelfth route is now closed unless someone adds its path to
+`_PUBLIC_CONNECT_PATHS` and states why.
+
+Four paths stay public, each for a reason checked in the file rather than
+assumed:
+
+- `/api/connect/webhooks` — Stripe sends no bearer. The handler requires a
+  `stripe-signature` header, refuses when it is absent, and
+  `parse_event_notification` verifies it against the endpoint secret. The
+  signature is the credential; demanding a bearer would break delivery and add
+  nothing.
+- `/connect/dashboard`, `/connect/storefront`, `/connect/success` — static HTML
+  constants. They render no account data and fetch from the JSON API
+  afterwards, which is where the credential belongs.
+
+`tests/test_stripe_connect_deny_by_default.py` asserts the refusal on every
+non-exempt path, asserts each exemption individually with the reason carried
+alongside it, requires the exemption set to be declared in the route module
+rather than only in the test, and forbids any exempt path from carrying a
+mutating verb — the rule that stops the exemption list becoming the hole.
+
+Known consequence, accepted: the prototype dashboard calls these APIs with
+plain `fetch()` and no `Authorization` header, so it stops working until it
+sends credentials. That is the right trade against leaving unauthenticated
+account creation reachable on a live key.
+
+This reverses the exposure. It does not design the authorization model — who
+may enumerate accounts, whether a provider sees only their own, whether
+checkout is public by product id. That is a separate piece of work and it can
+now be done without racing an open money surface.
+
+The endpoint inventory is regenerated: the auth-dependency column for all
+eleven rows moves from `none found — verify by hand` to
+`_connect_deny_by_default`.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+
+================================================================================
+COMMIT 5d1a41c — test(authz): teach the open-endpoint scanner to see router-level guards
+================================================================================
+
+Read against the commit before it. That one moved `stripe_connect_v2` behind a
+router-level dependency; this one is the measurement catching up, and they are
+separate commits because a diff that changes the measurement should not be
+buried inside the diff being measured.
+
+The scanner read handler bodies for a call reaching an auth function. A router
+declared `APIRouter(dependencies=[Depends(guard)])` authorizes every route on
+it without any handler body changing, so immediately after the gate landed the
+registry still listed all eleven Connect endpoints as unauthenticated. The
+scanner was blind to router-level dependencies, and had been for as long as the
+pattern existed anywhere in `routes/`.
+
+`_router_level_guards()` now parses each route module with `ast`: a module that
+constructs an `APIRouter` with a `dependencies=` keyword is treated as guarded,
+and the string constants in its module-level collections are read as the
+exemption set, so the paths that really are still public stay visible instead of
+disappearing behind the router's dependency.
+
+Parsed with AST rather than by splitting on `frozenset({`, which is what the
+first version did. That fails in the dangerous direction: written as a plain set
+literal, a tuple, or a constant imported from another module, the exemption set
+parses as empty — and an empty exemption set means every route on that router
+reads as guarded. False negatives are the one direction this scanner must never
+go.
+
+Two consequences for the registry:
+
+- `NEEDS_REVIEW` is empty. The eleven Connect entries left it by being guarded;
+  the four exempt paths moved into `OPEN_ENDPOINTS` with the category and reason
+  the gate verified.
+- The ceiling is now a literal. It was `MAX_UNCLASSIFIED = len(NEEDS_REVIEW)`,
+  compared against `len(NEEDS_REVIEW)` — a number compared to itself, an
+  assertion that could not fail. Every prior report that "the ratchet held" was
+  worth nothing. It is `MAX_UNJUSTIFIED_OPEN_ENDPOINTS = 0`, and it is renamed
+  because the old name collided with the inventory-classification ratchet: two
+  ceilings, one name, bounding different sets, which is how a number gets quoted
+  against the wrong denominator.
+
+`tests/test_ratchets_are_literals.py` generalises the fix from the instance to
+the shape. It walks module-level assignments in `tests/` whose names read as a
+bound (`MAX_`, `BUDGET`, `LIMIT_`, `CEILING_`, `EXPECTED_`) and fails any whose
+value is a `len`/`sum`/`count`/`max`/`min` call, then plants the original
+`MAX_UNCLASSIFIED = len(NEEDS_REVIEW)` to prove it catches it and a literal to
+prove it does not flag one.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+
+================================================================================
+COMMIT 86bb66f — ci(gates): the tenant-free gates, and stop the guard flagging its own prose
+================================================================================
+
+Three things, all about keeping the branch's evidence honest rather than adding
+to it.
+
+**`.github/workflows/gates.yml`** runs every gate that does not need a live
+tenant: the suite with authentication enforced, the environment resolver
+asserted to fail closed directly rather than through the unit tests that live
+beside it, the generated artifacts compared against a fresh generation, the MCP
+surface snapshot, and migrations from an empty database. One aggregating `gates`
+job so branch protection has a single stable name and adding a job later does
+not silently stop being required.
+
+It mints ephemeral RSA and Fernet keys per run. The suite must not fall back to
+`xcelsior-dev-jwt-secret` or the deterministic Fernet key — both live in this
+source tree, and a run that uses them proves nothing about signing or
+encryption.
+
+Deliberately not here: the scope-refusal proof against a running server with a
+real token, and the eval baseline. Both need a staging tenant and an MCP token
+bound to a per-tenant audience, and a gate that silently no-ops is worse than
+one that is visibly absent.
+
+This has never executed — the account has no Actions billing. Its first run is a
+first run, not a formality.
+
+**`test_authz_assertions_can_fail.py` now reads code, not prose.** It failed on
+its own explanation: a docstring in `test_ratchets_are_literals.py` quoting
+`assert r.status_code in (401, 403, 200)` while explaining why that shape is
+forbidden. Fourth time a text-scanning guard in this suite has flagged the
+documentation *of* the defect it hunts — after the residency guard twice, and
+the conditional-scope guard on a comment quoting its own forbidden pattern.
+
+Reworded rather than exempted. An exemption there would have widened the
+exemption surface to cover the file most likely to discuss the forbidden shape,
+which is the opposite of what the guard is for.
+
+The rule that follows is written into the file: a text-scanning guard needs
+*two* probes — one proving it catches the defect, one proving it ignores a
+description of the defect. Both are present, and the second asserts both halves,
+because skipping prose is only safe if it does not also skip code.
+
+**`.gitignore` un-ignores `docs/review/` wholesale.** `docs/*` ignored every new
+document until someone remembered to exempt it, which nearly cost the review of
+this branch its place in the repository — the same shape as a regeneration step
+nobody runs. The directory is un-ignored rather than the files, so the next
+review record exists by default instead of by recollection.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+
