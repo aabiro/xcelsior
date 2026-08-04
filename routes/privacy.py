@@ -40,11 +40,13 @@ def api_retention_policies(request: Request):
 @router.get("/api/privacy/retention-summary", tags=["Privacy"])
 def api_retention_summary(request: Request):
     """Current retention status across all data categories."""
-    from routes._deps import _require_scope, _get_current_user
+    from routes._deps import _require_auth, _require_scope
 
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "privacy:read")
+    # Real retention state, not the published policy. `if user:` ran the scope
+    # check only for callers who had already authenticated, so an anonymous
+    # caller skipped it entirely.
+    user = _require_auth(request)
+    _require_scope(user, "privacy:read")
     lm = get_lifecycle_manager()
     return lm.get_retention_summary()
 
@@ -52,11 +54,11 @@ def api_retention_summary(request: Request):
 @router.post("/api/privacy/purge-expired", tags=["Privacy"])
 def api_purge_expired(request: Request):
     """Purge all expired retention records (daily maintenance)."""
-    from routes._deps import _require_scope, _get_current_user
+    from routes._deps import _require_auth, _require_scope
 
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "privacy:write")
+    # Destroys retention records. Reachable anonymously until now.
+    user = _require_auth(request)
+    _require_scope(user, "privacy:write")
     lm = get_lifecycle_manager()
     count = lm.purge_expired()
     return {"ok": True, "purged": count}
@@ -83,11 +85,10 @@ class PrivacyConfigRequest(BaseModel):
 @router.post("/api/privacy/config", tags=["Privacy"])
 def api_save_privacy_config(req: PrivacyConfigRequest, request: Request):
     """Save privacy configuration for an organization."""
-    from routes._deps import _require_scope, _get_current_user
+    from routes._deps import _require_auth, _require_scope
 
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "privacy:write")
+    user = _require_auth(request)
+    _require_scope(user, "privacy:write")
     lm = get_lifecycle_manager()
     config = PrivacyConfig(
         privacy_level=req.privacy_level,
@@ -110,11 +111,11 @@ def api_save_privacy_config(req: PrivacyConfigRequest, request: Request):
 @router.get("/api/privacy/config/{org_id}", tags=["Privacy"])
 def api_get_privacy_config(org_id: str, request: Request):
     """Get privacy configuration for an organization (defaults to STRICT)."""
-    from routes._deps import _require_scope, _get_current_user
+    from routes._deps import _require_auth, _require_scope
 
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "privacy:read")
+    # A named organisation's configuration, not the platform's published policy.
+    user = _require_auth(request)
+    _require_scope(user, "privacy:read")
     lm = get_lifecycle_manager()
     config = lm.get_config(org_id)
     return config.to_dict()
@@ -132,11 +133,11 @@ class LifecycleConsentRequest(BaseModel):
 @router.post("/api/privacy/consent", tags=["Privacy"])
 def api_record_consent(req: LifecycleConsentRequest, request: Request):
     """Record explicit consent (privacy principle: Consent)."""
-    from routes._deps import _require_scope, _get_current_user
+    from routes._deps import _require_auth, _require_scope
 
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "privacy:write")
+    # Consent asserted by an anonymous caller is not consent.
+    user = _require_auth(request)
+    _require_scope(user, "privacy:write")
     lm = get_lifecycle_manager()
     consent_id = lm.record_consent(req.entity_id, req.consent_type, req.details)
     return {"ok": True, "consent_id": consent_id}
@@ -145,11 +146,10 @@ def api_record_consent(req: LifecycleConsentRequest, request: Request):
 @router.delete("/api/privacy/consent/{entity_id}/{consent_type}", tags=["Privacy"])
 def api_revoke_consent(entity_id: str, consent_type: str, request: Request):
     """Revoke consent (privacy: individuals can withdraw consent)."""
-    from routes._deps import _require_scope, _get_current_user
+    from routes._deps import _require_auth, _require_scope
 
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "privacy:write")
+    user = _require_auth(request)
+    _require_scope(user, "privacy:write")
     lm = get_lifecycle_manager()
     lm.revoke_consent(entity_id, consent_type)
     return {"ok": True, "revoked": consent_type}
@@ -158,11 +158,11 @@ def api_revoke_consent(entity_id: str, consent_type: str, request: Request):
 @router.get("/api/privacy/consent/{entity_id}", tags=["Privacy"])
 def api_get_consents(entity_id: str, request: Request):
     """Get all consent records for an entity (privacy: Individual Access)."""
-    from routes._deps import _require_scope, _get_current_user
+    from routes._deps import _require_auth, _require_scope
 
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "privacy:read")
+    # A named entity's consent records are personal data.
+    user = _require_auth(request)
+    _require_scope(user, "privacy:read")
     lm = get_lifecycle_manager()
     consents = lm.get_consents(entity_id)
     return {"consents": consents}
