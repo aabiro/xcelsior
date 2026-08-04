@@ -16,7 +16,7 @@ import logging
 import os
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 
@@ -25,7 +25,54 @@ from psycopg.rows import dict_row
 
 log = logging.getLogger("xcelsior.stripe_connect_v2")
 
-router = APIRouter(tags=["Stripe Connect V2"])
+#: Paths on this router that may be reached without a credential, each for a
+#: reason verified in this file rather than assumed.
+#:
+#: `/api/connect/webhooks` — Stripe sends no bearer. The endpoint requires a
+#: `stripe-signature` header and `parse_event_notification` verifies it against
+#: the endpoint secret, so the signature *is* the credential. Demanding a bearer
+#: would break delivery while adding nothing.
+#:
+#: The three pages return `_DASHBOARD_HTML` and render no account data. They
+#: fetch from the JSON API afterwards, which is where the credential belongs.
+_PUBLIC_CONNECT_PATHS = frozenset({
+    "/api/connect/webhooks",
+    "/connect/dashboard",
+    "/connect/storefront",
+    "/connect/success",
+})
+
+
+def _connect_deny_by_default(request: Request) -> None:
+    """Refuse anything on this router that is not explicitly public.
+
+    Every endpoint here was reachable without a credential: `GET
+    /api/connect/accounts` answered 200, and the POSTs failed on schema
+    validation rather than authorization, so a well-formed body would have
+    created a Stripe connected account or product. The module runs with a live
+    key.
+
+    Deny-by-default rather than per-endpoint guards, because the failure was
+    that an endpoint could be *added* without one. A new route on this router is
+    now closed unless someone names it above and says why.
+
+    Known consequence: the HTML pages call these APIs with plain `fetch()` and
+    no `Authorization` header, so the prototype dashboard stops working until it
+    sends credentials. That is the correct trade against leaving unauthenticated
+    account creation reachable, and it is why the pages stay public while the
+    APIs do not.
+    """
+    if request.url.path in _PUBLIC_CONNECT_PATHS:
+        return
+    from routes._deps import _require_auth
+
+    _require_auth(request)
+
+
+router = APIRouter(
+    tags=["Stripe Connect V2"],
+    dependencies=[Depends(_connect_deny_by_default)],
+)
 
 # ── Environment / Configuration ───────────────────────────────────────
 # Stripe secret key — must start with "sk_test_" or "sk_live_".
