@@ -130,7 +130,11 @@ directly.
 
 This is the largest and it does not get fixed by adding 115 lines.
 
-**B1. Measure the damage first.** Compare configured against effective for the
+**B1. Measure the damage first — with values masked.** The comparison prints
+configured-versus-effective, and a first run of it printed two Stripe webhook
+signing secrets and a Headscale auth key verbatim into a transcript. Any tooling
+here masks values and compares only `==`/`!=`; the variable name is the finding,
+never its content. Compare configured against effective for the
 subset that can have moved money or weakened containment: the two token prices,
 the volume quotas, the terminal/WS limits, the billing rate limits. Anything
 where the operator's value differs from the code default is a live incident, not
@@ -262,7 +266,7 @@ env={m.group(1) for l in pathlib.Path('.env').read_text().splitlines()
      if (m:=re.match(r'^(XCELSIOR_[A-Z0-9_]+)=(.+)$', l.strip())) and m.group(2).strip().strip('"').strip("'")}
 d=yaml.safe_load(open('docker-compose.yml')); mapped=set()
 for s in ('api','api-blue','scheduler-worker','bg-worker'): mapped |= set(d['services'][s].get('environment') or {})
-print(len((env & read) - mapped))
+print(len((env & read) - mapped))   # count only — never print values
 PY
 
 # item 3 — walkers protected against macOS sidecars (expects 3 of 10)
