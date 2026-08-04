@@ -43,6 +43,25 @@ this ledger is required.
    `NOT VALID`, verified, then `VALIDATE`; `CREATE INDEX CONCURRENTLY` in
    autocommit blocks on large tables; `lock_timeout` set. Contract only in
    a later release, after the legacy-use metric reads zero.
+   **One table's locks at a time**, which is the operative half of "`lock_timeout`
+   set". Deploys are blue-green: `scripts/deploy.sh` runs `alembic upgrade head`
+   while the live API, scheduler and workers keep serving, so a migration
+   competes with traffic by construction. A migration touching several tables
+   goes through [`migrations/lock_safe.py`](lock_safe.py) — a transaction per
+   table, a short `lock_timeout`, retry on `40P01`/`55P03` — and every statement
+   in it is idempotent, because per-table commits make such a migration
+   resumable rather than atomic. `migrations/env.py` must keep
+   `transaction_per_migration=True`, which `lock_safe` depends on and verifies
+   at runtime.
+
+   This paragraph exists because the rest of rule 5 was prose with no gate. The
+   first production deploy of `080`–`098` (2026-08-04) failed on `095` with
+   `deadlock detected` at `ALTER TABLE jobs ADD COLUMN spot_rate_micros`: no
+   `lock_timeout` was set, and one enclosing transaction held `ACCESS EXCLUSIVE`
+   on fifteen tables while a live request held a read lock on another. Both
+   halves are now gated by `tests/test_migration_lock_discipline.py`, which
+   reproduces the deadlock against real PostgreSQL and then shows the per-table
+   shape surviving the same contention.
 6. **Every migration passes `up → down → up` cleanly** on a dev database
    *and* a production-shaped snapshot before it is applied anywhere else.
 7. **Alembic is the only production DDL authority.** No runtime
