@@ -47,6 +47,11 @@ hash and matched against every version of that path in history.
 REMOTE=user@host DEPLOY_DIR=/opt/xcelsior ./scripts/incident/identify_deployed_files.sh
 ```
 
+**Run it BEFORE deploying.** `deploy.sh` rsyncs over `/opt/xcelsior`, which
+overwrites every file in the set below. The questions this script answers are
+all of the form *what has production been running until now* — deploy first and
+the evidence is gone, replaced by the version you just shipped.
+
 **A `NO MATCH` result is a finding, not a failure.** It means the deployed
 content corresponds to no commit — the tree was dirty when it shipped — which
 answers the attribution question definitively in the negative: production cannot
