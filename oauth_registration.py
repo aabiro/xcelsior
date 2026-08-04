@@ -40,6 +40,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlsplit
 
+from oauth_delegation import SYSTEM_PRINCIPAL
 from oauth_service import (
     MCP_RESOURCE_AUDIENCE,
     OAuthGrantError,
@@ -499,6 +500,9 @@ def register_dynamic_client(body: dict[str, Any], *, client_ip: str) -> dict[str
 
     expires_at = registration_expiry()
     created = create_oauth_client(
+        # RFC 7591 self-registration: nobody is signed in. Checked against
+        # SYSTEM_ALLOWED_SCOPES rather than exempted.
+        actor=SYSTEM_PRINCIPAL,
         client_name=client_name,
         redirect_uris=validated,
         grant_types=sorted(set(CONNECTOR_GRANT_TYPES)),

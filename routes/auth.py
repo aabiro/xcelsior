@@ -1194,6 +1194,7 @@ def api_create_oauth_client(body: OAuthClientCreateRequest, request: Request):
     workspace_customer_id = _oauth_workspace_customer_id(user)
     team_id = _oauth_workspace_team_id(user)
     client = create_oauth_client(
+        actor=user,
         client_name=body.client_name.strip(),
         redirect_uris=list(body.redirect_uris),
         grant_types=list(body.grant_types),
@@ -3194,11 +3195,14 @@ def api_update_oauth_client(client_id: str, body: OAuthClientUpdateRequest, requ
         raise HTTPException(400, "No fields to update")
     # Checked before the admin/non-admin split below, because both branches
     # write the scopes column.
-    _refuse_undelegatable_scopes(updates.get("scopes"), user)
+    # No route-level scope check here any more: `OAuthStore.update_client*` enforce
+    # delegation themselves (#16), so every writer inherits it instead of each route
+    # remembering. Keeping both would be one rule in two places, which is precisely
+    # what left this path unguarded when registration was fixed alone.
     from db import OAuthStore
 
     if _is_platform_admin(user):
-        ok = OAuthStore.update_client(client_id, updates, None)
+        ok = OAuthStore.update_client(client_id, updates, None, actor=user)
     else:
         client = OAuthStore.get_client(client_id)
         if not client:
@@ -3210,6 +3214,7 @@ def api_update_oauth_client(client_id: str, body: OAuthClientUpdateRequest, requ
             workspace_customer_id=_oauth_workspace_customer_id(user),
             personal_customer_id=_canonical_owner_id(user),
             user_email=user["email"],
+            actor=user,
         )
     if not ok:
         raise HTTPException(404, "OAuth client not found or not permitted")

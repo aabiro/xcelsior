@@ -18,6 +18,7 @@ from typing import Any
 
 from cache_keys import cache_key
 from db import OAuthStore, UserStore
+from oauth_delegation import SYSTEM_PRINCIPAL
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
@@ -1154,7 +1155,10 @@ def ensure_default_oauth_clients() -> None:
         ]
         for client in defaults:
             if not OAuthStore.get_client(client["client_id"]):
-                OAuthStore.create_client(client)
+                # No user is behind seeding. SYSTEM_PRINCIPAL still runs the
+                # delegation check, against SYSTEM_ALLOWED_SCOPES — these clients
+                # are safe by their contents today, and contents go stale.
+                OAuthStore.create_client(client, actor=SYSTEM_PRINCIPAL)
         _defaults_ready = True
 
 
@@ -1184,6 +1188,7 @@ def get_client(client_id: str) -> dict | None:
 
 def create_oauth_client(
     *,
+    actor: object,
     client_name: str,
     redirect_uris: list[str],
     grant_types: list[str],
@@ -1245,7 +1250,12 @@ def create_oauth_client(
         "software_version": software_version,
         "contacts": list(contacts or []),
     }
-    OAuthStore.create_client(client)
+    # Forwarded, never assumed. This function is the shared funnel for the
+    # user-facing route, dynamic client registration, and MCP quick connect. An
+    # earlier version hardcoded SYSTEM_PRINCIPAL here, which sent every
+    # user-created client down the system path — exempting the user check and
+    # restricting them to the system allowlist at the same time.
+    OAuthStore.create_client(client, actor=actor)
     response = {
         "client_id": client_id,
         "client_name": client_name,
@@ -1308,6 +1318,7 @@ def get_or_create_mcp_quick_connect_client(
     if existing and regenerate:
         OAuthStore.delete_client(existing["client_id"], created_by_email)
     created = create_oauth_client(
+        actor=SYSTEM_PRINCIPAL,
         client_name=MCP_QUICK_CONNECT_CLIENT_NAME,
         redirect_uris=[],
         grant_types=["client_credentials"],
