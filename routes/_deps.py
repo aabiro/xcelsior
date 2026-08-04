@@ -1209,6 +1209,19 @@ def _require_provider_or_admin(request: Request) -> dict:
     return user
 
 
+#: Credential classes that are API keys rather than interactive sessions.
+#:
+#: This used to be the bare literal ``"api_key"``, tested inline. Agent keys are
+#: minted with ``auth_type: "agent_api_key"`` (``oauth_service.py``), so the
+#: literal never matched one and every ``allow_api_key=False`` caller admitted
+#: them — the thirty routes whose entire purpose is to require an interactive
+#: session, including MFA, password change, privacy consent and account
+#: deletion. The same "one definition, two spellings" shape as
+#: ``_MACHINE_AUTH_TYPES``, so it is a named set here rather than a literal
+#: there.
+_API_KEY_AUTH_TYPES = frozenset({"api_key", "agent_api_key"})
+
+
 def _require_user_grant(request: Request, *, allow_api_key: bool = False) -> dict:
     """Require an interactive user session.
 
@@ -1223,7 +1236,7 @@ def _require_user_grant(request: Request, *, allow_api_key: bool = False) -> dic
     auth_type = str(user.get("auth_type", ""))
     if auth_type == "client_credentials":
         raise HTTPException(403, "Interactive user authentication required")
-    if auth_type == "api_key" and not allow_api_key:
+    if auth_type in _API_KEY_AUTH_TYPES and not allow_api_key:
         raise HTTPException(403, "Interactive session authentication required")
     return user
 
