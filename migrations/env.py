@@ -45,14 +45,44 @@ def run_migrations_offline():
         context.run_migrations()
 
 
+# A lock request queues ahead of every later request on the same table, so an
+# `ALTER TABLE` that waits behind one long-running read stalls all traffic to
+# that table for as long as it waits. Deploys are blue-green — the live API and
+# workers keep serving while this runs — so waiting indefinitely is an outage
+# and failing fast is not. `migrations/README.md` rule 5 requires this be set.
+LOCK_TIMEOUT = os.environ.get("XCELSIOR_MIGRATION_LOCK_TIMEOUT", "5s")
+
+
 def run_migrations_online():
     """Run migrations in 'online' mode — connect to DB and apply."""
-    from sqlalchemy import create_engine
+    from sqlalchemy import create_engine, text
+
+    from migrations.lock_safe import checked_timeout
 
     engine = create_engine(config.get_main_option("sqlalchemy.url"))
 
     with engine.connect() as connection:
-        context.configure(connection=connection, target_metadata=None)
+        # `SET` takes no bind parameters; `checked_timeout` is what makes the
+        # interpolation of an environment variable safe here.
+        connection.execute(text(f"SET lock_timeout = '{checked_timeout(LOCK_TIMEOUT)}'"))
+        connection.commit()
+        context.configure(
+            connection=connection,
+            target_metadata=None,
+            # One transaction per migration, not one for the whole upgrade.
+            #
+            # With a single enclosing transaction, a 16-migration deploy holds
+            # every lock every migration took until the last one commits, and
+            # any failure discards the lot — so each retry replays all of them
+            # and re-widens the window. That is how migration 095 deadlocked
+            # against live traffic on the 2026-08-04 deploy. Per-migration
+            # transactions keep each migration atomic, release its locks at its
+            # own commit, and make a failed deploy resumable from where it
+            # stopped. `migrations/lock_safe.py` additionally *requires* this:
+            # it opens a second connection, which would block against locks
+            # still held by an earlier migration in a shared transaction.
+            transaction_per_migration=True,
+        )
         with context.begin_transaction():
             context.run_migrations()
 
