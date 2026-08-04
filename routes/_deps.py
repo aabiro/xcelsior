@@ -14,6 +14,8 @@ from collections import defaultdict, deque
 from typing import Any
 
 from fastapi import HTTPException, Request, WebSocket
+
+import env_config
 from db import DatabaseOps, UserStore, NotificationStore, get_engine
 from oauth_service import (
     ACCESS_TOKEN_TTL_SEC,
@@ -51,8 +53,12 @@ except Exception:
 
 # ── Environment & Auth Config ─────────────────────────────────────────
 
-XCELSIOR_ENV = os.environ.get("XCELSIOR_ENV", "dev").lower()
-AUTH_REQUIRED = XCELSIOR_ENV not in {"dev", "development", "test"}
+# Resolved through `env_config`, which treats an unset, empty, or unrecognised
+# value as production. It was `os.environ.get("XCELSIOR_ENV", "dev")`, so a
+# missing variable meant `AUTH_REQUIRED = False`, and `_require_auth` then
+# handed every anonymous caller a principal with `is_admin: True`.
+XCELSIOR_ENV = env_config.resolve_env()
+AUTH_REQUIRED = not env_config.is_relaxed_env()
 RATE_LIMIT_REQUESTS = int(os.environ.get("XCELSIOR_RATE_LIMIT_REQUESTS", "300"))
 RATE_LIMIT_WINDOW_SEC = int(os.environ.get("XCELSIOR_RATE_LIMIT_WINDOW_SEC", "60"))
 _RATE_BUCKETS: dict[str, deque] = defaultdict(deque)

@@ -17,6 +17,8 @@ import subprocess
 import time
 from cryptography.fernet import Fernet, InvalidToken
 
+import env_config
+
 log = logging.getLogger("xcelsior")
 
 # ── Encryption key for user secrets ───────────────────────────────────
@@ -30,10 +32,16 @@ def _get_fernet():
     if _fernet is None:
         key = _SECRETS_KEY
         if not key:
-            env = os.environ.get("XCELSIOR_ENV", "dev").lower()
-            if env in ("production", "prod"):
+            # `env in ("production", "prod")` on a value defaulting to "dev"
+            # meant an *unset* variable, a typo, or staging all fell through to
+            # the deterministic key below — which is a constant in this source
+            # tree, so anything it encrypted was recoverable by anyone with the
+            # repository. Only an explicitly named development environment may
+            # take that path now.
+            if not env_config.is_relaxed_env():
                 raise RuntimeError(
-                    "XCELSIOR_SECRETS_KEY must be set in production. "
+                    "XCELSIOR_SECRETS_KEY must be set outside development "
+                    f"(XCELSIOR_ENV resolved to {env_config.resolve_env()!r}). "
                     'Generate one with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
                 )
             # Deterministic fallback for dev — NOT for production use
@@ -42,10 +50,12 @@ def _get_fernet():
         try:
             _fernet = Fernet(key.encode() if isinstance(key, str) else key)
         except (ValueError, TypeError) as exc:
-            env = os.environ.get("XCELSIOR_ENV", "dev").lower()
-            if env in ("production", "prod"):
+            # A malformed key must not silently become the dev constant either.
+            if not env_config.is_relaxed_env():
                 raise RuntimeError(
-                    "XCELSIOR_SECRETS_KEY is invalid — must be 32 url-safe base64-encoded bytes."
+                    "XCELSIOR_SECRETS_KEY is invalid — must be 32 url-safe "
+                    "base64-encoded bytes (XCELSIOR_ENV resolved to "
+                    f"{env_config.resolve_env()!r})."
                 ) from exc
             log.warning(
                 "XCELSIOR_SECRETS_KEY is invalid — falling back to insecure dev key (%s)",
