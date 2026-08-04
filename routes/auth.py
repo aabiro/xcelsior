@@ -64,6 +64,7 @@ import httpx as _httpx
 import urllib.parse as _urllib_parse
 from routes.teams import _send_team_email
 from oauth_service import (
+    revoke_access_token,
     ACCESS_TOKEN_TTL_SEC,
     DEVICE_CODE_INTERVAL_SEC,
     MCP_RESOURCE_AUDIENCE,
@@ -1566,7 +1567,10 @@ def api_auth_register(body: RegisterRequest, request: Request):
             cta_label="Verify Email",
         )
     except Exception as e:
-        log.debug("verification email send failed: %s", e)
+        # `log.warning`, not debug: production does not emit debug, so a user
+        # got "check your email" while the failure left no trace anywhere. This
+        # is a user-visible failure, not diagnostic detail.
+        log.warning("verification email send failed for %s: %s", email, e)
 
     # In test mode, auto-verify and return session (no email service)
     if XCELSIOR_ENV == "test":
@@ -2426,6 +2430,10 @@ def api_auth_logout(request: Request):
             if token:
                 if _USE_PERSISTENT_AUTH:
                     UserStore.delete_session(token)
+                    # The bearer that was presented, revoked exactly. Deleting the
+                    # session row does not reach it: an opaque access token resolves
+                    # from the auth cache alone.
+                    revoke_access_token(token)
                 else:
                     with _user_lock:
                         _sessions.pop(token, None)
@@ -2813,7 +2821,10 @@ def api_auth_resend_verification(req: ResendVerificationRequest, request: Reques
             cta_label="Verify Email",
         )
     except Exception as e:
-        log.debug("verification email send failed: %s", e)
+        # `log.warning`, not debug: production does not emit debug, so a user
+        # got "check your email" while the failure left no trace anywhere. This
+        # is a user-visible failure, not diagnostic detail.
+        log.warning("verification email send failed for %s: %s", email, e)
 
     return {
         "ok": True,
