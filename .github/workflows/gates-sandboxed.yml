@@ -1,0 +1,99 @@
+name: Gates (sandboxed runner)
+
+# The static gates, on a self-hosted runner that holds no credentials.
+#
+# ── Why there is no `pull_request` trigger ─────────────────────────────────────
+# This repository is **public**. On a public repository, a `pull_request` trigger
+# plus a self-hosted runner means an outside contributor's branch can run code on
+# that runner. The runner is sandboxed (see scripts/ci-runner/), but defence in
+# depth starts with not inviting the code in: `push` requires write access to this
+# repository, and a fork cannot push a branch here.
+#
+# `scripts/ci-runner/run-runner.sh` refuses to start if a `pull_request` trigger
+# appears below, so this constraint is enforced rather than remembered.
+#
+# ── Why only the static gates ─────────────────────────────────────────────────
+# The runner has no docker socket, deliberately, so workflow `services:` cannot
+# start a database. Everything here therefore needs no database, no network and no
+# credentials — which is also why it is safe to run on code that has not been
+# reviewed. The DB-backed suite stays local (`./run-tests.sh`) until hosted Actions
+# billing is restored; see docs/review/workaround-elimination-plan.md A1.
+#
+# This is not a claim that the suite is green. It is a claim that these gates are.
+
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+
+concurrency:
+  group: gates-sandboxed-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    name: static gates (no database, no credentials)
+    runs-on: [self-hosted, sandboxed]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Environment is a sandbox, not the host
+        # A job that finds credentials here means the runner was launched wrongly.
+        # Cheaper to assert than to discover from an incident.
+        run: |
+          set -e
+          for leaked in "$HOME/.ssh/xcelsior" /var/run/docker.sock "$GITHUB_WORKSPACE/.env"; do
+            if [ -e "$leaked" ]; then
+              echo "::error::$leaked is reachable from this job — the sandbox is not one"
+              exit 1
+            fi
+          done
+          echo "no credentials and no docker socket reachable"
+
+      - name: Set up Python
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install -q --upgrade pip
+          .venv/bin/pip install -q ruff pytest pyyaml
+
+      - name: Ruff
+        run: .venv/bin/ruff check .
+
+      - name: Static gates
+        # Discovered rather than listed, so this does not rot as files are added.
+        # Each is a pure-parse gate: no database, no network, no credentials.
+        run: |
+          set -e
+          GATES=""
+          for t in tests/test_migration_ledger.py \
+                   tests/test_no_runtime_ddl.py \
+                   tests/test_startup_env_is_wired.py \
+                   tests/test_source_tree_is_shared.py \
+                   tests/test_companion_schema_discipline.py \
+                   tests/test_sql_injection_guard.py \
+                   tests/test_migration_lock_discipline.py; do
+            [ -f "$t" ] && GATES="$GATES $t"
+          done
+          echo "running:$GATES"
+          .venv/bin/python -m pytest $GATES -q -p no:sugar -p no:randomly \
+            -k "not scratch_db and not postgres"
+
+      - name: What this run does NOT cover
+        if: always()
+        run: |
+          {
+            echo "### Sandboxed gates"
+            echo
+            echo "Ran: ruff and the pure-parse gates."
+            echo
+            echo "**Not run here:** the DB-backed suite (4600+ tests), the compose"
+            echo "check, pyright, the frontend and MCP suites, and every live gate."
+            echo "This runner has no database and no docker socket by design."
+            echo
+            echo "A green result here is not a green suite. \`./run-tests.sh\` locally"
+            echo "remains the only thing that has run the whole suite."
+          } >> "$GITHUB_STEP_SUMMARY"
