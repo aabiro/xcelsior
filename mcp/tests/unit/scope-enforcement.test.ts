@@ -99,7 +99,13 @@ describe("scope enforcement", () => {
    * money-moving tool is a decision someone records here instead of an
    * exemption that widens quietly.
    */
-  const NOT_REACHABLE_BY_QUICK_CONNECT = new Set(["top_up_wallet"]);
+  const NOT_REACHABLE_BY_QUICK_CONNECT = new Set([
+    "top_up_wallet",
+    // Changes what gets charged *unattended*. Same reasoning: the default
+    // connector token holds `billing:read`, and widening automatic spending is
+    // not something it should be able to do.
+    "configure_auto_topup",
+  ]);
 
   it("still admits the Quick Connect scope set for every customer tool", () => {
     // Regression guard on the fix itself: tightening allOf must not lock the
