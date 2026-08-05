@@ -63,6 +63,11 @@ export const TOOL_SCOPES: Record<string, ScopeRequirement> = {
   evict_host_workloads: { allOf: ["hosts:evict"] },
   retry_agent_command: { allOf: ["control_plane:operate"] },
   get_wallet_balance: { allOf: ["billing:read"] },
+  // Reads the wallet *and* the running instances burning it down, so it needs
+  // both. `instances:read` is not incidental here: the runway is meaningless
+  // without knowing what is consuming it, and the per-instance breakdown names
+  // the jobs that will be stopped.
+  get_spend_envelope: { allOf: ["billing:read", "instances:read"] },
   estimate_job_cost: { allOf: ["billing:read"] },
   list_invoices: { allOf: ["billing:read"] },
   list_payment_methods: { allOf: ["billing:read"] },

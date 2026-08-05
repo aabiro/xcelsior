@@ -243,6 +243,17 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     "Get the account's wallet balance and available credits in CAD. Use before committing to " +
     "spend, or when the user asks what they have left. Read-only and free.",
 
+  get_spend_envelope:
+    "How long the balance lasts at the current burn rate, and which instances are consuming it. " +
+    "Returns balance, burn rate per hour, seconds until zero, and a per-instance breakdown. Use " +
+    "before starting long unattended work, when the user asks how long they can keep running, or " +
+    "when deciding whether to top up. Read-only and free.\n\n" +
+    "At zero the platform stops running instances automatically with reason 'low_balance' — work " +
+    "is interrupted, not merely billed. If auto-top-up is configured it charges first; check " +
+    "get_wallet_balance for that. This projects the *balance*, not the *work*: nothing here " +
+    "estimates when a job will finish, because instances run until stopped. Treat the runway as " +
+    "'how long before it stops if nobody acts', not 'whether the job will make it'.",
+
   estimate_job_cost:
     "Estimate what a GPU job will cost in CAD: hourly rate and projected total for the duration, " +
     "on-demand by default or spot when the workload can checkpoint. Use when the user asks what " +
