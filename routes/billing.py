@@ -2232,6 +2232,19 @@ def api_billing_configure_topup(body: AutoTopupConfig, request: Request):
     _require_scope(user, "billing:write")
     be = get_billing_engine()
     customer_id = _analytics_customer_scope(user)
+
+    # Capture the previous setting so the audit row says what changed, not just
+    # that something did. This is the only lever in the system that alters what
+    # gets charged **unattended**, repeatedly, with nobody watching — and until
+    # now the change was recorded in a `log.info` and nowhere the account holder
+    # could ever see it.
+    before = be.get_wallet(customer_id) or {}
+    previous = {
+        "enabled": bool(before.get("auto_topup_enabled")),
+        "amount_cad": micros_to_cad(int(before.get("auto_topup_amount_micros") or 0)),
+        "threshold_cad": micros_to_cad(int(before.get("auto_topup_threshold_micros") or 0)),
+    }
+
     be.configure_auto_topup(
         customer_id=customer_id,
         enabled=body.enabled,
@@ -2239,7 +2252,27 @@ def api_billing_configure_topup(body: AutoTopupConfig, request: Request):
         threshold_cad=body.threshold_cad,
         stripe_payment_method_id=body.stripe_payment_method_id,
     )
-    return {"ok": True, "auto_topup": body.model_dump()}
+
+    # Raising the amount widens unattended spending; lowering or disabling it
+    # narrows. Both are recorded, but the direction is stated so the trail can
+    # be read for widenings without reconstructing arithmetic — the asymmetry
+    # the plan asks for, as a visible record rather than as ceremony in front of
+    # a capability the caller already holds.
+    widened = bool(body.enabled) and (
+        body.amount_cad > previous["amount_cad"]
+        or body.threshold_cad > previous["threshold_cad"]
+        or not previous["enabled"]
+    )
+    from routes._deps import append_user_audit_event
+
+    append_user_audit_event(
+        "user.billing.auto_topup_widened" if widened else "user.billing.auto_topup_changed",
+        "billing",
+        customer_id,
+        user,
+        data={"previous": previous, "current": body.model_dump(), "widened": widened},
+    )
+    return {"ok": True, "auto_topup": body.model_dump(), "previous": previous}
 
 
 @router.get("/api/v2/billing/auto-topup", tags=["Billing"])

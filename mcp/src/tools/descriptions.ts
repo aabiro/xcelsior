@@ -253,6 +253,18 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     "List the account's billing invoices with their periods and amounts in CAD. Use when the " +
     "user asks what they have been charged or wants a specific invoice. Read-only and free.",
 
+  configure_auto_topup:
+    "Set up or change automatic wallet top-ups: when the balance falls below the threshold, the " +
+    "saved card is charged for the amount, without anyone present. " +
+    "Use this when the user wants to stop running out mid-job, or asks to change, pause or stop " +
+    "existing auto top-ups. Call it with enabled=false to turn it off. " +
+    "CHANGES UNATTENDED SPENDING: raising the amount or the threshold means larger or more " +
+    "frequent charges that happen with nobody watching, so state the new numbers back to the user " +
+    "and get their agreement before calling. Lowering them or disabling needs no such care — it " +
+    "only ever reduces what can happen. " +
+    "Every change is recorded on the account, and the response includes the previous settings so " +
+    "you can tell the user exactly what changed.",
+
   top_up_wallet:
     "Charge a card already saved on the account and credit the wallet. " +
     "Use this when the user asks to add funds — 'put $20 on my account', 'top me up' — or when a " +
