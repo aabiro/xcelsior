@@ -44,15 +44,17 @@ one_job() {
         --name "xcelsior-ci-runner-$$" \
         --network bridge \
         --read-only \
-        `# Every writable mount is sized explicitly. These are tmpfs, so the pages` \
-        `# are host RAM and an unbounded one is a way for a job to take the box` \
-        `# down — the --memory limit alone would not have stopped it, and this` \
-        `# host runs the dev pool.` \
-        --tmpfs /tmp:rw,noexec,nosuid,size=1g \
-        `# uid/gid on every writable mount: a --tmpfs arrives owned by root:root,` \
-        `# which a container running as uid 10001 cannot write to. The Dockerfile's` \
-        `# chown applies to the directory underneath and is hidden by the mount.` \
-        --tmpfs /home/runner/_work:rw,exec,size=2g,uid=10001,gid=10001 \
+        `# tmpfs pages are host RAM, so this one is sized explicitly: an unbounded` \
+        `# mount is a way for a job to take the box down, and this host runs the` \
+        `# dev pool. uid/gid because a --tmpfs arrives owned by root:root and the` \
+        `# container is uid 10001 — the Dockerfile's chown is hidden underneath it.` \
+        --tmpfs /tmp:rw,noexec,nosuid,size=1g,uid=10001,gid=10001 \
+        `# The workspace and the package caches are volumes, not tmpfs: a checkout` \
+        `# plus \`uv sync\` of 118 packages does not belong in RAM on a 15 GB box.` \
+        `# Both are anonymous, so --rm destroys them with the container and no job` \
+        `# can leave anything for the next one.` \
+        --mount type=volume,dst=/home/runner/_work \
+        --mount type=volume,dst=/home/runner/.cache \
         `# The runner's own directory, not just its _diag subdirectory: config.sh` \
         `# writes .credentials, .credentials_rsaparams, .runner, .env and .path` \
         `# beside its binaries, and --read-only refuses all of them.` \

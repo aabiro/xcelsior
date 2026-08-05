@@ -54,13 +54,26 @@ jobs:
           done
           echo "no credentials and no docker socket reachable"
 
-      - name: Set up Python
-        run: |
-          python3 -m venv .venv
-          .venv/bin/pip install -q --upgrade pip
-          .venv/bin/pip install -q ruff pytest pyyaml
+      - name: Install dependencies from the lockfile
+        # `uv sync --frozen`, which is exactly what `run-tests.sh` runs, so CI and
+        # local install the same pinned set.
+        #
+        # This previously pip-installed `ruff pytest pyyaml` and could never have
+        # passed: `tests/conftest.py` has an autouse fixture that imports
+        # `routes._deps`, which imports the whole FastAPI app. Every test here
+        # transitively needs the project's real dependencies, including the ones
+        # this job calls pure-parse — "needs no database" describes what they *do*,
+        # not what they *import*.
+        #
+        # Not `pip install -r requirements.txt` either: that file is a `uv export`
+        # that went stale a day after it was written, and its `stripe==15.3.1`
+        # hashes match neither artifact PyPI publishes, so pip aborts on it.
+        # `uv.lock` is the authoritative file and is correct.
+        run: uv sync --frozen
 
       - name: Ruff
+        # From the lockfile, so the version is pinned. Installing `ruff` unpinned
+        # meant a lint gate whose verdict could change with no code change.
         run: .venv/bin/ruff check .
 
       - name: Static gates

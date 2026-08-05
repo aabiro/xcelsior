@@ -38,6 +38,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3.12 python3.12-venv python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
+# `uv`, pinned, because CI must install the way `run-tests.sh` does. The previous
+# workflow pip-installed a hand-picked subset (`ruff pytest pyyaml`) and could
+# never have worked: `tests/conftest.py` imports `routes._deps`, which imports the
+# whole FastAPI app, so even the "pure-parse" gates need the project's real
+# dependencies. Chasing that subset went dotenv -> sqlalchemy -> alembic ->
+# fastapi -> ... which is the hand-listing that caused it.
+#
+# From PyPI at a pinned version rather than the vendor's curl|sh installer, so the
+# image stays auditable.
+RUN pip install --no-cache-dir --break-system-packages uv==0.12.0
+
 RUN useradd -m -u 10001 -s /bin/bash runner
 
 # `config.sh` writes its registration material — `.credentials`,
@@ -62,7 +73,7 @@ RUN arch="$(dpkg --print-architecture)" \
          arm64) rarch=arm64 ;; \
          *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
        esac \
-    && mkdir -p /home/runner/actions-runner /home/runner/_work \
+    && mkdir -p /home/runner/actions-runner /home/runner/_work /home/runner/.cache \
     && curl -fsSL -o /tmp/runner.tar.gz \
         "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-${rarch}-${RUNNER_VERSION}.tar.gz" \
     && tar xzf /tmp/runner.tar.gz -C /home/runner/actions-runner \
