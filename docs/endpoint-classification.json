@@ -199,6 +199,22 @@
     "class": "internal",
     "notes": "the platform's own assistant and support chat; exposing it as a tool would nest one agent inside another rather than add a capability"
   },
+  "GET /api/connect/accounts": {
+    "class": "gap",
+    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+  },
+  "GET /api/connect/accounts/{account_id}/onboarding-link": {
+    "class": "gap",
+    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+  },
+  "GET /api/connect/accounts/{account_id}/status": {
+    "class": "gap",
+    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+  },
+  "GET /api/connect/products": {
+    "class": "gap",
+    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+  },
   "GET /api/hosts/{host_id}/admission": {
     "class": "internal",
     "notes": "host admission handshake between platform and worker"
@@ -230,6 +246,22 @@
   "GET /api/pricing/spot-floor-suggestion": {
     "class": "gap",
     "notes": "P5 placement and migration need spot data as tools"
+  },
+  "GET /api/providers": {
+    "class": "gap",
+    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+  },
+  "GET /api/providers/{provider_id}": {
+    "class": "gap",
+    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+  },
+  "GET /api/providers/{provider_id}/earnings": {
+    "class": "gap",
+    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+  },
+  "GET /api/providers/{provider_id}/paypal": {
+    "class": "gap",
+    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "GET /api/reputation/leaderboard": {
     "class": "gap",
@@ -374,6 +406,18 @@
   "GET /autoscale/pool": {
     "class": "internal",
     "notes": "scheduler-driven capacity control, no caller outside the platform"
+  },
+  "GET /connect/dashboard": {
+    "class": "internal",
+    "notes": "server-rendered browser page, not an API surface; the provider reads it during onboarding"
+  },
+  "GET /connect/storefront": {
+    "class": "internal",
+    "notes": "server-rendered browser page, not an API surface; the provider reads it during onboarding"
+  },
+  "GET /connect/success": {
+    "class": "internal",
+    "notes": "server-rendered browser page, not an API surface; the provider reads it during onboarding"
   },
   "GET /instance/{job_id}": {
     "class": "covered",
@@ -627,6 +671,22 @@
     "class": "internal",
     "notes": "the platform's own assistant and support chat; exposing it as a tool would nest one agent inside another rather than add a capability"
   },
+  "POST /api/connect/accounts": {
+    "class": "gap",
+    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+  },
+  "POST /api/connect/checkout": {
+    "class": "gap",
+    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+  },
+  "POST /api/connect/products": {
+    "class": "gap",
+    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+  },
+  "POST /api/connect/webhooks": {
+    "class": "internal",
+    "notes": "processor webhook; machine-to-machine and signature-verified, and P1's only completion signal \u2014 the caller is Stripe, never an agent"
+  },
   "POST /api/hosts/compatibility-sessions/{session_id}/evidence": {
     "class": "internal",
     "notes": "host admission handshake between platform and worker"
@@ -654,6 +714,50 @@
   "POST /api/pricing/estimate": {
     "class": "covered",
     "notes": "MCP server calls this path"
+  },
+  "POST /api/providers/register": {
+    "class": "gap",
+    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+  },
+  "POST /api/providers/webhook": {
+    "class": "internal",
+    "notes": "processor webhook; machine-to-machine and signature-verified, and P1's only completion signal \u2014 the caller is Stripe, never an agent"
+  },
+  "POST /api/providers/{provider_id}/abandon-onboarding": {
+    "class": "gap",
+    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+  },
+  "POST /api/providers/{provider_id}/account-session": {
+    "class": "gap",
+    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+  },
+  "POST /api/providers/{provider_id}/incorporation": {
+    "class": "gap",
+    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+  },
+  "POST /api/providers/{provider_id}/payout": {
+    "class": "gap",
+    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+  },
+  "POST /api/providers/{provider_id}/paypal/disconnect": {
+    "class": "gap",
+    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+  },
+  "POST /api/providers/{provider_id}/paypal/onboard": {
+    "class": "gap",
+    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+  },
+  "POST /api/providers/{provider_id}/paypal/refresh": {
+    "class": "gap",
+    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+  },
+  "POST /api/providers/{provider_id}/resume-onboarding": {
+    "class": "gap",
+    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+  },
+  "POST /api/providers/{provider_id}/stripe/disconnect": {
+    "class": "gap",
+    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "POST /api/reputation/me/claim": {
     "class": "gap",
