@@ -3662,7 +3662,7 @@ class BillingEngine:
         stripe_intent_id: str,
         description: str,
         created_at: float,
-    ) -> None:
+    ) -> bool:
         """Record an intent so the confirmation webhook knows who to credit.
 
         `_handle_payment_succeeded` matches the Stripe intent id against this
@@ -3674,6 +3674,14 @@ class BillingEngine:
         `ON CONFLICT DO NOTHING` makes a repeated registration harmless, which
         matters because a retried charge returns Stripe's *original* intent for
         the same idempotency key.
+
+        **Returns whether the row was new**, which is the only signal available
+        that Stripe replayed a charge rather than making one. Stripe answers a
+        repeated idempotency key with the original PaymentIntent and no
+        indication that it is doing so, so a caller cannot otherwise tell "I
+        charged the card" from "I was handed the receipt for an earlier
+        charge". Discarding it is how a second top-up can look successful while
+        no second charge exists.
         """
         from db import _get_pg_pool
         from psycopg.rows import dict_row
@@ -3681,7 +3689,7 @@ class BillingEngine:
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
-            conn.execute(
+            cur = conn.execute(
                 """INSERT INTO payment_intents
                      (intent_id, customer_id, amount_cents, currency,
                       status, stripe_intent_id, description, created_at)
@@ -3699,7 +3707,11 @@ class BillingEngine:
                     created_at,
                 ),
             )
+            # 0 means the conflict fired: this Stripe intent was already
+            # registered, so the charge that produced it happened earlier.
+            inserted = cur.rowcount == 1
             conn.commit()
+        return inserted
 
     def charge_saved_card(
         self,
@@ -3800,7 +3812,7 @@ class BillingEngine:
                 )
             raise
 
-        self._register_payment_intent(
+        inserted = self._register_payment_intent(
             intent_id=f"pi_topup_{uuid.uuid4().hex[:16]}",
             customer_id=customer_id,
             amount_cents=amount_cents,
@@ -3814,6 +3826,12 @@ class BillingEngine:
             "stripe_intent_id": intent.id,
             "amount_cents": amount_cents,
             "status": getattr(intent, "status", "") or "",
+            # This intent was already on file, so Stripe answered a repeated
+            # idempotency key with the original charge instead of making a new
+            # one. Nothing failed and nothing was charged twice — but the
+            # caller has not moved any additional money, and a response that
+            # does not say so reads as if it has.
+            "replayed": not inserted,
         }
 
     def check_low_balance_and_topup(self) -> dict:

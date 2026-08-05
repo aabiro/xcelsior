@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { XcelsiorApiClient } from "../client/api.js";
@@ -167,8 +168,9 @@ export function registerBillingTools(
           .string()
           .optional()
           .describe(
-            "Pass the SAME key when retrying a call that timed out. Without it a retry may " +
-              "charge a second time.",
+            "Leave this out unless you are retrying a call that timed out, in which case " +
+              "pass the SAME key you sent the first time. Omitting it is safe: one is " +
+              "generated per call, so asking twice tops up twice and a retry does not.",
           ),
       }),
     },
@@ -187,7 +189,19 @@ export function registerBillingTools(
           // The client already carries idempotency as a first-class option and
           // sets the header itself; passing a raw header would bypass its
           // retry policy, which is the thing that makes the key matter.
-          { idempotencyKey: idempotency_key, retry: "idempotent" },
+          //
+          // One is generated when the caller omits it, and that is load-bearing
+          // twice over. Without a key the client disables retries entirely
+          // (`api.ts`), so a timeout became a single blind attempt; and the
+          // route fell back to bucketing by customer, amount and card in a
+          // five-minute window, which quietly merged a *deliberate* second
+          // top-up into the first and reported success. One key per invocation
+          // means one intent per invocation: ask twice and you are charged
+          // twice, retry once and you are charged once.
+          {
+            idempotencyKey: idempotency_key ?? `topup-${randomUUID()}`,
+            retry: "idempotent",
+          },
         );
         return jsonText(data);
       } catch (e) {
