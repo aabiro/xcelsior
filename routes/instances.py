@@ -2451,6 +2451,10 @@ def api_process_queue_binpack(request: Request, region: str = ""):
 def api_instance_stream_ticket(job_id: str, request: Request) -> dict:
     """Issue a short-lived one-time WebSocket ticket for instance streaming."""
     user = _require_auth(request)
+    # "Open a terminal on your running instances" — the first clause of what
+    # `instances:connect` promises at the consent screen. Ownership is checked
+    # below; this checks that *this credential* was granted terminal access.
+    _require_scope(user, "instances:connect")
     _check_job_access(user, job_id)
     ticket = _issue_ws_ticket(
         user,
@@ -3463,6 +3467,10 @@ def api_instances_auto_launch_get(job_id: str, request: Request):
         }
     """
     user = _require_auth(request)
+    # The response carries each service's URL with its access token in the query
+    # string, so reading this is being handed the Jupyter session. That is
+    # terminal access by another route, and it is gated the same way.
+    _require_scope(user, "instances:connect")
     owner_id = _canonical_owner_id(user)
     is_admin = bool(user.get("is_admin"))
 
@@ -3658,6 +3666,10 @@ def api_instances_expose(job_id: str, body: _ExposeIn, request: Request):
     by end users.
     """
     user = _require_auth(request)
+    # "…and publish their ports to the internet" — the second clause. This one
+    # puts a container port on a public HTTPS hostname, so it is the reason the
+    # consent text mentions the internet at all.
+    _require_scope(user, "instances:connect")
     owner_id = _canonical_owner_id(user)
     is_admin = bool(user.get("is_admin"))
 
