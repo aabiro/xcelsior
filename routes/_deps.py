@@ -681,10 +681,37 @@ def _require_customer_access(
     *,
     billing_write: bool = False,
 ) -> dict:
-    """Authn + ownership guard for customer-scoped billing routes."""
+    """Authn, scope, and ownership guard for customer-scoped billing routes.
+
+    The three questions are separate and all three have to be asked:
+
+    * **Who is calling?** — `_get_current_user`, 401 if nobody.
+    * **May this *credential* touch billing at all?** — `_require_scope`. This
+      was missing, so eleven routes in `routes/billing.py` were authenticated
+      and ownership-checked but not authorized: a machine credential narrowed to
+      `instances:read` could still read a customer's balance, transaction
+      history, burn rate, usage and invoices, and could create a reserved
+      pricing commitment. Scope reduction is something users perform
+      deliberately — Quick Connect ships a narrowed set — and it did nothing
+      here. Same defect as the six write levers fixed in `239643b`, on the read
+      side of the same surface.
+    * **Whose data is it?** — ownership, or platform admin.
+
+    **Scope is checked before the admin bypass, deliberately.** Being an admin
+    says whose records you may see; it does not widen what a *token* may do. An
+    admin whose machine credential excludes billing should still be refused, or
+    narrowing an admin's token would be decorative. Interactive sessions are
+    unaffected either way: `_require_scope` is a no-op for anything that is not
+    a machine credential, so the dashboard and the admin console keep working.
+
+    `billing_write` already marks the routes that move or commit money, so the
+    scope follows it rather than being restated per route — a list of route
+    names to keep in sync is how the original gap survived.
+    """
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "billing:write" if billing_write else "billing:read")
     if _is_platform_admin(user):
         return user
     if customer_id not in _customer_ids_accessible_by_user(user):
