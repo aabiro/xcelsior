@@ -39,6 +39,15 @@ WORKFLOW = ROOT / ".github" / "workflows" / "gates-sandboxed.yml"
 #: Fixtures that mean "this test needs a live PostgreSQL server".
 DB_FIXTURES = {"scratch_db"}
 
+#: Direct routes to the database that take no fixture at all.
+#:
+#: The first version of this guard knew only about `scratch_db`, so it passed
+#: while `tests/test_companion_schema_discipline.py` — which calls
+#: `_get_pg_pool()` in nine tests and takes no fixture — stalled the runner for
+#: fourteen minutes. Checking one of two mechanisms is how a guard reports clean
+#: on a broken file.
+DB_CALLS = ("_get_pg_pool", "scratch_db", "create_engine")
+
 
 def _gate_files() -> list[pathlib.Path]:
     """The files the workflow actually runs, read from the workflow."""
@@ -148,6 +157,51 @@ def test_the_marker_is_registered():
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert "needs_db:" in pyproject, (
         "the `needs_db` marker is not registered in pyproject.toml"
+    )
+
+
+def _has_import_time_skip(path: pathlib.Path) -> bool:
+    """Does the module probe the database at import and skip itself?
+
+    `tests/test_no_runtime_ddl.py` established the pattern: open a connection
+    once at import, and on failure set a module-level `pytestmark` skip. A file
+    that does this runs where a database exists and skips cleanly where one does
+    not, which is what makes it safe in the sandboxed runner without the
+    workflow needing to know its name.
+    """
+    text = path.read_text(encoding="utf-8")
+    return "pytestmark = pytest.mark.skip" in text
+
+
+def test_every_gate_file_touching_a_database_can_survive_without_one():
+    """The check that would have caught the fourteen-minute stall.
+
+    A gate file may reach a database — several legitimately do — but it must
+    then either skip itself at import or mark the tests that need one.
+    Otherwise every such test retries the pool until pytest's 180-second
+    timeout, and a file with nine of them exhausts the twenty-minute job budget.
+
+    The run is then reported *cancelled*, not failed, which reads as
+    infrastructure flakiness rather than a defect in the file.
+    """
+    offenders = []
+    for path in _gate_files():
+        text = path.read_text(encoding="utf-8")
+        if not any(call in text for call in DB_CALLS):
+            continue
+        if _has_import_time_skip(path):
+            continue
+        unmarked = [
+            name for name, marked in _tests_using_db_fixtures(path) if not marked
+        ]
+        # No fixture users and no import-time skip means the database is reached
+        # directly inside the tests, which is the stalling shape.
+        if unmarked or "_get_pg_pool" in text:
+            offenders.append(path.name)
+    assert not offenders, (
+        "these gate files reach a database but neither skip at import nor mark "
+        f"the tests that need one, so the sandboxed runner stalls on them: "
+        f"{sorted(set(offenders))}"
     )
 
 
