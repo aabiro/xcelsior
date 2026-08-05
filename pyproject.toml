@@ -102,3 +102,16 @@ addopts = "-v --tb=short"
 asyncio_mode = "auto"
 timeout = 180
 timeout_func_only = true
+markers = [
+    # A test that needs a live PostgreSQL server, so it cannot run in the
+    # sandboxed CI runner (which has no database and no docker socket, by
+    # design). `gates-sandboxed.yml` selects with `-m "not needs_db"`.
+    #
+    # This exists because the workflow previously filtered with
+    # `-k "not scratch_db and not postgres"`, and `-k` matches *test names*,
+    # not fixture names. The three tests that take the `scratch_db` fixture do
+    # not have "scratch_db" in their names, so the filter excluded nothing and
+    # the job hung for ten minutes trying to reach a database that was never
+    # going to be there. `-m` matches markers, which is the mechanism for this.
+    "needs_db: requires a live PostgreSQL server; excluded from the sandboxed gates",
+]

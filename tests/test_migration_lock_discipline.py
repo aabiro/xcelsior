@@ -153,6 +153,7 @@ class _ReverseOrderRequest:
         return False
 
 
+@pytest.mark.needs_db
 def test_one_transaction_across_both_tables_deadlocks(scratch_db):
     """The failing arm: the shape 095 had, against the traffic it met.
 
@@ -178,6 +179,7 @@ def test_one_transaction_across_both_tables_deadlocks(scratch_db):
     )
 
 
+@pytest.mark.needs_db
 def test_per_table_transactions_survive_the_same_traffic(scratch_db):
     """The passing arm: same DDL, same traffic, one transaction per table.
 
@@ -218,6 +220,7 @@ def test_per_table_transactions_survive_the_same_traffic(scratch_db):
             assert got is not None, f"{table} was not backfilled"
 
 
+@pytest.mark.needs_db
 def test_a_shared_transaction_is_refused_rather_than_hanging(scratch_db):
     """The precondition, checked instead of documented.
 
