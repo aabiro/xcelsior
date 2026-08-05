@@ -3,9 +3,41 @@
     "class": "internal",
     "notes": "platform admin console; operator surface, not the tool surface"
   },
+  "DELETE /api/ai/conversations/{conversation_id}": {
+    "class": "internal",
+    "notes": "the platform's own assistant and support chat; exposing it as a tool would nest one agent inside another rather than add a capability"
+  },
+  "DELETE /api/auth/mfa/all": {
+    "class": "internal",
+    "notes": "account security enrolment (TOTP, SMS, passkeys, backup codes); first-party dashboard only and never an agent capability"
+  },
+  "DELETE /api/auth/mfa/sms": {
+    "class": "internal",
+    "notes": "account security enrolment (TOTP, SMS, passkeys, backup codes); first-party dashboard only and never an agent capability"
+  },
+  "DELETE /api/auth/mfa/totp": {
+    "class": "internal",
+    "notes": "account security enrolment (TOTP, SMS, passkeys, backup codes); first-party dashboard only and never an agent capability"
+  },
+  "DELETE /api/notifications/push/subscription": {
+    "class": "internal",
+    "notes": "dashboard notification centre and web-push subscriptions; no journey in the plan reads or clears a user's notifications"
+  },
+  "DELETE /api/notifications/{notification_id}": {
+    "class": "internal",
+    "notes": "dashboard notification centre and web-push subscriptions; no journey in the plan reads or clears a user's notifications"
+  },
   "DELETE /api/ssh/keys/{key_id}": {
     "class": "gap",
     "notes": "P2's register_ssh_key depends on these; scoped but not yet a tool"
+  },
+  "DELETE /api/teams/{team_id}": {
+    "class": "internal",
+    "notes": "team and member administration, an account-console surface; no P0-P7 journey creates a team or changes a membership"
+  },
+  "DELETE /api/teams/{team_id}/members/{email}": {
+    "class": "internal",
+    "notes": "team and member administration, an account-console surface; no P0-P7 journey creates a team or changes a membership"
   },
   "DELETE /api/v2/volumes/{volume_id}": {
     "class": "gap",
@@ -115,6 +147,18 @@
     "class": "internal",
     "notes": "platform admin console; operator surface, not the tool surface"
   },
+  "GET /api/ai/conversations": {
+    "class": "internal",
+    "notes": "the platform's own assistant and support chat; exposing it as a tool would nest one agent inside another rather than add a capability"
+  },
+  "GET /api/ai/conversations/{conversation_id}": {
+    "class": "internal",
+    "notes": "the platform's own assistant and support chat; exposing it as a tool would nest one agent inside another rather than add a capability"
+  },
+  "GET /api/ai/suggestions": {
+    "class": "internal",
+    "notes": "the platform's own assistant and support chat; exposing it as a tool would nest one agent inside another rather than add a capability"
+  },
   "GET /api/artifacts": {
     "class": "gap",
     "notes": "P3 needs artifact read and promotion; no tool exposes them"
@@ -131,6 +175,10 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "GET /api/auth/mfa/methods": {
+    "class": "internal",
+    "notes": "account security enrolment (TOTP, SMS, passkeys, backup codes); first-party dashboard only and never an agent capability"
+  },
   "GET /api/billing/invoices/{customer_id}": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -139,6 +187,18 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "GET /api/chat/conversations": {
+    "class": "internal",
+    "notes": "the platform's own assistant and support chat; exposing it as a tool would nest one agent inside another rather than add a capability"
+  },
+  "GET /api/chat/history/{conversation_id}": {
+    "class": "internal",
+    "notes": "the platform's own assistant and support chat; exposing it as a tool would nest one agent inside another rather than add a capability"
+  },
+  "GET /api/chat/suggestions": {
+    "class": "internal",
+    "notes": "the platform's own assistant and support chat; exposing it as a tool would nest one agent inside another rather than add a capability"
+  },
   "GET /api/hosts/{host_id}/admission": {
     "class": "internal",
     "notes": "host admission handshake between platform and worker"
@@ -146,6 +206,18 @@
   "GET /api/instances/{job_id}/telemetry": {
     "class": "covered",
     "notes": "MCP server calls this path"
+  },
+  "GET /api/notifications": {
+    "class": "internal",
+    "notes": "dashboard notification centre and web-push subscriptions; no journey in the plan reads or clears a user's notifications"
+  },
+  "GET /api/notifications/push/subscription": {
+    "class": "internal",
+    "notes": "dashboard notification centre and web-push subscriptions; no journey in the plan reads or clears a user's notifications"
+  },
+  "GET /api/notifications/unread-count": {
+    "class": "internal",
+    "notes": "dashboard notification centre and web-push subscriptions; no journey in the plan reads or clears a user's notifications"
   },
   "GET /api/pricing/reference": {
     "class": "covered",
@@ -206,6 +278,18 @@
   "GET /api/ssh/keys": {
     "class": "gap",
     "notes": "P2's register_ssh_key depends on these; scoped but not yet a tool"
+  },
+  "GET /api/teams/invite/{token}": {
+    "class": "internal",
+    "notes": "team and member administration, an account-console surface; no P0-P7 journey creates a team or changes a membership"
+  },
+  "GET /api/teams/me": {
+    "class": "internal",
+    "notes": "team and member administration, an account-console surface; no P0-P7 journey creates a team or changes a membership"
+  },
+  "GET /api/teams/{team_id}": {
+    "class": "internal",
+    "notes": "team and member administration, an account-console surface; no P0-P7 journey creates a team or changes a membership"
   },
   "GET /api/telemetry/all": {
     "class": "internal",
@@ -322,6 +406,14 @@
   "GET /tiers": {
     "class": "covered",
     "notes": "MCP server calls this path"
+  },
+  "PATCH /api/teams/active": {
+    "class": "internal",
+    "notes": "team and member administration, an account-console surface; no P0-P7 journey creates a team or changes a membership"
+  },
+  "PATCH /api/teams/{team_id}/members/{email}": {
+    "class": "internal",
+    "notes": "team and member administration, an account-console surface; no P0-P7 journey creates a team or changes a membership"
   },
   "PATCH /api/v2/volumes/{volume_id}": {
     "class": "gap",
@@ -455,6 +547,18 @@
     "class": "internal",
     "notes": "platform admin console; operator surface, not the tool surface"
   },
+  "POST /api/ai/analytics": {
+    "class": "internal",
+    "notes": "the platform's own assistant and support chat; exposing it as a tool would nest one agent inside another rather than add a capability"
+  },
+  "POST /api/ai/chat": {
+    "class": "internal",
+    "notes": "the platform's own assistant and support chat; exposing it as a tool would nest one agent inside another rather than add a capability"
+  },
+  "POST /api/ai/confirm": {
+    "class": "internal",
+    "notes": "the platform's own assistant and support chat; exposing it as a tool would nest one agent inside another rather than add a capability"
+  },
   "POST /api/artifacts/download": {
     "class": "gap",
     "notes": "P3 needs artifact read and promotion; no tool exposes them"
@@ -467,6 +571,62 @@
     "class": "gap",
     "notes": "P3 needs artifact read and promotion; no tool exposes them"
   },
+  "POST /api/auth/mfa/backup-codes/regenerate": {
+    "class": "internal",
+    "notes": "account security enrolment (TOTP, SMS, passkeys, backup codes); first-party dashboard only and never an agent capability"
+  },
+  "POST /api/auth/mfa/passkey/authenticate-complete": {
+    "class": "internal",
+    "notes": "account security enrolment (TOTP, SMS, passkeys, backup codes); first-party dashboard only and never an agent capability"
+  },
+  "POST /api/auth/mfa/passkey/authenticate-options": {
+    "class": "internal",
+    "notes": "account security enrolment (TOTP, SMS, passkeys, backup codes); first-party dashboard only and never an agent capability"
+  },
+  "POST /api/auth/mfa/passkey/delete": {
+    "class": "internal",
+    "notes": "account security enrolment (TOTP, SMS, passkeys, backup codes); first-party dashboard only and never an agent capability"
+  },
+  "POST /api/auth/mfa/passkey/register-complete": {
+    "class": "internal",
+    "notes": "account security enrolment (TOTP, SMS, passkeys, backup codes); first-party dashboard only and never an agent capability"
+  },
+  "POST /api/auth/mfa/passkey/register-options": {
+    "class": "internal",
+    "notes": "account security enrolment (TOTP, SMS, passkeys, backup codes); first-party dashboard only and never an agent capability"
+  },
+  "POST /api/auth/mfa/sms/send": {
+    "class": "internal",
+    "notes": "account security enrolment (TOTP, SMS, passkeys, backup codes); first-party dashboard only and never an agent capability"
+  },
+  "POST /api/auth/mfa/sms/setup": {
+    "class": "internal",
+    "notes": "account security enrolment (TOTP, SMS, passkeys, backup codes); first-party dashboard only and never an agent capability"
+  },
+  "POST /api/auth/mfa/sms/verify": {
+    "class": "internal",
+    "notes": "account security enrolment (TOTP, SMS, passkeys, backup codes); first-party dashboard only and never an agent capability"
+  },
+  "POST /api/auth/mfa/totp/setup": {
+    "class": "internal",
+    "notes": "account security enrolment (TOTP, SMS, passkeys, backup codes); first-party dashboard only and never an agent capability"
+  },
+  "POST /api/auth/mfa/totp/verify": {
+    "class": "internal",
+    "notes": "account security enrolment (TOTP, SMS, passkeys, backup codes); first-party dashboard only and never an agent capability"
+  },
+  "POST /api/auth/mfa/verify": {
+    "class": "internal",
+    "notes": "account security enrolment (TOTP, SMS, passkeys, backup codes); first-party dashboard only and never an agent capability"
+  },
+  "POST /api/chat": {
+    "class": "internal",
+    "notes": "the platform's own assistant and support chat; exposing it as a tool would nest one agent inside another rather than add a capability"
+  },
+  "POST /api/chat/feedback": {
+    "class": "internal",
+    "notes": "the platform's own assistant and support chat; exposing it as a tool would nest one agent inside another rather than add a capability"
+  },
   "POST /api/hosts/compatibility-sessions/{session_id}/evidence": {
     "class": "internal",
     "notes": "host admission handshake between platform and worker"
@@ -478,6 +638,18 @@
   "POST /api/hosts/{host_id}/provider-evidence": {
     "class": "internal",
     "notes": "host admission handshake between platform and worker"
+  },
+  "POST /api/notifications/push/subscription": {
+    "class": "internal",
+    "notes": "dashboard notification centre and web-push subscriptions; no journey in the plan reads or clears a user's notifications"
+  },
+  "POST /api/notifications/read-all": {
+    "class": "internal",
+    "notes": "dashboard notification centre and web-push subscriptions; no journey in the plan reads or clears a user's notifications"
+  },
+  "POST /api/notifications/{notification_id}/read": {
+    "class": "internal",
+    "notes": "dashboard notification centre and web-push subscriptions; no journey in the plan reads or clears a user's notifications"
   },
   "POST /api/pricing/estimate": {
     "class": "covered",
@@ -498,6 +670,18 @@
   "POST /api/ssh/keys": {
     "class": "gap",
     "notes": "P2's register_ssh_key depends on these; scoped but not yet a tool"
+  },
+  "POST /api/teams": {
+    "class": "internal",
+    "notes": "team and member administration, an account-console surface; no P0-P7 journey creates a team or changes a membership"
+  },
+  "POST /api/teams/invite/{token}/accept": {
+    "class": "internal",
+    "notes": "team and member administration, an account-console surface; no P0-P7 journey creates a team or changes a membership"
+  },
+  "POST /api/teams/{team_id}/members": {
+    "class": "internal",
+    "notes": "team and member administration, an account-console surface; no P0-P7 journey creates a team or changes a membership"
   },
   "POST /api/v1/control-plane/commands/{command_id}/retry": {
     "class": "covered",
@@ -547,13 +731,13 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
-  "POST /api/v2/billing/top-up": {
-    "class": "covered",
-    "notes": "P1's top_up_wallet calls it; billing:write, idempotency-keyed"
-  },
   "POST /api/v2/admin/volumes/reopen-encrypted": {
     "class": "gap",
     "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+  },
+  "POST /api/v2/billing/top-up": {
+    "class": "covered",
+    "notes": "P1's top_up_wallet calls it; billing:write, idempotency-keyed"
   },
   "POST /api/v2/marketplace/search": {
     "class": "covered",
