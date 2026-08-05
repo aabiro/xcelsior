@@ -92,8 +92,16 @@ jobs:
             [ -f "$t" ] && GATES="$GATES $t"
           done
           echo "running:$GATES"
+          # `-m`, not `-k`. The previous filter was
+          # `-k "not scratch_db and not postgres"`, which reads as "skip the
+          # tests that need a database" and does not do that: `-k` matches test
+          # *names*, and the three tests that take the `scratch_db` fixture do
+          # not have "scratch_db" in their names. Nothing was excluded, and the
+          # job hung for ten minutes trying to reach a database this runner
+          # deliberately does not have. `tests/test_sandboxed_gates_are_db_free.py`
+          # asserts every `scratch_db` user carries the marker.
           .venv/bin/python -m pytest $GATES -q -p no:sugar -p no:randomly \
-            -k "not scratch_db and not postgres"
+            -m "not needs_db"
 
       - name: What this run does NOT cover
         if: always()
