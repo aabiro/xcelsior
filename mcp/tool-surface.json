@@ -419,6 +419,30 @@
       "hasOutputSchema": true
     },
     {
+      "name": "get_spend_envelope",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "billing:read",
+        "instances:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "customer_id": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
       "name": "get_spot_prices",
       "version": "2.0.0",
       "tenantClass": "tenant",

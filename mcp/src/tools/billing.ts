@@ -46,6 +46,41 @@ export function registerBillingTools(
   );
 
   server.registerTool(
+    "get_spend_envelope",
+    {
+      inputSchema: z.object({
+        customer_id: z.string().optional().describe("Customer ID; omit to use your account"),
+      }),
+    },
+    async ({ customer_id }) => {
+      const denied = scopeDenied("get_spend_envelope", user);
+      if (denied) return denied;
+      const cid = customer_id || user?.customer_id || user?.user_id;
+      if (!cid) return jsonText({ error: "customer_id required — authenticate or pass customer_id" });
+      try {
+        const data = await client.get(
+          `/api/billing/wallet/${encodeURIComponent(cid)}/depletion`,
+        );
+        // `seconds_to_zero` is null when nothing is running, which is not the
+        // same as "no time left" and reads that way if passed through bare.
+        const seconds = (data as Record<string, unknown>)?.seconds_to_zero;
+        return jsonText({
+          ...(data as Record<string, unknown>),
+          runway:
+            seconds == null
+              ? "nothing is running, so the balance is not being consumed"
+              : `${(Number(seconds) / 3600).toFixed(1)} hours at the current burn rate`,
+          at_zero:
+            "running instances are stopped automatically with reason 'low_balance'; " +
+            "auto-top-up, if configured, charges the saved card before that happens",
+        });
+      } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
+
+  server.registerTool(
     "estimate_job_cost",
     {
       inputSchema: z.object({
