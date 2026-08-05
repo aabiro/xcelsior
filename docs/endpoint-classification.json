@@ -1,0 +1,638 @@
+{
+  "DELETE /api/admin/teams/{team_id}/members/{email}": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "DELETE /api/ssh/keys/{key_id}": {
+    "class": "gap",
+    "notes": "P2's register_ssh_key depends on these; scoped but not yet a tool"
+  },
+  "DELETE /api/v2/volumes/{volume_id}": {
+    "class": "gap",
+    "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+  },
+  "DELETE /api/v2/volumes/{volume_id}/snapshots/{snapshot_id}": {
+    "class": "gap",
+    "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+  },
+  "DELETE /autoscale/pool/{host_id}": {
+    "class": "internal",
+    "notes": "scheduler-driven capacity control, no caller outside the platform"
+  },
+  "GET /agent/commands/{host_id}": {
+    "class": "internal",
+    "notes": "worker-agent callbacks, authenticated by the fleet secret"
+  },
+  "GET /agent/popular-images": {
+    "class": "internal",
+    "notes": "worker-agent callbacks, authenticated by the fleet secret"
+  },
+  "GET /agent/preempt/{host_id}": {
+    "class": "internal",
+    "notes": "worker-agent callbacks, authenticated by the fleet secret"
+  },
+  "GET /agent/ssh-keys/{job_id}": {
+    "class": "internal",
+    "notes": "worker-agent callbacks, authenticated by the fleet secret"
+  },
+  "GET /agent/telemetry/{host_id}": {
+    "class": "internal",
+    "notes": "worker-agent callbacks, authenticated by the fleet secret"
+  },
+  "GET /agent/v2/negotiate/{host_id}": {
+    "class": "internal",
+    "notes": "worker-agent v2 callbacks; not a user surface"
+  },
+  "GET /agent/work/{host_id}": {
+    "class": "internal",
+    "notes": "worker-agent callbacks, authenticated by the fleet secret"
+  },
+  "GET /api/admin/activity": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "GET /api/admin/admission-queue": {
+    "class": "internal",
+    "notes": "host admission handshake between platform and worker"
+  },
+  "GET /api/admin/agent-tokens/coverage": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "GET /api/admin/ai-conversations": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "GET /api/admin/ai-stats": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "GET /api/admin/control-plane/jobs": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "GET /api/admin/control-plane/scheduled-tasks": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "GET /api/admin/hosts/{host_id}/agent-tokens": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "GET /api/admin/infrastructure": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "GET /api/admin/overview": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "GET /api/admin/reconciler/findings": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "GET /api/admin/revenue": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "GET /api/admin/stats": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "GET /api/admin/teams": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "GET /api/admin/unit-economics": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "GET /api/admin/users": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "GET /api/admin/verification-queue": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "GET /api/artifacts": {
+    "class": "gap",
+    "notes": "P3 needs artifact read and promotion; no tool exposes them"
+  },
+  "GET /api/artifacts/{job_id}": {
+    "class": "gap",
+    "notes": "P3 needs artifact read and promotion; no tool exposes them"
+  },
+  "GET /api/artifacts/{job_id}/expiry": {
+    "class": "gap",
+    "notes": "P3 needs artifact read and promotion; no tool exposes them"
+  },
+  "GET /api/auth/introspect": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "GET /api/billing/invoices/{customer_id}": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "GET /api/billing/wallet/{customer_id}": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "GET /api/hosts/{host_id}/admission": {
+    "class": "internal",
+    "notes": "host admission handshake between platform and worker"
+  },
+  "GET /api/instances/{job_id}/telemetry": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "GET /api/pricing/reference": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "GET /api/pricing/spot-enabled": {
+    "class": "gap",
+    "notes": "P5 placement and migration need spot data as tools"
+  },
+  "GET /api/pricing/spot-floor-suggestion": {
+    "class": "gap",
+    "notes": "P5 placement and migration need spot data as tools"
+  },
+  "GET /api/reputation/leaderboard": {
+    "class": "gap",
+    "notes": "P5 reputation-aware placement needs these as tools"
+  },
+  "GET /api/reputation/me": {
+    "class": "gap",
+    "notes": "P5 reputation-aware placement needs these as tools"
+  },
+  "GET /api/reputation/me/journey": {
+    "class": "gap",
+    "notes": "P5 reputation-aware placement needs these as tools"
+  },
+  "GET /api/reputation/{entity_id}": {
+    "class": "gap",
+    "notes": "P5 reputation-aware placement needs these as tools"
+  },
+  "GET /api/reputation/{entity_id}/breakdown": {
+    "class": "gap",
+    "notes": "P5 reputation-aware placement needs these as tools"
+  },
+  "GET /api/reputation/{entity_id}/history": {
+    "class": "gap",
+    "notes": "P5 reputation-aware placement needs these as tools"
+  },
+  "GET /api/sla/downtimes": {
+    "class": "gap",
+    "notes": "P5 SLA-aware placement needs these as tools"
+  },
+  "GET /api/sla/hosts-summary": {
+    "class": "gap",
+    "notes": "P5 SLA-aware placement needs these as tools"
+  },
+  "GET /api/sla/targets": {
+    "class": "gap",
+    "notes": "P5 SLA-aware placement needs these as tools"
+  },
+  "GET /api/sla/violations/{host_id}": {
+    "class": "gap",
+    "notes": "P5 SLA-aware placement needs these as tools"
+  },
+  "GET /api/sla/{host_id}": {
+    "class": "gap",
+    "notes": "P5 SLA-aware placement needs these as tools"
+  },
+  "GET /api/ssh/keys": {
+    "class": "gap",
+    "notes": "P2's register_ssh_key depends on these; scoped but not yet a tool"
+  },
+  "GET /api/telemetry/all": {
+    "class": "internal",
+    "notes": "worker-agent callbacks, authenticated by the fleet secret"
+  },
+  "GET /api/trust-tiers": {
+    "class": "gap",
+    "notes": "P5 reputation-aware placement needs these as tools"
+  },
+  "GET /api/v1/control-plane/health": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "GET /api/v1/control-plane/reconciliation-findings": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "GET /api/v1/hosts/{host_id}/capacity": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "GET /api/v1/instances/{job_id}": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "GET /api/v1/instances/{job_id}/active-lease": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "GET /api/v1/instances/{job_id}/events": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "GET /api/v1/instances/{job_id}/placement-explanation": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "GET /api/v1/instances/{job_id}/timeline": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "GET /api/v1/launch-plans/{plan_id}": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "GET /api/v1/mcp/tool-audit": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "GET /api/v2/burst/status": {
+    "class": "internal",
+    "notes": "burst provisioning, driven by the scheduler"
+  },
+  "GET /api/v2/gpu/available": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "GET /api/v2/marketplace/spot-prices": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "GET /api/v2/serverless/endpoints": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "GET /api/v2/volumes": {
+    "class": "gap",
+    "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+  },
+  "GET /api/v2/volumes/available": {
+    "class": "gap",
+    "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+  },
+  "GET /api/v2/volumes/{volume_id}": {
+    "class": "gap",
+    "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+  },
+  "GET /api/v2/volumes/{volume_id}/snapshots": {
+    "class": "gap",
+    "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+  },
+  "GET /autoscale/pool": {
+    "class": "internal",
+    "notes": "scheduler-driven capacity control, no caller outside the platform"
+  },
+  "GET /instance/{job_id}": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "GET /instances": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "GET /instances/{job_id}/logs": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "GET /metrics": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "GET /readyz": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "GET /spot-prices": {
+    "class": "gap",
+    "notes": "P5 placement and migration need spot data as tools"
+  },
+  "GET /startupz": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "GET /tiers": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "PATCH /api/v2/volumes/{volume_id}": {
+    "class": "gap",
+    "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+  },
+  "PATCH /instance/{job_id}": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "POST /agent/benchmark": {
+    "class": "internal",
+    "notes": "worker-agent callbacks, authenticated by the fleet secret"
+  },
+  "POST /agent/degraded": {
+    "class": "internal",
+    "notes": "worker-agent callbacks, authenticated by the fleet secret"
+  },
+  "POST /agent/lease/claim": {
+    "class": "internal",
+    "notes": "worker-agent callbacks, authenticated by the fleet secret"
+  },
+  "POST /agent/lease/release": {
+    "class": "internal",
+    "notes": "worker-agent callbacks, authenticated by the fleet secret"
+  },
+  "POST /agent/lease/renew": {
+    "class": "internal",
+    "notes": "worker-agent callbacks, authenticated by the fleet secret"
+  },
+  "POST /agent/logs/{job_id}": {
+    "class": "internal",
+    "notes": "worker-agent callbacks, authenticated by the fleet secret"
+  },
+  "POST /agent/mining-alert": {
+    "class": "internal",
+    "notes": "worker-agent callbacks, authenticated by the fleet secret"
+  },
+  "POST /agent/preempt/{host_id}/{job_id}": {
+    "class": "internal",
+    "notes": "worker-agent callbacks, authenticated by the fleet secret"
+  },
+  "POST /agent/ssh-status/{job_id}": {
+    "class": "internal",
+    "notes": "worker-agent callbacks, authenticated by the fleet secret"
+  },
+  "POST /agent/telemetry": {
+    "class": "internal",
+    "notes": "worker-agent callbacks, authenticated by the fleet secret"
+  },
+  "POST /agent/v2/attempts/status": {
+    "class": "internal",
+    "notes": "worker-agent v2 callbacks; not a user surface"
+  },
+  "POST /agent/v2/commands/claim": {
+    "class": "internal",
+    "notes": "worker-agent v2 callbacks; not a user surface"
+  },
+  "POST /agent/v2/commands/{command_id}/ack": {
+    "class": "internal",
+    "notes": "worker-agent v2 callbacks; not a user surface"
+  },
+  "POST /agent/v2/commands/{command_id}/nack": {
+    "class": "internal",
+    "notes": "worker-agent v2 callbacks; not a user surface"
+  },
+  "POST /agent/v2/leases/claim": {
+    "class": "internal",
+    "notes": "worker-agent v2 callbacks; not a user surface"
+  },
+  "POST /agent/v2/leases/release": {
+    "class": "internal",
+    "notes": "worker-agent v2 callbacks; not a user surface"
+  },
+  "POST /agent/v2/leases/renew": {
+    "class": "internal",
+    "notes": "worker-agent v2 callbacks; not a user surface"
+  },
+  "POST /agent/v2/observations": {
+    "class": "internal",
+    "notes": "worker-agent v2 callbacks; not a user surface"
+  },
+  "POST /agent/v2/tokens/rotate": {
+    "class": "internal",
+    "notes": "worker-agent v2 callbacks; not a user surface"
+  },
+  "POST /agent/versions": {
+    "class": "internal",
+    "notes": "worker-agent callbacks, authenticated by the fleet secret"
+  },
+  "POST /api/admin/agent/rollout": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "POST /api/admin/hosts/{host_id}/admission-decisions": {
+    "class": "internal",
+    "notes": "host admission handshake between platform and worker"
+  },
+  "POST /api/admin/hosts/{host_id}/agent-tokens": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "POST /api/admin/hosts/{host_id}/agent-tokens/revoke": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "POST /api/admin/hosts/{host_id}/authoritative-evidence": {
+    "class": "internal",
+    "notes": "host admission handshake between platform and worker"
+  },
+  "POST /api/admin/reconciler/findings/{finding_id}/dismiss": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "POST /api/admin/reconciler/findings/{finding_id}/enforce": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "POST /api/admin/reconciler/reconcile-host/{host_id}": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "POST /api/admin/users/{email}/role": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "POST /api/admin/users/{email}/toggle-admin": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "POST /api/admin/web-push/test-notification": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "POST /api/artifacts/download": {
+    "class": "gap",
+    "notes": "P3 needs artifact read and promotion; no tool exposes them"
+  },
+  "POST /api/artifacts/finalize": {
+    "class": "gap",
+    "notes": "P3 needs artifact read and promotion; no tool exposes them"
+  },
+  "POST /api/artifacts/upload": {
+    "class": "gap",
+    "notes": "P3 needs artifact read and promotion; no tool exposes them"
+  },
+  "POST /api/hosts/compatibility-sessions/{session_id}/evidence": {
+    "class": "internal",
+    "notes": "host admission handshake between platform and worker"
+  },
+  "POST /api/hosts/{host_id}/compatibility-sessions": {
+    "class": "internal",
+    "notes": "host admission handshake between platform and worker"
+  },
+  "POST /api/hosts/{host_id}/provider-evidence": {
+    "class": "internal",
+    "notes": "host admission handshake between platform and worker"
+  },
+  "POST /api/pricing/estimate": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "POST /api/reputation/me/claim": {
+    "class": "gap",
+    "notes": "P5 reputation-aware placement needs these as tools"
+  },
+  "POST /api/reputation/verify": {
+    "class": "gap",
+    "notes": "P5 reputation-aware placement needs these as tools"
+  },
+  "POST /api/sla/enforce": {
+    "class": "gap",
+    "notes": "P5 SLA-aware placement needs these as tools"
+  },
+  "POST /api/ssh/keys": {
+    "class": "gap",
+    "notes": "P2's register_ssh_key depends on these; scoped but not yet a tool"
+  },
+  "POST /api/v1/control-plane/commands/{command_id}/retry": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "POST /api/v1/hosts/{host_id}/drain": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "POST /api/v1/hosts/{host_id}/eviction-plans": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "POST /api/v1/hosts/{host_id}/undrain": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "POST /api/v1/instances/{job_id}/reconcile": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "POST /api/v1/instances/{job_id}/retry": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "POST /api/v1/launch-plans": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "POST /api/v1/launch-plans/{plan_id}/execute": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "POST /api/v1/mcp/tool-audit": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "POST /api/v1/placements/simulate": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "POST /api/v1/serverless/endpoint-plans": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "POST /api/v1/serverless/endpoint-plans/{plan_id}/execute": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "POST /api/v2/billing/top-up": {
+    "class": "covered",
+    "notes": "P1's top_up_wallet calls it; billing:write, idempotency-keyed"
+  },
+  "POST /api/v2/admin/volumes/reopen-encrypted": {
+    "class": "gap",
+    "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+  },
+  "POST /api/v2/marketplace/search": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "POST /api/v2/serverless/endpoints": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "POST /api/v2/serverless/should-i-run-this": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "POST /api/v2/volumes": {
+    "class": "gap",
+    "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+  },
+  "POST /api/v2/volumes/{volume_id}/attach": {
+    "class": "gap",
+    "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+  },
+  "POST /api/v2/volumes/{volume_id}/detach": {
+    "class": "gap",
+    "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+  },
+  "POST /api/v2/volumes/{volume_id}/retry": {
+    "class": "gap",
+    "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+  },
+  "POST /api/v2/volumes/{volume_id}/snapshots": {
+    "class": "gap",
+    "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+  },
+  "POST /api/v2/volumes/{volume_id}/snapshots/{snapshot_id}/restore": {
+    "class": "gap",
+    "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+  },
+  "POST /autoscale/cycle": {
+    "class": "internal",
+    "notes": "scheduler-driven capacity control, no caller outside the platform"
+  },
+  "POST /autoscale/down": {
+    "class": "internal",
+    "notes": "scheduler-driven capacity control, no caller outside the platform"
+  },
+  "POST /autoscale/pool": {
+    "class": "internal",
+    "notes": "scheduler-driven capacity control, no caller outside the platform"
+  },
+  "POST /autoscale/up": {
+    "class": "internal",
+    "notes": "scheduler-driven capacity control, no caller outside the platform"
+  },
+  "POST /host/{host_id}/drain": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "POST /instance": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "POST /instances/{job_id}/cancel": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "POST /instances/{job_id}/terminate": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "POST /spot-prices/update": {
+    "class": "gap",
+    "notes": "P5 placement and migration need spot data as tools"
+  },
+  "POST /spot/preemption-cycle": {
+    "class": "gap",
+    "notes": "P5 placement and migration need spot data as tools"
+  },
+  "POST /v1/serverless/{endpoint_id}/run": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  }
+}
