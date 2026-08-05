@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import inspect
+import json
 import os
 import pathlib
 import sys
@@ -32,6 +33,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 OUTPUT_PATH = ROOT / "docs" / "generated" / "endpoint-inventory.md"
+#: GT0's judgement, hand-maintained. Separate from the generated table so that
+#: regenerating the inventory does not erase the audit.
+CLASSIFICATION_PATH = ROOT / "docs" / "endpoint-classification.json"
 HTTP_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
 # Machinery, not product surface. Listing these buries the endpoints that matter.
 SKIP_PREFIXES = ("/static", "/docs", "/redoc", "/openapi.json")
@@ -130,10 +134,42 @@ def collect(app) -> list[dict[str, str]]:
     return rows
 
 
+VALID_CLASSES = {"covered", "gap", "internal", "redundant"}
+
+
+def load_classification() -> dict[str, dict[str, str]]:
+    """GT0's labels, keyed ``"METHOD /path"``.
+
+    Kept beside this generator rather than inside its output because the output
+    is regenerated: 158 rows of audit were filled into the table by hand once,
+    and the next regeneration would have erased every one of them. Storing the
+    judgement separately is what makes the audit survive its own tooling.
+
+    A stale key — a label for an endpoint that no longer exists — is reported by
+    `tests/test_gt0_classification_ratchet.py` rather than ignored here, because
+    a route being deleted is exactly when its classification should be revisited.
+    """
+    if not CLASSIFICATION_PATH.exists():
+        return {}
+    data = json.loads(CLASSIFICATION_PATH.read_text(encoding="utf-8"))
+    for key, entry in data.items():
+        label = entry.get("class", "")
+        if label not in VALID_CLASSES:
+            raise SystemExit(f"{key}: {label!r} is not one of {sorted(VALID_CLASSES)}")
+        if len(entry.get("notes", "")) < 8:
+            raise SystemExit(f"{key}: labelled {label!r} with no reason")
+    return data
+
+
 def render(rows: list[dict[str, str]]) -> str:
     by_module: dict[str, list[dict[str, str]]] = {}
     for row in rows:
         by_module.setdefault(row["module"], []).append(row)
+
+    classification = load_classification()
+    classified = sum(
+        1 for row in rows if f"{row['method']} {row['path']}" in classification
+    )
 
     out: list[str] = [
         "# Endpoint inventory (generated)",
@@ -150,9 +186,11 @@ def render(rows: list[dict[str, str]]) -> str:
         "a guard. `none found` means exactly that — verify by hand before "
         "concluding an endpoint is public.",
         "",
-        "`class` is deliberately blank: filling it is the audit, and it must be "
-        "`covered` / `gap` / `internal` / `redundant` with a reason. GT0 closes "
-        "only when zero rows are unclassified.",
+        f"**{classified} of {len(rows)} operations classified.** `class` is "
+        "`covered` / `gap` / `internal` / `redundant`, each with a reason, and "
+        "GT0 closes only when zero rows are unclassified. Edit "
+        "[endpoint-classification.json](../endpoint-classification.json), not "
+        "this table — this file is regenerated and would discard the labels.",
         "",
     ]
     for module in sorted(by_module):
@@ -162,9 +200,11 @@ def render(rows: list[dict[str, str]]) -> str:
         out.append("| Method | Path | Auth dependency | Summary | class | notes |")
         out.append("|---|---|---|---|---|---|")
         for row in module_rows:
+            label = classification.get(f"{row['method']} {row['path']}", {})
             out.append(
                 f"| {row['method']} | `{row['path']}` | {row['auth']} "
-                f"| {row['summary']} |  |  |"
+                f"| {row['summary']} | {label.get('class', '')} "
+                f"| {label.get('notes', '')} |"
             )
         out.append("")
     return "\n".join(out) + "\n"
