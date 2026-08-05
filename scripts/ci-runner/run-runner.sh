@@ -44,9 +44,24 @@ one_job() {
         --name "xcelsior-ci-runner-$$" \
         --network bridge \
         --read-only \
-        --tmpfs /tmp:rw,noexec,nosuid \
-        --tmpfs /home/runner/_work:rw,exec \
-        --tmpfs /home/runner/actions-runner/_diag:rw \
+        `# Every writable mount is sized explicitly. These are tmpfs, so the pages` \
+        `# are host RAM and an unbounded one is a way for a job to take the box` \
+        `# down — the --memory limit alone would not have stopped it, and this` \
+        `# host runs the dev pool.` \
+        --tmpfs /tmp:rw,noexec,nosuid,size=1g \
+        `# uid/gid on every writable mount: a --tmpfs arrives owned by root:root,` \
+        `# which a container running as uid 10001 cannot write to. The Dockerfile's` \
+        `# chown applies to the directory underneath and is hidden by the mount.` \
+        --tmpfs /home/runner/_work:rw,exec,size=2g,uid=10001,gid=10001 \
+        `# The runner's own directory, not just its _diag subdirectory: config.sh` \
+        `# writes .credentials, .credentials_rsaparams, .runner, .env and .path` \
+        `# beside its binaries, and --read-only refuses all of them.` \
+        `#` \
+        `# An anonymous volume, not a tmpfs: Docker populates it from the image` \
+        `# content underneath (ownership included, so no chown or copy is needed),` \
+        `# and --rm deletes it with the container. The runner unpacks to 674 MB,` \
+        `# which is not worth spending host RAM on.` \
+        --mount type=volume,dst=/home/runner/actions-runner \
         --cap-drop ALL \
         --security-opt no-new-privileges \
         --pids-limit 512 \
