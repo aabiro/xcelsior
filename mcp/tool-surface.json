@@ -30,6 +30,41 @@
       "hasOutputSchema": true
     },
     {
+      "name": "configure_auto_topup",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "billing:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "enabled": {
+          "type": "boolean",
+          "optional": false
+        },
+        "amount_cad": {
+          "type": "number",
+          "optional": false
+        },
+        "threshold_cad": {
+          "type": "number",
+          "optional": false
+        },
+        "payment_method_id": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
       "name": "create_instance",
       "version": "2.0.0",
       "tenantClass": "tenant",

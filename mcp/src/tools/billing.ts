@@ -97,6 +97,48 @@ export function registerBillingTools(
   );
 
   server.registerTool(
+    "configure_auto_topup",
+    {
+      inputSchema: z.object({
+        enabled: z.boolean().describe("false turns auto top-up off entirely"),
+        amount_cad: z
+          .number()
+          .gt(0)
+          .max(10_000)
+          .describe("How much to charge each time the threshold is crossed"),
+        threshold_cad: z
+          .number()
+          .gte(0)
+          .max(10_000)
+          .describe("Charge when the balance falls below this"),
+        payment_method_id: z
+          .string()
+          .optional()
+          .describe("Card to charge; omit to keep the one already configured"),
+      }),
+    },
+    async ({ enabled, amount_cad, threshold_cad, payment_method_id }) => {
+      const denied = scopeDenied("configure_auto_topup", user);
+      if (denied) return denied;
+      try {
+        // The response carries `previous`, so the model can tell the user what
+        // actually changed rather than echoing back what it just sent — the
+        // difference between "auto top-up is $50" and "I raised it from $20 to
+        // $50", which is the sentence that lets someone catch a mistake.
+        const data = await client.post("/api/v2/billing/auto-topup", {
+          enabled,
+          amount_cad,
+          threshold_cad,
+          stripe_payment_method_id: payment_method_id ?? "",
+        });
+        return jsonText(data);
+      } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
+
+  server.registerTool(
     "top_up_wallet",
     {
       inputSchema: z.object({
