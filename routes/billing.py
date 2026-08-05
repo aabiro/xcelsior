@@ -2112,10 +2112,24 @@ def api_billing_manual_topup(body: ManualTopupRequest, request: Request):
 
     amount_micros = cad_to_micros(body.amount_cad)
 
-    # Idempotency. The client may supply a key; otherwise one is derived from
-    # the customer, amount and card within a short bucket, so a retried request
-    # returns Stripe's original intent rather than charging twice. A genuinely
-    # separate top-up a minute later gets a new key.
+    # Idempotency. A caller that supplies a key owns the semantics: the same key
+    # is the same intended charge, and Stripe answers a repeat with the original
+    # PaymentIntent. `top_up_wallet` now mints one per invocation, so two
+    # deliberate top-ups carry two keys and a transport retry of either carries
+    # one.
+    #
+    # The fallback is for callers that send no key at all, and it is a
+    # compromise rather than a solution: without a key there is nothing that
+    # distinguishes "the request timed out, try again" from "top me up again",
+    # because both arrive as an identical POST. It buckets by customer, amount,
+    # card and a five-minute window, which makes the retry safe and makes a
+    # *deliberate* repeat inside that window collapse into the first charge.
+    #
+    # An earlier comment here claimed "a genuinely separate top-up a minute
+    # later gets a new key". It does not — the bucket only turns over every five
+    # minutes — and the response said nothing about it, so a second $10 top-up
+    # could report success while no second charge existed. `replayed` below is
+    # the part that makes this honest.
     supplied = (request.headers.get("Idempotency-Key") or "").strip()
     idempotency_key = supplied or (
         f"manualtopup:{customer_id}:{amount_micros // 10_000}:"
@@ -2199,13 +2213,28 @@ def api_billing_manual_topup(body: ManualTopupRequest, request: Request):
             502, {"charged": False, "reason": "charge_failed", "message": str(exc)}
         ) from exc
 
+    # Stripe answered a repeated idempotency key with the charge it already
+    # made. That is the mechanism working — a retry cannot double-charge — but
+    # it means *this* call moved no money, and saying "card charged" would tell
+    # the account holder they have funds they do not have.
+    replayed = bool(charge.get("replayed"))
     return {
         "ok": True,
-        "charged": True,
+        "charged": not replayed,
+        "replayed": replayed,
         "credited": False,
         "message": (
-            "Card charged. The wallet is credited when the payment processor "
-            "confirms, usually within a minute."
+            (
+                "This repeated an earlier top-up of the same amount on the same "
+                "card, so the card was NOT charged again and no additional funds "
+                "were added. Say so plainly. To add more on purpose, send a new "
+                "idempotency key."
+            )
+            if replayed
+            else (
+                "Card charged. The wallet is credited when the payment processor "
+                "confirms, usually within a minute."
+            )
         ),
         "amount_cad": body.amount_cad,
         "card": {"brand": method.get("brand"), "last4": method.get("last4")},
