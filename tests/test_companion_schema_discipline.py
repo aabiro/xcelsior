@@ -23,6 +23,22 @@ import pytest
 
 from db import _get_pg_pool
 
+# Every assertion here reads the live schema, so without a database there is
+# nothing to check. Probed once at import and skipped as a module, matching
+# `tests/test_no_runtime_ddl.py` — the pattern already proven in this suite.
+#
+# Without it the file does not fail, it *stalls*: each test retries the pool
+# until pytest's 180-second timeout, nine times over. In the sandboxed CI
+# runner, which has no database by design, that consumed the entire
+# twenty-minute job budget and the run was cancelled rather than reported —
+# the slowest possible way to learn a test cannot run here.
+try:
+    _probe_pool = _get_pg_pool()
+    with _probe_pool.connection() as _probe_conn:
+        _probe_conn.execute("SELECT 1").fetchone()
+except Exception as _probe_error:  # pragma: no cover - environment dependent
+    pytestmark = pytest.mark.skip(f"no pg pool available: {_probe_error}")
+
 # Governance starts here: the companion predates the schema, so tables created
 # from this revision onward had no excuse to diverge.
 FIRST_GOVERNED_REVISION = "080"
