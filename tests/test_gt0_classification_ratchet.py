@@ -1,8 +1,8 @@
 """GT0's audit, made countable so it can only move forward.
 
 The gate is *every operation tagged `covered` / `gap` / `internal` /
-`redundant`, with a reason. Zero unclassified.* 517 operations, 205 classified,
-312 outstanding.
+`redundant`, with a reason. Zero unclassified.* 517 operations, 231 classified,
+286 outstanding.
 
 **The labels live in `docs/endpoint-classification.json`, not in the table.**
 The inventory is generated and says so, so the 158 rows originally filled in by
@@ -42,7 +42,7 @@ INVENTORY = ROOT / "docs" / "generated" / "endpoint-inventory.md"
 
 #: Lower this as rows are classified. It may never rise: a new endpoint arrives
 #: classified, or the commit that adds it also classifies it.
-MAX_UNCLASSIFIED = 312
+MAX_UNCLASSIFIED = 286
 
 #: The only labels GT0 accepts.
 VALID_CLASSES = {"covered", "gap", "internal", "redundant"}
@@ -102,8 +102,10 @@ def test_every_label_used_is_one_gt0_accepts():
 def test_every_classified_row_carries_a_reason():
     """A label without a reason is an assertion, not an audit.
 
-    This is the check that stops the remaining 358 being closed by filling the
-    class column and leaving notes blank.
+    This is the check that stops the outstanding rows being closed by filling
+    the class column and leaving notes blank. Deliberately not stated as a
+    count: the number moves every time rows are classified, and a docstring
+    that has to be edited in lockstep is one that goes stale instead.
     """
     unreasoned = [
         f"{cells[1]} {cells[2]}"
@@ -121,8 +123,8 @@ def test_no_classification_is_orphaned():
 
     Deleting a route should prompt revisiting its classification, not leave a
     judgement about it sitting in the file forever. An orphan also inflates the
-    apparent audit: the JSON says 159 are classified while the table shows 158,
-    and the discrepancy is invisible from either side alone.
+    apparent audit — the JSON claims one more classified row than the table
+    renders — and the discrepancy is invisible from either side alone.
     """
     import json
 
