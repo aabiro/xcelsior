@@ -1,0 +1,42 @@
+# Staging overlay for Xcelsior.
+#
+# Usage:
+#   docker compose --env-file .env.staging -f docker-compose.yml -f docker-compose.staging.yml up -d api
+# or:
+#   ./scripts/run_staging_compose.sh up -d api
+#
+# Loads crypto/session secrets from .env.staging (generated / merged from
+# .env.staging.secrets). Forces XCELSIOR_ENV=staging so enforcement stays on
+# but staging retains its audited agent escape hatch.
+
+services:
+  api:
+    env_file:
+      - .env.staging
+    environment:
+      XCELSIOR_ENV: staging
+      XCELSIOR_AGENT_HOST_TOKENS: ${XCELSIOR_AGENT_HOST_TOKENS:-allow}
+
+  api-blue:
+    env_file:
+      - .env.staging
+    environment:
+      XCELSIOR_ENV: staging
+      XCELSIOR_AGENT_HOST_TOKENS: ${XCELSIOR_AGENT_HOST_TOKENS:-allow}
+
+  bg-worker:
+    env_file:
+      - .env.staging
+    environment:
+      XCELSIOR_ENV: staging
+
+  # Renamed since this overlay was written: the base compose has
+  # `scheduler-worker`. Naming a service the base does not define does not
+  # error — Compose *creates* it, so staging would have started a phantom
+  # service with no image and the real scheduler would have run without
+  # XCELSIOR_ENV=staging, which is the one thing this overlay exists to set.
+  scheduler-worker:
+    env_file:
+      - .env.staging
+    environment:
+      XCELSIOR_ENV: staging
