@@ -58,6 +58,7 @@ from routes._deps import (
     _get_ws_client_ip,
     _issue_ws_ticket,
     _require_auth,
+    _require_scope,
     _require_team_instance_write,
     _shared_state_update,
     _user_owns_job,
@@ -1141,8 +1142,29 @@ async def _send_error(ws: WebSocket, message: str, code: int) -> None:
 
 @router.post("/api/terminal/ticket")
 def api_terminal_ticket(body: TerminalTicketIn, request: Request) -> dict:
-    """Issue a short-lived one-time WebSocket ticket for terminal access."""
+    """Issue a short-lived one-time WebSocket ticket for terminal access.
+
+    **`instances:connect`, and this is the route that clause was written for.**
+    `406c0a1` enforced that scope on `/api/instances/{job_id}/stream-ticket`,
+    `/instances/{job_id}/auto-launch` and `/instances/{job_id}/expose`, and
+    described the first of those as "mints the WebSocket ticket for the browser
+    terminal". That was wrong. The stream ticket carries `purpose="instance_stream"`;
+    the *terminal* ticket is minted here with `purpose="terminal"`, and
+    `/ws/terminal/{instance_id}` accepts only the latter.
+
+    So the consent screen promised that granting `instances:connect` is what
+    lets a client "open a terminal on your running instances", and the route
+    that actually opens one checked ownership but never the scope. A credential
+    narrowed to exclude it was refused at the streaming door and admitted at
+    the terminal door.
+
+    Ownership was always enforced (`_check_terminal_access`), so this was never
+    a route to *someone else's* machine. The question it failed to ask is the
+    other one: given that it is your instance, may *this credential* open a
+    shell on it.
+    """
     user = _require_auth(request)
+    _require_scope(user, "instances:connect")
     instance = next(
         (j for j in list_jobs() if j.get("job_id") == body.instance_id),
         None,
