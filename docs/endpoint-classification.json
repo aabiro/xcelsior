@@ -35,6 +35,10 @@
     "class": "internal",
     "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
+  "DELETE /api/billing/payment-methods/{payment_method_id}": {
+    "class": "internal",
+    "notes": "card and subscription management. The plan puts adding a card out of the agent surface entirely: card data belongs on a first-party page and the agent only ever references what is already on file"
+  },
   "DELETE /api/keys/{key_preview}": {
     "class": "internal",
     "notes": "issues or revokes credentials (agent keys, API keys, OAuth clients, Quick Connect). A tool that mints its own credential can widen its own scopes"
@@ -243,13 +247,57 @@
     "class": "internal",
     "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
+  "GET /api/billing/attestation": {
+    "class": "internal",
+    "notes": "operator, testing and compliance surface \u2014 refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
+  },
+  "GET /api/billing/crypto/deposit/{deposit_id}": {
+    "class": "gap",
+    "notes": "P1 names crypto, Lightning and PayPal deposits as needing no browser and already scoped; no tool reaches any of them, so funding is tool-driven only on the card rail"
+  },
+  "GET /api/billing/crypto/enabled": {
+    "class": "gap",
+    "notes": "P1 names crypto, Lightning and PayPal deposits as needing no browser and already scoped; no tool reaches any of them, so funding is tool-driven only on the card rail"
+  },
+  "GET /api/billing/crypto/rate": {
+    "class": "gap",
+    "notes": "P1 names crypto, Lightning and PayPal deposits as needing no browser and already scoped; no tool reaches any of them, so funding is tool-driven only on the card rail"
+  },
+  "GET /api/billing/free-credits/{customer_id}/status": {
+    "class": "internal",
+    "notes": "one-time signup bonus, claimed once per customer from the dashboard; not a funding rail an agent drives"
+  },
   "GET /api/billing/invoices/{customer_id}": {
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "GET /api/billing/lightning/deposit/{deposit_id}": {
+    "class": "gap",
+    "notes": "P1 names crypto, Lightning and PayPal deposits as needing no browser and already scoped; no tool reaches any of them, so funding is tool-driven only on the card rail"
+  },
+  "GET /api/billing/lightning/enabled": {
+    "class": "gap",
+    "notes": "P1 names crypto, Lightning and PayPal deposits as needing no browser and already scoped; no tool reaches any of them, so funding is tool-driven only on the card rail"
+  },
+  "GET /api/billing/lightning/rate": {
+    "class": "gap",
+    "notes": "P1 names crypto, Lightning and PayPal deposits as needing no browser and already scoped; no tool reaches any of them, so funding is tool-driven only on the card rail"
+  },
+  "GET /api/billing/payment-methods": {
+    "class": "covered",
+    "notes": "list_payment_methods calls this path"
+  },
+  "GET /api/billing/paypal/enabled": {
+    "class": "gap",
+    "notes": "P1 names crypto, Lightning and PayPal deposits as needing no browser and already scoped; no tool reaches any of them, so funding is tool-driven only on the card rail"
+  },
   "GET /api/billing/wallet/{customer_id}": {
     "class": "covered",
     "notes": "MCP server calls this path"
+  },
+  "GET /api/billing/wallet/{customer_id}/depletion": {
+    "class": "covered",
+    "notes": "get_spend_envelope calls this path"
   },
   "GET /api/chat/conversations": {
     "class": "internal",
@@ -451,6 +499,14 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "GET /api/v2/billing/auto-topup": {
+    "class": "covered",
+    "notes": "configure_auto_topup calls this path"
+  },
+  "GET /api/v2/billing/pending-verification": {
+    "class": "gap",
+    "notes": "an agent should be able to say 'one of your top-ups needs you'; no tool reaches it yet. Carries no client_secret by design"
+  },
   "GET /api/v2/burst/status": {
     "class": "internal",
     "notes": "burst provisioning, driven by the scheduler"
@@ -486,6 +542,10 @@
   "GET /autoscale/pool": {
     "class": "internal",
     "notes": "scheduler-driven capacity control, no caller outside the platform"
+  },
+  "GET /billing": {
+    "class": "internal",
+    "notes": "operator, testing and compliance surface \u2014 refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
   },
   "GET /connect/dashboard": {
     "class": "internal",
@@ -831,6 +891,66 @@
     "class": "internal",
     "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
+  "POST /api/billing/crypto/deposit": {
+    "class": "gap",
+    "notes": "P1 names crypto, Lightning and PayPal deposits as needing no browser and already scoped; no tool reaches any of them, so funding is tool-driven only on the card rail"
+  },
+  "POST /api/billing/crypto/refresh/{deposit_id}": {
+    "class": "gap",
+    "notes": "P1 names crypto, Lightning and PayPal deposits as needing no browser and already scoped; no tool reaches any of them, so funding is tool-driven only on the card rail"
+  },
+  "POST /api/billing/free-credits/{customer_id}": {
+    "class": "internal",
+    "notes": "one-time signup bonus, claimed once per customer from the dashboard; not a funding rail an agent drives"
+  },
+  "POST /api/billing/lightning/deposit": {
+    "class": "gap",
+    "notes": "P1 names crypto, Lightning and PayPal deposits as needing no browser and already scoped; no tool reaches any of them, so funding is tool-driven only on the card rail"
+  },
+  "POST /api/billing/payment-intent": {
+    "class": "internal",
+    "notes": "card and subscription management. The plan puts adding a card out of the agent surface entirely: card data belongs on a first-party page and the agent only ever references what is already on file"
+  },
+  "POST /api/billing/paypal/capture-order": {
+    "class": "gap",
+    "notes": "P1 names crypto, Lightning and PayPal deposits as needing no browser and already scoped; no tool reaches any of them, so funding is tool-driven only on the card rail"
+  },
+  "POST /api/billing/paypal/create-order": {
+    "class": "gap",
+    "notes": "P1 names crypto, Lightning and PayPal deposits as needing no browser and already scoped; no tool reaches any of them, so funding is tool-driven only on the card rail"
+  },
+  "POST /api/billing/paypal/marketplace/capture-order": {
+    "class": "gap",
+    "notes": "P6's provider payout rail rather than a tenant funding one; no tool reaches it"
+  },
+  "POST /api/billing/paypal/marketplace/create-order": {
+    "class": "gap",
+    "notes": "P6's provider payout rail rather than a tenant funding one; no tool reaches it"
+  },
+  "POST /api/billing/paypal/webhook": {
+    "class": "internal",
+    "notes": "processor webhook; machine-to-machine and signature-verified, the caller is PayPal and never an agent"
+  },
+  "POST /api/billing/portal-session": {
+    "class": "internal",
+    "notes": "card and subscription management. The plan puts adding a card out of the agent surface entirely: card data belongs on a first-party page and the agent only ever references what is already on file"
+  },
+  "POST /api/billing/refund": {
+    "class": "internal",
+    "notes": "operator, testing and compliance surface \u2014 refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
+  },
+  "POST /api/billing/setup-intent": {
+    "class": "internal",
+    "notes": "card and subscription management. The plan puts adding a card out of the agent surface entirely: card data belongs on a first-party page and the agent only ever references what is already on file"
+  },
+  "POST /api/billing/wallet/{customer_id}/deposit": {
+    "class": "internal",
+    "notes": "card and subscription management. The plan puts adding a card out of the agent surface entirely: card data belongs on a first-party page and the agent only ever references what is already on file"
+  },
+  "POST /api/billing/wallet/{customer_id}/reset-testing": {
+    "class": "internal",
+    "notes": "operator, testing and compliance surface \u2014 refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
+  },
   "POST /api/chat": {
     "class": "internal",
     "notes": "the platform's own assistant and support chat; exposing it as a tool would nest one agent inside another rather than add a capability"
@@ -1019,6 +1139,14 @@
     "class": "gap",
     "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
   },
+  "POST /api/v2/billing/auto-topup": {
+    "class": "covered",
+    "notes": "configure_auto_topup calls this path"
+  },
+  "POST /api/v2/billing/pending-verification/{stripe_intent_id}/resume": {
+    "class": "internal",
+    "notes": "returns a client_secret for the browser to finish an SCA challenge; a tool must never call it \u2014 Gate P1 forbids a secret in any tool result"
+  },
   "POST /api/v2/billing/top-up": {
     "class": "covered",
     "notes": "P1's top_up_wallet calls it; billing:write, idempotency-keyed"
@@ -1074,6 +1202,14 @@
   "POST /autoscale/up": {
     "class": "internal",
     "notes": "scheduler-driven capacity control, no caller outside the platform"
+  },
+  "POST /billing/bill-all": {
+    "class": "internal",
+    "notes": "operator, testing and compliance surface \u2014 refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
+  },
+  "POST /billing/bill/{job_id}": {
+    "class": "internal",
+    "notes": "operator, testing and compliance surface \u2014 refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
   },
   "POST /host/{host_id}/drain": {
     "class": "covered",
