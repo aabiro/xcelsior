@@ -2136,6 +2136,117 @@ def api_billing_pending_verification(request: Request, customer_id: str = ""):
     }
 
 
+@router.post(
+    "/api/v2/billing/pending-verification/{stripe_intent_id}/resume",
+    tags=["Billing"],
+)
+def api_billing_resume_verification(stripe_intent_id: str, request: Request):
+    """Hand back the credential that lets the cardholder finish a challenge.
+
+    The last piece of the SCA recovery. `charge_saved_card` catches the decline
+    and registers the intent; `pending-verification` lists what is waiting; this
+    returns the `client_secret` the browser needs for `stripe.handleNextAction`.
+    Without it the resume link points at a page that cannot resume anything.
+
+    **POST, not GET, for a response that contains a bearer credential.** A
+    `client_secret` confirms a payment. GET responses get cached by
+    intermediaries, logged with their URLs, and retried by well-meaning clients;
+    none of that is appropriate for something that can complete a charge.
+
+    **`billing:write`, not `billing:read`.** This does not move money by itself,
+    but it hands over the only thing standing between a stopped charge and a
+    completed one. A credential narrowed to reading balances must not produce
+    it.
+
+    **Only for intents already waiting.** The secret is returned solely for a
+    row this customer owns whose status is `requires_action`. A succeeded or
+    cancelled intent yields nothing — there is no challenge left to satisfy, and
+    a secret for one would be a credential with no purpose and a real blast
+    radius.
+
+    The secret is fetched from Stripe rather than stored: we never keep it, and
+    `log_pii_filter` redacts it from anything that tries to log it.
+    """
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    intent_id = (stripe_intent_id or "").strip()
+    if not intent_id:
+        raise HTTPException(400, "stripe_intent_id required")
+
+    from db import _get_pg_pool
+    from psycopg.rows import dict_row
+
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        conn.row_factory = dict_row
+        row = conn.execute(
+            """SELECT customer_id, amount_cents, description, status
+                 FROM payment_intents
+                WHERE stripe_intent_id = %s""",
+            (intent_id,),
+        ).fetchone()
+
+    # Not-found rather than forbidden for an intent that is not this customer's:
+    # a 403 would confirm the id exists, which is a probe for other people's
+    # payments. Same reasoning as `_require_host_visible`.
+    if row is None:
+        raise HTTPException(404, "No such pending payment")
+
+    # Ownership and scope, before anything about the intent is revealed.
+    _require_customer_access(request, str(row["customer_id"]), billing_write=True)
+
+    if row["status"] != "requires_action":
+        raise HTTPException(
+            409,
+            {
+                "resumable": False,
+                "reason": row["status"],
+                "message": (
+                    "This payment is not waiting on verification, so there is "
+                    "nothing to confirm."
+                ),
+            },
+        )
+
+    # Same access pattern `charge_saved_card` uses, rather than a helper on the
+    # manager: there isn't one, and inventing a method name that happens to read
+    # well is how a route ships an AttributeError.
+    from stripe_connect import STRIPE_ENABLED, stripe as _stripe_mod
+
+    if not STRIPE_ENABLED or not _stripe_mod:
+        raise HTTPException(503, "Stripe is not enabled on this deployment")
+
+    try:
+        intent = _stripe_mod.PaymentIntent.retrieve(intent_id)
+    except Exception as exc:  # pragma: no cover - depends on the processor
+        # `str(exc)` can carry the intent and its secret; the scrubber redacts
+        # both, but the message is kept out of the response regardless.
+        log.error("Could not retrieve intent for resume: %s", exc)
+        raise HTTPException(502, "Could not reach the payment processor") from exc
+
+    secret = str(
+        (intent.get("client_secret") if hasattr(intent, "get") else getattr(intent, "client_secret", ""))
+        or ""
+    )
+    if not secret:
+        raise HTTPException(409, "This payment can no longer be confirmed")
+
+    return {
+        "ok": True,
+        "resumable": True,
+        "client_secret": secret,
+        "amount_cad": round(int(row["amount_cents"] or 0) / 100, 2),
+        "description": row["description"],
+        "message": (
+            "Confirm this payment with your bank to complete it. Nothing has "
+            "been charged yet; the wallet is credited once the processor "
+            "confirms."
+        ),
+    }
+
+
 @router.post("/api/v2/billing/top-up", tags=["Billing"])
 def api_billing_manual_topup(body: ManualTopupRequest, request: Request):
     """Charge a saved card now and credit the wallet when Stripe confirms.
