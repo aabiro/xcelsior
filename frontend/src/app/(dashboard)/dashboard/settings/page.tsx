@@ -783,6 +783,7 @@ export default function SettingsPage() {
               addingSshKey={addingSshKey}
               onGenerateSsh={handleGenerateSsh} onAddSshKey={handleAddSshKey}
               onDeleteSshKey={handleDeleteSshKey}
+              canManagePlatformKey={Boolean(user?.is_admin)}
             />
           )}
           {activeTab === "team" && (
@@ -1634,6 +1635,7 @@ function ApiKeysTab({
   sshPubKey, generatingSsh, userSshKeys,
   newSshKeyName, setNewSshKeyName, newSshKeyValue, setNewSshKeyValue,
   addingSshKey, onGenerateSsh, onAddSshKey, onDeleteSshKey,
+  canManagePlatformKey,
 }: {
   t: (k: string) => string;
   team: import("@/lib/team-context").TeamContext;
@@ -1644,6 +1646,7 @@ function ApiKeysTab({
   newSshKeyValue: string; setNewSshKeyValue: (v: string) => void;
   addingSshKey: boolean; onGenerateSsh: () => void; onAddSshKey: () => void;
   onDeleteSshKey: (id: string) => void;
+  canManagePlatformKey: boolean;
 }) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showPlatformKey, setShowPlatformKey] = useState(false);
@@ -1765,10 +1768,18 @@ function ApiKeysTab({
                   <p className="text-sm text-text-muted">No platform keypair generated yet</p>
                 </div>
               )}
-              <Button variant="outline" size="sm" onClick={onGenerateSsh} disabled={generatingSsh}>
-                {generatingSsh ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                {sshPubKey ? t("dash.settings.regen_keypair") : t("dash.settings.gen_keypair")}
-              </Button>
+              {/* Admin only, matching the route. This generates the *platform's*
+                  key for reaching provider hosts, not the user's own — the
+                  section labels it "platform" and masks it for that reason.
+                  `POST /ssh/keygen` now requires admin, so showing this to
+                  everyone would offer a button that answers 403, which is how a
+                  guard gets reverted instead of respected. */}
+              {canManagePlatformKey ? (
+                <Button variant="outline" size="sm" onClick={onGenerateSsh} disabled={generatingSsh}>
+                  {generatingSsh ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                  {sshPubKey ? t("dash.settings.regen_keypair") : t("dash.settings.gen_keypair")}
+                </Button>
+              ) : null}
             </div>
             </div>
           </SettingsSection>
