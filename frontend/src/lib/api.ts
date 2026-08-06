@@ -928,6 +928,54 @@ export async function getLightningRate() {
   return apiFetch<{ ok: boolean; btc_cad: number; currency: string }>("/api/billing/lightning/rate");
 }
 
+/** A charge the bank stopped, waiting for the cardholder to verify it. */
+export interface PendingVerification {
+  stripe_intent_id: string;
+  amount_cad: number;
+  description: string;
+  created_at: number;
+  resume_url: string;
+}
+
+/**
+ * Charges waiting on the cardholder — not failed, not complete.
+ *
+ * An off-session charge refused with `authentication_required` is stopped: no
+ * retry completes it, because the bank is waiting for the person rather than
+ * for us. Deliberately carries no `client_secret`; confirming needs one, and it
+ * is fetched per intent by {@link resumePendingVerification}.
+ */
+export async function fetchPendingVerification(customerId: string) {
+  return apiFetch<{
+    ok: boolean;
+    customer_id: string;
+    pending: PendingVerification[];
+    count: number;
+    message: string;
+  }>(`/api/v2/billing/pending-verification?customer_id=${encodeURIComponent(customerId)}`);
+}
+
+/**
+ * The credential that lets this browser finish one challenge.
+ *
+ * POST because the response body contains a `client_secret`, which completes or
+ * cancels a payment — not something to leave in a cacheable GET. The server
+ * refuses anything that is not this customer's and not awaiting verification.
+ */
+export async function resumePendingVerification(stripeIntentId: string) {
+  return apiFetch<{
+    ok: boolean;
+    resumable: boolean;
+    client_secret: string;
+    amount_cad: number;
+    description: string;
+    message: string;
+  }>(
+    `/api/v2/billing/pending-verification/${encodeURIComponent(stripeIntentId)}/resume`,
+    { method: "POST" },
+  );
+}
+
 export async function fetchWalletHistory(customerId: string, limit = 50) {
   return apiFetch<{ ok: boolean; customer_id: string; transactions: WalletTransaction[] }>(
     `/api/billing/wallet/${encodeURIComponent(customerId)}/history?limit=${limit}`,
