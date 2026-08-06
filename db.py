@@ -1599,10 +1599,16 @@ class UserStore:
 
     @staticmethod
     def add_ssh_key(key_data: dict) -> None:
+        # `registered_by_*` (migration 099) records which credential added the
+        # key. NULL is the honest value for a row registered interactively and
+        # for every row written before the columns existed, so the caller
+        # passing nothing writes NULL rather than a placeholder that would read
+        # as a claim about provenance.
         with auth_connection() as conn:
             conn.execute(
-                "INSERT INTO user_ssh_keys (id, email, user_id, name, public_key, fingerprint, created_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                "INSERT INTO user_ssh_keys (id, email, user_id, name, public_key, fingerprint, "
+                "created_at, registered_by_client_id, registered_by_auth_type) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (
                     key_data["id"],
                     key_data["email"],
@@ -1611,6 +1617,8 @@ class UserStore:
                     key_data["public_key"],
                     key_data["fingerprint"],
                     key_data.get("created_at", time.time()),
+                    key_data.get("registered_by_client_id"),
+                    key_data.get("registered_by_auth_type"),
                 ),
             )
 
