@@ -55,6 +55,10 @@
     "class": "internal",
     "notes": "issues or revokes credentials (agent keys, API keys, OAuth clients, Quick Connect). A tool that mints its own credential can widen its own scopes"
   },
+  "DELETE /api/privacy/consent/{entity_id}/{consent_type}": {
+    "class": "internal",
+    "notes": "consent and erasure records under privacy law. Two generations of the API sit side by side; both are the account holder's own compliance surface and no phase asks an agent to consent or erase on someone's behalf"
+  },
   "DELETE /api/slurm/{slurm_job_id}": {
     "class": "internal",
     "notes": "the Slurm bridge for HPC clusters \u2014 a separate scheduler integration, admin-only, and not the GPU-instance journey any P0-P7 phase describes"
@@ -70,6 +74,10 @@
   "DELETE /api/teams/{team_id}/members/{email}": {
     "class": "internal",
     "notes": "team and member administration, an account-console surface; no P0-P7 journey creates a team or changes a membership"
+  },
+  "DELETE /api/v2/privacy/consent/{purpose}": {
+    "class": "internal",
+    "notes": "consent and erasure records under privacy law. Two generations of the API sit side by side; both are the account holder's own compliance surface and no phase asks an agent to consent or erase on someone's behalf"
   },
   "DELETE /api/v2/volumes/{volume_id}": {
     "class": "gap",
@@ -399,6 +407,22 @@
     "class": "gap",
     "notes": "P5 placement and migration need spot data as tools"
   },
+  "GET /api/privacy/config/{org_id}": {
+    "class": "internal",
+    "notes": "retention configuration and reporting \u2014 the policy, its current state, and the expiry sweep. Operator and compliance surface"
+  },
+  "GET /api/privacy/consent/{entity_id}": {
+    "class": "internal",
+    "notes": "consent and erasure records under privacy law. Two generations of the API sit side by side; both are the account holder's own compliance surface and no phase asks an agent to consent or erase on someone's behalf"
+  },
+  "GET /api/privacy/retention-policies": {
+    "class": "internal",
+    "notes": "retention configuration and reporting \u2014 the policy, its current state, and the expiry sweep. Operator and compliance surface"
+  },
+  "GET /api/privacy/retention-summary": {
+    "class": "internal",
+    "notes": "retention configuration and reporting \u2014 the policy, its current state, and the expiry sweep. Operator and compliance surface"
+  },
   "GET /api/providers": {
     "class": "gap",
     "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
@@ -515,6 +539,10 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "GET /api/v1/control-plane/queue": {
+    "class": "internal",
+    "notes": "the control-plane command queue; operator diagnostics"
+  },
   "GET /api/v1/control-plane/reconciliation-findings": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -523,6 +551,10 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "GET /api/v1/hosts/{host_id}/observations": {
+    "class": "internal",
+    "notes": "control-plane telemetry for a host; operator diagnostics"
+  },
   "GET /api/v1/instances/{job_id}": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -530,6 +562,14 @@
   "GET /api/v1/instances/{job_id}/active-lease": {
     "class": "covered",
     "notes": "MCP server calls this path"
+  },
+  "GET /api/v1/instances/{job_id}/attempts": {
+    "class": "internal",
+    "notes": "per-attempt control-plane internals. get_instance_timeline covers what a tenant needs to see about an instance's history"
+  },
+  "GET /api/v1/instances/{job_id}/control-plane": {
+    "class": "internal",
+    "notes": "control-plane state for one instance; operator diagnostics"
   },
   "GET /api/v1/instances/{job_id}/events": {
     "class": "covered",
@@ -547,9 +587,17 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "GET /api/v1/mcp/activation-funnel": {
+    "class": "internal",
+    "notes": "product analytics on connector activation; not a tenant surface"
+  },
   "GET /api/v1/mcp/tool-audit": {
     "class": "covered",
     "notes": "MCP server calls this path"
+  },
+  "GET /api/v1/openapi.json": {
+    "class": "internal",
+    "notes": "the published API description itself, served for clients and generators to read"
   },
   "GET /api/v2/billing/auto-topup": {
     "class": "covered",
@@ -595,6 +643,14 @@
     "class": "internal",
     "notes": "published platform document \u2014 compliance and partnership material, served for humans to read"
   },
+  "GET /api/v2/privacy/consents": {
+    "class": "internal",
+    "notes": "consent and erasure records under privacy law. Two generations of the API sit side by side; both are the account holder's own compliance surface and no phase asks an agent to consent or erase on someone's behalf"
+  },
+  "GET /api/v2/privacy/erase/{request_id}": {
+    "class": "internal",
+    "notes": "consent and erasure records under privacy law. Two generations of the API sit side by side; both are the account holder's own compliance surface and no phase asks an agent to consent or erase on someone's behalf"
+  },
   "GET /api/v2/serverless/endpoints": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -614,6 +670,14 @@
   "GET /api/v2/volumes/{volume_id}/snapshots": {
     "class": "gap",
     "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+  },
+  "GET /api/verified-hosts": {
+    "class": "gap",
+    "notes": "which hosts carry verification. P5's placement preference is stated as 'prefer verified hosts above 99.5% uptime', so this is an input that phase needs and no tool exposes"
+  },
+  "GET /api/verify/{host_id}/status": {
+    "class": "gap",
+    "notes": "the provider checking where their verification stands; P6, no tool"
   },
   "GET /autoscale/pool": {
     "class": "internal",
@@ -834,6 +898,10 @@
   "POST /agent/v2/tokens/rotate": {
     "class": "internal",
     "notes": "worker-agent v2 callbacks; not a user surface"
+  },
+  "POST /agent/verify": {
+    "class": "internal",
+    "notes": "worker-agent callback posting verification evidence; authenticated as the fleet, never an agent"
   },
   "POST /agent/versions": {
     "class": "internal",
@@ -1159,6 +1227,18 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "POST /api/privacy/config": {
+    "class": "internal",
+    "notes": "retention configuration and reporting \u2014 the policy, its current state, and the expiry sweep. Operator and compliance surface"
+  },
+  "POST /api/privacy/consent": {
+    "class": "internal",
+    "notes": "consent and erasure records under privacy law. Two generations of the API sit side by side; both are the account holder's own compliance surface and no phase asks an agent to consent or erase on someone's behalf"
+  },
+  "POST /api/privacy/purge-expired": {
+    "class": "internal",
+    "notes": "retention configuration and reporting \u2014 the policy, its current state, and the expiry sweep. Operator and compliance surface"
+  },
   "POST /api/providers/register": {
     "class": "gap",
     "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
@@ -1247,6 +1327,14 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "POST /api/v1/hosts/{host_id}/eviction-plans/{plan_id}/execute": {
+    "class": "covered",
+    "notes": "evict_host_workloads calls this path, through the approval flow"
+  },
+  "POST /api/v1/hosts/{host_id}/evictions": {
+    "class": "internal",
+    "notes": "direct eviction without a plan. The tool deliberately goes through eviction-plans instead, so this is the operator's unapproved path"
+  },
   "POST /api/v1/hosts/{host_id}/undrain": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -1307,6 +1395,14 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "POST /api/v2/privacy/consent": {
+    "class": "internal",
+    "notes": "consent and erasure records under privacy law. Two generations of the API sit side by side; both are the account holder's own compliance surface and no phase asks an agent to consent or erase on someone's behalf"
+  },
+  "POST /api/v2/privacy/erase": {
+    "class": "internal",
+    "notes": "consent and erasure records under privacy law. Two generations of the API sit side by side; both are the account holder's own compliance surface and no phase asks an agent to consent or erase on someone's behalf"
+  },
   "POST /api/v2/serverless/endpoints": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -1338,6 +1434,18 @@
   "POST /api/v2/volumes/{volume_id}/snapshots/{snapshot_id}/restore": {
     "class": "gap",
     "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+  },
+  "POST /api/verify/{host_id}": {
+    "class": "gap",
+    "notes": "a provider submitting their host for verification \u2014 P6's admission evidence step; no tool reaches it"
+  },
+  "POST /api/verify/{host_id}/approve": {
+    "class": "internal",
+    "notes": "platform decision on a verification submission; operator only"
+  },
+  "POST /api/verify/{host_id}/reject": {
+    "class": "internal",
+    "notes": "platform decision on a verification submission; operator only"
   },
   "POST /autoscale/cycle": {
     "class": "internal",
