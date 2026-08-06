@@ -1,8 +1,8 @@
 """GT0's audit, made countable so it can only move forward.
 
 The gate is *every operation tagged `covered` / `gap` / `internal` /
-`redundant`, with a reason. Zero unclassified.* 519 operations, 443 classified,
-76 outstanding.
+`redundant`, with a reason. Zero unclassified.* 519 operations, 458 classified,
+61 outstanding.
 
 **The labels live in `docs/endpoint-classification.json`, not in the table.**
 The inventory is generated and says so, so the 158 rows originally filled in by
@@ -42,7 +42,7 @@ INVENTORY = ROOT / "docs" / "generated" / "endpoint-inventory.md"
 
 #: Lower this as rows are classified. It may never rise: a new endpoint arrives
 #: classified, or the commit that adds it also classifies it.
-MAX_UNCLASSIFIED = 76
+MAX_UNCLASSIFIED = 61
 
 #: The only labels GT0 accepts.
 VALID_CLASSES = {"covered", "gap", "internal", "redundant"}
