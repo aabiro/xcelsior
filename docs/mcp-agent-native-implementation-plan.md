@@ -150,7 +150,22 @@ were failures of *evidence*, not of intent.
 - Every access and billing endpoint named above refuses a token missing its new scope, asserted with a real token against a live server.
 - Regenerating the registry produces byte-identical output; a hand edit to a generated file fails the build.
 - `test_no_runtime_ddl`-style inventory test: zero unclassified endpoints.
-- Eval baseline captured at 39 tools. This is the number every later phase is compared against.
+- Eval baseline to be captured at **43 tools total / 34 published**. This is the
+  number every later phase is compared against.
+
+  *Restated from "39 tools", and the correction is two separate things. The
+  count moved — `TOOL_SCOPES` holds 43 and `tool-surface.json` publishes 34,
+  the difference being tools outside the default profile — and
+  `tests/test_tool_scope_registry_completeness.py` refuses to let that drift
+  silently, which is why this line changes in the same commit as the constant.*
+
+  *The sentence also said "captured", and nothing has been captured.*
+  `scripts/mcp_tool_eval.py` grades the surface a **live server** publishes,
+  using a model, and needs `XCELSIOR_MCP_TOKEN`, `ANTHROPIC_API_KEY` and
+  `XCELSIOR_STAGING_URL` — none of which is configured on this repository. The
+  script reports `BLOCKED(env)` and **exits 0** without a credential, so the
+  `eval-baseline` job in `live-gates.yml` would install its dependencies, grade
+  nothing, and report green. No baseline exists at 39, 43, or any other number.*
 
 ---
 

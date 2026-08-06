@@ -129,7 +129,7 @@ jobs:
           echo "Everything else in the P0 scope work remains **pytest-only**." >> "$GITHUB_STEP_SUMMARY"
 
   eval-baseline:
-    name: eval baseline (39 total / 30 published)
+    name: eval baseline (43 total / 34 published)
     runs-on: ubuntu-latest
     needs: preflight
     if: inputs.run_eval
@@ -143,10 +143,21 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      # The eval grades the PUBLISHED surface — 30 tools — while the plan's
-      # baseline is labelled 39 total. Both numbers are real and they measure
+      # The eval grades the PUBLISHED surface — 34 tools — while the plan's
+      # baseline is labelled 43 total. Both numbers are real and they measure
       # different things; a later phase comparing them would read a description
       # change as a count change.
+      #
+      # Was 30/39 until `tests/test_tool_scope_registry_completeness.py` was
+      # recovered from the closed branch and refused to let the count drift
+      # from the plan silently.
+      #
+      # **This job has never produced a baseline.** The three secrets below are
+      # unset on this repository, and `mcp_tool_eval.py` reports `BLOCKED(env)`
+      # and exits **0** without a credential — so the job installs its
+      # dependencies, grades nothing, and reports green. A gate that cannot run
+      # is not green; it is silent, and this one is silent in the colour of
+      # success.
       - name: Capture
         env:
           XCELSIOR_MCP_TOKEN: ${{ secrets.XCELSIOR_MCP_TOKEN }}
