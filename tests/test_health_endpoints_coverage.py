@@ -103,12 +103,49 @@ def test_ssh_pubkey_aliases():
         assert "public_key" in r.json()
 
 
-def test_ssh_keygen_requires_auth():
-    r = client.post("/ssh/keygen")
-    assert r.status_code in (401, 403, 200)
+def test_ssh_keygen_is_guarded_by_the_admin_check():
+    """The guard, asserted where this environment can actually see it.
+
+    The original here was `assert r.status_code in (401, 403, 200)`, which
+    admits the exact outcome it exists to catch. Tightening it to `(401, 403)`
+    fails — anonymous gets **200** — and that is worth explaining rather than
+    leaving as a mystery or papering over.
+
+    The suite runs with `AUTH_REQUIRED=False`, under which `_require_auth`
+    returns a synthetic admin principal for callers with no credentials at all.
+    So an anonymous request here is not anonymous: it is an admin, and 200 is
+    correct *for this environment*. The same relaxation is why
+    `test_ssh_keygen_refuses_an_ordinary_authenticated_user` is the meaningful
+    one — a real Bearer token produces a real non-admin, and that is refused.
+
+    In production nothing reaches the handler anonymously: `TokenAuthMiddleware`
+    denies by default for any path outside `PUBLIC_PATHS`, which a live probe
+    confirmed returns 401. Asserting a 403 here would be asserting something
+    this environment cannot produce, so this checks the guard itself.
+    """
+    import inspect
+
+    import routes.health as health
+
+    source = inspect.getsource(health.api_generate_ssh_key)
+    assert "_require_admin(request)" in source, (
+        "/ssh/keygen no longer requires admin"
+    )
 
 
-def test_ssh_keygen_authenticated():
+def test_ssh_keygen_refuses_an_ordinary_authenticated_user():
+    """This asserted the defect, so it now asserts the fix.
+
+    It registered a fresh non-admin, logged in, and required a 200 — encoding
+    "any signed-in user may generate the platform's host key" as the contract.
+    That key is the one the platform presents to provider hosts, whose public
+    half `/ssh/pubkey` publishes; the response also carries `key_path`, a
+    filesystem path on the server. Neither is a tenant's business, and the two
+    infrastructure routes either side of it are already admin-only.
+
+    Renamed as well as rewritten: `test_ssh_keygen_authenticated` described what
+    the code did rather than what should be true, which is how it survived.
+    """
     import uuid
 
     email = f"healthcov-{uuid.uuid4().hex[:8]}@xcelsior.ca"
@@ -121,9 +158,11 @@ def test_ssh_keygen_authenticated():
     )
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
     r = client.post("/ssh/keygen", headers=headers)
-    assert r.status_code == 200
-    assert r.json().get("ok") is True
-    assert r.json().get("public_key")
+    assert r.status_code == 403, (
+        f"an ordinary authenticated user got {r.status_code}; the platform's "
+        "host keypair is not a tenant surface"
+    )
+    assert "key_path" not in r.text, "the refusal still disclosed the key path"
 
 
 def test_build_dockerfile_preview():

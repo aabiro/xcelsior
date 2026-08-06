@@ -145,8 +145,24 @@ def api_set_alert_config(cfg: AlertConfig, request: Request):
 
 @router.post("/ssh/keygen", tags=["Infrastructure"])
 def api_generate_ssh_key(request: Request):
-    """Generate an Ed25519 SSH keypair for host access."""
-    _require_auth(request)
+    """Generate the platform's Ed25519 keypair for reaching provider hosts.
+
+    Admin, like the two infrastructure routes either side of it. This is not a
+    tenant's key — it is the one the platform presents to hosts, whose public
+    half `/ssh/pubkey` publishes for `authorized_keys`. Nothing a customer does
+    should touch it.
+
+    It was `_require_auth`, so any signed-in user could call it and read back
+    `key_path`: a filesystem path on the server. Small, but it is server
+    topology handed to whoever asks, from a route that has no tenant purpose at
+    all.
+
+    **It is not destructive**, which is worth writing down so nobody re-derives
+    a worse story from the route name: `generate_ssh_keypair` returns early when
+    the key already exists, so this cannot rotate the fleet's access key out
+    from under it.
+    """
+    _require_admin(request)
     path = generate_ssh_keypair()
     pub = get_public_key(path)
     return {"ok": True, "key_path": path, "public_key": pub}
