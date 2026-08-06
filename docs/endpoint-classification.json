@@ -247,6 +247,14 @@
     "class": "gap",
     "notes": "P3 needs artifact read and promotion; no tool exposes them"
   },
+  "GET /api/audit/instance/{job_id}": {
+    "class": "gap",
+    "notes": "the audit trail for one instance. Gate P4 asks for 'one approval, three stages, one audit chain' asserted end to end; no tool reaches this"
+  },
+  "GET /api/audit/verify-chain": {
+    "class": "internal",
+    "notes": "verifies the audit log's hash chain end to end; a compliance and operator integrity check, not a tenant read"
+  },
   "GET /api/auth/demo-credentials": {
     "class": "internal",
     "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
@@ -303,6 +311,14 @@
     "class": "internal",
     "notes": "one-time signup bonus, claimed once per customer from the dashboard; not a funding rail an agent drives"
   },
+  "GET /api/billing/gst-threshold": {
+    "class": "internal",
+    "notes": "Canadian tax and GST compliance surface \u2014 thresholds, rates and filing status. No phase of the plan touches it"
+  },
+  "GET /api/billing/gst-threshold/{provider_id}": {
+    "class": "internal",
+    "notes": "Canadian tax and GST compliance surface \u2014 thresholds, rates and filing status. No phase of the plan touches it"
+  },
   "GET /api/billing/invoices/{customer_id}": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -347,6 +363,14 @@
     "class": "internal",
     "notes": "the platform's own assistant and support chat; exposing it as a tool would nest one agent inside another rather than add a capability"
   },
+  "GET /api/compliance/status": {
+    "class": "internal",
+    "notes": "Canadian tax and GST compliance surface \u2014 thresholds, rates and filing status. No phase of the plan touches it"
+  },
+  "GET /api/compliance/tax-rates": {
+    "class": "internal",
+    "notes": "Canadian tax and GST compliance surface \u2014 thresholds, rates and filing status. No phase of the plan touches it"
+  },
   "GET /api/connect/accounts": {
     "class": "gap",
     "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
@@ -362,6 +386,18 @@
   "GET /api/connect/products": {
     "class": "gap",
     "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+  },
+  "GET /api/events": {
+    "class": "gap",
+    "notes": "the account's activity stream. `events:read` is advertised in scopes_supported and no tool reads events, so a user grants it on first connection and nothing can use it"
+  },
+  "GET /api/events/leases/{job_id}": {
+    "class": "gap",
+    "notes": "the account's activity stream. `events:read` is advertised in scopes_supported and no tool reads events, so a user grants it on first connection and nothing can use it"
+  },
+  "GET /api/events/{entity_type}/{entity_id}": {
+    "class": "gap",
+    "notes": "the account's activity stream. `events:read` is advertised in scopes_supported and no tool reads events, so a user grants it on first connection and nothing can use it"
   },
   "GET /api/hosts/{host_id}/admission": {
     "class": "internal",
@@ -538,6 +574,10 @@
   "GET /api/telemetry/all": {
     "class": "internal",
     "notes": "worker-agent callbacks, authenticated by the fleet secret"
+  },
+  "GET /api/transparency/report": {
+    "class": "internal",
+    "notes": "legal-request handling and the published transparency report. `transparency:read`/`write` are operator scopes and only a platform admin may be granted them"
   },
   "GET /api/trust-tiers": {
     "class": "gap",
@@ -1403,6 +1443,18 @@
     "class": "internal",
     "notes": "team and member administration, an account-console surface; no P0-P7 journey creates a team or changes a membership"
   },
+  "POST /api/terminal/ticket": {
+    "class": "gap",
+    "notes": "P2's terminal ticket. Scoped for instances:connect in 9c9bb5a; still no tool mints one, so connecting remains a browser or raw-HTTP act"
+  },
+  "POST /api/transparency/legal-request": {
+    "class": "internal",
+    "notes": "legal-request handling and the published transparency report. `transparency:read`/`write` are operator scopes and only a platform admin may be granted them"
+  },
+  "POST /api/transparency/legal-request/{request_id}/respond": {
+    "class": "internal",
+    "notes": "legal-request handling and the published transparency report. `transparency:read`/`write` are operator scopes and only a platform admin may be granted them"
+  },
   "POST /api/v1/control-plane/commands/{command_id}/retry": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -1439,9 +1491,17 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "POST /api/v1/launch-plans/{plan_id}/approve": {
+    "class": "gap",
+    "notes": "approving and revoking a launch plan. P4 turns the approval gate into leverage \u2014 one approval covering a dependency graph \u2014 and no tool approves anything today; get_mcp_action_status only reads"
+  },
   "POST /api/v1/launch-plans/{plan_id}/execute": {
     "class": "covered",
     "notes": "MCP server calls this path"
+  },
+  "POST /api/v1/launch-plans/{plan_id}/revoke": {
+    "class": "gap",
+    "notes": "approving and revoking a launch plan. P4 turns the approval gate into leverage \u2014 one approval covering a dependency graph \u2014 and no tool approves anything today; get_mcp_action_status only reads"
   },
   "POST /api/v1/mcp/tool-audit": {
     "class": "covered",
