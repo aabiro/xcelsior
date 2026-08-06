@@ -71,7 +71,7 @@ def _registered_tool_names() -> set[str]:
 #: so a wrong number silently invalidates every future gate comparison.
 #:
 #: Was 39 when this file was written on `feat/mcp-p0-scopes`; the surface has
-#: since grown by four, most recently `get_spend_envelope` in `3fa9f92`. The
+#: since grown by five, most recently `register_ssh_key` for P2. The
 #: plan's Gate P0 line is restated in the same commit, which is what this
 #: test's failure message demands and the reason it is worth failing over.
 #:
@@ -80,7 +80,7 @@ def _registered_tool_names() -> set[str]:
 #: secrets none of which are set; without them it reports `BLOCKED(env)` and
 #: exits 0, so the job would report green having graded nothing. This constant
 #: pins the *count* the baseline will be taken at, not a baseline.
-EXPECTED_TOOL_TOTAL = 43
+EXPECTED_TOOL_TOTAL = 44
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition
@@ -95,7 +95,7 @@ COMPANY_KNOWLEDGE_TOOLS = {"search", "fetch"}
 
 
 def test_the_registry_holds_the_baseline_number_of_tools():
-    """39 is the plan's baseline; if it moved, the plan must say so."""
+    """The plan states the baseline; if the count moved, the plan must say so."""
     entries = _tool_scope_entries()
     assert len(entries) == EXPECTED_TOOL_TOTAL, (
         f"TOOL_SCOPES holds {len(entries)} tools, not the {EXPECTED_TOOL_TOTAL} "

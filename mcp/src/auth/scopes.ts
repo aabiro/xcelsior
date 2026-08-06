@@ -2,6 +2,9 @@ export type McpScope =
   | "instances:read"
   | "instances:write"
   | "instances:operate"
+  | "instances:connect"
+  | "ssh:read"
+  | "ssh:write"
   | "billing:read"
   | "billing:write"
   | "gpu:read"
@@ -43,6 +46,10 @@ export const TOOL_SCOPES: Record<string, ScopeRequirement> = {
   run_training_job: { allOf: ["instances:write", "billing:read"] },
   schedule_under_budget: { allOf: ["instances:write", "gpu:read", "marketplace:read"] },
   watch_instance: { allOf: ["instances:read"] },
+  // P2. Adding a key is the step that grants shell access, which is why
+  // `ssh:write` is split from `ssh:read` and why its consent text names
+  // shell access rather than "manage keys".
+  register_ssh_key: { allOf: ["ssh:write"] },
   list_serverless_endpoints: { allOf: ["inference:read"] },
   create_serverless_endpoint: { allOf: ["inference:write"] },
   should_i_run_pel_job: { allOf: ["billing:read", "inference:read"] },

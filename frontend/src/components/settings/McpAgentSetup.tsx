@@ -28,6 +28,10 @@ const MCP_SCOPES = [
   // Terminal access and port exposure. Without it a pasted token is refused by
   // the very routes the product's first sentence promises.
   "instances:connect",
+  // Registering an SSH public key, so the agent can get the user from "instance
+  // running" to "shell open" without a trip here. The reasoning, including what
+  // it widens, is recorded on MCP_QUICK_CONNECT_SCOPES in oauth_service.py.
+  "ssh:write",
   "billing:read",
   "gpu:read",
   "marketplace:read",
