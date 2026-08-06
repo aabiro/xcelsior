@@ -90,7 +90,16 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `098_unique_stripe_intent_id.py`.**
+**Repository head: `099_ssh_key_client_binding.py`.**
+(`099` records which credential registered an SSH public key. It was written on
+`feat/mcp-p0-scopes`, applied to a developer database, and then stranded when
+that pull request closed — so `alembic current` reported `099` on a machine
+whose repository head was `098`, a revision the tree could not explain. It is
+in the chain now. `registered_by_client_id` and `registered_by_auth_type` are
+nullable with no default because `NULL` is the truth for every row registered
+interactively and for every row written before the columns existed.)
+
+`098_unique_stripe_intent_id.py` was head before it.
 (`079_settlement_meters_reprice.py` was head through the settlement reprice;
 `080` added authoritative provider settlement; `081` the durable per-sink
 privacy deletion workflow; `082` authoritative host admission and signed
