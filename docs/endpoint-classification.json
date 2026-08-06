@@ -831,9 +831,29 @@
     "class": "gap",
     "notes": "P7's image library with provenance \u2014 commit an instance to a reusable image and manage the result; no tool reaches it"
   },
+  "GET /v1/serverless/{endpoint_id}/openai/v1/models": {
+    "class": "redundant",
+    "notes": "an OpenAI-protocol shim over the same capability run_serverless_job already reaches. It exists so an OpenAI SDK can be pointed at the endpoint, which is a client-compatibility surface rather than a tool one."
+  },
   "GET /v1/serverless/{endpoint_id}/status/{job_id}": {
     "class": "covered",
     "notes": "get_serverless_job_status calls this path"
+  },
+  "GET /v1/serverless/{endpoint_id}/stream/{job_id}": {
+    "class": "gap",
+    "notes": "streams a job's output as it is produced; no tool reaches it, so an agent can only poll for completion."
+  },
+  "GET /v1/serverless/{endpoint_id}/{endpoint_slug}/openai/v1/models": {
+    "class": "redundant",
+    "notes": "an OpenAI-protocol shim over the same capability run_serverless_job already reaches. It exists so an OpenAI SDK can be pointed at the endpoint, which is a client-compatibility surface rather than a tool one. The `{endpoint_slug}` form is the same handler under a second decorator \u2014 a vanity path, not a second endpoint \u2014 so it carries its twin's classification by construction."
+  },
+  "GET /v1/serverless/{endpoint_id}/{endpoint_slug}/status/{job_id}": {
+    "class": "covered",
+    "notes": "get_serverless_job_status calls this path. The `{endpoint_slug}` form is the same handler under a second decorator \u2014 a vanity path, not a second endpoint \u2014 so it carries its twin's classification by construction."
+  },
+  "GET /v1/serverless/{endpoint_id}/{endpoint_slug}/stream/{job_id}": {
+    "class": "gap",
+    "notes": "streams a job's output as it is produced; no tool reaches it, so an agent can only poll for completion. The `{endpoint_slug}` form is the same handler under a second decorator \u2014 a vanity path, not a second endpoint \u2014 so it carries its twin's classification by construction."
   },
   "PATCH /api/agent-keys/{key_id}": {
     "class": "internal",
@@ -1695,9 +1715,45 @@
     "class": "internal",
     "notes": "worker-agent callback reporting instance state back to the platform; authenticated as the fleet, never an agent"
   },
+  "POST /v1/serverless/{endpoint_id}/cancel/{job_id}": {
+    "class": "gap",
+    "notes": "stops a running serverless job. cancel_instance covers GPU instances; nothing covers this."
+  },
+  "POST /v1/serverless/{endpoint_id}/openai/v1/chat/completions": {
+    "class": "redundant",
+    "notes": "an OpenAI-protocol shim over the same capability run_serverless_job already reaches. It exists so an OpenAI SDK can be pointed at the endpoint, which is a client-compatibility surface rather than a tool one."
+  },
+  "POST /v1/serverless/{endpoint_id}/openai/v1/embeddings": {
+    "class": "redundant",
+    "notes": "an OpenAI-protocol shim over the same capability run_serverless_job already reaches. It exists so an OpenAI SDK can be pointed at the endpoint, which is a client-compatibility surface rather than a tool one."
+  },
   "POST /v1/serverless/{endpoint_id}/run": {
     "class": "covered",
     "notes": "MCP server calls this path"
+  },
+  "POST /v1/serverless/{endpoint_id}/runsync": {
+    "class": "gap",
+    "notes": "the synchronous variant of run: it blocks for the result instead of returning a job id. Different behaviour, not a second spelling, and no tool reaches it."
+  },
+  "POST /v1/serverless/{endpoint_id}/{endpoint_slug}/cancel/{job_id}": {
+    "class": "gap",
+    "notes": "stops a running serverless job. cancel_instance covers GPU instances; nothing covers this. The `{endpoint_slug}` form is the same handler under a second decorator \u2014 a vanity path, not a second endpoint \u2014 so it carries its twin's classification by construction."
+  },
+  "POST /v1/serverless/{endpoint_id}/{endpoint_slug}/openai/v1/chat/completions": {
+    "class": "redundant",
+    "notes": "an OpenAI-protocol shim over the same capability run_serverless_job already reaches. It exists so an OpenAI SDK can be pointed at the endpoint, which is a client-compatibility surface rather than a tool one. The `{endpoint_slug}` form is the same handler under a second decorator \u2014 a vanity path, not a second endpoint \u2014 so it carries its twin's classification by construction."
+  },
+  "POST /v1/serverless/{endpoint_id}/{endpoint_slug}/openai/v1/embeddings": {
+    "class": "redundant",
+    "notes": "an OpenAI-protocol shim over the same capability run_serverless_job already reaches. It exists so an OpenAI SDK can be pointed at the endpoint, which is a client-compatibility surface rather than a tool one. The `{endpoint_slug}` form is the same handler under a second decorator \u2014 a vanity path, not a second endpoint \u2014 so it carries its twin's classification by construction."
+  },
+  "POST /v1/serverless/{endpoint_id}/{endpoint_slug}/run": {
+    "class": "covered",
+    "notes": "run_serverless_job calls this path. The `{endpoint_slug}` form is the same handler under a second decorator \u2014 a vanity path, not a second endpoint \u2014 so it carries its twin's classification by construction."
+  },
+  "POST /v1/serverless/{endpoint_id}/{endpoint_slug}/runsync": {
+    "class": "gap",
+    "notes": "the synchronous variant of run: it blocks for the result instead of returning a job id. Different behaviour, not a second spelling, and no tool reaches it. The `{endpoint_slug}` form is the same handler under a second decorator \u2014 a vanity path, not a second endpoint \u2014 so it carries its twin's classification by construction."
   },
   "PUT /alerts/config": {
     "class": "internal",
