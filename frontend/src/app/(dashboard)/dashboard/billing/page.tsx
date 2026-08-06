@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import posthog from "posthog-js";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
@@ -15,6 +15,7 @@ import { DepositModal } from "@/components/billing/deposit-modal";
 import { CryptoDepositModal } from "@/components/billing/crypto-deposit-modal";
 import { LightningDepositModal } from "@/components/billing/lightning-deposit-modal";
 import { PaymentMethodModal } from "@/components/billing/payment-method-modal";
+import { ScaResumePanel } from "@/components/billing/sca-resume-panel";
 import {
   CreditCard, DollarSign, RefreshCw, Download, Plus, FileText,
   ArrowUpRight, ArrowDownRight, HardDrive, Leaf, Clock, Zap, Receipt, Loader2,
@@ -121,11 +122,45 @@ export default function BillingPage() {
   const [showDeposit, setShowDeposit] = useState(false);
 
   const searchParams = useSearchParams();
+  const router = useRouter();
 
   // Auto-open deposit modal from ?topup=true (Credits button link)
   useEffect(() => {
     if (searchParams.get("topup") === "true" && canManageBilling) setShowDeposit(true);
   }, [searchParams, canManageBilling]);
+
+  // `?resume=<intent>` is the link an SCA decline hands back. Until now nothing
+  // read it, so the recovery link opened a page that could not recover anything.
+  const resumeIntentId = searchParams.get("resume") || "";
+
+  // Charges the bank stopped. Loaded regardless of `?resume=`, because a
+  // challenge nobody completed is exactly the thing that should be visible
+  // without a link to find it — the wallet showed no trace of one before.
+  const [pendingVerification, setPendingVerification] = useState<api.PendingVerification[]>([]);
+  useEffect(() => {
+    if (!customerId) return;
+    let cancelled = false;
+    void api
+      .fetchPendingVerification(customerId)
+      .then((res) => {
+        if (!cancelled) setPendingVerification(res.pending || []);
+      })
+      .catch(() => {
+        // A wallet that loads without this section is better than one that
+        // fails to load because of it.
+        if (!cancelled) setPendingVerification([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [customerId]);
+
+  const clearResumeParam = useCallback(() => {
+    const next = new URLSearchParams(Array.from(searchParams.entries()));
+    next.delete("resume");
+    const query = next.toString();
+    router.replace(query ? `/dashboard/billing?${query}` : "/dashboard/billing");
+  }, [router, searchParams]);
 
   const [showCryptoDeposit, setShowCryptoDeposit] = useState(false);
   const [showLightningDeposit, setShowLightningDeposit] = useState(false);
@@ -557,8 +592,24 @@ export default function BillingPage() {
     return { compute, serverless, storage, total: compute + serverless + storage };
   }, [transactions]);
 
+  // The intent named by `?resume=`, or the oldest one still waiting. Arriving
+  // from a decline link resumes that payment; arriving at the wallet with a
+  // challenge outstanding shows it anyway, which is the state the plan asks be
+  // "visible rather than silent".
+  const resumeTarget =
+    pendingVerification.find((p) => p.stripe_intent_id === resumeIntentId) ||
+    (resumeIntentId ? null : pendingVerification[0] || null);
+  const resumeId = resumeIntentId || resumeTarget?.stripe_intent_id || "";
+
   return (
     <div className="space-y-6">
+      {resumeId ? (
+        <ScaResumePanel
+          intentId={resumeId}
+          known={resumeTarget}
+          onFinished={resumeIntentId ? clearResumeParam : undefined}
+        />
+      ) : null}
       <div className="rounded-xl border border-accent-cyan/20 bg-gradient-to-br from-accent-cyan/[0.07] via-surface/90 to-emerald/[0.05] p-5 md:p-6 shadow-[0_0_40px_rgba(56,189,248,0.05)]">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
