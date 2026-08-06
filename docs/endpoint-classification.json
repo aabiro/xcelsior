@@ -91,6 +91,10 @@
     "class": "internal",
     "notes": "scheduler-driven capacity control, no caller outside the platform"
   },
+  "DELETE /user-images/{image_id}": {
+    "class": "gap",
+    "notes": "P7's image library with provenance \u2014 commit an instance to a reusable image and manage the result; no tool reaches it"
+  },
   "GET /": {
     "class": "internal",
     "notes": "server-rendered pages and a crawler text file, not an API surface"
@@ -362,6 +366,10 @@
   "GET /api/hosts/{host_id}/spot-preview": {
     "class": "gap",
     "notes": "the preview a provider reads before setting a spot floor; P6, no tool"
+  },
+  "GET /api/images/templates": {
+    "class": "gap",
+    "notes": "P7's image library with provenance \u2014 commit an instance to a reusable image and manage the result; no tool reaches it"
   },
   "GET /api/instances/{job_id}/telemetry": {
     "class": "covered",
@@ -727,9 +735,17 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "GET /instances/{job_id}/auto-launch": {
+    "class": "gap",
+    "notes": "P2's launch-to-connected journey needs these; scoped for instances:connect in 406c0a1 but no tool reaches them yet"
+  },
   "GET /instances/{job_id}/logs": {
     "class": "covered",
     "notes": "MCP server calls this path"
+  },
+  "GET /internal/route/{slug}/{port}": {
+    "class": "internal",
+    "notes": "internal reverse-proxy route resolution for exposed ports"
   },
   "GET /legacy": {
     "class": "internal",
@@ -779,6 +795,10 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "GET /user-images": {
+    "class": "gap",
+    "notes": "P7's image library with provenance \u2014 commit an instance to a reusable image and manage the result; no tool reaches it"
+  },
   "PATCH /api/agent-keys/{key_id}": {
     "class": "internal",
     "notes": "issues or revokes credentials (agent keys, API keys, OAuth clients, Quick Connect). A tool that mints its own credential can widen its own scopes"
@@ -811,6 +831,10 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "PATCH /user-images/{image_id}": {
+    "class": "gap",
+    "notes": "P7's image library with provenance \u2014 commit an instance to a reusable image and manage the result; no tool reaches it"
+  },
   "POST /_internal/legacy-auth/device": {
     "class": "internal",
     "notes": "the superseded auth path, kept for older clients. The `_internal` prefix is the statement of intent"
@@ -822,6 +846,10 @@
   "POST /_internal/legacy-auth/verify": {
     "class": "internal",
     "notes": "the superseded auth path, kept for older clients. The `_internal` prefix is the statement of intent"
+  },
+  "POST /admin/instances/{job_id}/reinject-shell": {
+    "class": "internal",
+    "notes": "admin-only re-injection of shell setup. The guard is inline (`role == admin`) rather than `_require_admin`, so the inventory's recovered auth column understates it"
   },
   "POST /agent/benchmark": {
     "class": "internal",
@@ -1199,6 +1227,10 @@
     "class": "internal",
     "notes": "worker callback posting a finished inference result; authenticated as the fleet, never an agent"
   },
+  "POST /api/instances/{job_id}/stream-ticket": {
+    "class": "gap",
+    "notes": "P2's launch-to-connected journey needs these; scoped for instances:connect in 406c0a1 but no tool reaches them yet"
+  },
   "POST /api/keys/generate": {
     "class": "internal",
     "notes": "issues or revokes credentials (agent keys, API keys, OAuth clients, Quick Connect). A tool that mints its own credential can widen its own scopes"
@@ -1403,6 +1435,10 @@
     "class": "internal",
     "notes": "consent and erasure records under privacy law. Two generations of the API sit side by side; both are the account holder's own compliance surface and no phase asks an agent to consent or erase on someone's behalf"
   },
+  "POST /api/v2/scheduler/process-binpack": {
+    "class": "internal",
+    "notes": "operator action on the scheduler or a stuck instance; admin-guarded and outside every tenant journey"
+  },
   "POST /api/v2/serverless/endpoints": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -1479,6 +1515,10 @@
     "class": "internal",
     "notes": "admin image building; P7 covers snapshots of a configured instance, which is a different mechanism from building an image from a model name"
   },
+  "POST /failover": {
+    "class": "internal",
+    "notes": "operator action on the scheduler or a stuck instance; admin-guarded and outside every tenant journey"
+  },
   "POST /host/{host_id}/drain": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -1495,9 +1535,37 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "POST /instances/{job_id}/auto-launch/report": {
+    "class": "internal",
+    "notes": "worker-agent callback reporting instance state back to the platform; authenticated as the fleet, never an agent"
+  },
   "POST /instances/{job_id}/cancel": {
     "class": "covered",
     "notes": "MCP server calls this path"
+  },
+  "POST /instances/{job_id}/expose": {
+    "class": "gap",
+    "notes": "P2's launch-to-connected journey needs these; scoped for instances:connect in 406c0a1 but no tool reaches them yet"
+  },
+  "POST /instances/{job_id}/http-ports/report": {
+    "class": "internal",
+    "notes": "worker-agent callback reporting instance state back to the platform; authenticated as the fleet, never an agent"
+  },
+  "POST /instances/{job_id}/restart": {
+    "class": "gap",
+    "notes": "stop/start/restart preserve the container, which is the lifecycle the platform chose over pause/resume; no tool reaches them, so an agent can only cancel or terminate"
+  },
+  "POST /instances/{job_id}/snapshot": {
+    "class": "gap",
+    "notes": "P7 commits a configured instance to a reusable image; this is that step and no tool reaches it"
+  },
+  "POST /instances/{job_id}/start": {
+    "class": "gap",
+    "notes": "stop/start/restart preserve the container, which is the lifecycle the platform chose over pause/resume; no tool reaches them, so an agent can only cancel or terminate"
+  },
+  "POST /instances/{job_id}/stop": {
+    "class": "gap",
+    "notes": "stop/start/restart preserve the container, which is the lifecycle the platform chose over pause/resume; no tool reaches them, so an agent can only cancel or terminate"
   },
   "POST /instances/{job_id}/terminate": {
     "class": "covered",
@@ -1523,6 +1591,10 @@
     "class": "internal",
     "notes": "OAuth/OIDC protocol surface \u2014 the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
   },
+  "POST /queue/process": {
+    "class": "internal",
+    "notes": "operator action on the scheduler or a stuck instance; admin-guarded and outside every tenant journey"
+  },
   "POST /spot-prices/update": {
     "class": "gap",
     "notes": "P5 placement and migration need spot data as tools"
@@ -1538,6 +1610,10 @@
   "POST /token/generate": {
     "class": "internal",
     "notes": "operator configuration \u2014 alert thresholds, the NFS mount, API token minting. Admin console, not the tool surface. The two alert paths are aliases of one handler"
+  },
+  "POST /user-images/{image_id}/complete": {
+    "class": "internal",
+    "notes": "worker-agent callback reporting instance state back to the platform; authenticated as the fleet, never an agent"
   },
   "POST /v1/serverless/{endpoint_id}/run": {
     "class": "covered",
