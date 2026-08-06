@@ -1470,6 +1470,77 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     "hosts:evict": "Evict workloads from platform hosts (operator)",
     "control_plane:read": "See platform control-plane health (operator)",
     "control_plane:operate": "Retry platform control-plane commands (operator)",
+    # ── The twenty-six that were enforced and undescribed ─────────────────
+    #
+    # `_require_scope` guards 41 scopes across `routes/`; 15 had descriptions.
+    # The other 26 rendered on the consent screen as their own identifier,
+    # because `describe_scope` falls back to the raw string — the same defect
+    # the block above fixed for `ssh:write`, `ssh:read` and `instances:connect`,
+    # left in place for everything else.
+    #
+    # Same rule as those three: say what the capability does *to the user*. A
+    # person approving `volumes:write` is approving something that can interrupt
+    # a running job, and the sentence has to say so.
+    "volumes:read": "See your volumes and their snapshots",
+    "volumes:write": (
+        "Create, attach, detach and delete your volumes. Detaching a volume "
+        "can interrupt a job that is using it, and deleting one destroys the "
+        "data on it."
+    ),
+    "artifacts:read": "See the files and checkpoints your finished runs produced",
+    "artifacts:write": (
+        "Change how long your run outputs are kept, including deleting them "
+        "before they would otherwise expire"
+    ),
+    "mfa:read": "See which second factors are on your account",
+    "mfa:write": (
+        "Add and remove the second factors protecting your account. Removing "
+        "the last one leaves your password as the only thing guarding it."
+    ),
+    "privacy:read": "See your data export and deletion requests",
+    "privacy:write": (
+        "Request an export of your account data, or request its deletion. A "
+        "deletion request removes your account and what belongs to it."
+    ),
+    "teams:write": (
+        "Create teams and change who belongs to them, including who can spend "
+        "on the team's behalf"
+    ),
+    "notifications:read": "Read the notifications on your account",
+    "notifications:write": (
+        "Mark your notifications read and manage where they are delivered"
+    ),
+    "chat:read": "Read your conversations with the platform assistant",
+    "chat:write": "Send messages to the platform assistant as you",
+    "providers:read": (
+        "See your provider account — earnings, payout state and onboarding "
+        "progress"
+    ),
+    "providers:write": (
+        "Change your provider account and request payouts of your earnings"
+    ),
+    "marketplace:write": (
+        "List your own GPU capacity on the marketplace, and remove listings"
+    ),
+    "verification:write": "Submit evidence to have your hosts verified",
+    "autoscale:read": "See how serverless capacity scales with demand",
+    "autoscale:write": "Change how serverless capacity scales (operator)",
+    "reputation:read": "See host reputation scores",
+    # Not `(operator)`, and the first draft said it was. `/api/reputation/me/claim`
+    # is the only route behind it: a provider claiming milestones they have
+    # already earned, validated against real activity. Self-service, not
+    # platform authority — the annotation ratchet in `test_scope_delegation.py`
+    # caught the mistake and refused to let it be resolved by widening
+    # OPERATOR_SCOPES to match.
+    "reputation:write": "Claim the reputation milestones your hosts have earned",
+    "sla:read": "See SLA targets and how they are being met",
+    "sla:write": "Change SLA targets (operator)",
+    "transparency:read": "Read platform transparency records (operator)",
+    "transparency:write": "Publish platform transparency records (operator)",
+    # `_require_scope(user, "admin")` in `routes/volumes.py`. Not a namespaced
+    # capability like the rest — it reads as "platform administrator" and is
+    # described as such rather than dressed up as something narrower.
+    "admin": "Full platform administrator access (operator)",
 }
 
 

@@ -70,6 +70,24 @@ OPERATOR_SCOPES = frozenset(
         "hosts:operate",
         "transparency:read",
         "transparency:write",
+        # Added when every enforced scope was given a consent description and
+        # the annotation ratchet asked what `(operator)` meant for these three.
+        # Each is platform authority by evidence rather than by name:
+        #
+        #   autoscale:write  routes/autoscale.py guards it with
+        #                    `_require_scope(_require_admin(request), ...)` —
+        #                    the route already demands admin
+        #   sla:write        same shape in routes/sla.py
+        #   admin            guards POST /api/v2/admin/volumes/reopen-encrypted;
+        #                    a scope literally named `admin`, on an admin route
+        #
+        # `reputation:write` was annotated `(operator)` at the same time and is
+        # *not* here: it guards `/api/reputation/me/claim`, where a provider
+        # claims milestones they earned. The annotation was wrong, and the
+        # description was corrected rather than the set widened to match it.
+        "autoscale:write",
+        "sla:write",
+        "admin",
     }
 )
 
@@ -120,6 +138,21 @@ def is_platform_admin(actor: object) -> bool:
     return flag in (True, 1, "1", "true", "True") or actor.get("role") == "admin"
 
 
+def known_scopes() -> frozenset[str]:
+    """Every scope this platform defines, from the places that define them.
+
+    Built from the three existing sources rather than restated, so a scope
+    added to one of them cannot be missing here — a fourth hand-kept list is
+    how a vocabulary check ends up rejecting something legitimate.
+
+    Imported lazily because `oauth_service` imports this module; at module
+    scope it would be a cycle.
+    """
+    from oauth_service import SCOPE_DESCRIPTIONS
+
+    return frozenset(SCOPE_DESCRIPTIONS) | OPERATOR_SCOPES | SYSTEM_ALLOWED_SCOPES
+
+
 def assert_delegable(scopes: object, *, actor: object) -> None:
     """Raise `ScopeDelegationError` if *actor* may not grant *scopes*.
 
@@ -132,6 +165,35 @@ def assert_delegable(scopes: object, *, actor: object) -> None:
     requested = {str(s).strip() for s in scopes if str(s).strip()}
     if not requested:
         return
+
+    # Vocabulary first, and for every actor including admins.
+    #
+    # This checked `OPERATOR_SCOPES` — a denylist — so anything that was not an
+    # operator scope passed and was stored. A non-admin could register a client
+    # holding `totally:invented`, or, more to the point,
+    # `"Full access to your account - this is safe and standard"`.
+    #
+    # An invented scope grants nothing: enforcement is membership, so it can
+    # never satisfy a check. The damage is at consent. `describe_scope` falls
+    # back to rendering the scope *as itself* when it has no description, so an
+    # unknown scope becomes attacker-chosen prose on a first-party consent page,
+    # presented as a permission the user is about to grant. Dynamic
+    # registration was already closed against this (`CONNECTOR_ALLOWED_SCOPES`);
+    # the authenticated client-creation path was not.
+    #
+    # Admins are included deliberately. Adding a scope means giving it a
+    # description a user can consent to, which is a code change — not something
+    # typed into a form. An admin typo should fail here rather than become a
+    # phantom scope nobody can grant and nothing enforces.
+    unknown = sorted(requested - known_scopes())
+    if unknown:
+        raise ScopeDelegationError(
+            "Not scopes this platform defines: "
+            + ", ".join(repr(u) for u in unknown)
+            + ". A scope must have a consent description before it can be "
+            "granted — otherwise the authorization screen shows the user raw "
+            "text as if it were a permission."
+        )
 
     if actor is SYSTEM_PRINCIPAL:
         outside = sorted(requested - SYSTEM_ALLOWED_SCOPES)
