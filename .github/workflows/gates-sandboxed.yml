@@ -88,7 +88,20 @@ jobs:
                    tests/test_source_tree_is_shared.py \
                    tests/test_companion_schema_discipline.py \
                    tests/test_sql_injection_guard.py \
-                   tests/test_migration_lock_discipline.py; do
+                   tests/test_migration_lock_discipline.py \
+                   `# The implementation plan's own gates. Until now these ran` \
+                   `# only on whichever machine happened to run the suite,` \
+                   `# which is the thing the plan calls out: "a green push is` \
+                   `# unverified". They are pure-parse or in-process — no` \
+                   `# database, no network, no credentials — so they belong` \
+                   `# here rather than in the local-only suite.` \
+                   tests/test_gt0_classification_ratchet.py \
+                   tests/test_requirements_export_matches_lock.py \
+                   tests/test_sandboxed_gates_are_db_free.py \
+                   tests/test_instance_connect_scope.py \
+                   tests/test_customer_billing_reads_require_scope.py \
+                   tests/test_log_scrubbing_stays_linear.py \
+                   tests/test_no_payment_secrets_in_logs.py; do
             [ -f "$t" ] && GATES="$GATES $t"
           done
           echo "running:$GATES"
