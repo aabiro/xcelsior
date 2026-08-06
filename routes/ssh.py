@@ -7,7 +7,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, Request
 
 from routes._deps import (
-    _require_user_grant,
+    _require_auth,
 )
 from db import UserStore
 import hashlib as _hashlib
@@ -171,10 +171,34 @@ def _trigger_reinject_for_user(user: dict) -> int:
 
 @router.post("/api/ssh/keys", tags=["SSH Keys"])
 async def api_add_ssh_key(request: Request):
-    """Upload a user SSH public key. Like GitHub/AWS key management."""
+    """Upload a user SSH public key. Like GitHub/AWS key management.
+
+    **Machine credentials may register a key, and that is a deliberate
+    narrowing of the guard that used to stand here.**
+
+    This route called `_require_user_grant`, which refuses
+    `auth_type == "client_credentials"` outright. A Quick Connect token is
+    exactly that (`oauth_service.py`), so the `register_ssh_key` tool — the
+    step Gate P2's journey depends on — answered 403 for the credential this
+    product tells people to paste. "Launch → connected, without a browser" was
+    unreachable for one of the two credential types, and the tool shipped
+    before anyone checked which helper the route used.
+
+    `_require_user_grant` is the right guard for MFA, password and account
+    deletion: state whose whole point is that a human is present. Registering a
+    public key is not that. It is an ordinary scoped mutation of the caller's
+    own resources, and the authorisation question is the one `_require_scope`
+    asks — does *this credential* hold `ssh:write`.
+
+    What the narrowing costs is attribution: a key added by an agent used to be
+    indistinguishable from one a human pasted into the dashboard. Migration
+    `099` adds the two columns that fix that, and they are written here. A key
+    registered by a machine credential is attributable to the OAuth client that
+    added it, so revoking that client identifies exactly which keys to remove.
+    """
     from routes._deps import _require_scope
 
-    user = _require_user_grant(request, allow_api_key=True)
+    user = _require_auth(request)
     _require_scope(user, "ssh:write")
     body = await request.json()
     name = body.get("name", "").strip() or "default"
@@ -201,6 +225,14 @@ async def api_add_ssh_key(request: Request):
     normalized = " ".join(parts[:2])
     if len(parts) > 2:
         normalized += " " + parts[2]
+    # Who added this key. `None` for an interactive registration — which is the
+    # truth for every row that predates migration 099, and the reason both
+    # columns are nullable with no default rather than backfilled to something
+    # that reads as a claim.
+    from routes._deps import _MACHINE_AUTH_TYPES
+
+    auth_type = str(user.get("auth_type") or "") or None
+    machine = auth_type in _MACHINE_AUTH_TYPES
     key_data = {
         "id": key_id,
         "email": user["email"],
@@ -209,6 +241,8 @@ async def api_add_ssh_key(request: Request):
         "public_key": normalized,
         "fingerprint": fingerprint,
         "created_at": time.time(),
+        "registered_by_client_id": user.get("client_id") if machine else None,
+        "registered_by_auth_type": auth_type,
     }
     UserStore.add_ssh_key(key_data)
     # "Just works" UX: push the new key into every running interactive
@@ -227,7 +261,11 @@ def api_list_ssh_keys(request: Request):
     """List the authenticated user's SSH public keys."""
     from routes._deps import _require_scope
 
-    user = _require_user_grant(request, allow_api_key=True)
+    # Narrowed with the POST above, for one reason: a credential that can add a
+    # key and not see what it added cannot verify its own work or clean up. The
+    # scope split still does the restricting — Quick Connect holds `ssh:write`
+    # and not `ssh:read`, so it registers and does not enumerate.
+    user = _require_auth(request)
     _require_scope(user, "ssh:read")
     keys = UserStore.list_ssh_keys(user["email"])
     return {
@@ -250,7 +288,7 @@ def api_delete_ssh_key(key_id: str, request: Request):
     """Delete a user SSH public key by ID."""
     from routes._deps import _require_scope
 
-    user = _require_user_grant(request, allow_api_key=True)
+    user = _require_auth(request)
     # Registration requires `ssh:write` and listing requires `ssh:read`, and this
     # required nothing — so deletion, the only destructive one of the three, was
     # the only one a narrowed machine credential could reach. It also calls
