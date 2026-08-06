@@ -18,6 +18,9 @@ const apiMocks = vi.hoisted(() => ({
   resetWalletTestingState: vi.fn(),
   checkFreeCreditsStatus: vi.fn(),
   claimFreeCredits: vi.fn(),
+  // Charges the bank stopped pending verification. The page loads these on
+  // mount; unmocked it is `undefined` and the effect throws.
+  fetchPendingVerification: vi.fn(),
 }));
 
 const authMocks = vi.hoisted(() => ({
@@ -38,6 +41,10 @@ vi.mock("@/lib/auth", () => ({
 
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
+  // The page clears `?resume=` after an SCA challenge is finished, so it needs
+  // a router. Without this export every test in the file fails at render with
+  // "No useRouter export is defined on the next/navigation mock".
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
 }));
 
 vi.mock("@/lib/locale", () => ({
@@ -106,6 +113,16 @@ describe("BillingPage free credits flow", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     authMocks.useAuth.mockReturnValue({
       user: { user_id: "user-1", customer_id: "cust-1", is_admin: false },
+    });
+
+    // No challenge outstanding: the default for every test here, so the SCA
+    // panel stays hidden and these assertions are about the wallet itself.
+    apiMocks.fetchPendingVerification.mockResolvedValue({
+      ok: true,
+      customer_id: "cust-1",
+      pending: [],
+      count: 0,
+      message: "No charges are waiting on cardholder verification.",
     });
 
     apiMocks.fetchWallet.mockResolvedValue({
