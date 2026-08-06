@@ -55,6 +55,10 @@
     "class": "internal",
     "notes": "issues or revokes credentials (agent keys, API keys, OAuth clients, Quick Connect). A tool that mints its own credential can widen its own scopes"
   },
+  "DELETE /api/slurm/{slurm_job_id}": {
+    "class": "internal",
+    "notes": "the Slurm bridge for HPC clusters \u2014 a separate scheduler integration, admin-only, and not the GPU-instance journey any P0-P7 phase describes"
+  },
   "DELETE /api/ssh/keys/{key_id}": {
     "class": "gap",
     "notes": "P2's register_ssh_key depends on these; scoped but not yet a tool"
@@ -79,6 +83,10 @@
     "class": "internal",
     "notes": "scheduler-driven capacity control, no caller outside the platform"
   },
+  "GET /": {
+    "class": "internal",
+    "notes": "server-rendered pages and a crawler text file, not an API surface"
+  },
   "GET /.well-known/jwks.json": {
     "class": "internal",
     "notes": "OAuth/OIDC protocol surface \u2014 the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
@@ -86,6 +94,10 @@
   "GET /.well-known/oauth-authorization-server": {
     "class": "internal",
     "notes": "OAuth/OIDC protocol surface \u2014 the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
+  },
+  "GET /_internal/legacy-auth/verify": {
+    "class": "internal",
+    "notes": "the superseded auth path, kept for older clients. The `_internal` prefix is the statement of intent"
   },
   "GET /agent/commands/{host_id}": {
     "class": "internal",
@@ -114,6 +126,10 @@
   "GET /agent/work/{host_id}": {
     "class": "internal",
     "notes": "worker-agent callbacks, authenticated by the fleet secret"
+  },
+  "GET /alerts/config": {
+    "class": "internal",
+    "notes": "operator configuration \u2014 alert thresholds, the NFS mount, API token minting. Admin console, not the tool surface. The two alert paths are aliases of one handler"
   },
   "GET /api/admin/activity": {
     "class": "internal",
@@ -198,6 +214,10 @@
   "GET /api/ai/suggestions": {
     "class": "internal",
     "notes": "the platform's own assistant and support chat; exposing it as a tool would nest one agent inside another rather than add a capability"
+  },
+  "GET /api/alerts/config": {
+    "class": "internal",
+    "notes": "operator configuration \u2014 alert thresholds, the NFS mount, API token minting. Admin console, not the tool surface. The two alert paths are aliases of one handler"
   },
   "GET /api/artifacts": {
     "class": "gap",
@@ -343,6 +363,10 @@
     "class": "internal",
     "notes": "issues or revokes credentials (agent keys, API keys, OAuth clients, Quick Connect). A tool that mints its own credential can widen its own scopes"
   },
+  "GET /api/nfs/config": {
+    "class": "internal",
+    "notes": "operator configuration \u2014 alert thresholds, the NFS mount, API token minting. Admin console, not the tool surface. The two alert paths are aliases of one handler"
+  },
   "GET /api/notifications": {
     "class": "internal",
     "notes": "dashboard notification centre and web-push subscriptions; no journey in the plan reads or clears a user's notifications"
@@ -431,9 +455,33 @@
     "class": "gap",
     "notes": "P5 SLA-aware placement needs these as tools"
   },
+  "GET /api/slurm/instances": {
+    "class": "internal",
+    "notes": "the Slurm bridge for HPC clusters \u2014 a separate scheduler integration, admin-only, and not the GPU-instance journey any P0-P7 phase describes"
+  },
+  "GET /api/slurm/profiles": {
+    "class": "internal",
+    "notes": "the Slurm bridge for HPC clusters \u2014 a separate scheduler integration, admin-only, and not the GPU-instance journey any P0-P7 phase describes"
+  },
+  "GET /api/slurm/status/{slurm_job_id}": {
+    "class": "internal",
+    "notes": "the Slurm bridge for HPC clusters \u2014 a separate scheduler integration, admin-only, and not the GPU-instance journey any P0-P7 phase describes"
+  },
   "GET /api/ssh/keys": {
     "class": "gap",
     "notes": "P2's register_ssh_key depends on these; scoped but not yet a tool"
+  },
+  "GET /api/ssh/pubkey": {
+    "class": "internal",
+    "notes": "the platform's own host keypair. The public half is deliberately open because its purpose is to be pasted into authorized_keys; generating it is admin-only (see ae292c6). Never a tenant capability"
+  },
+  "GET /api/status": {
+    "class": "internal",
+    "notes": "liveness, readiness and the Prometheus scrape target; consumed by orchestrators and monitoring, deliberately unauthenticated"
+  },
+  "GET /api/stream": {
+    "class": "gap",
+    "notes": "SSE stream of live platform events with Last-Event-ID replay. The plan keeps watch_instance as the waiting primitive and this is the transport a richer one would use; no tool consumes it"
   },
   "GET /api/teams/invite/{token}": {
     "class": "internal",
@@ -547,6 +595,10 @@
     "class": "internal",
     "notes": "operator, testing and compliance surface \u2014 refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
   },
+  "GET /builds": {
+    "class": "internal",
+    "notes": "admin image building; P7 covers snapshots of a configured instance, which is a different mechanism from building an image from a model name"
+  },
   "GET /connect/dashboard": {
     "class": "internal",
     "notes": "server-rendered browser page, not an API surface; the provider reads it during onboarding"
@@ -558,6 +610,14 @@
   "GET /connect/success": {
     "class": "internal",
     "notes": "server-rendered browser page, not an API surface; the provider reads it during onboarding"
+  },
+  "GET /dashboard": {
+    "class": "internal",
+    "notes": "server-rendered pages and a crawler text file, not an API surface"
+  },
+  "GET /healthz": {
+    "class": "internal",
+    "notes": "liveness, readiness and the Prometheus scrape target; consumed by orchestrators and monitoring, deliberately unauthenticated"
   },
   "GET /instance/{job_id}": {
     "class": "covered",
@@ -571,9 +631,29 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "GET /legacy": {
+    "class": "internal",
+    "notes": "server-rendered pages and a crawler text file, not an API surface"
+  },
+  "GET /legacy/{path:path}": {
+    "class": "internal",
+    "notes": "server-rendered pages and a crawler text file, not an API surface"
+  },
+  "GET /livez": {
+    "class": "internal",
+    "notes": "liveness, readiness and the Prometheus scrape target; consumed by orchestrators and monitoring, deliberately unauthenticated"
+  },
+  "GET /llms.txt": {
+    "class": "internal",
+    "notes": "server-rendered pages and a crawler text file, not an API surface"
+  },
   "GET /metrics": {
     "class": "covered",
     "notes": "MCP server calls this path"
+  },
+  "GET /metrics/prometheus": {
+    "class": "internal",
+    "notes": "liveness, readiness and the Prometheus scrape target; consumed by orchestrators and monitoring, deliberately unauthenticated"
   },
   "GET /oauth/authorize": {
     "class": "internal",
@@ -586,6 +666,10 @@
   "GET /spot-prices": {
     "class": "gap",
     "notes": "P5 placement and migration need spot data as tools"
+  },
+  "GET /ssh/pubkey": {
+    "class": "internal",
+    "notes": "the platform's own host keypair. The public half is deliberately open because its purpose is to be pasted into authorized_keys; generating it is admin-only (see ae292c6). Never a tenant capability"
   },
   "GET /startupz": {
     "class": "covered",
@@ -622,6 +706,18 @@
   "PATCH /instance/{job_id}": {
     "class": "covered",
     "notes": "MCP server calls this path"
+  },
+  "POST /_internal/legacy-auth/device": {
+    "class": "internal",
+    "notes": "the superseded auth path, kept for older clients. The `_internal` prefix is the statement of intent"
+  },
+  "POST /_internal/legacy-auth/token": {
+    "class": "internal",
+    "notes": "the superseded auth path, kept for older clients. The `_internal` prefix is the statement of intent"
+  },
+  "POST /_internal/legacy-auth/verify": {
+    "class": "internal",
+    "notes": "the superseded auth path, kept for older clients. The `_internal` prefix is the statement of intent"
   },
   "POST /agent/benchmark": {
     "class": "internal",
@@ -1071,6 +1167,10 @@
     "class": "gap",
     "notes": "P5 SLA-aware placement needs these as tools"
   },
+  "POST /api/slurm/submit": {
+    "class": "internal",
+    "notes": "the Slurm bridge for HPC clusters \u2014 a separate scheduler integration, admin-only, and not the GPU-instance journey any P0-P7 phase describes"
+  },
   "POST /api/ssh/keys": {
     "class": "gap",
     "notes": "P2's register_ssh_key depends on these; scoped but not yet a tool"
@@ -1211,6 +1311,14 @@
     "class": "internal",
     "notes": "operator, testing and compliance surface \u2014 refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
   },
+  "POST /build": {
+    "class": "internal",
+    "notes": "admin image building; P7 covers snapshots of a configured instance, which is a different mechanism from building an image from a model name"
+  },
+  "POST /build/{model}/dockerfile": {
+    "class": "internal",
+    "notes": "admin image building; P7 covers snapshots of a configured instance, which is a different mechanism from building an image from a model name"
+  },
   "POST /host/{host_id}/drain": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -1251,9 +1359,25 @@
     "class": "gap",
     "notes": "P5 placement and migration need spot data as tools"
   },
+  "POST /ssh/keygen": {
+    "class": "internal",
+    "notes": "the platform's own host keypair. The public half is deliberately open because its purpose is to be pasted into authorized_keys; generating it is admin-only (see ae292c6). Never a tenant capability"
+  },
+  "POST /token/generate": {
+    "class": "internal",
+    "notes": "operator configuration \u2014 alert thresholds, the NFS mount, API token minting. Admin console, not the tool surface. The two alert paths are aliases of one handler"
+  },
   "POST /v1/serverless/{endpoint_id}/run": {
     "class": "covered",
     "notes": "MCP server calls this path"
+  },
+  "PUT /alerts/config": {
+    "class": "internal",
+    "notes": "operator configuration \u2014 alert thresholds, the NFS mount, API token minting. Admin console, not the tool surface. The two alert paths are aliases of one handler"
+  },
+  "PUT /api/alerts/config": {
+    "class": "internal",
+    "notes": "operator configuration \u2014 alert thresholds, the NFS mount, API token minting. Admin console, not the tool surface. The two alert paths are aliases of one handler"
   },
   "PUT /api/auth/me/profile": {
     "class": "internal",
