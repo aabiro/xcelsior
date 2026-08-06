@@ -79,6 +79,10 @@
     "class": "internal",
     "notes": "consent and erasure records under privacy law. Two generations of the API sit side by side; both are the account holder's own compliance surface and no phase asks an agent to consent or erase on someone's behalf"
   },
+  "DELETE /api/v2/serverless/endpoints/{endpoint_id}/keys/{key_id}": {
+    "class": "internal",
+    "notes": "per-endpoint API keys. Issuing a credential that calls the endpoint is the same escalation shape as minting an agent key: a tool that could do it could widen its own reach"
+  },
   "DELETE /api/v2/volumes/{volume_id}": {
     "class": "gap",
     "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
@@ -663,6 +667,34 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "GET /api/v2/serverless/endpoints/{endpoint_id}/keys": {
+    "class": "internal",
+    "notes": "per-endpoint API keys. Issuing a credential that calls the endpoint is the same escalation shape as minting an agent key: a tool that could do it could widen its own reach"
+  },
+  "GET /api/v2/serverless/endpoints/{endpoint_id}/workers": {
+    "class": "internal",
+    "notes": "worker introspection for one endpoint \u2014 roster, logs and telemetry. Operator and dashboard debugging"
+  },
+  "GET /api/v2/serverless/endpoints/{endpoint_id}/workers/{worker_id}/logs": {
+    "class": "internal",
+    "notes": "worker introspection for one endpoint \u2014 roster, logs and telemetry. Operator and dashboard debugging"
+  },
+  "GET /api/v2/serverless/endpoints/{endpoint_id}/workers/{worker_id}/logs/stream": {
+    "class": "internal",
+    "notes": "worker introspection for one endpoint \u2014 roster, logs and telemetry. Operator and dashboard debugging"
+  },
+  "GET /api/v2/serverless/endpoints/{endpoint_id}/workers/{worker_id}/telemetry": {
+    "class": "internal",
+    "notes": "worker introspection for one endpoint \u2014 roster, logs and telemetry. Operator and dashboard debugging"
+  },
+  "GET /api/v2/serverless/preset-token-pricing": {
+    "class": "internal",
+    "notes": "dashboard helper \u2014 resolving a GitHub source and reading preset token pricing while composing an endpoint"
+  },
+  "GET /api/v2/serverless/workers/{worker_id}/jobs/{job_id}": {
+    "class": "internal",
+    "notes": "serverless worker callback \u2014 claim, heartbeat, ready, complete, exit. Authenticated by _require_worker_callback as the fleet; an agent is never the caller"
+  },
   "GET /api/v2/volumes": {
     "class": "gap",
     "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
@@ -798,6 +830,10 @@
   "GET /user-images": {
     "class": "gap",
     "notes": "P7's image library with provenance \u2014 commit an instance to a reusable image and manage the result; no tool reaches it"
+  },
+  "GET /v1/serverless/{endpoint_id}/status/{job_id}": {
+    "class": "covered",
+    "notes": "get_serverless_job_status calls this path"
   },
   "PATCH /api/agent-keys/{key_id}": {
     "class": "internal",
@@ -1443,9 +1479,53 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "POST /api/v2/serverless/endpoints/{endpoint_id}/keys": {
+    "class": "internal",
+    "notes": "per-endpoint API keys. Issuing a credential that calls the endpoint is the same escalation shape as minting an agent key: a tool that could do it could widen its own reach"
+  },
+  "POST /api/v2/serverless/endpoints/{endpoint_id}/test/openai/v1/chat/completions": {
+    "class": "internal",
+    "notes": "the dashboard's try-it console for an endpoint; the tool surface invokes endpoints through /v1/serverless instead"
+  },
+  "POST /api/v2/serverless/endpoints/{endpoint_id}/test/run": {
+    "class": "internal",
+    "notes": "the dashboard's try-it console for an endpoint; the tool surface invokes endpoints through /v1/serverless instead"
+  },
+  "POST /api/v2/serverless/endpoints/{endpoint_id}/test/runsync": {
+    "class": "internal",
+    "notes": "the dashboard's try-it console for an endpoint; the tool surface invokes endpoints through /v1/serverless instead"
+  },
+  "POST /api/v2/serverless/github/resolve": {
+    "class": "internal",
+    "notes": "dashboard helper \u2014 resolving a GitHub source and reading preset token pricing while composing an endpoint"
+  },
   "POST /api/v2/serverless/should-i-run-this": {
     "class": "covered",
     "notes": "MCP server calls this path"
+  },
+  "POST /api/v2/serverless/workers/{worker_id}/exited": {
+    "class": "internal",
+    "notes": "serverless worker callback \u2014 claim, heartbeat, ready, complete, exit. Authenticated by _require_worker_callback as the fleet; an agent is never the caller"
+  },
+  "POST /api/v2/serverless/workers/{worker_id}/heartbeat": {
+    "class": "internal",
+    "notes": "serverless worker callback \u2014 claim, heartbeat, ready, complete, exit. Authenticated by _require_worker_callback as the fleet; an agent is never the caller"
+  },
+  "POST /api/v2/serverless/workers/{worker_id}/jobs/claim": {
+    "class": "internal",
+    "notes": "serverless worker callback \u2014 claim, heartbeat, ready, complete, exit. Authenticated by _require_worker_callback as the fleet; an agent is never the caller"
+  },
+  "POST /api/v2/serverless/workers/{worker_id}/jobs/{job_id}/complete": {
+    "class": "internal",
+    "notes": "serverless worker callback \u2014 claim, heartbeat, ready, complete, exit. Authenticated by _require_worker_callback as the fleet; an agent is never the caller"
+  },
+  "POST /api/v2/serverless/workers/{worker_id}/jobs/{job_id}/events": {
+    "class": "internal",
+    "notes": "serverless worker callback \u2014 claim, heartbeat, ready, complete, exit. Authenticated by _require_worker_callback as the fleet; an agent is never the caller"
+  },
+  "POST /api/v2/serverless/workers/{worker_id}/ready": {
+    "class": "internal",
+    "notes": "serverless worker callback \u2014 claim, heartbeat, ready, complete, exit. Authenticated by _require_worker_callback as the fleet; an agent is never the caller"
   },
   "POST /api/v2/volumes": {
     "class": "gap",
