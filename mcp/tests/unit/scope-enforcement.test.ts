@@ -110,9 +110,13 @@ describe("scope enforcement", () => {
   it("still admits the Quick Connect scope set for every customer tool", () => {
     // Regression guard on the fix itself: tightening allOf must not lock the
     // default connector credential out of the surface it is issued for.
+    // Pinned to MCP_QUICK_CONNECT_SCOPES by
+    // tests/test_quick_connect_can_reach_what_it_promises.py — vitest cannot
+    // import a Python constant, and this copy had already drifted once.
     const quickConnect = [
-      "instances:read", "instances:write", "instances:operate", "billing:read",
-      "gpu:read", "marketplace:read", "inference:read", "inference:write", "events:read",
+      "instances:read", "instances:write", "instances:operate", "instances:connect",
+      "ssh:write", "billing:read", "gpu:read", "marketplace:read", "inference:read",
+      "inference:write", "events:read",
     ];
     for (const [name, contract] of Object.entries(TOOL_CONTRACTS)) {
       if (contract.tenantClass === "operator") continue;
@@ -126,9 +130,13 @@ describe("scope enforcement", () => {
     // The other half, so the exemption above cannot become a blanket skip. A
     // tool named here must actually be out of reach — if `billing:write` were
     // added to the connector default, this fails and the decision surfaces.
+    // Pinned to MCP_QUICK_CONNECT_SCOPES by
+    // tests/test_quick_connect_can_reach_what_it_promises.py — vitest cannot
+    // import a Python constant, and this copy had already drifted once.
     const quickConnect = [
-      "instances:read", "instances:write", "instances:operate", "billing:read",
-      "gpu:read", "marketplace:read", "inference:read", "inference:write", "events:read",
+      "instances:read", "instances:write", "instances:operate", "instances:connect",
+      "ssh:write", "billing:read", "gpu:read", "marketplace:read", "inference:read",
+      "inference:write", "events:read",
     ];
     for (const name of NOT_REACHABLE_BY_QUICK_CONNECT) {
       expect(satisfiesScope(quickConnect, TOOL_SCOPES[name]), name).toBe(false);

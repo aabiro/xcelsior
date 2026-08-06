@@ -1,8 +1,9 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { XcelsiorApiClient } from "../client/api.js";
-import { apiProblem, formatApiError } from "../client/errors.js";
+import { ApiError, apiProblem, formatApiError } from "../client/errors.js";
 import { jsonText, structuredResult } from "../lib/format.js";
+import { inspectSshKeyInput } from "../lib/ssh-key.js";
 import { TOOL_SCOPES, userHasScope, scopeUnion, describeScopeRequirement } from "../auth/scopes.js";
 import type { AuthUser } from "../auth/bearer.js";
 
@@ -219,6 +220,75 @@ export function registerComputeTools(
         const data = await client.post(`/instances/${encodeURIComponent(job_id)}/terminate`);
         return jsonText(data);
       } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
+
+  server.registerTool(
+    "register_ssh_key",
+    {
+      inputSchema: z.object({
+        public_key: z
+          .string()
+          .min(1)
+          .describe(
+            "Your SSH *public* key — the contents of a .pub file, e.g. " +
+              "'ssh-ed25519 AAAAC3... you@laptop'. Never send a private key.",
+          ),
+        name: z
+          .string()
+          .optional()
+          .describe("A label for this key, e.g. 'laptop'. Defaults to 'default'."),
+      }),
+    },
+    async ({ public_key, name }) => {
+      const denied = scopeDenied("register_ssh_key", user);
+      if (denied) return denied;
+
+      // Classified before anything is sent: the one tool whose wrong argument
+      // is itself a secret. See lib/ssh-key.ts.
+      const inspection = inspectSshKeyInput(public_key);
+      if (inspection.verdict !== "public") {
+        return jsonText({
+          ok: false,
+          error:
+            inspection.verdict === "private"
+              ? "private_key_supplied"
+              : "not_an_ssh_public_key",
+          message: inspection.message,
+        });
+      }
+
+      try {
+        const data = await client.post("/api/ssh/keys", {
+          public_key: inspection.key,
+          name: name ?? "default",
+        });
+        return jsonText({
+          ...(data as Record<string, unknown>),
+          note:
+            "Registered. Running interactive instances you own pick this up " +
+            "without relaunching. Anyone holding the matching private key can " +
+            "open a shell on them.",
+        });
+      } catch (e) {
+        // The contract publishes `idempotentHint: true` for this tool, and the
+        // endpoint is not: a second POST of the same key returns 409 "This key
+        // is already added". A model that retried a call whose response was
+        // lost would read that 409 as a failure and tell the user their key is
+        // not registered — when it is. The desired end state holds, so report
+        // it as reached, and say it was already there rather than claiming to
+        // have done something.
+        if (e instanceof ApiError && e.status === 409) {
+          return jsonText({
+            ok: true,
+            already_registered: true,
+            message:
+              "That key was already registered on this account; nothing " +
+              "changed. Your running interactive instances already accept it.",
+          });
+        }
         return jsonText({ error: formatApiError(e) });
       }
     },

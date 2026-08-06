@@ -113,6 +113,19 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     "Searching is read-only and free; launching spends money through the same plan-and-approval " +
     "path as create_instance, so nothing is allocated without it.",
 
+  // ── Access ──────────────────────────────────────────────────────────────
+  register_ssh_key:
+    "Register an SSH *public* key on the account — the contents of a .pub file, one line " +
+    "beginning with 'ssh-ed25519', 'ssh-rsa' or 'ecdsa-sha2-'. Use when the user wants a shell " +
+    "on an instance and their key is refused, or before launching work they intend to drive " +
+    "interactively. Never send a private key: if the user pastes one, tell them it is " +
+    "compromised and to generate a new pair, and do not call this tool with it. Free — it moves " +
+    "no money and disturbs no running job — but it creates standing access: anyone holding the " +
+    "matching private key can open a shell on the user's instances and read the data on them, " +
+    "so confirm before adding a key the user did not just name. The key is pushed into running " +
+    "interactive instances, so it takes effect without a relaunch. Registering a key that is " +
+    "already on the account changes nothing and is safe to repeat.",
+
   // ── Monitoring ──────────────────────────────────────────────────────────
   watch_instance:
     "Poll one instance's status, telemetry, and recent logs for up to 60 minutes, returning as " +

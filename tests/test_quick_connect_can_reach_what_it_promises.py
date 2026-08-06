@@ -129,6 +129,49 @@ def test_the_frontend_list_matches_the_backend_one():
     )
 
 
+#: The MCP server's own tests assert what the connector credential can reach,
+#: against a literal list of its scopes. That is a third copy of a set already
+#: written twice, in a language that cannot import either of the others.
+TS_SCOPE_TEST = "mcp/tests/unit/scope-enforcement.test.ts"
+
+
+def _ts_quick_connect_literals() -> list[set[str]]:
+    text = (ROOT / TS_SCOPE_TEST).read_text(encoding="utf-8")
+    blocks = re.findall(r"const quickConnect = \[(.*?)\]", text, flags=re.S)
+    return [set(re.findall(r'"([a-z_]+:[a-z_]+)"', block)) for block in blocks]
+
+
+def test_the_typescript_test_still_declares_its_scope_set_inline():
+    """Prove the reach — a rename would make the pin below vacuous."""
+    literals = _ts_quick_connect_literals()
+    assert literals, (
+        f"no `const quickConnect = [...]` found in {TS_SCOPE_TEST}; either it "
+        "was renamed or it now derives the set, in which case delete the pin "
+        "below rather than leaving it passing on nothing"
+    )
+    assert all(literals), "a quickConnect literal parsed as empty"
+
+
+def test_the_typescript_copy_matches_the_backend_list():
+    """The third copy, pinned for the same reason as the second.
+
+    This one had already drifted before anything pinned it: `instances:connect`
+    went into `MCP_QUICK_CONNECT_SCOPES` after a live token was refused by the
+    terminal, and this file's literals kept the pre-fix set — so the MCP suite
+    was asserting reachability for a credential no user holds.
+    """
+    from oauth_service import MCP_QUICK_CONNECT_SCOPES
+
+    backend = set(MCP_QUICK_CONNECT_SCOPES)
+    for index, literal in enumerate(_ts_quick_connect_literals()):
+        assert literal == backend, (
+            f"{TS_SCOPE_TEST} quickConnect literal #{index + 1} is not the "
+            f"scope set Quick Connect issues: only in TS="
+            f"{sorted(literal - backend)}, only in backend="
+            f"{sorted(backend - literal)}"
+        )
+
+
 def test_every_quick_connect_scope_is_one_the_platform_defines():
     """A typo here mints a credential holding a scope nothing enforces."""
     from oauth_delegation import known_scopes

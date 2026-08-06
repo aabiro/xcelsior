@@ -1315,6 +1315,25 @@ MCP_QUICK_CONNECT_SCOPES = [
     # reading "MCP quick connect" — that list is what the system principal may
     # *grant*, not what this token *holds*.
     "instances:connect",
+    # P2. `register_ssh_key` is the step between "instance running" and "shell
+    # open", and without it here the connector has to send the user to the
+    # dashboard — which is the browser trip P2 exists to remove.
+    #
+    # This is a real widening and not a bookkeeping one, so the reasoning is
+    # recorded rather than assumed. The token already holds `instances:connect`
+    # and `instances:write`: it can open a terminal on any instance and destroy
+    # any instance. What `ssh:write` adds is *persistence* — a key outlives the
+    # token, so a compromised connector could leave itself a way back in after
+    # the grant is revoked. That is the cost. It is accepted because the tool's
+    # consent text names it ("anyone holding the matching private key can open a
+    # shell"), because key registration is visible and revocable on the
+    # dashboard, and because a connector that can already terminate the work is
+    # not meaningfully restrained by withholding the key that opens it.
+    #
+    # `ssh:read` is deliberately *not* here. Nothing on the tool surface lists
+    # keys, so granting it would hand out read access to the account's key
+    # inventory for no capability. Add it with the tool that needs it.
+    "ssh:write",
     "billing:read",
     "gpu:read",
     "marketplace:read",
