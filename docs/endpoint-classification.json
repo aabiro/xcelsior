@@ -3,9 +3,21 @@
     "class": "internal",
     "notes": "platform admin console; operator surface, not the tool surface"
   },
+  "DELETE /api/agent-keys/{key_id}": {
+    "class": "internal",
+    "notes": "issues or revokes credentials (agent keys, API keys, OAuth clients, Quick Connect). A tool that mints its own credential can widen its own scopes"
+  },
   "DELETE /api/ai/conversations/{conversation_id}": {
     "class": "internal",
     "notes": "the platform's own assistant and support chat; exposing it as a tool would nest one agent inside another rather than add a capability"
+  },
+  "DELETE /api/auth/me": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "DELETE /api/auth/me/avatar": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "DELETE /api/auth/mfa/all": {
     "class": "internal",
@@ -19,6 +31,14 @@
     "class": "internal",
     "notes": "account security enrolment (TOTP, SMS, passkeys, backup codes); first-party dashboard only and never an agent capability"
   },
+  "DELETE /api/auth/sessions/{token_prefix}": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "DELETE /api/keys/{key_preview}": {
+    "class": "internal",
+    "notes": "issues or revokes credentials (agent keys, API keys, OAuth clients, Quick Connect). A tool that mints its own credential can widen its own scopes"
+  },
   "DELETE /api/notifications/push/subscription": {
     "class": "internal",
     "notes": "dashboard notification centre and web-push subscriptions; no journey in the plan reads or clears a user's notifications"
@@ -26,6 +46,10 @@
   "DELETE /api/notifications/{notification_id}": {
     "class": "internal",
     "notes": "dashboard notification centre and web-push subscriptions; no journey in the plan reads or clears a user's notifications"
+  },
+  "DELETE /api/oauth/clients/{client_id}": {
+    "class": "internal",
+    "notes": "issues or revokes credentials (agent keys, API keys, OAuth clients, Quick Connect). A tool that mints its own credential can widen its own scopes"
   },
   "DELETE /api/ssh/keys/{key_id}": {
     "class": "gap",
@@ -50,6 +74,14 @@
   "DELETE /autoscale/pool/{host_id}": {
     "class": "internal",
     "notes": "scheduler-driven capacity control, no caller outside the platform"
+  },
+  "GET /.well-known/jwks.json": {
+    "class": "internal",
+    "notes": "OAuth/OIDC protocol surface \u2014 the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
+  },
+  "GET /.well-known/oauth-authorization-server": {
+    "class": "internal",
+    "notes": "OAuth/OIDC protocol surface \u2014 the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
   },
   "GET /agent/commands/{host_id}": {
     "class": "internal",
@@ -147,6 +179,10 @@
     "class": "internal",
     "notes": "platform admin console; operator surface, not the tool surface"
   },
+  "GET /api/agent-keys": {
+    "class": "internal",
+    "notes": "issues or revokes credentials (agent keys, API keys, OAuth clients, Quick Connect). A tool that mints its own credential can widen its own scopes"
+  },
   "GET /api/ai/conversations": {
     "class": "internal",
     "notes": "the platform's own assistant and support chat; exposing it as a tool would nest one agent inside another rather than add a capability"
@@ -171,13 +207,41 @@
     "class": "gap",
     "notes": "P3 needs artifact read and promotion; no tool exposes them"
   },
+  "GET /api/auth/demo-credentials": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
   "GET /api/auth/introspect": {
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "GET /api/auth/me": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "GET /api/auth/me/avatar": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "GET /api/auth/me/data-export": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
   "GET /api/auth/mfa/methods": {
     "class": "internal",
     "notes": "account security enrolment (TOTP, SMS, passkeys, backup codes); first-party dashboard only and never an agent capability"
+  },
+  "GET /api/auth/oauth/{provider}/callback": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "GET /api/auth/sessions": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "GET /api/auth/verify": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "GET /api/billing/invoices/{customer_id}": {
     "class": "covered",
@@ -223,6 +287,14 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "GET /api/keys": {
+    "class": "internal",
+    "notes": "issues or revokes credentials (agent keys, API keys, OAuth clients, Quick Connect). A tool that mints its own credential can widen its own scopes"
+  },
+  "GET /api/mcp/quick-connect": {
+    "class": "internal",
+    "notes": "issues or revokes credentials (agent keys, API keys, OAuth clients, Quick Connect). A tool that mints its own credential can widen its own scopes"
+  },
   "GET /api/notifications": {
     "class": "internal",
     "notes": "dashboard notification centre and web-push subscriptions; no journey in the plan reads or clears a user's notifications"
@@ -234,6 +306,10 @@
   "GET /api/notifications/unread-count": {
     "class": "internal",
     "notes": "dashboard notification centre and web-push subscriptions; no journey in the plan reads or clears a user's notifications"
+  },
+  "GET /api/oauth/clients": {
+    "class": "internal",
+    "notes": "issues or revokes credentials (agent keys, API keys, OAuth clients, Quick Connect). A tool that mints its own credential can widen its own scopes"
   },
   "GET /api/pricing/reference": {
     "class": "covered",
@@ -330,6 +406,10 @@
   "GET /api/trust-tiers": {
     "class": "gap",
     "notes": "P5 reputation-aware placement needs these as tools"
+  },
+  "GET /api/users/me/preferences": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "GET /api/v1/control-plane/health": {
     "class": "covered",
@@ -435,6 +515,10 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "GET /oauth/authorize": {
+    "class": "internal",
+    "notes": "OAuth/OIDC protocol surface \u2014 the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
+  },
   "GET /readyz": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -450,6 +534,18 @@
   "GET /tiers": {
     "class": "covered",
     "notes": "MCP server calls this path"
+  },
+  "PATCH /api/agent-keys/{key_id}": {
+    "class": "internal",
+    "notes": "issues or revokes credentials (agent keys, API keys, OAuth clients, Quick Connect). A tool that mints its own credential can widen its own scopes"
+  },
+  "PATCH /api/auth/me": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "PATCH /api/oauth/clients/{client_id}": {
+    "class": "internal",
+    "notes": "issues or revokes credentials (agent keys, API keys, OAuth clients, Quick Connect). A tool that mints its own credential can widen its own scopes"
   },
   "PATCH /api/teams/active": {
     "class": "internal",
@@ -615,6 +711,34 @@
     "class": "gap",
     "notes": "P3 needs artifact read and promotion; no tool exposes them"
   },
+  "POST /api/auth/change-password": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "POST /api/auth/device": {
+    "class": "internal",
+    "notes": "OAuth/OIDC protocol surface \u2014 the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
+  },
+  "POST /api/auth/login": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "POST /api/auth/logout": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "POST /api/auth/me/avatar": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "POST /api/auth/me/email-change": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "POST /api/auth/me/email-change/confirm": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
   "POST /api/auth/mfa/backup-codes/regenerate": {
     "class": "internal",
     "notes": "account security enrolment (TOTP, SMS, passkeys, backup codes); first-party dashboard only and never an agent capability"
@@ -663,6 +787,50 @@
     "class": "internal",
     "notes": "account security enrolment (TOTP, SMS, passkeys, backup codes); first-party dashboard only and never an agent capability"
   },
+  "POST /api/auth/oauth/facebook/deauthorize": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "POST /api/auth/oauth/facebook/delete-data": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "POST /api/auth/oauth/{provider}": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "POST /api/auth/password-reset": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "POST /api/auth/password-reset/confirm": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "POST /api/auth/refresh": {
+    "class": "internal",
+    "notes": "OAuth/OIDC protocol surface \u2014 the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
+  },
+  "POST /api/auth/register": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "POST /api/auth/resend-verification": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "POST /api/auth/token": {
+    "class": "internal",
+    "notes": "OAuth/OIDC protocol surface \u2014 the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
+  },
+  "POST /api/auth/verify": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "POST /api/auth/verify-email": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
   "POST /api/chat": {
     "class": "internal",
     "notes": "the platform's own assistant and support chat; exposing it as a tool would nest one agent inside another rather than add a capability"
@@ -699,6 +867,10 @@
     "class": "internal",
     "notes": "host admission handshake between platform and worker"
   },
+  "POST /api/keys/generate": {
+    "class": "internal",
+    "notes": "issues or revokes credentials (agent keys, API keys, OAuth clients, Quick Connect). A tool that mints its own credential can widen its own scopes"
+  },
   "POST /api/notifications/push/subscription": {
     "class": "internal",
     "notes": "dashboard notification centre and web-push subscriptions; no journey in the plan reads or clears a user's notifications"
@@ -710,6 +882,14 @@
   "POST /api/notifications/{notification_id}/read": {
     "class": "internal",
     "notes": "dashboard notification centre and web-push subscriptions; no journey in the plan reads or clears a user's notifications"
+  },
+  "POST /api/oauth/clients": {
+    "class": "internal",
+    "notes": "issues or revokes credentials (agent keys, API keys, OAuth clients, Quick Connect). A tool that mints its own credential can widen its own scopes"
+  },
+  "POST /api/oauth/clients/{client_id}/rotate-secret": {
+    "class": "internal",
+    "notes": "issues or revokes credentials (agent keys, API keys, OAuth clients, Quick Connect). A tool that mints its own credential can widen its own scopes"
   },
   "POST /api/pricing/estimate": {
     "class": "covered",
@@ -911,6 +1091,22 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "POST /oauth/authorize": {
+    "class": "internal",
+    "notes": "OAuth/OIDC protocol surface \u2014 the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
+  },
+  "POST /oauth/device/authorize": {
+    "class": "internal",
+    "notes": "OAuth/OIDC protocol surface \u2014 the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
+  },
+  "POST /oauth/register": {
+    "class": "internal",
+    "notes": "OAuth/OIDC protocol surface \u2014 the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
+  },
+  "POST /oauth/token": {
+    "class": "internal",
+    "notes": "OAuth/OIDC protocol surface \u2014 the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
+  },
   "POST /spot-prices/update": {
     "class": "gap",
     "notes": "P5 placement and migration need spot data as tools"
@@ -922,5 +1118,13 @@
   "POST /v1/serverless/{endpoint_id}/run": {
     "class": "covered",
     "notes": "MCP server calls this path"
+  },
+  "PUT /api/auth/me/profile": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "PUT /api/users/me/preferences": {
+    "class": "internal",
+    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   }
 }
