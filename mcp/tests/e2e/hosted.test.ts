@@ -10,6 +10,8 @@ let api: http.Server;
 let mcp: ChildProcess;
 let client: Client;
 let transport: StreamableHTTPClientTransport;
+let serverStderr = "";
+let serverExit: string | null = null;
 const auditRows: unknown[] = [];
 let instanceStatus = "running";
 let cancelCalls = 0;
@@ -79,18 +81,45 @@ beforeAll(async () => {
     },
     stdio: "pipe",
   });
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  // Kept, not discarded: a server that dies at boot used to leave nothing but a
+  // connection refusal in an unrelated assertion.
+  mcp.stderr?.on("data", (chunk) => { serverStderr += String(chunk); });
+  mcp.on("exit", (code, signal) => { serverExit = `exit=${code} signal=${signal}`; });
+
+  // Waiting for readiness is the whole precondition of this file, so failing to
+  // reach it is an error rather than something to proceed past.
+  //
+  // The previous loop polled for 5s and then connected regardless. `tsx`
+  // compiles the server on demand and, on a loaded machine, routinely takes
+  // longer than that — so the suite would connect to nothing and the failure
+  // surfaced two ways, neither of them the truth: `ECONNREFUSED` attributed to
+  // whichever test ran first, or a client that half-connected and left the
+  // response-hygiene test timing out at exactly its 5s budget while the server
+  // it was talking to had only just finished starting. Both were read as a
+  // flaky hygiene assertion. The assertion was never at fault; the harness was
+  // asserting against a server that was not up yet.
+  const deadline = Date.now() + 60_000;
+  let ready = false;
+  while (Date.now() < deadline) {
+    if (serverExit) break;
     try {
-      if ((await fetch(`http://127.0.0.1:${mcpPort}/health`)).ok) break;
-    } catch { /* startup */ }
+      if ((await fetch(`http://127.0.0.1:${mcpPort}/health`)).ok) { ready = true; break; }
+    } catch { /* still starting */ }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
+  if (!ready) {
+    throw new Error(
+      `MCP server never became ready on port ${mcpPort} (${serverExit ?? "still running"}).\n` +
+      `--- server stderr ---\n${serverStderr || "(empty)"}`,
+    );
+  }
+
   client = new Client({ name: "xcelsior-hosted-e2e", version: "1.0.0" });
   transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${mcpPort}/mcp`), {
     requestInit: { headers: { Authorization: "Bearer e2e-token" } },
   });
   await client.connect(transport);
-}, 20_000);
+}, 90_000);
 
 afterAll(async () => {
   await transport?.close();
