@@ -75,6 +75,10 @@
     "class": "internal",
     "notes": "team and member administration, an account-console surface; no P0-P7 journey creates a team or changes a membership"
   },
+  "DELETE /api/v2/inference/endpoints/{endpoint_id}": {
+    "class": "redundant",
+    "notes": "a compatibility shim: the handler is `api_inference_compat_*`, tagged 'Serverless (compat)', and its whole body delegates to the corresponding api_serverless_* function. Folded into the serverless surface the MCP already calls, and the code declares it rather than leaving it to be inferred"
+  },
   "DELETE /api/v2/privacy/consent/{purpose}": {
     "class": "internal",
     "notes": "consent and erasure records under privacy law. Two generations of the API sit side by side; both are the account holder's own compliance surface and no phase asks an agent to consent or erase on someone's behalf"
@@ -667,6 +671,22 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "GET /api/v2/inference/endpoints": {
+    "class": "redundant",
+    "notes": "a compatibility shim: the handler is `api_inference_compat_*`, tagged 'Serverless (compat)', and its whole body delegates to the corresponding api_serverless_* function. Folded into the serverless surface the MCP already calls, and the code declares it rather than leaving it to be inferred"
+  },
+  "GET /api/v2/inference/endpoints/{endpoint_id}": {
+    "class": "redundant",
+    "notes": "a compatibility shim: the handler is `api_inference_compat_*`, tagged 'Serverless (compat)', and its whole body delegates to the corresponding api_serverless_* function. Folded into the serverless surface the MCP already calls, and the code declares it rather than leaving it to be inferred"
+  },
+  "GET /api/v2/inference/endpoints/{endpoint_id}/health": {
+    "class": "redundant",
+    "notes": "a compatibility shim: the handler is `api_inference_compat_*`, tagged 'Serverless (compat)', and its whole body delegates to the corresponding api_serverless_* function. Folded into the serverless surface the MCP already calls, and the code declares it rather than leaving it to be inferred"
+  },
+  "GET /api/v2/inference/endpoints/{endpoint_id}/usage": {
+    "class": "redundant",
+    "notes": "a compatibility shim: the handler is `api_inference_compat_*`, tagged 'Serverless (compat)', and its whole body delegates to the corresponding api_serverless_* function. Folded into the serverless surface the MCP already calls, and the code declares it rather than leaving it to be inferred"
+  },
   "GET /api/v2/marketplace/spot-prices": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -814,6 +834,14 @@
   "GET /instances/{job_id}/logs": {
     "class": "covered",
     "notes": "MCP server calls this path"
+  },
+  "GET /instances/{job_id}/logs/download": {
+    "class": "redundant",
+    "notes": "the same logs get_instance_logs already reaches, delivered as a plain-text file for a browser. Same capability, different delivery \u2014 the shape ruled redundant for the OpenAI shims in 1cabc0e"
+  },
+  "GET /instances/{job_id}/logs/stream": {
+    "class": "gap",
+    "notes": "a live tail rather than a snapshot, which is a different capability from the one get_instance_logs provides. Same reasoning as the serverless stream route"
   },
   "GET /internal/route/{slug}/{port}": {
     "class": "internal",
@@ -1534,6 +1562,10 @@
   "POST /api/v2/billing/top-up": {
     "class": "covered",
     "notes": "P1's top_up_wallet calls it; billing:write, idempotency-keyed"
+  },
+  "POST /api/v2/inference/endpoints": {
+    "class": "redundant",
+    "notes": "a compatibility shim: the handler is `api_inference_compat_*`, tagged 'Serverless (compat)', and its whole body delegates to the corresponding api_serverless_* function. Folded into the serverless surface the MCP already calls, and the code declares it rather than leaving it to be inferred"
   },
   "POST /api/v2/marketplace/offers": {
     "class": "gap",
