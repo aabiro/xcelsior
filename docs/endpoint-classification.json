@@ -351,6 +351,10 @@
     "class": "internal",
     "notes": "host admission handshake between platform and worker"
   },
+  "GET /api/hosts/{host_id}/spot-preview": {
+    "class": "gap",
+    "notes": "the preview a provider reads before setting a spot floor; P6, no tool"
+  },
   "GET /api/instances/{job_id}/telemetry": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -567,6 +571,30 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "GET /api/v2/platform/attestation-schema": {
+    "class": "internal",
+    "notes": "published platform document \u2014 compliance and partnership material, served for humans to read"
+  },
+  "GET /api/v2/platform/capacity-forecast/{endpoint_id}": {
+    "class": "gap",
+    "notes": "forward capacity for an endpoint \u2014 the input an agent would need to decide whether to schedule now or wait; no tool reaches it"
+  },
+  "GET /api/v2/platform/h100-partner": {
+    "class": "internal",
+    "notes": "published platform document \u2014 compliance and partnership material, served for humans to read"
+  },
+  "GET /api/v2/platform/ops-plan": {
+    "class": "internal",
+    "notes": "published platform document \u2014 compliance and partnership material, served for humans to read"
+  },
+  "GET /api/v2/platform/scip-alignment": {
+    "class": "internal",
+    "notes": "published platform document \u2014 compliance and partnership material, served for humans to read"
+  },
+  "GET /api/v2/platform/scip-loi": {
+    "class": "internal",
+    "notes": "published platform document \u2014 compliance and partnership material, served for humans to read"
+  },
   "GET /api/v2/serverless/endpoints": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -598,6 +626,14 @@
   "GET /builds": {
     "class": "internal",
     "notes": "admin image building; P7 covers snapshots of a configured instance, which is a different mechanism from building an image from a model name"
+  },
+  "GET /compute-score/{host_id}": {
+    "class": "internal",
+    "notes": "platform scoring input for placement, not a surface a tenant or provider drives"
+  },
+  "GET /compute-scores": {
+    "class": "internal",
+    "notes": "platform scoring input for placement, not a surface a tenant or provider drives"
   },
   "GET /connect/dashboard": {
     "class": "internal",
@@ -686,6 +722,10 @@
   "PATCH /api/auth/me": {
     "class": "internal",
     "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "PATCH /api/hosts/{host_id}/spot-settings": {
+    "class": "gap",
+    "notes": "P6 names setting a spot floor as a provider journey; no tool reaches it"
   },
   "PATCH /api/oauth/clients/{client_id}": {
     "class": "internal",
@@ -1075,6 +1115,10 @@
     "class": "internal",
     "notes": "host admission handshake between platform and worker"
   },
+  "POST /api/hosts/register": {
+    "class": "gap",
+    "notes": "P6's supply side opens with registering a host; no tool reaches it"
+  },
   "POST /api/hosts/{host_id}/compatibility-sessions": {
     "class": "internal",
     "notes": "host admission handshake between platform and worker"
@@ -1082,6 +1126,10 @@
   "POST /api/hosts/{host_id}/provider-evidence": {
     "class": "internal",
     "notes": "host admission handshake between platform and worker"
+  },
+  "POST /api/inference/{job_id}/result": {
+    "class": "internal",
+    "notes": "worker callback posting a finished inference result; authenticated as the fleet, never an agent"
   },
   "POST /api/keys/generate": {
     "class": "internal",
@@ -1251,6 +1299,10 @@
     "class": "covered",
     "notes": "P1's top_up_wallet calls it; billing:write, idempotency-keyed"
   },
+  "POST /api/v2/marketplace/offers": {
+    "class": "gap",
+    "notes": "P6's publish-capacity step for a provider; no tool reaches it"
+  },
   "POST /api/v2/marketplace/search": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -1323,6 +1375,14 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "POST /host/{host_id}/undrain": {
+    "class": "redundant",
+    "notes": "superseded by /api/v1/hosts/{host_id}/undrain, which is what the undrain_host tool calls"
+  },
+  "POST /hosts/check": {
+    "class": "internal",
+    "notes": "operator health sweep across hosts; no journey calls it"
+  },
   "POST /instance": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -1334,6 +1394,10 @@
   "POST /instances/{job_id}/terminate": {
     "class": "covered",
     "notes": "MCP server calls this path"
+  },
+  "POST /marketplace/bill/{job_id}": {
+    "class": "internal",
+    "notes": "billing sweep over a completed job; the scheduler calls it"
   },
   "POST /oauth/authorize": {
     "class": "internal",
