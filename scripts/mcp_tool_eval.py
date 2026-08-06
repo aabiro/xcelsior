@@ -28,6 +28,7 @@ import json
 import os
 import pathlib
 import sys
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -130,18 +131,37 @@ def to_anthropic_tools(mcp_tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def selected_tools(client, model: str, tools: list[dict[str, Any]], case: Case) -> tuple[list[str], str]:
     messages = [*case.context, {"role": "user", "content": case.prompt}]
-    response = client.beta.messages.create(
-        model=model,
-        max_tokens=4096,
-        system=SYSTEM,
-        tools=tools,
-        messages=messages,
+    common = {
+        "model": model,
+        "max_tokens": 4096,
+        "system": SYSTEM,
+        "tools": tools,
+        "messages": messages,
+    }
+    try:
         # Claude Opus 5's safety classifiers can decline a request outright.
         # Routing the decline to the recommended fallback keeps one unlucky
         # case from being scored as a tool-selection failure.
-        betas=["server-side-fallback-2026-07-01"],
-        fallbacks="default",
-    )
+        response = client.beta.messages.create(
+            **common,
+            betas=["server-side-fallback-2026-07-01"],
+            fallbacks="default",
+        )
+    except TypeError as exc:
+        # The pinned SDK does not know `fallbacks`, and this is the reason no
+        # baseline has ever been captured. With anthropic 0.86.0 every one of
+        # the 34 cases died on
+        #
+        #     Messages.create() got an unexpected keyword argument 'fallbacks'
+        #
+        # and the script still exited 0, so the gate reported success having
+        # graded nothing. Degrading here rather than pinning a newer SDK: the
+        # option is an optimisation against refusals, and `stop_reason ==
+        # "refusal"` below already detects and reports them. Losing it costs a
+        # slightly noisier score, not a wrong one.
+        if "fallbacks" not in str(exc):
+            raise
+        response = client.beta.messages.create(**common)
     if response.stop_reason == "refusal":
         return [], "refusal"
     names = [block.name for block in response.content if getattr(block, "type", "") == "tool_use"]
@@ -178,6 +198,13 @@ def main() -> int:
     )
     parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument("--only", default="", help="run one category: direct|indirect|followup|approval|no_tool")
+    parser.add_argument(
+        "--out",
+        default="",
+        help="write the baseline JSON here. `live-gates.yml` has always passed "
+        "this flag and it did not exist, so the job exited 2 on argparse before "
+        "reaching any credential check.",
+    )
     args = parser.parse_args()
 
     cases = load_cases(EVAL_FILE)
@@ -244,6 +271,45 @@ def main() -> int:
             print(f"  {case.id}: {note}\n    why this case exists: {case.why}")
 
     ok = rate >= args.threshold and abstention_rate >= args.abstention_threshold
+
+    if args.out:
+        # `live-gates.yml` has always invoked this with `--out eval-baseline.json`
+        # and the flag did not exist, so the job died on argparse exit 2 before
+        # reaching any credential check — one of three reasons no baseline was
+        # ever captured. The others: the three secrets are unset, and the SDK
+        # pinned here rejects the `fallbacks` argument this script passed on
+        # every call.
+        #
+        # Keys match what the workflow's summary step already reads.
+        pathlib.Path(args.out).write_text(
+            json.dumps(
+                {
+                    "captured_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    "base": args.base,
+                    "model": args.model,
+                    "tool_count": len(tools),
+                    "cases": total,
+                    "passed": passed,
+                    "first_tool_accuracy": round(rate, 4),
+                    # The abstention cases are the ones where calling *any* tool
+                    # is the failure, so the interesting rate is the inverse.
+                    "abstention_rate": round(abstention_rate, 4),
+                    "unsafe_write_rate": round(1.0 - abstention_rate, 4),
+                    "by_category": {
+                        k: {"passed": sum(v), "total": len(v)}
+                        for k, v in sorted(by_category.items())
+                    },
+                    "threshold": args.threshold,
+                    "abstention_threshold": args.abstention_threshold,
+                    "meets_threshold": ok,
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        print(f"\nBaseline written to {args.out}")
+
     return 0 if ok else 1
 
 
