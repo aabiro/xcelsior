@@ -1299,6 +1299,22 @@ MCP_QUICK_CONNECT_SCOPES = [
     "instances:read",
     "instances:write",
     "instances:operate",
+    # Added after enforcement landed without it. `406c0a1` and `9c9bb5a` put
+    # `instances:connect` in front of the stream ticket, the terminal ticket,
+    # auto-launch discovery and port exposure — and this list, which is what a
+    # pasted Quick Connect token actually carries, did not have it. A live token
+    # answered:
+    #
+    #     403 Insufficient scope — required: instances:connect; granted: ...
+    #
+    # so the product's own quickstart credential could not open a terminal,
+    # which is the first clause of "you never have to leave the terminal".
+    #
+    # `406c0a1`'s message claimed the opposite. The mistake was reading
+    # `SYSTEM_ALLOWED_SCOPES`, where `instances:connect` sits under a comment
+    # reading "MCP quick connect" — that list is what the system principal may
+    # *grant*, not what this token *holds*.
+    "instances:connect",
     "billing:read",
     "gpu:read",
     "marketplace:read",
