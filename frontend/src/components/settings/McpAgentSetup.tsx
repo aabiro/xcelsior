@@ -19,10 +19,15 @@ import type { OAuthClientInfo } from "@/lib/api";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
+// Mirrors MCP_QUICK_CONNECT_SCOPES in oauth_service.py. A test now asserts the
+// two agree — the comment asking for it was there and the lists still drifted.
 const MCP_SCOPES = [
   "instances:read",
   "instances:write",
   "instances:operate",
+  // Terminal access and port exposure. Without it a pasted token is refused by
+  // the very routes the product's first sentence promises.
+  "instances:connect",
   "billing:read",
   "gpu:read",
   "marketplace:read",
