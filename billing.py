@@ -3662,6 +3662,7 @@ class BillingEngine:
         stripe_intent_id: str,
         description: str,
         created_at: float,
+        status: str = "created",
     ) -> bool:
         """Record an intent so the confirmation webhook knows who to credit.
 
@@ -3693,7 +3694,7 @@ class BillingEngine:
                 """INSERT INTO payment_intents
                      (intent_id, customer_id, amount_cents, currency,
                       status, stripe_intent_id, description, created_at)
-                   VALUES (%s, %s, %s, 'cad', 'created', %s, %s, %s)
+                   VALUES (%s, %s, %s, 'cad', %s, %s, %s, %s)
                    ON CONFLICT (stripe_intent_id)
                      WHERE stripe_intent_id IS NOT NULL
                        AND stripe_intent_id <> ''
@@ -3702,6 +3703,7 @@ class BillingEngine:
                     intent_id,
                     customer_id,
                     amount_cents,
+                    status,
                     stripe_intent_id,
                     description,
                     created_at,
@@ -3803,6 +3805,17 @@ class BillingEngine:
                     stripe_intent_id=pending_id,
                     description=f"{description} (awaiting cardholder verification)",
                     created_at=time.time(),
+                    # Not `created`. This intent is not in flight — it is
+                    # stopped, waiting for the cardholder to satisfy their
+                    # bank's challenge, and it will stay that way until they
+                    # do. Recording it as `created` made an SCA decline
+                    # indistinguishable from an ordinary new charge, so
+                    # "which of my payments need me to act?" had no answer,
+                    # and the wallet UI had nothing to show a pending state
+                    # from. `check_low_balance_and_topup` already treats
+                    # `requires_action` as in-flight for suppression, so the
+                    # value is understood elsewhere in this file.
+                    status="requires_action",
                 )
                 log.warning(
                     "Charge for %s requires cardholder verification; intent %s "

@@ -2064,6 +2064,78 @@ class ManualTopupRequest(BaseModel):
     card_brand: str = ""
 
 
+@router.get("/api/v2/billing/pending-verification", tags=["Billing"])
+def api_billing_pending_verification(request: Request, customer_id: str = ""):
+    """Charges stopped waiting for the cardholder to satisfy their bank.
+
+    An off-session charge refused with `authentication_required` is not failed
+    and not complete. Stripe created the PaymentIntent, `charge_saved_card`
+    registered it so the credit lands if the challenge is ever satisfied, and
+    then nothing else happens — no retry will help, because the bank is waiting
+    for the human, not for us.
+
+    Until now there was no way to ask which those were. `_register_payment_intent`
+    recorded every intent as `created`, so a charge stopped dead pending
+    verification looked exactly like one in flight. The wallet UI had nothing to
+    render an SCA-pending state from, and an agent had no way to tell the user
+    "one of your top-ups needs you".
+
+    Read-only, and it deliberately returns **no `client_secret`**. Completing
+    the challenge needs one, but a secret that confirms a payment does not
+    belong in a list endpoint — it belongs in the single-intent resume call
+    that is still to be built. What this returns is enough to *say* what is
+    waiting and for how much.
+    """
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    cid = (customer_id or user.get("customer_id") or user.get("user_id") or "").strip()
+    if not cid:
+        raise HTTPException(400, "customer_id required")
+    _require_customer_access(request, cid)
+
+    from db import _get_pg_pool
+    from psycopg.rows import dict_row
+
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        conn.row_factory = dict_row
+        rows = conn.execute(
+            """SELECT intent_id, stripe_intent_id, amount_cents, description,
+                      created_at
+                 FROM payment_intents
+                WHERE customer_id = %s AND status = 'requires_action'
+                ORDER BY created_at DESC
+                LIMIT 20""",
+            (cid,),
+        ).fetchall()
+
+    base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca").rstrip("/")
+    pending = [
+        {
+            "stripe_intent_id": row["stripe_intent_id"],
+            "amount_cad": round(int(row["amount_cents"] or 0) / 100, 2),
+            "description": row["description"],
+            "created_at": row["created_at"],
+            "resume_url": f"{base}/dashboard/billing?resume={row['stripe_intent_id']}",
+        }
+        for row in rows
+    ]
+    return {
+        "ok": True,
+        "customer_id": cid,
+        "pending": pending,
+        "count": len(pending),
+        "message": (
+            "These charges were NOT completed — the bank asked the cardholder to "
+            "verify and is still waiting. No retry will complete them; the person "
+            "has to open the link. Nothing has been charged for any of them."
+            if pending
+            else "No charges are waiting on cardholder verification."
+        ),
+    }
+
+
 @router.post("/api/v2/billing/top-up", tags=["Billing"])
 def api_billing_manual_topup(body: ManualTopupRequest, request: Request):
     """Charge a saved card now and credit the wallet when Stripe confirms.
