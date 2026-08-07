@@ -150,12 +150,12 @@ were failures of *evidence*, not of intent.
 - Every access and billing endpoint named above refuses a token missing its new scope, asserted with a real token against a live server.
 - Regenerating the registry produces byte-identical output; a hand edit to a generated file fails the build.
 - `test_no_runtime_ddl`-style inventory test: zero unclassified endpoints.
-- Eval baseline to be captured at **44 tools total / 35 published**. This is the
+- Eval baseline to be captured at **45 tools total / 36 published**. This is the
   number every later phase is compared against.
 
-  *Restated again for P2: `register_ssh_key` is the tool that closes "launch →
-  connected" without a browser, so it is inside the default profile and both
-  counts move by one.*
+  *Restated for P2, which added both of its tools: `register_ssh_key` (the key
+  the platform must accept) and `open_instance_access` (the way in once it
+  does). Both are inside the default profile, so both counts move by two.*
 
   *Restated from "39 tools", and the correction is two separate things. The
   count moved — `TOOL_SCOPES` holds 43 and `tool-surface.json` publishes 34,

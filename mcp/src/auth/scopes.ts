@@ -50,6 +50,10 @@ export const TOOL_SCOPES: Record<string, ScopeRequirement> = {
   // `ssh:write` is split from `ssh:read` and why its consent text names
   // shell access rather than "manage keys".
   register_ssh_key: { allOf: ["ssh:write"] },
+  // P2. The scope the consent screen describes as "open a terminal on your
+  // running instances" — the same one `/api/terminal/ticket` and the stream,
+  // expose and auto-launch routes enforce.
+  open_instance_access: { allOf: ["instances:connect", "instances:read"] },
   list_serverless_endpoints: { allOf: ["inference:read"] },
   create_serverless_endpoint: { allOf: ["inference:write"] },
   should_i_run_pel_job: { allOf: ["billing:read", "inference:read"] },
