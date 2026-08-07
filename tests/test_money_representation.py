@@ -1,18 +1,30 @@
 """Money is stored and mutated as integer micros, never as float.
 
 Binary floating point cannot represent most decimal amounts exactly, so every
-arithmetic step on a float money column accumulates error. The schema still
-carries `_cad` columns, but they are *projections*: `wallets_project_money`
-derives them from the integer column on write. Application code must never
-write one, or the projection direction inverts and the float becomes the
-source of truth for that row.
+arithmetic step on a float money column accumulates error.
+
+**The schema no longer carries a single `_cad` column** — `095`–`097` removed the
+float money, and `100` removed the last two (`provider_accounts`, which were
+`NUMERIC` and so escaped a sweep aimed at floats). `test_the_schema_holds_no_cad_column`
+below turns that into a floor rather than a milestone.
+
+The source scan is kept, and is not redundant with it. A column can be
+reintroduced by a migration *and* written by application code, and the two
+failures want catching in different places: the schema check fails on the
+migration that adds it, the source scan fails on the code that writes it. The
+names below are the historical projection pairs — where `wallets_project_money`
+derived a float from the integer column on write, and a stray application write
+would have inverted the projection and made the float the source of truth.
 
 This guards the invariant rather than a single call site, because the failure
 is silent — a float write produces a plausible-looking number.
 """
 
+import os
 import pathlib
 import re
+
+import pytest
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
@@ -100,3 +112,40 @@ def test_float_arithmetic_would_have_drifted():
     # The classic float result is 0.30000000000000004.
     assert 0.1 + 0.2 != 0.3
     assert cad_to_micros(0.1) + cad_to_micros(0.2) == 300_000
+
+
+@pytest.mark.needs_db
+def test_the_schema_holds_no_cad_column():
+    """Zero, and it stays zero.
+
+    A floor rather than a milestone: reaching zero is worth nothing if the next
+    migration can add `total_earned_cad` back without anything noticing. The
+    same discipline as `MAX_UNCLASSIFIED = 0` — once the number is at the
+    bottom, the guard is what keeps it there.
+
+    Excluded from the sandboxed gates by `needs_db`, since it reads a live
+    catalogue; `tests/test_migration_ledger.py` covers the migrations there.
+    """
+    import psycopg
+    from dotenv import load_dotenv
+
+    load_dotenv(REPO / ".env")
+    dsn = os.environ.get("XCELSIOR_POSTGRES_DSN") or os.environ.get("DATABASE_URL")
+    assert dsn, "no database DSN configured; this test cannot verify anything"
+
+    with psycopg.connect(dsn, connect_timeout=10) as conn:
+        offenders = conn.execute(
+            """SELECT table_schema || '.' || table_name || '.' || column_name
+                 FROM information_schema.columns
+                WHERE column_name LIKE %s
+                  AND table_schema NOT IN ('pg_catalog', 'information_schema')
+                ORDER BY 1""",
+            ("%%_cad",),
+        ).fetchall()
+
+    assert not offenders, (
+        "these columns store money as CAD rather than integer micros: "
+        f"{[o[0] for o in offenders]}. Money is integer micros throughout; CAD "
+        "is a presentation unit the API converts to at its boundary, not a "
+        "storage type."
+    )
