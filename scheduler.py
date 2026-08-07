@@ -3567,6 +3567,29 @@ def alert_job_completed(job_id, job_name, duration_sec=None):
 # ── Phase 14: Failover ────────────────────────────────────────────────
 
 
+def _clear_job_output(job_id) -> None:
+    """Drop the previous attempt's logs, both persisted and buffered.
+
+    Best-effort on purpose: failing to clear logs must not fail the requeue the
+    user asked for. A stale log tail is a confusing next run; a refused requeue
+    is a broken one.
+    """
+    try:
+        from db import _get_pg_pool
+
+        with _get_pg_pool().connection() as conn:
+            conn.execute("DELETE FROM job_logs WHERE job_id = %s", (job_id,))
+            conn.commit()
+    except Exception as exc:
+        log.warning("requeue: could not clear persisted logs for %s: %s", job_id, exc)
+    try:
+        from routes.instances import _job_log_buffers
+
+        _job_log_buffers.pop(job_id, None)
+    except Exception as exc:
+        log.debug("requeue: could not clear log buffer for %s: %s", job_id, exc)
+
+
 def requeue_job(job_id, *, user_initiated: bool = False, expected_version: int | None = None):
     """
     Reset a failed/running/leased/assigned job back to queued.
@@ -3698,6 +3721,22 @@ def requeue_job(job_id, *, user_initiated: bool = False, expected_version: int |
             max_retries,
             old_host,
         )
+        # Starting a job over means starting its output over, and that is a
+        # property of the requeue rather than of whichever route asked for it.
+        # It lived in `/instance/{job_id}/requeue` only, so `/api/v1/instances/
+        # {job_id}/retry` — the path `retry_instance` calls — left the previous
+        # attempt's output mixed into the next run.
+        #
+        # Ordering is load-bearing and was documented at the old call site:
+        # the wipe must precede `emit_lifecycle_log`, never follow it, or it
+        # deletes the lifecycle lines that call is about to write. Here it does.
+        #
+        # Gated on `user_initiated` deliberately. Both user-facing doors pass
+        # it; automatic failover does not, and a failover that erased the logs
+        # explaining *why* it failed over would destroy the evidence for the
+        # retry it just performed.
+        if user_initiated:
+            _clear_job_output(job_id)
         try:
             from routes.instances import emit_lifecycle_log
 

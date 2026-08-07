@@ -96,7 +96,22 @@ class TestReservedDiscounts:
             assert discounts[i] > discounts[i - 1]
 
     def test_all_tiers_present(self):
-        assert set(RESERVED_DISCOUNTS.keys()) == {1, 3, 6}
+        """Every term the shared schedule defines, and no others.
+
+        This asserted `{1, 3, 6}` — a restatement of the dict as it stood when
+        `marketplace.py` owned its own discount table. That table disagreed with
+        `routes/billing.RESERVED_PRICING_TIERS`, which offered a year at 45%
+        where this one offered six months at 40%, so a customer's quote depended
+        on which endpoint they reached.
+
+        Both now derive from `reserved_pricing.RESERVED_TIERS`, and the 1-year
+        tier is reachable through this door too — which is why the literal
+        changed. Deriving rather than hardcoding `{1, 3, 6, 12}`: a second
+        literal is how the first divergence happened.
+        """
+        from reserved_pricing import RESERVED_TIERS
+
+        assert set(RESERVED_DISCOUNTS.keys()) == set(RESERVED_TIERS.keys())
 
 
 class TestMarketplaceStats:
