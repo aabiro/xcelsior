@@ -142,7 +142,15 @@ were failures of *evidence*, not of intent.
   *This said `ssh:manage`, one scope for both. The implementation split it, and the split is right: read/write separation lets an agent list the keys on an account without being able to add one, and adding a key is the step that grants shell access. `ssh:manage` was never written — it existed only in this sentence — so nothing had to change but the sentence.*
 - **Scope the billing levers.** `setup-intent` and `portal-session` move from `_get_current_user` to `_require_scope(billing:write)`. The manual top-up path P1 adds is `billing:write` from the start — it charges a real card, so it is never reachable by a read-scoped credential.
 - **One policy registry.** `contracts.ts`, `scopes.ts`, annotations, descriptions and `tool-surface.json` are five hand-maintained files that must agree. Invert it: one registry is the source, the rest are generated. The 37-vs-39 drift ChatGPT spotted becomes unrepresentable rather than merely detected.
-- **GT0 endpoint inventory classification.** Every one of the 528 operations tagged `covered` / `gap` / `internal` / `redundant`, with a reason. Zero unclassified.
+- **GT0 endpoint inventory classification. DONE.** All **519** operations tagged
+  `covered` / `gap` / `internal` / `redundant`, with a reason. Zero unclassified,
+  and `MAX_UNCLASSIFIED` in `tests/test_gt0_classification_ratchet.py` is now `0`
+  — a floor rather than a budget, so the next endpoint added must be classified
+  in the commit that adds it.
+
+  *The count is 519, not the 528 this line first claimed; the generator reports
+  what it finds and 528 was never re-derived after routes moved.* Final tally:
+  **287 internal, 153 gap, 57 covered, 22 redundant.**
 
 **Frontend** — none. This phase is invisible on purpose.
 
