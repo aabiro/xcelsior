@@ -79,6 +79,32 @@ this whole review sequence has been about.
 The registration token is minted fresh from the API on each start, expires in an
 hour, and is never written to disk. It is not a repository secret.
 
+### As a service, so it outlives the terminal that started it
+
+`--loop` is a foreground loop, so a hand-started runner dies with its shell — and
+a push then sits `queued` with nothing to serve it, which looks identical to a
+broken workflow. `xcelsior-ci-runner.service` fixes that:
+
+```bash
+mkdir -p ~/.config/systemd/user
+ln -sf "$PWD/scripts/ci-runner/xcelsior-ci-runner.service" ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now xcelsior-ci-runner
+sudo loginctl enable-linger "$USER"   # survive logout and reboot
+
+systemctl --user status xcelsior-ci-runner
+journalctl --user -u xcelsior-ci-runner -f
+```
+
+A **user** unit, not a system one, and the reason is in the file: the token is
+minted with `gh`, which reads this user's credentials. Running as root would mean
+copying a GitHub token somewhere harder to revoke, to satisfy systemd rather than
+to satisfy anything real.
+
+`enable-linger` is not optional. Without it the unit stops when the user's last
+session ends, which is the same failure the unit was written to prevent, arriving
+later and less obviously.
+
 ## When to throw this away
 
 The moment hosted Actions billing is restored. This exists because remote
