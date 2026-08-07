@@ -126,15 +126,65 @@ def to_anthropic_tools(mcp_tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
+# ── Token accounting ──────────────────────────────────────────────────────
+
+#: Totals across the run, so the artifact records what the grading cost and
+#: whether the cache actually engaged. A run that reports zero cache reads is a
+#: run paying full price for the same 7,700 tokens on every case.
+USAGE = {
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+}
+
+
+def _record_usage(usage: Any) -> None:
+    if usage is None:
+        return
+    for field in USAGE:
+        USAGE[field] += int(getattr(usage, field, 0) or 0)
+
+
+def estimated_cost_usd(model: str) -> float:
+    """Opus 5 list price. Cache writes bill at 1.25x input, reads at 0.1x."""
+    if "opus" not in model:
+        return 0.0
+    per_m_in, per_m_out = 5.0, 25.0
+    return (
+        USAGE["input_tokens"] * per_m_in
+        + USAGE["cache_creation_input_tokens"] * per_m_in * 1.25
+        + USAGE["cache_read_input_tokens"] * per_m_in * 0.10
+        + USAGE["output_tokens"] * per_m_out
+    ) / 1_000_000
+
+
 # ── Running one case ──────────────────────────────────────────────────────
 
 
 def selected_tools(client, model: str, tools: list[dict[str, Any]], case: Case) -> tuple[list[str], str]:
     messages = [*case.context, {"role": "user", "content": case.prompt}]
+    # Prompt caching on the static prefix.
+    #
+    # Every case sends the same 36 tool schemas and the same system prompt —
+    # about 7,700 input tokens — and only the last user turn differs. Uncached
+    # that is roughly 4c per case at Opus 5's input rate, so a 34-case baseline
+    # costs about $1.50 to grade the same fixed text 34 times.
+    #
+    # The breakpoint goes on the system block because the cacheable prefix is
+    # ordered tools -> system -> messages: one `cache_control` here covers the
+    # tool schemas *and* the system prompt. `SYSTEM` becomes a block list for
+    # that reason, not a style change.
+    #
+    # Correctness is unaffected either way — a cache miss sends the identical
+    # bytes — so `usage` is returned to the caller and totalled, because
+    # "caching is on" is a claim and cache_read_input_tokens is evidence.
     common = {
         "model": model,
         "max_tokens": 4096,
-        "system": SYSTEM,
+        "system": [
+            {"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}
+        ],
         "tools": tools,
         "messages": messages,
     }
@@ -162,6 +212,8 @@ def selected_tools(client, model: str, tools: list[dict[str, Any]], case: Case) 
         if "fallbacks" not in str(exc):
             raise
         response = client.beta.messages.create(**common)
+    usage = getattr(response, "usage", None)
+    _record_usage(usage)
     if response.stop_reason == "refusal":
         return [], "refusal"
     names = [block.name for block in response.content if getattr(block, "type", "") == "tool_use"]
@@ -302,6 +354,11 @@ def main() -> int:
                     "threshold": args.threshold,
                     "abstention_threshold": args.abstention_threshold,
                     "meets_threshold": ok,
+                    # What the grading cost, and whether the cache engaged. A
+                    # baseline that records zero cache reads paid full price to
+                    # send the same 7,700-token prefix on every case.
+                    "usage": dict(USAGE),
+                    "estimated_cost_usd": round(estimated_cost_usd(args.model), 4),
                 },
                 indent=2,
             )
