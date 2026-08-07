@@ -65,7 +65,7 @@
   },
   "DELETE /api/ssh/keys/{key_id}": {
     "class": "gap",
-    "notes": "P2's register_ssh_key depends on these; scoped but not yet a tool"
+    "notes": "No tool removes a key. Revocation is the operation most likely to be wanted under pressure, so it needs a confirm-gated tool rather than arriving as a side effect of the registration one"
   },
   "DELETE /api/teams/{team_id}": {
     "class": "internal",
@@ -549,7 +549,7 @@
   },
   "GET /api/ssh/keys": {
     "class": "gap",
-    "notes": "P2's register_ssh_key depends on these; scoped but not yet a tool"
+    "notes": "No tool lists keys. Deliberate: Quick Connect holds ssh:write and not ssh:read, so granting a listing tool would widen the connector's read surface for no capability it needs today"
   },
   "GET /api/ssh/pubkey": {
     "class": "internal",
@@ -1456,8 +1456,8 @@
     "notes": "the Slurm bridge for HPC clusters \u2014 a separate scheduler integration, admin-only, and not the GPU-instance journey any P0-P7 phase describes"
   },
   "POST /api/ssh/keys": {
-    "class": "gap",
-    "notes": "P2's register_ssh_key depends on these; scoped but not yet a tool"
+    "class": "covered",
+    "notes": "register_ssh_key (mcp/src/tools/compute.ts), ssh:write. Reachable by a client_credentials token since the route stopped guarding with _require_user_grant; asserted by tests/test_agent_can_register_its_own_key.py"
   },
   "POST /api/teams": {
     "class": "internal",
