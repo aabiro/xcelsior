@@ -25,7 +25,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 log = logging.getLogger("xcelsior")
 
@@ -981,8 +981,29 @@ class ArtifactManager:
 
         return self.primary.generate_download_url(key)
 
-    def request_download_by_id(self, artifact_id: str) -> dict:
-        """Request a presigned download URL for an artifact by its database ID."""
+    def request_download_by_id(
+        self,
+        artifact_id: str,
+        *,
+        authorize: Callable[[dict], None],
+    ) -> dict:
+        """Request a presigned download URL for an artifact by its database ID.
+
+        **`authorize` is required, and that is the fix rather than a style
+        choice.** This method used to select on `artifact_id` alone and hand
+        back a presigned URL, while its caller in `routes/artifacts.py` checked
+        nothing — the sibling branch of that same handler resolves through
+        `_resolve_artifact_job_id`, so one door was guarded and the other was
+        not. `_require_scope` did not close it either: it is a no-op for
+        interactive sessions, so for a logged-in user the only thing standing
+        between them and another tenant's weights was not knowing the UUID.
+
+        A keyword with no default, rather than an optional check the route
+        happens to perform: every call site must pass one or fail loudly at the
+        call, which is the difference between a guard and a convention. The
+        callback receives the artifact's ownership row — `job_id`, `tenant_id`,
+        `owner_user_id` — and raises to refuse.
+        """
         import uuid
         try:
             art_uuid = uuid.UUID(str(artifact_id))
@@ -992,7 +1013,8 @@ class ArtifactManager:
         from control_plane.db import control_plane_transaction
         with control_plane_transaction() as conn:
             art = conn.execute(
-                """SELECT object_key, primary_provider, primary_bucket, state, logical_name
+                """SELECT object_key, primary_provider, primary_bucket, state, logical_name,
+                          job_id, tenant_id, owner_user_id
                    FROM storage.artifacts WHERE artifact_id = %s""",
                 (art_uuid,),
             ).fetchone()
@@ -1000,7 +1022,18 @@ class ArtifactManager:
         if not art:
             raise KeyError(f"Artifact {artifact_id} not found")
 
-        key, provider, bucket, state, logical_name = art
+        key, provider, bucket, state, logical_name, job_id, tenant_id, owner_user_id = art
+        # Before the state check and before any URL is minted: a caller who may
+        # not have this artifact should not learn whether it exists or what
+        # state it is in.
+        authorize(
+            {
+                "artifact_id": str(artifact_id),
+                "job_id": job_id,
+                "tenant_id": tenant_id,
+                "owner_user_id": owner_user_id,
+            }
+        )
         if state != "available":
             raise ValueError(f"Artifact {artifact_id} is not available (current state: {state})")
 
