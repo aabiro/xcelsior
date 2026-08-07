@@ -210,5 +210,49 @@ case "${TARGET}" in
         ;;
 esac
 
+# ── Bring the test database to head ──────────────────────────────────────
+#
+# `scripts/setup_pytest_db.sh` builds `xcelsior_pytest` from a schema-only dump
+# and then *stamps* `alembic_version`. It does not run migrations, and nothing
+# called it again afterwards — so the database was provisioned once and drifted
+# from that moment. Because it is stamped rather than migrated, `alembic upgrade
+# head` reported success while doing nothing.
+#
+# The result was that **no migration was ever exercised by this suite**: every
+# test ran against the schema as it stood when someone last ran the setup
+# script. On 2026-08-07 the database was at `099` while the repository head was
+# `100`, and the only reason anyone noticed was a new test that happened to
+# assert on the schema.
+#
+# So the suite migrates its own database before running. `tests/
+# test_the_test_database_is_at_head.py` stays as the backstop for anyone
+# invoking pytest directly.
+if [[ -z "${XCELSIOR_SKIP_TEST_DB_MIGRATE:-}" ]]; then
+    TEST_DSN="$(python - <<'PYEOF'
+import os
+from dotenv import load_dotenv
+for candidate in (".env.test", ".env"):
+    if os.path.exists(candidate):
+        load_dotenv(candidate, override=False)
+print(os.environ.get("XCELSIOR_POSTGRES_DSN") or os.environ.get("DATABASE_URL") or "")
+PYEOF
+)"
+    if [[ -n "$TEST_DSN" ]]; then
+        echo "▸ Migrating the test database to head…"
+        # `alembic upgrade head` is a no-op once there, so this costs a
+        # connection on every run and nothing else.
+        if ! XCELSIOR_POSTGRES_DSN="$TEST_DSN" PYTHONPATH="$SCRIPT_DIR" \
+             alembic upgrade head >/dev/null 2>&1; then
+            echo "✗ Could not migrate the test database to head."
+            echo "  The suite would run against a stale schema, so it is not starting."
+            echo "  Retry with output:"
+            echo "      XCELSIOR_POSTGRES_DSN='<test dsn>' PYTHONPATH=\$PWD alembic upgrade head"
+            exit 1
+        fi
+    else
+        echo "⚠ No test database DSN resolved; skipping the migration step."
+    fi
+fi
+
 # ── Run ──────────────────────────────────────────────────────────────────
 python -m pytest "${PYTEST_ARGS[@]}" "${EXTRA_ARGS[@]}" -q --tb=short -p no:sugar -p no:rich
