@@ -4,8 +4,21 @@ import type { XcelsiorApiClient } from "../client/api.js";
 import { ApiError, apiProblem, formatApiError } from "../client/errors.js";
 import { jsonText, structuredResult } from "../lib/format.js";
 import { inspectSshKeyInput } from "../lib/ssh-key.js";
+import { loadConfig } from "../config.js";
 import { TOOL_SCOPES, userHasScope, scopeUnion, describeScopeRequirement } from "../auth/scopes.js";
 import type { AuthUser } from "../auth/bearer.js";
+
+/**
+ * Where a user's SSH lands, and where the terminal websocket lives.
+ *
+ * Read once at module load from the same env var the rest of the platform
+ * uses. The job record's `host_ip` is the tailnet address — the dashboard shows
+ * it under "Direct SSH (requires mesh network)" — so it is not what a user off
+ * the mesh connects to, and `open_instance_access` must not hand it out as if
+ * it were.
+ */
+const { sshHost, apiUrl } = loadConfig();
+const wsBase = apiUrl.replace(/^http/, "ws");
 
 function scopeDenied(tool: string, user: AuthUser | undefined) {
   const required = TOOL_SCOPES[tool];
@@ -290,6 +303,106 @@ export function registerComputeTools(
           });
         }
         return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
+
+  server.registerTool(
+    "open_instance_access",
+    {
+      inputSchema: z.object({
+        job_id: z.string(),
+        method: z
+          .enum(["auto", "ssh", "terminal"])
+          .default("auto")
+          .describe(
+            "'ssh' returns the endpoint to connect to and spends nothing. " +
+              "'terminal' mints a single-use browser/websocket ticket. 'auto' " +
+              "prefers ssh when the instance publishes a port.",
+          ),
+      }),
+    },
+    async ({ job_id, method }) => {
+      const denied = scopeDenied("open_instance_access", user);
+      if (denied) return denied;
+
+      let instance: Record<string, unknown>;
+      try {
+        const data = await client.get(`/instance/${encodeURIComponent(job_id)}`);
+        instance = ((data as Record<string, unknown>)?.instance ?? data) as Record<string, unknown>;
+      } catch (e) {
+        return jsonText({ ok: false, error: formatApiError(e) });
+      }
+
+      const status = String(instance?.status ?? "unknown");
+      if (status !== "running") {
+        // Checked before minting anything. A terminal ticket is a credential
+        // with a clock on it, and issuing one for an instance that cannot
+        // accept a connection burns it for nothing and reads to the model as
+        // "access is ready".
+        return jsonText({
+          ok: false,
+          error: "instance_not_running",
+          status,
+          message:
+            `This instance is '${status}', not running, so there is nothing to ` +
+            "connect to yet. Use watch_instance to wait for it to reach running.",
+        });
+      }
+
+      const sshPort = Number(instance?.ssh_port ?? 0) || null;
+      const useSsh = method === "ssh" || (method === "auto" && sshPort !== null);
+
+      if (useSsh) {
+        if (sshPort === null) {
+          return jsonText({
+            ok: false,
+            error: "no_ssh_endpoint",
+            message:
+              "This instance publishes no SSH port — it was most likely " +
+              "launched non-interactive. Call again with method:'terminal'.",
+          });
+        }
+        return jsonText({
+          ok: true,
+          method: "ssh",
+          host: sshHost,
+          port: sshPort,
+          user: "root",
+          command: `ssh root@${sshHost} -p ${sshPort}`,
+          // Stated, not omitted. Gate P2 asks for "the SSH endpoint plus the
+          // fingerprint to verify", and the platform does not publish one: the
+          // host keys it pins are for the API's own tailnet hop to the worker,
+          // not for what `connect.xcelsior.ca` presents to a user. Returning a
+          // field here would be inventing it, and saying nothing would let a
+          // model tell the user their connection is verified.
+          host_key_fingerprint: null,
+          host_key_note:
+            "Xcelsior does not yet publish a host-key fingerprint for this " +
+            "endpoint, so the first connection cannot be verified against one. " +
+            "Tell the user that, rather than telling them to accept the key.",
+          requires:
+            "A registered public key. If ssh refuses the connection, call " +
+            "register_ssh_key with the contents of a .pub file.",
+        });
+      }
+
+      try {
+        const data = (await client.post("/api/terminal/ticket", {
+          instance_id: job_id,
+        })) as Record<string, unknown>;
+        return jsonText({
+          ok: true,
+          method: "terminal",
+          ticket: data?.ticket,
+          expires_in_seconds: data?.expires_in,
+          websocket_url: `${wsBase}/ws/terminal/${encodeURIComponent(job_id)}`,
+          note:
+            "Single-use and short-lived: this ticket is consumed by the first " +
+            "connection and cannot be replayed. Ask for another if it expires.",
+        });
+      } catch (e) {
+        return jsonText({ ok: false, error: formatApiError(e) });
       }
     },
   );

@@ -126,6 +126,17 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     "interactive instances, so it takes effect without a relaunch. Registering a key that is " +
     "already on the account changes nothing and is safe to repeat.",
 
+  open_instance_access:
+    "Get a way in to a running instance: either the SSH endpoint to connect to, or a " +
+    "single-use ticket for the browser/websocket terminal. Use when the user wants a shell on " +
+    "something already running, after watch_instance reports it reached running. method:'ssh' " +
+    "reads the endpoint and is free; method:'terminal' creates a short-lived ticket that the " +
+    "first connection consumes and cannot be replayed. Read-only with respect to the instance: " +
+    "it never launches, cancels or reconfigures anything, and it does not change what the job " +
+    "costs — the instance goes on billing at its hourly rate whether or not anyone connects. " +
+    "SSH needs a key the account has already registered; if the connection is refused, " +
+    "register_ssh_key is the fix.",
+
   // ── Monitoring ──────────────────────────────────────────────────────────
   watch_instance:
     "Poll one instance's status, telemetry, and recent logs for up to 60 minutes, returning as " +
