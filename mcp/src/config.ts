@@ -18,6 +18,21 @@ export interface AppConfig {
   authRealm: string;
   oauthIssuer: string;
   oauthJwksUrl: string;
+  /**
+   * Public SSH gateway hostname users connect through.
+   *
+   * A platform constant, not something the API returns per instance — the job
+   * record carries `host_ip`, which is the tailnet address the dashboard shows
+   * under "Direct SSH (requires mesh network)" and which a user off the mesh
+   * cannot reach. So the connectable hostname has to come from configuration,
+   * exactly as the frontend's `NEXT_PUBLIC_SSH_HOST` does.
+   *
+   * That is a third copy of one value, and copies drift — `MCP_QUICK_CONNECT_SCOPES`
+   * proved that twice this week. `tests/test_ssh_host_is_one_value.py` pins this
+   * default to the platform's.
+   */
+  sshHost: string;
+
   /** Which tool profile this deployment exposes (adoption plan §4a). */
   toolProfile: "customer" | "operator";
   /**
@@ -68,9 +83,11 @@ export function loadConfig(): AppConfig {
   // has a path — otherwise "legacy" and "canonical" would be the same string
   // and the sunset would be meaningless.
   const derivedLegacy = resourceOrigin && resourceOrigin !== resourceAudience ? resourceOrigin : "";
+  const sshHost = (process.env.XCELSIOR_SSH_HOST || "connect.xcelsior.ca").trim();
   const profile = (process.env.XCELSIOR_MCP_TOOL_PROFILE || "customer").trim().toLowerCase();
   return {
     apiUrl,
+    sshHost,
     host: process.env.MCP_HOST || "0.0.0.0",
     port: Number(process.env.MCP_PORT || "8770"),
     mcpPath: process.env.MCP_PATH || "/mcp",

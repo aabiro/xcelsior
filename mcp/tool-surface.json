@@ -615,6 +615,39 @@
       "hasOutputSchema": true
     },
     {
+      "name": "open_instance_access",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "instances:connect",
+        "instances:read"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "job_id": {
+          "type": "string",
+          "optional": false
+        },
+        "method": {
+          "type": "enum",
+          "optional": true,
+          "values": [
+            "auto",
+            "ssh",
+            "terminal"
+          ]
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
       "name": "reconcile_instance",
       "version": "2.0.0",
       "tenantClass": "tenant",
