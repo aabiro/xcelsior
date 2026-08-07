@@ -39,6 +39,30 @@ const FORBIDDEN_KEY =
 const CREDENTIAL_VALUE =
   /\b(xoa_[A-Za-z0-9_-]{16,}|xcel_ai_[A-Za-z0-9_-]{16,}|sk_(?:live|test)_[A-Za-z0-9]{16,}|rk_(?:live|test)_[A-Za-z0-9]{16,}|whsec_[A-Za-z0-9]{16,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b/g;
 
+/**
+ * A private key, wherever it turns up and whatever the field is called.
+ *
+ * `FORBIDDEN_KEY` already drops a field *named* `private_key` or
+ * `ssh_private_key`. That is not enough, and Gate P2 asks for the difference to
+ * be asserted rather than assumed: the realistic leak is a key body inside a
+ * field with an innocent name. `get_instance_logs` returns whatever the
+ * instance printed, and a bootstrap script that echoes a key, a `cat` of the
+ * wrong file, or a config dump all arrive as ordinary text under `logs`,
+ * `output`, or `detail`. Probed before this existed: a PEM block under
+ * `bootstrap_output` was reported as `removed: []` and reached the model intact.
+ *
+ * Matched from BEGIN to END, or to the end of the string when the block is
+ * truncated — a log tail is routinely cut mid-key, and half a private key is
+ * still key material. The header alternation covers OpenSSH, PKCS#1 (`RSA`),
+ * PKCS#8 (bare), `EC`, `DSA`, `ENCRYPTED`, and PGP's `PRIVATE KEY BLOCK`.
+ *
+ * Deliberately *not* matched: `PUBLIC KEY` and `CERTIFICATE` blocks. Publishing
+ * a public key is the point of `register_ssh_key`, and redacting it would break
+ * the tool whose output a user needs to verify.
+ */
+const PRIVATE_KEY_BLOCK =
+  /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?(?:-----END (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----|$)/g;
+
 export const REDACTED = "[REDACTED]";
 
 export interface HygieneReport {
@@ -51,12 +75,23 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** Mask credential-shaped substrings inside a free-text field. */
+/**
+ * Mask credential-shaped substrings inside a free-text field.
+ *
+ * Whole key blocks first, then credential-shaped values in what remains: a PEM
+ * body is base64 and can contain something that looks like another credential,
+ * and redacting the block as one unit says what actually happened.
+ *
+ * Written as replace-and-compare rather than `.test()` then `.replace()`.
+ * Both patterns carry the `g` flag, and a `g` regex's `.test()` advances
+ * `lastIndex` — so the old form depended on two manual resets bracketing every
+ * call, and a third pattern added without them would silently start skipping
+ * the first match of every other string. There is no state to reset here.
+ */
 export function scrubText(text: string): { text: string; masked: boolean } {
-  CREDENTIAL_VALUE.lastIndex = 0;
-  if (!CREDENTIAL_VALUE.test(text)) return { text, masked: false };
-  CREDENTIAL_VALUE.lastIndex = 0;
-  return { text: text.replace(CREDENTIAL_VALUE, REDACTED), masked: true };
+  const withoutKeys = text.replace(PRIVATE_KEY_BLOCK, REDACTED);
+  const scrubbed = withoutKeys.replace(CREDENTIAL_VALUE, REDACTED);
+  return { text: scrubbed, masked: scrubbed !== text };
 }
 
 /**
