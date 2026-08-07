@@ -228,10 +228,19 @@ Seven substitutions. `run-runner.sh` already reads `XCELSIOR_CI_REPO` from the
 environment; generalising means `CI_REPO`, `CI_WORKFLOW`, `CI_IMAGE` and
 `CI_FORBIDDEN_PATHS`, and templating the unit. That is an afternoon.
 
-### The cockpit is not portable in the same way.
-It is a page inside an authenticated admin panel with this platform's auth,
-theme, chart library and API client. Extracting *that* means extracting the
-admin shell, which is a different and much larger project.
+### The cockpit splits, and only one half is hard to move.
+The **embedded card** (§8a) is a page inside an authenticated admin panel with
+this platform's auth, theme, chart library and API client. Extracting *that*
+means extracting the admin shell — a different and much larger project.
+
+A **standalone cockpit** (§8b) has the opposite property: it is a client of one
+JSON endpoint, so it is portable by construction and its stack is a free choice
+(§8c). Pointing it at another repository's deployment is a base URL and a token.
+
+**Which is why the endpoint is the thing to design first.** `GET /api/admin/ci/status`
+is the portable artifact; every UI — embedded card, standalone app, terminal —
+is a consumer of it. Get the contract right and the extract-or-not question stops
+being architectural and becomes a matter of taste, which is where it belongs.
 
 ### So:
 
@@ -262,42 +271,66 @@ section is the record so nobody re-derives it.
 
 ---
 
-## 8. The cockpit UI
+## 8. The cockpit UI — two artifacts, not one
 
-The ask was "cockpit, kind of cyberpunk". Taking that seriously rather than as
-decoration: a cockpit's job is that **a glance tells you whether to intervene**,
-and the aesthetic should serve that, not fight it.
+An earlier draft of this section argued for restraint across the board. That was
+wrong, and the mistake is worth recording rather than quietly editing out: it
+took the constraints of *one* artifact — a card wedged into an existing admin
+page, glanced at while something is on fire — and applied them to a *different*
+artifact that does not have those constraints. They are separate products with
+separate budgets.
 
-What earns its place:
+### 8a. The embedded card (`admin/infrastructure`)
 
-* **One state, enormous, top-left.** `HEALTHY` / `WORKING` / `ORPHANED` /
-  `WEDGED` / `DOWN` from §2. Colour-coded, but never colour *alone* — the word
-  is the signal, so it survives a colourblind reader and a monochrome screenshot
-  in a bug report.
-* **A run strip.** Last 20 runs as fixed-width blocks, newest right, coloured by
-  conclusion, height by duration. Pattern recognition beats reading a table: a
-  wall of green with one red block, or a visible slowdown, both read instantly.
-* **The live job**, when there is one: workflow, job, elapsed, and elapsed
-  *against that job's own p50* — because "4 minutes" means nothing and "4
-  minutes against a 90-second median" means go look.
-* **Host vitals**, sparklines not gauges. CPU, memory, disk. A gauge shows one
-  instant; a sparkline shows whether it is heading somewhere.
-* **The reconciliation line**, always visible, even when boring:
-  `github: online·idle   host: active·idle   Δ 2s` — so when it *does* disagree,
-  the disagreement appears in a place the eye already knows to look.
+Genuinely constrained, and not by taste. It inherits the admin theme, sits beside
+fleet health, and competes for a few hundred pixels. It is a **readout**: state,
+last runs, live job, reconciliation line. Density and monospace numerics here are
+a consequence of the space, not an aesthetic position.
 
-On the aesthetic: monospace numerics, dark ground, a single saturated accent for
-the live state and muted tones for history. **Restraint is what makes it read as
-a cockpit rather than a toy** — scanlines and glow on a status readout you need
-at 2am is an argument against yourself. The existing admin theme already carries
-most of this; the cyberpunk register comes from density, monospace and a
-restricted palette, not from effects.
+### 8b. The standalone cockpit — as expressive as you want
 
-Accessibility is not a separate section: the word-plus-colour rule above, focus
-states on every control, and a live region announcing state transitions so the
-change is not purely visual.
+If it becomes its own application (the §7 branch, still optional), essentially
+none of 8a's constraints carry. It has the whole viewport, its own stack, and one
+job it can do properly instead of squeezing. That is the case for building it
+separately at all — and "make it look like a cockpit" is a legitimate reason,
+not a frivolous one, because a thing people enjoy opening is a thing that gets
+looked at.
 
----
+Full-bleed layouts, animated state transitions, a run strip that actually reads
+like telemetry, sound on state change, an ambient idle mode for a spare monitor,
+CRT/scanline treatment if that is the register you want. None of it is in tension
+with the tool's purpose once it is not fighting for room inside another page.
+
+**Three things survive in both, and they are correctness rather than taste:**
+
+1. **The state is legible without colour.** `ORPHANED` reads as the word, not as
+   "the amber one" — it survives a colourblind reader and a monochrome
+   screenshot pasted into an issue. Colour on top of the word, freely.
+2. **Numbers that get compared are monospace**, so digits line up between rows.
+   Everything else can be whatever typeface suits.
+3. **State changes are announced**, not only shown — a live region for screen
+   readers, and a real focus ring on anything interactive.
+
+Those three cost nothing and hold at any level of visual ambition. Beyond them,
+this document has no opinion.
+
+### 8c. Stack, if it is standalone
+
+Deliberately not decided here — it depends on who maintains it and whether it
+ever leaves this machine. The honest trade-offs:
+
+| Stack | Fits when | Costs |
+|---|---|---|
+| **Next.js** | you want the richest UI, and the existing frontend's components and theme are worth reusing | a second Node app to deploy and keep patched |
+| **FastAPI + HTMX** | the backend already speaks Python and the UI is mostly server-rendered state | less interactive polish without more work |
+| **Textual (TUI)** | it lives on the machine that runs the runner, and a terminal is where you already are | terminal-only; no remote viewing without ssh |
+| **NiceGUI / Reflex** | one Python codebase for logic and UI, no separate frontend build | smaller ecosystems; you own more of the edges |
+| **Streamlit** | you want it working this afternoon and will not extend it | fights back the moment layout matters |
+
+A terminal cockpit and a browser cockpit are not competing options — the data
+planes in §2 are the same either way, and both can exist against one
+`GET /api/admin/ci/status`. **Design the endpoint first and the choice stops
+being load-bearing**, which is the real recommendation of this section.
 
 ## 9. Sequencing
 
