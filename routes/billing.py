@@ -57,28 +57,26 @@ router = APIRouter()
 _FREE_CREDIT_AMOUNT = 10.0  # CAD
 _MIN_TOPUP_CAD = 5.0
 _MAX_TOPUP_CAD = 10000.0
+from reserved_pricing import RESERVED_TIERS as _RESERVED_TIERS
+
+# Derived from the one schedule rather than restated. This module and
+# `marketplace.py` each carried their own table, agreeing at one and three
+# months and diverging after — so a customer could be quoted a different price
+# depending on which endpoint they reached. See `reserved_pricing.py`.
 RESERVED_PRICING_TIERS = {
-    "1_month": {
-        "commitment": "1 month",
-        "discount_pct": 20,
-        "description": "20% off on-demand rates for 1-month commitment",
-        "min_hours_per_day": 4,
-    },
-    "3_month": {
-        "commitment": "3 months",
-        "discount_pct": 30,
-        "description": "30% off on-demand rates for 3-month commitment",
-        "min_hours_per_day": 4,
-    },
-    "1_year": {
-        "commitment": "1 year",
-        "discount_pct": 45,
-        "description": "45% off on-demand rates for 1-year commitment",
-        "min_hours_per_day": 0,
-    },
+    tier["key"]: {
+        "commitment": tier["commitment"],
+        "discount_pct": tier["discount_pct"],
+        "description": (
+            f"{tier['discount_pct']}% off on-demand rates for "
+            f"{tier['commitment']} commitment"
+        ),
+        "min_hours_per_day": tier["min_hours_per_day"],
+    }
+    for tier in _RESERVED_TIERS.values()
 }
 # Commitment term length in days, keyed by commitment_type.
-_RESERVED_TERM_DAYS = {"1_month": 30, "3_month": 90, "1_year": 365}
+_RESERVED_TERM_DAYS = {tier["key"]: tier["term_days"] for tier in _RESERVED_TIERS.values()}
 try:
     import bitcoin as _btc_mod
 except ImportError:
