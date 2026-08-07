@@ -1577,18 +1577,10 @@ def api_requeue_instance(job_id: str, request: Request):
     if status == "queued":
         raise HTTPException(status_code=400, detail="Instance is already queued")
 
-    # Wipe previous attempt logs BEFORE requeue — never after, or we delete
-    # the lifecycle lines emit_lifecycle_log just wrote.
-    _job_log_buffers.pop(job_id, None)
-    try:
-        from db import _get_pg_pool
-
-        with _get_pg_pool().connection() as conn:
-            conn.execute("DELETE FROM job_logs WHERE job_id = %s", (job_id,))
-            conn.commit()
-    except Exception:
-        pass
-
+    # The previous attempt's logs are cleared by `requeue_job` itself, which is
+    # where it belongs: starting a job over means starting its output over, and
+    # `/api/v1/instances/{job_id}/retry` reaches the same authority. While the
+    # wipe lived here, that route left stale output mixed into the next run.
     result = requeue_job(job_id, user_initiated=True)
     if not result:
         refreshed = get_job(job_id) or job

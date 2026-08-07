@@ -25,11 +25,17 @@ SPOT_THRESHOLD = float(os.environ.get("XCELSIOR_SPOT_THRESHOLD", "0.8"))
 SPOT_UPDATE_INTERVAL = int(os.environ.get("XCELSIOR_SPOT_INTERVAL_SEC", "600"))  # 10 min
 PLATFORM_CUT = float(os.environ.get("XCELSIOR_PLATFORM_CUT", "0.15"))
 
-# Reserved instance discount schedule (Phase 2.3)
+# Reserved instance discount schedule (Phase 2.3).
+#
+# Derived from `reserved_pricing.py` rather than restated here. This dict and
+# `routes/billing.RESERVED_PRICING_TIERS` were maintained separately and had
+# diverged: they agreed at one and three months, then this one offered 6 months
+# at 40% while billing offered a year at 45%, so the quote depended on which
+# endpoint a customer reached.
+from reserved_pricing import RESERVED_TIERS as _RESERVED_TIERS
+
 RESERVED_DISCOUNTS = {
-    1: 0.20,  # 1-month: 20% off
-    3: 0.30,  # 3-month: 30% off
-    6: 0.40,  # 6-month: 40% off
+    months: tier["discount_pct"] / 100.0 for months, tier in _RESERVED_TIERS.items()
 }
 
 
@@ -410,8 +416,10 @@ class MarketplaceEngine:
     ) -> dict:
         """Create a reserved instance commitment.
 
-        Locks in a discount for a term commitment:
-        1-month=10%, 3-month=20%, 6-month=30%, 12-month=40%
+        Locks in a discount for a term commitment. The schedule lives in
+        `reserved_pricing.RESERVED_TIERS` — this docstring used to state a
+        fourth set of numbers (10/20/30/40) that disagreed with the dict
+        directly above it, which is why the rates are no longer written here.
         """
         discount_pct = RESERVED_DISCOUNTS.get(period_months)
         if discount_pct is None:
