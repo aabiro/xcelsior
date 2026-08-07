@@ -123,7 +123,12 @@ def test_artifact_upload_and_finalize_lifecycle(test_setup):
     )
     assert "url" in dl_url
 
-    # 5. Request download by ID
-    dl_by_id = mgr.request_download_by_id(art_id)
+    # 5. Request download by ID.
+    #
+    # The authorizer is explicit and permissive here, which is the point of it
+    # being a required keyword: this test is exercising the state machine, not
+    # ownership, and a test that bypasses the access check should have to say so
+    # on the line where it does it.
+    dl_by_id = mgr.request_download_by_id(art_id, authorize=lambda _owner: None)
     assert "url" in dl_by_id
     assert dl_by_id["logical_name"] == "model.bin"

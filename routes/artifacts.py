@@ -144,8 +144,32 @@ def api_request_download(req: DownloadRequest, request: Request):
     mgr = get_artifact_manager()
 
     if req.artifact_id:
+
+        def _authorize(owner: dict) -> None:
+            """Whose artifact is this, and may the caller have it?
+
+            The `job_id` branch below has always resolved through
+            `_resolve_artifact_job_id`, which calls `_check_job_access`. This
+            branch did not, so the two halves of one handler disagreed about
+            whether ownership mattered. They agree now.
+            """
+            from routes._deps import _is_platform_admin
+            from routes.instances import _check_job_access
+
+            if _is_platform_admin(user):
+                return
+            job_id = str(owner.get("job_id") or "").strip()
+            if job_id:
+                _check_job_access(user, job_id)
+                return
+            # A standalone upload belongs to a user rather than a job, and is
+            # the one case `_check_job_access` cannot answer.
+            caller = str(user.get("user_id") or "").strip()
+            if not caller or str(owner.get("owner_user_id") or "").strip() != caller:
+                raise HTTPException(404, "Artifact not found")
+
         try:
-            result = mgr.request_download_by_id(req.artifact_id)
+            result = mgr.request_download_by_id(req.artifact_id, authorize=_authorize)
             return {"ok": True, **result}
         except KeyError as e:
             raise HTTPException(404, str(e))
