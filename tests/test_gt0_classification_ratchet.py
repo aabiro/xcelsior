@@ -42,7 +42,13 @@ INVENTORY = ROOT / "docs" / "generated" / "endpoint-inventory.md"
 
 #: Lower this as rows are classified. It may never rise: a new endpoint arrives
 #: classified, or the commit that adds it also classifies it.
-MAX_UNCLASSIFIED = 53
+#:
+#: **Zero. GT0 is closed** — all 519 operations carry a label and a reason. This
+#: is now a floor rather than a budget: the next endpoint added to this codebase
+#: must be classified in the commit that adds it, because there is no headroom
+#: left to absorb it. That is the point of ratcheting to the bottom rather than
+#: stopping at "few enough".
+MAX_UNCLASSIFIED = 0
 
 #: The only labels GT0 accepts.
 VALID_CLASSES = {"covered", "gap", "internal", "redundant"}

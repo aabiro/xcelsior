@@ -79,9 +79,17 @@
     "class": "redundant",
     "notes": "a compatibility shim: the handler is `api_inference_compat_*`, tagged 'Serverless (compat)', and its whole body delegates to the corresponding api_serverless_* function. Folded into the serverless surface the MCP already calls, and the code declares it rather than leaving it to be inferred"
   },
+  "DELETE /api/v2/marketplace/reservations/{reservation_id}": {
+    "class": "gap",
+    "notes": "Cancelling a commitment early has no tool, the same asymmetry as the DELETEs above: reachable to enter, unreachable to exit."
+  },
   "DELETE /api/v2/privacy/consent/{purpose}": {
     "class": "internal",
     "notes": "consent and erasure records under privacy law. Two generations of the API sit side by side; both are the account holder's own compliance surface and no phase asks an agent to consent or erase on someone's behalf"
+  },
+  "DELETE /api/v2/serverless/endpoints/{endpoint_id}": {
+    "class": "gap",
+    "notes": "No tool deletes an endpoint. This is the money-stopping action for serverless, the counterpart of cancel_instance, and it is unreachable."
   },
   "DELETE /api/v2/serverless/endpoints/{endpoint_id}/keys/{key_id}": {
     "class": "internal",
@@ -98,6 +106,14 @@
   "DELETE /autoscale/pool/{host_id}": {
     "class": "internal",
     "notes": "scheduler-driven capacity control, no caller outside the platform"
+  },
+  "DELETE /host/{host_id}": {
+    "class": "gap",
+    "notes": "Provider axis. Withdrawing a rig has no tool, so a provider agent can add capacity it cannot remove."
+  },
+  "DELETE /marketplace/{host_id}": {
+    "class": "gap",
+    "notes": "Provider axis. Delisting a rig \u2014 the counterpart of POST /marketplace/list."
   },
   "DELETE /user-images/{image_id}": {
     "class": "gap",
@@ -239,6 +255,14 @@
     "class": "internal",
     "notes": "operator configuration \u2014 alert thresholds, the NFS mount, API token minting. Admin console, not the tool surface. The two alert paths are aliases of one handler"
   },
+  "GET /api/analytics/enhanced": {
+    "class": "internal",
+    "notes": "Feeds the dashboard's rich analytics view \u2014 its summary says so. Shaped for charts rather than for an answer, and the underlying numbers are reachable through the billing and usage rows classified above."
+  },
+  "GET /api/analytics/usage": {
+    "class": "gap",
+    "notes": "Usage analytics across both sides of the marketplace. No tool reads it, and the provider half belongs to the axis that has zero tools today."
+  },
   "GET /api/artifacts": {
     "class": "gap",
     "notes": "P3 needs artifact read and promotion; no tool exposes them"
@@ -323,6 +347,14 @@
     "class": "internal",
     "notes": "Canadian tax and GST compliance surface \u2014 thresholds, rates and filing status. No phase of the plan touches it"
   },
+  "GET /api/billing/invoice/{customer_id}": {
+    "class": "gap",
+    "notes": "Generates an itemised invoice for a billing period. list_invoices covers the plural /api/billing/invoices/{cid}, which enumerates invoices; nothing produces the line items behind one, which is the answer to 'what exactly did I pay for'."
+  },
+  "GET /api/billing/invoice/{customer_id}/download": {
+    "class": "redundant",
+    "notes": "The same invoice as the row above, serialised as CSV or plain text for a browser download \u2014 the precedent already set for /instances/{job_id}/logs/download. The itemisation is the gap to close; this rendering of it is not a second one."
+  },
   "GET /api/billing/invoices/{customer_id}": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -347,6 +379,10 @@
     "class": "gap",
     "notes": "P1 names crypto, Lightning and PayPal deposits as needing no browser and already scoped; no tool reaches any of them, so funding is tool-driven only on the card rail"
   },
+  "GET /api/billing/usage/{customer_id}": {
+    "class": "gap",
+    "notes": "Usage summary for a billing period. get_spend_envelope answers burn rate and runway from the live wallet and running instances; it does not answer what a closed period consumed."
+  },
   "GET /api/billing/wallet/{customer_id}": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -354,6 +390,10 @@
   "GET /api/billing/wallet/{customer_id}/depletion": {
     "class": "covered",
     "notes": "get_spend_envelope calls this path"
+  },
+  "GET /api/billing/wallet/{customer_id}/history": {
+    "class": "gap",
+    "notes": "get_wallet_balance returns the balance only. 'Where did my balance go' has no answer on the surface, which is the first question after an unexpected number."
   },
   "GET /api/chat/conversations": {
     "class": "internal",
@@ -415,6 +455,14 @@
     "class": "gap",
     "notes": "P7's image library with provenance \u2014 commit an instance to a reusable image and manage the result; no tool reaches it"
   },
+  "GET /api/inference/models/available": {
+    "class": "gap",
+    "notes": "Lists inference models and their resource needs. list_serverless_endpoints shows what is already deployed, not what could be; choosing a model has no tool."
+  },
+  "GET /api/inference/{job_id}": {
+    "class": "redundant",
+    "notes": "Pre-v1 result read, superseded by GET /v1/inference/{job_id}."
+  },
   "GET /api/instances/{job_id}/telemetry": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -447,9 +495,25 @@
     "class": "internal",
     "notes": "issues or revokes credentials (agent keys, API keys, OAuth clients, Quick Connect). A tool that mints its own credential can widen its own scopes"
   },
+  "GET /api/pricing/models": {
+    "class": "redundant",
+    "notes": "A narrower projection of the table get_pricing_reference already returns: the same gpu_pricing rows filtered to tier='standard' and pricing_mode='on_demand'."
+  },
+  "GET /api/pricing/rates": {
+    "class": "gap",
+    "notes": "Returns the *breakdown* of an hourly rate \u2014 base, priority multiplier, premium, multi-GPU discount, tax. estimate_job_cost returns a total from /api/pricing/estimate; nothing lets an agent explain why a price is what it is."
+  },
   "GET /api/pricing/reference": {
     "class": "covered",
     "notes": "MCP server calls this path"
+  },
+  "GET /api/pricing/reservations": {
+    "class": "gap",
+    "notes": "Lists the caller's own commitments \u2014 the read half of POST /api/pricing/reserve, and unreachable for the same reason."
+  },
+  "GET /api/pricing/reserved-plans": {
+    "class": "gap",
+    "notes": "The reserved-tier catalogue and its discounts. Nothing on the surface can tell a user a commitment would be cheaper than what they are doing."
   },
   "GET /api/pricing/spot-enabled": {
     "class": "gap",
@@ -458,6 +522,10 @@
   "GET /api/pricing/spot-floor-suggestion": {
     "class": "gap",
     "notes": "P5 placement and migration need spot data as tools"
+  },
+  "GET /api/pricing/spot-quote": {
+    "class": "gap",
+    "notes": "A live spot quote with tax, for a launch decision. get_spot_prices returns pre-tax market rates, so the number an agent quotes is not the number charged."
   },
   "GET /api/privacy/config/{org_id}": {
     "class": "internal",
@@ -691,6 +759,14 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "GET /api/v2/marketplace/spot-prices/{gpu_model}/history": {
+    "class": "gap",
+    "notes": "get_spot_prices returns the current rate only. History is what makes a spot-vs-on-demand recommendation defensible rather than a snapshot guess."
+  },
+  "GET /api/v2/marketplace/stats": {
+    "class": "gap",
+    "notes": "Aggregate supply and demand. Nothing on the surface answers 'is the market tight right now', which is the context for a price."
+  },
   "GET /api/v2/platform/attestation-schema": {
     "class": "internal",
     "notes": "published platform document \u2014 compliance and partnership material, served for humans to read"
@@ -723,13 +799,49 @@
     "class": "internal",
     "notes": "consent and erasure records under privacy law. Two generations of the API sit side by side; both are the account holder's own compliance surface and no phase asks an agent to consent or erase on someone's behalf"
   },
+  "GET /api/v2/serverless/batches/{batch_id}": {
+    "class": "gap",
+    "notes": "No tool reads batch status, the necessary companion to submitting one."
+  },
+  "GET /api/v2/serverless/enabled": {
+    "class": "internal",
+    "notes": "Feature-flag probe for the dashboard's own rollout, per its docstring. An agent learns serverless is available by the tools existing; a flag for staging a UI is not a capability."
+  },
   "GET /api/v2/serverless/endpoints": {
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "GET /api/v2/serverless/endpoints/{endpoint_id}": {
+    "class": "gap",
+    "notes": "No tool reads one endpoint. list_serverless_endpoints returns all, so an agent holding an endpoint_id must fetch every endpoint and filter \u2014 the asymmetry get_instance/list_instances does not have on the compute side."
+  },
+  "GET /api/v2/serverless/endpoints/{endpoint_id}/health": {
+    "class": "gap",
+    "notes": "No tool reads endpoint health. 'Is my endpoint actually serving?' has no answer on the tool surface."
+  },
+  "GET /api/v2/serverless/endpoints/{endpoint_id}/jobs": {
+    "class": "gap",
+    "notes": "No tool lists an endpoint's jobs. get_serverless_job_status answers about a job_id already known; nothing enumerates them."
+  },
+  "GET /api/v2/serverless/endpoints/{endpoint_id}/jobs/{job_id}": {
+    "class": "redundant",
+    "notes": "Byte-identical to GET /v1/serverless/{endpoint_id}/status/{job_id}: same keys from the same _repo().get_job(job_id, endpoint_id=...) call, differing only in auth helper. The v1 route is what get_serverless_job_status calls, so this is a second door to a covered capability."
+  },
+  "GET /api/v2/serverless/endpoints/{endpoint_id}/jobs/{job_id}/stream": {
+    "class": "gap",
+    "notes": "No tool follows a job. watch_instance is the waiting primitive for compute and has no serverless counterpart; a tool would poll rather than hold this SSE stream open."
+  },
   "GET /api/v2/serverless/endpoints/{endpoint_id}/keys": {
     "class": "internal",
     "notes": "per-endpoint API keys. Issuing a credential that calls the endpoint is the same escalation shape as minting an agent key: a tool that could do it could widen its own reach"
+  },
+  "GET /api/v2/serverless/endpoints/{endpoint_id}/metrics": {
+    "class": "gap",
+    "notes": "No tool reads endpoint metrics. The canonical read; /usage is its dashboard alias."
+  },
+  "GET /api/v2/serverless/endpoints/{endpoint_id}/usage": {
+    "class": "redundant",
+    "notes": "Its own docstring says 'Alias for metrics \u2014 dashboard compatibility'. Not byte-identical \u2014 it enriches with pricing and SLO \u2014 but it exists to shape get_endpoint_metrics for the dashboard, so /metrics is the row to cover."
   },
   "GET /api/v2/serverless/endpoints/{endpoint_id}/workers": {
     "class": "internal",
@@ -819,6 +931,18 @@
     "class": "internal",
     "notes": "liveness, readiness and the Prometheus scrape target; consumed by orchestrators and monitoring, deliberately unauthenticated"
   },
+  "GET /host/{host_id}": {
+    "class": "gap",
+    "notes": "Provider axis. get_host_capacity is an operator tool about scheduling headroom, not the host record a provider owns."
+  },
+  "GET /host/{host_id}/maintenance": {
+    "class": "gap",
+    "notes": "Operator profile. drain_host and undrain_host act; nothing reads whether a host is ready to be drained, which is the question asked before acting."
+  },
+  "GET /hosts": {
+    "class": "gap",
+    "notes": "Provider axis. Nothing enumerates the caller's own hosts."
+  },
   "GET /instance/{job_id}": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -863,6 +987,18 @@
     "class": "internal",
     "notes": "server-rendered pages and a crawler text file, not an API surface"
   },
+  "GET /marketplace": {
+    "class": "redundant",
+    "notes": "Legacy unfiltered browse \u2014 get_marketplace(active_only=True), the same source the covered v2 search reads, with no filters applied."
+  },
+  "GET /marketplace/search": {
+    "class": "redundant",
+    "notes": "Legacy filtered search, superseded by POST /api/v2/marketplace/search, which is what search_marketplace calls. Worth noting while classifying: this one takes no Request and performs no auth check at all \u2014 the listings are public, so it is not a leak, but it is the only marketplace read with no scope gate."
+  },
+  "GET /marketplace/stats": {
+    "class": "gap",
+    "notes": "Operator profile. Platform-admin aggregates (_require_admin), distinct from the v2 row above; no operator tool reads them."
+  },
   "GET /metrics": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -898,6 +1034,10 @@
   "GET /user-images": {
     "class": "gap",
     "notes": "P7's image library with provenance \u2014 commit an instance to a reusable image and manage the result; no tool reaches it"
+  },
+  "GET /v1/inference/{job_id}": {
+    "class": "gap",
+    "notes": "Polls the job the async route returns; unreachable for the same reason."
   },
   "GET /v1/serverless/{endpoint_id}/openai/v1/models": {
     "class": "redundant",
@@ -947,6 +1087,10 @@
     "class": "internal",
     "notes": "team and member administration, an account-console surface; no P0-P7 journey creates a team or changes a membership"
   },
+  "PATCH /api/v2/serverless/endpoints/{endpoint_id}": {
+    "class": "gap",
+    "notes": "No tool changes an endpoint's configuration. Scaling and model settings are exactly what an agent tuning cost or latency would need to reach."
+  },
   "PATCH /api/v2/volumes/{volume_id}": {
     "class": "gap",
     "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
@@ -954,6 +1098,10 @@
   "PATCH /instance/{job_id}": {
     "class": "covered",
     "notes": "MCP server calls this path"
+  },
+  "PATCH /instance/{job_id}/name": {
+    "class": "gap",
+    "notes": "Renaming is cosmetic but it is how a user keeps a fleet legible, and an agent that launches instances cannot label them."
   },
   "PATCH /user-images/{image_id}": {
     "class": "gap",
@@ -1347,6 +1495,10 @@
     "class": "internal",
     "notes": "host admission handshake between platform and worker"
   },
+  "POST /api/inference": {
+    "class": "redundant",
+    "notes": "The pre-v1 submit route for the same direct-inference capability as POST /v1/inference/async. Both mint a job; the v1 pair is the surface the API advertises as OpenAI-compatible, so that is the one a tool should target."
+  },
   "POST /api/inference/{job_id}/result": {
     "class": "internal",
     "notes": "worker callback posting a finished inference result; authenticated as the fleet, never an agent"
@@ -1382,6 +1534,10 @@
   "POST /api/pricing/estimate": {
     "class": "covered",
     "notes": "MCP server calls this path"
+  },
+  "POST /api/pricing/reserve": {
+    "class": "gap",
+    "notes": "Creates a reserved pricing commitment. Money-moving with a term and no tool. Note for whoever builds it: POST /api/v2/marketplace/reservations also creates a reservation \u2014 which of the two is canonical is a product decision, and a tool must not be written against both."
   },
   "POST /api/privacy/config": {
     "class": "internal",
@@ -1567,9 +1723,21 @@
     "class": "redundant",
     "notes": "a compatibility shim: the handler is `api_inference_compat_*`, tagged 'Serverless (compat)', and its whole body delegates to the corresponding api_serverless_* function. Folded into the serverless surface the MCP already calls, and the code declares it rather than leaving it to be inferred"
   },
+  "POST /api/v2/marketplace/allocate": {
+    "class": "internal",
+    "notes": "The marketplace engine's atomic claim on an offer, behind marketplace:write \u2014 a scope no tool holds and Quick Connect does not grant. The customer path is the launch plan; exposing direct allocation would put GPUs on a job without the approval gate create_instance is built around."
+  },
   "POST /api/v2/marketplace/offers": {
     "class": "gap",
     "notes": "P6's publish-capacity step for a provider; no tool reaches it"
+  },
+  "POST /api/v2/marketplace/release/{allocation_id}": {
+    "class": "internal",
+    "notes": "The release half of the allocation primitive above, same scope, same reason: it is the scheduler's bookkeeping, not a user action."
+  },
+  "POST /api/v2/marketplace/reservations": {
+    "class": "gap",
+    "notes": "Creates a reserved-capacity commitment \u2014 a spending decision with a term. No tool makes one, so the cheaper-than-on-demand path is browser-only."
   },
   "POST /api/v2/marketplace/search": {
     "class": "covered",
@@ -1591,6 +1759,14 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "POST /api/v2/serverless/endpoints/{endpoint_id}/batches": {
+    "class": "gap",
+    "notes": "No tool submits a batch. Per its summary this is the discounted token/GPU billing path, so the cheaper way to run bulk inference is reachable only from a browser."
+  },
+  "POST /api/v2/serverless/endpoints/{endpoint_id}/jobs/{job_id}/cancel": {
+    "class": "gap",
+    "notes": "No tool cancels a running inference job. Money-stopping and unreachable, the same shape as the DELETE above."
+  },
   "POST /api/v2/serverless/endpoints/{endpoint_id}/keys": {
     "class": "internal",
     "notes": "per-endpoint API keys. Issuing a credential that calls the endpoint is the same escalation shape as minting an agent key: a tool that could do it could widen its own reach"
@@ -1606,6 +1782,10 @@
   "POST /api/v2/serverless/endpoints/{endpoint_id}/test/runsync": {
     "class": "internal",
     "notes": "the dashboard's try-it console for an endpoint; the tool surface invokes endpoints through /v1/serverless instead"
+  },
+  "POST /api/v2/serverless/endpoints/{endpoint_id}/warm": {
+    "class": "gap",
+    "notes": "No tool pre-warms. Cold start is the headline cost of serverless inference and the one thing an agent could do about it before a latency-sensitive run."
   },
   "POST /api/v2/serverless/github/resolve": {
     "class": "internal",
@@ -1727,6 +1907,10 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "POST /instance/{job_id}/requeue": {
+    "class": "gap",
+    "notes": "retry_instance calls /api/v1/instances/{job_id}/retry, not this. Whether the two are one authority or two is worth settling before a tool points here."
+  },
   "POST /instances/{job_id}/auto-launch/report": {
     "class": "internal",
     "notes": "worker-agent callback reporting instance state back to the platform; authenticated as the fleet, never an agent"
@@ -1742,6 +1926,14 @@
   "POST /instances/{job_id}/http-ports/report": {
     "class": "internal",
     "notes": "worker-agent callback reporting instance state back to the platform; authenticated as the fleet, never an agent"
+  },
+  "POST /instances/{job_id}/lock": {
+    "class": "gap",
+    "notes": "Marks an instance protected from accidental modification. Precisely the guard a user would want *because* an agent can now cancel and terminate."
+  },
+  "POST /instances/{job_id}/reset": {
+    "class": "gap",
+    "notes": "Restarts the container in place \u2014 the middle option between 'do nothing' and cancel_instance, which ends the run and loses uncheckpointed work."
   },
   "POST /instances/{job_id}/restart": {
     "class": "gap",
@@ -1763,9 +1955,17 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "POST /instances/{job_id}/unlock": {
+    "class": "gap",
+    "notes": "The release half of the lock above."
+  },
   "POST /marketplace/bill/{job_id}": {
     "class": "internal",
     "notes": "billing sweep over a completed job; the scheduler calls it"
+  },
+  "POST /marketplace/list": {
+    "class": "gap",
+    "notes": "Provider axis. Listing an admitted rig for sale is the provider's core write and is unreachable."
   },
   "POST /oauth/authorize": {
     "class": "internal",
@@ -1806,6 +2006,14 @@
   "POST /user-images/{image_id}/complete": {
     "class": "internal",
     "notes": "worker-agent callback reporting instance state back to the platform; authenticated as the fleet, never an agent"
+  },
+  "POST /v1/inference": {
+    "class": "gap",
+    "notes": "Synchronous OpenAI-compatible inference, distinct from the endpoint-based serverless path run_serverless_job covers. An agent cannot use the compatible surface the API advertises."
+  },
+  "POST /v1/inference/async": {
+    "class": "gap",
+    "notes": "The async half of the same direct-inference surface, returning a job_id."
   },
   "POST /v1/serverless/{endpoint_id}/cancel/{job_id}": {
     "class": "gap",
@@ -1862,5 +2070,9 @@
   "PUT /api/users/me/preferences": {
     "class": "internal",
     "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "PUT /host": {
+    "class": "gap",
+    "notes": "Provider axis. Registering or updating a rig is how supply reaches the marketplace, and docs/mcp-provider-axis-plan.md records that the provider class has zero tools today."
   }
 }
