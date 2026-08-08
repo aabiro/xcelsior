@@ -13,6 +13,41 @@ attach, snapshot, and `get_artifact_expiry`).
 
 ---
 
+## 0. Directive to the implementer
+
+**The decisions in §3 are architectural constraints, not suggestions.**
+
+If implementation reveals that one of them cannot be satisfied, **stop and raise
+it for design review.** Do not introduce an alternative execution path, backend
+copy logic, a bypass, or a fallback to make the constraint go away. Any deviation
+is an architecture change and needs to be decided as one, not absorbed as an
+implementation convenience.
+
+The specific shortcuts this rules out, named because each is the one that will
+look reasonable at 2am:
+
+| Tempting | Why it is prohibited |
+|---|---|
+| Have the API stream the object to the share "just for small files" | §1 — the API does not mount the share. A path that works only when someone else already mounted it is a coincidence, not a design, and it will be load-bearing before anyone notices. |
+| Put the presigned URLs in the command args "because the manifest fetch is one more round trip" | §3.1 — those URLs are read grants on a tenant's weights, in a row that is queued, logged and retained. |
+| Skip the `legal_hold` and "handle the delete case if it happens" | §3.3 — it happens precisely on artifacts near expiry, which are the ones worth promoting, and the symptom is a partial volume the user believes is complete. |
+| Copy without verifying `sha256` "to save a pass over the bytes" | §3.5 — an unverified copy is worse than no copy, because it looks like a backup. |
+| Make the tool block until the copy finishes "so the agent gets a real answer" | §3.6 — it will time out on exactly the checkpoints that matter, and a timeout reads as a failure of a promotion that is still running. |
+| Fall back to "any host" when the chosen one is busy | §3.4 — host selection is a placement decision with an owner; a silent fallback makes it unattributable. |
+
+**A constraint that cannot be met is information, not an obstacle.** §5 already
+lists what would make this design wrong; if implementation turns up a seventh
+entry for that list, that is a good outcome and it belongs in review rather than
+in a workaround.
+
+Where a constraint is enforceable in code it gets a test when it is built —
+following this repository's rule that a comment asking for something is not a
+mechanism. The two that are straightforwardly testable: no presigned URL appears
+in a command row (§3.1), and no promotion begins without a hold on every artifact
+in its manifest (§3.3).
+
+---
+
 ## 1. Why it cannot be a thin wrapper
 
 Every other tool in this plan wraps an endpoint. This one has no endpoint to
