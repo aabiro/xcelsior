@@ -209,15 +209,62 @@ def test_a_browser_session_is_never_gated_in_any_mode(mode, monkeypatch):
     _deps._require_scope(_browser_session(), "billing:write")
 
 
-def test_the_default_mode_is_shadow():
-    """Stated as an assertion so a change to `enforce` is deliberate.
+def test_the_default_mode_is_enforce():
+    """The cutover, asserted so that silently falling back to `shadow` fails.
 
-    Enforcing by default would be a production cutover performed by a merge.
+    This file first asserted the opposite — that the default must *not* be
+    `enforce`, on the grounds that flipping it would refuse connector traffic
+    wherever the routes' 36 demanded scopes exceeded Quick Connect's 14. That
+    reasoning rested on a bad measurement: the 36 came from a TypeScript type
+    union rather than from tool requirements, and it read `anyOf` as `allOf`.
+
+    Measured properly, exactly two published tools cannot be satisfied by a
+    Quick Connect token, both needing `billing:write`, and both are already
+    refused at the MCP layer. So enforcement removes no working capability — it
+    closes the direct-REST path that route scoping never reached.
+
+    A regression to `shadow` would be silent: every request would still succeed,
+    and the enforcement would simply stop happening.
     """
     from routes import _deps
 
-    assert _deps._CONNECTOR_SCOPE_MODE in ("shadow", "off"), (
-        f"the default connector scope mode is {_deps._CONNECTOR_SCOPE_MODE!r}; "
-        "enforcing by default is a production cutover and must be an explicit "
-        "environment change, not a code default"
+    assert _deps._CONNECTOR_SCOPE_MODE == "enforce", (
+        f"the default connector scope mode is {_deps._CONNECTOR_SCOPE_MODE!r}, "
+        "not 'enforce' — a third-party connector token's scopes are being "
+        "treated as decorative again"
+    )
+
+
+def test_the_two_tools_quick_connect_cannot_satisfy_are_the_expected_ones():
+    """The blast radius, pinned rather than described.
+
+    If a third tool ever needs a scope Quick Connect withholds, enforcement
+    starts refusing it and this fails — which is the intended way to find out,
+    rather than from a user whose agent stopped working.
+    """
+    import json
+    import pathlib
+    import re
+
+    from oauth_service import MCP_QUICK_CONNECT_SCOPES
+
+    repo = pathlib.Path(__file__).resolve().parent.parent
+    src = (repo / "mcp" / "src" / "auth" / "scopes.ts").read_text(encoding="utf-8")
+    published = {t["name"] for t in json.loads((repo / "mcp" / "tool-surface.json").read_text())["tools"]}
+    held = set(MCP_QUICK_CONNECT_SCOPES)
+
+    unsatisfiable = set()
+    for match in re.finditer(r"(\w+)\s*:\s*\{\s*(allOf|anyOf)\s*:\s*\[([^\]]*)\]", src):
+        tool, kind, body = match.group(1), match.group(2), match.group(3)
+        scopes = set(re.findall(r'"([a-z]+:[a-z]+)"', body))
+        if not scopes or tool not in published:
+            continue
+        satisfied = scopes <= held if kind == "allOf" else bool(scopes & held)
+        if not satisfied:
+            unsatisfiable.add(tool)
+
+    assert unsatisfiable == {"top_up_wallet", "configure_auto_topup"}, (
+        f"the set of published tools a Quick Connect token cannot use is "
+        f"{sorted(unsatisfiable)}, not the two billing writes this cutover was "
+        "measured against"
     )

@@ -69,12 +69,40 @@ MAX_UNSCOPED_SERVERLESS_ROUTES = 9
 #: decorators — each carries an `{endpoint_slug}` twin pointing at the same
 #: handler.
 #:
-#: These are not unguarded. They use `_resolve_serverless_endpoint_auth`, and
-#: that helper is **asymmetric**: the endpoint-API-key branch checks
-#: `key_has_scope(key_row, "inference:write")` and raises 403 without it, while
-#: the OAuth/user branch checks ownership and team role and reads no scope at
-#: all. The narrower credential is enforced; the broader one is not.
-MAX_UNSCOPED_V1_OPERATIONS = 8
+#: **This is 0 because the asymmetry is closed.** These handlers do not call
+#: `_require_scope` themselves — they delegate to
+#: `_resolve_serverless_endpoint_auth`, which now checks `inference:read` or
+#: `inference:write` on the user branch as well as on the endpoint-key branch.
+#: Counting call sites in `routes/serverless.py` would therefore report them as
+#: unscoped forever, which is why `_v1_operations()` below resolves the
+#: delegation instead of pattern-matching the handler body.
+#:
+#: The inversion this closes is worth restating: the endpoint API key is the
+#: *narrower* credential, deliberately minted for one endpoint, and it was the
+#: only one held to a scope. A user credential reaching every endpoint on the
+#: account was held to none.
+MAX_UNSCOPED_V1_OPERATIONS = 0
+
+
+def _resolver_checks_user_scope() -> bool:
+    """Does `_resolve_serverless_endpoint_auth` scope-check its *user* branch?
+
+    The user branch is whatever follows the **last** `_get_current_user(request)`.
+    `rsplit`, not `split`, and the difference is not cosmetic: the helper calls
+    `_get_current_user` twice, so splitting on the first occurrence swallows the
+    entire endpoint-key branch — including its `key_has_scope` call — into what
+    this would then treat as the user branch. An earlier draft did exactly that
+    and reported the asymmetry resolved while it was wide open, which is the
+    failure mode this whole file exists to catch in other people's code.
+    """
+    import inspect
+    import textwrap
+
+    from routes import _deps
+
+    source = textwrap.dedent(inspect.getsource(_deps._resolve_serverless_endpoint_auth))
+    user_branch = source.rsplit("_get_current_user(request)", 1)[-1]
+    return "_require_scope" in user_branch
 
 
 def _routes() -> list[tuple[str, str, bool]]:
@@ -176,7 +204,12 @@ def _v1_operations() -> set[tuple[str, str]]:
             for c in ast.walk(node)
             if isinstance(c, ast.Call)
         }
-        if "_require_scope" in calls:
+        # A handler is scoped if it checks a scope *or* delegates to a helper
+        # that does. Without the second clause this counts every `/v1` handler
+        # as unscoped no matter what the resolver does, and the ratchet becomes
+        # a measure of coding style rather than of enforcement.
+        if "_require_scope" in calls or ("_resolve_serverless_endpoint_auth" in calls
+                                         and _resolver_checks_user_scope()):
             continue
         for d in node.decorator_list:
             if not isinstance(d, ast.Call) or not d.args:
@@ -189,9 +222,34 @@ def _v1_operations() -> set[tuple[str, str]]:
     return ops
 
 
+def _all_v1_operations() -> set[str]:
+    """Every `/v1/serverless` handler, scoped or not."""
+    tree = ast.parse(SERVERLESS.read_text(encoding="utf-8"))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for d in node.decorator_list:
+            if not isinstance(d, ast.Call) or not d.args:
+                continue
+            if not isinstance(d.args[0], ast.Constant):
+                continue
+            path = d.args[0].value
+            if isinstance(path, str) and path.startswith("/v1/serverless"):
+                names.add(node.name)
+    return names
+
+
 def test_the_v1_family_is_visible_to_this_measurement():
-    """Prove the reach. The first version of this file could not see `/v1` at all."""
-    assert _v1_operations(), "no /v1/serverless operations found; the scan is broken"
+    """Prove the reach — independently of what is being measured.
+
+    This used to assert `_v1_operations()` was non-empty, which worked only
+    while some `/v1` operation was unscoped. The moment the last one was fixed,
+    the reach probe failed for the *success* of the thing it was guarding. A
+    probe coupled to its own subject stops being a probe: it cannot tell "the
+    scanner is broken" from "there is nothing left to find".
+    """
+    assert _all_v1_operations(), "no /v1/serverless handlers found; the scan is broken"
 
 
 def test_unscoped_v1_operations_do_not_grow():
@@ -204,44 +262,31 @@ def test_unscoped_v1_operations_do_not_grow():
     )
 
 
-def test_the_auth_resolver_is_still_asymmetric():
-    """The inversion, asserted so that fixing it is noticed.
+def test_the_auth_resolver_holds_both_credentials_to_a_scope():
+    """The inversion, now closed, asserted so it cannot silently reopen.
 
-    `_resolve_serverless_endpoint_auth` checks `inference:write` on an endpoint
-    API key and checks no scope at all on a user credential. That is backwards:
-    the endpoint key is the *narrower* credential, deliberately minted for one
-    endpoint, and it is the one held to a scope.
+    This test used to assert the *opposite* — that the user branch checked no
+    scope — and said failing was "the intended way to discover that
+    `MAX_UNSCOPED_V1_OPERATIONS` can be lowered". It has now been lowered to 0,
+    so the assertion inverts with it.
 
-    When the OAuth branch gains a scope check this test fails — which is the
-    intended way to discover that `MAX_UNSCOPED_V1_OPERATIONS` can be lowered.
+    Both halves are checked. A commit that removed `key_has_scope` instead of
+    adding the user-branch check would also produce a "symmetric" resolver, by
+    making the surface weaker rather than more consistent.
     """
+    assert _resolver_checks_user_scope(), (
+        "the OAuth/user branch of _resolve_serverless_endpoint_auth no longer "
+        "checks a scope — a credential reaching every endpoint on the account "
+        "is once again freer than an endpoint key minted for one of them"
+    )
+
     import inspect
     import textwrap
 
     from routes import _deps
 
     source = textwrap.dedent(inspect.getsource(_deps._resolve_serverless_endpoint_auth))
-    tree = ast.parse(source)
-
-    key_branch_checks_scope = "key_has_scope" in source
-    # The user branch is whatever follows the *last* `_get_current_user(request)`.
-    #
-    # `rsplit`, not `split`, and the difference is not cosmetic: the helper calls
-    # `_get_current_user` twice, so splitting on the first occurrence swallows
-    # the whole endpoint-key branch — including its `key_has_scope` call — into
-    # what this then treats as the user branch. The first draft did exactly that
-    # and reported the asymmetry resolved when it was not, which is the failure
-    # mode this whole file exists to prevent in other people's code.
-    user_branch = source.rsplit("_get_current_user(request)", 1)[-1]
-    user_branch_checks_scope = "_require_scope" in user_branch or "key_has_scope" in user_branch
-
-    assert key_branch_checks_scope, (
-        "the endpoint-key branch no longer checks inference:write — if that was "
-        "removed rather than the user branch gaining a check, the surface got "
-        "weaker, not more consistent"
+    assert "key_has_scope" in source, (
+        "the endpoint-key branch no longer checks inference:write — the two "
+        "branches agree, but by dropping enforcement rather than adding it"
     )
-    assert not user_branch_checks_scope, (
-        "the OAuth/user branch now checks a scope — the asymmetry is resolved. "
-        "Lower MAX_UNSCOPED_V1_OPERATIONS and delete this test in the same commit."
-    )
-    assert isinstance(tree, ast.Module)

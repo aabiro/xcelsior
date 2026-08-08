@@ -79,7 +79,7 @@ failure this document exists to stop.
 | 3 | An `authentication_required` decline produces a resumable pending state, a visible UI state, and a truthful tool result — **forced with a Stripe test card, not by mocking it** | **PARTIAL** | `test_sca_decline_is_recoverable.py` and `test_sca_pending_is_visible.py` are unusually careful — they build a genuine `stripe.CardError` from Stripe's documented JSON body rather than a hand mock with the attributes the code hopes for. But the decline is still *injected*, and the clause names the mocking exclusion explicitly. The clause as written is unmet. |
 | 4 | The webhook refuses what it cannot verify — `400` on a bad signature | **PASS** | `test_a_wrong_signature_is_refused_with_400` plus a missing-header case, in `test_stripe_webhook_refuses_unverified.py`. The file reasons explicitly about why "400 or 503" would be an untrustworthy assertion. |
 | 5 | No secret in any surface — card data, `client_secret`, processor tokens; canary-tested with fake PANs | **PASS** | `tests/test_no_payment_secrets_in_logs.py`. |
-| 6 | **Raising a spend cap requires approval; lowering one does not. Both asserted.** | **FAIL** | `configure_auto_topup` ([mcp/src/tools/billing.ts:136](mcp/src/tools/billing.ts#L136)) gates on scope alone. The backend `/api/v2/billing/auto-topup` gates on `billing:write` alone. `test_auto_topup_change_is_recorded.py` records widenings and **argues in its docstring that approval is unnecessary** — a test that documents a deviation from a gate rather than enforcing it. Ruled in §Ruling below. |
+| 6 | **Raising a spend cap requires approval; lowering one does not. Both asserted.** | **PASS** *(was FAIL)* | Ruled Option A (§Ruling) and implemented. A widening by any caller that is not an interactive human is refused `409` and directed to `/api/v2/billing/auto-topup-plans`; narrowing and disabling stay single-call. `approval_mode` is hard-coded `"human"` so a standing policy cannot approve a change to its own ceilings. Both halves asserted in `test_widening_auto_topup_needs_approval.py`, with the plan lifecycle driven against real PostgreSQL in `test_auto_topup_plan_lifecycle.py`. |
 | 7 | An envelope-funded charge is traceable to its approving plan in one query | **PASS** | `tests/test_spend_traces_to_its_approving_plan.py`. |
 
 ---
@@ -125,12 +125,14 @@ for, and the substrate P4 and P5 are supposed to stand on — is not started.
 |---|---|---|---|---|
 | §1 universal | 2 | 1 | 2 | — |
 | P0 | 2 | 1 | — | 1 |
-| P1 | 3 | 3 | 1 | — |
+| P1 | 4 | 3 | — | — |
 | P2 | 1 | 1 | 1 | — |
 | P3 | — | 1 | 2 | — |
-| **Total** | **8** | **7** | **6** | **1** |
+| **Total** | **9** | **7** | **5** | **1** |
 
-Eight of twenty-two clauses are fully met.
+Nine of twenty-two clauses are fully met. It was eight when this table was
+first written; P1 clause 6 moved from FAIL to PASS when the ruling below was
+implemented.
 
 ## What this table does not cover
 
