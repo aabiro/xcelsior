@@ -5359,6 +5359,63 @@ def _run_auto_launch(job_id: str, container_name: str, job: dict) -> None:
             log.debug("auto_launch report outer error: %s", e)
 
 
+#: `ssh-keygen -lf` prints "<bits> <hash> <comment> (<TYPE>)". The middle field
+#: is the fingerprint; the comment can contain spaces, so this takes field two
+#: rather than splitting and hoping.
+_HOST_KEY_FINGERPRINT = re.compile(r"\bSHA256:[A-Za-z0-9+/]{43}\b")
+
+
+def read_container_host_key_fingerprint(container_name: str) -> str:
+    """The Ed25519 host-key fingerprint the container's sshd will present.
+
+    Ed25519 only: it is OpenSSH's default `HostKeyAlgorithms` preference, so it
+    is the key a modern client actually negotiates. Publishing an RSA
+    fingerprint nobody verifies would be noise diluting the one that matters.
+
+    Returns `""` when it cannot be read — a missing key, a base image without
+    `ssh-keygen`, an exec that times out. **Empty is a real answer here**, and
+    the caller must treat it as "unknown" rather than substituting anything:
+    a fingerprint the platform did not observe is worse than none, because
+    `null` makes a model say "this cannot be verified" and a wrong value makes
+    it say "verified".
+    """
+    try:
+        proc = subprocess.run(
+            [
+                "docker",
+                "exec",
+                container_name,
+                "sh",
+                "-c",
+                "ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except Exception:
+        return ""
+    match = _HOST_KEY_FINGERPRINT.search(proc.stdout or "")
+    return match.group(0) if match else ""
+
+
+def _log_container_host_key_fingerprint(container_name: str, job_id: str) -> None:
+    """Observe only. Never raises, never changes what the caller returns.
+
+    SSH setup is on the launch path, so a failure here must cost the user
+    nothing — the instance is more important than the telemetry about it.
+    """
+    try:
+        fingerprint = read_container_host_key_fingerprint(container_name)
+        if fingerprint:
+            log.info("host_key.observed job=%s fingerprint=%s", job_id, fingerprint)
+        else:
+            log.info("host_key.unreadable job=%s container=%s", job_id, container_name)
+    except Exception:  # pragma: no cover - observation must never break a launch
+        pass
+
+
 def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False):
     """Fetch the job owner's SSH public keys from the API and inject into the container.
 
@@ -5566,6 +5623,16 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
                 capture_output=True,
                 timeout=_remaining(10),
             )
+            # A0 of docs/host-key-fingerprint-plan.md: observe the value, store
+            # nothing, publish nothing. `open_instance_access` returns
+            # `host_key_fingerprint: null` today and says so honestly, which is
+            # right but leaves an agent telling users their first SSH connection
+            # cannot be verified.
+            #
+            # This ships alone and logs only, because instance images vary far
+            # more than the control plane does — the rate of blanks across real
+            # base images has to be known before anything depends on the value.
+            _log_container_host_key_fingerprint(container_name, job_id)
             # Ensure PermitRootLogin is enabled and configure keepalive so SSH
             # sessions don't get cut by NAT/firewall idle timeouts.
             subprocess.run(
