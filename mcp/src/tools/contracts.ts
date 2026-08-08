@@ -12,6 +12,7 @@ const READ_ONLY = new Set([
   "get_active_lease", "get_scheduler_health", "get_host_capacity",
   "list_reconciliation_findings", "get_mcp_action_status",
   "search", "fetch",
+  "list_volumes", "get_volume", "get_artifact_expiry",
 ]);
 
 /**
@@ -27,7 +28,24 @@ const READ_ONLY = new Set([
  * called it and observed nothing evicted would be right to distrust every other
  * annotation we publish.
  */
-const DESTRUCTIVE = new Set(["cancel_instance", "terminate_instance", "evict_host_workloads"]);
+const DESTRUCTIVE = new Set([
+  "cancel_instance", "terminate_instance", "evict_host_workloads",
+  // `delete_volume` destroys the volume's contents and they cannot be
+  // recovered.
+  //
+  // `detach_volume` is **not** here, and that was reconsidered rather than
+  // assumed. It is confirm-gated because the plan puts detach behind approval —
+  // it can disrupt a running workload — but the annotation asks a narrower
+  // question: is the effect undoable? Re-attaching restores the mount. What is
+  // lost is whatever was mid-write, which is a consequence of timing rather
+  // than of the operation being irreversible.
+  //
+  // Same reasoning that keeps `drain_host` out: a reviewer who detaches, then
+  // re-attaches, and finds the volume intact would be right to distrust every
+  // other annotation we publish. Approval gating and `destructiveHint` are
+  // different claims and are kept that way.
+  "delete_volume",
+]);
 
 /**
  * Tools that read state we do not control.

@@ -141,6 +141,57 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     "SSH needs a key the account has already registered; if the connection is refused, " +
     "register_ssh_key is the fix.",
 
+  // ── Durable state ───────────────────────────────────────────────────────
+  list_volumes:
+    "List the account's persistent volumes: id, name, size, region, status, and what each is " +
+    "attached to. Use when the user asks what storage they have, before creating another one, " +
+    "or to find a volume_id for attach. Read-only and free to call — though the volumes " +
+    "themselves bill per GB-month whether attached or not.",
+
+  get_volume:
+    "Get one volume by id: size, encryption, region, status, and its current attachment. Use " +
+    "when the user asks about a specific volume, or before detaching, to see which instance " +
+    "would lose its filesystem. Read-only and free.",
+
+  create_volume:
+    "Create a persistent volume that outlives any instance. Use when work must survive a " +
+    "relaunch — checkpoints, datasets, model weights — because an instance's own disk is " +
+    "destroyed with it. Creates storage that bills per GB-month from the moment it exists, " +
+    "attached or not, so size it for what is needed rather than rounding up.",
+
+  attach_volume:
+    "Attach a volume to a running instance at a mount path. Use after launching, so the job " +
+    "writes somewhere durable instead of into the container. Free in itself — the volume was " +
+    "already billing — and it changes what the instance can see: a job started before the " +
+    "attach may need restarting to notice the new path.",
+
+  detach_volume:
+    "Detach a volume from the instance it is mounted on. Use when moving storage to another " +
+    "instance, or before deleting the instance it is attached to. Call it with confirm:false " +
+    "first: that returns a preview naming the instance that would lose its filesystem. " +
+    "Detaching pulls the mount out from under anything writing to it, so unwritten data is " +
+    "lost even though the volume itself is not destroyed — and the volume keeps billing per " +
+    "GB-month either way, so detaching saves nothing.",
+
+  delete_volume:
+    "Permanently delete a volume and everything stored on it. Use only when the user says the " +
+    "data is no longer needed — prefer detach_volume when they merely want it off an instance. " +
+    "Call it with confirm:false first for a preview. Stops the per-GB-month billing, and is " +
+    "irreversible: the contents cannot be recovered, so snapshot first if there is any doubt.",
+
+  snapshot_volume:
+    "Creates a point-in-time snapshot of a volume, so its current contents can be restored " +
+    "later. Use before anything destructive — a delete, a risky job, a version bump — and when " +
+    "the user wants a checkpoint they can return to. The snapshot is new stored data and bills " +
+    "per GB-month like the volume it came from.",
+
+  get_artifact_expiry:
+    "Show when a job's artifacts will be deleted: each file with its creation time and the date " +
+    "its retention window ends. Use when the user asks how long results are kept, and " +
+    "unprompted after a job finishes — the clock is otherwise invisible, which is how finished " +
+    "work quietly disappears. Read-only and free. Artifacts expire; a volume does not, so copy " +
+    "anything that matters onto one before the window closes.",
+
   // ── Monitoring ──────────────────────────────────────────────────────────
   watch_instance:
     "Poll one instance's status, telemetry, and recent logs for up to 60 minutes, returning as " +

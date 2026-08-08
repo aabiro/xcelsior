@@ -100,7 +100,14 @@ describe("annotation accuracy", () => {
       .sort();
     // drain_host is absent deliberately: the versioned endpoint it calls stops
     // new placements and leaves running workloads alone. See contracts.ts.
-    expect(destructive).toEqual(["cancel_instance", "evict_host_workloads", "terminate_instance"]);
+    // `delete_volume` joins them: a deleted volume's contents cannot be
+    // recovered. `detach_volume` deliberately does not — it is confirm-gated
+    // because it disrupts a running job, but re-attaching restores the mount,
+    // and `destructiveHint` is a claim about undoability rather than about
+    // needing care. See the reasoning in contracts.ts.
+    expect(destructive).toEqual([
+      "cancel_instance", "delete_volume", "evict_host_workloads", "terminate_instance",
+    ]);
   });
 
   it("never marks a tool both read-only and destructive", () => {

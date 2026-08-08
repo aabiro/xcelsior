@@ -3,6 +3,46 @@
   "generatedFor": "customer",
   "tools": [
     {
+      "name": "attach_volume",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "instances:read",
+        "volumes:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "volume_id": {
+          "type": "string",
+          "optional": false
+        },
+        "instance_id": {
+          "type": "string",
+          "optional": false
+        },
+        "mount_path": {
+          "type": "string",
+          "optional": true
+        },
+        "mode": {
+          "type": "enum",
+          "optional": true,
+          "values": [
+            "ro",
+            "rw"
+          ]
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
       "name": "cancel_instance",
       "version": "2.0.0",
       "tenantClass": "tenant",
@@ -199,6 +239,95 @@
       "hasOutputSchema": true
     },
     {
+      "name": "create_volume",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "volumes:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "name": {
+          "type": "string",
+          "optional": false
+        },
+        "size_gb": {
+          "type": "number",
+          "optional": true
+        },
+        "region": {
+          "type": "string",
+          "optional": true
+        },
+        "encrypted": {
+          "type": "boolean",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "delete_volume",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "volumes:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "volume_id": {
+          "type": "string",
+          "optional": false
+        },
+        "confirm": {
+          "type": "boolean",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "detach_volume",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "volumes:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "volume_id": {
+          "type": "string",
+          "optional": false
+        },
+        "confirm": {
+          "type": "boolean",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
       "name": "estimate_job_cost",
       "version": "2.0.0",
       "tenantClass": "tenant",
@@ -258,6 +387,29 @@
       "tenantClass": "tenant",
       "requiredScopes": [
         "instances:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "job_id": {
+          "type": "string",
+          "optional": false
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "get_artifact_expiry",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "artifacts:read"
       ],
       "idempotency": "read",
       "retry": "safe",
@@ -461,6 +613,29 @@
       "hasOutputSchema": true
     },
     {
+      "name": "get_volume",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "volumes:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "volume_id": {
+          "type": "string",
+          "optional": false
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
       "name": "get_wallet_balance",
       "version": "2.0.0",
       "tenantClass": "tenant",
@@ -602,6 +777,24 @@
       "tenantClass": "tenant",
       "requiredScopes": [
         "gpu:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {},
+      "hasOutputSchema": true
+    },
+    {
+      "name": "list_volumes",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "volumes:read"
       ],
       "idempotency": "read",
       "retry": "safe",
@@ -1037,6 +1230,33 @@
         "spec": {
           "type": "record",
           "optional": false
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "snapshot_volume",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "volumes:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "volume_id": {
+          "type": "string",
+          "optional": false
+        },
+        "name": {
+          "type": "string",
+          "optional": true
         }
       },
       "hasOutputSchema": true

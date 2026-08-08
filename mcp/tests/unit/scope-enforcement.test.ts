@@ -115,7 +115,8 @@ describe("scope enforcement", () => {
     // import a Python constant, and this copy had already drifted once.
     const quickConnect = [
       "instances:read", "instances:write", "instances:operate", "instances:connect",
-      "ssh:write", "billing:read", "gpu:read", "marketplace:read", "inference:read",
+      "ssh:write", "volumes:read", "volumes:write", "artifacts:read",
+      "billing:read", "gpu:read", "marketplace:read", "inference:read",
       "inference:write", "events:read",
     ];
     for (const [name, contract] of Object.entries(TOOL_CONTRACTS)) {
@@ -135,7 +136,8 @@ describe("scope enforcement", () => {
     // import a Python constant, and this copy had already drifted once.
     const quickConnect = [
       "instances:read", "instances:write", "instances:operate", "instances:connect",
-      "ssh:write", "billing:read", "gpu:read", "marketplace:read", "inference:read",
+      "ssh:write", "volumes:read", "volumes:write", "artifacts:read",
+      "billing:read", "gpu:read", "marketplace:read", "inference:read",
       "inference:write", "events:read",
     ];
     for (const name of NOT_REACHABLE_BY_QUICK_CONNECT) {
