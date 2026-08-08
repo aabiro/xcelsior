@@ -105,8 +105,13 @@ describe("annotation accuracy", () => {
     // because it disrupts a running job, but re-attaching restores the mount,
     // and `destructiveHint` is a claim about undoability rather than about
     // needing care. See the reasoning in contracts.ts.
+    // The serverless exits join them. Deleting an endpoint stops its id
+    // resolving — a replacement is a new deployment, not the same one back.
+    // Cancelling an inference job ends it; there is no resume, only a new job,
+    // which is the same shape as cancel_instance.
     expect(destructive).toEqual([
-      "cancel_instance", "delete_volume", "evict_host_workloads", "terminate_instance",
+      "cancel_instance", "cancel_serverless_job", "delete_serverless_endpoint",
+      "delete_volume", "evict_host_workloads", "terminate_instance",
     ]);
   });
 
