@@ -185,30 +185,57 @@ lowering, disabling, or leaving it unchanged does not.
 
 ### What "approval" means here, stated precisely
 
-This codebase already has exactly one approval mechanism, and Gate P1 clause 7
-depends on it — *"an envelope-funded charge is traceable to its **approving
-plan**"*. The mechanism is the two-phase plan used by `create_serverless_endpoint`
-([mcp/src/tools/serverless.ts:64](mcp/src/tools/serverless.ts#L64)): without
-`confirm` + `plan_id` the tool POSTs to a `…-plans` endpoint and returns a
-**server-authored** preview; with both, it executes that plan by id.
+This codebase already has a real approval authority, and Gate P1 clause 7 depends
+on it — *"an envelope-funded charge is traceable to its **approving plan**"*. It is
+the `action_plans` substrate behind `control_plane.launch.service`, already carrying
+three action types (`create_instance`, `create_serverless_endpoint`,
+`evict_host_workloads`) via an `action_type` discriminator and a per-action
+`ACTION_REQUIRED_SCOPES` map. Adding a fourth is precedent, not invention.
 
-So the clause is satisfiable without inventing anything. Widening produces a plan
-describing old → new; executing requires the plan's id.
+It is stronger than a two-step call, and the strength is worth naming precisely:
 
-**And here is what that mechanism is not, stated plainly so the next person does
-not overestimate it:** it is structural friction plus an audit trail, *not*
-cryptographic human consent. The model can call both phases back to back without
-showing the user anything. What it buys is that the description of the change is
-written by the server rather than the model, and that a widening leaves a durable
-row tying the change to the plan that authorised it. That is worth having and it
-is not the same as a human pressing a button. Any claim stronger than this would
-be the kind of fabricated assurance this whole document exists to prevent.
+- **`confirm: true` never constitutes approval.** `_ApproveIn` accepts the field
+  "for client symmetry" and *deliberately ignores it*
+  ([routes/action_plans.py:151](routes/action_plans.py#L151)). The model cannot
+  approve by asserting that it approves.
+- **Execute refuses an unapproved plan.** The serverless executor requires
+  `status == "approved"` and raises `approval_required` otherwise
+  ([routes/serverless.py:634](routes/serverless.py#L634)).
+- **An approved plan cannot be altered.** The executor re-checks the canonical
+  argument hash and raises `argument_hash_mismatch`, so approval binds to exact
+  values rather than to an intent.
+- **`approval_mode: "human"` refuses a machine principal**
+  ([control_plane/launch/service.py:349](control_plane/launch/service.py#L349)).
+  A `standing_policy` plan may self-approve, but only inside its ceilings.
+
+**A correction to an earlier draft of this document, because it changed the
+design.** I first described the mechanism as "friction plus audit, not human
+consent", on the reasoning that a model could call preview and execute
+back-to-back. That is wrong: it gets `approval_required`. I had generalised from
+the shape of the MCP tool without reading the executor, which is the same mistake
+as the registry-drift greps in §P0.2 — describing a guard from its call site
+instead of its implementation.
+
+**The one real limitation, which is not hypothetical.** `_is_human()` is
+`auth_type != "client_credentials"`
+([routes/action_plans.py:53](routes/action_plans.py#L53)). An `oauth_access_token`
+— the connector credential — is therefore counted as *human* and can approve its
+own plan. So `approval_mode: "human"` is a genuine gate against an agent-API-key or
+client-credentials caller, and **no gate at all against a connector-token agent.**
+
+That is the same predicate gap as `_require_scope`'s `oauth_access_token` no-op,
+which the owner ranked as the top outstanding item. It is now load-bearing in two
+places rather than one: fixing it repairs both route scoping and plan approval, and
+until it is fixed, clause 6 is enforced against exactly the callers it was least
+worried about.
 
 ### What lands with the ruling
 
-1. `configure_auto_topup` gains the two-phase plan shape, with the widening test
-   done **server-side** against the stored setting — never from values the model
-   supplies, since the model is the party being gated.
+1. A `configure_auto_topup` action type on `action_plans`, with
+   `ACTION_REQUIRED_SCOPES["configure_auto_topup"] = ["billing:write"]` and
+   `approval_mode: "human"`. The widening test is done **server-side against the
+   stored setting** — never from values the model supplies, since the model is the
+   party being gated.
 2. Widening = enabling from disabled, raising `amount_cad`, or raising
    `threshold_cad` (a higher threshold fires sooner and more often).
 3. Narrowing and disabling stay single-call.
