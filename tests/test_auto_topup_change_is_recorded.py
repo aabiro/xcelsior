@@ -6,11 +6,23 @@ account holder could see, so an agent could raise the automatic charge from $20
 to $500 and the only evidence was a server log line.
 
 The plan asks for an asymmetry: *"raising a cap requires approval; lowering one
-does not."* This implements the asymmetry as a **visible record** rather than as
-ceremony, for the same reason `top_up_wallet` takes no per-transaction approval:
-the caller already holds `billing:write`, which is granted deliberately and is
-absent from the Quick Connect token. Blocking a capability the user explicitly
-granted re-decides their decision; recording its use does not.
+does not."*
+
+**This file used to argue that the record was enough and the approval was not
+needed** — that the caller already holds `billing:write`, so blocking a
+capability the user explicitly granted "re-decides their decision". That argument
+was ruled against in `docs/gate-truth-table.md`, and the ruling is worth keeping
+here because this is where the losing case was made. It failed on the analogy:
+`top_up_wallet` charges **a stated amount, once, while the user is watching**,
+whereas `configure_auto_topup` installs **standing unattended authority that
+fires repeatedly with nobody present**. The smaller lever being ungated was never
+a reason to leave the larger one ungated.
+
+Widening is now gated for any caller that is not an interactive human — see
+`tests/test_widening_auto_topup_needs_approval.py`. What survives from the
+original argument, unchanged and still correct, is everything below: a gate does
+not remove the need for a trail, and the trail is what tells the account holder
+*what* changed rather than merely that something did.
 
 So both directions are audited, and the *direction is named in the event type*.
 A widening is `user.billing.auto_topup_widened`; anything that narrows or
@@ -32,7 +44,32 @@ import routes.billing as billing_routes  # noqa: E402
 
 
 def _route_source() -> str:
-    return inspect.getsource(billing_routes.api_billing_configure_topup)
+    """Every function the configure path runs through, concatenated.
+
+    The route was one function and is now three — `api_billing_configure_topup`
+    decides, `_auto_topup_widens` classifies, `_apply_auto_topup` writes and
+    records. Scanning only the first would have quietly stopped asserting most
+    of what this file exists for the moment the code was split, which is the
+    failure mode of every source-scanning test: it keeps passing while measuring
+    less. Reading all three keeps the claims attached to the behaviour rather
+    than to a function name.
+    """
+    return "\n".join(
+        inspect.getsource(fn)
+        for fn in (
+            billing_routes.api_billing_configure_topup,
+            billing_routes._auto_topup_widens,
+            billing_routes._apply_auto_topup,
+        )
+    )
+
+
+def test_the_scan_still_covers_the_whole_configure_path():
+    """Prove the reach. An empty or truncated scan passes everything below."""
+    source = _route_source()
+    assert "def api_billing_configure_topup" in source
+    assert "def _auto_topup_widens" in source
+    assert "def _apply_auto_topup" in source
 
 
 def test_the_change_is_written_to_the_user_audit_trail():
@@ -93,7 +130,7 @@ def test_the_response_lets_the_caller_report_what_changed():
     which reads as confirmation and hides a mistake.
     """
     source = _route_source()
-    assert 'return {"ok": True, "auto_topup": body.model_dump(), "previous": previous}' in source
+    assert 'result = {"ok": True, "auto_topup": body.model_dump(), "previous": previous}' in source
 
 
 def test_configuring_auto_topup_still_requires_billing_write():
