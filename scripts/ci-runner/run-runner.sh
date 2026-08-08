@@ -18,17 +18,38 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 command -v gh >/dev/null || { echo "gh CLI is required to mint a registration token" >&2; exit 2; }
 command -v docker >/dev/null || { echo "docker is required" >&2; exit 2; }
 
-# Refuse to run if the workflow this serves can be triggered from a fork. That is
-# the whole threat model, and checking it here means the check cannot be forgotten.
-wf="$(git -C "$HERE/../.." show HEAD:.github/workflows/gates-sandboxed.yml 2>/dev/null || true)"
-if [[ -z "$wf" ]]; then
-    echo "WARNING: .github/workflows/gates-sandboxed.yml not found on HEAD." >&2
-    echo "This runner is only safe alongside a workflow forks cannot trigger." >&2
-elif grep -qE '^\s*pull_request(_target)?\s*:' <<<"$wf"; then
-    echo "REFUSING TO START: gates-sandboxed.yml has a pull_request trigger." >&2
-    echo "On a public repository that lets anyone's PR run code on this runner." >&2
-    exit 1
+# Refuse to run if ANY workflow that targets this runner can be triggered from a
+# fork. That is the whole threat model, and checking it here means the check
+# cannot be forgotten.
+#
+# This used to inspect `gates-sandboxed.yml` alone, which was correct while that
+# was the only workflow using the runner. It is not any more: `frontend.yml` and
+# `mcp.yml` moved here when hosted Actions stayed blocked. A refusal that names
+# one file while the runner serves three is a check that looks in the wrong
+# place — so the set is *discovered* from the workflows rather than listed.
+mapfile -t _sandboxed_workflows < <(
+    git -C "$HERE/../.." grep -lE 'runs-on:\s*\[\s*self-hosted\s*,\s*sandboxed\s*\]' \
+        HEAD -- .github/workflows 2>/dev/null | sed 's|^HEAD:||' || true
+)
+
+if [[ ${#_sandboxed_workflows[@]} -eq 0 ]]; then
+    echo "WARNING: no workflow on HEAD targets [self-hosted, sandboxed]." >&2
+    echo "Either they were renamed or this runner is serving nothing." >&2
 fi
+
+for _wf_path in "${_sandboxed_workflows[@]}"; do
+    _wf="$(git -C "$HERE/../.." show "HEAD:$_wf_path" 2>/dev/null || true)"
+    [[ -n "$_wf" ]] || continue
+    # `on:` triggers only — a `paths:` entry mentioning pull_request, or a job
+    # named for one, is not a trigger. Anchored at two-space indent, which is
+    # where a trigger sits under `on:`.
+    if grep -qE '^\s{0,2}pull_request(_target)?\s*:' <<<"$_wf"; then
+        echo "REFUSING TO START: $_wf_path has a pull_request trigger and runs on" >&2
+        echo "this runner. On a public repository that lets anyone's PR run code here." >&2
+        exit 1
+    fi
+done
+echo "fork-trigger check: ${#_sandboxed_workflows[@]} workflow(s) target this runner, none fork-triggerable"
 
 build() {
     echo "building $IMAGE (auditable by design — see the Dockerfile)"

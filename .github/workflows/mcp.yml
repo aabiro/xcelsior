@@ -26,7 +26,11 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Moved off `ubuntu-latest`: hosted Actions is blocked at the account
+    # level and is not expected back soon, so this job would simply never
+    # run. It needs no secret and no docker, which is exactly the envelope
+    # the sandboxed runner is safe for — see scripts/ci-runner/README.md.
+    runs-on: [self-hosted, sandboxed]
     defaults:
       run:
         working-directory: mcp
