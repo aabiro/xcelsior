@@ -43,16 +43,27 @@ SERVERLESS = REPO / "routes" / "serverless.py"
 
 MUTATING = {"post", "patch", "delete", "put"}
 
-#: Lower as routes are scoped. It may never rise.
+#: **This is the floor, not a budget.** Nine routes remain unscoped and each is
+#: a deliberate exclusion rather than outstanding work:
 #:
-#: **The floor is 7, not 0.** Seven of these are `/workers/*` fleet callbacks
-#: behind `_require_worker_callback`, whose only callers are
-#: `serverless/worker_sdk/client.py` and `worker_agent.py`. They authenticate a
-#: machine, carry no user credential, and must never take a user scope — GT0
-#: classifies them `internal`. Recording that here rather than in a commit
-#: message, because a bare `34` implies 34 routes of work and seven of them
-#: would be a mistake to do.
-MAX_UNSCOPED_SERVERLESS_ROUTES = 34
+#:  * **7 fleet callbacks** (`/serverless/workers/{worker_id}/*`) behind
+#:    `_require_worker_callback`, whose only callers are
+#:    `serverless/worker_sdk/client.py` and `worker_agent.py`. They authenticate
+#:    a machine, carry no user credential, and must never take a user scope —
+#:    GT0 classifies them `internal`.
+#:  * **`GET /enabled`**, a feature-flag probe whose own summary says the session
+#:    is optional. Requiring a scope would break the unauthenticated path it
+#:    exists to serve.
+#:  * **`POST /endpoints/{id}/keys`** — minting an endpoint key returns a bearer
+#:    carrying its own scopes that outlives the token that made it, so a narrowed
+#:    credential can mint an unnarrowed one. The fix is an interactive-session
+#:    guard rather than a scope, and it removes a capability from machine callers,
+#:    which is an owner's decision. **Revoke is scoped** `inference:write`: safety
+#:    must never be harder to reach than the risk it undoes.
+#:
+#: It may never rise. A new serverless route arrives scoped, or the commit that
+#: adds it scopes it.
+MAX_UNSCOPED_SERVERLESS_ROUTES = 9
 
 #: The `/v1/serverless/*` family, counted as distinct operations rather than
 #: decorators — each carries an `{endpoint_slug}` twin pointing at the same
@@ -128,21 +139,22 @@ def test_unscoped_serverless_routes_do_not_grow():
     )
 
 
-def test_the_destructive_ones_are_named_so_they_are_not_forgotten():
-    """The rows that matter most, listed rather than buried in a count.
+def test_the_money_stopping_routes_are_scoped():
+    """Delete-endpoint and cancel-job, asserted individually rather than counted.
 
-    Deleting an endpoint and cancelling a running job are the money-stopping
-    operations. If either ever gains a scope check this test fails, which is the
-    intended way to find out that the ratchet can be lowered.
+    These were the two named while they were unscoped, on the grounds that a
+    count buries what matters. They are scoped now, so the assertion inverts:
+    losing either is a regression this states in words rather than as `9` going
+    to `10`.
     """
     scoped = {(v, p) for v, p, has in _routes() if has}
     for verb, path in (
         ("DELETE", "/api/v2/serverless/endpoints/{endpoint_id}"),
         ("POST", "/api/v2/serverless/endpoints/{endpoint_id}/jobs/{job_id}/cancel"),
     ):
-        assert (verb, path) not in scoped, (
-            f"{verb} {path} now enforces a scope — good. Remove it from this "
-            "list and lower MAX_UNSCOPED_SERVERLESS_ROUTES in the same commit."
+        assert (verb, path) in scoped, (
+            f"{verb} {path} no longer enforces a scope — a narrowed credential "
+            "can once again stop other people's work"
         )
 
 
