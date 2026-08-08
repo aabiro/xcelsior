@@ -88,8 +88,8 @@
     "notes": "consent and erasure records under privacy law. Two generations of the API sit side by side; both are the account holder's own compliance surface and no phase asks an agent to consent or erase on someone's behalf"
   },
   "DELETE /api/v2/serverless/endpoints/{endpoint_id}": {
-    "class": "gap",
-    "notes": "No tool deletes an endpoint. This is the money-stopping action for serverless, the counterpart of cancel_instance, and it is unreachable."
+    "class": "covered",
+    "notes": "delete_serverless_endpoint (mcp/src/tools/serverless.ts), inference:write at the tool layer, confirm-gated, destructive. The route enforces _require_serverless_endpoint_write but no scope."
   },
   "DELETE /api/v2/serverless/endpoints/{endpoint_id}/keys/{key_id}": {
     "class": "internal",
@@ -1764,8 +1764,8 @@
     "notes": "No tool submits a batch. Per its summary this is the discounted token/GPU billing path, so the cheaper way to run bulk inference is reachable only from a browser."
   },
   "POST /api/v2/serverless/endpoints/{endpoint_id}/jobs/{job_id}/cancel": {
-    "class": "gap",
-    "notes": "No tool cancels a running inference job. Money-stopping and unreachable, the same shape as the DELETE above."
+    "class": "covered",
+    "notes": "cancel_serverless_job (mcp/src/tools/serverless.ts), inference:write at the tool layer, confirm-gated. Note the route itself reads no scope \u2014 it is one of the 34 in tests/test_serverless_writes_honour_scope.py \u2014 and it was also missing the write check every sibling mutation has, which publishing the tool made agent-reachable."
   },
   "POST /api/v2/serverless/endpoints/{endpoint_id}/keys": {
     "class": "internal",

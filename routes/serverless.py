@@ -1008,8 +1008,22 @@ async def api_serverless_dashboard_job_stream(endpoint_id: str, job_id: str, req
 
 @router.post("/api/v2/serverless/endpoints/{endpoint_id}/jobs/{job_id}/cancel", tags=["Serverless"])
 def api_serverless_dashboard_cancel_job(endpoint_id: str, job_id: str, request: Request):
+    """Cancel an in-flight job. **Write access, not read access.**
+
+    This called `_get_endpoint_for_user` and stopped — read-level access — while
+    every sibling mutation on this surface (delete, patch, warm, keys, test/run)
+    calls `_require_serverless_endpoint_write`, and the `/v1` twin below cancels
+    the *same job* through the *same* `cancel_inflight_job` behind
+    `_resolve_serverless_endpoint_auth(write=True)`.
+
+    So a team viewer — the role whose definition is "cannot modify instances" —
+    could cancel other people's inference jobs here, and only here. That gap
+    became reachable from an agent the moment `cancel_serverless_job` shipped as
+    a tool pointing at this route rather than the v1 one.
+    """
     user = _require_auth(request)
-    _get_endpoint_for_user(endpoint_id, user)
+    ep = _get_endpoint_for_user(endpoint_id, user)
+    _require_serverless_endpoint_write(user, ep)
     job = _svc().cancel_inflight_job(job_id, endpoint_id, reason="cancelled by dashboard")
     if not job:
         raise HTTPException(404, "Job not found")
