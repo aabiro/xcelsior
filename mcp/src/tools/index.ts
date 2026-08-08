@@ -10,6 +10,7 @@ import { registerServerlessTools } from "./serverless.js";
 import { registerMonitoringTools } from "./monitoring.js";
 import { registerDiagnosticTools } from "./diagnostics.js";
 import { registerOperatorTools } from "./operator.js";
+import { registerVolumeTools } from "./volumes.js";
 import { registerKnowledgeTools, type KnowledgeSources } from "./knowledge.js";
 
 export interface ToolRegistrationOptions {
@@ -35,6 +36,7 @@ export function registerAllTools(
   registerMonitoringTools(server, client, user);
   registerDiagnosticTools(server, client, user);
   registerOperatorTools(server, client, user);
+  registerVolumeTools(server, client, user);
   if (options.companyKnowledge) {
     registerKnowledgeTools(server, client, options.companyKnowledge, user);
   }
