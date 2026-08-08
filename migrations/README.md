@@ -90,7 +90,18 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `100_drop_provider_cad_columns.py`.**
+**Repository head: `101_gpu_allocations_owner.py`.**
+(`101` adds `gpu_allocations.owner_id`, nullable, backfilled from the job each
+allocation was created for. It exists because
+`POST /api/v2/marketplace/release/{allocation_id}` passed an allocation id to
+`release_allocation(job_id)` and so released nothing while returning
+`{"ok": true}`. Correcting that lookup alone would have made the route work
+*and* made any holder of `marketplace:write` able to release another tenant's
+allocation, since the table had no owner — the no-op was the only thing
+preventing it. Rows whose job has since been deleted stay `NULL` and are
+releasable by nobody, which is the safe direction for a value that authorizes
+an action, and the reason the column is not `NOT NULL`.)
+
 (`100` drops `provider_accounts.total_earned_cad` and `total_paid_out_cad` —
 the last two columns in the schema whose name ends in `_cad`. They are
 `NUMERIC`, not `DOUBLE PRECISION`, which is why the float-money sweep in
