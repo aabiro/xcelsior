@@ -45,6 +45,13 @@ jobs:
   preflight:
     name: staging is reachable and audience-bound
     runs-on: ubuntu-latest
+    # Hosted Actions is blocked at the account level and is not expected to
+    # be resolved. A job that fails on every push is worse than no job: it
+    # trains everyone to ignore the CI column, which is where a real failure
+    # would have to be noticed. Skipped rather than deleted — set the repo
+    # variable HOSTED_ACTIONS=enabled to bring every one of these back at
+    # once, with no diff to review.
+    if: ${{ vars.HOSTED_ACTIONS == 'enabled' }}
     timeout-minutes: 10
     outputs:
       audience: ${{ steps.meta.outputs.audience }}
@@ -100,6 +107,13 @@ jobs:
   refusals:
     name: scope refusals against a real server
     runs-on: ubuntu-latest
+    # Hosted Actions is blocked at the account level and is not expected to
+    # be resolved. A job that fails on every push is worse than no job: it
+    # trains everyone to ignore the CI column, which is where a real failure
+    # would have to be noticed. Skipped rather than deleted — set the repo
+    # variable HOSTED_ACTIONS=enabled to bring every one of these back at
+    # once, with no diff to review.
+    if: ${{ vars.HOSTED_ACTIONS == 'enabled' }}
     needs: preflight
     timeout-minutes: 20
     steps:
@@ -131,6 +145,13 @@ jobs:
   eval-baseline:
     name: eval baseline (43 total / 34 published)
     runs-on: ubuntu-latest
+    # Hosted Actions is blocked at the account level and is not expected to
+    # be resolved. A job that fails on every push is worse than no job: it
+    # trains everyone to ignore the CI column, which is where a real failure
+    # would have to be noticed. Skipped rather than deleted — set the repo
+    # variable HOSTED_ACTIONS=enabled to bring every one of these back at
+    # once, with no diff to review.
+    if: ${{ vars.HOSTED_ACTIONS == 'enabled' }}
     needs: preflight
     if: inputs.run_eval
     timeout-minutes: 30
