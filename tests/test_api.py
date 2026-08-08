@@ -1957,7 +1957,18 @@ class TestOAuthServer:
                 "client_type": "confidential",
                 "redirect_uris": [],
                 "grant_types": ["client_credentials"],
-                "scopes": ["instances:read"],
+                # `inference:read` is here for the probe below, not for this
+                # test's subject. `GET /api/v2/serverless/endpoints` is used as
+                # a convenient authenticated endpoint to observe the token
+                # before and after rotation; it now enforces a scope, so a
+                # client without one gets 403 and the 200 assertion fails for a
+                # reason that has nothing to do with rotation.
+                #
+                # The claim under test survives intact: the `after` assertion is
+                # **401**, which the scope check cannot produce — `_require_scope`
+                # raises 403. So a rotated-but-still-accepted token would still
+                # fail here rather than be mistaken for a scope refusal.
+                "scopes": ["instances:read", "inference:read"],
             },
         )
         assert created.status_code == 200
@@ -1969,7 +1980,7 @@ class TestOAuthServer:
                 "grant_type": "client_credentials",
                 "client_id": oauth_client["client_id"],
                 "client_secret": oauth_client["client_secret"],
-                "scope": "instances:read",
+                "scope": "instances:read inference:read",
             },
         )
         assert token_resp.status_code == 200

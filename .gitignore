@@ -240,3 +240,4 @@ frontend/tsconfig.tsbuildinfo
 .npmrc
 .env.local
 stripe_embed.md
+private_handoff.md
