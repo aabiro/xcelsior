@@ -45,6 +45,12 @@ const DESTRUCTIVE = new Set([
   // other annotation we publish. Approval gating and `destructiveHint` are
   // different claims and are kept that way.
   "delete_volume",
+  // Deleting an endpoint stops it resolving and cancels what is in flight on
+  // it; the endpoint is not recreatable by calling the tool again.
+  "delete_serverless_endpoint",
+  // Cancelling an inference job ends it. The job cannot be resumed — a new one
+  // must be submitted — which is the same shape as cancel_instance.
+  "cancel_serverless_job",
 ]);
 
 /**

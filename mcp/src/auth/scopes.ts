@@ -75,6 +75,10 @@ export const TOOL_SCOPES: Record<string, ScopeRequirement> = {
   should_i_run_pel_job: { allOf: ["billing:read", "inference:read"] },
   run_serverless_job: { allOf: ["inference:write"] },
   get_serverless_job_status: { allOf: ["inference:read"] },
+  // The exits. GT0 found entrances everywhere and exits missing — an agent
+  // could create an endpoint and run jobs on it with no tool to stop either.
+  cancel_serverless_job: { allOf: ["inference:write"] },
+  delete_serverless_endpoint: { allOf: ["inference:write"] },
   explain_instance_placement: { allOf: ["instances:read"] },
   simulate_instance_placement: { allOf: ["instances:read", "gpu:read"] },
   get_instance_timeline: { allOf: ["instances:read"] },

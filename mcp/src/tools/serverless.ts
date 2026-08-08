@@ -157,4 +157,96 @@ export function registerServerlessTools(
       }
     },
   );
+
+  /**
+   * The exits.
+   *
+   * GT0 surfaced a pattern across the whole surface: entrances exist where
+   * exits do not. An agent could create a serverless endpoint and run jobs on
+   * it, and had no tool to stop either — the money-moving direction was
+   * reachable and the money-stopping direction was not.
+   *
+   * Both are confirm-gated for the same reason `cancel_instance` is: they end
+   * work in flight, and a preview costs one call while an unwanted cancellation
+   * costs the run.
+   *
+   * A note on scope. `TOOL_SCOPES` requires `inference:write` for both, and the
+   * MCP layer enforces it before the request is made — but the routes
+   * themselves check ownership only and read no scope at all (34 of 35 on that
+   * surface; see `tests/test_serverless_writes_honour_scope.py`). So the
+   * enforcement here is real for anything arriving through a tool and is *not*
+   * a substitute for scoping the routes. That work is tracked, not done.
+   */
+  server.registerTool(
+    "cancel_serverless_job",
+    {
+      inputSchema: z.object({
+        endpoint_id: z.string().min(1).max(160),
+        job_id: z.string().min(1).max(160),
+        confirm: z.boolean().default(false),
+      }),
+    },
+    async ({ endpoint_id, job_id, confirm }) => {
+      const denied = scopeDenied("cancel_serverless_job", user);
+      if (denied) return denied;
+      if (!confirm) {
+        return jsonText({
+          preview: true,
+          endpoint_id,
+          job_id,
+          message:
+            "Set confirm:true to cancel this inference job. It stops the work " +
+            "and its spend; anything the job had not returned is lost.",
+        });
+      }
+      try {
+        return jsonText(
+          // One template literal, not two concatenated. Split across a `+` the
+          // path becomes unreadable to `tests/test_tools_reach_the_routes_they_call.py`,
+          // which resolves every tool call site against the live route table —
+          // and it read this as `POST /api/v2/serverless/endpoints/{}`, a route
+          // that does not exist. A path a guard cannot parse is a path nobody
+          // verifies.
+          await client.post(
+            `/api/v2/serverless/endpoints/${encodeURIComponent(endpoint_id)}/jobs/${encodeURIComponent(job_id)}/cancel`,
+          ),
+        );
+      } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
+
+  server.registerTool(
+    "delete_serverless_endpoint",
+    {
+      inputSchema: z.object({
+        endpoint_id: z.string().min(1).max(160),
+        confirm: z.boolean().default(false),
+      }),
+    },
+    async ({ endpoint_id, confirm }) => {
+      const denied = scopeDenied("delete_serverless_endpoint", user);
+      if (denied) return denied;
+      if (!confirm) {
+        return jsonText({
+          preview: true,
+          endpoint_id,
+          message:
+            "Set confirm:true to delete this endpoint. It stops the endpoint " +
+            "serving and ends its idle cost. Jobs still in flight on it are " +
+            "cancelled, and the endpoint id stops resolving.",
+        });
+      }
+      try {
+        return jsonText(
+          await client.delete(
+            `/api/v2/serverless/endpoints/${encodeURIComponent(endpoint_id)}`,
+          ),
+        );
+      } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
 }
