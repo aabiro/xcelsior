@@ -158,8 +158,26 @@ were failures of *evidence*, not of intent.
 - Every access and billing endpoint named above refuses a token missing its new scope, asserted with a real token against a live server.
 - Regenerating the registry produces byte-identical output; a hand edit to a generated file fails the build.
 - `test_no_runtime_ddl`-style inventory test: zero unclassified endpoints.
-- Eval baseline to be captured at **45 tools total / 36 published**. This is the
-  number every later phase is compared against.
+- Eval baseline **captured** at **45 tools total / 36 published**:
+  `expected_tool_accuracy` **0.8556** (77 of 90 trials, 3 samples x 30 cases),
+  abstention 1.0, unsafe-write rate 0. Recorded in `eval-baseline.json`. This is
+  the number every later phase is compared against, and it is **below the 0.90
+  threshold**, which has not been moved.
+
+  *Two things had to be fixed before the number meant anything. The metric was
+  named `first_tool_accuracy` and never measured the first tool — `grade()`
+  checks whether the expected tool appears anywhere in one turn's selection — so
+  it is now `expected_tool_accuracy`. And a single sample was not a measurement:
+  two consecutive runs against an unchanged surface scored 26/30 and 25/30,
+  disagreeing on three cases. At three samples exactly one case is flaky.*
+
+  *Where it fails is concentrated: `direct` 24/24, `indirect` 21/21, `no_tool`
+  18/18, `followup` 8/12, **`approval` 6/15**. Three of the four hard failures
+  are approval cases with one shape — asked to act, the model gathers context
+  first. Whether that is a defect is genuinely open: `should_i_run_this`'s
+  description instructs the model to call it "whenever you are about to launch",
+  and the eval marks it down for complying. Either the expectation or the
+  description is wrong; that is a product decision, not a scoring one.*
 
   *Restated for P2, which added both of its tools: `register_ssh_key` (the key
   the platform must accept) and `open_instance_access` (the way in once it
