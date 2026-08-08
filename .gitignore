@@ -114,6 +114,7 @@ docs/*
 !docs/mcp-tool-surface-research-prompt.md
 !docs/mcp-agent-native-implementation-plan.md
 !docs/ci-cockpit-plan.md
+!docs/artifact-promotion-plan.md
 # GT0's classifications. Source, not a report: the inventory table is generated
 # from this, so `docs/*` swallowing it would leave every label blank for
 # everyone but the person who wrote them — which is how 158 rows of audit came
