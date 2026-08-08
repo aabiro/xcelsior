@@ -63,13 +63,27 @@ def test_marketplace_search():
     assert "offers" in r.json()
 
 
-def test_marketplace_release(user_headers):
+def test_marketplace_release_refuses_an_allocation_that_is_not_there(user_headers):
+    """This asserted `200 ok:true` for an allocation that does not exist.
+
+    It was not a lenient test — it was a test asserting a bug. The route passed
+    an allocation id to `release_allocation(job_id)`, which queries
+    `WHERE job_id = %s`, matched nothing, and reported success; this pinned that
+    behaviour in place, so the honest fix had to fail here before it could land.
+
+    404 rather than 403 for a foreign allocation, and the same 404 for one that
+    was never real: a caller who could tell those apart could enumerate other
+    tenants' allocation ids.
+    """
     r = client.post(
         "/api/v2/marketplace/release/nonexistent-allocation-id",
         headers=user_headers,
     )
-    assert r.status_code == 200
-    assert r.json().get("ok") is True
+    assert r.status_code == 404, (
+        f"releasing a nonexistent allocation returned {r.status_code}; a route "
+        "that reports success for work it did not do is worse than one that "
+        "refuses, because the caller believes the GPU was freed"
+    )
 
 
 def test_marketplace_bill_missing_job():

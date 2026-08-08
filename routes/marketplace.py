@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from routes._deps import (
+    _effective_billing_customer_id,
     _get_current_user,
     _require_admin,
     _require_auth,
@@ -358,5 +359,18 @@ def api_marketplace_release(allocation_id: str, request: Request):
 
     _require_scope(user, "marketplace:write")
     me = get_marketplace_engine()
-    me.release_allocation(allocation_id)
-    return {"ok": True}
+    # `release_allocation` takes a **job id** and queries `WHERE job_id = %s`,
+    # so passing an allocation id matched nothing and this returned `ok: true`
+    # having done nothing at all. Correcting the lookup alone would have made it
+    # work *and* made it releasable by anyone holding `marketplace:write`, since
+    # the table had no owner — which is why migration 101 came first.
+    released = me.release_allocation_by_id(
+        allocation_id, owner_id=_effective_billing_customer_id(user)
+    )
+    if not released:
+        # Not-found rather than forbidden: a foreign allocation and a
+        # non-existent one must be indistinguishable, or this becomes a way to
+        # enumerate other tenants' allocation ids. Already-released lands here
+        # too, which is correct — there was nothing to release.
+        raise HTTPException(404, "No such active allocation")
+    return {"ok": True, "allocation_id": allocation_id, "released": True}
