@@ -930,6 +930,17 @@ def _resolve_serverless_endpoint_auth(
 
     user = _get_current_user(request)
     if user:
+        # The inversion this closes: the endpoint API key above — the *narrower*
+        # credential, minted for one endpoint — was held to `inference:write`,
+        # while a user credential that can reach every endpoint on the account
+        # was held to none. The broader credential must not be the freer one.
+        #
+        # `MCP_QUICK_CONNECT_SCOPES` carries both inference scopes, so this
+        # cannot reproduce the `instances:connect` failure — a scope enforced on
+        # routes and absent from the token users are told to paste. Asserted in
+        # `tests/test_serverless_refuses_narrowed_credentials.py` rather than
+        # reasoned about here.
+        _require_scope(user, "inference:write" if write else "inference:read")
         _require_serverless_endpoint_access(user, ep)
         if write:
             _require_serverless_endpoint_write(user, ep)
@@ -1299,10 +1310,32 @@ _MACHINE_AUTH_TYPES = frozenset({"client_credentials", "agent_api_key"})
 #: decides whether scopes are an authorization restriction.
 _FIRST_PARTY_WEB_CLIENT_ID = "xcelsior-web"
 
-#: `shadow` (default) records and enforces nothing. `enforce` treats a
-#: third-party connector token as the scoped machine credential it is. `off`
-#: disables both. Named for `XCELSIOR_SCHEDULER_MODE=shadow`, which this follows.
-_CONNECTOR_SCOPE_MODE = os.environ.get("XCELSIOR_CONNECTOR_SCOPE_MODE", "shadow").strip().lower()
+#: `enforce` (default) treats a third-party connector token as the scoped
+#: credential it is. `shadow` records what would be refused and enforces
+#: nothing. `off` disables both. Named for `XCELSIOR_SCHEDULER_MODE=shadow`.
+#:
+#: **Why this defaults to `enforce` rather than staging through `shadow`.**
+#: The first draft defaulted to `shadow` on the strength of a count: routes
+#: demand 36 distinct scopes and a Quick Connect token carries 14, so enforcing
+#: looked like it would reproduce the `instances:connect` 403 across every
+#: connector at once. That count was wrong in two ways. It read scopes out of a
+#: TypeScript *type union* rather than out of tool requirements, and it treated
+#: `anyOf` as if it were `allOf`, so a tool satisfied by any one of three scopes
+#: was counted as needing all three.
+#:
+#: Measured correctly, exactly two published tools cannot be satisfied by a
+#: Quick Connect token — `top_up_wallet` and `configure_auto_topup`, both
+#: needing `billing:write`, which Quick Connect withholds deliberately. Both are
+#: **already** refused at the MCP layer by `scopeDenied`, so enforcement here
+#: takes away nothing a connector can do today; it closes the same door on the
+#: direct-REST path, which is the one route scoping never covered. The operator
+#: tools that also fail (`drain_host`, `evict_host_workloads`) are supposed to
+#: fail: a customer connector holding operator authority is the thing
+#: `tests/live/test_scope_refusals_live.py` exists to prevent.
+#:
+#: `shadow` remains available for a deployment that wants evidence before
+#: committing, and the escape hatch is one environment variable.
+_CONNECTOR_SCOPE_MODE = os.environ.get("XCELSIOR_CONNECTOR_SCOPE_MODE", "enforce").strip().lower()
 
 
 def _is_delegated_connector_token(user: dict) -> bool:
@@ -1320,6 +1353,26 @@ def _is_delegated_connector_token(user: dict) -> bool:
         user.get("session_type", "browser") == "browser"
         and str(user.get("client_id") or _FIRST_PARTY_WEB_CLIENT_ID) == _FIRST_PARTY_WEB_CLIENT_ID
     )
+
+
+def _is_interactive_human(user: dict) -> bool:
+    """True when a person is actually present at this request.
+
+    A first-party dashboard session or legacy session is a human at a keyboard;
+    a client-credentials token, an agent key, and a third-party connector token
+    are not, however faithfully they relay someone's intent.
+
+    This is the predicate for "the approval already happened" — a human clicking
+    save *is* the approval, and asking them to approve their own click is
+    ceremony. It is deliberately **not** `routes.action_plans._is_human`, which
+    tests only `auth_type != "client_credentials"` and therefore counts a
+    connector token as a person.
+    """
+    if user.get("grant_type") == "client_credentials":
+        return False
+    if user.get("auth_type") in _MACHINE_AUTH_TYPES:
+        return False
+    return not _is_delegated_connector_token(user)
 
 
 def _record_connector_scope_shadow(user: dict, required: tuple[str, ...]) -> None:

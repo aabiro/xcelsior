@@ -1,7 +1,9 @@
 """Routes: billing."""
 
+import hashlib
 import httpx
 import io
+import json
 import os
 import time
 
@@ -19,9 +21,12 @@ from pydantic import BaseModel, Field
 from routes._deps import (
     XCELSIOR_ENV,
     _USE_PERSISTENT_AUTH,
+    _canonical_owner_id,
     _effective_billing_customer_id,
     _get_current_user,
+    _is_interactive_human,
     _is_platform_admin,
+    _user_team_id,
     _merge_auth_user,
     _require_admin,
     _require_auth,
@@ -2424,6 +2429,68 @@ def api_billing_manual_topup(body: ManualTopupRequest, request: Request):
     }
 
 
+def _auto_topup_widens(previous: dict, body: AutoTopupConfig) -> bool:
+    """True when the change increases what can be charged unattended.
+
+    Three ways to widen, and the third is the one that gets missed: raising the
+    *threshold* does not raise any single charge, but it fires the charge sooner
+    and therefore more often. Disabling can never widen, whatever the amounts
+    say, which is why the `enabled` test comes first.
+    """
+    if not bool(body.enabled):
+        return False
+    return (
+        not previous["enabled"]
+        or body.amount_cad > previous["amount_cad"]
+        or body.threshold_cad > previous["threshold_cad"]
+    )
+
+
+def _auto_topup_canonical(body: AutoTopupConfig) -> dict:
+    """The exact settings an approval binds to."""
+    return {
+        "enabled": bool(body.enabled),
+        "amount_cad": float(body.amount_cad),
+        "threshold_cad": float(body.threshold_cad),
+        "stripe_payment_method_id": str(body.stripe_payment_method_id or ""),
+    }
+
+
+def _apply_auto_topup(be, customer_id: str, user: dict, body: AutoTopupConfig,
+                      previous: dict, widened: bool, *, plan_id: str | None = None) -> dict:
+    """Write the setting and record what changed. One writer, two doors.
+
+    The direct route and the plan executor both land here so that the audit row
+    is written the same way regardless of which path a change arrived through —
+    the failure mode being a widening that leaves no `auto_topup_widened` event
+    because it came in via the door that forgot to log one.
+    """
+    be.configure_auto_topup(
+        customer_id=customer_id,
+        enabled=body.enabled,
+        amount_cad=body.amount_cad,
+        threshold_cad=body.threshold_cad,
+        stripe_payment_method_id=body.stripe_payment_method_id,
+    )
+
+    from routes._deps import append_user_audit_event
+
+    data = {"previous": previous, "current": body.model_dump(), "widened": widened}
+    if plan_id:
+        data["plan_id"] = plan_id
+    append_user_audit_event(
+        "user.billing.auto_topup_widened" if widened else "user.billing.auto_topup_changed",
+        "billing",
+        customer_id,
+        user,
+        data=data,
+    )
+    result = {"ok": True, "auto_topup": body.model_dump(), "previous": previous}
+    if plan_id:
+        result["plan_id"] = plan_id
+    return result
+
+
 @router.post("/api/v2/billing/auto-topup", tags=["Billing"])
 def api_billing_configure_topup(body: AutoTopupConfig, request: Request):
     """Configure wallet auto-top-up via Stripe."""
@@ -2455,34 +2522,181 @@ def api_billing_configure_topup(body: AutoTopupConfig, request: Request):
         "threshold_cad": micros_to_cad(int(before.get("auto_topup_threshold_micros") or 0)),
     }
 
-    be.configure_auto_topup(
-        customer_id=customer_id,
-        enabled=body.enabled,
-        amount_cad=body.amount_cad,
-        threshold_cad=body.threshold_cad,
-        stripe_payment_method_id=body.stripe_payment_method_id,
-    )
-
     # Raising the amount widens unattended spending; lowering or disabling it
-    # narrows. Both are recorded, but the direction is stated so the trail can
-    # be read for widenings without reconstructing arithmetic — the asymmetry
-    # the plan asks for, as a visible record rather than as ceremony in front of
-    # a capability the caller already holds.
-    widened = bool(body.enabled) and (
-        body.amount_cad > previous["amount_cad"]
-        or body.threshold_cad > previous["threshold_cad"]
-        or not previous["enabled"]
-    )
-    from routes._deps import append_user_audit_event
+    # narrows. Computed here, **before** the write, because it now decides
+    # whether the write may happen at all — not merely how it is labelled in the
+    # audit trail.
+    widened = _auto_topup_widens(previous, body)
 
-    append_user_audit_event(
-        "user.billing.auto_topup_widened" if widened else "user.billing.auto_topup_changed",
-        "billing",
-        customer_id,
-        user,
-        data={"previous": previous, "current": body.model_dump(), "widened": widened},
+    # Gate P1: "raising a spend cap requires approval; lowering one does not."
+    #
+    # A human at the dashboard *is* the approval — asking them to approve their
+    # own click is ceremony, and `_is_interactive_human` is what distinguishes
+    # them from a caller that merely relays intent. Everything else widening
+    # this lever must carry an approved plan, because this is the one control
+    # that authorises repeated unattended charges with nobody watching.
+    if widened and not _is_interactive_human(user):
+        raise HTTPException(
+            409,
+            "Widening auto-top-up requires an approved plan. POST the desired "
+            "settings to /api/v2/billing/auto-topup-plans, have the plan "
+            "approved, then POST to "
+            "/api/v2/billing/auto-topup-plans/{plan_id}/execute. Lowering the "
+            "amount or threshold, or disabling auto-top-up, needs no plan.",
+        )
+
+    return _apply_auto_topup(be, customer_id, user, body, previous, widened)
+
+
+@router.post("/api/v2/billing/auto-topup-plans", tags=["Billing"])
+def api_billing_auto_topup_plan(body: AutoTopupConfig, request: Request):
+    """Persist a server-bound approval plan for widening auto-top-up.
+
+    `approval_mode` is **always** `"human"`, never the spend policy's decision.
+    A standing policy exists so a client can pre-authorise spending inside
+    ceilings; letting it approve a change to those ceilings would be circular —
+    the credential would be raising its own limit on its own authority. That is
+    exactly the thing Gate P1 clause 6 is about.
+    """
+    from control_plane.db import control_plane_transaction
+    from control_plane.launch import action_plans as plans_repo
+    from control_plane.launch.service import DEFAULT_TOLERANCE_BPS, plan_ttl_sec
+
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "billing:write")
+
+    be = get_billing_engine()
+    customer_id = _analytics_customer_scope(user)
+    before = be.get_wallet(customer_id) or {}
+    previous = {
+        "enabled": bool(before.get("auto_topup_enabled")),
+        "amount_cad": micros_to_cad(int(before.get("auto_topup_amount_micros") or 0)),
+        "threshold_cad": micros_to_cad(int(before.get("auto_topup_threshold_micros") or 0)),
+    }
+    if not _auto_topup_widens(previous, body):
+        # Refusing to mint a plan nobody needs. A plan for a narrowing would sit
+        # in the trail looking like an authorised widening, and the caller would
+        # learn the wrong lesson about when approval is required.
+        raise HTTPException(
+            409,
+            "This change does not widen auto-top-up, so it needs no plan. POST "
+            "it directly to /api/v2/billing/auto-topup.",
+        )
+
+    canonical = _auto_topup_canonical(body)
+    canonical_json = json.dumps(canonical, sort_keys=True, separators=(",", ":"), default=str)
+    canonical_hash = hashlib.sha256(canonical_json.encode()).hexdigest()
+    # What one automatic charge may cost. The standing authority is unbounded in
+    # aggregate by nature, so this is the per-charge ceiling being approved and
+    # not a total.
+    estimate_micros = int(round(float(body.amount_cad) * 1_000_000))
+
+    with control_plane_transaction() as conn:
+        plan = plans_repo.create_quoted_plan(
+            conn,
+            action_type="configure_auto_topup",
+            principal_id=_canonical_owner_id(user),
+            client_id=user.get("client_id"),
+            tenant_id=customer_id,
+            team_id=_user_team_id(user),
+            canonical_args=canonical,
+            canonical_args_hash=canonical_hash,
+            spec_hash=canonical_hash,
+            quote_id=f"auto-topup:{canonical_hash[:20]}",
+            pricing_version="auto-topup-v1",
+            estimate_micros=estimate_micros,
+            currency="CAD",
+            price_tolerance_bps=DEFAULT_TOLERANCE_BPS,
+            required_scopes=["billing:write"],
+            approval_mode="human",
+            ttl_sec=plan_ttl_sec(),
+        )
+
+    plan_id = str(plan["plan_id"])
+    return {
+        "ok": True,
+        "preview": True,
+        "plan_id": plan_id,
+        "approval_state": plan["status"],
+        "previous": previous,
+        "requested": canonical,
+        "widens": True,
+        "approval_url": f"/dashboard/launch-plans/{plan_id}",
+        "expires_at": plan["expires_at"].isoformat(),
+    }
+
+
+@router.post("/api/v2/billing/auto-topup-plans/{plan_id}/execute", tags=["Billing"])
+def api_billing_execute_auto_topup_plan(plan_id: str, request: Request):
+    """Apply one approved auto-top-up plan.
+
+    The settings come from **the plan**, never from this request. That is what
+    makes the approval mean something: a caller cannot have one change approved
+    and apply another.
+    """
+    from control_plane.db import control_plane_transaction
+    from control_plane.launch import action_plans as plans_repo
+    from control_plane.launch.service import PlanConflict, PlanNotFound
+
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "billing:write")
+
+    be = get_billing_engine()
+    customer_id = _analytics_customer_scope(user)
+
+    with control_plane_transaction() as conn:
+        plan = plans_repo.get_plan_for_update(conn, plan_id)
+        # A foreign plan is not-found rather than forbidden — no existence oracle.
+        if not plan or str(plan["tenant_id"]) != str(customer_id):
+            raise PlanNotFound()
+        if plan["action_type"] != "configure_auto_topup":
+            raise PlanConflict("wrong_action_type", "the plan is not for auto-top-up")
+        if plan["status"] == "succeeded":
+            return {**dict(plan["idempotent_response"] or {}), "idempotent": True}
+        if plan["status"] != "approved":
+            raise PlanConflict(
+                "approval_required", "approve the auto-top-up plan before applying it"
+            )
+        canonical = dict(plan["canonical_args"])
+        digest = hashlib.sha256(
+            json.dumps(canonical, sort_keys=True, separators=(",", ":"), default=str).encode()
+        ).hexdigest()
+        if digest != plan["canonical_args_hash"]:
+            raise PlanConflict("argument_hash_mismatch", "the approved plan was altered")
+
+    body = AutoTopupConfig.model_validate(canonical)
+    before = be.get_wallet(customer_id) or {}
+    previous = {
+        "enabled": bool(before.get("auto_topup_enabled")),
+        "amount_cad": micros_to_cad(int(before.get("auto_topup_amount_micros") or 0)),
+        "threshold_cad": micros_to_cad(int(before.get("auto_topup_threshold_micros") or 0)),
+    }
+    response = _apply_auto_topup(
+        be, customer_id, user, body, previous,
+        _auto_topup_widens(previous, body), plan_id=plan_id,
     )
-    return {"ok": True, "auto_topup": body.model_dump(), "previous": previous}
+
+    with control_plane_transaction() as conn:
+        # Re-read under lock: two concurrent executes of one approved plan must
+        # apply the setting once and both return the same answer.
+        locked = plans_repo.get_plan_for_update(conn, plan_id)
+        if locked and locked["status"] == "succeeded":
+            return {**dict(locked["idempotent_response"] or {}), "idempotent": True}
+        plans_repo.mark_consumed(
+            conn, plan_id,
+            # `job_id` is NOT NULL for a `succeeded` plan
+            # (`ck_action_plans_state_machine`), and it doubles as
+            # `resulting_resource_id`. This action produces no job, so it names
+            # the resource it did change: the wallet whose setting now differs.
+            job_id=f"auto-topup:{customer_id}",
+            wallet_hold_id=None,
+            idempotent_response=response, idempotency_key=f"auto-topup-plan:{plan_id}",
+        )
+    return response
 
 
 @router.get("/api/v2/billing/auto-topup", tags=["Billing"])

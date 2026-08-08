@@ -44,6 +44,10 @@ ACTION_REQUIRED_SCOPES: dict[str, list[str]] = {
     "create_instance": ["instances:operate"],
     "create_serverless_endpoint": ["inference:write"],
     "evict_host_workloads": ["hosts:evict"],
+    # Widening auto-top-up. Gate P1: "raising a spend cap requires approval;
+    # lowering one does not." The scope is the same `billing:write` the direct
+    # route already demands — the plan adds approval, it does not add authority.
+    "configure_auto_topup": ["billing:write"],
 }
 
 
