@@ -15,6 +15,13 @@ env:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    # Hosted Actions is blocked at the account level and is not expected to
+    # be resolved. A job that fails on every push is worse than no job: it
+    # trains everyone to ignore the CI column, which is where a real failure
+    # would have to be noticed. Skipped rather than deleted — set the repo
+    # variable HOSTED_ACTIONS=enabled to bring every one of these back at
+    # once, with no diff to review.
+    if: ${{ vars.HOSTED_ACTIONS == 'enabled' }}
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v5
@@ -34,6 +41,13 @@ jobs:
     # Catch docker-compose.yml regressions (bad interpolation, malformed
     # service definitions) without needing a worker or live build.
     runs-on: ubuntu-latest
+    # Hosted Actions is blocked at the account level and is not expected to
+    # be resolved. A job that fails on every push is worse than no job: it
+    # trains everyone to ignore the CI column, which is where a real failure
+    # would have to be noticed. Skipped rather than deleted — set the repo
+    # variable HOSTED_ACTIONS=enabled to bring every one of these back at
+    # once, with no diff to review.
+    if: ${{ vars.HOSTED_ACTIONS == 'enabled' }}
     steps:
       - uses: actions/checkout@v5
       - name: Validate docker-compose.yml
@@ -56,6 +70,13 @@ jobs:
   # inspected here rather than trusted from the Dockerfile text.
   supply-chain:
     runs-on: ubuntu-latest
+    # Hosted Actions is blocked at the account level and is not expected to
+    # be resolved. A job that fails on every push is worse than no job: it
+    # trains everyone to ignore the CI column, which is where a real failure
+    # would have to be noticed. Skipped rather than deleted — set the repo
+    # variable HOSTED_ACTIONS=enabled to bring every one of these back at
+    # once, with no diff to review.
+    if: ${{ vars.HOSTED_ACTIONS == 'enabled' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -145,6 +166,13 @@ jobs:
     # (it filters only the psycopg dynamic-SQL LiteralString noise). Deps +
     # pyright are pinned so the result matches local.
     runs-on: ubuntu-latest
+    # Hosted Actions is blocked at the account level and is not expected to
+    # be resolved. A job that fails on every push is worse than no job: it
+    # trains everyone to ignore the CI column, which is where a real failure
+    # would have to be noticed. Skipped rather than deleted — set the repo
+    # variable HOSTED_ACTIONS=enabled to bring every one of these back at
+    # once, with no diff to review.
+    if: ${{ vars.HOSTED_ACTIONS == 'enabled' }}
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v5
@@ -164,6 +192,13 @@ jobs:
   # must hold on every change to the control plane.
   control-plane:
     runs-on: ubuntu-latest
+    # Hosted Actions is blocked at the account level and is not expected to
+    # be resolved. A job that fails on every push is worse than no job: it
+    # trains everyone to ignore the CI column, which is where a real failure
+    # would have to be noticed. Skipped rather than deleted — set the repo
+    # variable HOSTED_ACTIONS=enabled to bring every one of these back at
+    # once, with no diff to review.
+    if: ${{ vars.HOSTED_ACTIONS == 'enabled' }}
     timeout-minutes: 30
     needs: lint
     services:
@@ -225,6 +260,13 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    # Hosted Actions is blocked at the account level and is not expected to
+    # be resolved. A job that fails on every push is worse than no job: it
+    # trains everyone to ignore the CI column, which is where a real failure
+    # would have to be noticed. Skipped rather than deleted — set the repo
+    # variable HOSTED_ACTIONS=enabled to bring every one of these back at
+    # once, with no diff to review.
+    if: ${{ vars.HOSTED_ACTIONS == 'enabled' }}
     timeout-minutes: 90
     needs: lint
     services:
