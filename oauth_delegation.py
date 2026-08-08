@@ -113,6 +113,16 @@ SYSTEM_ALLOWED_SCOPES = frozenset(
         "instances:connect",
         "ssh:read",
         "ssh:write",
+        # P3 durable state. Added here *and* to MCP_QUICK_CONNECT_SCOPES, which
+        # are two different questions: this list is what the system principal
+        # may grant, that one is what a minted token carries. Granting in one
+        # without the other is the defect that produced `instances:connect`
+        # answering 403 in production — the scope was enforced on the routes and
+        # missing from the held set. This time `tests/test_scope_delegation.py`
+        # caught it before a deploy, which is what that guard is for.
+        "volumes:read",
+        "volumes:write",
+        "artifacts:read",
         "openid",
         "profile",
         "email",

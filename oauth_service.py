@@ -1334,6 +1334,30 @@ MCP_QUICK_CONNECT_SCOPES = [
     # keys, so granting it would hand out read access to the account's key
     # inventory for no capability. Add it with the tool that needs it.
     "ssh:write",
+    # P3. Durable state: an instance's disk dies with it, so a volume is the
+    # only place work survives a relaunch. Without these the connector can start
+    # a job and lose its output, which is the failure the phase exists to fix.
+    #
+    # `volumes:write` is the widening that needs justifying, and it is broader
+    # than `ssh:write` was. It creates volumes (billed per GB-month), deletes
+    # them (destroying data), and detaches them (disrupting a running job). The
+    # first is money and the other two are loss.
+    #
+    # Accepted because the token already holds `instances:write` — it can
+    # terminate the instance the volume is attached to, which destroys more than
+    # detaching it does — and because every destructive volume tool is
+    # confirm-gated, so a single call previews rather than acts. What it must
+    # never become is a scope that can delete a volume without the user seeing
+    # the preview first; `tests/test_volume_tools_gate_destruction.py` holds
+    # that line.
+    "volumes:read",
+    "volumes:write",
+    # Read-only. The retention clock lives here: an artifact has a `retain_until`
+    # and the plan's P3 says that clock being invisible is how work gets lost.
+    # `artifacts:write` is deliberately withheld — nothing on the tool surface
+    # uploads, and it is also the scope guarding artifact *download*, which is a
+    # mislabel worth fixing before granting rather than granting around.
+    "artifacts:read",
     "billing:read",
     "gpu:read",
     "marketplace:read",

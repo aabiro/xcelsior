@@ -32,6 +32,12 @@ const MCP_SCOPES = [
   // running" to "shell open" without a trip here. The reasoning, including what
   // it widens, is recorded on MCP_QUICK_CONNECT_SCOPES in oauth_service.py.
   "ssh:write",
+  // P3 durable state: create a volume, attach it, and see when an artifact
+  // expires. Reasoning, including what volumes:write widens, is recorded on
+  // MCP_QUICK_CONNECT_SCOPES in oauth_service.py.
+  "volumes:read",
+  "volumes:write",
+  "artifacts:read",
   "billing:read",
   "gpu:read",
   "marketplace:read",

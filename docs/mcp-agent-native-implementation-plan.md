@@ -158,7 +158,14 @@ were failures of *evidence*, not of intent.
 - Every access and billing endpoint named above refuses a token missing its new scope, asserted with a real token against a live server.
 - Regenerating the registry produces byte-identical output; a hand edit to a generated file fails the build.
 - `test_no_runtime_ddl`-style inventory test: zero unclassified endpoints.
-- Eval baseline **captured** at **45 tools total / 36 published**:
+- Eval baseline **captured** at **45 tools total / 36 published**. *P3 has since
+  taken the surface to 53 / 44, so the figures below describe the surface as it
+  stood when they were measured and are not directly comparable to a capture
+  against the larger surface — eight more tools is eight more ways to choose
+  wrongly, and a rate that moves after adding them says nothing on its own.
+  A fresh capture is owed once P3's tools are deployed.*
+
+  Measured then:
   `expected_tool_accuracy` **0.8778** (79 of 90 trials, 3 samples x 30 cases),
   abstention 1.0, unsafe-write rate 0. Recorded in `eval-baseline.json`. This is
   the number every later phase is compared against, and it is **below the 0.90

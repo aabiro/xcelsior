@@ -5,6 +5,9 @@ export type McpScope =
   | "instances:connect"
   | "ssh:read"
   | "ssh:write"
+  | "volumes:read"
+  | "volumes:write"
+  | "artifacts:read"
   | "billing:read"
   | "billing:write"
   | "gpu:read"
@@ -50,6 +53,19 @@ export const TOOL_SCOPES: Record<string, ScopeRequirement> = {
   // `ssh:write` is split from `ssh:read` and why its consent text names
   // shell access rather than "manage keys".
   register_ssh_key: { allOf: ["ssh:write"] },
+  // P3 — durable state. Reads are `volumes:read`; anything that creates,
+  // moves or destroys is `volumes:write`, and every destructive one is
+  // confirm-gated in the handler as well.
+  list_volumes: { allOf: ["volumes:read"] },
+  get_volume: { allOf: ["volumes:read"] },
+  create_volume: { allOf: ["volumes:write"] },
+  attach_volume: { allOf: ["volumes:write", "instances:read"] },
+  detach_volume: { allOf: ["volumes:write"] },
+  delete_volume: { allOf: ["volumes:write"] },
+  snapshot_volume: { allOf: ["volumes:write"] },
+  // The retention clock. Read-only, and the one tool that tells a user their
+  // work is about to be deleted.
+  get_artifact_expiry: { allOf: ["artifacts:read"] },
   // P2. The scope the consent screen describes as "open a terminal on your
   // running instances" — the same one `/api/terminal/ticket` and the stream,
   // expose and auto-launch routes enforce.
