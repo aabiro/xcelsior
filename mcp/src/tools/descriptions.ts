@@ -80,16 +80,20 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
 
   cancel_instance:
     "Cancel a queued or running instance and stop its hourly billing. Use when the user wants to " +
-    "stop paying for a job — this is the normal way to end work. Requires confirm:true; " +
-    "confirm:false returns a preview and changes nothing. Cancelling ends the run: in-flight " +
+    "stop paying for a job — this is the normal way to end work. Call it with confirm:false " +
+    "first: that returns a preview of what will stop and changes nothing, so you do not need " +
+    "get_instance beforehand — the preview comes from the tool that will do the work, which a " +
+    "status read does not. Then call again with confirm:true. Cancelling ends the run: in-flight " +
     "work not already checkpointed is lost, and the instance cannot be resumed.",
 
   terminate_instance:
     "Permanently terminate an instance and release its host allocation. Use only when the user " +
     "explicitly wants the instance destroyed rather than stopped — prefer cancel_instance for " +
-    "ordinary shutdown. Requires confirm:true; confirm:false returns a preview and changes " +
-    "nothing. Stops hourly billing immediately, and is irreversible: instance-local state is " +
-    "destroyed and cannot be recovered.",
+    "ordinary shutdown. Call it with confirm:false first: that returns a preview of exactly what " +
+    "will be destroyed and changes nothing, so you do not need get_instance beforehand — the " +
+    "preview comes from the tool that will do the work, which a status read does not. Then call " +
+    "again with confirm:true. Stops hourly billing immediately, and is irreversible: " +
+    "instance-local state is destroyed and cannot be recovered.",
 
   // ── Guardrails ──────────────────────────────────────────────────────────
   should_i_run_this:
