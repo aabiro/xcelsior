@@ -553,6 +553,16 @@ install_nginx_configs() {
 
     ssh_cmd << 'EOF'
 set -e
+# `headscale` and `headscale-http` are installed here, and the certificate they
+# name is a **self-signed internal cert** (`/etc/nginx/ssl/hs-internal.*`), not
+# ACME. On 2026-08-08 these still named a Let's Encrypt path that had been
+# deleted — the entry could not renew, because the ACME challenge for this name
+# is answered by the host DNS points at rather than this one — and the missing
+# file made `nginx -t` fail and aborted the whole deploy before anything shipped.
+#
+# The fix was to point them at the internal certificate, not to stop installing
+# them: this host does serve that vhost on 127.0.0.1 and on its own address, and
+# dropping it from this list would have silently removed it at the next reload.
 for f in xcelsior headscale headscale-http docs-xcelsior downloads-xcelsior; do
   sudo cp "/tmp/xcelsior-nginx/${f}.conf" "/etc/nginx/sites-available/${f}"
   sudo ln -sf "/etc/nginx/sites-available/${f}" "/etc/nginx/sites-enabled/${f}"
@@ -627,8 +637,13 @@ set -e
 sudo tee /etc/nginx/sites-available/xcelsior > /dev/null << 'NGINX'
 server {
     listen 80;
-    server_name xcelsior.ca www.xcelsior.ca hs.xcelsior.ca;
-    
+    # `hs.xcelsior.ca` was listed here and is deliberately gone: `headscale-http`
+    # already claims it on port 80, so naming it twice is a conflicting server
+    # name. It also implied this block answers ACME challenges for it, which was
+    # never true — that name resolves elsewhere, so the challenge is answered by
+    # a different host, and the certificate here is self-signed anyway.
+    server_name xcelsior.ca www.xcelsior.ca;
+
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
     }
