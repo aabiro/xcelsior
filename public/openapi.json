@@ -1714,6 +1714,7 @@
           "Serverless"
         ],
         "summary": "Revoke Key",
+        "description": "Revoke an endpoint API key.\n\nScoped `inference:write` while *minting* one is left unscoped pending a\ndecision, and the asymmetry is deliberate: safety must never be harder to\nreach than the risk it undoes. A credential that can create a key and not\ndestroy it is worse than one that can do neither.",
         "operationId": "api_serverless_revoke_key_api_v2_serverless_endpoints__endpoint_id__keys__key_id__delete",
         "parameters": [
           {

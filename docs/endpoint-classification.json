@@ -89,7 +89,7 @@
   },
   "DELETE /api/v2/serverless/endpoints/{endpoint_id}": {
     "class": "covered",
-    "notes": "delete_serverless_endpoint (mcp/src/tools/serverless.ts), inference:write at the tool layer, confirm-gated, destructive. The route enforces _require_serverless_endpoint_write but no scope."
+    "notes": "delete_serverless_endpoint (mcp/src/tools/serverless.ts), inference:write at the tool layer, confirm-gated, destructive. The route enforces _require_serverless_endpoint_write and inference:write, so a narrowed credential is refused at the route and not only at the tool."
   },
   "DELETE /api/v2/serverless/endpoints/{endpoint_id}/keys/{key_id}": {
     "class": "internal",

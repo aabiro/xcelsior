@@ -509,7 +509,8 @@ class GitHubResolveRequest(BaseModel):
 @router.post("/api/v2/serverless/github/resolve", tags=["Serverless"])
 def api_serverless_github_resolve(body: GitHubResolveRequest, request: Request):
     """Resolve a GitHub repo URL to the default GHCR image reference."""
-    _require_auth(request)
+    user = _require_auth(request)
+    _require_scope(user, "inference:read")
     from serverless.github_deploy import GitHubSourceError, resolve_github_image
 
     try:
@@ -660,6 +661,7 @@ def api_v1_execute_serverless_endpoint_plan(plan_id: str, request: Request):
 @router.get("/api/v2/serverless/endpoints", tags=["Serverless"])
 def api_serverless_list_endpoints(request: Request):
     user = _require_auth(request)
+    _require_scope(user, "inference:read")
     if not _user_has_serverless_feature(user):
         return {"ok": True, "endpoints": []}
     endpoints: list[dict] = []
@@ -676,6 +678,7 @@ def api_serverless_list_endpoints(request: Request):
 @router.get("/api/v2/serverless/endpoints/{endpoint_id}", tags=["Serverless"])
 def api_serverless_get_endpoint(endpoint_id: str, request: Request):
     user = _require_auth(request)
+    _require_scope(user, "inference:read")
     ep = _get_endpoint_for_user(endpoint_id, user)
     return {"ok": True, "endpoint": _serialize_endpoint(ep)}
 
@@ -685,6 +688,7 @@ def api_serverless_patch_endpoint(
     endpoint_id: str, body: ServerlessEndpointPatch, request: Request
 ):
     user = _require_auth(request)
+    _require_scope(user, "inference:write")
     ep = _get_endpoint_for_user(endpoint_id, user)
     _require_serverless_endpoint_write(user, ep)
     fields = body.model_dump(exclude_none=True)
@@ -697,6 +701,7 @@ def api_serverless_patch_endpoint(
 @router.post("/api/v2/serverless/endpoints/{endpoint_id}/warm", tags=["Serverless"])
 def api_serverless_warm_endpoint(endpoint_id: str, request: Request):
     user = _require_auth(request)
+    _require_scope(user, "inference:write")
     ep = _get_endpoint_for_user(endpoint_id, user)
     _require_serverless_endpoint_write(user, ep)
     try:
@@ -709,6 +714,7 @@ def api_serverless_warm_endpoint(endpoint_id: str, request: Request):
 @router.delete("/api/v2/serverless/endpoints/{endpoint_id}", tags=["Serverless"])
 def api_serverless_delete_endpoint(endpoint_id: str, request: Request):
     user = _require_auth(request)
+    _require_scope(user, "inference:write")
     ep = _get_endpoint_for_user(endpoint_id, user)
     _require_serverless_endpoint_write(user, ep)
     if not _svc().delete_endpoint(endpoint_id, str(ep["owner_id"])):
@@ -719,6 +725,7 @@ def api_serverless_delete_endpoint(endpoint_id: str, request: Request):
 @router.get("/api/v2/serverless/endpoints/{endpoint_id}/health", tags=["Serverless"])
 def api_serverless_endpoint_health(endpoint_id: str, request: Request):
     user = _require_auth(request)
+    _require_scope(user, "inference:read")
     _get_endpoint_for_user(endpoint_id, user)
     health = _svc().get_endpoint_health(endpoint_id)
     return {"ok": True, "health": health}
@@ -727,6 +734,7 @@ def api_serverless_endpoint_health(endpoint_id: str, request: Request):
 @router.get("/api/v2/serverless/endpoints/{endpoint_id}/metrics", tags=["Serverless"])
 def api_serverless_endpoint_metrics(endpoint_id: str, request: Request):
     user = _require_auth(request)
+    _require_scope(user, "inference:read")
     _get_endpoint_for_user(endpoint_id, user)
     since_hours = float(request.query_params.get("since_hours") or 24)
     since_ts = time.time() - max(1.0, since_hours) * 3600.0
@@ -749,6 +757,12 @@ def api_serverless_create_batch(
 ):
     """OpenAI-style async batch — discounted token/GPU billing for bulk inference."""
     user, _key, ep = _resolve_serverless_endpoint_auth(request, endpoint_id, write=True)
+    # `user` is None when the caller authenticated with an endpoint API key —
+    # that branch of the resolver already enforced `inference:write` via
+    # `key_has_scope`. This adds the same requirement for the OAuth path, which
+    # the resolver does not check.
+    if user:
+        _require_scope(user, "inference:write")
     if ep is None:
         raise HTTPException(404, "Endpoint not found")
     if str(ep.get("mode")) != "preset":
@@ -768,6 +782,8 @@ def api_serverless_create_batch(
 @router.get("/api/v2/serverless/batches/{batch_id}", tags=["Serverless"])
 def api_serverless_get_batch(batch_id: str, request: Request):
     user = _require_auth(request)
+    _require_scope(user, "inference:write")
+    _require_scope(user, "inference:read")
     owner = str(user.get("user_id") or user.get("id") or "")
     batch = get_batch(_repo(), batch_id, owner_id=owner)
     if not batch:
@@ -778,7 +794,8 @@ def api_serverless_get_batch(batch_id: str, request: Request):
 @router.get("/api/v2/serverless/preset-token-pricing", tags=["Serverless"])
 def api_preset_token_pricing(request: Request):
     """Per-million token rates for preset models (single source: metering.py)."""
-    _require_auth(request)
+    user = _require_auth(request)
+    _require_scope(user, "inference:read")
     quotes: dict[str, dict] = {}
     for ref in _PRESET_TOKEN_MODEL_REFS:
         q = token_pricing_quote(ref)
@@ -791,6 +808,7 @@ def api_preset_token_pricing(request: Request):
 def api_serverless_endpoint_usage(endpoint_id: str, request: Request):
     """Alias for metrics — dashboard compatibility."""
     user = _require_auth(request)
+    _require_scope(user, "inference:read")
     _get_endpoint_for_user(endpoint_id, user)
     metrics = _svc().get_endpoint_metrics(endpoint_id)
     ep = _repo().get_endpoint(endpoint_id) or {}
@@ -830,6 +848,7 @@ def api_serverless_endpoint_usage(endpoint_id: str, request: Request):
 @router.get("/api/v2/serverless/endpoints/{endpoint_id}/workers", tags=["Serverless"])
 def api_serverless_list_workers(endpoint_id: str, request: Request):
     user = _require_auth(request)
+    _require_scope(user, "inference:read")
     _get_endpoint_for_user(endpoint_id, user)
     workers = _repo().list_workers(endpoint_id)
     return {"ok": True, "workers": workers}
@@ -846,6 +865,7 @@ def _get_worker_for_endpoint(endpoint_id: str, worker_id: str, user: dict) -> di
 @router.get("/api/v2/serverless/endpoints/{endpoint_id}/workers/{worker_id}/logs", tags=["Serverless"])
 def api_serverless_worker_logs(endpoint_id: str, worker_id: str, request: Request, limit: int = 100):
     user = _require_auth(request)
+    _require_scope(user, "inference:read")
     worker = _get_worker_for_endpoint(endpoint_id, worker_id, user)
     scheduler_job_id = str(worker.get("scheduler_job_id") or "")
     if not scheduler_job_id:
@@ -863,6 +883,7 @@ def api_serverless_worker_logs(endpoint_id: str, worker_id: str, request: Reques
 @router.get("/api/v2/serverless/endpoints/{endpoint_id}/workers/{worker_id}/logs/stream", tags=["Serverless"])
 async def api_serverless_worker_logs_stream(endpoint_id: str, worker_id: str, request: Request):
     user = _require_auth(request)
+    _require_scope(user, "inference:read")
     worker = _get_worker_for_endpoint(endpoint_id, worker_id, user)
     scheduler_job_id = str(worker.get("scheduler_job_id") or "")
     if not scheduler_job_id:
@@ -890,6 +911,7 @@ def _pct(value: Any) -> float:
 @router.get("/api/v2/serverless/endpoints/{endpoint_id}/workers/{worker_id}/telemetry", tags=["Serverless"])
 def api_serverless_worker_telemetry(endpoint_id: str, worker_id: str, request: Request):
     user = _require_auth(request)
+    _require_scope(user, "inference:read")
     worker = _get_worker_for_endpoint(endpoint_id, worker_id, user)
     host_id = str(worker.get("host_id") or "")
     if not host_id:
@@ -950,6 +972,7 @@ def api_serverless_worker_telemetry(endpoint_id: str, worker_id: str, request: R
 @router.get("/api/v2/serverless/endpoints/{endpoint_id}/jobs", tags=["Serverless"])
 def api_serverless_list_jobs(endpoint_id: str, request: Request):
     user = _require_auth(request)
+    _require_scope(user, "inference:read")
     _get_endpoint_for_user(endpoint_id, user)
     jobs = _repo().list_jobs(endpoint_id, limit=100)
     return {"ok": True, "jobs": jobs}
@@ -958,6 +981,7 @@ def api_serverless_list_jobs(endpoint_id: str, request: Request):
 @router.get("/api/v2/serverless/endpoints/{endpoint_id}/jobs/{job_id}", tags=["Serverless"])
 def api_serverless_dashboard_job_status(endpoint_id: str, job_id: str, request: Request):
     user = _require_auth(request)
+    _require_scope(user, "inference:read")
     _get_endpoint_for_user(endpoint_id, user)
     job = _repo().get_job(job_id, endpoint_id=endpoint_id)
     if not job:
@@ -979,6 +1003,7 @@ def api_serverless_dashboard_job_status(endpoint_id: str, job_id: str, request: 
 @router.get("/api/v2/serverless/endpoints/{endpoint_id}/jobs/{job_id}/stream", tags=["Serverless"])
 async def api_serverless_dashboard_job_stream(endpoint_id: str, job_id: str, request: Request):
     user = _require_auth(request)
+    _require_scope(user, "inference:read")
     _get_endpoint_for_user(endpoint_id, user)
     job = _repo().get_job(job_id, endpoint_id=endpoint_id)
     if not job:
@@ -1022,6 +1047,7 @@ def api_serverless_dashboard_cancel_job(endpoint_id: str, job_id: str, request: 
     a tool pointing at this route rather than the v1 one.
     """
     user = _require_auth(request)
+    _require_scope(user, "inference:write")
     ep = _get_endpoint_for_user(endpoint_id, user)
     _require_serverless_endpoint_write(user, ep)
     job = _svc().cancel_inflight_job(job_id, endpoint_id, reason="cancelled by dashboard")
@@ -1033,6 +1059,7 @@ def api_serverless_dashboard_cancel_job(endpoint_id: str, job_id: str, request: 
 @router.post("/api/v2/serverless/endpoints/{endpoint_id}/test/run", tags=["Serverless"])
 def api_serverless_test_run(endpoint_id: str, body: RunJobRequest, request: Request):
     user = _require_auth(request)
+    _require_scope(user, "inference:write")
     ep = _get_endpoint_for_user(endpoint_id, user)
     _require_serverless_endpoint_write(user, ep)
     rl_headers = _preflight_dashboard_test(ep)
@@ -1064,6 +1091,7 @@ def api_serverless_test_run(endpoint_id: str, body: RunJobRequest, request: Requ
 @router.post("/api/v2/serverless/endpoints/{endpoint_id}/test/runsync", tags=["Serverless"])
 def api_serverless_test_runsync(endpoint_id: str, body: RunJobRequest, request: Request):
     user = _require_auth(request)
+    _require_scope(user, "inference:write")
     ep = _get_endpoint_for_user(endpoint_id, user)
     _require_serverless_endpoint_write(user, ep)
     _preflight_dashboard_test(ep)
@@ -1116,6 +1144,7 @@ def api_serverless_test_runsync(endpoint_id: str, body: RunJobRequest, request: 
 @router.post("/api/v2/serverless/endpoints/{endpoint_id}/test/openai/v1/chat/completions", tags=["Serverless"])
 async def api_serverless_test_openai_chat(endpoint_id: str, body: ChatCompletionRequest, request: Request):
     user = _require_auth(request)
+    _require_scope(user, "inference:write")
     ep = _get_endpoint_for_user(endpoint_id, user)
     _require_serverless_endpoint_write(user, ep)
     _preflight_dashboard_test(ep)
@@ -1195,6 +1224,7 @@ def api_serverless_create_key(
 @router.get("/api/v2/serverless/endpoints/{endpoint_id}/keys", tags=["Serverless"])
 def api_serverless_list_keys(endpoint_id: str, request: Request):
     user = _require_auth(request)
+    _require_scope(user, "inference:read")
     ep = _get_endpoint_for_user(endpoint_id, user)
     keys = _repo().list_api_keys(str(ep["owner_id"]), endpoint_id=endpoint_id)
     safe = [
@@ -1213,7 +1243,15 @@ def api_serverless_list_keys(endpoint_id: str, request: Request):
 
 @router.delete("/api/v2/serverless/endpoints/{endpoint_id}/keys/{key_id}", tags=["Serverless"])
 def api_serverless_revoke_key(endpoint_id: str, key_id: str, request: Request):
+    """Revoke an endpoint API key.
+
+    Scoped `inference:write` while *minting* one is left unscoped pending a
+    decision, and the asymmetry is deliberate: safety must never be harder to
+    reach than the risk it undoes. A credential that can create a key and not
+    destroy it is worse than one that can do neither.
+    """
     user = _require_auth(request)
+    _require_scope(user, "inference:write")
     ep = _get_endpoint_for_user(endpoint_id, user)
     _require_serverless_endpoint_write(user, ep)
     if not _repo().revoke_api_key(key_id, str(ep["owner_id"])):
