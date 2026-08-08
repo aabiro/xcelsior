@@ -16,6 +16,7 @@ from routes._deps import (
     XCELSIOR_ENV,
     _check_auth_rate_limit,
     _get_current_user as _deps_get_current_user,
+    _is_interactive_human,
     _is_platform_admin,
     _require_user_grant as _deps_require_user_grant,
     _set_session_cookies,
@@ -295,6 +296,41 @@ def api_mfa_totp_verify(request: Request, req: TotpVerifyRequest):
     }
 
 
+def _require_human_to_weaken_mfa(user: dict) -> None:
+    """Removing a factor is a first-party action. Adding one is not.
+
+    No mainstream provider lets a third-party OAuth app disable a user's MFA:
+    GitHub's API has no such endpoint, Google publishes no such scope, and
+    Microsoft Graph puts authentication-method deletion behind the user's own
+    session or an admin role. Account-security settings are first-party
+    everywhere, and this is that line.
+
+    The asymmetry is the point, and it is the same one applied to auto-top-up:
+    an agent may help you *add* a factor, and may never take one away. Safety
+    must never be harder to reach than the risk it undoes — here the safe
+    direction is keeping MFA, so the friction goes on removal alone.
+
+    `_is_interactive_human` rather than `routes.action_plans._is_human`: the
+    latter only asks whether the grant was `client_credentials`, so it counts a
+    third-party connector token as a person. Using it here would leave the door
+    open to exactly the caller this exists to stop.
+
+    **What this is not.** It is not step-up re-authentication. A dashboard
+    session that has been open for a week still passes, and the industry norm
+    is to also require a fresh password within a short window. That is a
+    separate, larger change; this closes the delegation hole, which is the half
+    that no other platform leaves open.
+    """
+    if _is_interactive_human(user):
+        return
+    raise HTTPException(
+        403,
+        "Removing an MFA factor requires a signed-in session. An API key, an "
+        "OAuth client, or a connected agent can add a factor but cannot take "
+        "one away — remove it from account settings instead.",
+    )
+
+
 @router.delete("/api/auth/mfa/totp", tags=["Auth - MFA"])
 def api_mfa_totp_disable(request: Request):
     """Disable and remove TOTP."""
@@ -304,6 +340,7 @@ def api_mfa_totp_disable(request: Request):
     from routes._deps import _require_scope
 
     _require_scope(user, "mfa:write")
+    _require_human_to_weaken_mfa(user)
     MfaStore.delete_methods_by_type(user["email"], "totp")
     _refresh_mfa_enabled(user["email"])
     return {"ok": True, "message": "TOTP disabled"}
@@ -424,6 +461,7 @@ def api_mfa_sms_disable(request: Request):
     from routes._deps import _require_scope
 
     _require_scope(user, "mfa:write")
+    _require_human_to_weaken_mfa(user)
     MfaStore.delete_methods_by_type(user["email"], "sms")
     _refresh_mfa_enabled(user["email"])
     return {"ok": True, "message": "SMS MFA disabled"}
@@ -659,6 +697,7 @@ def api_mfa_passkey_delete(req: PasskeyDeleteRequest, request: Request):
     from routes._deps import _require_scope
 
     _require_scope(user, "mfa:write")
+    _require_human_to_weaken_mfa(user)
 
     method = MfaStore.get_method(req.method_id)
     if not method or method["email"] != user["email"] or method["method_type"] != "passkey":
@@ -921,6 +960,7 @@ def api_mfa_regenerate_backup_codes(request: Request):
     from routes._deps import _require_scope
 
     _require_scope(user, "mfa:write")
+    _require_human_to_weaken_mfa(user)
     if not any(bool(m.get("enabled")) for m in MfaStore.list_methods(user["email"])):
         raise HTTPException(400, "MFA is not enabled")
 
@@ -940,6 +980,7 @@ def api_mfa_disable_all(request: Request):
     from routes._deps import _require_scope
 
     _require_scope(user, "mfa:write")
+    _require_human_to_weaken_mfa(user)
     from db import auth_connection
 
     with auth_connection() as conn:
