@@ -90,7 +90,14 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `101_gpu_allocations_owner.py`.**
+**Repository head: `102_volume_promotions.py`.**
+(`102` adds `volume_promotions`, the row an artifact→volume copy is keyed on —
+A0 of `docs/artifact-promotion-plan.md`. Unique on
+`(tenant_id, job_id, idempotency_key)` because Gate P3 asks that a repeated call
+produce "one volume, not two", which implies promotion may *create* the volume
+and so the key must cover creation rather than only the copy. Nothing copies
+yet.)
+
 (`101` adds `gpu_allocations.owner_id`, nullable, backfilled from the job each
 allocation was created for. It exists because
 `POST /api/v2/marketplace/release/{allocation_id}` passed an allocation id to

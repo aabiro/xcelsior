@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from typing import Literal
 
 from routes._deps import (
+    _effective_billing_customer_id,
     _get_current_user,
     _require_volume_read,
     _require_volume_write,
@@ -429,3 +430,69 @@ def api_volume_snapshot_delete(volume_id: str, snapshot_id: str, request: Reques
         {"volume_id": volume_id, "snapshot_id": snapshot_id},
     )
     return {"ok": True, **result}
+
+
+@router.get("/api/v2/volumes/{volume_id}/promotions/preview", tags=["Volumes"])
+def api_volume_promotion_preview(volume_id: str, request: Request, job_id: str = ""):
+    """What promoting `job_id` onto this volume would copy. Copies nothing.
+
+    A0 of `docs/artifact-promotion-plan.md`. The manifest exists before the
+    machinery that acts on it so the shape can be reviewed — and so the tool
+    layer, when it arrives, has something truthful to show a user *before* a
+    40 GB copy starts rather than after.
+
+    Both objects are authorised separately and in the right order. The volume is
+    checked first because it is the one named in the path; the artifacts are
+    scoped by tenant inside the query rather than filtered afterwards, since a
+    manifest is a list of file names and sizes and resolving before checking is
+    how a read becomes a disclosure.
+    """
+    from routes._deps import _require_scope
+
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "volumes:read")
+    if not job_id:
+        raise HTTPException(422, "job_id is required")
+
+    ve = get_volume_engine()
+    vol = ve.get_volume(volume_id)
+    if not vol:
+        raise HTTPException(404, "Volume not found")
+    _require_volume_read(user, vol)
+
+    from artifacts import get_artifact_manager
+
+    manifest = get_artifact_manager().resolve_promotion_manifest(
+        job_id, tenant_id=_effective_billing_customer_id(user)
+    )
+    if not manifest.get("ok"):
+        raise HTTPException(503, "Artifact catalog unavailable")
+
+    # A job with no promotable artifacts is a 200 with an empty manifest, not a
+    # 404: the job may exist and simply have produced nothing yet, and the
+    # caller needs to tell "nothing to promote" from "no such job" without being
+    # told which other tenants' jobs exist.
+    return {
+        "ok": True,
+        "volume_id": volume_id,
+        "job_id": job_id,
+        "file_count": manifest["file_count"],
+        "total_bytes": manifest["total_bytes"],
+        "manifest_sha256": manifest["manifest_sha256"],
+        "earliest_retain_until": manifest["earliest_retain_until"],
+        "unverifiable": manifest["unverifiable"],
+        # `object_key` is deliberately absent. It is a storage-internal locator,
+        # it is not needed to decide whether to promote, and this response is
+        # destined for a model's context.
+        "files": [
+            {
+                "artifact_id": f["artifact_id"],
+                "logical_name": f["logical_name"],
+                "size_bytes": f["size_bytes"],
+                "artifact_type": f["artifact_type"],
+            }
+            for f in manifest["files"]
+        ],
+    }

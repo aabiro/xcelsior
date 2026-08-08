@@ -879,6 +879,10 @@
     "class": "gap",
     "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
   },
+  "GET /api/v2/volumes/{volume_id}/promotions/preview": {
+    "class": "gap",
+    "notes": "A0 of docs/artifact-promotion-plan.md: what promoting a job's artifacts onto this volume would copy. Copies nothing, holds nothing, writes nothing. No tool calls it yet — promote_artifact_to_volume does not exist, and this is the manifest it will show a user before a large copy starts rather than after. Volume authorised via _require_volume_read; artifacts scoped by tenant inside the query, since a manifest is a list of file names and sizes."
+  },
   "GET /api/v2/volumes/{volume_id}/snapshots": {
     "class": "gap",
     "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"

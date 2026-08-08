@@ -538,6 +538,104 @@ class ArtifactManager:
         else:
             self.cache = cache
 
+    def resolve_promotion_manifest(self, job_id: str, *, tenant_id: str) -> dict:
+        """What promoting this job onto a volume would copy. Reads only.
+
+        A0 of `docs/artifact-promotion-plan.md`. Returns the resolved file set,
+        its total size, and a digest of the set — nothing is copied, held, or
+        written.
+
+        **Tenant-scoped in the query, not filtered afterwards.** `job_id` is
+        caller-supplied, and a manifest is a list of a tenant's file names and
+        sizes; resolving first and checking ownership second is how a read
+        becomes a disclosure.
+
+        Only `available` artifacts are included. An artifact still uploading has
+        no trustworthy `sha256` or `size_bytes`, and promoting one would copy a
+        partial object and verify it against a digest of nothing.
+
+        **The digest is what makes a retry converge.** It covers each artifact's
+        id and sha256, sorted, so the same job promoted twice with the same
+        files produces the same key — while a job that has since produced new
+        artifacts produces a different one, which is a different promotion
+        rather than a silent no-op against a stale set.
+        """
+        import hashlib
+        from datetime import timezone
+
+        if not self._is_db_active():
+            return {"ok": False, "error": "catalog_inactive", "files": [], "file_count": 0}
+
+        from control_plane.db import control_plane_transaction
+
+        with control_plane_transaction() as conn:
+            rows = conn.execute(
+                """SELECT artifact_id, logical_name, object_key, size_bytes,
+                          sha256, retain_until, legal_hold, artifact_type
+                     FROM storage.artifacts
+                    WHERE job_id = %s
+                      AND tenant_id = %s
+                      AND state = 'available'
+                    ORDER BY artifact_id""",
+                (job_id, tenant_id),
+            ).fetchall()
+
+        files = [
+            {
+                # `artifact_id` is a uuid column; str() so the manifest is JSON
+                # without the route having to know the storage schema's types.
+                "artifact_id": str(r[0]),
+                "logical_name": r[1],
+                "object_key": r[2],
+                "size_bytes": int(r[3] or 0),
+                "sha256": r[4],
+                # `retain_until` is timestamptz. Carried as ISO rather than as a
+                # float: this value ends up in a tool result telling a user when
+                # their weights disappear, and a unix timestamp there is a
+                # number nobody can read.
+                #
+                # **Normalised to UTC first.** psycopg renders timestamptz in the
+                # session's timezone, so the same instant can come back as
+                # `…T21:19+00:00` or `…T17:19-04:00`. `earliest_retain_until`
+                # below is a `min()` over these strings, and lexicographic order
+                # only matches chronological order when every value shares an
+                # offset — mixed offsets would silently pick the wrong deadline
+                # for the one clause that decides whether a copy outruns the
+                # janitor.
+                "retain_until": (
+                    r[5].astimezone(timezone.utc).isoformat() if r[5] is not None else None
+                ),
+                "legal_hold": bool(r[6]),
+                "artifact_type": r[7],
+            }
+            for r in rows
+        ]
+        digest = hashlib.sha256(
+            "\n".join(f"{f['artifact_id']}:{f['sha256'] or ''}" for f in files).encode()
+        ).hexdigest()
+        # An artifact with no sha256 cannot be verified after the copy, and an
+        # unverified copy of someone's weights is worse than a refusal: it looks
+        # complete. Surfaced rather than silently dropped, because dropping it
+        # would make the manifest quietly incomplete.
+        unverifiable = [f["artifact_id"] for f in files if not f["sha256"]]
+        return {
+            "ok": True,
+            "job_id": job_id,
+            "files": files,
+            "file_count": len(files),
+            "total_bytes": sum(f["size_bytes"] for f in files),
+            "manifest_sha256": digest,
+            "unverifiable": unverifiable,
+            # The earliest clock in the set — the deadline the whole promotion
+            # races, not the average one. ISO-8601 sorts lexicographically in
+            # the same order it sorts chronologically, so min() over the
+            # rendered strings is the same answer as min() over the timestamps.
+            "earliest_retain_until": min(
+                (f["retain_until"] for f in files if f["retain_until"] is not None),
+                default=None,
+            ),
+        }
+
     def _is_db_active(self) -> bool:
         """Check if PostgreSQL storage catalog backend is active."""
         from db import DB_BACKEND

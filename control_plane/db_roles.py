@@ -124,6 +124,11 @@ CONTROL_TABLES = frozenset(
         "volumes",
         "volume_attachments",
         "volume_snapshots",
+        # Artifact→volume promotion (P3). Claimed here rather than with the
+        # storage catalog because the row is keyed to the volume it lands on and
+        # is written by the same service that mounts and attaches; the artifacts
+        # it names live in `storage.artifacts` and are only read.
+        "volume_promotions",
         "worker_model_cache",
         "registry_health_cache",
         "benchmarks",
