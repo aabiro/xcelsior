@@ -306,11 +306,29 @@ def main() -> int:
         for _ in range(max(1, args.samples)):
             try:
                 chosen, detail = selected_tools(client, args.model, tools, case)
-            except Exception as exc:  # network/API problem is a harness failure
-                print(f"[ ERR  ] {case.id}: {exc}")
-                failures.append((case, str(exc)))
-                results.append(False)
-                continue
+            except Exception as exc:
+                # **A harness failure is not a wrong answer, and must never be
+                # scored as one.** This used to append `False` and carry on, so
+                # an expired token, a rate limit or an exhausted credit balance
+                # turned into "the model chose badly" — silently, and with a
+                # plausible number at the end.
+                #
+                # It happened: a 5-sample run lost its Anthropic balance partway
+                # and reported `expected_tool_accuracy 0.54`, `abstention 0.0`,
+                # `unsafe_write_rate 1.0` — which reads as a connector that
+                # became reckless, from 66 calls that never reached the API. The
+                # giveaway was `direct` and `indirect` perfect and everything
+                # after them zero, in file order, at *lower* total cost than a
+                # smaller run.
+                #
+                # Abort instead. A partial baseline is worse than none, because
+                # a number gets written down and compared against later.
+                raise SystemExit(
+                    f"\nABORTED — the grader could not reach the API on "
+                    f"{case.id}:\n    {exc}\n\n"
+                    "No baseline written. Scoring an unreachable API as a wrong "
+                    "answer would record a fabricated regression."
+                ) from exc
             ok, note = grade(case, chosen)
             results.append(ok)
         per_case[case.id] = results
