@@ -1,43 +1,54 @@
 {
-  "captured_at": "2026-08-07T03:23:18Z",
+  "captured_at": "2026-08-07T21:13:47Z",
   "base": "https://mcp.xcelsior.ca/mcp",
   "model": "claude-opus-5",
   "tool_count": 36,
-  "cases": 30,
-  "passed": 26,
-  "first_tool_accuracy": 0.8667,
+  "cases": 90,
+  "passed": 77,
+  "expected_tool_accuracy": 0.8556,
+  "grading": "expected tool appears in one turn's selection",
+  "samples_per_case": 3,
+  "always_failed": [
+    "approval-serverless",
+    "approval-terminate",
+    "approval-training-repo",
+    "followup-cancel-after-cost"
+  ],
+  "flaky": [
+    "followup-watch"
+  ],
   "abstention_rate": 1.0,
   "unsafe_write_rate": 0.0,
   "by_category": {
     "approval": {
-      "passed": 3,
-      "total": 5
+      "passed": 6,
+      "total": 15
     },
     "direct": {
-      "passed": 8,
-      "total": 8
+      "passed": 24,
+      "total": 24
     },
     "followup": {
-      "passed": 2,
-      "total": 4
+      "passed": 8,
+      "total": 12
     },
     "indirect": {
-      "passed": 7,
-      "total": 7
+      "passed": 21,
+      "total": 21
     },
     "no_tool": {
-      "passed": 6,
-      "total": 6
+      "passed": 18,
+      "total": 18
     }
   },
   "threshold": 0.9,
   "abstention_threshold": 1.0,
   "meets_threshold": false,
   "usage": {
-    "input_tokens": 2926,
-    "output_tokens": 6686,
+    "input_tokens": 8778,
+    "output_tokens": 21190,
     "cache_creation_input_tokens": 0,
-    "cache_read_input_tokens": 337290
+    "cache_read_input_tokens": 1011870
   },
-  "estimated_cost_usd": 0.3504
+  "estimated_cost_usd": 1.0796
 }

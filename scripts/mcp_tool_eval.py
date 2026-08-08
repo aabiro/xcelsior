@@ -257,6 +257,15 @@ def main() -> int:
         "this flag and it did not exist, so the job exited 2 on argparse before "
         "reaching any credential check.",
     )
+    parser.add_argument(
+        "--samples",
+        type=int,
+        default=1,
+        help="run every case this many times and report the mean. One sample is "
+        "not a measurement: two consecutive single-sample runs of this eval "
+        "against an unchanged surface scored 26/30 and 25/30, disagreeing on "
+        "three cases. A threshold cannot distinguish a regression from that.",
+    )
     args = parser.parse_args()
 
     cases = load_cases(EVAL_FILE)
@@ -287,21 +296,37 @@ def main() -> int:
 
     failures: list[tuple[Case, str]] = []
     by_category: dict[str, list[bool]] = {}
+    #: case_id -> how many of its samples passed. A case that passes some of the
+    #: time is a different problem from one that never does, and averaging them
+    #: into a single rate hides which is which.
+    per_case: dict[str, list[bool]] = {}
     for case in cases:
-        try:
-            chosen, detail = selected_tools(client, args.model, tools, case)
-        except Exception as exc:  # network/API problem is a harness failure, not a miss
-            print(f"[ ERR  ] {case.id}: {exc}")
-            failures.append((case, str(exc)))
-            by_category.setdefault(case.category, []).append(False)
-            continue
-        ok, note = grade(case, chosen)
-        by_category.setdefault(case.category, []).append(ok)
-        print(f"[{'  ok  ' if ok else ' FAIL '}] {case.id:<28} {note}")
+        results: list[bool] = []
+        note = ""
+        for _ in range(max(1, args.samples)):
+            try:
+                chosen, detail = selected_tools(client, args.model, tools, case)
+            except Exception as exc:  # network/API problem is a harness failure
+                print(f"[ ERR  ] {case.id}: {exc}")
+                failures.append((case, str(exc)))
+                results.append(False)
+                continue
+            ok, note = grade(case, chosen)
+            results.append(ok)
+        per_case[case.id] = results
+        passed_n = sum(results)
+        by_category.setdefault(case.category, []).extend(results)
+        if passed_n == len(results):
+            mark = "  ok  "
+        elif passed_n == 0:
+            mark = " FAIL "
+        else:
+            mark = " FLAKY"
+        tally = f"{passed_n}/{len(results)}" if len(results) > 1 else ""
+        print(f"[{mark}] {case.id:<28} {tally:<6} {note}")
+        ok = passed_n > len(results) / 2
         if not ok:
             failures.append((case, note))
-            if detail:
-                print(f"           said: {detail}")
 
     total = sum(len(v) for v in by_category.values())
     passed = sum(sum(v) for v in by_category.values())
@@ -342,7 +367,31 @@ def main() -> int:
                     "tool_count": len(tools),
                     "cases": total,
                     "passed": passed,
-                    "first_tool_accuracy": round(rate, 4),
+                    # Named for what it measures. It was `first_tool_accuracy`,
+                    # which `grade()` has never computed: the check is
+                    # `any(name in expect_any_of for name in chosen)` — the
+                    # expected tool appearing *anywhere* in a single turn's
+                    # selection, not first. The wrong name cost real time when
+                    # a failure was diagnosed as "the model read before writing,
+                    # so a safe read scores as a miss" — which the grader does
+                    # not do. Renamed rather than aliased.
+                    "expected_tool_accuracy": round(rate, 4),
+                    # Single-turn, and that is a property of the measurement
+                    # rather than of the surface. A case whose natural answer is
+                    # read-then-act cannot pass here, because the eval never
+                    # feeds the read's result back.
+                    "grading": "expected tool appears in one turn's selection",
+                    "samples_per_case": max(1, args.samples),
+                    # Which cases never pass, and which pass only sometimes. A
+                    # single overall rate cannot tell a real regression from
+                    # run-to-run variance, and two consecutive single-sample
+                    # runs of this eval disagreed on three of thirty cases.
+                    "always_failed": sorted(
+                        cid for cid, r in per_case.items() if not any(r)
+                    ),
+                    "flaky": sorted(
+                        cid for cid, r in per_case.items() if any(r) and not all(r)
+                    ),
                     # The abstention cases are the ones where calling *any* tool
                     # is the failure, so the interesting rate is the inverse.
                     "abstention_rate": round(abstention_rate, 4),

@@ -170,7 +170,7 @@ jobs:
           d = json.load(open("eval-baseline.json"))
           print("### Eval baseline\n")
           print(f"- graded surface: **{d.get('tool_count', '?')}** published tools (plan total: 39)")
-          print(f"- first-tool accuracy: **{d.get('first_tool_accuracy', '?')}**")
+          print(f"- expected-tool accuracy: **{d.get('expected_tool_accuracy', '?')}**")
           print(f"- unsafe-write selection: **{d.get('unsafe_write_rate', '?')}**")
           print("\nEvery later phase compares against these two numbers.")
           PY
