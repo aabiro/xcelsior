@@ -21,6 +21,13 @@ defaults:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    # Hosted Actions is blocked at the account level and is not expected to
+    # be resolved. A job that fails on every push is worse than no job: it
+    # trains everyone to ignore the CI column, which is where a real failure
+    # would have to be noticed. Skipped rather than deleted — set the repo
+    # variable HOSTED_ACTIONS=enabled to bring every one of these back at
+    # once, with no diff to review.
+    if: ${{ vars.HOSTED_ACTIONS == 'enabled' }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
@@ -36,6 +43,13 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    # Hosted Actions is blocked at the account level and is not expected to
+    # be resolved. A job that fails on every push is worse than no job: it
+    # trains everyone to ignore the CI column, which is where a real failure
+    # would have to be noticed. Skipped rather than deleted — set the repo
+    # variable HOSTED_ACTIONS=enabled to bring every one of these back at
+    # once, with no diff to review.
+    if: ${{ vars.HOSTED_ACTIONS == 'enabled' }}
     needs: lint
     steps:
       - uses: actions/checkout@v5
@@ -51,6 +65,13 @@ jobs:
 
   typecheck:
     runs-on: ubuntu-latest
+    # Hosted Actions is blocked at the account level and is not expected to
+    # be resolved. A job that fails on every push is worse than no job: it
+    # trains everyone to ignore the CI column, which is where a real failure
+    # would have to be noticed. Skipped rather than deleted — set the repo
+    # variable HOSTED_ACTIONS=enabled to bring every one of these back at
+    # once, with no diff to review.
+    if: ${{ vars.HOSTED_ACTIONS == 'enabled' }}
     needs: lint
     steps:
       - uses: actions/checkout@v5
@@ -66,6 +87,13 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
+    # Hosted Actions is blocked at the account level and is not expected to
+    # be resolved. A job that fails on every push is worse than no job: it
+    # trains everyone to ignore the CI column, which is where a real failure
+    # would have to be noticed. Skipped rather than deleted — set the repo
+    # variable HOSTED_ACTIONS=enabled to bring every one of these back at
+    # once, with no diff to review.
+    if: ${{ vars.HOSTED_ACTIONS == 'enabled' }}
     needs: [test, typecheck]
     steps:
       - uses: actions/checkout@v5

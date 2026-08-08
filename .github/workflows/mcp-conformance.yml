@@ -30,6 +30,13 @@ permissions:
 jobs:
   gx0:
     runs-on: ubuntu-latest
+    # Hosted Actions is blocked at the account level and is not expected to
+    # be resolved. A job that fails on every push is worse than no job: it
+    # trains everyone to ignore the CI column, which is where a real failure
+    # would have to be noticed. Skipped rather than deleted — set the repo
+    # variable HOSTED_ACTIONS=enabled to bring every one of these back at
+    # once, with no diff to review.
+    if: ${{ vars.HOSTED_ACTIONS == 'enabled' }}
     # Protected environment: the reviewer credentials that unlock the consent
     # leg live here, not in repository-wide secrets.
     environment: mcp-conformance

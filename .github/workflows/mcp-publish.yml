@@ -9,6 +9,10 @@ permissions:
 
 jobs:
   publish:
+    # Hosted Actions is blocked at the account level and is not expected to
+    # be resolved. Skipped rather than deleted — set the repo variable
+    # HOSTED_ACTIONS=enabled to bring it back.
+    if: ${{ vars.HOSTED_ACTIONS == 'enabled' }}
     runs-on: ubuntu-latest
     defaults:
       run:
