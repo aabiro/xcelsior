@@ -1290,6 +1290,62 @@ def _require_user_grant(request: Request, *, allow_api_key: bool = False) -> dic
 # break-glass admin credential and is gated by admin checks, not scopes.
 _MACHINE_AUTH_TYPES = frozenset({"client_credentials", "agent_api_key"})
 
+#: The first-party web app's OAuth client id. `oauth_service._issue_access_token`
+#: already uses exactly this pair — `session_type == "browser" and client_id ==
+#: "xcelsior-web"` — to decide who gets the long browser TTL, noting that
+#: third-party agents "keep the short access-token TTL even though they also
+#: carry session_type=browser". So `session_type` alone does not separate them
+#: and `client_id` does. The same distinction that decides token lifetime
+#: decides whether scopes are an authorization restriction.
+_FIRST_PARTY_WEB_CLIENT_ID = "xcelsior-web"
+
+#: `shadow` (default) records and enforces nothing. `enforce` treats a
+#: third-party connector token as the scoped machine credential it is. `off`
+#: disables both. Named for `XCELSIOR_SCHEDULER_MODE=shadow`, which this follows.
+_CONNECTOR_SCOPE_MODE = os.environ.get("XCELSIOR_CONNECTOR_SCOPE_MODE", "shadow").strip().lower()
+
+
+def _is_delegated_connector_token(user: dict) -> bool:
+    """True for a third-party authorization-code token, false for a browser session.
+
+    Both arrive as ``auth_type == "oauth_access_token"``. The browser session is
+    an *identity* — its scopes are OIDC claims (`profile`, `email`) that say
+    nothing about API authority, which is why `_require_scope` must never gate
+    it. A connector token is a *delegation*, carrying the API scopes a user
+    ticked on a consent screen.
+    """
+    if user.get("auth_type") != "oauth_access_token":
+        return False
+    return not (
+        user.get("session_type", "browser") == "browser"
+        and str(user.get("client_id") or _FIRST_PARTY_WEB_CLIENT_ID) == _FIRST_PARTY_WEB_CLIENT_ID
+    )
+
+
+def _record_connector_scope_shadow(user: dict, required: tuple[str, ...]) -> None:
+    """Log what `enforce` mode would have refused. Never raises.
+
+    A shadow that can break the request it observes is worse than no shadow, so
+    every failure here is swallowed — the caller's outcome must be byte-identical
+    to the mode being off.
+    """
+    try:
+        granted = set(user.get("scopes") or ())
+        if not granted:
+            return  # Pre-scope credential; `enforce` would let it through too.
+        missing = [s for s in required if s not in granted]
+        if not missing:
+            return
+        log.info(
+            "connector_scope.shadow would_refuse client_id=%s missing=%s granted=%s",
+            user.get("client_id") or "unknown",
+            ",".join(sorted(missing)),
+            ",".join(sorted(granted)),
+        )
+    except Exception:  # pragma: no cover - observation must never break traffic
+        pass
+
+
 def _require_scope(user: dict, *required: str) -> None:
     """Raise 403 if *user* is a scoped machine principal missing any of *required*.
 
@@ -1316,6 +1372,27 @@ def _require_scope(user: dict, *required: str) -> None:
         user.get("grant_type") == "client_credentials"
         or user.get("auth_type") in _MACHINE_AUTH_TYPES
     )
+    if not is_machine and _is_delegated_connector_token(user):
+        # A third-party authorization-code token: the scopes on it are an
+        # authorization restriction the user chose at a consent screen, exactly
+        # like a client-credentials token's. Enforcing that is the whole point
+        # of showing them the list.
+        #
+        # Default mode is `shadow`, which records what *would* be refused and
+        # changes nothing. That is not timidity: routes currently demand 36
+        # distinct scopes and a Quick Connect token carries 14, so flipping to
+        # `enforce` without evidence would reproduce the `instances:connect`
+        # 403 — a scope enforced on routes and absent from the set the token
+        # holds — across every connector in production at once.
+        #
+        # The shadow log is what turns this into a decision someone can make:
+        # it names the client and the missing scope, so the real required set
+        # can be read off production traffic instead of guessed at.
+        if _CONNECTOR_SCOPE_MODE == "enforce":
+            is_machine = True
+        elif _CONNECTOR_SCOPE_MODE == "shadow":
+            _record_connector_scope_shadow(user, required)
+
     if not is_machine:
         return
 
