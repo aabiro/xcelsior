@@ -42,7 +42,7 @@ slipped.
 | 2 | A confirmed-failing check — every regression test shown to fail *before* the fix | **PARTIAL** | Done and recorded for this session's work (the serverless re-scope was probed by stripping one check; both the structural and behavioural layers fired independently). I cannot evidence it for the whole historical corpus, and I will not claim it. |
 | 3 | A live-credential path — ≥1 assertion per phase, real token, real server | **FAIL** | P0 has `tests/live/test_scope_refusals_live.py`, but it (a) asserts a *different* property than Gate P0 names — undelegatable operator scopes (`hosts:evict`), not the access/billing scopes — and (b) skips unless `XCELSIOR_LIVE_BASE_URL` + `XCELSIOR_NONADMIN_TOKEN` are set, and its only declared runner is `.github/workflows/live-gates.yml`, which cannot run. **P1, P2 and P3 have no live path at all.** |
 | 4 | A refusal test — what the phase makes impossible | **PASS** | Dense across the corpus. `test_serverless_refuses_narrowed_credentials`, `test_platform_ssh_key_is_admin_only`, `test_terminal_ticket_needs_connect_scope`, `test_stripe_webhook_refuses_unverified`. |
-| 5 | An eval delta per phase — re-run at the new tool count | **FAIL** | No eval has been run since the baseline was captured at `tool_count: 36`. The surface has grown substantially since. **P2 and P3 both shipped tools with no eval delta at all**, which is the clause simply not being honoured rather than being blocked — though re-running it now *is* blocked (§P0.4). |
+| 5 | An eval delta per phase — re-run at the new tool count | **PARTIAL** *(was FAIL)* | The loop is re-established and runnable without GitHub Actions — `scripts/run_mcp_eval_locally.sh` boots the surface from the working tree and grades it, and a delta now exists at 46 tools (0.8778 → **0.9111**). What is still not true is *per phase*: P2's and P3's tools shipped without their own deltas, and this single capture covers both at once. Future phases can honour the clause; these two cannot retroactively. |
 
 Gate §1.3 and §1.5 are the two structural failures on this page. Everything else
 is a clause-by-clause matter; these two are a habit that lapsed.
@@ -56,7 +56,7 @@ is a clause-by-clause matter; these two are a habit that lapsed.
 | 1 | Every access and billing endpoint refuses a token missing its new scope, **asserted with a real token against a live server** | **PARTIAL** | *In-process: true.* `instances:connect` on 4 routes, `ssh:read` on 1, `ssh:write` on 2, `billing:write` on 14 — including both endpoints the plan names by hand: `portal-session` ([routes/billing.py:2523](routes/billing.py#L2523)) and `setup-intent` ([routes/billing.py:2546](routes/billing.py#L2546)). *Live: absent.* The one live file asserts a different property (see §1.3). |
 | 2 | Regenerating the registry produces byte-identical output; a hand edit to a generated file fails the build | **PASS** | `test_tool_scope_registry_completeness.py` (8 passed) and `test_generated_artifacts_are_current.py`. **Demonstrated, not assumed:** this session the inventory test went red the moment a route change made `docs/generated/endpoint-inventory.md` stale, and green after regeneration. It also caught a hand-written note in `docs/endpoint-classification.json` that my own change had falsified. |
 | 3 | Zero unclassified endpoints | **PASS** | `MAX_UNCLASSIFIED = 0` across **519** operations — a floor, so the next endpoint must be classified in the commit that adds it. |
-| 4 | Eval baseline captured | **SUPERSEDED + BLOCKED** | Captured at `tool_count: 36`, `expected_tool_accuracy: 0.8778` — **below the 0.90 threshold, which has not been moved.** The surface has since grown well past 36, so the baseline no longer describes the thing it grades. Recapture is blocked on Anthropic credit (~$4.96 of $5 spent). |
+| 4 | Eval baseline captured | **PASS** *(was SUPERSEDED + BLOCKED)* | Recaptured 2026-08-08 once the key was funded. `expected_tool_accuracy` **0.9111** at `tool_count: 46`, against the **0.90 threshold, which has not been moved**. Abstention 1.0, unsafe-write rate 0.0. The prior capture was 0.8778 at 36 tools — *below* threshold — so accuracy rose while the surface grew by ten tools, which is the harder direction: more tools is more ways to choose wrongly. Cost $1.31. |
 
 **On P0.2 — a caution about my own measurement.** While checking this clause I
 twice "found" drift between `mcp/tool-surface.json` (46 tools) and the registered
@@ -123,16 +123,25 @@ for, and the substrate P4 and P5 are supposed to stand on — is not started.
 
 | Gate | PASS | PARTIAL | FAIL | BLOCKED/SUPERSEDED |
 |---|---|---|---|---|
-| §1 universal | 2 | 1 | 2 | — |
-| P0 | 2 | 1 | — | 1 |
+| §1 universal | 2 | 2 | 1 | — |
+| P0 | 3 | 1 | — | — |
 | P1 | 4 | 3 | — | — |
 | P2 | 1 | 1 | 1 | — |
 | P3 | — | 1 | 2 | — |
-| **Total** | **9** | **7** | **5** | **1** |
+| **Total** | **10** | **8** | **4** | **0** |
 
-Nine of twenty-two clauses are fully met. It was eight when this table was
-first written; P1 clause 6 moved from FAIL to PASS when the ruling below was
-implemented.
+Ten of twenty-two clauses are fully met, and nothing is BLOCKED any more.
+
+It was eight when this table was first written. P1 clause 6 moved FAIL → PASS
+when the ruling was implemented; P0 clause 4 moved BLOCKED → PASS when the
+Anthropic key was funded and the eval recaptured; §1.5 moved FAIL → PARTIAL
+because the loop runs again, though the two phases that already shipped without
+a delta cannot get one retroactively.
+
+**The remaining four failures are the honest picture of what is unbuilt**: §1.3
+(no live-credential path in P1/P2/P3), Gate P2 clause 1 (the journey), and Gate
+P3 clauses 1 and 3 (promotion does not exist). None of them is a measurement
+problem; each is work.
 
 ## What this table does not cover
 

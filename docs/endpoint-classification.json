@@ -13,11 +13,11 @@
   },
   "DELETE /api/auth/me": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "DELETE /api/auth/me/avatar": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "DELETE /api/auth/mfa/all": {
     "class": "internal",
@@ -33,7 +33,7 @@
   },
   "DELETE /api/auth/sessions/{token_prefix}": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "DELETE /api/billing/payment-methods/{payment_method_id}": {
     "class": "internal",
@@ -61,7 +61,7 @@
   },
   "DELETE /api/slurm/{slurm_job_id}": {
     "class": "internal",
-    "notes": "the Slurm bridge for HPC clusters \u2014 a separate scheduler integration, admin-only, and not the GPU-instance journey any P0-P7 phase describes"
+    "notes": "the Slurm bridge for HPC clusters — a separate scheduler integration, admin-only, and not the GPU-instance journey any P0-P7 phase describes"
   },
   "DELETE /api/ssh/keys/{key_id}": {
     "class": "gap",
@@ -113,11 +113,11 @@
   },
   "DELETE /marketplace/{host_id}": {
     "class": "gap",
-    "notes": "Provider axis. Delisting a rig \u2014 the counterpart of POST /marketplace/list."
+    "notes": "Provider axis. Delisting a rig — the counterpart of POST /marketplace/list."
   },
   "DELETE /user-images/{image_id}": {
     "class": "gap",
-    "notes": "P7's image library with provenance \u2014 commit an instance to a reusable image and manage the result; no tool reaches it"
+    "notes": "P7's image library with provenance — commit an instance to a reusable image and manage the result; no tool reaches it"
   },
   "GET /": {
     "class": "internal",
@@ -125,11 +125,11 @@
   },
   "GET /.well-known/jwks.json": {
     "class": "internal",
-    "notes": "OAuth/OIDC protocol surface \u2014 the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
+    "notes": "OAuth/OIDC protocol surface — the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
   },
   "GET /.well-known/oauth-authorization-server": {
     "class": "internal",
-    "notes": "OAuth/OIDC protocol surface \u2014 the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
+    "notes": "OAuth/OIDC protocol surface — the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
   },
   "GET /_internal/legacy-auth/verify": {
     "class": "internal",
@@ -165,7 +165,7 @@
   },
   "GET /alerts/config": {
     "class": "internal",
-    "notes": "operator configuration \u2014 alert thresholds, the NFS mount, API token minting. Admin console, not the tool surface. The two alert paths are aliases of one handler"
+    "notes": "operator configuration — alert thresholds, the NFS mount, API token minting. Admin console, not the tool surface. The two alert paths are aliases of one handler"
   },
   "GET /api/admin/activity": {
     "class": "internal",
@@ -253,11 +253,11 @@
   },
   "GET /api/alerts/config": {
     "class": "internal",
-    "notes": "operator configuration \u2014 alert thresholds, the NFS mount, API token minting. Admin console, not the tool surface. The two alert paths are aliases of one handler"
+    "notes": "operator configuration — alert thresholds, the NFS mount, API token minting. Admin console, not the tool surface. The two alert paths are aliases of one handler"
   },
   "GET /api/analytics/enhanced": {
     "class": "internal",
-    "notes": "Feeds the dashboard's rich analytics view \u2014 its summary says so. Shaped for charts rather than for an answer, and the underlying numbers are reachable through the billing and usage rows classified above."
+    "notes": "Feeds the dashboard's rich analytics view — its summary says so. Shaped for charts rather than for an answer, and the underlying numbers are reachable through the billing and usage rows classified above."
   },
   "GET /api/analytics/usage": {
     "class": "gap",
@@ -285,7 +285,7 @@
   },
   "GET /api/auth/demo-credentials": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "GET /api/auth/introspect": {
     "class": "covered",
@@ -293,15 +293,15 @@
   },
   "GET /api/auth/me": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "GET /api/auth/me/avatar": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "GET /api/auth/me/data-export": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "GET /api/auth/mfa/methods": {
     "class": "internal",
@@ -309,19 +309,19 @@
   },
   "GET /api/auth/oauth/{provider}/callback": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "GET /api/auth/sessions": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "GET /api/auth/verify": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "GET /api/billing/attestation": {
     "class": "internal",
-    "notes": "operator, testing and compliance surface \u2014 refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
+    "notes": "operator, testing and compliance surface — refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
   },
   "GET /api/billing/crypto/deposit/{deposit_id}": {
     "class": "gap",
@@ -341,11 +341,11 @@
   },
   "GET /api/billing/gst-threshold": {
     "class": "internal",
-    "notes": "Canadian tax and GST compliance surface \u2014 thresholds, rates and filing status. No phase of the plan touches it"
+    "notes": "Canadian tax and GST compliance surface — thresholds, rates and filing status. No phase of the plan touches it"
   },
   "GET /api/billing/gst-threshold/{provider_id}": {
     "class": "internal",
-    "notes": "Canadian tax and GST compliance surface \u2014 thresholds, rates and filing status. No phase of the plan touches it"
+    "notes": "Canadian tax and GST compliance surface — thresholds, rates and filing status. No phase of the plan touches it"
   },
   "GET /api/billing/invoice/{customer_id}": {
     "class": "gap",
@@ -353,7 +353,7 @@
   },
   "GET /api/billing/invoice/{customer_id}/download": {
     "class": "redundant",
-    "notes": "The same invoice as the row above, serialised as CSV or plain text for a browser download \u2014 the precedent already set for /instances/{job_id}/logs/download. The itemisation is the gap to close; this rendering of it is not a second one."
+    "notes": "The same invoice as the row above, serialised as CSV or plain text for a browser download — the precedent already set for /instances/{job_id}/logs/download. The itemisation is the gap to close; this rendering of it is not a second one."
   },
   "GET /api/billing/invoices/{customer_id}": {
     "class": "covered",
@@ -409,27 +409,27 @@
   },
   "GET /api/compliance/status": {
     "class": "internal",
-    "notes": "Canadian tax and GST compliance surface \u2014 thresholds, rates and filing status. No phase of the plan touches it"
+    "notes": "Canadian tax and GST compliance surface — thresholds, rates and filing status. No phase of the plan touches it"
   },
   "GET /api/compliance/tax-rates": {
     "class": "internal",
-    "notes": "Canadian tax and GST compliance surface \u2014 thresholds, rates and filing status. No phase of the plan touches it"
+    "notes": "Canadian tax and GST compliance surface — thresholds, rates and filing status. No phase of the plan touches it"
   },
   "GET /api/connect/accounts": {
     "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "notes": "P6's provider surface — register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "GET /api/connect/accounts/{account_id}/onboarding-link": {
     "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "notes": "P6's provider surface — register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "GET /api/connect/accounts/{account_id}/status": {
     "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "notes": "P6's provider surface — register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "GET /api/connect/products": {
     "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "notes": "P6's provider surface — register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "GET /api/events": {
     "class": "gap",
@@ -453,7 +453,7 @@
   },
   "GET /api/images/templates": {
     "class": "gap",
-    "notes": "P7's image library with provenance \u2014 commit an instance to a reusable image and manage the result; no tool reaches it"
+    "notes": "P7's image library with provenance — commit an instance to a reusable image and manage the result; no tool reaches it"
   },
   "GET /api/inference/models/available": {
     "class": "gap",
@@ -477,7 +477,7 @@
   },
   "GET /api/nfs/config": {
     "class": "internal",
-    "notes": "operator configuration \u2014 alert thresholds, the NFS mount, API token minting. Admin console, not the tool surface. The two alert paths are aliases of one handler"
+    "notes": "operator configuration — alert thresholds, the NFS mount, API token minting. Admin console, not the tool surface. The two alert paths are aliases of one handler"
   },
   "GET /api/notifications": {
     "class": "internal",
@@ -501,7 +501,7 @@
   },
   "GET /api/pricing/rates": {
     "class": "gap",
-    "notes": "Returns the *breakdown* of an hourly rate \u2014 base, priority multiplier, premium, multi-GPU discount, tax. estimate_job_cost returns a total from /api/pricing/estimate; nothing lets an agent explain why a price is what it is."
+    "notes": "Returns the *breakdown* of an hourly rate — base, priority multiplier, premium, multi-GPU discount, tax. estimate_job_cost returns a total from /api/pricing/estimate; nothing lets an agent explain why a price is what it is."
   },
   "GET /api/pricing/reference": {
     "class": "covered",
@@ -509,7 +509,7 @@
   },
   "GET /api/pricing/reservations": {
     "class": "gap",
-    "notes": "Lists the caller's own commitments \u2014 the read half of POST /api/pricing/reserve, and unreachable for the same reason."
+    "notes": "Lists the caller's own commitments — the read half of POST /api/pricing/reserve, and unreachable for the same reason."
   },
   "GET /api/pricing/reserved-plans": {
     "class": "gap",
@@ -529,7 +529,7 @@
   },
   "GET /api/privacy/config/{org_id}": {
     "class": "internal",
-    "notes": "retention configuration and reporting \u2014 the policy, its current state, and the expiry sweep. Operator and compliance surface"
+    "notes": "retention configuration and reporting — the policy, its current state, and the expiry sweep. Operator and compliance surface"
   },
   "GET /api/privacy/consent/{entity_id}": {
     "class": "internal",
@@ -537,27 +537,27 @@
   },
   "GET /api/privacy/retention-policies": {
     "class": "internal",
-    "notes": "retention configuration and reporting \u2014 the policy, its current state, and the expiry sweep. Operator and compliance surface"
+    "notes": "retention configuration and reporting — the policy, its current state, and the expiry sweep. Operator and compliance surface"
   },
   "GET /api/privacy/retention-summary": {
     "class": "internal",
-    "notes": "retention configuration and reporting \u2014 the policy, its current state, and the expiry sweep. Operator and compliance surface"
+    "notes": "retention configuration and reporting — the policy, its current state, and the expiry sweep. Operator and compliance surface"
   },
   "GET /api/providers": {
     "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "notes": "P6's provider surface — register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "GET /api/providers/{provider_id}": {
     "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "notes": "P6's provider surface — register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "GET /api/providers/{provider_id}/earnings": {
     "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "notes": "P6's provider surface — register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "GET /api/providers/{provider_id}/paypal": {
     "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "notes": "P6's provider surface — register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "GET /api/reputation/leaderboard": {
     "class": "gap",
@@ -605,15 +605,15 @@
   },
   "GET /api/slurm/instances": {
     "class": "internal",
-    "notes": "the Slurm bridge for HPC clusters \u2014 a separate scheduler integration, admin-only, and not the GPU-instance journey any P0-P7 phase describes"
+    "notes": "the Slurm bridge for HPC clusters — a separate scheduler integration, admin-only, and not the GPU-instance journey any P0-P7 phase describes"
   },
   "GET /api/slurm/profiles": {
     "class": "internal",
-    "notes": "the Slurm bridge for HPC clusters \u2014 a separate scheduler integration, admin-only, and not the GPU-instance journey any P0-P7 phase describes"
+    "notes": "the Slurm bridge for HPC clusters — a separate scheduler integration, admin-only, and not the GPU-instance journey any P0-P7 phase describes"
   },
   "GET /api/slurm/status/{slurm_job_id}": {
     "class": "internal",
-    "notes": "the Slurm bridge for HPC clusters \u2014 a separate scheduler integration, admin-only, and not the GPU-instance journey any P0-P7 phase describes"
+    "notes": "the Slurm bridge for HPC clusters — a separate scheduler integration, admin-only, and not the GPU-instance journey any P0-P7 phase describes"
   },
   "GET /api/ssh/keys": {
     "class": "gap",
@@ -657,7 +657,7 @@
   },
   "GET /api/users/me/preferences": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "GET /api/v1/control-plane/health": {
     "class": "covered",
@@ -769,27 +769,27 @@
   },
   "GET /api/v2/platform/attestation-schema": {
     "class": "internal",
-    "notes": "published platform document \u2014 compliance and partnership material, served for humans to read"
+    "notes": "published platform document — compliance and partnership material, served for humans to read"
   },
   "GET /api/v2/platform/capacity-forecast/{endpoint_id}": {
     "class": "gap",
-    "notes": "forward capacity for an endpoint \u2014 the input an agent would need to decide whether to schedule now or wait; no tool reaches it"
+    "notes": "forward capacity for an endpoint — the input an agent would need to decide whether to schedule now or wait; no tool reaches it"
   },
   "GET /api/v2/platform/h100-partner": {
     "class": "internal",
-    "notes": "published platform document \u2014 compliance and partnership material, served for humans to read"
+    "notes": "published platform document — compliance and partnership material, served for humans to read"
   },
   "GET /api/v2/platform/ops-plan": {
     "class": "internal",
-    "notes": "published platform document \u2014 compliance and partnership material, served for humans to read"
+    "notes": "published platform document — compliance and partnership material, served for humans to read"
   },
   "GET /api/v2/platform/scip-alignment": {
     "class": "internal",
-    "notes": "published platform document \u2014 compliance and partnership material, served for humans to read"
+    "notes": "published platform document — compliance and partnership material, served for humans to read"
   },
   "GET /api/v2/platform/scip-loi": {
     "class": "internal",
-    "notes": "published platform document \u2014 compliance and partnership material, served for humans to read"
+    "notes": "published platform document — compliance and partnership material, served for humans to read"
   },
   "GET /api/v2/privacy/consents": {
     "class": "internal",
@@ -813,7 +813,7 @@
   },
   "GET /api/v2/serverless/endpoints/{endpoint_id}": {
     "class": "gap",
-    "notes": "No tool reads one endpoint. list_serverless_endpoints returns all, so an agent holding an endpoint_id must fetch every endpoint and filter \u2014 the asymmetry get_instance/list_instances does not have on the compute side."
+    "notes": "No tool reads one endpoint. list_serverless_endpoints returns all, so an agent holding an endpoint_id must fetch every endpoint and filter — the asymmetry get_instance/list_instances does not have on the compute side."
   },
   "GET /api/v2/serverless/endpoints/{endpoint_id}/health": {
     "class": "gap",
@@ -841,31 +841,31 @@
   },
   "GET /api/v2/serverless/endpoints/{endpoint_id}/usage": {
     "class": "redundant",
-    "notes": "Its own docstring says 'Alias for metrics \u2014 dashboard compatibility'. Not byte-identical \u2014 it enriches with pricing and SLO \u2014 but it exists to shape get_endpoint_metrics for the dashboard, so /metrics is the row to cover."
+    "notes": "Its own docstring says 'Alias for metrics — dashboard compatibility'. Not byte-identical — it enriches with pricing and SLO — but it exists to shape get_endpoint_metrics for the dashboard, so /metrics is the row to cover."
   },
   "GET /api/v2/serverless/endpoints/{endpoint_id}/workers": {
     "class": "internal",
-    "notes": "worker introspection for one endpoint \u2014 roster, logs and telemetry. Operator and dashboard debugging"
+    "notes": "worker introspection for one endpoint — roster, logs and telemetry. Operator and dashboard debugging"
   },
   "GET /api/v2/serverless/endpoints/{endpoint_id}/workers/{worker_id}/logs": {
     "class": "internal",
-    "notes": "worker introspection for one endpoint \u2014 roster, logs and telemetry. Operator and dashboard debugging"
+    "notes": "worker introspection for one endpoint — roster, logs and telemetry. Operator and dashboard debugging"
   },
   "GET /api/v2/serverless/endpoints/{endpoint_id}/workers/{worker_id}/logs/stream": {
     "class": "internal",
-    "notes": "worker introspection for one endpoint \u2014 roster, logs and telemetry. Operator and dashboard debugging"
+    "notes": "worker introspection for one endpoint — roster, logs and telemetry. Operator and dashboard debugging"
   },
   "GET /api/v2/serverless/endpoints/{endpoint_id}/workers/{worker_id}/telemetry": {
     "class": "internal",
-    "notes": "worker introspection for one endpoint \u2014 roster, logs and telemetry. Operator and dashboard debugging"
+    "notes": "worker introspection for one endpoint — roster, logs and telemetry. Operator and dashboard debugging"
   },
   "GET /api/v2/serverless/preset-token-pricing": {
     "class": "internal",
-    "notes": "dashboard helper \u2014 resolving a GitHub source and reading preset token pricing while composing an endpoint"
+    "notes": "dashboard helper — resolving a GitHub source and reading preset token pricing while composing an endpoint"
   },
   "GET /api/v2/serverless/workers/{worker_id}/jobs/{job_id}": {
     "class": "internal",
-    "notes": "serverless worker callback \u2014 claim, heartbeat, ready, complete, exit. Authenticated by _require_worker_callback as the fleet; an agent is never the caller"
+    "notes": "serverless worker callback — claim, heartbeat, ready, complete, exit. Authenticated by _require_worker_callback as the fleet; an agent is never the caller"
   },
   "GET /api/v2/volumes": {
     "class": "gap",
@@ -897,7 +897,7 @@
   },
   "GET /billing": {
     "class": "internal",
-    "notes": "operator, testing and compliance surface \u2014 refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
+    "notes": "operator, testing and compliance surface — refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
   },
   "GET /builds": {
     "class": "internal",
@@ -961,7 +961,7 @@
   },
   "GET /instances/{job_id}/logs/download": {
     "class": "redundant",
-    "notes": "the same logs get_instance_logs already reaches, delivered as a plain-text file for a browser. Same capability, different delivery \u2014 the shape ruled redundant for the OpenAI shims in 1cabc0e"
+    "notes": "the same logs get_instance_logs already reaches, delivered as a plain-text file for a browser. Same capability, different delivery — the shape ruled redundant for the OpenAI shims in 1cabc0e"
   },
   "GET /instances/{job_id}/logs/stream": {
     "class": "gap",
@@ -989,11 +989,11 @@
   },
   "GET /marketplace": {
     "class": "redundant",
-    "notes": "Legacy unfiltered browse \u2014 get_marketplace(active_only=True), the same source the covered v2 search reads, with no filters applied."
+    "notes": "Legacy unfiltered browse — get_marketplace(active_only=True), the same source the covered v2 search reads, with no filters applied."
   },
   "GET /marketplace/search": {
     "class": "redundant",
-    "notes": "Legacy filtered search, superseded by POST /api/v2/marketplace/search, which is what search_marketplace calls. Worth noting while classifying: this one takes no Request and performs no auth check at all \u2014 the listings are public, so it is not a leak, but it is the only marketplace read with no scope gate."
+    "notes": "Legacy filtered search, superseded by POST /api/v2/marketplace/search, which is what search_marketplace calls. Worth noting while classifying: this one takes no Request and performs no auth check at all — the listings are public, so it is not a leak, but it is the only marketplace read with no scope gate."
   },
   "GET /marketplace/stats": {
     "class": "gap",
@@ -1009,7 +1009,7 @@
   },
   "GET /oauth/authorize": {
     "class": "internal",
-    "notes": "OAuth/OIDC protocol surface \u2014 the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
+    "notes": "OAuth/OIDC protocol surface — the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
   },
   "GET /readyz": {
     "class": "covered",
@@ -1033,7 +1033,7 @@
   },
   "GET /user-images": {
     "class": "gap",
-    "notes": "P7's image library with provenance \u2014 commit an instance to a reusable image and manage the result; no tool reaches it"
+    "notes": "P7's image library with provenance — commit an instance to a reusable image and manage the result; no tool reaches it"
   },
   "GET /v1/inference/{job_id}": {
     "class": "gap",
@@ -1053,15 +1053,15 @@
   },
   "GET /v1/serverless/{endpoint_id}/{endpoint_slug}/openai/v1/models": {
     "class": "redundant",
-    "notes": "an OpenAI-protocol shim over the same capability run_serverless_job already reaches. It exists so an OpenAI SDK can be pointed at the endpoint, which is a client-compatibility surface rather than a tool one. The `{endpoint_slug}` form is the same handler under a second decorator \u2014 a vanity path, not a second endpoint \u2014 so it carries its twin's classification by construction."
+    "notes": "an OpenAI-protocol shim over the same capability run_serverless_job already reaches. It exists so an OpenAI SDK can be pointed at the endpoint, which is a client-compatibility surface rather than a tool one. The `{endpoint_slug}` form is the same handler under a second decorator — a vanity path, not a second endpoint — so it carries its twin's classification by construction."
   },
   "GET /v1/serverless/{endpoint_id}/{endpoint_slug}/status/{job_id}": {
     "class": "covered",
-    "notes": "get_serverless_job_status calls this path. The `{endpoint_slug}` form is the same handler under a second decorator \u2014 a vanity path, not a second endpoint \u2014 so it carries its twin's classification by construction."
+    "notes": "get_serverless_job_status calls this path. The `{endpoint_slug}` form is the same handler under a second decorator — a vanity path, not a second endpoint — so it carries its twin's classification by construction."
   },
   "GET /v1/serverless/{endpoint_id}/{endpoint_slug}/stream/{job_id}": {
     "class": "gap",
-    "notes": "streams a job's output as it is produced; no tool reaches it, so an agent can only poll for completion. The `{endpoint_slug}` form is the same handler under a second decorator \u2014 a vanity path, not a second endpoint \u2014 so it carries its twin's classification by construction."
+    "notes": "streams a job's output as it is produced; no tool reaches it, so an agent can only poll for completion. The `{endpoint_slug}` form is the same handler under a second decorator — a vanity path, not a second endpoint — so it carries its twin's classification by construction."
   },
   "PATCH /api/agent-keys/{key_id}": {
     "class": "internal",
@@ -1069,7 +1069,7 @@
   },
   "PATCH /api/auth/me": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "PATCH /api/hosts/{host_id}/spot-settings": {
     "class": "gap",
@@ -1105,7 +1105,7 @@
   },
   "PATCH /user-images/{image_id}": {
     "class": "gap",
-    "notes": "P7's image library with provenance \u2014 commit an instance to a reusable image and manage the result; no tool reaches it"
+    "notes": "P7's image library with provenance — commit an instance to a reusable image and manage the result; no tool reaches it"
   },
   "POST /_internal/legacy-auth/device": {
     "class": "internal",
@@ -1277,31 +1277,31 @@
   },
   "POST /api/auth/change-password": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "POST /api/auth/device": {
     "class": "internal",
-    "notes": "OAuth/OIDC protocol surface \u2014 the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
+    "notes": "OAuth/OIDC protocol surface — the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
   },
   "POST /api/auth/login": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "POST /api/auth/logout": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "POST /api/auth/me/avatar": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "POST /api/auth/me/email-change": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "POST /api/auth/me/email-change/confirm": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "POST /api/auth/mfa/backup-codes/regenerate": {
     "class": "internal",
@@ -1353,47 +1353,47 @@
   },
   "POST /api/auth/oauth/facebook/deauthorize": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "POST /api/auth/oauth/facebook/delete-data": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "POST /api/auth/oauth/{provider}": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "POST /api/auth/password-reset": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "POST /api/auth/password-reset/confirm": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "POST /api/auth/refresh": {
     "class": "internal",
-    "notes": "OAuth/OIDC protocol surface \u2014 the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
+    "notes": "OAuth/OIDC protocol surface — the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
   },
   "POST /api/auth/register": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "POST /api/auth/resend-verification": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "POST /api/auth/token": {
     "class": "internal",
-    "notes": "OAuth/OIDC protocol surface \u2014 the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
+    "notes": "OAuth/OIDC protocol surface — the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
   },
   "POST /api/auth/verify": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "POST /api/auth/verify-email": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "POST /api/billing/crypto/deposit": {
     "class": "gap",
@@ -1441,7 +1441,7 @@
   },
   "POST /api/billing/refund": {
     "class": "internal",
-    "notes": "operator, testing and compliance surface \u2014 refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
+    "notes": "operator, testing and compliance surface — refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
   },
   "POST /api/billing/setup-intent": {
     "class": "internal",
@@ -1453,7 +1453,7 @@
   },
   "POST /api/billing/wallet/{customer_id}/reset-testing": {
     "class": "internal",
-    "notes": "operator, testing and compliance surface \u2014 refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
+    "notes": "operator, testing and compliance surface — refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
   },
   "POST /api/chat": {
     "class": "internal",
@@ -1465,19 +1465,19 @@
   },
   "POST /api/connect/accounts": {
     "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "notes": "P6's provider surface — register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "POST /api/connect/checkout": {
     "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "notes": "P6's provider surface — register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "POST /api/connect/products": {
     "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "notes": "P6's provider surface — register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "POST /api/connect/webhooks": {
     "class": "internal",
-    "notes": "processor webhook; machine-to-machine and signature-verified, and P1's only completion signal \u2014 the caller is Stripe, never an agent"
+    "notes": "processor webhook; machine-to-machine and signature-verified, and P1's only completion signal — the caller is Stripe, never an agent"
   },
   "POST /api/hosts/compatibility-sessions/{session_id}/evidence": {
     "class": "internal",
@@ -1537,11 +1537,11 @@
   },
   "POST /api/pricing/reserve": {
     "class": "gap",
-    "notes": "Creates a reserved pricing commitment. Money-moving with a term and no tool. Note for whoever builds it: POST /api/v2/marketplace/reservations also creates a reservation \u2014 which of the two is canonical is a product decision, and a tool must not be written against both."
+    "notes": "Creates a reserved pricing commitment. Money-moving with a term and no tool. Note for whoever builds it: POST /api/v2/marketplace/reservations also creates a reservation — which of the two is canonical is a product decision, and a tool must not be written against both."
   },
   "POST /api/privacy/config": {
     "class": "internal",
-    "notes": "retention configuration and reporting \u2014 the policy, its current state, and the expiry sweep. Operator and compliance surface"
+    "notes": "retention configuration and reporting — the policy, its current state, and the expiry sweep. Operator and compliance surface"
   },
   "POST /api/privacy/consent": {
     "class": "internal",
@@ -1549,51 +1549,51 @@
   },
   "POST /api/privacy/purge-expired": {
     "class": "internal",
-    "notes": "retention configuration and reporting \u2014 the policy, its current state, and the expiry sweep. Operator and compliance surface"
+    "notes": "retention configuration and reporting — the policy, its current state, and the expiry sweep. Operator and compliance surface"
   },
   "POST /api/providers/register": {
     "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "notes": "P6's provider surface — register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "POST /api/providers/webhook": {
     "class": "internal",
-    "notes": "processor webhook; machine-to-machine and signature-verified, and P1's only completion signal \u2014 the caller is Stripe, never an agent"
+    "notes": "processor webhook; machine-to-machine and signature-verified, and P1's only completion signal — the caller is Stripe, never an agent"
   },
   "POST /api/providers/{provider_id}/abandon-onboarding": {
     "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "notes": "P6's provider surface — register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "POST /api/providers/{provider_id}/account-session": {
     "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "notes": "P6's provider surface — register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "POST /api/providers/{provider_id}/incorporation": {
     "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "notes": "P6's provider surface — register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "POST /api/providers/{provider_id}/payout": {
     "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "notes": "P6's provider surface — register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "POST /api/providers/{provider_id}/paypal/disconnect": {
     "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "notes": "P6's provider surface — register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "POST /api/providers/{provider_id}/paypal/onboard": {
     "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "notes": "P6's provider surface — register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "POST /api/providers/{provider_id}/paypal/refresh": {
     "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "notes": "P6's provider surface — register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "POST /api/providers/{provider_id}/resume-onboarding": {
     "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "notes": "P6's provider surface — register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "POST /api/providers/{provider_id}/stripe/disconnect": {
     "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "notes": "P6's provider surface — register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "POST /api/reputation/me/claim": {
     "class": "gap",
@@ -1609,7 +1609,7 @@
   },
   "POST /api/slurm/submit": {
     "class": "internal",
-    "notes": "the Slurm bridge for HPC clusters \u2014 a separate scheduler integration, admin-only, and not the GPU-instance journey any P0-P7 phase describes"
+    "notes": "the Slurm bridge for HPC clusters — a separate scheduler integration, admin-only, and not the GPU-instance journey any P0-P7 phase describes"
   },
   "POST /api/ssh/keys": {
     "class": "covered",
@@ -1677,7 +1677,7 @@
   },
   "POST /api/v1/launch-plans/{plan_id}/approve": {
     "class": "gap",
-    "notes": "approving and revoking a launch plan. P4 turns the approval gate into leverage \u2014 one approval covering a dependency graph \u2014 and no tool approves anything today; get_mcp_action_status only reads"
+    "notes": "approving and revoking a launch plan. P4 turns the approval gate into leverage — one approval covering a dependency graph — and no tool approves anything today; get_mcp_action_status only reads"
   },
   "POST /api/v1/launch-plans/{plan_id}/execute": {
     "class": "covered",
@@ -1685,7 +1685,7 @@
   },
   "POST /api/v1/launch-plans/{plan_id}/revoke": {
     "class": "gap",
-    "notes": "approving and revoking a launch plan. P4 turns the approval gate into leverage \u2014 one approval covering a dependency graph \u2014 and no tool approves anything today; get_mcp_action_status only reads"
+    "notes": "approving and revoking a launch plan. P4 turns the approval gate into leverage — one approval covering a dependency graph — and no tool approves anything today; get_mcp_action_status only reads"
   },
   "POST /api/v1/mcp/tool-audit": {
     "class": "covered",
@@ -1711,9 +1711,17 @@
     "class": "covered",
     "notes": "configure_auto_topup calls this path"
   },
+  "POST /api/v2/billing/auto-topup-plans": {
+    "class": "gap",
+    "notes": "Creates the approval plan a widening of auto-top-up now requires (Gate P1 clause 6). No tool calls it yet: configure_auto_topup still posts straight to /api/v2/billing/auto-topup and will receive the 409 that names this path. Wiring the tool to the two-phase flow is the follow-up, and until then an agent can narrow auto-top-up but not widen it — which is the safe direction to be incomplete in."
+  },
+  "POST /api/v2/billing/auto-topup-plans/{plan_id}/execute": {
+    "class": "gap",
+    "notes": "Applies one approved auto-top-up plan, taking the settings from the plan rather than the request so an approval cannot be spent on different values. Same follow-up as the plan-creation route above."
+  },
   "POST /api/v2/billing/pending-verification/{stripe_intent_id}/resume": {
     "class": "internal",
-    "notes": "returns a client_secret for the browser to finish an SCA challenge; a tool must never call it \u2014 Gate P1 forbids a secret in any tool result"
+    "notes": "returns a client_secret for the browser to finish an SCA challenge; a tool must never call it — Gate P1 forbids a secret in any tool result"
   },
   "POST /api/v2/billing/top-up": {
     "class": "covered",
@@ -1725,7 +1733,7 @@
   },
   "POST /api/v2/marketplace/allocate": {
     "class": "internal",
-    "notes": "The marketplace engine's atomic claim on an offer, behind marketplace:write \u2014 a scope no tool holds and Quick Connect does not grant. The customer path is the launch plan; exposing direct allocation would put GPUs on a job without the approval gate create_instance is built around."
+    "notes": "The marketplace engine's atomic claim on an offer, behind marketplace:write — a scope no tool holds and Quick Connect does not grant. The customer path is the launch plan; exposing direct allocation would put GPUs on a job without the approval gate create_instance is built around."
   },
   "POST /api/v2/marketplace/offers": {
     "class": "gap",
@@ -1737,7 +1745,7 @@
   },
   "POST /api/v2/marketplace/reservations": {
     "class": "gap",
-    "notes": "Creates a reserved-capacity commitment \u2014 a spending decision with a term. No tool makes one, so the cheaper-than-on-demand path is browser-only."
+    "notes": "Creates a reserved-capacity commitment — a spending decision with a term. No tool makes one, so the cheaper-than-on-demand path is browser-only."
   },
   "POST /api/v2/marketplace/search": {
     "class": "covered",
@@ -1765,7 +1773,7 @@
   },
   "POST /api/v2/serverless/endpoints/{endpoint_id}/jobs/{job_id}/cancel": {
     "class": "covered",
-    "notes": "cancel_serverless_job (mcp/src/tools/serverless.ts), inference:write at the tool layer, confirm-gated. Note the route itself reads no scope \u2014 it is one of the 34 in tests/test_serverless_writes_honour_scope.py \u2014 and it was also missing the write check every sibling mutation has, which publishing the tool made agent-reachable."
+    "notes": "cancel_serverless_job (mcp/src/tools/serverless.ts), inference:write at the tool layer, confirm-gated. Note the route itself reads no scope — it is one of the 34 in tests/test_serverless_writes_honour_scope.py — and it was also missing the write check every sibling mutation has, which publishing the tool made agent-reachable."
   },
   "POST /api/v2/serverless/endpoints/{endpoint_id}/keys": {
     "class": "internal",
@@ -1789,7 +1797,7 @@
   },
   "POST /api/v2/serverless/github/resolve": {
     "class": "internal",
-    "notes": "dashboard helper \u2014 resolving a GitHub source and reading preset token pricing while composing an endpoint"
+    "notes": "dashboard helper — resolving a GitHub source and reading preset token pricing while composing an endpoint"
   },
   "POST /api/v2/serverless/should-i-run-this": {
     "class": "covered",
@@ -1797,27 +1805,27 @@
   },
   "POST /api/v2/serverless/workers/{worker_id}/exited": {
     "class": "internal",
-    "notes": "serverless worker callback \u2014 claim, heartbeat, ready, complete, exit. Authenticated by _require_worker_callback as the fleet; an agent is never the caller"
+    "notes": "serverless worker callback — claim, heartbeat, ready, complete, exit. Authenticated by _require_worker_callback as the fleet; an agent is never the caller"
   },
   "POST /api/v2/serverless/workers/{worker_id}/heartbeat": {
     "class": "internal",
-    "notes": "serverless worker callback \u2014 claim, heartbeat, ready, complete, exit. Authenticated by _require_worker_callback as the fleet; an agent is never the caller"
+    "notes": "serverless worker callback — claim, heartbeat, ready, complete, exit. Authenticated by _require_worker_callback as the fleet; an agent is never the caller"
   },
   "POST /api/v2/serverless/workers/{worker_id}/jobs/claim": {
     "class": "internal",
-    "notes": "serverless worker callback \u2014 claim, heartbeat, ready, complete, exit. Authenticated by _require_worker_callback as the fleet; an agent is never the caller"
+    "notes": "serverless worker callback — claim, heartbeat, ready, complete, exit. Authenticated by _require_worker_callback as the fleet; an agent is never the caller"
   },
   "POST /api/v2/serverless/workers/{worker_id}/jobs/{job_id}/complete": {
     "class": "internal",
-    "notes": "serverless worker callback \u2014 claim, heartbeat, ready, complete, exit. Authenticated by _require_worker_callback as the fleet; an agent is never the caller"
+    "notes": "serverless worker callback — claim, heartbeat, ready, complete, exit. Authenticated by _require_worker_callback as the fleet; an agent is never the caller"
   },
   "POST /api/v2/serverless/workers/{worker_id}/jobs/{job_id}/events": {
     "class": "internal",
-    "notes": "serverless worker callback \u2014 claim, heartbeat, ready, complete, exit. Authenticated by _require_worker_callback as the fleet; an agent is never the caller"
+    "notes": "serverless worker callback — claim, heartbeat, ready, complete, exit. Authenticated by _require_worker_callback as the fleet; an agent is never the caller"
   },
   "POST /api/v2/serverless/workers/{worker_id}/ready": {
     "class": "internal",
-    "notes": "serverless worker callback \u2014 claim, heartbeat, ready, complete, exit. Authenticated by _require_worker_callback as the fleet; an agent is never the caller"
+    "notes": "serverless worker callback — claim, heartbeat, ready, complete, exit. Authenticated by _require_worker_callback as the fleet; an agent is never the caller"
   },
   "POST /api/v2/volumes": {
     "class": "gap",
@@ -1845,7 +1853,7 @@
   },
   "POST /api/verify/{host_id}": {
     "class": "gap",
-    "notes": "a provider submitting their host for verification \u2014 P6's admission evidence step; no tool reaches it"
+    "notes": "a provider submitting their host for verification — P6's admission evidence step; no tool reaches it"
   },
   "POST /api/verify/{host_id}/approve": {
     "class": "internal",
@@ -1873,11 +1881,11 @@
   },
   "POST /billing/bill-all": {
     "class": "internal",
-    "notes": "operator, testing and compliance surface \u2014 refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
+    "notes": "operator, testing and compliance surface — refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
   },
   "POST /billing/bill/{job_id}": {
     "class": "internal",
-    "notes": "operator, testing and compliance surface \u2014 refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
+    "notes": "operator, testing and compliance surface — refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
   },
   "POST /build": {
     "class": "internal",
@@ -1933,7 +1941,7 @@
   },
   "POST /instances/{job_id}/reset": {
     "class": "gap",
-    "notes": "Restarts the container in place \u2014 the middle option between 'do nothing' and cancel_instance, which ends the run and loses uncheckpointed work."
+    "notes": "Restarts the container in place — the middle option between 'do nothing' and cancel_instance, which ends the run and loses uncheckpointed work."
   },
   "POST /instances/{job_id}/restart": {
     "class": "gap",
@@ -1969,19 +1977,19 @@
   },
   "POST /oauth/authorize": {
     "class": "internal",
-    "notes": "OAuth/OIDC protocol surface \u2014 the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
+    "notes": "OAuth/OIDC protocol surface — the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
   },
   "POST /oauth/device/authorize": {
     "class": "internal",
-    "notes": "OAuth/OIDC protocol surface \u2014 the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
+    "notes": "OAuth/OIDC protocol surface — the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
   },
   "POST /oauth/register": {
     "class": "internal",
-    "notes": "OAuth/OIDC protocol surface \u2014 the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
+    "notes": "OAuth/OIDC protocol surface — the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
   },
   "POST /oauth/token": {
     "class": "internal",
-    "notes": "OAuth/OIDC protocol surface \u2014 the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
+    "notes": "OAuth/OIDC protocol surface — the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
   },
   "POST /queue/process": {
     "class": "internal",
@@ -2001,7 +2009,7 @@
   },
   "POST /token/generate": {
     "class": "internal",
-    "notes": "operator configuration \u2014 alert thresholds, the NFS mount, API token minting. Admin console, not the tool surface. The two alert paths are aliases of one handler"
+    "notes": "operator configuration — alert thresholds, the NFS mount, API token minting. Admin console, not the tool surface. The two alert paths are aliases of one handler"
   },
   "POST /user-images/{image_id}/complete": {
     "class": "internal",
@@ -2037,39 +2045,39 @@
   },
   "POST /v1/serverless/{endpoint_id}/{endpoint_slug}/cancel/{job_id}": {
     "class": "gap",
-    "notes": "stops a running serverless job. cancel_instance covers GPU instances; nothing covers this. The `{endpoint_slug}` form is the same handler under a second decorator \u2014 a vanity path, not a second endpoint \u2014 so it carries its twin's classification by construction."
+    "notes": "stops a running serverless job. cancel_instance covers GPU instances; nothing covers this. The `{endpoint_slug}` form is the same handler under a second decorator — a vanity path, not a second endpoint — so it carries its twin's classification by construction."
   },
   "POST /v1/serverless/{endpoint_id}/{endpoint_slug}/openai/v1/chat/completions": {
     "class": "redundant",
-    "notes": "an OpenAI-protocol shim over the same capability run_serverless_job already reaches. It exists so an OpenAI SDK can be pointed at the endpoint, which is a client-compatibility surface rather than a tool one. The `{endpoint_slug}` form is the same handler under a second decorator \u2014 a vanity path, not a second endpoint \u2014 so it carries its twin's classification by construction."
+    "notes": "an OpenAI-protocol shim over the same capability run_serverless_job already reaches. It exists so an OpenAI SDK can be pointed at the endpoint, which is a client-compatibility surface rather than a tool one. The `{endpoint_slug}` form is the same handler under a second decorator — a vanity path, not a second endpoint — so it carries its twin's classification by construction."
   },
   "POST /v1/serverless/{endpoint_id}/{endpoint_slug}/openai/v1/embeddings": {
     "class": "redundant",
-    "notes": "an OpenAI-protocol shim over the same capability run_serverless_job already reaches. It exists so an OpenAI SDK can be pointed at the endpoint, which is a client-compatibility surface rather than a tool one. The `{endpoint_slug}` form is the same handler under a second decorator \u2014 a vanity path, not a second endpoint \u2014 so it carries its twin's classification by construction."
+    "notes": "an OpenAI-protocol shim over the same capability run_serverless_job already reaches. It exists so an OpenAI SDK can be pointed at the endpoint, which is a client-compatibility surface rather than a tool one. The `{endpoint_slug}` form is the same handler under a second decorator — a vanity path, not a second endpoint — so it carries its twin's classification by construction."
   },
   "POST /v1/serverless/{endpoint_id}/{endpoint_slug}/run": {
     "class": "covered",
-    "notes": "run_serverless_job calls this path. The `{endpoint_slug}` form is the same handler under a second decorator \u2014 a vanity path, not a second endpoint \u2014 so it carries its twin's classification by construction."
+    "notes": "run_serverless_job calls this path. The `{endpoint_slug}` form is the same handler under a second decorator — a vanity path, not a second endpoint — so it carries its twin's classification by construction."
   },
   "POST /v1/serverless/{endpoint_id}/{endpoint_slug}/runsync": {
     "class": "gap",
-    "notes": "the synchronous variant of run: it blocks for the result instead of returning a job id. Different behaviour, not a second spelling, and no tool reaches it. The `{endpoint_slug}` form is the same handler under a second decorator \u2014 a vanity path, not a second endpoint \u2014 so it carries its twin's classification by construction."
+    "notes": "the synchronous variant of run: it blocks for the result instead of returning a job id. Different behaviour, not a second spelling, and no tool reaches it. The `{endpoint_slug}` form is the same handler under a second decorator — a vanity path, not a second endpoint — so it carries its twin's classification by construction."
   },
   "PUT /alerts/config": {
     "class": "internal",
-    "notes": "operator configuration \u2014 alert thresholds, the NFS mount, API token minting. Admin console, not the tool surface. The two alert paths are aliases of one handler"
+    "notes": "operator configuration — alert thresholds, the NFS mount, API token minting. Admin console, not the tool surface. The two alert paths are aliases of one handler"
   },
   "PUT /api/alerts/config": {
     "class": "internal",
-    "notes": "operator configuration \u2014 alert thresholds, the NFS mount, API token minting. Admin console, not the tool surface. The two alert paths are aliases of one handler"
+    "notes": "operator configuration — alert thresholds, the NFS mount, API token minting. Admin console, not the tool surface. The two alert paths are aliases of one handler"
   },
   "PUT /api/auth/me/profile": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "PUT /api/users/me/preferences": {
     "class": "internal",
-    "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "PUT /host": {
     "class": "gap",
