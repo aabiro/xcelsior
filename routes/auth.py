@@ -1946,11 +1946,21 @@ def api_auth_oauth_callback(provider: str, request: Request):
         # Update name if it was empty
         if not user.get("name") and name:
             user["name"] = name
-        # Always update oauth_provider on login so we track the most recent
+        # Always update oauth_provider on login so we track the most recent.
+        #
+        # `email_verified` is set here for the same reason the new-account branch
+        # sets it: the provider just verified this address. Without it an account
+        # that registered by password and never verified stays at 0 forever —
+        # refused on the password door with "please verify your email" while
+        # signing in fine through this one. The flag was not a stale cache of a
+        # fact; it was a fact the system had just been told and discarded.
         if _USE_PERSISTENT_AUTH:
-            UserStore.update_user(email, {"oauth_provider": provider})
+            UserStore.update_user(
+                email, {"oauth_provider": provider, "email_verified": 1}
+            )
         else:
             user["oauth_provider"] = provider
+            user["email_verified"] = 1
             with _user_lock:
                 _users_db[email] = user
 

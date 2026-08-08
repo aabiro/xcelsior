@@ -301,12 +301,26 @@ class MarketplaceEngine:
                     quote.spot_cents,
                 )
 
+            # `owner_id` comes from the job, in the same statement that writes
+            # the row. Two reasons it is a subquery rather than a prior SELECT:
+            # the allocation belongs to whoever the job belongs to, so a caller
+            # that could pass the owner could pass someone else's; and reading
+            # it separately leaves a window where the job's owner could change
+            # between the read and the insert.
+            #
+            # A job that does not exist yields NULL, which is releasable by
+            # nobody — the same safe direction migration 101 takes for rows it
+            # could not backfill.
             conn.execute(
                 """INSERT INTO gpu_allocations
                    (allocation_id, offer_id, job_id, gpu_count,
-                    price_cents_per_hour, allocation_type, created_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-                (allocation_id, offer_id, job_id, gpu_count, price_cents, allocation_type, now),
+                    price_cents_per_hour, allocation_type, created_at, owner_id)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s,
+                           (SELECT owner_id FROM jobs WHERE job_id = %s))""",
+                (
+                    allocation_id, offer_id, job_id, gpu_count,
+                    price_cents, allocation_type, now, job_id,
+                ),
             )
 
             new_available = offer["gpu_count_available"] - gpu_count
@@ -335,6 +349,39 @@ class MarketplaceEngine:
             "allocation_type": allocation_type,
         }
 
+    def release_allocation_by_id(self, allocation_id: str, *, owner_id: str) -> bool:
+        """Release one allocation **the caller owns**. Returns whether it did.
+
+        Separate from `release_allocation` rather than a keyword on it, because
+        the two answer different questions. That one is the internal lifecycle
+        call — a job finished, free its GPU — and has no user in scope. This one
+        is reached from an HTTP route where the caller names the allocation, so
+        the owner is part of the lookup and not a check performed after it.
+
+        `owner_id` is required and never defaulted. An allocation whose owner is
+        NULL (its job was deleted before the backfill) matches nobody, which is
+        the safe direction: the worst outcome is a stale row nobody can release,
+        rather than one everybody can.
+
+        The boolean matters. The route returned `ok: true` for a release that
+        never happened; a caller cannot distinguish "released" from "there was
+        nothing to release" unless this says so.
+        """
+        if not owner_id:
+            return False
+        now = time.time()
+        with self._conn() as conn:
+            alloc = conn.execute(
+                "SELECT * FROM gpu_allocations "
+                "WHERE allocation_id = %s AND owner_id = %s AND released_at = 0 "
+                "FOR UPDATE",
+                (allocation_id, owner_id),
+            ).fetchone()
+            if not alloc:
+                return False
+            self._release_locked(conn, alloc, now)
+            return True
+
     def release_allocation(self, job_id: str):
         """Release GPU allocation when a job completes or is cancelled."""
         now = time.time()
@@ -345,21 +392,30 @@ class MarketplaceEngine:
             ).fetchone()
             if not alloc:
                 return
-
-            conn.execute(
-                "UPDATE gpu_allocations SET released_at = %s WHERE allocation_id = %s",
-                (now, alloc["allocation_id"]),
-            )
-
-            # Restore availability
-            conn.execute(
-                """UPDATE gpu_offers
-                   SET gpu_count_available = gpu_count_available + %s,
-                       available = true, updated_at = %s
-                   WHERE offer_id = %s""",
-                (alloc["gpu_count"], now, alloc["offer_id"]),
-            )
+            self._release_locked(conn, alloc, now)
         log.info("GPU released: job=%s allocation=%s", job_id, alloc["allocation_id"])
+
+    @staticmethod
+    def _release_locked(conn, alloc, now: float) -> None:
+        """Mark one already-locked allocation released and restore the offer.
+
+        Shared by both release paths deliberately. Releasing is two writes that
+        must agree — the allocation closes and the GPU goes back on the market —
+        and a second copy of that pair is how one of them eventually stops
+        happening on one of the paths.
+        """
+        conn.execute(
+            "UPDATE gpu_allocations SET released_at = %s WHERE allocation_id = %s",
+            (now, alloc["allocation_id"]),
+        )
+        # Restore availability
+        conn.execute(
+            """UPDATE gpu_offers
+               SET gpu_count_available = gpu_count_available + %s,
+                   available = true, updated_at = %s
+               WHERE offer_id = %s""",
+            (alloc["gpu_count"], now, alloc["offer_id"]),
+        )
 
     # ── Spot Pricing Engine ───────────────────────────────────────────
 
