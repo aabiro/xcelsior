@@ -141,6 +141,20 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     "SSH needs a key the account has already registered; if the connection is refused, " +
     "register_ssh_key is the fix.",
 
+  cancel_serverless_job:
+    "Cancel an inference job that is still running on a serverless endpoint. Use when the user " +
+    "wants to stop work in progress — a job that is taking too long, was submitted by mistake, " +
+    "or is no longer needed. Call it with confirm:false first for a preview. Cancelling stops " +
+    "the job billing for further GPU seconds, and ends the run: whatever it had not yet returned " +
+    "is lost and the job cannot be resumed, so submit a new one instead.",
+
+  delete_serverless_endpoint:
+    "Permanently delete a serverless endpoint. Use when the user is finished with a deployed " +
+    "model — prefer cancel_serverless_job if they only want to stop one run. Call it with " +
+    "confirm:false first for a preview. Deleting stops the endpoint's idle cost and cancels jobs " +
+    "still in flight on it, and is irreversible: the endpoint_id stops resolving and a " +
+    "replacement is a new deployment with a new id.",
+
   // ── Durable state ───────────────────────────────────────────────────────
   list_volumes:
     "List the account's persistent volumes: id, name, size, region, status, and what each is " +

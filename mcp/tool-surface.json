@@ -70,6 +70,37 @@
       "hasOutputSchema": true
     },
     {
+      "name": "cancel_serverless_job",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "inference:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "endpoint_id": {
+          "type": "string",
+          "optional": false
+        },
+        "job_id": {
+          "type": "string",
+          "optional": false
+        },
+        "confirm": {
+          "type": "boolean",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
       "name": "configure_auto_topup",
       "version": "2.0.0",
       "tenantClass": "tenant",
@@ -267,6 +298,33 @@
           "optional": true
         },
         "encrypted": {
+          "type": "boolean",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "delete_serverless_endpoint",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "inference:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "endpoint_id": {
+          "type": "string",
+          "optional": false
+        },
+        "confirm": {
           "type": "boolean",
           "optional": true
         }
