@@ -211,6 +211,20 @@ yet. That is a dependency worth stating now rather than discovering at the gate.
   they are ceremony.
 * **If the janitor grows a promotion-aware skip.** Then §3.3's hold is
   duplicated logic, and one of the two will drift.
+* **If a real legal-hold feature ships.** *(Added during A2, per §0's invitation
+  to record a seventh entry rather than work around a constraint.)*
+  `legal_hold` is also the compliance flag `privacy_sinks` consults, where it
+  means "a human asserted this must not be deleted" and produces a **terminal**
+  refusal rather than a deferral. Promotion is the only writer today, so §3.3
+  clobbers nothing — but the moment a compliance path also writes it, two
+  writers share one boolean and `release_promotion_hold` will clear a hold it
+  did not take. The flag then has to be split, and the split is cheap while
+  promotion is the only writer and expensive afterwards.
+
+  This was written up during A2 as a proposed *deviation* — deriving the hold
+  from the promotion row instead of setting the flag — which §5's previous
+  bullet already rejects as a janitor-side skip that duplicates §3.3. The
+  constraint stands; only this note is new.
 
 ---
 
