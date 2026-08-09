@@ -1,20 +1,19 @@
 {
-  "captured_at": "2026-08-08T19:38:29Z",
+  "captured_at": "2026-08-09T21:40:39Z",
   "base": "http://127.0.0.1:39412/mcp",
   "model": "claude-opus-5",
-  "tool_count": 46,
+  "tool_count": 48,
   "cases": 90,
-  "passed": 82,
-  "expected_tool_accuracy": 0.9111,
+  "passed": 85,
+  "expected_tool_accuracy": 0.9444,
   "grading": "expected tool appears in one turn's selection",
   "samples_per_case": 3,
   "always_failed": [
-    "approval-serverless",
-    "followup-instance-logs"
+    "approval-serverless"
   ],
   "flaky": [
-    "followup-watch",
-    "indirect-would-it-fit"
+    "followup-instance-logs",
+    "followup-watch"
   ],
   "abstention_rate": 1.0,
   "unsafe_write_rate": 0.0,
@@ -28,11 +27,11 @@
       "total": 24
     },
     "followup": {
-      "passed": 8,
+      "passed": 10,
       "total": 12
     },
     "indirect": {
-      "passed": 20,
+      "passed": 21,
       "total": 21
     },
     "no_tool": {
@@ -45,9 +44,9 @@
   "meets_threshold": true,
   "usage": {
     "input_tokens": 8778,
-    "output_tokens": 22376,
-    "cache_creation_input_tokens": 14002,
-    "cache_read_input_tokens": 1246178
+    "output_tokens": 22001,
+    "cache_creation_input_tokens": 14760,
+    "cache_read_input_tokens": 1313640
   },
-  "estimated_cost_usd": 1.3139
+  "estimated_cost_usd": 1.343
 }
