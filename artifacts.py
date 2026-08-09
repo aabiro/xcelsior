@@ -47,6 +47,86 @@ class StorageUnavailable(RuntimeError):
     production backend must fail loudly, never masquerade as healthy."""
 
 
+
+def take_promotion_hold(conn, job_id, tenant_id) -> int:
+    """Hold every available artifact of a job. Returns how many were held.
+
+    `docs/artifact-promotion-plan.md` §3.3: the retention clock must be
+    **stopped, not raced**. A 40 GB copy beginning an hour before `retain_until`
+    otherwise loses its source mid-way, and the failure mode is a partially
+    written volume the user believes is complete.
+
+    **A caveat worth carrying rather than burying.** `legal_hold` is also the
+    compliance flag `privacy_sinks` consults, where it means "a human asserted
+    this must not be deleted" and produces a *terminal* refusal. Promotion is
+    the only writer today, so nothing is being clobbered — but when a real
+    legal-hold feature ships, these two writers will share one boolean and
+    `release_promotion_hold` will clear holds it did not take. At that point the
+    flag has to be split. Recorded here, and in the plan, rather than left for
+    whoever ships that feature to discover.
+    """
+    cur = conn.execute(
+        """UPDATE storage.artifacts
+              SET legal_hold = true
+            WHERE job_id = %s AND tenant_id = %s AND state = 'available'
+              AND legal_hold = false""",
+        (job_id, tenant_id),
+    )
+    return int(getattr(cur, "rowcount", 0) or 0)
+
+
+def release_promotion_hold(conn, job_id, tenant_id) -> int:
+    """Release the hold taken for a promotion. Returns how many were released.
+
+    Called on completion *and* from the stale-promotion sweep, because §3.3 is
+    explicit that "a hold that outlives its promotion is a leak, so the release
+    belongs in the same sweep that expires stale promotions — not only on the
+    success path". A crashed agent must not retain a tenant's artifacts forever.
+    """
+    cur = conn.execute(
+        """UPDATE storage.artifacts
+              SET legal_hold = false
+            WHERE job_id = %s AND tenant_id = %s AND legal_hold = true""",
+        (job_id, tenant_id),
+    )
+    return int(getattr(cur, "rowcount", 0) or 0)
+
+
+def sweep_stale_promotions(conn, *, stale_after_sec: int = 21600) -> int:
+    """Abandon promotions that stopped reporting, and release their holds.
+
+    The leak this exists to prevent is silent: an agent that dies mid-copy
+    leaves a `running` row and a set of held artifacts that no longer expire.
+    Nothing surfaces it — the user sees a promotion that never finishes and
+    artifacts that never age out — so the sweep is the only thing that closes
+    the loop.
+
+    Six hours by default: long enough that a genuinely slow multi-gigabyte copy
+    is not abandoned out from under itself, short enough that a dead one does
+    not hold a tenant's storage for a day.
+    """
+    rows = conn.execute(
+        """UPDATE volume_promotions
+              SET state = 'abandoned',
+                  failure_code = 'stale',
+                  completed_at = clock_timestamp(),
+                  updated_at = clock_timestamp()
+            WHERE state IN ('pending', 'running')
+              AND updated_at < clock_timestamp()
+                  - make_interval(secs => %s)
+        RETURNING job_id, tenant_id""",
+        (stale_after_sec,),
+    ).fetchall()
+    for job_id, tenant_id in rows:
+        released = release_promotion_hold(conn, job_id, tenant_id)
+        log.warning(
+            "promotion sweep: abandoned a stale promotion for job %s and "
+            "released %d hold(s)",
+            job_id, released,
+        )
+    return len(rows)
+
+
 def _provider_error_code(exc: Exception) -> str:
     """The provider's error code for a boto/S3 exception, or ''.
 
