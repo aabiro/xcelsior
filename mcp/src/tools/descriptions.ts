@@ -193,6 +193,20 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     "Call it with confirm:false first for a preview. Stops the per-GB-month billing, and is " +
     "irreversible: the contents cannot be recovered, so snapshot first if there is any doubt.",
 
+  promote_artifact_to_volume:
+    "Copies a finished run's outputs — weights, checkpoints — from artifact storage onto a "
+    + "volume, which has no retention clock. This creates a durable copy — it does not move or "
+    + "delete the originals. Use when a run produced something worth keeping "
+    + "past its expiry, or when the user asks to save results somewhere permanent. The copied "
+    + "data bills per GB-month as volume storage for as long as it is kept, so it is a standing "
+    + "cost rather than a one-off. **Returns as soon as the copy STARTS, not when it finishes.** "
+    + "A large checkpoint takes minutes; say it is running and check get_promotion_status before "
+    + "telling anyone their files are safe. Asking twice for the same job does not copy twice.",
+  get_promotion_status:
+    "Reports whether a promotion started by promote_artifact_to_volume has finished, and how "
+    + "much it has copied. Use when you started a promotion and need to know whether the files "
+    + "have actually landed — the promotion tool returns while the copy is still running, so "
+    + "this is what tells you it is safe to say the work is saved. Read-only and free.",
   snapshot_volume:
     "Creates a point-in-time snapshot of a volume, so its current contents can be restored " +
     "later. Use before anything destructive — a delete, a risky job, a version bump — and when " +
