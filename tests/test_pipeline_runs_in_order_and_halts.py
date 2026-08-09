@@ -223,3 +223,105 @@ def test_a_stage_without_an_action_type_is_refused():
 
     with pytest.raises(PipelineError):
         canonical_graph([{"name": "train"}])
+
+
+# ── B2: the spend ceiling ───────────────────────────────────────────
+
+
+def test_a_stage_that_would_exceed_the_ceiling_never_starts(pipeline):
+    """Gate P4: "spend is bounded by what was approved."
+
+    The stage is *skipped*, not failed — nothing went wrong with it, there was
+    no room left for it — and crucially the handler is never called. A ceiling
+    enforced after the fact is a report, not a bound.
+    """
+    from control_plane.pipelines import canonical_graph, run_pipeline
+
+    stages, _ = canonical_graph(THREE_STAGES)   # quotes: 1000, 500, 250
+    ran: list[str] = []
+
+    def handler(stage):
+        ran.append(stage["name"])
+        return {"ok": True, "spent_micros": stage["estimate_micros"]}
+
+    # Room for train (1000) and evaluate (500) but not serve (250 more = 1750).
+    result = run_pipeline(
+        pipeline["plan_id"], pipeline["tenant_id"], stages, handler,
+        approved_micros=1600,
+    )
+
+    assert ran == ["train", "evaluate"], (
+        f"a stage ran past the approved ceiling: {ran}"
+    )
+    rows = _states(pipeline["plan_id"])
+    assert [r[1] for r in rows] == ["succeeded", "succeeded", "skipped"]
+    assert rows[2][2] == "budget_exceeded"
+    assert result["finished"] is True
+
+
+def test_an_overrunning_stage_eats_into_what_remains(pipeline):
+    """Actual spend, not the original estimate.
+
+    If the ceiling were compared against the *quotes*, a stage that came in at
+    triple its estimate would leave the bound intact on paper while the pipeline
+    overspent in fact. That is the mispricing case, and it is the one where a
+    ceiling has to bite.
+    """
+    from control_plane.pipelines import canonical_graph, run_pipeline
+
+    stages, _ = canonical_graph(THREE_STAGES)
+    ran: list[str] = []
+
+    def handler(stage):
+        ran.append(stage["name"])
+        # train quotes 1000 and actually costs 1500.
+        return {"ok": True, "spent_micros": 1500 if stage["name"] == "train" else 0}
+
+    run_pipeline(
+        pipeline["plan_id"], pipeline["tenant_id"], stages, handler,
+        approved_micros=1600,
+    )
+
+    assert ran == ["train"], (
+        f"the pipeline continued after a stage overran its quote: {ran} — the "
+        "ceiling was compared against estimates rather than actual spend"
+    )
+    assert _states(pipeline["plan_id"])[1][2] == "budget_exceeded"
+
+
+def test_no_ceiling_means_no_refusal(pipeline):
+    """A pipeline created without a quote must not be silently capped at zero.
+
+    Otherwise every such pipeline fails its first stage for a reason nobody can
+    see, which is worse than having no bound.
+    """
+    from control_plane.pipelines import canonical_graph, run_pipeline
+
+    stages, _ = canonical_graph(THREE_STAGES)
+    result = run_pipeline(
+        pipeline["plan_id"], pipeline["tenant_id"], stages,
+        lambda s: {"ok": True, "spent_micros": 10_000},
+        approved_micros=0,
+    )
+    assert result["failed"] is False
+    assert [r[1] for r in _states(pipeline["plan_id"])] == ["succeeded"] * 3
+
+
+def test_the_ceiling_is_checked_before_the_handler_not_after(pipeline):
+    """Stated as its own test because it is the whole difference.
+
+    A ceiling checked after the handler would let the stage run, spend the
+    money, and then report that it should not have.
+    """
+    from control_plane.pipelines import canonical_graph, run_pipeline
+
+    stages, _ = canonical_graph(THREE_STAGES)
+    calls: list[str] = []
+
+    run_pipeline(
+        pipeline["plan_id"], pipeline["tenant_id"], stages,
+        lambda s: (calls.append(s["name"]), {"ok": True})[1],
+        approved_micros=1,   # not even the first stage fits
+    )
+    assert calls == [], "the handler ran for a stage the ceiling had already refused"
+    assert [r[1] for r in _states(pipeline["plan_id"])] == ["skipped"] * 3
