@@ -28,6 +28,18 @@ visible under the final name, `os.replace` over an existing file works (the
 resume path), and a cross-directory rename within the mount works. The
 assumption this design rests on is a fact about the hosts it runs on, not an
 inference from the man page.
+
+**And the shipped function itself was run there**, not a reimplementation of it:
+`_promote_artifacts`' source was extracted from `worker_agent.py` by AST and
+executed on the instance — `worker_agent` cannot be imported on a GPU box, since
+it reaches 36 repo modules and their dependencies. 8,389,842 bytes streamed over
+HTTP, landed on overlayfs, digest re-hashed off disk and matched, no `.part`
+survived, and both the promotion result and the per-file resume row were posted.
+
+What that run did **not** cover, so the result is not read as more than it is:
+module import-time behaviour, the agent's command dispatch, and Gate P3 clause
+3's round-trip — which needs one volume mounted in a *second* instance, and the
+two hosts available were network-isolated from each other.
 """
 
 from __future__ import annotations
