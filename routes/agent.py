@@ -489,6 +489,12 @@ _AGENT_COMMAND_ALLOWED = {
     "mount_volume",  # hot-attach managed NFS volume into running container
     "unmount_volume",
     "prepull_image",  # serverless cold-start: pull image on idle host
+    # P3 A1: copy a job's artifacts onto an attached volume. The command
+    # carries only `{promotion_id}` — the agent fetches the manifest over its
+    # own authenticated channel. A file list would blow the 16 KB args cap on a
+    # sharded checkpoint, and presigned URLs are read grants for a tenant's
+    # weights that would then sit in a queued, logged, retained row.
+    "promote_artifacts",
 }
 
 
