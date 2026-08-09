@@ -496,3 +496,260 @@ def api_volume_promotion_preview(volume_id: str, request: Request, job_id: str =
             for f in manifest["files"]
         ],
     }
+
+
+class PromotionCreate(BaseModel):
+    job_id: str = Field(min_length=1, max_length=128)
+    idempotency_key: str = Field(default="", max_length=160)
+
+
+@router.post("/api/v2/volumes/{volume_id}/promotions", tags=["Volumes"])
+def api_volume_promotion_create(volume_id: str, body: PromotionCreate, request: Request):
+    """Start copying a job's artifacts onto this volume. Idempotent.
+
+    A1 of `docs/artifact-promotion-plan.md`: one host, an already-attached
+    volume, no resume. The row is created here and the copy is performed by the
+    agent, which fetches the manifest itself — the command carries only the
+    promotion id.
+
+    A replay returns the existing row with `replayed: true` rather than
+    appearing to start a second copy. `charge_saved_card` says the same thing
+    for the same reason: a caller that retried a timeout needs to know whether
+    its first attempt landed.
+    """
+    import time as _time
+    import uuid as _uuid
+
+    from routes._deps import _require_scope
+
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "volumes:write")
+
+    ve = get_volume_engine()
+    vol = ve.get_volume(volume_id)
+    if not vol:
+        raise HTTPException(404, "Volume not found")
+    _require_volume_write(user, vol)
+
+    tenant_id = _effective_billing_customer_id(user)
+    from artifacts import get_artifact_manager
+
+    manifest = get_artifact_manager().resolve_promotion_manifest(body.job_id, tenant_id=tenant_id)
+    if not manifest.get("ok"):
+        raise HTTPException(503, "Artifact catalog unavailable")
+    if manifest["file_count"] == 0:
+        # Not a 404: the job may exist and have produced nothing. Refusing here
+        # rather than creating an empty promotion that would "succeed" having
+        # copied nothing, which reads to a model as "your weights are saved".
+        raise HTTPException(409, "This job has no artifacts available to promote")
+
+    # The digest is the default key, so a retry with no key still converges —
+    # and a job that has produced new artifacts since is a different promotion
+    # rather than a replay of a stale file list.
+    idem = body.idempotency_key or manifest["manifest_sha256"]
+
+    from control_plane.db import control_plane_transaction
+
+    promotion_id = str(_uuid.uuid4())
+    with control_plane_transaction() as conn:
+        cur = conn.execute(
+            """INSERT INTO volume_promotions
+                 (promotion_id, tenant_id, owner_user_id, job_id, volume_id,
+                  idempotency_key, manifest_sha256, file_count, total_bytes, state)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending')
+               ON CONFLICT (tenant_id, job_id, idempotency_key) DO NOTHING""",
+            (
+                promotion_id, tenant_id, user.get("user_id"), body.job_id, volume_id,
+                idem, manifest["manifest_sha256"], manifest["file_count"],
+                manifest["total_bytes"],
+            ),
+        )
+        created = cur.rowcount == 1
+        row = conn.execute(
+            "SELECT promotion_id, state, file_count, total_bytes, volume_id "
+            "FROM volume_promotions "
+            "WHERE tenant_id = %s AND job_id = %s AND idempotency_key = %s",
+            (tenant_id, body.job_id, idem),
+        ).fetchone()
+
+    existing_id = str(row[0])
+    if not created:
+        return {
+            "ok": True, "replayed": True, "promotion_id": existing_id,
+            "state": row[1], "file_count": row[2], "total_bytes": row[3],
+            "volume_id": row[4],
+        }
+
+    # Enqueued only for a genuinely new row, so a replay cannot queue a second
+    # copy of the same bytes.
+    host_id = str(vol.get("host_id") or "")
+    enqueued = None
+    if host_id:
+        from routes.agent import enqueue_agent_command
+
+        enqueued = enqueue_agent_command(
+            host_id, "promote_artifacts", {"promotion_id": existing_id},
+            created_by=str(user.get("user_id") or ""), ttl_sec=3600,
+        )
+
+    append_user_audit_event(
+        "user.volume.promotion_started", "volume", volume_id, user,
+        data={
+            "promotion_id": existing_id, "job_id": body.job_id,
+            "file_count": manifest["file_count"], "total_bytes": manifest["total_bytes"],
+        },
+    )
+    return {
+        "ok": True, "replayed": False, "promotion_id": existing_id,
+        "state": "pending", "file_count": manifest["file_count"],
+        "total_bytes": manifest["total_bytes"], "volume_id": volume_id,
+        "command_id": enqueued,
+        "started_at_utc": _time.time(),
+    }
+
+
+@router.get("/api/v2/volumes/{volume_id}/promotions/{promotion_id}", tags=["Volumes"])
+def api_volume_promotion_get(volume_id: str, promotion_id: str, request: Request):
+    """State of one promotion. A foreign id is not-found, never forbidden."""
+    from routes._deps import _require_scope
+
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "volumes:read")
+
+    from control_plane.db import control_plane_transaction
+
+    tenant_id = _effective_billing_customer_id(user)
+    with control_plane_transaction() as conn:
+        row = conn.execute(
+            "SELECT promotion_id, job_id, volume_id, state, file_count, total_bytes, "
+            "       failure_code, created_at, completed_at "
+            "  FROM volume_promotions WHERE promotion_id = %s AND tenant_id = %s",
+            (promotion_id, tenant_id),
+        ).fetchone()
+    if not row or str(row[2] or "") != volume_id:
+        raise HTTPException(404, "Promotion not found")
+    return {
+        "ok": True,
+        "promotion_id": str(row[0]), "job_id": row[1], "volume_id": row[2],
+        "state": row[3], "file_count": row[4], "total_bytes": row[5],
+        "failure_code": row[6],
+        "created_at": row[7].isoformat() if row[7] else None,
+        "completed_at": row[8].isoformat() if row[8] else None,
+    }
+
+
+@router.get("/api/v1/promotions/{promotion_id}/manifest", tags=["Volumes"])
+def api_promotion_manifest_for_agent(promotion_id: str, request: Request):
+    """The file list and read grants for one promotion. Worker-authenticated.
+
+    Separate from the customer-facing preview, and deliberately so: this is the
+    only response that carries **presigned URLs**, which are time-limited read
+    grants for a tenant's weights. That is why the command row holds nothing but
+    `{promotion_id}` — a queued, logged, retained row is the wrong place for a
+    credential — and why this endpoint is reachable only by a platform worker.
+
+    The manifest is re-resolved from the catalog rather than stored on the row,
+    so a promotion cannot hand out URLs for artifacts that have since been
+    deleted, and the tenant is taken from the promotion rather than the caller.
+    """
+    from routes._deps import _require_auth, _require_platform_worker
+
+    user = _require_auth(request)
+    _require_platform_worker(user)
+
+    from control_plane.db import control_plane_transaction
+
+    with control_plane_transaction() as conn:
+        row = conn.execute(
+            "SELECT tenant_id, job_id, volume_id, state, manifest_sha256 "
+            "  FROM volume_promotions WHERE promotion_id = %s",
+            (promotion_id,),
+        ).fetchone()
+    if not row:
+        raise HTTPException(404, "Promotion not found")
+    tenant_id, job_id, volume_id, state, expected_digest = row[0], row[1], row[2], row[3], row[4]
+    if state in ("succeeded", "abandoned"):
+        raise HTTPException(409, f"Promotion is {state}; nothing to fetch")
+
+    from artifacts import get_artifact_manager
+
+    am = get_artifact_manager()
+    manifest = am.resolve_promotion_manifest(job_id, tenant_id=tenant_id)
+    if not manifest.get("ok"):
+        raise HTTPException(503, "Artifact catalog unavailable")
+    if manifest["manifest_sha256"] != expected_digest:
+        # The artifact set changed after the promotion was created. Refusing is
+        # the only honest answer: copying the new set would deliver something
+        # the user did not ask for, and copying a subset would be a partial
+        # volume reported as complete.
+        raise HTTPException(
+            409,
+            "The artifact set changed since this promotion was created; "
+            "start a new promotion",
+        )
+
+    files = []
+    for f in manifest["files"]:
+        try:
+            grant = am.primary.generate_download_url(f["object_key"])
+        except Exception:
+            raise HTTPException(503, "Storage backend unavailable")
+        files.append({
+            "artifact_id": f["artifact_id"],
+            "logical_name": f["logical_name"],
+            "size_bytes": f["size_bytes"],
+            "sha256": f["sha256"],
+            "url": grant.get("url") if isinstance(grant, dict) else grant,
+        })
+    return {
+        "ok": True,
+        "promotion_id": promotion_id,
+        "volume_id": volume_id,
+        "manifest_sha256": expected_digest,
+        "files": files,
+    }
+
+
+class PromotionResult(BaseModel):
+    state: Literal["succeeded", "failed"]
+    failure_code: str = Field(default="", max_length=64)
+    bytes_written: int = Field(default=0, ge=0)
+
+
+@router.post("/api/v1/promotions/{promotion_id}/result", tags=["Volumes"])
+def api_promotion_result_from_agent(promotion_id: str, body: PromotionResult, request: Request):
+    """The agent reporting what happened. Worker-authenticated, terminal-once.
+
+    A promotion already in a terminal state is not overwritten: a retried
+    report must not turn a recorded failure into a success, and the state
+    machine's `succeeded` check requires a volume and a completion time, so a
+    row that reached success has already been proven complete.
+    """
+    from routes._deps import _require_auth, _require_platform_worker
+
+    user = _require_auth(request)
+    _require_platform_worker(user)
+
+    from control_plane.db import control_plane_transaction
+
+    with control_plane_transaction() as conn:
+        row = conn.execute(
+            "SELECT state FROM volume_promotions WHERE promotion_id = %s FOR UPDATE",
+            (promotion_id,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Promotion not found")
+        if row[0] in ("succeeded", "failed", "abandoned"):
+            return {"ok": True, "state": row[0], "already_terminal": True}
+        conn.execute(
+            "UPDATE volume_promotions "
+            "   SET state = %s, failure_code = NULLIF(%s, ''), "
+            "       completed_at = clock_timestamp(), updated_at = clock_timestamp() "
+            " WHERE promotion_id = %s",
+            (body.state, body.failure_code, promotion_id),
+        )
+    return {"ok": True, "state": body.state}

@@ -1621,6 +1621,7 @@ _AGENT_COMMAND_ALLOWED = frozenset(
         "mount_volume",  # hot-attach: NFS mount + nsenter bind into running container
         "unmount_volume",
         "prepull_image",  # serverless cold-start: pull image on idle host
+        "promote_artifacts",  # P3 A1: artifact -> attached volume, sha256 verified
     }
 )
 
@@ -2075,6 +2076,15 @@ def drain_agent_commands() -> int:
                     by,
                 )
                 if _hot_unmount_volume(args):
+                    dispatched += 1
+            elif name == "promote_artifacts":
+                log.info(
+                    "Executing promote_artifacts cmd=%s promotion=%s by=%s",
+                    cmd_id,
+                    args.get("promotion_id"),
+                    by,
+                )
+                if _promote_artifacts(args):
                     dispatched += 1
             elif name == "prepull_image":
                 image_tag = str(args.get("image") or "").strip()
@@ -7088,3 +7098,154 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# ── P3 A1: artifact → volume promotion ───────────────────────────────
+# One host, an already-attached volume, no resume. The narrowest end-to-end
+# path, built before holds and idempotency because if a host cannot stream from
+# object storage to a mount at a usable rate, everything after it is rework.
+
+def _promotion_dest_dir(volume_id: str) -> str:
+    """Where a promoted artifact lands on this host."""
+    return os.path.join(MANAGED_VOLUME_HOST_DIR, str(volume_id), "promoted")
+
+
+def _promote_artifacts(args: dict) -> bool:
+    """Copy one promotion's files onto its volume, verifying each digest.
+
+    The command carries only `{promotion_id}`; the manifest — including the
+    presigned read grants — is fetched over the agent's own authenticated
+    channel, so no credential is ever written to a queued command row.
+
+    **Every file is verified before it is visible.** Each object streams to a
+    `.part` file, its sha256 is checked against the manifest, and only then is
+    it renamed into place. A rename within one filesystem is atomic, so a
+    process killed mid-copy leaves a `.part` and never a truncated file that
+    looks like a complete checkpoint — which is the failure this whole design
+    is arranged around, because a partially written volume the user believes is
+    complete is worse than no volume at all.
+
+    Returns True when every file landed and the result was reported.
+    """
+    promotion_id = str(args.get("promotion_id") or "").strip()
+    if not promotion_id:
+        log.warning("promote_artifacts: no promotion_id in args")
+        return False
+
+    def _report(state: str, failure_code: str = "", written: int = 0) -> None:
+        try:
+            requests.post(
+                _api_url(f"/api/v1/promotions/{promotion_id}/result"),
+                json={"state": state, "failure_code": failure_code, "bytes_written": written},
+                headers=_api_headers(),
+                timeout=30,
+            )
+        except requests.RequestException as exc:
+            # The copy either happened or did not; failing to *say so* leaves a
+            # promotion stuck in `running` for the sweep to expire. Logged loudly
+            # because the bytes on disk and the row now disagree.
+            log.error("promote_artifacts: could not report %s for %s: %s", state, promotion_id, exc)
+
+    try:
+        resp = requests.get(
+            _api_url(f"/api/v1/promotions/{promotion_id}/manifest"),
+            headers=_api_headers(),
+            timeout=60,
+        )
+    except requests.RequestException as exc:
+        log.warning("promote_artifacts: manifest fetch failed for %s: %s", promotion_id, exc)
+        return False
+    if resp.status_code != 200:
+        log.warning(
+            "promote_artifacts: manifest %s for %s: %s",
+            resp.status_code, promotion_id, (resp.text or "")[:200],
+        )
+        _report("failed", f"manifest_{resp.status_code}")
+        return False
+
+    manifest = resp.json()
+    volume_id = str(manifest.get("volume_id") or "")
+    files = manifest.get("files") or []
+    if not volume_id or not files:
+        _report("failed", "empty_manifest")
+        return False
+
+    dest_dir = _promotion_dest_dir(volume_id)
+    try:
+        os.makedirs(dest_dir, exist_ok=True)
+    except OSError as exc:
+        log.error("promote_artifacts: cannot create %s: %s", dest_dir, exc)
+        _report("failed", "dest_unwritable")
+        return False
+
+    written_total = 0
+    for f in files:
+        name = os.path.basename(str(f.get("logical_name") or f.get("artifact_id")))
+        if not name or name in (".", ".."):
+            _report("failed", "bad_logical_name")
+            return False
+        final_path = os.path.join(dest_dir, name)
+        part_path = final_path + ".part"
+        expected = str(f.get("sha256") or "")
+        if not expected:
+            # A0's manifest flags these; refusing here is the same rule applied
+            # where it costs something — an unverifiable copy that looks
+            # complete is the outcome worth avoiding.
+            _report("failed", "unverifiable_artifact")
+            return False
+
+        digest = hashlib.sha256()
+        size = 0
+        try:
+            with requests.get(str(f.get("url") or ""), stream=True, timeout=300) as src:
+                if src.status_code != 200:
+                    _report("failed", f"fetch_{src.status_code}")
+                    return False
+                with open(part_path, "wb") as out:
+                    for chunk in src.iter_content(chunk_size=8 * 1024 * 1024):
+                        if not chunk:
+                            continue
+                        out.write(chunk)
+                        digest.update(chunk)
+                        size += len(chunk)
+                    out.flush()
+                    os.fsync(out.fileno())
+        except (requests.RequestException, OSError) as exc:
+            log.warning("promote_artifacts: %s failed mid-copy: %s", name, exc)
+            _cleanup_part(part_path)
+            _report("failed", "copy_error")
+            return False
+
+        if digest.hexdigest() != expected:
+            log.error(
+                "promote_artifacts: digest mismatch for %s (got %s, expected %s)",
+                name, digest.hexdigest()[:16], expected[:16],
+            )
+            _cleanup_part(part_path)
+            _report("failed", "digest_mismatch")
+            return False
+
+        try:
+            os.replace(part_path, final_path)
+        except OSError as exc:
+            log.error("promote_artifacts: could not place %s: %s", final_path, exc)
+            _cleanup_part(part_path)
+            _report("failed", "rename_failed")
+            return False
+        written_total += size
+        log.info("promote_artifacts: %s verified and placed (%d bytes)", name, size)
+
+    _report("succeeded", "", written_total)
+    log.info(
+        "promote_artifacts: promotion %s complete — %d file(s), %d bytes",
+        promotion_id, len(files), written_total,
+    )
+    return True
+
+
+def _cleanup_part(path: str) -> None:
+    """Remove a partial file. Never raises — the caller is already failing."""
+    try:
+        os.unlink(path)
+    except OSError:
+        pass

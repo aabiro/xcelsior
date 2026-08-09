@@ -723,6 +723,10 @@
     "class": "internal",
     "notes": "the published API description itself, served for clients and generators to read"
   },
+  "GET /api/v1/promotions/{promotion_id}/manifest": {
+    "class": "internal",
+    "notes": "Worker-only (_require_platform_worker). The single response that carries presigned URLs, which is why the agent command holds nothing but {promotion_id}: a queued, logged, retained command row is the wrong place for a time-limited read grant on a tenant's weights. Re-resolves the manifest and refuses if the artifact set changed since the promotion was created."
+  },
   "GET /api/v2/billing/auto-topup": {
     "class": "covered",
     "notes": "configure_auto_topup calls this path"
@@ -882,6 +886,10 @@
   "GET /api/v2/volumes/{volume_id}/promotions/preview": {
     "class": "gap",
     "notes": "A0 of docs/artifact-promotion-plan.md: what promoting a job's artifacts onto this volume would copy. Copies nothing, holds nothing, writes nothing. No tool calls it yet — promote_artifact_to_volume does not exist, and this is the manifest it will show a user before a large copy starts rather than after. Volume authorised via _require_volume_read; artifacts scoped by tenant inside the query, since a manifest is a list of file names and sizes."
+  },
+  "GET /api/v2/volumes/{volume_id}/promotions/{promotion_id}": {
+    "class": "gap",
+    "notes": "Promotion state for its owner. A foreign or unknown id is 404 rather than 403, so promotion ids cannot be enumerated. The companion read for the tool that lands in A4."
   },
   "GET /api/v2/volumes/{volume_id}/snapshots": {
     "class": "gap",
@@ -1699,6 +1707,10 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "POST /api/v1/promotions/{promotion_id}/result": {
+    "class": "internal",
+    "notes": "Worker-only callback reporting the copy's outcome. Terminal-once: a retried report cannot turn a recorded failure into a success."
+  },
   "POST /api/v1/serverless/endpoint-plans": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -1842,6 +1854,10 @@
   "POST /api/v2/volumes/{volume_id}/detach": {
     "class": "gap",
     "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+  },
+  "POST /api/v2/volumes/{volume_id}/promotions": {
+    "class": "gap",
+    "notes": "A1 of docs/artifact-promotion-plan.md: create a promotion and enqueue the copy. Idempotent on (tenant, job, key) with the manifest digest as the default key, so a retried timeout converges rather than copying twice. No tool calls it yet — promote_artifact_to_volume is A4."
   },
   "POST /api/v2/volumes/{volume_id}/retry": {
     "class": "gap",
