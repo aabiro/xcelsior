@@ -93,7 +93,7 @@ failure this document exists to stop.
 | # | Clause | Status | Evidence |
 |---|---|---|---|
 | 1 | A scripted journey — launch, wait, connect, run a command, terminate — completes using **only tool calls**, against a live staging tenant | **FAIL** | No such script exists. Nothing in `scripts/` performs this journey. This is the phase's headline clause and it has never been run. |
-| 2 | Connection material is short-lived and single-use; a replayed ticket is refused | **PARTIAL** | *The implementation is genuinely correct* — `_consume_ws_ticket` pops the ticket ([routes/_deps.py:1515](routes/_deps.py#L1515)) and additionally pins purpose, target and client IP, with expiry purging. **No test asserts the replay refusal.** The property is true and unguarded, so a regression would be silent. |
+| 2 | Connection material is short-lived and single-use; a replayed ticket is refused | **PASS** *(was PARTIAL)* | `tests/test_ws_ticket_is_single_use.py` — 8 assertions across **both** consume implementations (shared-state and in-process), 16 in total. Replay, expiry, and each of the three pins (purpose, target, client IP) are asserted separately so a regression names itself. Parametrizing both paths was not ceremony: removing the in-memory pop reds `[memory]` while `[shared]` keeps passing, so a test of either alone would have proven nothing about the other — and the suite runs one while production runs the other. |
 | 3 | No private key material appears in any tool result. Asserted, not assumed | **PASS** | `mcp/tests/unit/private-key-hygiene.test.ts` and `hygiene.test.ts`, plus `inspectSshKeyInput()` classifying and refusing a private key *before* any network call. The scrubber also handles the truncated-log case (BEGIN with no END). |
 
 **Also unmet, from P2's backend section rather than its gate:** `open_instance_access`
@@ -140,12 +140,12 @@ this document exists, and it applies to its own newest rows.
 | §1 universal | 2 | 3 | — | — |
 | P0 | 4 | — | — | — |
 | P1 | 4 | 3 | — | — |
-| P2 | 1 | 1 | 1 | — |
+| P2 | 2 | — | 1 | — |
 | P3 | 1 | 1 | 1 | — |
-| **Total** | **13** | **7** | **2** | **0** |
+| **Total** | **14** | **6** | **2** | **0** |
 
-Thirteen of twenty-two clauses are fully met, nothing is BLOCKED, and **Gate P0
-is now wholly met** — the first phase to be.
+Fourteen of twenty-two clauses are fully met, nothing is BLOCKED, and **Gate P0
+is wholly met** — the first phase to be.
 
 It was eight when this table was first written. P1 clause 6 moved FAIL → PASS
 when the ruling was implemented; P0 clause 4 moved BLOCKED → PASS when the
