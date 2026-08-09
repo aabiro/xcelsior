@@ -48,8 +48,9 @@ slipped.
 structural *partials*: both have a runner that works and neither is honoured per
 phase. Everything else is a clause-by-clause matter; these two were a habit that
 lapsed, and the habit is only half repaired — P1, P2 and P3 still have no live
-assertion, and two phases shipped without an eval delta that cannot be taken
-retroactively.
+assertion, and P2's tools shipped without an eval delta that cannot now be
+taken. The promotion tools *did* get theirs (46 → 48, 0.9111 → 0.9444), which
+is the first time the clause has been honoured rather than skipped.
 
 ---
 
