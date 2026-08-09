@@ -90,7 +90,15 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `103_volume_promotion_files.py`.**
+**Repository head: `104_pipeline_stages.py`.**
+(`104` adds per-stage execution state for P4 pipelines. The *approval* is one
+`action_plans` row whose canonical args carry the graph, so Gate P4's "editing
+a stage after approval invalidates it" needs no new mechanism — the existing
+`canonical_args_hash` already voids an altered plan. This table is only what
+happened to each stage. `max_attempts` is NOT NULL defaulting to 1 because an
+unbounded retry inside an approved spend ceiling is a way to spend the whole
+ceiling on a stage that cannot succeed.)
+
 (`103` adds per-file promotion progress so a retry resumes instead of
 restarting — §3.5: a promotion that restarts from zero after failing at 38 GB
 will be retried by a human who then watches it fail again. `done` is

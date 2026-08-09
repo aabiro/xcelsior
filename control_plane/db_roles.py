@@ -138,6 +138,10 @@ CONTROL_TABLES = frozenset(
         # Unified launch service (Track B B2): the launch/action-plan spine
         # is control-plane state the API writer owns.
         "action_plans",
+        # P4 pipelines: per-stage execution state for one approved graph.
+        # Control-plane, beside action_plans, because the approval it hangs
+        # off lives there and the executor is the same writer.
+        "pipeline_stages",
         "mcp_client_policies",
     }
 )
