@@ -602,6 +602,33 @@
       "hasOutputSchema": true
     },
     {
+      "name": "get_promotion_status",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "volumes:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "volume_id": {
+          "type": "string",
+          "optional": false
+        },
+        "promotion_id": {
+          "type": "string",
+          "optional": false
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
       "name": "get_serverless_job_status",
       "version": "2.0.0",
       "tenantClass": "tenant",
@@ -894,6 +921,38 @@
             "ssh",
             "terminal"
           ]
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "promote_artifact_to_volume",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "artifacts:read",
+        "volumes:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "job_id": {
+          "type": "string",
+          "optional": false
+        },
+        "volume_id": {
+          "type": "string",
+          "optional": false
+        },
+        "idempotency_key": {
+          "type": "string",
+          "optional": true
         }
       },
       "hasOutputSchema": true

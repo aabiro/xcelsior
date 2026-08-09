@@ -78,12 +78,25 @@ def _registered_tool_names() -> set[str]:
 #: plan's Gate P0 line is restated in the same commit, which is what this
 #: test's failure message demands and the reason it is worth failing over.
 #:
-#: **No eval baseline has actually been captured, at 39 or 43.**
-#: `scripts/mcp_tool_eval.py` grades a live server with a model and needs three
-#: secrets none of which are set; without them it reports `BLOCKED(env)` and
-#: exits 0, so the job would report green having graded nothing. This constant
-#: pins the *count* the baseline will be taken at, not a baseline.
-EXPECTED_TOOL_TOTAL = 55
+#: **A baseline now exists.** Captured 2026-08-08 at 46 published tools:
+#: `expected_tool_accuracy` 0.9111 against the unmoved 0.90 threshold, abstention
+#: 1.0, unsafe-write rate 0.0, in `eval-baseline.json`. It was taken against a
+#: *local* surface built from the working tree — the JSON records
+#: `base: http://127.0.0.1:…` — because production runs an older commit, so it
+#: grades what the repo publishes rather than what is deployed. Check that field
+#: before comparing two baselines.
+#:
+#: The comment this replaces said no baseline had ever been captured, which was
+#: true when written and stopped being true the moment one was. A stale claim
+#: about a gate is worse than none, because it argues against re-checking.
+#:
+#: This constant pins the *count*, and the count has moved: 55 → 57 with
+#: `promote_artifact_to_volume` and `get_promotion_status` (P3 A4). The two new
+#: tools do not change the eval's blast radius — both are satisfiable by a Quick
+#: Connect token, asserted in `test_connector_tokens_are_scope_restricted.py` —
+#: but the surface is larger than the baseline was measured on, so the next
+#: capture is owed and will not be directly comparable.
+EXPECTED_TOOL_TOTAL = 57
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition

@@ -59,6 +59,11 @@ export const TOOL_SCOPES: Record<string, ScopeRequirement> = {
   list_volumes: { allOf: ["volumes:read"] },
   get_volume: { allOf: ["volumes:read"] },
   create_volume: { allOf: ["volumes:write"] },
+  // Promotion reads artifacts and writes a volume, so it needs both. The
+  // read half is not decorative: without it a caller could copy artifacts it
+  // may not read onto a volume it may write.
+  promote_artifact_to_volume: { allOf: ["volumes:write", "artifacts:read"] },
+  get_promotion_status: { allOf: ["volumes:read"] },
   attach_volume: { allOf: ["volumes:write", "instances:read"] },
   detach_volume: { allOf: ["volumes:write"] },
   delete_volume: { allOf: ["volumes:write"] },

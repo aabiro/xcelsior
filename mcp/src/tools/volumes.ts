@@ -251,4 +251,78 @@ export function registerVolumeTools(
       }
     },
   );
+  server.registerTool(
+    "promote_artifact_to_volume",
+    {
+      inputSchema: z.object({
+        job_id: z.string().min(1).max(160).describe("The finished run whose outputs to keep"),
+        volume_id: z.string().min(1).max(160).describe("The volume to copy them onto"),
+        idempotency_key: z
+          .string()
+          .max(160)
+          .optional()
+          .describe(
+            "Leave this out. Omitting it is safe: the same job and the same files " +
+              "resolve to the same promotion, so a retry after a timeout joins the " +
+              "copy already running instead of starting a second one.",
+          ),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ job_id, volume_id, idempotency_key }) => {
+      const denied = scopeDenied("promote_artifact_to_volume", user);
+      if (denied) return denied;
+      try {
+        const data = (await client.post(
+          `/api/v2/volumes/${encodeURIComponent(volume_id)}/promotions`,
+          { job_id, idempotency_key: idempotency_key ?? "" },
+        )) as Record<string, unknown>;
+        // §3.6: the copy is still running when this returns. The wording is the
+        // mechanism — a model that says "saved" when it means "started" is the
+        // failure this whole phase exists to prevent, and there is nothing else
+        // in the response to stop it.
+        return jsonText({
+          ...data,
+          status: "started",
+          note:
+            "The copy has STARTED and is NOT finished. Tell the user it is " +
+            "running, not that their files are saved. Check " +
+            "get_promotion_status with this promotion_id before saying it is " +
+            "done — a large checkpoint takes minutes and the artifacts are " +
+            "not safe from their retention clock until it completes.",
+        });
+      } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_promotion_status",
+    {
+      inputSchema: z.object({
+        volume_id: z.string().min(1).max(160),
+        promotion_id: z.string().min(1).max(160),
+      }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ volume_id, promotion_id }) => {
+      const denied = scopeDenied("get_promotion_status", user);
+      if (denied) return denied;
+      try {
+        const data = (await client.get(
+          `/api/v2/volumes/${encodeURIComponent(volume_id)}/promotions/${encodeURIComponent(promotion_id)}`,
+        )) as Record<string, unknown>;
+        const finished = data.state === "succeeded";
+        return jsonText({
+          ...data,
+          note: finished
+            ? "The copy finished. The files are on the volume, which has no retention clock."
+            : "Still running. Do not tell the user their files are saved yet.",
+        });
+      } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
 }
