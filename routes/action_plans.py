@@ -366,3 +366,90 @@ def api_get_pipeline(plan_id: str, request: Request):
             for r in rows
         ],
     }
+
+
+@router.post("/api/v1/pipelines/{plan_id}/execute")
+def api_execute_pipeline(plan_id: str, request: Request):
+    """Run an approved pipeline. The graph comes from the plan, never the request.
+
+    Gate P4's "the approved graph is server-bound: editing any stage after
+    approval invalidates it" is enforced here, and it is enforced the same way
+    the promotion executor does it — by rehashing the stored canonical args and
+    comparing. A caller cannot supply stages; it can only name a plan.
+
+    That is the whole reason the graph lives in `canonical_args` rather than in
+    `pipeline_stages`: the rows are execution state and are written by the
+    executor, so binding the approval to them would be binding it to something
+    the executor itself controls.
+    """
+    import hashlib
+    import json as _json
+
+    from control_plane.db import control_plane_transaction
+    from control_plane.launch import action_plans as plans_repo
+    from control_plane.pipelines import required_scopes_for_graph, run_pipeline
+
+    user, principal = _resolve_principal(request)
+
+    with control_plane_transaction() as conn:
+        plan = plans_repo.get_plan_for_update(conn, plan_id)
+        if not plan or str(plan["tenant_id"]) != principal.tenant_id:
+            return problem_response(status=404, code="not_found", detail="no such pipeline")
+        if plan["action_type"] != "run_pipeline":
+            return problem_response(
+                status=409, code="wrong_action_type", detail="that plan is not a pipeline"
+            )
+        if plan["status"] == "succeeded":
+            return {**dict(plan["idempotent_response"] or {}), "idempotent": True}
+        if plan["status"] != "approved":
+            return problem_response(
+                status=409, code="approval_required",
+                detail=f"the pipeline is {plan['status']}; approve it before running",
+            )
+
+        canonical = dict(plan["canonical_args"])
+        digest = hashlib.sha256(
+            _json.dumps(canonical, sort_keys=True, separators=(",", ":"), default=str).encode()
+        ).hexdigest()
+        if digest != plan["canonical_args_hash"]:
+            # The clause, enforced. Someone changed the graph after it was
+            # approved; the approval covered something else.
+            return problem_response(
+                status=409, code="argument_hash_mismatch",
+                detail="the approved pipeline was altered; approve the new graph",
+            )
+        approved_micros = int(plan["estimate_micros"] or 0)
+
+    stages = list(canonical.get("stages") or [])
+    for scope in required_scopes_for_graph(stages):
+        _require_scope(user, scope)
+
+    def _handler(stage: dict) -> dict:
+        """B4 executes no stage bodies yet — see docs/pipeline-plan.md §6.
+
+        Returning `ok: False` with a named code rather than pretending to
+        succeed: a pipeline that reports three green stages having run nothing
+        is the "looks like a backup" failure in a different costume, and the
+        whole phase is about approvals meaning what they say.
+        """
+        return {"ok": False, "failure_code": "stage_executor_not_wired"}
+
+    summary = run_pipeline(
+        plan_id, principal.tenant_id, stages, _handler,
+        approved_micros=approved_micros,
+    )
+    response = {
+        "ok": True, "plan_id": plan_id,
+        "finished": summary["finished"], "failed": summary["failed"],
+        "counts": summary["counts"],
+    }
+    with control_plane_transaction() as conn:
+        locked = plans_repo.get_plan_for_update(conn, plan_id)
+        if locked and locked["status"] == "succeeded":
+            return {**dict(locked["idempotent_response"] or {}), "idempotent": True}
+        if summary["finished"] and not summary["failed"]:
+            plans_repo.mark_consumed(
+                conn, plan_id, job_id=f"pipeline:{plan_id}", wallet_hold_id=None,
+                idempotent_response=response, idempotency_key=f"pipeline:{plan_id}",
+            )
+    return response

@@ -381,6 +381,47 @@
         }
       }
     },
+    "/api/v1/pipelines/{plan_id}/execute": {
+      "post": {
+        "tags": [
+          "Launch plans"
+        ],
+        "summary": "Api Execute Pipeline",
+        "description": "Run an approved pipeline. The graph comes from the plan, never the request.\n\nGate P4's \"the approved graph is server-bound: editing any stage after\napproval invalidates it\" is enforced here, and it is enforced the same way\nthe promotion executor does it \u2014 by rehashing the stored canonical args and\ncomparing. A caller cannot supply stages; it can only name a plan.\n\nThat is the whole reason the graph lives in `canonical_args` rather than in\n`pipeline_stages`: the rows are execution state and are written by the\nexecutor, so binding the approval to them would be binding it to something\nthe executor itself controls.",
+        "operationId": "api_execute_pipeline_api_v1_pipelines__plan_id__execute_post",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/mcp/tool-audit": {
       "get": {
         "tags": [

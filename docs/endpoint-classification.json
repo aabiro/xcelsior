@@ -1711,6 +1711,10 @@
     "class": "covered",
     "notes": "P4 B4: quote a dependency graph as ONE approvable plan. The graph lives in the plan's canonical args, so `canonical_args_hash` is what makes the approved graph server-bound. Requires the UNION of its stages' scopes — approving train->serve on instances:operate alone would let the serve stage run without inference:write. Called by run_pipeline."
   },
+  "POST /api/v1/pipelines/{plan_id}/execute": {
+    "class": "gap",
+    "notes": "P4: run an approved pipeline. Gate P4's 'the approved graph is server-bound' is enforced here by rehashing the stored canonical args — a caller names a plan and cannot supply stages. No tool calls it yet: run_pipeline quotes, and execution follows approval, which is a human step by design."
+  },
   "POST /api/v1/placements/simulate": {
     "class": "covered",
     "notes": "MCP server calls this path"
