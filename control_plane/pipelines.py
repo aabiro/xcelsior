@@ -19,12 +19,16 @@ rather than accepting it from the caller is what makes "halt" mean halt: a
 caller that could pass its own failure policy could turn a halt into a continue
 at exactly the moment that matters.
 
-## What B1 deliberately does not do
+## What is not here yet
 
-No budget ceiling (B2), no `continue`/`retry` semantics (B3), no tool (B4).
-`halt` is the only failure mode implemented, and the others are *rejected* at
-creation rather than silently treated as halt — a graph whose declared
-behaviour is not the behaviour it gets is worse than one that will not start.
+No `continue`/`retry` semantics (B3), no tool (B4). `halt` is the only failure
+mode implemented, and the others are *rejected* at creation rather than
+silently treated as halt — a graph whose declared behaviour is not the
+behaviour it gets is worse than one that will not start.
+
+The spend ceiling (B2) **is** here: checked after a stage is claimed, so the
+refusal names which stage, and before its handler runs, so the stage never
+starts.
 """
 
 from __future__ import annotations
@@ -235,11 +239,45 @@ def pipeline_state(conn, plan_id: str) -> dict:
     }
 
 
+def spent_so_far(conn, plan_id: str) -> int:
+    """Micros this pipeline has actually spent across finished stages."""
+    row = conn.execute(
+        "SELECT COALESCE(SUM(spent_micros), 0) FROM pipeline_stages WHERE plan_id = %s",
+        (plan_id,),
+    ).fetchone()
+    return int(row[0] or 0)
+
+
+def would_exceed_ceiling(conn, plan_id: str, stage: dict, approved_micros: int) -> bool:
+    """True when running `stage` could take the pipeline past what was approved.
+
+    §3.3. The naive implementation sums the stages and compares once, which
+    fails the way that matters: stage 2 overruns, stage 3 starts anyway, and the
+    overspend is discovered at the end. The user's ceiling is a promise about
+    what *can* be spent, and a promise checked only afterwards is a report.
+
+    Compared against **actual** spend so far plus **this stage's quote**, not
+    against the original estimates — a stage that came in over its estimate has
+    to eat into what remains, or the ceiling means nothing the moment any single
+    stage is mispriced.
+
+    `approved_micros <= 0` means no ceiling was set, and nothing is refused.
+    That is deliberate and narrow: a pipeline created without a quote is not
+    silently capped at zero, which would make every such pipeline fail its first
+    stage for a reason nobody could see.
+    """
+    if approved_micros <= 0:
+        return False
+    return spent_so_far(conn, plan_id) + int(stage.get("estimate_micros") or 0) > approved_micros
+
+
 def run_pipeline(
     plan_id: str,
     tenant_id: str,
     stages: list[dict],
     handler: Callable[[dict], dict],
+    *,
+    approved_micros: int = 0,
 ) -> dict:
     """Run stages in order until one fails or all succeed.
 
@@ -260,6 +298,23 @@ def run_pipeline(
         with control_plane_transaction() as conn:
             stage = claim_next_stage(conn, plan_id)
         if stage is None:
+            break
+
+        # The ceiling is checked here — after the stage is claimed, so the
+        # refusal names which stage, but *before* the handler runs, so the stage
+        # never starts. Marked `skipped` rather than `failed`: nothing went
+        # wrong with it, there was no room left for it.
+        with control_plane_transaction() as conn:
+            over_budget = would_exceed_ceiling(conn, plan_id, stage, approved_micros)
+            if over_budget:
+                finish_stage(
+                    conn, plan_id, stage["stage_index"],
+                    state="skipped", failure_code="budget_exceeded",
+                )
+                halt_remaining(
+                    conn, plan_id, stage["stage_index"], "budget_exceeded"
+                )
+        if over_budget:
             break
 
         try:
