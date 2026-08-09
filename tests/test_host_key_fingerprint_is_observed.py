@@ -6,14 +6,24 @@ for "the SSH endpoint **plus the fingerprint to verify**", and an agent walking 
 user through their first SSH connection currently has to tell them it cannot be
 verified.
 
-The value was never unknowable. `worker_agent` already runs
-`ls /etc/ssh/ssh_host_*_key || ssh-keygen -A` inside every interactive container,
-so each instance has a unique host key. And the public port is DNAT'd to the
-container rather than terminated by a gateway (`ssh_port` is hardcoded to 22
-container-side precisely because "sshd would refuse the gateway's relay"), so the
-key the container presents **is** the key the user's client sees. If the gateway
-re-terminated SSH, publishing this would be publishing the wrong key — which is
-why that was verified before any of this was written.
+The value was never unknowable **on an Xcelsior-managed host**. `worker_agent`
+runs `ls /etc/ssh/ssh_host_*_key || ssh-keygen -A` inside every interactive
+container, so each instance has a unique host key; and the public port is DNAT'd
+to the container rather than terminated by a gateway (`ssh_port` is hardcoded to
+22 container-side precisely because "sshd would refuse the gateway's relay"), so
+there the key the container presents **is** the key the user's client sees.
+
+**That is not universal, and this file used to imply it was.** Checked against a
+live cloud GPU host on 2026-08-09: the container ran **no sshd and held no host
+keys at all** — the provider's proxy terminates SSH and pipes in. On that host
+class the key a client verifies belongs to the proxy, and reading the container
+would publish the wrong one. Returning `""` there is the correct answer rather
+than a degraded one, which is why the "empty is real" rule below is load-bearing
+and not defensive coding.
+
+The same check corrected a second assumption: the endpoint offered **RSA-2048 and
+no Ed25519**, so a reader asking only for Ed25519 would have reported "unknown"
+for a host whose key was perfectly verifiable.
 
 ## Why this stage stores nothing
 
@@ -165,3 +175,63 @@ def test_a0_publishes_nothing_yet():
             f"A0 appears to be reporting the fingerprint ({reporting!r}); that is "
             "A1, and it needs input validation at the API boundary first"
         )
+
+
+# ── What real hardware corrected ────────────────────────────────────
+
+
+#: Genuine `ssh-keygen -lf` output for an **RSA** host key. Checked against a
+#: live GPU host on 2026-08-09: the endpoint presented RSA-2048 and offered no
+#: Ed25519 at all. The first version of the reader asked only for Ed25519, on
+#: the reasoning that it is OpenSSH's default preference and therefore what a
+#: modern client negotiates — true only when the server offers one.
+REAL_RSA_OUTPUT = (
+    "2048 SHA256:ISYTeX+iCU2BYWSSb/jBds0Nvhjn2F9DlpVnoxRdSqo "
+    "root@d95c0069a7e42af6 (RSA)\n"
+)
+REAL_RSA_FINGERPRINT = "SHA256:ISYTeX+iCU2BYWSSb/jBds0Nvhjn2F9DlpVnoxRdSqo"
+
+
+def test_an_rsa_only_host_still_yields_a_fingerprint(monkeypatch):
+    """The correction. "Unknown" for a host whose key is verifiable is a bug.
+
+    Reporting `null` here would tell a user their connection cannot be verified
+    when it can — the same class of wrongness as reporting a value that was
+    never observed, in the opposite direction.
+    """
+    wa = _patch_run(monkeypatch, _Proc(REAL_RSA_OUTPUT))
+    assert wa.read_container_host_key_fingerprint("c1") == REAL_RSA_FINGERPRINT
+
+
+def test_the_reader_asks_in_client_negotiation_order():
+    """Order matters, not merely coverage.
+
+    A host offering both must report the key a client will actually negotiate.
+    Reading RSA first on a dual-key host would publish a fingerprint the user's
+    client never sees — verification would fail on a host that is fine, which
+    trains people to ignore the warning.
+    """
+    import inspect
+
+    import worker_agent as wa
+
+    source = inspect.getsource(wa.read_container_host_key_fingerprint)
+    assert "for t in ed25519 ecdsa rsa" in source, (
+        "the reader no longer follows the client's host-key preference order"
+    )
+
+
+def test_a_proxy_terminated_host_reports_unknown(monkeypatch):
+    """The finding that limits the whole feature, asserted so it is not forgotten.
+
+    A cloud GPU host checked on 2026-08-09 ran **no sshd and held no host keys
+    in the container at all** — the provider's proxy terminates SSH and pipes
+    in. The key a client verifies there belongs to the proxy, so reading the
+    container would publish the wrong one.
+
+    `""` is therefore not a degraded answer on that host class; it is the
+    correct one, and any later change that "fixes" the blank by substituting
+    something reintroduces exactly the failure this returns empty to avoid.
+    """
+    wa = _patch_run(monkeypatch, _Proc(""))
+    assert wa.read_container_host_key_fingerprint("c1") == ""

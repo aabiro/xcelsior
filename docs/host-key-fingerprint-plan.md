@@ -38,6 +38,32 @@ Three findings, each checked rather than assumed:
   eventually hit. Publishing the fingerprint makes that warning *actionable*
   instead of alarming.
 
+### 1a. What a real host corrected (2026-08-09)
+
+A0 shipped as logging-only specifically to find out how much instance images
+vary. Run against a live cloud GPU instance, it found two things this plan had
+assumed rather than checked.
+
+**The relay property is not universal.** The container ran **no sshd and held no
+host keys at all**; the provider's proxy terminates SSH and pipes into the
+container. The key a client verifies there belongs to the **proxy**, so reading
+the container would publish the wrong fingerprint. This does not invalidate §1 —
+Xcelsior's own gateway really is a DNAT relay, and that was verified — but it
+means the feature is **host-class specific**, and any host reached through a
+provider proxy must report `""`. It already does, which is the value of having
+built the unknown case first.
+
+**Ed25519-only was wrong.** The endpoint offered **RSA-2048 and no Ed25519**, so
+the original reader would have said "unknown" for a host whose key was perfectly
+verifiable. The reader now asks in the client's own negotiation order — Ed25519,
+ECDSA, RSA — and takes the first that exists. Order matters rather than merely
+coverage: on a dual-key host, publishing the RSA fingerprint when the client will
+negotiate Ed25519 makes verification fail on a host that is fine, which trains
+people to ignore the warning.
+
+Both corrections came from one instance. That is the argument for A1 waiting on
+fleet data rather than proceeding on this sample.
+
 ## 2. What this buys, stated exactly
 
 SSH's default is trust-on-first-use: the first connection accepts whatever key
