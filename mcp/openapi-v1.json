@@ -300,6 +300,87 @@
         }
       }
     },
+    "/api/v1/pipelines": {
+      "post": {
+        "tags": [
+          "Launch plans"
+        ],
+        "summary": "Api Create Pipeline",
+        "description": "Quote a dependency graph and persist it as one approvable plan.\n\nGate P4's \"one approval, three stages\". The graph lives in the plan's\ncanonical args, so the existing `canonical_args_hash` check is what makes\nthe approved graph server-bound \u2014 editing any stage afterwards invalidates\nit without a mechanism written for this phase.\n\n**The plan requires the union of its stages' scopes.** Approving\n`train \u2192 serve` on `instances:operate` alone would let the serve stage run\nwithout `inference:write`; one approval silently widening authority is the\nfailure this phase could introduce if scopes came from the first stage.\n\n`approval_mode` is `\"human\"` and not the spend policy's decision. A standing\npolicy pre-authorises spending inside ceilings; letting it approve a graph\nthat sets its own ceiling is circular \u2014 the same reasoning that fixed\n`configure_auto_topup` to human-only.",
+        "operationId": "api_create_pipeline_api_v1_pipelines_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PipelineIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pipelines/{plan_id}": {
+      "get": {
+        "tags": [
+          "Launch plans"
+        ],
+        "summary": "Api Get Pipeline",
+        "description": "Stage-by-stage state. A foreign plan is not-found, never forbidden.",
+        "operationId": "api_get_pipeline_api_v1_pipelines__plan_id__get",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/mcp/tool-audit": {
       "get": {
         "tags": [
@@ -4420,6 +4501,76 @@
           "amount_cad"
         ],
         "title": "PaymentIntentRequest"
+      },
+      "PipelineIn": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "title": "Name",
+            "default": "pipeline"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/PipelineStageIn"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Stages"
+          }
+        },
+        "type": "object",
+        "required": [
+          "stages"
+        ],
+        "title": "PipelineIn"
+      },
+      "PipelineStageIn": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "action_type": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Action Type"
+          },
+          "on_failure": {
+            "type": "string",
+            "maxLength": 16,
+            "title": "On Failure",
+            "default": "halt"
+          },
+          "max_attempts": {
+            "type": "integer",
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Max Attempts",
+            "default": 1
+          },
+          "estimate_micros": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Estimate Micros",
+            "default": 0
+          },
+          "args": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Args"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "action_type"
+        ],
+        "title": "PipelineStageIn"
       },
       "PoolHost": {
         "properties": {

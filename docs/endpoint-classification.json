@@ -723,6 +723,10 @@
     "class": "internal",
     "notes": "the published API description itself, served for clients and generators to read"
   },
+  "GET /api/v1/pipelines/{plan_id}": {
+    "class": "covered",
+    "notes": "Stage-by-stage state for its tenant; a foreign plan is 404 rather than 403 so pipeline ids cannot be enumerated. Called by get_pipeline_status, which an agent must consult before reporting any stage finished."
+  },
   "GET /api/v1/promotions/{promotion_id}/manifest": {
     "class": "internal",
     "notes": "Worker-only (_require_platform_worker). The single response that carries presigned URLs, which is why the agent command holds nothing but {promotion_id}: a queued, logged, retained command row is the wrong place for a time-limited read grant on a tenant's weights. Re-resolves the manifest and refuses if the artifact set changed since the promotion was created."
@@ -1702,6 +1706,10 @@
   "POST /api/v1/mcp/tool-audit": {
     "class": "covered",
     "notes": "MCP server calls this path"
+  },
+  "POST /api/v1/pipelines": {
+    "class": "covered",
+    "notes": "P4 B4: quote a dependency graph as ONE approvable plan. The graph lives in the plan's canonical args, so `canonical_args_hash` is what makes the approved graph server-bound. Requires the UNION of its stages' scopes — approving train->serve on instances:operate alone would let the serve stage run without inference:write. Called by run_pipeline."
   },
   "POST /api/v1/placements/simulate": {
     "class": "covered",
