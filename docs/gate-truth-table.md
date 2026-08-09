@@ -40,12 +40,16 @@ slipped.
 |---|---|---|---|
 | 1 | Behaviour tests, named for the behaviour | **PASS** | Observably followed. `test_agent_can_register_its_own_key`, `test_requeue_clears_output_from_either_door`, `test_serverless_refuses_narrowed_credentials`. No `test_scopes_2` anywhere. |
 | 2 | A confirmed-failing check — every regression test shown to fail *before* the fix | **PARTIAL** | Done and recorded for this session's work (the serverless re-scope was probed by stripping one check; both the structural and behavioural layers fired independently). I cannot evidence it for the whole historical corpus, and I will not claim it. |
-| 3 | A live-credential path — ≥1 assertion per phase, real token, real server | **FAIL** | P0 has `tests/live/test_scope_refusals_live.py`, but it (a) asserts a *different* property than Gate P0 names — undelegatable operator scopes (`hosts:evict`), not the access/billing scopes — and (b) skips unless `XCELSIOR_LIVE_BASE_URL` + `XCELSIOR_NONADMIN_TOKEN` are set, and its only declared runner is `.github/workflows/live-gates.yml`, which cannot run. **P1, P2 and P3 have no live path at all.** |
+| 3 | A live-credential path — ≥1 assertion per phase, real token, real server | **PARTIAL** *(was FAIL)* | **P0 now has one, and it has actually run** — 12 assertions against a live staging server, `scripts/run_live_gates.sh`. That script is the substantive change: the gate previously existed but had no runner that could execute, and standing the environment up by hand is something nobody does twice. It skips rather than passes without credentials, verified. **P1, P2 and P3 still have no live path**, which is why this is PARTIAL and not PASS. |
 | 4 | A refusal test — what the phase makes impossible | **PASS** | Dense across the corpus. `test_serverless_refuses_narrowed_credentials`, `test_platform_ssh_key_is_admin_only`, `test_terminal_ticket_needs_connect_scope`, `test_stripe_webhook_refuses_unverified`. |
 | 5 | An eval delta per phase — re-run at the new tool count | **PARTIAL** *(was FAIL)* | The loop is re-established and runnable without GitHub Actions — `scripts/run_mcp_eval_locally.sh` boots the surface from the working tree and grades it, and a delta now exists at 46 tools (0.8778 → **0.9111**). What is still not true is *per phase*: P2's and P3's tools shipped without their own deltas, and this single capture covers both at once. Future phases can honour the clause; these two cannot retroactively. |
 
-Gate §1.3 and §1.5 are the two structural failures on this page. Everything else
-is a clause-by-clause matter; these two are a habit that lapsed.
+§1.3 and §1.5 were the two structural failures on this page and are now the two
+structural *partials*: both have a runner that works and neither is honoured per
+phase. Everything else is a clause-by-clause matter; these two were a habit that
+lapsed, and the habit is only half repaired — P1, P2 and P3 still have no live
+assertion, and two phases shipped without an eval delta that cannot be taken
+retroactively.
 
 ---
 
@@ -53,7 +57,7 @@ is a clause-by-clause matter; these two are a habit that lapsed.
 
 | # | Clause | Status | Evidence |
 |---|---|---|---|
-| 1 | Every access and billing endpoint refuses a token missing its new scope, **asserted with a real token against a live server** | **PARTIAL** | *In-process: true.* `instances:connect` on 4 routes, `ssh:read` on 1, `ssh:write` on 2, `billing:write` on 14 — including both endpoints the plan names by hand: `portal-session` ([routes/billing.py:2523](routes/billing.py#L2523)) and `setup-intent` ([routes/billing.py:2546](routes/billing.py#L2546)). *Live: absent.* The one live file asserts a different property (see §1.3). |
+| 1 | Every access and billing endpoint refuses a token missing its new scope, **asserted with a real token against a live server** | **PASS** *(was PARTIAL)* | Now asserted live. `tests/live/test_named_scopes_refuse_live.py` mints a `client_credentials` token holding only `instances:read` — the credential class Quick Connect issues, and the class `_require_scope` actually gates — then drives the endpoints the plan names by hand: `setup-intent`, `portal-session`, `GET /api/ssh/keys`, `POST /api/ssh/keys`. All four answer **403**; the positive control `/instances` answers **200** with the same token, so the refusals are not a server refusing everything. A browser session would have proven nothing here: `_require_scope` is a deliberate no-op for interactive sessions. |
 | 2 | Regenerating the registry produces byte-identical output; a hand edit to a generated file fails the build | **PASS** | `test_tool_scope_registry_completeness.py` (8 passed) and `test_generated_artifacts_are_current.py`. **Demonstrated, not assumed:** this session the inventory test went red the moment a route change made `docs/generated/endpoint-inventory.md` stale, and green after regeneration. It also caught a hand-written note in `docs/endpoint-classification.json` that my own change had falsified. |
 | 3 | Zero unclassified endpoints | **PASS** | `MAX_UNCLASSIFIED = 0` across **519** operations — a floor, so the next endpoint must be classified in the commit that adds it. |
 | 4 | Eval baseline captured | **PASS** *(was SUPERSEDED + BLOCKED)* | Recaptured 2026-08-08 once the key was funded. `expected_tool_accuracy` **0.9111** at `tool_count: 46`, against the **0.90 threshold, which has not been moved**. Abstention 1.0, unsafe-write rate 0.0. The prior capture was 0.8778 at 36 tools — *below* threshold — so accuracy rose while the surface grew by ten tools, which is the harder direction: more tools is more ways to choose wrongly. Cost $1.31. |
@@ -133,14 +137,15 @@ this document exists, and it applies to its own newest rows.
 
 | Gate | PASS | PARTIAL | FAIL | BLOCKED/SUPERSEDED |
 |---|---|---|---|---|
-| §1 universal | 2 | 2 | 1 | — |
-| P0 | 3 | 1 | — | — |
+| §1 universal | 2 | 3 | — | — |
+| P0 | 4 | — | — | — |
 | P1 | 4 | 3 | — | — |
 | P2 | 1 | 1 | 1 | — |
 | P3 | 1 | 1 | 1 | — |
-| **Total** | **11** | **8** | **3** | **0** |
+| **Total** | **13** | **7** | **2** | **0** |
 
-Eleven of twenty-two clauses are fully met, and nothing is BLOCKED any more.
+Thirteen of twenty-two clauses are fully met, nothing is BLOCKED, and **Gate P0
+is now wholly met** — the first phase to be.
 
 It was eight when this table was first written. P1 clause 6 moved FAIL → PASS
 when the ruling was implemented; P0 clause 4 moved BLOCKED → PASS when the
@@ -151,13 +156,17 @@ a delta cannot get one retroactively.
 P3 clause 1 moved FAIL → PASS when promotion was built and its idempotency
 proven the way the promotion plan's §4 specifies.
 
-**The remaining three failures are the honest picture of what is unbuilt**, and
-two of them are now the same shape: §1.3 (no live-credential path in P1/P2/P3),
-Gate P2 clause 1 (the access journey), and Gate P3 clause 3 (the promotion
-round-trip). The last two are no longer blocked on missing code — the tools
-exist — but on **a staging environment**, which the promotion plan named as a
-dependency in advance. That is a better position than "not built" and it is
-still a failure; a gate that cannot be run has not been passed.
+**Two failures remain, and they are the same shape**: Gate P2 clause 1 (the
+access journey) and Gate P3 clause 3 (the promotion round-trip). Neither is
+blocked on missing code any more — the tools exist — and as of today neither is
+blocked on a *server* either, since `scripts/run_live_gates.sh` stands one up.
+What they still need is a scripted journey that drives the whole sequence, and
+for P2 the host-key fingerprint that would let an agent complete the connect
+step without accepting an unverified host key.
+
+A gate that cannot be run has not been passed — but these two are now a
+morning's work rather than an environment project, which is a different kind of
+open.
 
 ## What this table does not cover
 
