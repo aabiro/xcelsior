@@ -1,4 +1,4 @@
-# Gate truth table — P0 through P3
+# Gate truth table — P0 through P4
 
 *Built 2026-08-08, against `4321d69`.*
 
@@ -127,10 +127,40 @@ One piece of A3 is outstanding — mount-on-demand for an unattached volume,
 which §3.4 calls the genuinely open question and answers with "least-loaded
 host in the volume's region".
 
-**None of it is deployed.** Migrations 102/103 and the agent's
-`promote_artifacts` handler need a fleet deploy, so every claim above is about
-the repository and not about production. That distinction is the whole reason
-this document exists, and it applies to its own newest rows.
+**Deployed.** This paragraph said "none of it is deployed" when written, which
+was true for about six hours. Production is at alembic **103** with both
+promotion tables live and the routes answering `401` rather than `404` —
+verified against the database and the endpoints, not inferred from a deploy log.
+
+---
+
+## Gate P4 — The pipeline
+
+*Added 2026-08-09. This phase was built after the table existed, which is the
+first time a phase has had its gate judged as it shipped rather than
+reconstructed afterwards.*
+
+| # | Clause | Status | Evidence |
+|---|---|---|---|
+| 1 | One approval, three stages, one audit chain. Asserted end to end | **PASS** | `test_gate_p4_pipeline.py::test_one_approval_covers_three_stages` — one `action_plans` row, three `pipeline_stages` rows sharing its `plan_id`, driven through `POST /api/v1/pipelines` and execute. |
+| 2 | A mid-pipeline failure does not silently continue; the declared failure semantics are what happens | **PASS** | All three modes execute and are asserted by *causing* the failure: `halt` stops and marks the rest `skipped` with a reason; `continue` proceeds; `retry` re-attempts to `max_attempts` and then **halts** rather than falling through. Disabling the halt branch reds exactly the tests that depend on it. |
+| 3 | The approved graph is server-bound: editing any stage after approval invalidates it. **Asserted by attempting exactly that** | **PASS** | The clause's own standard, met literally: the test alters an approved plan's `canonical_args` in the database and calls execute, which refuses `409 argument_hash_mismatch` and materialises no stages. This was PARTIAL for an hour — asserted on the hash changing, which is a fact about a function and not about anything refusing. |
+| 4 | Spend is bounded by what was approved. A pipeline cannot exceed its own quote | **PASS** | Checked *before* each stage, so an over-budget stage never starts, and compared against **actual spend plus this stage's quote** rather than the sum of estimates — a stage that overruns eats into what remains. Failed retry attempts bank their spend, so a retrying stage cannot spend without limit inside a bounded pipeline. |
+
+**What is honestly not done: the stage executor is not wired.** Every stage
+reports `stage_executor_not_wired` rather than succeeding. The four clauses
+above are all about the *approval* — what it covers, what invalidates it, what
+it bounds — and each is met. But a pipeline that approves correctly and then
+performs nothing is not the capability P4 describes, and the gate passing does
+not change that.
+
+Wiring it is a design question rather than an omission, and it belongs in review
+rather than in an improvised commit: a stage must run **without its own
+approval**, since the point of the phase is one approval for the graph. That
+means either a child plan the parent auto-approves, or calling the underlying
+action beneath the plan machinery. The first keeps one audit chain and risks a
+second approval surface; the second bypasses the substrate every other action
+goes through. Neither should be chosen by whoever happens to be typing.
 
 ---
 
@@ -143,10 +173,18 @@ this document exists, and it applies to its own newest rows.
 | P1 | 4 | 3 | — | — |
 | P2 | 2 | — | 1 | — |
 | P3 | 1 | 1 | 1 | — |
-| **Total** | **14** | **6** | **2** | **0** |
+| P4 | 4 | — | — | — |
+| **Total** | **18** | **6** | **2** | **0** |
 
-Fourteen of twenty-two clauses are fully met, nothing is BLOCKED, and **Gate P0
-is wholly met** — the first phase to be.
+Eighteen of twenty-six clauses are fully met, nothing is BLOCKED, and **Gate P0
+and Gate P4 are wholly met**.
+
+The count grew because P4 added four clauses of its own — this table now covers
+P0–P4 rather than P0–P3. Worth saying plainly: Gate P4 passing all four does
+**not** mean pipelines work. Its clauses are about what an approval covers,
+invalidates and bounds, and the stage executor beneath them is unwired by
+design. A gate can be honestly met by a feature that is honestly incomplete,
+and pretending otherwise is how a table like this stops being worth reading.
 
 It was eight when this table was first written. P1 clause 6 moved FAIL → PASS
 when the ruling was implemented; P0 clause 4 moved BLOCKED → PASS when the
