@@ -107,15 +107,25 @@ fingerprint exists.
 
 | # | Clause | Status | Evidence |
 |---|---|---|---|
-| 1 | Promotion is idempotent under retry; a repeated call produces one volume, not two | **FAIL** | `promote_artifact_to_volume` **does not exist** — no implementation in any `.ts` or `.py` file. |
-| 2 | The retention clock is asserted: an artifact past `retain_until` is gone, a promoted volume is not | **PARTIAL** | The artifact half is covered (`test_artifact_retention_authority.py`, `test_artifacts_janitor.py`). The "promoted volume is not" half cannot exist until promotion does. |
-| 3 | Round-trip: train → promote → mount in a *new* instance → read the weights, tool calls only | **FAIL** | Depends on the tool that does not exist. |
+| 1 | Promotion is idempotent under retry; a repeated call produces one volume, not two | **PASS** *(was FAIL)* | Proven the way §4 of the promotion plan says to prove it: call twice, one `volume_promotions` row, second reports `replayed`. `test_promotion_is_idempotent.py`, against the real route and a real database — the mechanism is a unique constraint plus `ON CONFLICT DO NOTHING`, neither of which exists in a fake. Removing the conflict clause reds four of the six. |
+| 2 | The retention clock is asserted: an artifact past `retain_until` is gone, a promoted volume is not | **PARTIAL** | The artifact half is covered (`test_artifact_retention_authority.py`). The *hold* now exists and is tested (`test_promotion_takes_the_hold.py`) — an in-flight promotion stops the clock, and a stale one is swept and released. What is still unproven is the second half as written: expire an artifact **after** a promotion and read the volume anyway. That needs a mounted volume, so it arrives with clause 3. |
+| 3 | Round-trip: train → promote → mount in a *new* instance → read the weights, tool calls only | **FAIL** | The tool now exists (`promote_artifact_to_volume`, A4), so this is no longer blocked on missing code — it is blocked on a **staging environment**, which the promotion plan named as a dependency in advance rather than discovering here. Unchanged verdict, changed reason. |
 
-**P3 is half-built, and the halves are unequal.** The volume surface shipped — 8
-tools in `mcp/src/tools/volumes.ts`, with `detach_volume` behind approval and its
-preview naming the attached instance. The *promotion* half — the thing P3 is named
-for, and the substrate P4 and P5 are supposed to stand on — is not started.
-`docs/artifact-promotion-plan.md` exists and sequences it A0→A4; no code does.
+**P3's promotion half is now built, A0→A4.** When this table was first written
+— the same day — this paragraph read *"the promotion half is not started;
+`docs/artifact-promotion-plan.md` exists and sequences it A0→A4, no code does."*
+It now does: the manifest (`318ba57`), the verified copy (`c1537d2`), the
+retention hold (`369bc03`), per-file resume (`e50beda`), and
+`promote_artifact_to_volume` itself (`cf1981b`).
+
+One piece of A3 is outstanding — mount-on-demand for an unattached volume,
+which §3.4 calls the genuinely open question and answers with "least-loaded
+host in the volume's region".
+
+**None of it is deployed.** Migrations 102/103 and the agent's
+`promote_artifacts` handler need a fleet deploy, so every claim above is about
+the repository and not about production. That distinction is the whole reason
+this document exists, and it applies to its own newest rows.
 
 ---
 
@@ -127,10 +137,10 @@ for, and the substrate P4 and P5 are supposed to stand on — is not started.
 | P0 | 3 | 1 | — | — |
 | P1 | 4 | 3 | — | — |
 | P2 | 1 | 1 | 1 | — |
-| P3 | — | 1 | 2 | — |
-| **Total** | **10** | **8** | **4** | **0** |
+| P3 | 1 | 1 | 1 | — |
+| **Total** | **11** | **8** | **3** | **0** |
 
-Ten of twenty-two clauses are fully met, and nothing is BLOCKED any more.
+Eleven of twenty-two clauses are fully met, and nothing is BLOCKED any more.
 
 It was eight when this table was first written. P1 clause 6 moved FAIL → PASS
 when the ruling was implemented; P0 clause 4 moved BLOCKED → PASS when the
@@ -138,10 +148,16 @@ Anthropic key was funded and the eval recaptured; §1.5 moved FAIL → PARTIAL
 because the loop runs again, though the two phases that already shipped without
 a delta cannot get one retroactively.
 
-**The remaining four failures are the honest picture of what is unbuilt**: §1.3
-(no live-credential path in P1/P2/P3), Gate P2 clause 1 (the journey), and Gate
-P3 clauses 1 and 3 (promotion does not exist). None of them is a measurement
-problem; each is work.
+P3 clause 1 moved FAIL → PASS when promotion was built and its idempotency
+proven the way the promotion plan's §4 specifies.
+
+**The remaining three failures are the honest picture of what is unbuilt**, and
+two of them are now the same shape: §1.3 (no live-credential path in P1/P2/P3),
+Gate P2 clause 1 (the access journey), and Gate P3 clause 3 (the promotion
+round-trip). The last two are no longer blocked on missing code — the tools
+exist — but on **a staging environment**, which the promotion plan named as a
+dependency in advance. That is a better position than "not built" and it is
+still a failure; a gate that cannot be run has not been passed.
 
 ## What this table does not cover
 
