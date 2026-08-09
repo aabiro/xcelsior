@@ -194,20 +194,74 @@ def test_materialising_twice_does_not_duplicate_the_graph(pipeline):
     assert again == 0, "a second executor duplicated the graph"
 
 
-@pytest.mark.parametrize("mode", ["continue", "retry"])
-def test_an_unimplemented_failure_mode_is_refused_not_downgraded(mode):
-    """B1 implements `halt` only, and says so at creation.
+def test_every_declared_failure_mode_is_actually_implemented():
+    """This test used to assert the opposite, and that was right at the time.
 
-    Silently treating `continue` as `halt` would give the user a pipeline whose
-    declared behaviour is not its actual behaviour — they would believe a
-    failure is tolerated when it stops the run.
+    Through B1–B2 only `halt` was executed, and a graph declaring `continue` or
+    `retry` was **refused** rather than quietly downgraded — a pipeline whose
+    declared behaviour is not its actual behaviour is worse than one that will
+    not start. B3 implements them, so the assertion inverts: the schema and the
+    executor must now agree.
+
+    Kept rather than deleted because the failure it guards has simply moved. A
+    fourth mode added to the CHECK constraint without an executor branch would
+    be accepted at creation and then silently behave as something else, which
+    is the original bug wearing a different name.
+    """
+    from control_plane.pipelines import DECLARED_ON_FAILURE, IMPLEMENTED_ON_FAILURE
+
+    unimplemented = DECLARED_ON_FAILURE - IMPLEMENTED_ON_FAILURE
+    assert not unimplemented, (
+        f"the schema permits {sorted(unimplemented)} but the executor has no "
+        "branch for it — a graph would be accepted and then behave as "
+        "something the user did not declare"
+    )
+
+
+@pytest.mark.parametrize("mode", ["nonsense", "abort", "HALT"])
+def test_a_mode_the_schema_does_not_define_is_refused(mode):
+    """The vocabulary check outlives the implementation gap.
+
+    `"HALT"` is here on purpose: a mode differing only in case would pass a
+    sloppy check and then violate the database CHECK at insert time, turning a
+    clear refusal into a crash partway through creating a pipeline.
     """
     from control_plane.pipelines import PipelineError, canonical_graph
 
-    stages = [dict(THREE_STAGES[0], on_failure=mode)]
     with pytest.raises(PipelineError) as excinfo:
-        canonical_graph(stages)
-    assert excinfo.value.code == "on_failure_not_implemented"
+        canonical_graph([dict(THREE_STAGES[0], on_failure=mode)])
+    assert excinfo.value.code == "invalid_on_failure"
+
+
+def test_surrounding_whitespace_is_tolerated_not_refused():
+    """`" continue "` is a typo, not a different policy.
+
+    Split from the case above after I put it in the refused list while the
+    docstring said it was accepted — the note and the assertion contradicted
+    each other in the same breath. `.strip()` runs before the membership check,
+    which is the right behaviour: refusing on whitespace would reject a valid
+    intent for a reason the user cannot see in their own input.
+    """
+    from control_plane.pipelines import canonical_graph
+
+    stages, _ = canonical_graph([dict(THREE_STAGES[0], on_failure="  continue  ")])
+    assert stages[0]["on_failure"] == "continue"
+
+
+def test_an_omitted_failure_mode_defaults_to_the_safe_one():
+    """Absent or empty means `halt`, not a refusal.
+
+    My first version of the test above asserted that `""` was refused. It is
+    not, and should not be: defaulting an unstated failure policy to the mode
+    that *stops* is the safe direction, and it matches the behaviour of leaving
+    the key out entirely. The code was right and the test was wrong.
+    """
+    from control_plane.pipelines import canonical_graph
+
+    absent = dict(THREE_STAGES[0])
+    absent.pop("on_failure", None)
+    assert canonical_graph([absent])[0][0]["on_failure"] == "halt"
+    assert canonical_graph([dict(THREE_STAGES[0], on_failure="")])[0][0]["on_failure"] == "halt"
 
 
 def test_an_empty_graph_is_refused():
@@ -325,3 +379,143 @@ def test_the_ceiling_is_checked_before_the_handler_not_after(pipeline):
     )
     assert calls == [], "the handler ran for a stage the ceiling had already refused"
     assert [r[1] for r in _states(pipeline["plan_id"])] == ["skipped"] * 3
+
+
+# ── B3: continue and retry ──────────────────────────────────────────
+
+
+def test_continue_proceeds_past_a_failed_stage(pipeline):
+    """The declared semantics are what happens — the other direction.
+
+    `halt` stopping is only half the clause. If `continue` also stopped, the
+    graph's declaration would be decorative and the user's choice would mean
+    nothing.
+    """
+    from control_plane.pipelines import canonical_graph, run_pipeline
+
+    stages, _ = canonical_graph([
+        dict(THREE_STAGES[0]),
+        dict(THREE_STAGES[1], on_failure="continue"),
+        dict(THREE_STAGES[2]),
+    ])
+    ran: list[str] = []
+
+    def handler(stage):
+        ran.append(stage["name"])
+        return {"ok": stage["name"] != "evaluate"}
+
+    result = run_pipeline(pipeline["plan_id"], pipeline["tenant_id"], stages, handler)
+
+    assert ran == ["train", "evaluate", "serve"], (
+        f"`continue` did not continue: {ran}"
+    )
+    assert [r[1] for r in _states(pipeline["plan_id"])] == [
+        "succeeded", "failed", "succeeded",
+    ]
+    assert result["failed"] is True, "a pipeline containing a failed stage reported clean"
+
+
+def test_retry_reattempts_then_succeeds(pipeline):
+    from control_plane.pipelines import canonical_graph, run_pipeline
+
+    stages, _ = canonical_graph([
+        dict(THREE_STAGES[0], on_failure="retry", max_attempts=3),
+        dict(THREE_STAGES[1]),
+    ])
+    attempts: list[str] = []
+
+    def handler(stage):
+        attempts.append(stage["name"])
+        # train fails once, then works.
+        if stage["name"] == "train" and attempts.count("train") == 1:
+            return {"ok": False, "failure_code": "flaky"}
+        return {"ok": True}
+
+    result = run_pipeline(pipeline["plan_id"], pipeline["tenant_id"], stages, handler)
+
+    assert attempts == ["train", "train", "evaluate"], f"retry did not re-attempt: {attempts}"
+    assert [r[1] for r in _states(pipeline["plan_id"])] == ["succeeded", "succeeded"]
+    assert result["failed"] is False
+
+
+def test_an_exhausted_retry_halts_rather_than_continuing(pipeline):
+    """The decision worth arguing with, so it is asserted rather than assumed.
+
+    A stage that failed every attempt it was allowed did not work. Falling
+    through to the next stage would make `retry` mean "try a few times and then
+    ignore the result", which nobody would approve if it were written that way.
+    """
+    from control_plane.pipelines import canonical_graph, run_pipeline
+
+    stages, _ = canonical_graph([
+        dict(THREE_STAGES[0], on_failure="retry", max_attempts=2),
+        dict(THREE_STAGES[1]),
+    ])
+    attempts: list[str] = []
+
+    def handler(stage):
+        attempts.append(stage["name"])
+        return {"ok": False, "failure_code": "always_broken"}
+
+    run_pipeline(pipeline["plan_id"], pipeline["tenant_id"], stages, handler)
+
+    assert attempts == ["train", "train"], f"wrong attempt count: {attempts}"
+    rows = _states(pipeline["plan_id"])
+    assert rows[0][1] == "failed"
+    assert rows[1][1] == "skipped", "an exhausted retry let the pipeline continue"
+    assert rows[1][2].startswith("retries_exhausted"), (
+        "the reason does not distinguish an exhausted retry from an ordinary "
+        "halt, so the audit chain cannot say which happened"
+    )
+
+
+def test_retry_never_exceeds_max_attempts(pipeline):
+    """The CHECK constraint enforces this too; the executor must not rely on
+    hitting it, because a constraint violation is a crash rather than a halt."""
+    from control_plane.pipelines import canonical_graph, run_pipeline
+
+    stages, _ = canonical_graph([dict(THREE_STAGES[0], on_failure="retry", max_attempts=3)])
+    attempts = []
+    run_pipeline(
+        pipeline["plan_id"], pipeline["tenant_id"], stages,
+        lambda s: (attempts.append(1), {"ok": False})[1],
+    )
+    assert len(attempts) == 3, f"ran {len(attempts)} attempts against max_attempts=3"
+
+    with pg_transaction() as conn:
+        count = conn.execute(
+            "SELECT attempt_count FROM pipeline_stages WHERE plan_id = %s AND stage_index = 0",
+            (pipeline["plan_id"],),
+        ).fetchone()[0]
+    assert count == 3
+
+
+def test_a_failed_attempt_still_counts_against_the_ceiling(pipeline):
+    """Otherwise a retrying stage spends without limit inside a bounded pipeline.
+
+    This is the hole `max_attempts` closes from one side and the banked spend
+    closes from the other: bounded attempts alone would still allow three
+    expensive failures inside a ceiling meant for one success.
+    """
+    from control_plane.pipelines import canonical_graph, run_pipeline
+
+    stages, _ = canonical_graph([
+        dict(THREE_STAGES[0], on_failure="retry", max_attempts=5, estimate_micros=100),
+        dict(THREE_STAGES[1], estimate_micros=100),
+    ])
+    attempts = []
+
+    def handler(stage):
+        attempts.append(stage["name"])
+        return {"ok": False, "spent_micros": 400, "failure_code": "expensive"}
+
+    run_pipeline(
+        pipeline["plan_id"], pipeline["tenant_id"], stages, handler,
+        approved_micros=900,
+    )
+
+    # Each failed attempt banks 400; the ceiling stops it before five.
+    assert len(attempts) < 5, (
+        f"a retrying stage ran all {len(attempts)} attempts despite banking "
+        "spend past the ceiling"
+    )

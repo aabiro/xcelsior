@@ -19,16 +19,21 @@ rather than accepting it from the caller is what makes "halt" mean halt: a
 caller that could pass its own failure policy could turn a halt into a continue
 at exactly the moment that matters.
 
-## What is not here yet
+## What is here, and what is not
 
-No `continue`/`retry` semantics (B3), no tool (B4). `halt` is the only failure
-mode implemented, and the others are *rejected* at creation rather than
-silently treated as halt — a graph whose declared behaviour is not the
-behaviour it gets is worse than one that will not start.
+All three failure modes execute (B3). The spend ceiling is enforced **before**
+each stage rather than reconciled after it (B2), so a stage that would exceed
+the approved total never starts.
 
-The spend ceiling (B2) **is** here: checked after a stage is claimed, so the
-refusal names which stage, and before its handler runs, so the stage never
-starts.
+Not here: the tool (B4).
+
+Through B1–B2 this section said `continue` and `retry` were *refused* at
+creation rather than downgraded to `halt`, on the grounds that a graph whose
+declared behaviour is not its actual behaviour is worse than one that will not
+start. That refusal has done its job and gone. What replaces it is a test
+asserting `DECLARED_ON_FAILURE == IMPLEMENTED_ON_FAILURE`, so a fourth mode
+added to the schema without an executor branch fails the build instead of
+silently behaving as something else.
 """
 
 from __future__ import annotations
@@ -39,10 +44,16 @@ from typing import Callable, Iterable
 
 from control_plane.db import control_plane_transaction
 
-#: Failure semantics the executor can actually honour today. `continue` and
-#: `retry` are B3; until then a graph declaring them is refused at creation
-#: rather than quietly downgraded to `halt`.
-IMPLEMENTED_ON_FAILURE = frozenset({"halt"})
+#: Failure semantics the executor can actually honour. This was `{"halt"}`
+#: through B1–B2, and a graph declaring the others was refused rather than
+#: quietly downgraded; B3 implements them, so the refusal falls away on its own.
+#:
+#: **An exhausted `retry` halts.** It does not fall through to `continue`. A
+#: stage that failed every attempt it was allowed is a stage that did not work,
+#: and letting the pipeline proceed past it would make `retry` mean "try a few
+#: times and then ignore the result" — which nobody would approve if it were
+#: written that way.
+IMPLEMENTED_ON_FAILURE = frozenset({"halt", "continue", "retry"})
 
 #: Every failure mode the schema permits. The gap between this and
 #: `IMPLEMENTED_ON_FAILURE` is the honest statement of what is left to build.
@@ -201,6 +212,36 @@ def finish_stage(
     )
 
 
+def requeue_stage_for_retry(
+    conn,
+    plan_id: str,
+    stage_index: int,
+    *,
+    failure_code: str,
+    spent_micros: int,
+) -> None:
+    """Return a failed stage to `pending` so it is claimed again.
+
+    **The spend is banked, not discarded.** A failed attempt cost whatever it
+    cost, and the ceiling keeps counting it — otherwise a retrying stage could
+    spend without limit inside a bounded pipeline, which is the exact hole the
+    `max_attempts` constraint exists to close from the other side.
+
+    `finished_at` stays NULL: the stage has not finished, it is going round
+    again. That also keeps it clear of the schema's rule that a succeeded or
+    failed stage must carry a finish time.
+    """
+    conn.execute(
+        """UPDATE pipeline_stages
+              SET state = 'pending',
+                  failure_code = NULLIF(%s, ''),
+                  spent_micros = spent_micros + %s,
+                  updated_at = clock_timestamp()
+            WHERE plan_id = %s AND stage_index = %s""",
+        (failure_code, int(spent_micros), plan_id, stage_index),
+    )
+
+
 def halt_remaining(conn, plan_id: str, after_index: int, reason: str) -> int:
     """Mark every later pending stage `skipped`. Returns how many.
 
@@ -323,19 +364,50 @@ def run_pipeline(
             outcome = {"ok": False, "failure_code": f"handler_error:{type(exc).__name__}"}
 
         ok = bool(outcome.get("ok"))
+        spent = int(outcome.get("spent_micros") or 0)
+        failure_code = str(outcome.get("failure_code") or ("" if ok else "stage_failed"))
+
+        # `claim_next_stage` already incremented, and returned the value from
+        # *before* the increment — so this attempt is the (attempt_count + 1)th.
+        # Getting that off by one would either burn an attempt or allow one past
+        # the CHECK, which is why it is spelled out rather than inlined.
+        attempts_used = int(stage["attempt_count"]) + 1
+        attempts_left = int(stage["max_attempts"]) - attempts_used
+        mode = stage["on_failure"]
+
+        if not ok and mode == "retry" and attempts_left > 0:
+            # Back to `pending` so the next loop claims it again. A failed
+            # attempt still spent whatever it spent, so the ceiling keeps
+            # counting it — otherwise a retrying stage could spend without limit
+            # inside a bounded pipeline.
+            with control_plane_transaction() as conn:
+                requeue_stage_for_retry(
+                    conn, plan_id, stage["stage_index"],
+                    failure_code=failure_code, spent_micros=spent,
+                )
+            continue
+
         with control_plane_transaction() as conn:
             finish_stage(
                 conn, plan_id, stage["stage_index"],
                 state="succeeded" if ok else "failed",
                 result_ref=outcome.get("result_ref"),
-                failure_code=str(outcome.get("failure_code") or ("" if ok else "stage_failed")),
-                spent_micros=int(outcome.get("spent_micros") or 0),
+                failure_code=failure_code,
+                spent_micros=spent,
             )
-            if not ok and stage["on_failure"] == "halt":
-                halt_remaining(
-                    conn, plan_id, stage["stage_index"],
-                    f"halted_after_stage_{stage['stage_index']}",
+            if not ok and mode != "continue":
+                # `halt`, and an exhausted `retry`. The latter does **not** fall
+                # through to `continue`: a stage that failed every attempt it
+                # was allowed is a stage that did not work, and proceeding past
+                # it would make `retry` mean "try a few times, then ignore the
+                # result" — which nobody would approve if it were written that
+                # way.
+                reason = (
+                    f"halted_after_stage_{stage['stage_index']}"
+                    if mode == "halt"
+                    else f"retries_exhausted_at_stage_{stage['stage_index']}"
                 )
+                halt_remaining(conn, plan_id, stage["stage_index"], reason)
                 break
 
     with control_plane_transaction() as conn:
