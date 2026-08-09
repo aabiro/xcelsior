@@ -90,7 +90,14 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `102_volume_promotions.py`.**
+**Repository head: `103_volume_promotion_files.py`.**
+(`103` adds per-file promotion progress so a retry resumes instead of
+restarting — §3.5: a promotion that restarts from zero after failing at 38 GB
+will be retried by a human who then watches it fail again. `done` is
+constrained to imply `sha256_verified`, because the resume path skips `done`
+files and an unverified copy that gets skipped is worse than no copy: it looks
+like a backup.)
+
 (`102` adds `volume_promotions`, the row an artifact→volume copy is keyed on —
 A0 of `docs/artifact-promotion-plan.md`. Unique on
 `(tenant_id, job_id, idempotency_key)` because Gate P3 asks that a repeated call

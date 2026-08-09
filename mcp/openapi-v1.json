@@ -1526,6 +1526,57 @@
           }
         }
       }
+    },
+    "/api/v1/promotions/{promotion_id}/files": {
+      "post": {
+        "tags": [
+          "Volumes"
+        ],
+        "summary": "Api Promotion File Result",
+        "description": "One file finished. Worker-authenticated.\n\n\u00a73.5 exists because retries are certain: \"a promotion that restarts from\nzero after a failure at 38 GB will be retried by a human who then watches it\nfail again\". This is the row that lets the next attempt skip it.\n\n**`done` requires `sha256_verified`** \u2014 enforced by a CHECK, not only here.\nThe resume path skips `done` files, so a file marked done without\nverification would be skipped forever and the volume would carry an\nunverified copy that looks like a backup. An agent claiming `done` without\nverification is refused rather than trusted.",
+        "operationId": "api_promotion_file_result_api_v1_promotions__promotion_id__files_post",
+        "parameters": [
+          {
+            "name": "promotion_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Promotion Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromotionFileResult"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4548,6 +4599,53 @@
           "job_id"
         ],
         "title": "PromotionCreate"
+      },
+      "PromotionFileResult": {
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Artifact Id"
+          },
+          "logical_name": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Logical Name",
+            "default": ""
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Size Bytes",
+            "default": 0
+          },
+          "sha256_verified": {
+            "type": "boolean",
+            "title": "Sha256 Verified",
+            "default": false
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "done",
+              "failed"
+            ],
+            "title": "State",
+            "default": "done"
+          },
+          "failure_code": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Failure Code",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "artifact_id"
+        ],
+        "title": "PromotionFileResult"
       },
       "PromotionResult": {
         "properties": {

@@ -242,3 +242,42 @@ def test_the_command_is_on_both_allowlists():
         "accept the command and silently do nothing"
     )
     assert "_promote_artifacts" in dispatch
+
+
+# ── A3 §3.5: resume ─────────────────────────────────────────────────
+
+
+def test_a_file_already_verified_is_skipped(agent, tmp_path):
+    """The point of per-file progress: a retry does not re-copy 38 GB.
+
+    The API decides what is done — the agent is the party that crashed, so its
+    own view is the untrustworthy one.
+    """
+    wa, srv, mounts = agent
+    srv.manifest["files"][0]["already_done"] = True
+
+    # The file must exist for the skip to be honest; place it first.
+    dest = _dest(mounts)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(PAYLOAD)
+    before = dest.stat().st_mtime_ns
+
+    assert wa._promote_artifacts({"promotion_id": "prom-1"}) is True
+    assert dest.stat().st_mtime_ns == before, "an already-verified file was re-copied"
+    assert srv.reported.get("state") == "succeeded"
+
+
+def test_a_file_marked_done_but_missing_is_copied_anyway(agent):
+    """The row says done; the disk disagrees. Trust the disk.
+
+    A volume detached and reattached between attempts can lose a file. Skipping
+    on the row alone would report a complete promotion with a missing file —
+    the same "looks like a backup" failure the digest check exists to prevent.
+    """
+    wa, srv, mounts = agent
+    srv.manifest["files"][0]["already_done"] = True
+
+    assert wa._promote_artifacts({"promotion_id": "prom-1"}) is True
+    dest = _dest(mounts)
+    assert dest.exists(), "a file marked done but absent from the volume was not re-copied"
+    assert hashlib.sha256(dest.read_bytes()).hexdigest() == DIGEST
