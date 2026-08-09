@@ -191,11 +191,24 @@ def test_a_logical_name_cannot_escape_the_destination(agent, evil):
     srv.set_manifest(name=evil)
 
     wa._promote_artifacts({"promotion_id": "prom-1"})
-    escaped = mounts.parent / "escape.bin"
-    assert not escaped.exists(), "a logical name escaped the promotion directory"
-    for root, _dirs, files in os.walk(mounts):
-        for f in files:
-            assert not f.startswith(".."), f"suspicious file written: {root}/{f}"
+
+    # Named directories rather than a tree walk: `tests/test_source_tree_is_shared.py`
+    # forbids `os.walk`/`rglob` in a test file, because AppleDouble sidecars once
+    # broke four gates at once. The explicit list is also the better assertion —
+    # it says *where* nothing may appear instead of scanning for a suspicious
+    # name and hoping the pattern covers every escape.
+    promoted = mounts / "vol-1" / "promoted"
+    for forbidden in (
+        mounts.parent / "escape.bin",
+        mounts / "escape.bin",
+        promoted.parent.parent / "escape.bin",
+    ):
+        assert not forbidden.exists(), f"a logical name escaped to {forbidden}"
+
+    landed = sorted(os.listdir(promoted)) if promoted.exists() else []
+    assert all(name not in ("..", ".") and "/" not in name for name in landed), (
+        f"a traversal component survived into the destination: {landed}"
+    )
 
 
 def test_a_missing_promotion_id_is_refused(agent):

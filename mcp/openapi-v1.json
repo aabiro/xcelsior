@@ -1434,6 +1434,98 @@
           }
         }
       }
+    },
+    "/api/v1/promotions/{promotion_id}/manifest": {
+      "get": {
+        "tags": [
+          "Volumes"
+        ],
+        "summary": "Api Promotion Manifest For Agent",
+        "description": "The file list and read grants for one promotion. Worker-authenticated.\n\nSeparate from the customer-facing preview, and deliberately so: this is the\nonly response that carries **presigned URLs**, which are time-limited read\ngrants for a tenant's weights. That is why the command row holds nothing but\n`{promotion_id}` \u2014 a queued, logged, retained row is the wrong place for a\ncredential \u2014 and why this endpoint is reachable only by a platform worker.\n\nThe manifest is re-resolved from the catalog rather than stored on the row,\nso a promotion cannot hand out URLs for artifacts that have since been\ndeleted, and the tenant is taken from the promotion rather than the caller.",
+        "operationId": "api_promotion_manifest_for_agent_api_v1_promotions__promotion_id__manifest_get",
+        "parameters": [
+          {
+            "name": "promotion_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Promotion Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/promotions/{promotion_id}/result": {
+      "post": {
+        "tags": [
+          "Volumes"
+        ],
+        "summary": "Api Promotion Result From Agent",
+        "description": "The agent reporting what happened. Worker-authenticated, terminal-once.\n\nA promotion already in a terminal state is not overwritten: a retried\nreport must not turn a recorded failure into a success, and the state\nmachine's `succeeded` check requires a volume and a completion time, so a\nrow that reached success has already been proven complete.",
+        "operationId": "api_promotion_result_from_agent_api_v1_promotions__promotion_id__result_post",
+        "parameters": [
+          {
+            "name": "promotion_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Promotion Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromotionResult"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4435,6 +4527,56 @@
         },
         "type": "object",
         "title": "ProfileUpdateRequest"
+      },
+      "PromotionCreate": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Job Id"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "maxLength": 160,
+            "title": "Idempotency Key",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id"
+        ],
+        "title": "PromotionCreate"
+      },
+      "PromotionResult": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "succeeded",
+              "failed"
+            ],
+            "title": "State"
+          },
+          "failure_code": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Failure Code",
+            "default": ""
+          },
+          "bytes_written": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Bytes Written",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "PromotionResult"
       },
       "ProviderEvidenceRequest": {
         "properties": {
