@@ -48,6 +48,12 @@ ACTION_REQUIRED_SCOPES: dict[str, list[str]] = {
     # lowering one does not." The scope is the same `billing:write` the direct
     # route already demands — the plan adds approval, it does not add authority.
     "configure_auto_topup": ["billing:write"],
+    # A pipeline's required scopes are the **union of its stages'**, computed
+    # per graph rather than fixed here — `required_scopes` on the row carries
+    # them. This entry exists so the action type is known; an empty list would
+    # be wrong, and any single scope here would be a floor the union already
+    # exceeds. See `control_plane.pipelines.required_scopes_for_graph`.
+    "run_pipeline": [],
 }
 
 

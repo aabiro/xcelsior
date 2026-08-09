@@ -64,6 +64,12 @@ export const TOOL_SCOPES: Record<string, ScopeRequirement> = {
   // may not read onto a volume it may write.
   promote_artifact_to_volume: { allOf: ["volumes:write", "artifacts:read"] },
   get_promotion_status: { allOf: ["volumes:read"] },
+  // A pipeline requires the **union** of its stages' scopes, computed per
+  // graph by the API. This entry is the floor for reaching the endpoint at
+  // all; `instances:write` is what quoting a graph costs, and the route then
+  // demands each stage's own scope before the plan is created.
+  run_pipeline: { allOf: ["instances:write"] },
+  get_pipeline_status: { allOf: ["instances:read"] },
   attach_volume: { allOf: ["volumes:write", "instances:read"] },
   detach_volume: { allOf: ["volumes:write"] },
   delete_volume: { allOf: ["volumes:write"] },

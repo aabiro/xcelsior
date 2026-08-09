@@ -70,8 +70,14 @@ if ! grep -q '^READY ' "${LOG}"; then
 fi
 
 echo "Local surface: http://127.0.0.1:${PORT}/mcp"
-exec python3 "${REPO}/scripts/mcp_tool_eval.py" \
+# NOT `exec`. `exec` replaces this shell, so the EXIT trap above never runs and
+# the harness survives the script — which is exactly what happened after the
+# first capture: the next run died on EADDRINUSE for port 39411, and the leak
+# was invisible because the eval it leaked from had succeeded.
+python3 "${REPO}/scripts/mcp_tool_eval.py" \
   --base "http://127.0.0.1:${PORT}/mcp" \
   --token local-eval-token \
   --samples "${SAMPLES}" \
   --out "${OUT}"
+status=$?
+exit "$status"

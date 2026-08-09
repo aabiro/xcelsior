@@ -193,6 +193,20 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     "Call it with confirm:false first for a preview. Stops the per-GB-month billing, and is " +
     "irreversible: the contents cannot be recovered, so snapshot first if there is any doubt.",
 
+  run_pipeline:
+    "Quotes a multi-stage job — train, then evaluate, then serve — as ONE approval covering "
+    + "every stage, with the total committed spend stated before anything runs. Use when the user "
+    + "describes work with steps that depend on each other, instead of launching each and asking "
+    + "three times. Each stage declares what happens if it fails (halt, continue, or retry) and "
+    + "that choice is fixed when the graph is approved. The pipeline cannot spend more than the "
+    + "quoted total: a stage that would exceed it never starts. **Returns as soon as the pipeline "
+    + "is quoted, before it has run or even been approved** — say it is awaiting approval, and "
+    + "check get_pipeline_status before reporting any stage as done.",
+  get_pipeline_status:
+    "Reports which pipeline stage is running, which finished, and which were skipped and why. "
+    + "Use when a pipeline was started and the user asks how far along it is, or before claiming "
+    + "any stage completed — run_pipeline returns while the work is still ahead of it. Read-only "
+    + "and free.",
   promote_artifact_to_volume:
     "Copies a finished run's outputs — weights, checkpoints — from artifact storage onto a "
     + "volume, which has no retention clock. This creates a durable copy — it does not move or "

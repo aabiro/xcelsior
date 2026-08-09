@@ -200,4 +200,82 @@ export function registerWorkflowTools(
       }
     },
   );
+  server.registerTool(
+    "run_pipeline",
+    {
+      inputSchema: z.object({
+        name: z.string().max(120).optional().describe("What this pipeline is for"),
+        stages: z
+          .array(
+            z.object({
+              name: z.string().min(1).max(64),
+              action_type: z.string().min(1).max(64),
+              on_failure: z.enum(["halt", "continue", "retry"]).optional(),
+              max_attempts: z.number().int().min(1).max(10).optional(),
+              estimate_micros: z.number().int().min(0).optional(),
+              args: z.record(z.unknown()).optional(),
+            }),
+          )
+          .min(1)
+          .max(20)
+          .describe("Stages in the order they must run. Each one's on_failure is fixed at approval."),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ name, stages }) => {
+      const denied = scopeDenied("run_pipeline", user);
+      if (denied) return denied;
+      try {
+        const data = (await client.post("/api/v1/pipelines", {
+          name: name ?? "pipeline",
+          stages,
+        })) as Record<string, unknown>;
+        // The pipeline is quoted, not approved and not running. Saying so is
+        // the mechanism — an agent that reports "pipeline started" when it
+        // means "pipeline awaiting approval" is the failure this phase's whole
+        // approval story exists to prevent.
+        return jsonText({
+          ...data,
+          status: "awaiting_approval",
+          note:
+            "This pipeline is QUOTED and NOT YET APPROVED — nothing has run. " +
+            "Tell the user the total above is what they are approving, and " +
+            "that no stage starts until they approve it. After approval, use " +
+            "get_pipeline_status to see which stage is live; do not report any " +
+            "stage as finished until that says so.",
+        });
+      } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_pipeline_status",
+    {
+      inputSchema: z.object({ plan_id: z.string().min(1).max(160) }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ plan_id }) => {
+      const denied = scopeDenied("get_pipeline_status", user);
+      if (denied) return denied;
+      try {
+        const data = (await client.get(
+          `/api/v1/pipelines/${encodeURIComponent(plan_id)}`,
+        )) as Record<string, unknown>;
+        const finished = data.finished === true;
+        const failed = data.failed === true;
+        return jsonText({
+          ...data,
+          note: finished
+            ? failed
+              ? "The pipeline stopped. Read each stage's failure_code — a 'skipped' stage did not fail, it never ran."
+              : "Every stage finished successfully."
+            : "Still running. Do not report any stage as done unless its state says succeeded.",
+        });
+      } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
 }

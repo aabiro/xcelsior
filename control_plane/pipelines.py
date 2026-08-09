@@ -412,3 +412,50 @@ def run_pipeline(
 
     with control_plane_transaction() as conn:
         return pipeline_state(conn, plan_id)
+
+
+# ── Stage dispatch ──────────────────────────────────────────────────
+
+
+#: Action types a pipeline stage may name, mapped to the required scope. A stage
+#: is refused at creation if its action type is not here, for the same reason an
+#: unimplemented `on_failure` was refused through B1–B2: a graph the executor
+#: cannot run should not be approvable, and finding out at stage 3 is finding
+#: out after two stages have already been paid for.
+#:
+#: **Derived from `ACTION_REQUIRED_SCOPES`, not restated.** Two hand-kept lists
+#: is how a stage ends up runnable with the wrong scope — the defect class this
+#: codebase has hit repeatedly (`SYSTEM_ALLOWED_SCOPES` vs
+#: `MCP_QUICK_CONNECT_SCOPES`, three times in one session).
+def stage_action_scopes() -> dict[str, list[str]]:
+    from control_plane.launch.service import ACTION_REQUIRED_SCOPES
+
+    return dict(ACTION_REQUIRED_SCOPES)
+
+
+def required_scopes_for_graph(stages: Iterable[dict]) -> list[str]:
+    """Every scope the graph needs, deduplicated and sorted.
+
+    A pipeline is approved once, so it must require the union of what its
+    stages require. Approving `train → serve` on `instances:operate` alone
+    would let the serve stage run without `inference:write` — one approval
+    silently widening authority is the failure this whole phase could
+    introduce if the scopes were taken from the first stage only.
+    """
+    known = stage_action_scopes()
+    needed: set[str] = set()
+    for stage in stages:
+        needed.update(known.get(stage["action_type"], []))
+    return sorted(needed)
+
+
+def assert_graph_is_runnable(stages: Iterable[dict]) -> None:
+    """Refuse a graph naming an action type no executor can perform."""
+    known = stage_action_scopes()
+    unknown = sorted({s["action_type"] for s in stages if s["action_type"] not in known})
+    if unknown:
+        raise PipelineError(
+            "unknown_action_type",
+            f"no executor for {unknown}; a pipeline that cannot run its own "
+            f"stages should not be approvable. Known: {sorted(known)}",
+        )

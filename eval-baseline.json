@@ -1,8 +1,8 @@
 {
-  "captured_at": "2026-08-09T21:40:39Z",
+  "captured_at": "2026-08-09T22:41:54Z",
   "base": "http://127.0.0.1:39412/mcp",
   "model": "claude-opus-5",
-  "tool_count": 48,
+  "tool_count": 50,
   "cases": 90,
   "passed": 85,
   "expected_tool_accuracy": 0.9444,
@@ -44,9 +44,9 @@
   "meets_threshold": true,
   "usage": {
     "input_tokens": 8778,
-    "output_tokens": 22001,
-    "cache_creation_input_tokens": 14760,
-    "cache_read_input_tokens": 1313640
+    "output_tokens": 22081,
+    "cache_creation_input_tokens": 15576,
+    "cache_read_input_tokens": 1386264
   },
-  "estimated_cost_usd": 1.343
+  "estimated_cost_usd": 1.3864
 }
