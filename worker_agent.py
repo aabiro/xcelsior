@@ -5376,18 +5376,30 @@ _HOST_KEY_FINGERPRINT = re.compile(r"\bSHA256:[A-Za-z0-9+/]{43}\b")
 
 
 def read_container_host_key_fingerprint(container_name: str) -> str:
-    """The Ed25519 host-key fingerprint the container's sshd will present.
+    """The host-key fingerprint the container's sshd will present, or "".
 
-    Ed25519 only: it is OpenSSH's default `HostKeyAlgorithms` preference, so it
-    is the key a modern client actually negotiates. Publishing an RSA
-    fingerprint nobody verifies would be noise diluting the one that matters.
+    Read in the client's own negotiation order — Ed25519 first, then ECDSA, then
+    RSA — and the first that exists wins. **The first draft read Ed25519 only**,
+    on the reasoning that it is OpenSSH's default `HostKeyAlgorithms` preference
+    and therefore the key a modern client negotiates. That is true only when the
+    server offers one. Checked against a real GPU host on 2026-08-09, the
+    endpoint presented **RSA-2048 and no Ed25519 at all**, so the original code
+    would have reported "unknown" for a host whose key was perfectly verifiable.
 
-    Returns `""` when it cannot be read — a missing key, a base image without
-    `ssh-keygen`, an exec that times out. **Empty is a real answer here**, and
-    the caller must treat it as "unknown" rather than substituting anything:
-    a fingerprint the platform did not observe is worse than none, because
-    `null` makes a model say "this cannot be verified" and a wrong value makes
-    it say "verified".
+    Returns `""` when nothing can be read — no key files, no `ssh-keygen`, an
+    exec that times out. **Empty is a real answer here**, and the caller must
+    treat it as "unknown" rather than substituting anything: a fingerprint the
+    platform did not observe is worse than none, because `null` makes a model
+    say "this cannot be verified" while a wrong value makes it say "verified".
+
+    **This is only meaningful where SSH terminates in the container.** Xcelsior's
+    own gateway DNATs to the container's sshd, so the container's key is the key
+    the user sees. A proxy-terminated provider is the opposite: the same 2026-08-09
+    check found a cloud host with *no sshd and no host keys in the container at
+    all*, because the provider's proxy terminates SSH and pipes in. There, the key
+    a client verifies belongs to the proxy, and reading the container would
+    publish the wrong one — so returning "" is not a degraded answer, it is the
+    correct one.
     """
     try:
         proc = subprocess.run(
@@ -5397,7 +5409,13 @@ def read_container_host_key_fingerprint(container_name: str) -> str:
                 container_name,
                 "sh",
                 "-c",
-                "ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null",
+                # Client negotiation order. `ssh-keygen -lf` on the first file
+                # that exists; a host offering only RSA still yields a usable
+                # fingerprint instead of an unnecessary "unknown".
+                "for t in ed25519 ecdsa rsa; do "
+                "  f=/etc/ssh/ssh_host_${t}_key.pub; "
+                "  [ -f \"$f\" ] && ssh-keygen -lf \"$f\" 2>/dev/null && break; "
+                "done",
             ],
             capture_output=True,
             text=True,
