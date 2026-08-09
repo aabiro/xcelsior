@@ -584,6 +584,29 @@
       "hasOutputSchema": true
     },
     {
+      "name": "get_pipeline_status",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "instances:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "plan_id": {
+          "type": "string",
+          "optional": false
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
       "name": "get_pricing_reference",
       "version": "2.0.0",
       "tenantClass": "tenant",
@@ -1041,6 +1064,33 @@
         },
         "idempotency_key": {
           "type": "string",
+          "optional": false
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "run_pipeline",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "instances:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "name": {
+          "type": "string",
+          "optional": true
+        },
+        "stages": {
+          "type": "array",
           "optional": false
         }
       },

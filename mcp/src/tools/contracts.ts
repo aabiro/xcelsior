@@ -13,7 +13,7 @@ const READ_ONLY = new Set([
   "list_reconciliation_findings", "get_mcp_action_status",
   "search", "fetch",
   "list_volumes", "get_volume", "get_artifact_expiry",
-  "get_promotion_status",
+  "get_promotion_status", "get_pipeline_status",
 ]);
 
 /**

@@ -90,13 +90,14 @@ def _registered_tool_names() -> set[str]:
 #: true when written and stopped being true the moment one was. A stale claim
 #: about a gate is worse than none, because it argues against re-checking.
 #:
-#: This constant pins the *count*, and the count has moved: 55 → 57 with
-#: `promote_artifact_to_volume` and `get_promotion_status` (P3 A4). The two new
+#: This constant pins the *count*. 55 → 57 with `promote_artifact_to_volume`
+#: and `get_promotion_status` (P3 A4); 57 → 59 with `run_pipeline` and
+#: `get_pipeline_status` (P4 B4). The two new
 #: tools do not change the eval's blast radius — both are satisfiable by a Quick
 #: Connect token, asserted in `test_connector_tokens_are_scope_restricted.py` —
 #: but the surface is larger than the baseline was measured on, so the next
 #: capture is owed and will not be directly comparable.
-EXPECTED_TOOL_TOTAL = 57
+EXPECTED_TOOL_TOTAL = 59
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition
