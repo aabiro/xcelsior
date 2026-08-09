@@ -567,6 +567,17 @@ def api_volume_promotion_create(volume_id: str, body: PromotionCreate, request: 
             ),
         )
         created = cur.rowcount == 1
+        if created:
+            # §3.3: before the first byte moves, not after. Inside the same
+            # transaction as the insert, so a promotion can never exist in a
+            # state where it is copying artifacts the janitor may still delete.
+            from artifacts import take_promotion_hold
+
+            held = take_promotion_hold(conn, body.job_id, tenant_id)
+            log.info(
+                "promotion %s: held %d artifact(s) for job %s",
+                promotion_id, held, body.job_id,
+            )
         row = conn.execute(
             "SELECT promotion_id, state, file_count, total_bytes, volume_id "
             "FROM volume_promotions "
@@ -752,4 +763,15 @@ def api_promotion_result_from_agent(promotion_id: str, body: PromotionResult, re
             " WHERE promotion_id = %s",
             (body.state, body.failure_code, promotion_id),
         )
+        # Released on failure as well as success. A promotion that failed has
+        # no further claim on the artifacts, and holding them would turn one
+        # bad copy into indefinite retention.
+        owner = conn.execute(
+            "SELECT job_id, tenant_id FROM volume_promotions WHERE promotion_id = %s",
+            (promotion_id,),
+        ).fetchone()
+        if owner:
+            from artifacts import release_promotion_hold
+
+            release_promotion_hold(conn, owner[0], owner[1])
     return {"ok": True, "state": body.state}
