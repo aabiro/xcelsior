@@ -498,6 +498,51 @@ def api_volume_promotion_preview(volume_id: str, request: Request, job_id: str =
     }
 
 
+def _pick_promotion_host(region: str) -> str:
+    """The least-loaded active host in `region`, or "" if there is none.
+
+    §3.4 of `docs/artifact-promotion-plan.md`. Region is a **hard filter, not a
+    preference**: volumes are NFS exports and a host outside the region either
+    cannot reach the export or pays a cross-region transfer for every byte of a
+    checkpoint. Silently falling back to "any host" would turn an unroutable
+    promotion into an expensive one, and the user would see neither.
+
+    Load is counted as live jobs on the host, so a promotion lands on the box
+    with the most spare I/O rather than the first one returned. The plan's cost
+    note stands and is worth restating: a busy GPU host now does I/O for someone
+    else's promotion, and the moment that competes with training it should move
+    to a dedicated worker. It is measurable before it is a problem.
+
+    Returning "" is a real outcome — no host in that region — and the caller
+    creates the promotion anyway rather than refusing. The row is the durable
+    record; a sweep can place it when capacity appears. Refusing here would
+    throw away a request the user made for a reason.
+    """
+    from control_plane.db import control_plane_transaction
+
+    try:
+        with control_plane_transaction() as conn:
+            row = conn.execute(
+                """
+                SELECT h.host_id
+                  FROM hosts h
+                  LEFT JOIN jobs j
+                    ON j.host_id = h.host_id
+                   AND j.status IN ('running', 'starting', 'provisioning')
+                 WHERE h.status = 'active'
+                   AND (%s = '' OR h.region = %s)
+              GROUP BY h.host_id
+              ORDER BY count(j.job_id) ASC, h.host_id ASC
+                 LIMIT 1
+                """,
+                (region, region),
+            ).fetchone()
+    except Exception as exc:  # pragma: no cover - placement must never 500
+        log.warning("promotion host placement failed for region %r: %s", region, exc)
+        return ""
+    return str(row[0]) if row else ""
+
+
 class PromotionCreate(BaseModel):
     job_id: str = Field(min_length=1, max_length=128)
     idempotency_key: str = Field(default="", max_length=160)
@@ -595,7 +640,16 @@ def api_volume_promotion_create(volume_id: str, body: PromotionCreate, request: 
 
     # Enqueued only for a genuinely new row, so a replay cannot queue a second
     # copy of the same bytes.
+    #
+    # An attached volume has an obvious host — the instance's, which can already
+    # see the mount. An unattached one has none, and §3.4 of the promotion plan
+    # calls that the genuinely open question. Its answer, chosen over "any
+    # healthy host" and over a dedicated promotion worker: the least-loaded
+    # active host **in the volume's region**, reusing the mount commands the
+    # agent already has. No new deployable, no new network path.
     host_id = str(vol.get("host_id") or "")
+    if not host_id:
+        host_id = _pick_promotion_host(str(vol.get("region") or ""))
     enqueued = None
     if host_id:
         from routes.agent import enqueue_agent_command
