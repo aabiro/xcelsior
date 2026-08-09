@@ -18,6 +18,16 @@ leaves **no file at all** rather than a truncated one — and a truncated
 checkpoint that looks complete is the failure this whole design is arranged
 around. `test_a_corrupt_copy_leaves_nothing_behind` is therefore the load-bearing
 test here, not the happy path.
+
+**Verified on real hardware, 2026-08-09.** "Atomic within a filesystem" is a
+claim about the filesystem, and these tests run on tmpfs while GPU instances run
+**overlayfs** — a union mount, which is exactly the shape where that qualifier
+can fail. Checked directly on a live RTX 4090 instance: the destination is
+`overlayfs`, the `.part` disappears on rename, a truncated `.part` is never
+visible under the final name, `os.replace` over an existing file works (the
+resume path), and a cross-directory rename within the mount works. The
+assumption this design rests on is a fact about the hosts it runs on, not an
+inference from the man page.
 """
 
 from __future__ import annotations
