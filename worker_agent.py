@@ -7178,7 +7178,27 @@ def _promote_artifacts(args: dict) -> bool:
         _report("failed", "dest_unwritable")
         return False
 
+    def _report_file(artifact_id, name, size, verified, state, failure_code=""):
+        """Record one file's outcome so a retry can skip it (§3.5)."""
+        try:
+            requests.post(
+                _api_url(f"/api/v1/promotions/{promotion_id}/files"),
+                json={
+                    "artifact_id": str(artifact_id), "logical_name": name,
+                    "size_bytes": int(size), "sha256_verified": bool(verified),
+                    "state": state, "failure_code": failure_code,
+                },
+                headers=_api_headers(),
+                timeout=30,
+            )
+        except requests.RequestException as exc:
+            # Losing this costs a re-copy of one file on the next attempt, not
+            # correctness — so it is logged and the copy continues rather than
+            # failing a promotion that is otherwise succeeding.
+            log.warning("promote_artifacts: could not record %s: %s", name, exc)
+
     written_total = 0
+    skipped = 0
     for f in files:
         name = os.path.basename(str(f.get("logical_name") or f.get("artifact_id")))
         if not name or name in (".", ".."):
@@ -7187,6 +7207,16 @@ def _promote_artifacts(args: dict) -> bool:
         final_path = os.path.join(dest_dir, name)
         part_path = final_path + ".part"
         expected = str(f.get("sha256") or "")
+
+        # §3.5 resume. The API decides what is already verified — the agent is
+        # the party that crashed, so its own view of "done" is the untrustworthy
+        # one. The file must still be *there*: a volume detached and reattached
+        # between attempts can lose it, and skipping on the row alone would
+        # report a complete promotion with a missing file.
+        if f.get("already_done") and os.path.exists(final_path):
+            skipped += 1
+            log.info("promote_artifacts: %s already verified, skipping", name)
+            continue
         if not expected:
             # A0's manifest flags these; refusing here is the same rule applied
             # where it costs something — an unverifiable copy that looks
@@ -7222,6 +7252,7 @@ def _promote_artifacts(args: dict) -> bool:
                 name, digest.hexdigest()[:16], expected[:16],
             )
             _cleanup_part(part_path)
+            _report_file(f.get("artifact_id"), name, 0, False, "failed", "digest_mismatch")
             _report("failed", "digest_mismatch")
             return False
 
@@ -7233,12 +7264,13 @@ def _promote_artifacts(args: dict) -> bool:
             _report("failed", "rename_failed")
             return False
         written_total += size
+        _report_file(f.get("artifact_id"), name, size, True, "done")
         log.info("promote_artifacts: %s verified and placed (%d bytes)", name, size)
 
     _report("succeeded", "", written_total)
     log.info(
-        "promote_artifacts: promotion %s complete — %d file(s), %d bytes",
-        promotion_id, len(files), written_total,
+        "promote_artifacts: promotion %s complete — %d copied, %d skipped, %d bytes",
+        promotion_id, len(files) - skipped, skipped, written_total,
     )
     return True
 
