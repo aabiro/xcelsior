@@ -1707,6 +1707,10 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "POST /api/v1/promotions/{promotion_id}/files": {
+    "class": "internal",
+    "notes": "Worker-only per-file progress (P3 A3, plan §3.5) so a retry resumes instead of restarting a multi-gigabyte copy. Refuses state='done' without sha256_verified — the resume path skips done files, so an unverified one would be skipped forever and the volume would carry a copy nobody re-checks."
+  },
   "POST /api/v1/promotions/{promotion_id}/result": {
     "class": "internal",
     "notes": "Worker-only callback reporting the copy's outcome. Terminal-once: a retried report cannot turn a recorded failure into a success."

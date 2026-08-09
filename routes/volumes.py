@@ -703,8 +703,30 @@ def api_promotion_manifest_for_agent(promotion_id: str, request: Request):
             "start a new promotion",
         )
 
+    # §3.5: a resumed promotion skips what is already verified. Read here rather
+    # than trusted from the agent — the agent is the party that crashed.
+    with control_plane_transaction() as conn:
+        done_rows = conn.execute(
+            "SELECT artifact_id FROM volume_promotion_files "
+            " WHERE promotion_id = %s AND state = 'done' AND sha256_verified",
+            (promotion_id,),
+        ).fetchall()
+    already_done = {str(r[0]) for r in done_rows}
+
     files = []
     for f in manifest["files"]:
+        if f["artifact_id"] in already_done:
+            # No presigned URL for a file that will not be fetched. A read grant
+            # nobody uses is still a read grant that was issued and logged.
+            files.append({
+                "artifact_id": f["artifact_id"],
+                "logical_name": f["logical_name"],
+                "size_bytes": f["size_bytes"],
+                "sha256": f["sha256"],
+                "url": "",
+                "already_done": True,
+            })
+            continue
         try:
             grant = am.primary.generate_download_url(f["object_key"])
         except Exception:
@@ -715,6 +737,7 @@ def api_promotion_manifest_for_agent(promotion_id: str, request: Request):
             "size_bytes": f["size_bytes"],
             "sha256": f["sha256"],
             "url": grant.get("url") if isinstance(grant, dict) else grant,
+            "already_done": f["artifact_id"] in already_done,
         })
     return {
         "ok": True,
@@ -775,3 +798,78 @@ def api_promotion_result_from_agent(promotion_id: str, body: PromotionResult, re
 
             release_promotion_hold(conn, owner[0], owner[1])
     return {"ok": True, "state": body.state}
+
+
+class PromotionFileResult(BaseModel):
+    artifact_id: str = Field(min_length=1, max_length=64)
+    logical_name: str = Field(default="", max_length=255)
+    size_bytes: int = Field(default=0, ge=0)
+    sha256_verified: bool = False
+    state: Literal["done", "failed"] = "done"
+    failure_code: str = Field(default="", max_length=64)
+
+
+@router.post("/api/v1/promotions/{promotion_id}/files", tags=["Volumes"])
+def api_promotion_file_result(promotion_id: str, body: PromotionFileResult, request: Request):
+    """One file finished. Worker-authenticated.
+
+    §3.5 exists because retries are certain: "a promotion that restarts from
+    zero after a failure at 38 GB will be retried by a human who then watches it
+    fail again". This is the row that lets the next attempt skip it.
+
+    **`done` requires `sha256_verified`** — enforced by a CHECK, not only here.
+    The resume path skips `done` files, so a file marked done without
+    verification would be skipped forever and the volume would carry an
+    unverified copy that looks like a backup. An agent claiming `done` without
+    verification is refused rather than trusted.
+    """
+    from routes._deps import _require_auth, _require_platform_worker
+
+    user = _require_auth(request)
+    _require_platform_worker(user)
+
+    if body.state == "done" and not body.sha256_verified:
+        raise HTTPException(
+            422,
+            "a file cannot be recorded done without sha256 verification — the "
+            "resume path skips done files, so this would leave an unverified "
+            "copy nobody re-checks",
+        )
+
+    from control_plane.db import control_plane_transaction
+
+    with control_plane_transaction() as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM volume_promotions WHERE promotion_id = %s", (promotion_id,)
+        ).fetchone()
+        if not exists:
+            raise HTTPException(404, "Promotion not found")
+        conn.execute(
+            """INSERT INTO volume_promotion_files
+                 (promotion_id, tenant_id, artifact_id, logical_name, size_bytes,
+                  bytes_written, sha256_verified, state, failure_code, updated_at)
+               SELECT %s, vp.tenant_id, %s, %s, %s, %s, %s, %s, NULLIF(%s, ''),
+                      clock_timestamp()
+                 FROM volume_promotions vp WHERE vp.promotion_id = %s
+               ON CONFLICT (promotion_id, artifact_id) DO UPDATE
+                 SET state = EXCLUDED.state,
+                     bytes_written = EXCLUDED.bytes_written,
+                     sha256_verified = EXCLUDED.sha256_verified,
+                     failure_code = EXCLUDED.failure_code,
+                     updated_at = clock_timestamp()""",
+            (
+                promotion_id, body.artifact_id, body.logical_name, body.size_bytes,
+                body.size_bytes if body.state == "done" else 0,
+                body.sha256_verified, body.state, body.failure_code,
+                promotion_id,
+            ),
+        )
+        # Touch the promotion so the stale sweep measures progress rather than
+        # start time. Without this a long multi-file copy is abandoned mid-way
+        # for making steady progress.
+        conn.execute(
+            "UPDATE volume_promotions SET updated_at = clock_timestamp() "
+            " WHERE promotion_id = %s",
+            (promotion_id,),
+        )
+    return {"ok": True, "artifact_id": body.artifact_id, "state": body.state}

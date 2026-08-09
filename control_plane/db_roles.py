@@ -129,6 +129,7 @@ CONTROL_TABLES = frozenset(
         # is written by the same service that mounts and attaches; the artifacts
         # it names live in `storage.artifacts` and are only read.
         "volume_promotions",
+        "volume_promotion_files",
         "worker_model_cache",
         "registry_health_cache",
         "benchmarks",

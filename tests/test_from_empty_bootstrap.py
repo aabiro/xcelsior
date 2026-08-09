@@ -40,7 +40,7 @@ REQUIRED_AT_HEAD = (
     # 091: recorded connector consent, the durable half of the OAuth front door.
     "oauth_consent_grants",
 )
-EXPECTED_HEAD = "102"
+EXPECTED_HEAD = "103"
 
 
 
