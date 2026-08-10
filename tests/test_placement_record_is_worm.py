@@ -172,6 +172,112 @@ def test_the_record_cannot_be_deleted(tenant):
         assert read_placement(conn, decision_id, tenant_id=tenant) is not None
 
 
+# ── WORM rows, prunable table ─────────────────────────────────────────
+
+
+def test_the_table_is_partitioned_by_month():
+    """`105` took the trigger from `072` and the partitioning from neither.
+
+    `072_audit_events_v2.py` says it outright: *partition drops (retention) are
+    DDL and are unaffected* by the trigger. That is the whole mechanism by which
+    an append-only table stays prunable. Without it the trigger forbids the only
+    statement that could ever shrink a per-request table.
+    """
+    with pg_transaction() as conn:
+        kind = conn.execute(
+            "SELECT relkind FROM pg_class WHERE relname = 'placement_decisions'"
+        ).fetchone()[0]
+        children = conn.execute(
+            """SELECT count(*) FROM pg_inherits i
+                 JOIN pg_class p ON p.oid = i.inhparent
+                WHERE p.relname = 'placement_decisions'"""
+        ).fetchone()[0]
+
+    assert kind == "p", "placement_decisions is a plain table; it cannot be pruned"
+    assert children >= 2, "no monthly partitions and no default partition"
+
+
+def test_a_partition_can_be_dropped_even_though_a_row_cannot_be_deleted(tenant):
+    """The pair that makes retention possible without making evidence mutable.
+
+    Both halves in one test on purpose: either alone is a property nobody wants.
+    A table you can DELETE from is not an audit trail; a table you cannot prune
+    grows until someone has to make it mutable.
+    """
+    old = "2019-03-01"
+    with pg_transaction() as conn:
+        conn.execute(
+            f"""CREATE TABLE IF NOT EXISTS placement_decisions_201903
+                PARTITION OF placement_decisions
+                FOR VALUES FROM ('{old}') TO ('2019-04-01')"""
+        )
+        conn.execute(
+            """INSERT INTO placement_decisions
+                 (tenant_id, outcome, host_id, decided_at)
+               VALUES (%s, 'placed', 'ancient', %s::timestamptz)""",
+            (tenant, f"{old} 12:00:00+00"),
+        )
+        assert conn.execute(
+            "SELECT count(*) FROM placement_decisions_201903"
+        ).fetchone()[0] == 1
+
+    # The row itself is immutable.
+    with pytest.raises(Exception, match="append-only"):
+        with pg_transaction() as conn:
+            conn.execute(
+                "DELETE FROM placement_decisions WHERE tenant_id = %s", (tenant,)
+            )
+
+    # The partition holding it is not.
+    with pg_transaction() as conn:
+        conn.execute("DROP TABLE placement_decisions_201903")
+        assert conn.execute(
+            "SELECT count(*) FROM placement_decisions WHERE tenant_id = %s", (tenant,)
+        ).fetchone()[0] == 0
+
+
+def test_partition_maintenance_keeps_the_window_full():
+    """One maintainer for every partitioned table, not one per table.
+
+    A maintainer duplicated per table is how one of them silently stops
+    advancing while the other looks fine — the DEFAULT partition absorbs the
+    writes and nothing complains until someone tries to prune.
+    """
+    import datetime as dt
+
+    from control_plane.audit_partitions import (
+        PARTITIONED_TABLES,
+        ensure_monthly_partitions,
+    )
+
+    assert "placement_decisions" in PARTITIONED_TABLES
+    assert "audit_events_v2" in PARTITIONED_TABLES
+
+    far = dt.date(2030, 5, 1)
+    with pg_transaction() as conn:
+        ensured = ensure_monthly_partitions(
+            conn, "placement_decisions", months_ahead=1, today=far
+        )
+        assert ensured == ["203005", "203006"]
+        present = conn.execute(
+            """SELECT count(*) FROM pg_class
+                WHERE relname IN ('placement_decisions_203005',
+                                  'placement_decisions_203006')"""
+        ).fetchone()[0]
+        conn.execute("DROP TABLE IF EXISTS placement_decisions_203005")
+        conn.execute("DROP TABLE IF EXISTS placement_decisions_203006")
+    assert present == 2
+
+
+def test_an_unknown_table_name_is_not_interpolated_into_ddl():
+    """The table name reaches a CREATE TABLE, so it is never taken on trust."""
+    from control_plane.audit_partitions import ensure_monthly_partitions
+
+    with pg_transaction() as conn:
+        with pytest.raises(ValueError, match="not a known partitioned table"):
+            ensure_monthly_partitions(conn, "users; DROP TABLE wallets")
+
+
 # ── Shape constraints, probed against the database ────────────────────
 
 
