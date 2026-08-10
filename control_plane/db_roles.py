@@ -142,6 +142,11 @@ CONTROL_TABLES = frozenset(
         # Control-plane, beside action_plans, because the approval it hangs
         # off lives there and the executor is the same writer.
         "pipeline_stages",
+        # P5 C1: the placement decision record. Control-plane because the
+        # scheduler writes it at the moment it chooses (or refuses); the WORM
+        # trigger means the grant is effectively insert-and-select regardless of
+        # what this set says.
+        "placement_decisions",
         "mcp_client_policies",
     }
 )
