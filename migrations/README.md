@@ -90,7 +90,19 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `104_pipeline_stages.py`.**
+**Repository head: `105_placement_decisions.py`.**
+(`105` adds the placement decision record Gate P5 clause 3 asks for.
+Evidence is **copied, not referenced**:
+storing a host id and re-reading its score later answers "what is this host's
+reputation now", a different and useless question during an incident review, and
+verification makes it concrete because it is revocable. **Refusals are recorded
+too, and that is the more useful half** — a preference that refused was honoured
+by the refusal, and a successes-only table could not answer "why did nothing
+launch last Tuesday". WORM, like `075` and `072`: append-only enforced by a
+comment is a convention, enforced by a trigger it is a property. Prices are
+integer micros so the premium is recomputed from two exact integers rather than
+stored as a rounded percentage nobody can check.)
+
 (`104` adds per-stage execution state for P4 pipelines. The *approval* is one
 `action_plans` row whose canonical args carry the graph, so Gate P4's "editing
 a stage after approval invalidates it" needs no new mechanism — the existing
