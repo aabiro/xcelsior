@@ -1042,3 +1042,87 @@ class TestInjectSshKeys:
         monkeypatch.setattr(requests, "get", fake_get)
         # Should not raise
         worker_agent._inject_ssh_keys("job-5", "xcl-job-5")
+
+
+class TestHostKeyObservationIsNotOverCounted:
+    """A0 measures a rate, so a re-observation must not read as a new sample.
+
+    `_inject_ssh_keys` also runs on the periodic shell re-injection pass over
+    adopted containers, not only at launch — so the first version of this logged
+    one line per cycle and a single container produced 54 identical
+    `host_key.observed` lines over 13.5 hours. Counting those as 54 observations
+    is a fabricated sample, and A0 exists precisely to produce an honest one.
+    """
+
+    def setup_method(self):
+        import worker_agent
+
+        worker_agent._host_key_seen.clear()
+
+    def test_the_same_fingerprint_is_logged_once(self, monkeypatch, caplog):
+        import logging
+
+        import worker_agent
+
+        monkeypatch.setattr(
+            worker_agent, "read_container_host_key_fingerprint", lambda c: "SHA256:aaa"
+        )
+        with caplog.at_level(logging.INFO, logger="xcelsior-worker"):
+            for _ in range(5):
+                worker_agent._log_container_host_key_fingerprint("xcl-1", "job-1")
+
+        observed = [r for r in caplog.records if "host_key.observed" in r.getMessage()]
+        assert len(observed) == 1, (
+            f"{len(observed)} INFO lines for one unchanged container; a reader "
+            "counting them would take n=1 for n=5"
+        )
+
+    def test_a_changed_fingerprint_is_logged_again(self, monkeypatch, caplog):
+        """The container was recreated underneath the job — worth seeing."""
+        import logging
+
+        import worker_agent
+
+        values = iter(["SHA256:aaa", "SHA256:bbb"])
+        monkeypatch.setattr(
+            worker_agent, "read_container_host_key_fingerprint", lambda c: next(values)
+        )
+        with caplog.at_level(logging.INFO, logger="xcelsior-worker"):
+            worker_agent._log_container_host_key_fingerprint("xcl-1", "job-1")
+            worker_agent._log_container_host_key_fingerprint("xcl-1", "job-1")
+
+        messages = [r.getMessage() for r in caplog.records if "host_key.observed" in r.getMessage()]
+        assert len(messages) == 2
+        assert "(changed)" in messages[1], "a changed key must be distinguishable"
+
+    def test_two_containers_are_two_observations(self, monkeypatch, caplog):
+        """The dedupe is per container, not global — otherwise it hides the fleet."""
+        import logging
+
+        import worker_agent
+
+        monkeypatch.setattr(
+            worker_agent, "read_container_host_key_fingerprint", lambda c: "SHA256:aaa"
+        )
+        with caplog.at_level(logging.INFO, logger="xcelsior-worker"):
+            worker_agent._log_container_host_key_fingerprint("xcl-1", "job-1")
+            worker_agent._log_container_host_key_fingerprint("xcl-2", "job-2")
+
+        observed = [r for r in caplog.records if "host_key.observed" in r.getMessage()]
+        assert len(observed) == 2
+
+    def test_an_unreadable_key_is_still_reported_once(self, monkeypatch, caplog):
+        """The blank is the measurement. It must not be deduped out of existence."""
+        import logging
+
+        import worker_agent
+
+        monkeypatch.setattr(
+            worker_agent, "read_container_host_key_fingerprint", lambda c: ""
+        )
+        with caplog.at_level(logging.INFO, logger="xcelsior-worker"):
+            for _ in range(3):
+                worker_agent._log_container_host_key_fingerprint("xcl-1", "job-1")
+
+        blanks = [r for r in caplog.records if "host_key.unreadable" in r.getMessage()]
+        assert len(blanks) == 1

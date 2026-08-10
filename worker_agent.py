@@ -5548,16 +5548,45 @@ def read_container_host_key_fingerprint(container_name: str) -> str:
     return match.group(0) if match else ""
 
 
+#: Last fingerprint logged per container, so a re-observation is not a new
+#: data point. See `_log_container_host_key_fingerprint`.
+_host_key_seen: dict[str, str] = {}
+
+
 def _log_container_host_key_fingerprint(container_name: str, job_id: str) -> None:
     """Observe only. Never raises, never changes what the caller returns.
 
     SSH setup is on the launch path, so a failure here must cost the user
     nothing — the instance is more important than the telemetry about it.
+
+    **Logged at INFO only when the value is new or has changed.** `_inject_ssh_keys`
+    also runs on the periodic shell re-injection pass over adopted containers, not
+    only at launch, so the naive version emitted one line every cycle: 54 lines for
+    a single container over 13.5 hours. A0's whole purpose is to measure the rate
+    of blanks across *images*, and a count that tracks re-injection cadence instead
+    of launches invites reading n=1 as n=54 — a fabricated sample, which is the
+    same failure as a fabricated measurement.
+
+    A fingerprint that *changes* for one container is worth an INFO line on its
+    own: it means the container was recreated underneath the job.
     """
     try:
         fingerprint = read_container_host_key_fingerprint(container_name)
-        if fingerprint:
-            log.info("host_key.observed job=%s fingerprint=%s", job_id, fingerprint)
+        value = fingerprint or ""
+        previous = _host_key_seen.get(container_name)
+        _host_key_seen[container_name] = value
+        if previous == value:
+            log.debug(
+                "host_key.unchanged job=%s container=%s", job_id, container_name
+            )
+            return
+        if value:
+            log.info(
+                "host_key.observed job=%s fingerprint=%s%s",
+                job_id,
+                value,
+                " (changed)" if previous else "",
+            )
         else:
             log.info("host_key.unreadable job=%s container=%s", job_id, container_name)
     except Exception:  # pragma: no cover - observation must never break a launch
