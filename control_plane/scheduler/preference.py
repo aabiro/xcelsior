@@ -65,10 +65,24 @@ TIER_ORDER = _tier_order()
 #: year of evidence at 99.6%. `total in (None, 0)` admitted any nonzero window,
 #: so "has a measurement" was standing in for "has enough measurement".
 #:
-#: Thirty days is one `sla_monthly` period — the natural unit the table is keyed
-#: by, and short enough that a host earns eligibility in a month rather than a
-#: quarter.
+#: **A floor on a summed trailing window, not on one month's row.** "Thirty days
+#: is one `sla_monthly` period" was wrong arithmetic: rows are per calendar
+#: month, and February's maximum is 2,419,200s against this 2,592,000s minimum,
+#: so **no February row could ever satisfy it** — and no current month until day
+#: 30. The threshold was only ever reachable by summing across rows, which
+#: quietly settled the aggregation question C1 had written down as still open.
+#:
+#: So it is settled deliberately instead: the projection sums `total_seconds`
+#: and `downtime_seconds` over a **trailing window** and hands C0 the totals.
+#: That also stops `min_uptime_pct` lurching every 1st of the month, which a
+#: per-month reading would cause — a preference that passes on the 31st and
+#: refuses on the 1st is a preference nobody can rely on.
 MIN_OBSERVATION_SECONDS = 30 * 24 * 3600
+
+#: How far back the projection sums. Stated here because C0's threshold is
+#: meaningless without it: 30 days of evidence out of 90 is a different claim
+#: from 30 out of 30.
+OBSERVATION_WINDOW_DAYS = 90
 
 
 @dataclass(frozen=True)
@@ -77,6 +91,13 @@ class PlacementPreference:
 
     min_uptime_pct: float | None = None
     min_tier: str | None = None
+    #: The gate's own example is *"prefer **verified** hosts above 99.5% uptime"*,
+    #: and `verified` is not a reputation tier in this system — it is
+    #: `host_verifications.state`, a four-state machine with its own checker and
+    #: recheck schedule. Expressing that example needs this axis; `min_tier`
+    #: cannot carry it, and pointing `min_tier` at reputation only moved the
+    #: mistake onto a real vocabulary on the wrong dimension.
+    require_verified: bool = False
     #: How much more than the cheapest *eligible* host they will pay to satisfy
     #: the constraints. `None` means no bound — they will pay what it costs.
     max_premium_pct: float | None = None
@@ -86,6 +107,7 @@ class PlacementPreference:
             self.min_uptime_pct is None
             and self.min_tier is None
             and self.max_premium_pct is None
+            and not self.require_verified
         )
 
 
@@ -173,6 +195,41 @@ def usable_price(host: dict) -> float | None:
         if value > 0:
             return value
     return None
+
+
+def host_tier(host: dict) -> str | None:
+    """The host's tier, **derived from its score** when a score is present.
+
+    `reputation_scores.tier` carries `server_default 'bronze'` while
+    `final_score` defaults to `0`, and `score_to_tier(0)` is `new_user`. A row
+    inserted without an explicit tier therefore sits at **bronze on zero earned
+    score**, and would satisfy `min_tier="bronze"` on no evidence — §3.1's
+    argument in the reputation dimension, fail-open, written into the schema.
+
+    Deriving is the conservative direction: where the stored column and the
+    score disagree, the score wins and the host ranks lower. The stored value is
+    used only when there is no score to derive from.
+    """
+    score = host.get("reputation_score")
+    if score is not None:
+        try:
+            from reputation import score_to_tier
+
+            return str(getattr(score_to_tier(float(score)), "value", score_to_tier(float(score))))
+        except (TypeError, ValueError):
+            pass
+    tier = host.get("reputation_tier")
+    return str(tier).strip().lower() if tier else None
+
+
+def host_verified(host: dict) -> bool:
+    """True only for a host whose verification state is exactly `verified`.
+
+    `unverified`, `verifying` and `deverified` are all "not verified", and
+    `deverified` especially: it is a host that *was* verified and had it
+    revoked, which is further from acceptable than one never checked.
+    """
+    return str(host.get("verification_state") or "").strip().lower() == "verified"
 
 
 def _price(host: dict) -> float:
@@ -275,6 +332,23 @@ def choose_host(
                 best_available=max(known) if known else None,
             )
 
+    if preference.require_verified:
+        states = [(h, str(h.get("verification_state") or "").strip().lower()) for h in survivors]
+        survivors = [h for h, state in states if state == "verified"]
+        if not survivors:
+            seen = sorted({st for _, st in states if st}) or ["none recorded"]
+            return PlacementRefused(
+                code="verification_unsatisfiable",
+                detail=(
+                    "no candidate host is verified; the states present are "
+                    + ", ".join(seen)
+                    + ". A deverified host is one whose verification was revoked, "
+                    "which is further from acceptable than one never checked."
+                ),
+                asked="verified",
+                best_available=seen[0] if seen != ["none recorded"] else None,
+            )
+
     if preference.min_tier is not None:
         want = preference.min_tier.strip().lower()
         if want not in TIER_ORDER:
@@ -284,7 +358,7 @@ def choose_host(
                 asked=preference.min_tier,
             )
         floor = TIER_ORDER.index(want)
-        rated = [(h, str(h.get("reputation_tier") or "").strip().lower()) for h in survivors]
+        rated = [(h, host_tier(h) or "") for h in survivors]
         survivors = [h for h, tier in rated if tier in TIER_ORDER and TIER_ORDER.index(tier) >= floor]
         if not survivors:
             present = [t for _, t in rated if t in TIER_ORDER]
@@ -335,9 +409,17 @@ def placement_evidence(host: dict) -> dict:
     reconstructing an incident weeks afterwards. So the numbers are copied.
     """
     return {
-        "reputation_tier": host.get("reputation_tier"),
+        # Derived, not the stored column — see `host_tier`.
+        "reputation_tier": host_tier(host),
         "reputation_score": host.get("reputation_score"),
         "uptime_pct": host_uptime_pct(host),
         "sla_total_seconds": host.get("sla_total_seconds"),
         "sla_downtime_seconds": host.get("sla_downtime_seconds"),
+        # **Verification is revocable**, which makes it precisely the fact that
+        # goes stale: a host verified at placement can be deverified the next
+        # day, and an incident review needs what was true then. `verified_at`
+        # comes with it, because "verified" alone does not say how recently.
+        "verification_state": host.get("verification_state"),
+        "verified_at": host.get("verified_at"),
+        "deverified_at": host.get("deverified_at"),
     }
