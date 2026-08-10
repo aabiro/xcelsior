@@ -101,6 +101,113 @@ def api_simulate_placement(j: JobIn, request: Request):
     }
 
 
+class PlacementPreferenceIn(BaseModel):
+    """A stated placement preference — constraints that gate, a bound that caps.
+
+    Deliberately **not** part of `JobIn`. The spec is what to run; this is which
+    host may run it. Folding it into the spec would put it inside `canonicalize`
+    and `spec_hash`, so two identical workloads asking for different reliability
+    would hash differently and an approval could not be matched to a rerun.
+    """
+
+    min_uptime_pct: float | None = Field(default=None, ge=0, le=100)
+    min_tier: str | None = Field(default=None, max_length=32)
+    require_verified: bool = False
+    max_premium_pct: float | None = Field(default=None, ge=0, le=10_000)
+
+
+class PlacementEvaluationIn(BaseModel):
+    spec: JobIn
+    preference: PlacementPreferenceIn
+
+
+@router.post("/api/v1/placements/evaluate")
+def api_evaluate_placement(body: PlacementEvaluationIn, request: Request):
+    """What this preference would place on, or why it refuses — read-only.
+
+    Separate from `/placements/simulate` on purpose. That route answers "is
+    there *an* eligible host", and its `feasible` flag has one meaning. A
+    constrained request has a second, independent answer — the constraint was
+    or was not satisfiable — and overloading one boolean with both is how a
+    refusal comes to read as an outage.
+
+    **A refusal is a 200.** The caller asked what would happen and is being
+    told, with the number that failed attached so the trade-off can be
+    rendered before anything is committed. An HTTP error would say the request
+    was wrong; the request was fine and the fleet could not satisfy it.
+    """
+    from control_plane.db import control_plane_transaction
+    from control_plane.launch.canonicalize import canonicalize, spec_hash
+    from control_plane.launch.service import simulate_placement
+    from control_plane.launch.validation import validate_canonical_spec
+    from control_plane.scheduler.constrained_placement import (
+        evaluate_preference,
+        record_decision,
+    )
+    from control_plane.scheduler.filters import FilterContext, filter_hosts
+    from control_plane.scheduler.preference import PlacementPreference
+    from control_plane.scheduler.snapshot import take_snapshot
+
+    user, principal = _resolve_principal(request)
+    _require_scope(user, "instances:read")
+
+    spec = canonicalize(body.spec.model_dump())
+    problems = validate_canonical_spec(spec)
+    if problems:
+        return problem_response(
+            status=422,
+            code="invalid_spec",
+            detail="the launch spec failed validation",
+            errors=[p.as_dict() for p in problems],
+        )
+
+    preference = PlacementPreference(
+        min_uptime_pct=body.preference.min_uptime_pct,
+        min_tier=body.preference.min_tier,
+        require_verified=body.preference.require_verified,
+        max_premium_pct=body.preference.max_premium_pct,
+    )
+
+    job = {
+        "gpu_model": spec.get("gpu_model"),
+        "num_gpus": spec.get("num_gpus"),
+        "vram_needed_gb": spec.get("vram_needed_gb"),
+        "region": spec.get("region"),
+    }
+
+    # One transaction for the snapshot, the hard filter and the evidence read,
+    # so the decision is made over a single consistent picture of the fleet
+    # rather than three that drifted between statements. `take_snapshot` sets
+    # REPEATABLE READ and must therefore be the first statement on this
+    # connection.
+    with control_plane_transaction() as conn:
+        snapshot = take_snapshot(conn)
+        eligible, _rejections = filter_hosts(
+            job, snapshot.hosts, FilterContext(stale_host_ids=snapshot.stale_host_ids)
+        )
+        decision, candidates = evaluate_preference(conn, eligible, preference)
+
+    # Recorded **after** the read transaction closes, on purpose. The record
+    # takes its own connection, and taking a second one while still holding the
+    # snapshot's would tie up two pool slots per request for as long as the
+    # decision takes — a pool-exhaustion shape under load. The read is already
+    # finished; nothing is gained by holding it.
+    decision_id = record_decision(
+        decision, candidates, preference, tenant_id=principal.tenant_id
+    )
+
+    return {
+        "ok": True,
+        "spec_hash": spec_hash(spec),
+        "availability": simulate_placement(spec),
+        "preference": decision.as_dict(),
+        # None when the trail could not be written. Surfaced rather than hidden:
+        # a caller told its decision was recorded, when it was not, would go
+        # looking for a row that does not exist.
+        "decision_id": decision_id,
+    }
+
+
 @router.post("/api/v1/launch-plans")
 def api_create_launch_plan(j: JobIn, request: Request):
     """§14.1 preview. Creates an action plan; no attempt/allocation/lease/hold/job.
