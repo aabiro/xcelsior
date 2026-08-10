@@ -49,10 +49,16 @@ def _host(host_id, price, *, up=None, total=None, tier=None, score=None):
 #: was added, and made every uptime test refuse for a reason it was not testing.
 YEAR = 365 * 24 * 3600
 
+#: Scores are consistent with their tiers, which the first version of these
+#: fixtures was not: `tier="platinum", score=95` claimed platinum while 95 is
+#: `new_user` under `TIER_THRESHOLDS`. Harmless while the stored column was
+#: trusted, and immediately wrong once the tier is derived from the score — the
+#: same shape as the 11.5-day observation windows. A fixture that could not
+#: exist in production is not evidence about production.
 FLEET = [
-    _host("cheap-flaky", 100, up=97.0, total=YEAR, tier="bronze", score=40),
-    _host("mid-good", 110, up=99.6, total=YEAR, tier="gold", score=80),
-    _host("dear-great", 200, up=99.95, total=YEAR, tier="platinum", score=95),
+    _host("cheap-flaky", 100, up=97.0, total=YEAR, tier="bronze", score=150),
+    _host("mid-good", 110, up=99.6, total=YEAR, tier="gold", score=500),
+    _host("dear-great", 200, up=99.95, total=YEAR, tier="platinum", score=700),
 ]
 
 
@@ -99,7 +105,7 @@ def test_a_host_with_no_uptime_history_does_not_satisfy_a_reliability_constraint
     """
     from control_plane.scheduler.preference import PlacementPreference, choose_host
 
-    newcomer = [_host("brand-new", 50, tier="gold", score=50)]
+    newcomer = [_host("brand-new", 50, tier="gold", score=500)]
     result = choose_host(newcomer, PlacementPreference(min_uptime_pct=99.0))
     d = result.as_dict()
     assert d["refused"] is True, "a host with no SLA history satisfied an uptime constraint"
@@ -164,7 +170,7 @@ def test_a_tier_constraint_gates_rather_than_ranks():
     assert result.as_dict()["host_id"] == "dear-great"
 
     refused = choose_host(
-        [_host("only-bronze", 10, up=99.9, total=YEAR, tier="bronze")],
+        [_host("only-bronze", 10, up=99.9, total=YEAR, tier="bronze", score=150)],
         PlacementPreference(min_tier="gold"),
     ).as_dict()
     assert refused["refused"] is True
@@ -204,15 +210,15 @@ def test_the_evidence_is_copied_not_referenced():
     """
     from control_plane.scheduler.preference import PlacementPreference, choose_host
 
-    host = _host("mid-good", 110, up=99.6, total=YEAR, tier="gold", score=80)
+    host = _host("mid-good", 110, up=99.6, total=YEAR, tier="gold", score=500)
     result = choose_host([host], PlacementPreference(min_uptime_pct=99.5))
     evidence = result.as_dict()["evidence"]
 
     # The host's score changes after placement, as reputation does.
-    host["reputation_score"] = 12
+    host["reputation_score"] = 12  # demoted after placement
     host["reputation_tier"] = "new_user"
 
-    assert evidence["reputation_score"] == 80, "the record followed the host's later score"
+    assert evidence["reputation_score"] == 500, "the record followed the host's later score"
     assert evidence["reputation_tier"] == "gold"
     assert evidence["uptime_pct"] == pytest.approx(99.6, abs=0.01)
 
@@ -330,3 +336,171 @@ def test_the_tier_vocabulary_is_the_one_production_actually_uses():
     # Ordering is by threshold, not by declaration order.
     assert TIER_ORDER[0] == "new_user"
     assert TIER_ORDER[-1] == "diamond"
+
+
+# ── The axis the gate's example actually names ───────────────────────
+
+
+def _verified(host_id, price, state, **kw):
+    h = _host(host_id, price, **kw)
+    h["verification_state"] = state
+    return h
+
+
+def test_require_verified_reads_the_verification_state_machine():
+    """The gate's example is "prefer **verified** hosts above 99.5% uptime".
+
+    `verified` is not a reputation tier in this system — it is
+    `host_verifications.state`, a state machine with its own checker and recheck
+    schedule. `min_tier` was invented to carry it, and re-pointing `min_tier` at
+    `TIER_THRESHOLDS` swapped an invented vocabulary for a real one **on the
+    wrong axis**, leaving the plan's literal example still inexpressible.
+    """
+    from control_plane.scheduler.preference import PlacementPreference, choose_host
+
+    fleet = [
+        _verified("cheap-unverified", 100, "unverified", up=99.99, total=YEAR),
+        _verified("dearer-verified", 120, "verified", up=99.9, total=YEAR),
+    ]
+    chosen = choose_host(fleet, PlacementPreference(require_verified=True))
+    assert chosen.as_dict()["host_id"] == "dearer-verified", (
+        "an unverified host won a preference that asked for verification"
+    )
+
+
+def test_a_deverified_host_is_not_verified():
+    """Revocation means revoked.
+
+    A host that *was* verified and had it withdrawn is further from acceptable
+    than one never checked — treating `deverified` as a pass would honour a
+    check the platform itself retracted.
+    """
+    from control_plane.scheduler.preference import PlacementPreference, choose_host
+
+    result = choose_host(
+        [_verified("was-good", 10, "deverified", up=99.99, total=YEAR)],
+        PlacementPreference(require_verified=True),
+    ).as_dict()
+    assert result["refused"] is True
+    assert result["code"] == "verification_unsatisfiable"
+    assert "deverified" in result["detail"]
+
+
+def test_verification_refusal_names_the_states_present():
+    from control_plane.scheduler.preference import PlacementPreference, choose_host
+
+    result = choose_host(
+        [
+            _verified("a", 10, "unverified", up=99.9, total=YEAR),
+            _verified("b", 20, "verifying", up=99.9, total=YEAR),
+        ],
+        PlacementPreference(require_verified=True),
+    ).as_dict()
+    assert result["code"] == "verification_unsatisfiable"
+    assert "unverified" in result["detail"] and "verifying" in result["detail"]
+
+
+def test_the_gates_own_example_is_expressible():
+    """"Prefer verified hosts above 99.5% uptime even at 15% more."
+
+    All three constraints at once, which is the sentence P5 is written around.
+    Until `require_verified` existed this could not be said at all.
+    """
+    from control_plane.scheduler.preference import PlacementPreference, choose_host
+
+    fleet = [
+        _verified("cheap-unverified", 100, "unverified", up=99.99, total=YEAR),
+        _verified("verified-ok", 110, "verified", up=99.6, total=YEAR),
+        _verified("verified-dear", 300, "verified", up=99.99, total=YEAR),
+    ]
+    pref = PlacementPreference(
+        require_verified=True, min_uptime_pct=99.5, max_premium_pct=15
+    )
+    d = choose_host(fleet, pref).as_dict()
+    assert d["refused"] is False
+    assert d["host_id"] == "verified-ok"
+    assert d["premium_pct"] == pytest.approx(10.0, abs=0.1)
+
+
+def test_evidence_copies_the_verification_state_because_it_is_revocable():
+    """Verification is exactly the fact that goes stale.
+
+    A host verified at placement can be deverified the next day, and an incident
+    review needs what was true *then*. `verified_at` comes with it, since
+    "verified" alone does not say how recently.
+    """
+    from control_plane.scheduler.preference import PlacementPreference, choose_host
+
+    host = _verified("v", 10, "verified", up=99.9, total=YEAR)
+    host["verified_at"] = "2026-07-01T00:00:00Z"
+    evidence = choose_host([host], PlacementPreference(require_verified=True)).as_dict()["evidence"]
+
+    host["verification_state"] = "deverified"
+    host["deverified_at"] = "2026-08-10T00:00:00Z"
+
+    assert evidence["verification_state"] == "verified", (
+        "the record followed the host's later revocation"
+    )
+    assert evidence["verified_at"] == "2026-07-01T00:00:00Z"
+
+
+# ── The schema's own fail-open ───────────────────────────────────────
+
+
+def test_a_schema_defaulted_tier_does_not_satisfy_a_tier_constraint():
+    """`reputation_scores.tier` defaults to `'bronze'`; `final_score` to `0`.
+
+    So a row inserted without an explicit tier sits at **bronze on zero earned
+    score** and would satisfy `min_tier="bronze"` on no evidence — §3.1's
+    argument in the reputation dimension, fail-open, written into the schema
+    rather than into any code path a test here would read.
+
+    Deriving through `score_to_tier` is the conservative direction: where the
+    column and the score disagree, the score wins and the host ranks lower.
+    """
+    from control_plane.scheduler.preference import PlacementPreference, choose_host, host_tier
+
+    defaulted = _host("defaulted", 10, up=99.9, total=YEAR)
+    defaulted["reputation_tier"] = "bronze"     # server default
+    defaulted["reputation_score"] = 0.0         # earned nothing
+
+    assert host_tier(defaulted) == "new_user", "the stored tier outranked the score"
+
+    result = choose_host([defaulted], PlacementPreference(min_tier="bronze")).as_dict()
+    assert result["refused"] is True, (
+        "a host sitting at the schema's default tier satisfied a bronze "
+        "constraint on zero earned score"
+    )
+
+
+def test_a_host_with_no_score_falls_back_to_its_stored_tier():
+    """Deriving is preferred, not mandatory — a row with no score still ranks."""
+    from control_plane.scheduler.preference import host_tier
+
+    assert host_tier({"reputation_tier": "gold"}) == "gold"
+    assert host_tier({}) is None
+
+
+def test_the_observation_minimum_is_reachable_within_one_calendar_month():
+    """The arithmetic that quietly answered C1's open aggregation question.
+
+    Rows are per calendar month. February's maximum is 2,419,200s against a
+    2,592,000s minimum, so **no February row can ever satisfy it**, and no
+    current month can until day 30. The threshold was only reachable by summing
+    across rows — which decided the aggregation rule by accident.
+    """
+    from control_plane.scheduler.preference import (
+        MIN_OBSERVATION_SECONDS,
+        OBSERVATION_WINDOW_DAYS,
+    )
+
+    february_seconds = 28 * 24 * 3600
+    assert MIN_OBSERVATION_SECONDS > february_seconds, (
+        "if the minimum fitted inside February this test would be asserting "
+        "nothing; it is here because it does not, which is why the window must "
+        "be a summed trailing period rather than one month's row"
+    )
+    assert OBSERVATION_WINDOW_DAYS * 24 * 3600 >= MIN_OBSERVATION_SECONDS, (
+        "the trailing window is shorter than the minimum it must contain, so no "
+        "host could ever accumulate enough evidence"
+    )
