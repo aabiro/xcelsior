@@ -43,10 +43,16 @@ def _host(host_id, price, *, up=None, total=None, tier=None, score=None):
     return h
 
 
+#: A year of observation on every host, so these tests exercise the *constraint*
+#: rather than the observation window. The original fixtures used 1,000,000
+#: seconds — 11.5 days — which silently sat under the 30-day minimum once that
+#: was added, and made every uptime test refuse for a reason it was not testing.
+YEAR = 365 * 24 * 3600
+
 FLEET = [
-    _host("cheap-flaky", 100, up=97.0, total=1_000_000, tier="basic", score=40),
-    _host("mid-good", 110, up=99.6, total=1_000_000, tier="verified", score=80),
-    _host("dear-great", 200, up=99.95, total=1_000_000, tier="trusted", score=95),
+    _host("cheap-flaky", 100, up=97.0, total=YEAR, tier="bronze", score=40),
+    _host("mid-good", 110, up=99.6, total=YEAR, tier="gold", score=80),
+    _host("dear-great", 200, up=99.95, total=YEAR, tier="platinum", score=95),
 ]
 
 
@@ -93,17 +99,17 @@ def test_a_host_with_no_uptime_history_does_not_satisfy_a_reliability_constraint
     """
     from control_plane.scheduler.preference import PlacementPreference, choose_host
 
-    newcomer = [_host("brand-new", 50, tier="verified", score=50)]
+    newcomer = [_host("brand-new", 50, tier="gold", score=50)]
     result = choose_host(newcomer, PlacementPreference(min_uptime_pct=99.0))
     d = result.as_dict()
     assert d["refused"] is True, "a host with no SLA history satisfied an uptime constraint"
     assert d["best_available"] is None, (
         "the refusal reported a best-available figure for hosts that have none"
     )
-    # The distinction the user needs: nothing *measured*, as opposed to measured
-    # and insufficient. Those call for different next steps — wait for history,
-    # versus relax the number.
-    assert "measured uptime history" in d["detail"]
+    # No history and *too little* history are the same refusal — both mean
+    # "there is not enough evidence to judge this", and both are answered by
+    # waiting rather than by relaxing the number.
+    assert d["code"] == "insufficient_history"
 
 
 def test_the_premium_is_measured_against_the_cheapest_eligible_host():
@@ -154,16 +160,16 @@ def test_the_premium_baseline_is_not_the_chosen_host():
 def test_a_tier_constraint_gates_rather_than_ranks():
     from control_plane.scheduler.preference import PlacementPreference, choose_host
 
-    result = choose_host(FLEET, PlacementPreference(min_tier="trusted"))
+    result = choose_host(FLEET, PlacementPreference(min_tier="platinum"))
     assert result.as_dict()["host_id"] == "dear-great"
 
     refused = choose_host(
-        [_host("only-basic", 10, up=99.9, total=1000, tier="basic")],
-        PlacementPreference(min_tier="verified"),
+        [_host("only-bronze", 10, up=99.9, total=YEAR, tier="bronze")],
+        PlacementPreference(min_tier="gold"),
     ).as_dict()
     assert refused["refused"] is True
     assert refused["code"] == "tier_unsatisfiable"
-    assert refused["best_available"] == "basic"
+    assert refused["best_available"] == "bronze"
 
 
 def test_an_unknown_tier_is_refused_rather_than_ignored():
@@ -198,14 +204,129 @@ def test_the_evidence_is_copied_not_referenced():
     """
     from control_plane.scheduler.preference import PlacementPreference, choose_host
 
-    host = _host("mid-good", 110, up=99.6, total=1_000_000, tier="verified", score=80)
+    host = _host("mid-good", 110, up=99.6, total=YEAR, tier="gold", score=80)
     result = choose_host([host], PlacementPreference(min_uptime_pct=99.5))
     evidence = result.as_dict()["evidence"]
 
     # The host's score changes after placement, as reputation does.
     host["reputation_score"] = 12
-    host["reputation_tier"] = "unverified"
+    host["reputation_tier"] = "new_user"
 
     assert evidence["reputation_score"] == 80, "the record followed the host's later score"
-    assert evidence["reputation_tier"] == "verified"
+    assert evidence["reputation_tier"] == "gold"
     assert evidence["uptime_pct"] == pytest.approx(99.6, abs=0.01)
+
+
+# ── What review caught: two ways the gate went vacuous ───────────────
+
+
+def test_a_short_observation_window_does_not_beat_a_year_of_evidence():
+    """§3.1 separated `None` from a number, which was not enough.
+
+    A host with a two-hour window and no downtime reports **100.0%** and cleared
+    a 99.5% gate, beating a host with a year at 99.6% — the exact inversion §3.1
+    exists to prevent, because `total in (None, 0)` admitted any nonzero window.
+    "Has a measurement" was standing in for "has enough measurement".
+    """
+    from control_plane.scheduler.preference import PlacementPreference, choose_host
+
+    young = _host("young", 50, up=100.0, total=7200)          # 2 hours, spotless
+    veteran = _host("veteran", 60, up=99.6, total=YEAR)
+
+    chosen = choose_host([young, veteran], PlacementPreference(min_uptime_pct=99.5))
+    assert chosen.as_dict()["host_id"] == "veteran", (
+        "two hours of evidence outranked a year — a brand new host reads as "
+        "100% and wins a reliability preference"
+    )
+
+
+def test_insufficient_history_is_its_own_refusal():
+    """"Wait for history" and "relax the number" are different next steps.
+
+    Collapsing them into `uptime_unsatisfiable` would tell a user to lower a
+    constraint that no amount of lowering can satisfy.
+    """
+    from control_plane.scheduler.preference import PlacementPreference, choose_host
+
+    result = choose_host(
+        [_host("young", 50, up=100.0, total=7200)],
+        PlacementPreference(min_uptime_pct=99.5),
+    ).as_dict()
+    assert result["code"] == "insufficient_history"
+    assert result["best_available"] is None
+    assert "days" in result["detail"], "the refusal does not say how much history exists"
+
+
+def test_a_host_with_no_usable_price_cannot_become_the_premium_baseline():
+    """The premium bound's second vacuous path, and the worse one.
+
+    `_price` fell back to `0` for a missing or zero price. That host sorted
+    first, became the baseline, `baseline > 0` failed, and the premium was
+    reported as **0.0** — so the same two hosts that correctly refuse at 200%
+    over a 15% cap would place on the dearest and report the cap held.
+
+    The trigger is **provider-controlled**: an ask of `0` from one provider
+    changed what every other tenant's bound meant, which makes it cross-tenant
+    rather than cosmetic.
+    """
+    from control_plane.scheduler.preference import PlacementPreference, choose_host
+
+    free = _host("free", 0, up=0.0, total=YEAR)
+    cheap = _host("cheap", 100, up=97.0, total=YEAR)
+    dear = _host("dear", 300, up=99.95, total=YEAR)
+    pref = PlacementPreference(min_uptime_pct=99.9, max_premium_pct=15)
+
+    without_free = choose_host([cheap, dear], pref).as_dict()
+    with_free = choose_host([free, cheap, dear], pref).as_dict()
+
+    assert without_free["code"] == "premium_exceeded"
+    assert with_free["refused"] is True, (
+        "a zero-priced host made the premium cap vacuous — the user is told "
+        "their cap held while paying 3x"
+    )
+    assert with_free["code"] == "premium_exceeded"
+    assert with_free["best_available"] == without_free["best_available"], (
+        "an unpriced third-party host changed the premium this tenant was quoted"
+    )
+
+
+def test_hosts_without_any_usable_price_are_refused_rather_than_placed():
+    from control_plane.scheduler.preference import PlacementPreference, choose_host
+
+    result = choose_host(
+        [_host("free", 0, up=99.99, total=YEAR)],
+        PlacementPreference(max_premium_pct=15),
+    ).as_dict()
+    assert result["refused"] is True
+    assert result["code"] == "no_priced_hosts"
+
+
+def test_a_negative_or_unparsable_price_is_not_usable():
+    """A provider can put anything in that column."""
+    from control_plane.scheduler.preference import usable_price
+
+    assert usable_price({"price_cents_per_hour": -5}) is None
+    assert usable_price({"price_cents_per_hour": "free"}) is None
+    assert usable_price({"price_cents_per_hour": None, "ask_cents_per_hour": 42}) == 42.0
+
+
+def test_the_tier_vocabulary_is_the_one_production_actually_uses():
+    """The invented-vocabulary bug, guarded.
+
+    This module first shipped `("unverified", "basic", "verified", "trusted")`,
+    which appears nowhere in the system. Production stores `new_user`, so every
+    `min_tier` constraint would have refused `tier_unsatisfiable` against real
+    data — and a gate that always refuses is indistinguishable from a broken
+    one. It was found by querying production, not by any test here, which is why
+    this asserts against the enum rather than a list.
+    """
+    from reputation import ReputationTier
+    from control_plane.scheduler.preference import TIER_ORDER
+
+    assert set(TIER_ORDER) == {t.value for t in ReputationTier}, (
+        "the placement tier vocabulary has drifted from ReputationTier; a "
+        "constraint naming a tier the system does not store refuses every host"
+    )
+    # Ordering is by threshold, not by declaration order.
+    assert TIER_ORDER[0] == "new_user"
+    assert TIER_ORDER[-1] == "diamond"

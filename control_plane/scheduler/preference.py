@@ -32,9 +32,43 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Sequence
 
-#: Tier ordering, worst to best. A `min_tier` constraint admits its own tier and
-#: everything above it.
-TIER_ORDER = ("unverified", "basic", "verified", "trusted")
+def _tier_order() -> tuple[str, ...]:
+    """Tier names worst-to-best, **derived from `reputation.TIER_THRESHOLDS`**.
+
+    The first version of this module invented `("unverified", "basic",
+    "verified", "trusted")`. Production uses `new_user`/`bronze`/`silver`/
+    `gold`/`platinum`/`diamond`, so every `min_tier` constraint would have
+    refused with `tier_unsatisfiable` against real data — a gate that always
+    refuses is indistinguishable from a broken one, and it was found by querying
+    production rather than by any test here.
+
+    Deriving it also fixes the ordering by *threshold* rather than by the order
+    someone typed the names, so a tier inserted between two others sorts
+    correctly without this file being touched.
+    """
+    from reputation import TIER_THRESHOLDS
+
+    return tuple(
+        str(getattr(tier, "value", tier))
+        for tier, _ in sorted(TIER_THRESHOLDS.items(), key=lambda kv: kv[1])
+    )
+
+
+#: Snapshot for callers that want the vocabulary without importing `reputation`.
+TIER_ORDER = _tier_order()
+
+#: The shortest observation window that may satisfy a reliability constraint.
+#:
+#: Separating `None` from a number was not enough, and the gap was the exact
+#: inversion §3.1 exists to prevent: a host with a two-hour window and no
+#: downtime reports **100.0%** and clears a 99.5% gate, beating a host with a
+#: year of evidence at 99.6%. `total in (None, 0)` admitted any nonzero window,
+#: so "has a measurement" was standing in for "has enough measurement".
+#:
+#: Thirty days is one `sla_monthly` period — the natural unit the table is keyed
+#: by, and short enough that a host earns eligibility in a month rather than a
+#: quarter.
+MIN_OBSERVATION_SECONDS = 30 * 24 * 3600
 
 
 @dataclass(frozen=True)
@@ -114,8 +148,36 @@ def host_uptime_pct(host: dict) -> float | None:
     return max(0.0, min(100.0, (1.0 - down / float(total)) * 100.0))
 
 
+def usable_price(host: dict) -> float | None:
+    """The host's price, or None when it does not have a usable one.
+
+    **A host without a usable price is ineligible**, and that is a correctness
+    fix rather than tidiness. The previous version fell back to `0`, which sorted
+    such a host first and made it the premium baseline; `baseline > 0` then
+    failed and the premium was reported as **0.0**. The same two hosts that
+    correctly refuse at 200% over a 15% cap would place on the dearest one and
+    report that the cap held.
+
+    The input is **provider-controlled**. An ask of `0` from one provider
+    silently changed what every other tenant's premium bound meant, which makes
+    this a cross-tenant defect rather than a display bug.
+    """
+    for key in ("price_cents_per_hour", "ask_cents_per_hour"):
+        raw = host.get(key)
+        if raw is None:
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    return None
+
+
 def _price(host: dict) -> float:
-    return float(host.get("price_cents_per_hour") or host.get("ask_cents_per_hour") or 0)
+    """Sort key. Only ever called on hosts already known to have a price."""
+    return usable_price(host) or 0.0
 
 
 def choose_host(
@@ -139,8 +201,25 @@ def choose_host(
             detail="no host satisfies the job's requirements",
         )
 
-    ranked = sorted(hosts, key=_price)
+    priced = [h for h in hosts if usable_price(h) is not None]
+    if not priced:
+        return PlacementRefused(
+            code="no_priced_hosts",
+            detail=(
+                f"{len(hosts)} host(s) match the job but none publishes a usable "
+                "price, so no premium bound can be honoured"
+            ),
+        )
+
+    ranked = sorted(priced, key=_price)
     baseline = _price(ranked[0])
+    if baseline <= 0:
+        # Unreachable given the filter above, and asserted anyway: a zero
+        # baseline is what silently turns every premium into 0%.
+        return PlacementRefused(
+            code="no_priced_hosts",
+            detail="the cheapest eligible host has no usable price",
+        )
 
     if preference is None or preference.is_empty():
         chosen = ranked[0]
@@ -155,7 +234,30 @@ def choose_host(
     survivors = list(ranked)
 
     if preference.min_uptime_pct is not None:
-        measured = [(h, host_uptime_pct(h)) for h in survivors]
+        # Two separate refusals, because they call for different next steps:
+        # "wait for history" is not "relax the number".
+        observed = [
+            h for h in survivors
+            if float(h.get("sla_total_seconds") or 0) >= MIN_OBSERVATION_SECONDS
+        ]
+        if not observed:
+            longest = max(
+                (float(h.get("sla_total_seconds") or 0) for h in survivors), default=0.0
+            )
+            return PlacementRefused(
+                code="insufficient_history",
+                detail=(
+                    "no candidate has enough measured history to judge "
+                    f"reliability: the longest observation window is "
+                    f"{longest / 86400:.1f} days, and "
+                    f"{MIN_OBSERVATION_SECONDS / 86400:.0f} are required. A short "
+                    "window with no downtime reads as 100% and would otherwise "
+                    "beat a host with a year of evidence."
+                ),
+                asked=preference.min_uptime_pct,
+                best_available=None,
+            )
+        measured = [(h, host_uptime_pct(h)) for h in observed]
         survivors = [h for h, up in measured if up is not None and up >= preference.min_uptime_pct]
         if not survivors:
             known = [up for _, up in measured if up is not None]
