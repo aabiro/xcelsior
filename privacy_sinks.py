@@ -1037,6 +1037,42 @@ def delete_posthog_subject(
 def verify_subject_absence(
     request: Mapping[str, Any], _sink: Mapping[str, Any]
 ) -> SinkOutcome:
+    """Count what remains of a subject, and report whether they are gone.
+
+    ## The append-only tables are outside this check, and that is undecided
+
+    The checks below are a **hand-enumerated literal**. Any table not named here
+    is invisible to a function whose name asserts *absence* — so it can return a
+    clean verdict while rows persist. Everywhere else in the erasure path a
+    missing table is an omission; here it is an affirmative claim the code makes
+    on the reader's behalf, which is why the note lives at this function rather
+    than beside any one table.
+
+    Three tables carry an append-only (WORM) trigger — currently
+    `audit_events_v2` (072), `audit_checkpoints` (075) and `placement_decisions`
+    (105/106) — and **none of them is reachable from here or from any delete
+    sink above**. The trigger rejects DELETE unconditionally, and partitioning
+    prunes by time, not by tenant, so a per-subject erasure cannot reach them by
+    any existing mechanism.
+
+    **This predates all three tables and is not a defect introduced by any of
+    them.** It is the standing treatment of immutable audit data in this
+    repository, and a search for "legal basis", "legitimate interest" or "right
+    to erasure" finds nothing anywhere in it. Audit tables legitimately resolve
+    this in one of two ways — pseudonymise the subject's identifiers at erasure
+    time, or record a documented retention basis for keeping them — and **which
+    one applies here has not been decided**.
+
+    Both branches land on this function. If the answer is "erase", this
+    enumeration is what is wrong. If it is "retained under a stated basis", this
+    enumeration is what has to say so, and the verdict this function returns
+    needs to name the exception rather than imply it does not exist.
+
+    `tests/test_worm_tables_have_an_erasure_decision.py` derives both sides —
+    the WORM set from `pg_trigger`, the reachable set from this function's own
+    source — so a **new** append-only table cannot join the unresolved set
+    silently.
+    """
     user_id, email, customer_ids = _identifiers(request)
     pool = _pool()
     with pool.connection() as conn:
