@@ -1715,6 +1715,10 @@
     "class": "gap",
     "notes": "P4: run an approved pipeline. Gate P4's 'the approved graph is server-bound' is enforced here by rehashing the stored canonical args — a caller names a plan and cannot supply stages. No tool calls it yet: run_pipeline quotes, and execution follows approval, which is a human step by design."
   },
+  "POST /api/v1/placements/evaluate": {
+    "class": "gap",
+    "notes": "P5 C2: evaluate a stated placement preference over the current fleet and return the host it would pick or a typed refusal carrying the number that failed. Read-only apart from the append to placement_decisions (Gate P5 clause 3), which records refusals as well as placements. Separate from /placements/simulate because that route answers 'is there an eligible host' and its feasible flag has one meaning; a constrained request has a second, independent answer, and overloading one boolean with both is how a refusal comes to read as an outage. No MCP tool calls it yet — the tool surface is a later step."
+  },
   "POST /api/v1/placements/simulate": {
     "class": "covered",
     "notes": "MCP server calls this path"
