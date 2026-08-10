@@ -64,6 +64,39 @@ people to ignore the warning.
 Both corrections came from one instance. That is the argument for A1 waiting on
 fleet data rather than proceeding on this sample.
 
+### 1b. A0's exit criterion is **not** met, and the log overstates the sample (2026-08-10)
+
+A0 is done when *"the rate of blanks is known rather than assumed"*. Read
+against the only worker running it, the journal shows:
+
+| | |
+|---|---|
+| `host_key.observed` | **54** |
+| `host_key.unreadable` | **0** |
+| distinct jobs | **1** |
+| distinct fingerprints | **1** |
+| distinct hosts | **1** |
+| span | 13.5 hours, one line every ~15 minutes |
+
+**Fifty-four observations of one container is n=1.** Read at face value, "54
+observed, 0 unreadable" invites the conclusion that the blank rate is zero with
+high confidence. The actual sample is a single base image on a single host —
+which answers nothing about image variance, the one thing A0 exists to measure,
+and the one thing §1a already showed varies enough to invalidate two assumptions.
+
+**Why it repeats.** `_log_container_host_key_fingerprint` is called from
+`_inject_ssh_keys`, which the agent also runs on its **periodic shell
+re-injection pass** over adopted containers — not only at launch. So the count
+tracks re-injection cadence, not launches. The observation is now logged at INFO
+only when a container's fingerprint is **first seen or changes**, and at DEBUG
+otherwise, so a future count means what a reader will take it to mean. A
+fingerprint that changes for one container is itself worth seeing: it means the
+container was recreated underneath the job.
+
+**A1 remains blocked**, and on data rather than code. It needs launches across
+more than one base image. The blocker is the same one holding Gate P2 clause 1
+and Gate P3 clause 3: no Xcelsior-managed fleet activity.
+
 ## 2. What this buys, stated exactly
 
 SSH's default is trust-on-first-use: the first connection accepts whatever key
