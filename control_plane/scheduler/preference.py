@@ -332,6 +332,12 @@ def choose_host(
     cheapest host that could have run the job. Measuring the premium against the
     chosen host instead would make the bound vacuous, and against the cheapest
     host overall would compare against something ineligible.
+
+    Among the survivors the winner is the one `ranking.host_efficiency_score`
+    ranks highest — **the same ranker `scheduler.allocate_best_host` uses**, so
+    stating a preference changes who is *eligible* and never changes the rule by
+    which the eligible are compared. A user asking for verification did not ask
+    to be moved onto the cheapest machine.
     """
     if not hosts:
         return PlacementRefused(
@@ -495,29 +501,48 @@ def choose_host(
                 best_available=best,
             )
 
-    chosen = survivors[0]
-    chosen_price = _price(chosen)
-    premium = ((chosen_price - baseline) / baseline * 100.0) if baseline > 0 else 0.0
+    def _premium(host: dict) -> float:
+        return ((_price(host) - baseline) / baseline * 100.0) if baseline > 0 else 0.0
 
-    if preference.max_premium_pct is not None and premium > preference.max_premium_pct:
-        # The user said what reliability was worth to them, and this exceeds it.
-        # Placing anyway would be answering a question they did not ask.
-        return PlacementRefused(
-            code="premium_exceeded",
-            detail=(
-                f"the cheapest host meeting the preference costs {premium:.1f}% "
-                f"more than the cheapest eligible host, above the "
-                f"{preference.max_premium_pct}% you allowed"
-            ),
-            asked=preference.max_premium_pct,
-            best_available=round(premium, 1),
-        )
+    # `survivors` is still in ascending price order, so the first one is the
+    # cheapest that satisfies every constraint. The bound is checked against
+    # *it*, because if the cheapest survivor is over the cap then no survivor
+    # is, and the number the user gets back is the smallest one available.
+    affordable = survivors
+    if preference.max_premium_pct is not None:
+        affordable = [h for h in survivors if _premium(h) <= preference.max_premium_pct]
+        if not affordable:
+            cheapest_premium = _premium(survivors[0])
+            # The user said what reliability was worth to them, and this exceeds
+            # it. Placing anyway would be answering a question they did not ask.
+            return PlacementRefused(
+                code="premium_exceeded",
+                detail=(
+                    f"the cheapest host meeting the preference costs "
+                    f"{cheapest_premium:.1f}% more than the cheapest eligible "
+                    f"host, above the {preference.max_premium_pct}% you allowed"
+                ),
+                asked=preference.max_premium_pct,
+                best_available=round(cheapest_premium, 1),
+            )
+
+    # **Rank, do not just take the cheapest.** Taking `survivors[0]` was a second
+    # selection policy hiding behind the same call: `allocate_best_host` ranks by
+    # compute efficiency weighted by reputation, so a constrained request would
+    # silently have been placed by a different rule than an unconstrained one —
+    # jobs landing elsewhere with nothing erroring. `ranking.host_efficiency_score`
+    # is the one ranker; the constraints above decide *who is eligible*, and it
+    # decides *which of them*.
+    from control_plane.scheduler.ranking import host_efficiency_score
+
+    chosen = max(affordable, key=host_efficiency_score)
+    chosen_price = _price(chosen)
 
     return PlacementChoice(
         host=chosen,
         baseline_price=baseline,
         chosen_price=chosen_price,
-        premium_pct=premium,
+        premium_pct=_premium(chosen),
         evidence=placement_evidence(chosen),
     )
 
