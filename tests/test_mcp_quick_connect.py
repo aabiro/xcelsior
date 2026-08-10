@@ -6,6 +6,7 @@ the client in the user-facing OAuth client list.
 """
 
 import os
+import uuid
 
 import pytest
 from fastapi.testclient import TestClient
@@ -123,3 +124,62 @@ def test_quick_connect_client_excluded_from_client_list():
 def test_quick_connect_requires_auth():
     r = client.get("/api/mcp/quick-connect")
     assert r.status_code in (401, 403)
+
+
+# ── The connector URL follows the environment, not a literal ──────────
+
+
+def _quick_connect_api_url(monkeypatch, **env) -> str:
+    """One Quick Connect call, with the URL environment set as given."""
+    import routes.auth as auth_routes
+
+    for name in ("XCELSIOR_PUBLIC_URL", "XCELSIOR_BASE_URL"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+
+    token = _register_and_get_token(f"qc-url-{uuid.uuid4().hex[:10]}@example.com")
+    response = client.get("/api/mcp/quick-connect", headers=_auth(token))
+    assert response.status_code == 200, response.text
+    assert auth_routes  # the route module is the thing under test
+    return response.json()["api_url"]
+
+
+def test_the_connector_url_follows_the_plumbed_base_url(monkeypatch):
+    """The staging case, and the reason this was wrong.
+
+    `XCELSIOR_PUBLIC_URL` was read here and mapped in no compose file, so the
+    container never received it and the literal fallback always won. On
+    production that is invisible — the fallback *is* production — so the first
+    place it would have shown up is staging, handing a staging user a config
+    pointing at prod.
+    """
+    assert (
+        _quick_connect_api_url(monkeypatch, XCELSIOR_BASE_URL="https://staging.xcelsior.ca")
+        == "https://staging.xcelsior.ca"
+    )
+
+
+def test_an_explicit_public_url_still_wins(monkeypatch):
+    """Any deployment already setting it keeps working."""
+    assert (
+        _quick_connect_api_url(
+            monkeypatch,
+            XCELSIOR_PUBLIC_URL="https://explicit.example",
+            XCELSIOR_BASE_URL="https://staging.xcelsior.ca",
+        )
+        == "https://explicit.example"
+    )
+
+
+def test_a_trailing_slash_does_not_produce_a_double_slash(monkeypatch):
+    """`{api_url}/api/...` is what a client builds from this."""
+    assert (
+        _quick_connect_api_url(monkeypatch, XCELSIOR_BASE_URL="https://staging.xcelsior.ca/")
+        == "https://staging.xcelsior.ca"
+    )
+
+
+def test_with_nothing_set_it_falls_back_to_production(monkeypatch):
+    """Unchanged behaviour where neither name is present."""
+    assert _quick_connect_api_url(monkeypatch) == "https://xcelsior.ca"
