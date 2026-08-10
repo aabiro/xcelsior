@@ -65,6 +65,19 @@ TIER_ORDER = _tier_order()
 #: year of evidence at 99.6%. `total in (None, 0)` admitted any nonzero window,
 #: so "has a measurement" was standing in for "has enough measurement".
 #:
+#: How much of the trailing window must actually be covered by measurements
+#: before a reliability constraint can be judged. A third of it: enough that a
+#: single month of data cannot speak for a quarter, low enough that a host with
+#: one gap is not disqualified.
+MIN_OBSERVATION_COVERAGE = 1 / 3
+
+#: How far back the projection sums. **The floor derives from this**, so the two
+#: cannot drift apart: a window shorter than the floor would make the gate
+#: refuse every host — the February arithmetic one layer up, and the third time
+#: a number typed in one file has had to be derived from the policy that owns
+#: it. Change the window and the floor follows.
+OBSERVATION_WINDOW_DAYS = 90
+
 #: **A floor on a summed trailing window, not on one month's row.** "Thirty days
 #: is one `sla_monthly` period" was wrong arithmetic: rows are per calendar
 #: month, and February's maximum is 2,419,200s against this 2,592,000s minimum,
@@ -77,12 +90,7 @@ TIER_ORDER = _tier_order()
 #: That also stops `min_uptime_pct` lurching every 1st of the month, which a
 #: per-month reading would cause — a preference that passes on the 31st and
 #: refuses on the 1st is a preference nobody can rely on.
-MIN_OBSERVATION_SECONDS = 30 * 24 * 3600
-
-#: How far back the projection sums. Stated here because C0's threshold is
-#: meaningless without it: 30 days of evidence out of 90 is a different claim
-#: from 30 out of 30.
-OBSERVATION_WINDOW_DAYS = 90
+MIN_OBSERVATION_SECONDS = int(OBSERVATION_WINDOW_DAYS * 24 * 3600 * MIN_OBSERVATION_COVERAGE)
 
 
 @dataclass(frozen=True)
@@ -206,9 +214,17 @@ def host_tier(host: dict) -> str | None:
     score**, and would satisfy `min_tier="bronze"` on no evidence — §3.1's
     argument in the reputation dimension, fail-open, written into the schema.
 
-    Deriving is the conservative direction: where the stored column and the
-    score disagree, the score wins and the host ranks lower. The stored value is
+    Deriving makes the score authoritative, which is what `reputation.py`
+    already does — it computes `tier = score_to_tier(final)` and then stores
+    both, so the column is a cache of exactly this call. Where they disagree the
+    column is stale or defaulted, and the score is the fact. That is not
+    uniformly the *lower* answer — a stale column can sit below a risen score —
+    but it is the answer the writer would have produced. The stored value is
     used only when there is no score to derive from.
+
+    The `'bronze'` default that motivates this is still in the schema, so a row
+    inserted without an explicit tier is one write away from claiming a tier it
+    has not earned.
     """
     score = host.get("reputation_score")
     if score is not None:
@@ -259,14 +275,17 @@ def verification_status(host: dict, *, now: float | None = None) -> str:
     """`verified`, `stale`, or the raw state — the third instance of one shape.
 
     `state = 'verified'` means "was verified once and nothing has revoked it
-    since". It is not a current fact: `reverify_interval_sec` is 86400 and
-    `list_hosts_needing_reverification()` implements the due query, but its
-    only wrapper `get_hosts_needing_reverification()` **has no callers** — no
-    worker, no scheduler pass, no timer. `next_check_at` is written and never
-    read, so nothing ever moves a host out of `verified`.
+    since". It is not a current fact. When this was written the due query
+    `list_hosts_needing_reverification()` had **no callers at all** — no worker,
+    no scheduler pass, no timer — so `next_check_at` was written and never read
+    and a stamp could sit indefinitely past a one-day interval.
 
-    On production both verified hosts are overdue by **111 and 124 days**
-    against a one-day interval.
+    `verification_sweep.run_sweep()` now runs hourly and asks those hosts to
+    prove themselves again, which fixes the cause. It does not make this check
+    unnecessary: the sweep can only *ask*, and a host that is offline, busy with
+    a paying job, or running an agent too old to know the command will not
+    answer. A stamp can still be older than the tolerance, and this is what
+    reads it as such.
 
     That is the same shape as "unmeasured is not perfect" and "a two-hour window
     is not a year": **measured, but not recently enough to be evidence.** So it
@@ -421,9 +440,9 @@ def choose_host(
         if not survivors:
             seen = sorted({st for _, st in statuses if st}) or ["none recorded"]
             # Stale is its own refusal. "No verified hosts exist" is answered by
-            # verifying one; "the checker is not running" is answered by
-            # starting the sweep. Collapsing them sends the operator after the
-            # wrong problem.
+            # verifying one; "the host stopped answering" is answered by looking
+            # at the host. Collapsing them sends the operator after the wrong
+            # problem.
             if "stale" in seen:
                 return PlacementRefused(
                     code="verification_stale",
@@ -431,9 +450,11 @@ def choose_host(
                         "candidate hosts carry a `verified` state but no recent "
                         f"check — the stamp must be under "
                         f"{verification_max_age_seconds() / 86400:.0f} days old to "
-                        "count as current. `get_hosts_needing_reverification()` "
-                        "has no callers, so nothing moves a host out of "
-                        "`verified` and the stamp ages indefinitely."
+                        "count as current. The hourly reverification sweep asks "
+                        "overdue hosts to prove themselves again, so a stamp this "
+                        "old means the host has not answered: offline, busy with "
+                        "a job, or running an agent that does not know the "
+                        "`reverify` command."
                     ),
                     asked="verified",
                     best_available="stale",
