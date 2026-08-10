@@ -90,7 +90,19 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `105_placement_decisions.py`.**
+**Repository head: `106_partition_placement_decisions.py`.**
+(`106` partitions `placement_decisions` by month. `105` claimed WORM "like `075`
+and `072`" and took the trigger from both and the partitioning from neither —
+but `072` is explicit that *partition drops are DDL and are unaffected* by the
+trigger, which is the whole mechanism by which an append-only table stays
+prunable. `075` needs none of it, being one row per signed checkpoint; `105` is
+per request and copied the low-volume precedent, giving a table that grows
+without bound and whose own trigger forbids the only statement that could
+shrink it. A partitioned table's key must contain the partition key, so this is
+a rebuild rather than an ALTER — done now because nothing writes to the table
+yet, and it becomes a migration on undeletable data the moment something does.
+It refuses to run if the table holds rows.)
+
 (`105` adds the placement decision record Gate P5 clause 3 asks for.
 Evidence is **copied, not referenced**:
 storing a host id and re-reading its score later answers "what is this host's
