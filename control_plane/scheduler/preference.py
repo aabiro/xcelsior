@@ -222,12 +222,37 @@ def host_tier(host: dict) -> str | None:
     return str(tier).strip().lower() if tier else None
 
 
-#: A verification stamp older than this is a historical fact, not a current one.
-#: `VERIFICATION_THRESHOLDS["reverify_interval_sec"]` is 86400, so a host is
-#: *due* every day; this allows a generous multiple of that before the stamp
-#: stops counting, because refusing the instant a sweep is late would make the
-#: constraint hostage to the sweep's punctuality.
-VERIFICATION_MAX_AGE_SECONDS = 7 * 24 * 3600
+#: How many reverification intervals a stamp may lapse before it stops counting.
+#:
+#: Refusing the instant a sweep is late would make the constraint hostage to the
+#: sweep's punctuality; seven intervals is slack enough to absorb an outage and
+#: short enough that a four-month-old stamp never passes.
+VERIFICATION_STALE_AFTER_INTERVALS = 7
+
+
+def verification_max_age_seconds() -> float:
+    """The staleness tolerance, **derived from the interval policy it depends on**.
+
+    This was a typed `7 * 24 * 3600` whose docstring explained it as "a generous
+    multiple of `reverify_interval_sec`" — with the multiple living in the
+    comment and not in the code. That is the `TIER_ORDER` defect again: raise
+    the interval to a week and the tolerance silently becomes 1×; raise it to a
+    month and this gate refuses hosts that are perfectly current. Deriving it
+    means the relationship cannot drift out of the sentence describing it.
+    """
+    try:
+        from verification import VERIFICATION_THRESHOLDS
+
+        interval = float(VERIFICATION_THRESHOLDS.get("reverify_interval_sec") or 0)
+    except Exception:  # pragma: no cover - verification module is optional here
+        interval = 0.0
+    if interval <= 0:
+        interval = 86400.0
+    return interval * VERIFICATION_STALE_AFTER_INTERVALS
+
+
+#: Snapshot for readers; the function above is the authority.
+VERIFICATION_MAX_AGE_SECONDS = verification_max_age_seconds()
 
 
 def verification_status(host: dict, *, now: float | None = None) -> str:
@@ -261,7 +286,7 @@ def verification_status(host: dict, *, now: float | None = None) -> str:
         age = (now if now is not None else _time.time()) - float(checked)
     except (TypeError, ValueError):
         return "stale"
-    return "verified" if age <= VERIFICATION_MAX_AGE_SECONDS else "stale"
+    return "verified" if age <= verification_max_age_seconds() else "stale"
 
 
 def host_verified(host: dict, *, now: float | None = None) -> bool:
@@ -294,6 +319,27 @@ def choose_host(
             code="no_eligible_hosts",
             detail="no host satisfies the job's requirements",
         )
+
+    # A constrained request cannot be honoured on unreadable evidence.
+    #
+    # `scheduler.py` logs and proceeds when the verification store is
+    # unavailable, which is right for the *unconstrained* path — a cold start
+    # should not stop every launch. On a request that asked for verification it
+    # is the same silent fallback one layer down, and C1 would go on to write
+    # "verified at placement" onto evidence nobody managed to read.
+    if preference is not None and preference.require_verified:
+        unreadable = [h for h in hosts if h.get("verification_unavailable")]
+        if unreadable:
+            return PlacementRefused(
+                code="verification_unreadable",
+                detail=(
+                    "verification state could not be read for "
+                    f"{len(unreadable)} candidate host(s), so `require_verified` "
+                    "cannot be honoured. Placing anyway would record a verified "
+                    "placement that nobody checked."
+                ),
+                asked="verified",
+            )
 
     priced = [h for h in hosts if usable_price(h) is not None]
     if not priced:
@@ -384,7 +430,7 @@ def choose_host(
                     detail=(
                         "candidate hosts carry a `verified` state but no recent "
                         f"check — the stamp must be under "
-                        f"{VERIFICATION_MAX_AGE_SECONDS // 86400} days old to "
+                        f"{verification_max_age_seconds() / 86400:.0f} days old to "
                         "count as current. `get_hosts_needing_reverification()` "
                         "has no callers, so nothing moves a host out of "
                         "`verified` and the stamp ages indefinitely."

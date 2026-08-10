@@ -1,4 +1,4 @@
-# Gate truth table — P0 through P4
+# Gate truth table — P0 through P5
 
 *Built 2026-08-08, against `4321d69`.*
 
@@ -164,6 +164,35 @@ goes through. Neither should be chosen by whoever happens to be typing.
 
 ---
 
+## Gate P5 — Spot migration and placement preference
+
+*Added 2026-08-10, mid-phase. Written now rather than at the end, because the
+reason clause 2 is PARTIAL is the interesting part and it is freshest while the
+work is open.*
+
+| # | Clause | Status | Evidence |
+|---|---|---|---|
+| 1 | A migrated job resumes from its checkpoint, proven by comparing state before and after — not by the absence of an error | **FAIL** | C3, not started. Needs two live instances that can share a volume. |
+| 2 | A placement preference that cannot be satisfied **refuses clearly** rather than silently falling back to the cheapest host | **PARTIAL** | **The module refuses correctly; the system still falls back.** `control_plane/scheduler/preference.py` gates rather than ranks, refuses with the failing number, and 33 tests drive it — including a probe showing that reranking instead of gating reds four of them. But `scheduler.py:5501` prefers verified hosts and **falls back to all when none qualify**, which is the very failure this clause names, already shipped. A correct module wired into that block still fails the clause end to end. `docs/placement-preference-plan.md` §5.4 is why, with the code inline. |
+| 3 | Preference is honoured in the audit trail: the chosen host's reputation and SLA at time of placement are recorded | **PARTIAL** | The values are copied rather than referenced, and verification state, `verified_at`, `last_check_at` and `next_check_at` come with them — verification is revocable, so it is precisely the fact that goes stale. What does not exist yet is the **record**: C1 writes it, and it must be append-only. |
+
+**This is the P4 sentence again.** A clause can be honestly met by a module
+sitting inside a system that does not yet honour it, and the distance between
+those two is exactly what this table exists to hold. Clause 2 is PARTIAL and not
+PASS for that reason alone — nothing is wrong with the module.
+
+**Neither constraint is shippable today, on production numbers.**
+`min_uptime_pct` refuses everything because `sla_monthly` has zero rows.
+`min_tier` refuses everything above `new_user` and admits everyone at it.
+`require_verified` refuses everything because the two verified hosts are 111 and
+124 days past a 7-day tolerance — the reverification sweep exists
+(`list_hosts_needing_reverification`) and **has no callers**. That sweep is
+therefore C2's first commit, before the launch surface: one pass makes the
+control live, and shipping it beforehand would teach users the feature is
+broken.
+
+---
+
 ## Tally
 
 | Gate | PASS | PARTIAL | FAIL | BLOCKED/SUPERSEDED |
@@ -174,13 +203,14 @@ goes through. Neither should be chosen by whoever happens to be typing.
 | P2 | 2 | — | 1 | — |
 | P3 | 1 | 1 | 1 | — |
 | P4 | 4 | — | — | — |
-| **Total** | **18** | **6** | **2** | **0** |
+| P5 | — | 2 | 1 | — |
+| **Total** | **18** | **8** | **3** | **0** |
 
-Eighteen of twenty-six clauses are fully met, nothing is BLOCKED, and **Gate P0
+Eighteen of twenty-nine clauses are fully met, nothing is BLOCKED, and **Gate P0
 and Gate P4 are wholly met**.
 
-The count grew because P4 added four clauses of its own — this table now covers
-P0–P4 rather than P0–P3. Worth saying plainly: Gate P4 passing all four does
+The count grew because P4 and P5 added clauses of their own — this table now
+covers P0–P5 rather than P0–P3. Worth saying plainly: Gate P4 passing all four does
 **not** mean pipelines work. Its clauses are about what an approval covers,
 invalidates and bounds, and the stage executor beneath them is unwired by
 design. A gate can be honestly met by a feature that is honestly incomplete,
