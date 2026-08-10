@@ -28,6 +28,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/placements/evaluate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Api Evaluate Placement
+         * @description What this preference would place on, or why it refuses — read-only.
+         *
+         *     Separate from `/placements/simulate` on purpose. That route answers "is
+         *     there *an* eligible host", and its `feasible` flag has one meaning. A
+         *     constrained request has a second, independent answer — the constraint was
+         *     or was not satisfiable — and overloading one boolean with both is how a
+         *     refusal comes to read as an outage.
+         *
+         *     **A refusal is a 200.** The caller asked what would happen and is being
+         *     told, with the number that failed attached so the trade-off can be
+         *     rendered before anything is committed. An HTTP error would say the request
+         *     was wrong; the request was fine and the fleet could not satisfy it.
+         */
+        post: operations["api_evaluate_placement_api_v1_placements_evaluate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/launch-plans": {
         parameters: {
             query?: never;
@@ -126,6 +157,91 @@ export interface paths {
          * @description §14.3 execute. Exactly-once; a price move beyond tolerance is 409 quote_changed.
          */
         post: operations["api_execute_launch_plan_api_v1_launch_plans__plan_id__execute_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pipelines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Api Create Pipeline
+         * @description Quote a dependency graph and persist it as one approvable plan.
+         *
+         *     Gate P4's "one approval, three stages". The graph lives in the plan's
+         *     canonical args, so the existing `canonical_args_hash` check is what makes
+         *     the approved graph server-bound — editing any stage afterwards invalidates
+         *     it without a mechanism written for this phase.
+         *
+         *     **The plan requires the union of its stages' scopes.** Approving
+         *     `train → serve` on `instances:operate` alone would let the serve stage run
+         *     without `inference:write`; one approval silently widening authority is the
+         *     failure this phase could introduce if scopes came from the first stage.
+         *
+         *     `approval_mode` is `"human"` and not the spend policy's decision. A standing
+         *     policy pre-authorises spending inside ceilings; letting it approve a graph
+         *     that sets its own ceiling is circular — the same reasoning that fixed
+         *     `configure_auto_topup` to human-only.
+         */
+        post: operations["api_create_pipeline_api_v1_pipelines_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pipelines/{plan_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api Get Pipeline
+         * @description Stage-by-stage state. A foreign plan is not-found, never forbidden.
+         */
+        get: operations["api_get_pipeline_api_v1_pipelines__plan_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pipelines/{plan_id}/execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Api Execute Pipeline
+         * @description Run an approved pipeline. The graph comes from the plan, never the request.
+         *
+         *     Gate P4's "the approved graph is server-bound: editing any stage after
+         *     approval invalidates it" is enforced here, and it is enforced the same way
+         *     the promotion executor does it — by rehashing the stored canonical args and
+         *     comparing. A caller cannot supply stages; it can only name a plan.
+         *
+         *     That is the whole reason the graph lives in `canonical_args` rather than in
+         *     `pipeline_stages`: the rows are execution state and are written by the
+         *     executor, so binding the approval to them would be binding it to something
+         *     the executor itself controls.
+         */
+        post: operations["api_execute_pipeline_api_v1_pipelines__plan_id__execute_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -689,6 +805,91 @@ export interface paths {
          * @description Idempotently create one endpoint for one approved plan.
          */
         post: operations["api_v1_execute_serverless_endpoint_plan_api_v1_serverless_endpoint_plans__plan_id__execute_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/promotions/{promotion_id}/manifest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api Promotion Manifest For Agent
+         * @description The file list and read grants for one promotion. Worker-authenticated.
+         *
+         *     Separate from the customer-facing preview, and deliberately so: this is the
+         *     only response that carries **presigned URLs**, which are time-limited read
+         *     grants for a tenant's weights. That is why the command row holds nothing but
+         *     `{promotion_id}` — a queued, logged, retained row is the wrong place for a
+         *     credential — and why this endpoint is reachable only by a platform worker.
+         *
+         *     The manifest is re-resolved from the catalog rather than stored on the row,
+         *     so a promotion cannot hand out URLs for artifacts that have since been
+         *     deleted, and the tenant is taken from the promotion rather than the caller.
+         */
+        get: operations["api_promotion_manifest_for_agent_api_v1_promotions__promotion_id__manifest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/promotions/{promotion_id}/result": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Api Promotion Result From Agent
+         * @description The agent reporting what happened. Worker-authenticated, terminal-once.
+         *
+         *     A promotion already in a terminal state is not overwritten: a retried
+         *     report must not turn a recorded failure into a success, and the state
+         *     machine's `succeeded` check requires a volume and a completion time, so a
+         *     row that reached success has already been proven complete.
+         */
+        post: operations["api_promotion_result_from_agent_api_v1_promotions__promotion_id__result_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/promotions/{promotion_id}/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Api Promotion File Result
+         * @description One file finished. Worker-authenticated.
+         *
+         *     §3.5 exists because retries are certain: "a promotion that restarts from
+         *     zero after a failure at 38 GB will be retried by a human who then watches it
+         *     fail again". This is the row that lets the next attempt skip it.
+         *
+         *     **`done` requires `sha256_verified`** — enforced by a CHECK, not only here.
+         *     The resume path skips `done` files, so a file marked done without
+         *     verification would be skipped forever and the volume would carry an
+         *     unverified copy that looks like a backup. An agent claiming `done` without
+         *     verification is refused rather than trusted.
+         */
+        post: operations["api_promotion_file_result_api_v1_promotions__promotion_id__files_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1616,6 +1817,37 @@ export interface components {
             /** Password */
             password: string;
         };
+        /**
+         * ManualTopupRequest
+         * @description A one-off top-up on a card already saved to the account.
+         *
+         *     The card selector is human-shaped on purpose. Nobody says `pm_1QxYz...`;
+         *     they say "my Visa" or "the one ending 4242". All three selectors are
+         *     optional — omitting them uses the account's default card, which is the
+         *     sensible reading of "top up my account".
+         */
+        ManualTopupRequest: {
+            /**
+             * Amount Cad
+             * @description Amount to charge, in CAD
+             */
+            amount_cad: number;
+            /**
+             * Payment Method Id
+             * @default
+             */
+            payment_method_id: string;
+            /**
+             * Card Last4
+             * @default
+             */
+            card_last4: string;
+            /**
+             * Card Brand
+             * @default
+             */
+            card_brand: string;
+        };
         /** MarketplaceSearchParams */
         MarketplaceSearchParams: {
             /**
@@ -1846,6 +2078,69 @@ export interface components {
              */
             description: string;
         };
+        /** PipelineIn */
+        PipelineIn: {
+            /**
+             * Name
+             * @default pipeline
+             */
+            name: string;
+            /** Stages */
+            stages: components["schemas"]["PipelineStageIn"][];
+        };
+        /** PipelineStageIn */
+        PipelineStageIn: {
+            /** Name */
+            name: string;
+            /** Action Type */
+            action_type: string;
+            /**
+             * On Failure
+             * @default halt
+             */
+            on_failure: string;
+            /**
+             * Max Attempts
+             * @default 1
+             */
+            max_attempts: number;
+            /**
+             * Estimate Micros
+             * @default 0
+             */
+            estimate_micros: number;
+            /** Args */
+            args?: {
+                [key: string]: unknown;
+            };
+        };
+        /** PlacementEvaluationIn */
+        PlacementEvaluationIn: {
+            spec: components["schemas"]["JobIn"];
+            preference: components["schemas"]["PlacementPreferenceIn"];
+        };
+        /**
+         * PlacementPreferenceIn
+         * @description A stated placement preference — constraints that gate, a bound that caps.
+         *
+         *     Deliberately **not** part of `JobIn`. The spec is what to run; this is which
+         *     host may run it. Folding it into the spec would put it inside `canonicalize`
+         *     and `spec_hash`, so two identical workloads asking for different reliability
+         *     would hash differently and an approval could not be matched to a rerun.
+         */
+        PlacementPreferenceIn: {
+            /** Min Uptime Pct */
+            min_uptime_pct?: number | null;
+            /** Min Tier */
+            min_tier?: string | null;
+            /**
+             * Require Verified
+             * @default false
+             */
+            require_verified: boolean;
+            /** Max Premium Pct */
+            max_premium_pct?: number | null;
+        };
         /** PoolHost */
         PoolHost: {
             /** Host Id */
@@ -1931,6 +2226,65 @@ export interface components {
             country?: string | null;
             /** Province */
             province?: string | null;
+        };
+        /** PromotionCreate */
+        PromotionCreate: {
+            /** Job Id */
+            job_id: string;
+            /**
+             * Idempotency Key
+             * @default
+             */
+            idempotency_key: string;
+        };
+        /** PromotionFileResult */
+        PromotionFileResult: {
+            /** Artifact Id */
+            artifact_id: string;
+            /**
+             * Logical Name
+             * @default
+             */
+            logical_name: string;
+            /**
+             * Size Bytes
+             * @default 0
+             */
+            size_bytes: number;
+            /**
+             * Sha256 Verified
+             * @default false
+             */
+            sha256_verified: boolean;
+            /**
+             * State
+             * @default done
+             * @enum {string}
+             */
+            state: "done" | "failed";
+            /**
+             * Failure Code
+             * @default
+             */
+            failure_code: string;
+        };
+        /** PromotionResult */
+        PromotionResult: {
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "succeeded" | "failed";
+            /**
+             * Failure Code
+             * @default
+             */
+            failure_code: string;
+            /**
+             * Bytes Written
+             * @default 0
+             */
+            bytes_written: number;
         };
         /** ProviderEvidenceRequest */
         ProviderEvidenceRequest: {
@@ -2894,6 +3248,39 @@ export interface operations {
             };
         };
     };
+    api_evaluate_placement_api_v1_placements_evaluate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlacementEvaluationIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     api_create_launch_plan_api_v1_launch_plans_post: {
         parameters: {
             query?: never;
@@ -3042,6 +3429,101 @@ export interface operations {
                 "application/json": components["schemas"]["_ExecuteIn"] | null;
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_create_pipeline_api_v1_pipelines_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PipelineIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_get_pipeline_api_v1_pipelines__plan_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_execute_pipeline_api_v1_pipelines__plan_id__execute_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -3833,6 +4315,107 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_promotion_manifest_for_agent_api_v1_promotions__promotion_id__manifest_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                promotion_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_promotion_result_from_agent_api_v1_promotions__promotion_id__result_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                promotion_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromotionResult"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_promotion_file_result_api_v1_promotions__promotion_id__files_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                promotion_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromotionFileResult"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

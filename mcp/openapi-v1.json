@@ -45,6 +45,46 @@
         }
       }
     },
+    "/api/v1/placements/evaluate": {
+      "post": {
+        "tags": [
+          "Launch plans"
+        ],
+        "summary": "Api Evaluate Placement",
+        "description": "What this preference would place on, or why it refuses \u2014 read-only.\n\nSeparate from `/placements/simulate` on purpose. That route answers \"is\nthere *an* eligible host\", and its `feasible` flag has one meaning. A\nconstrained request has a second, independent answer \u2014 the constraint was\nor was not satisfiable \u2014 and overloading one boolean with both is how a\nrefusal comes to read as an outage.\n\n**A refusal is a 200.** The caller asked what would happen and is being\ntold, with the number that failed attached so the trade-off can be\nrendered before anything is committed. An HTTP error would say the request\nwas wrong; the request was fine and the fleet could not satisfy it.",
+        "operationId": "api_evaluate_placement_api_v1_placements_evaluate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlacementEvaluationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/launch-plans": {
       "post": {
         "tags": [
@@ -4612,6 +4652,72 @@
           "action_type"
         ],
         "title": "PipelineStageIn"
+      },
+      "PlacementEvaluationIn": {
+        "properties": {
+          "spec": {
+            "$ref": "#/components/schemas/JobIn"
+          },
+          "preference": {
+            "$ref": "#/components/schemas/PlacementPreferenceIn"
+          }
+        },
+        "type": "object",
+        "required": [
+          "spec",
+          "preference"
+        ],
+        "title": "PlacementEvaluationIn"
+      },
+      "PlacementPreferenceIn": {
+        "properties": {
+          "min_uptime_pct": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Uptime Pct"
+          },
+          "min_tier": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Tier"
+          },
+          "require_verified": {
+            "type": "boolean",
+            "title": "Require Verified",
+            "default": false
+          },
+          "max_premium_pct": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 10000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Premium Pct"
+          }
+        },
+        "type": "object",
+        "title": "PlacementPreferenceIn",
+        "description": "A stated placement preference \u2014 constraints that gate, a bound that caps.\n\nDeliberately **not** part of `JobIn`. The spec is what to run; this is which\nhost may run it. Folding it into the spec would put it inside `canonicalize`\nand `spec_hash`, so two identical workloads asking for different reliability\nwould hash differently and an approval could not be matched to a rerun."
       },
       "PoolHost": {
         "properties": {
