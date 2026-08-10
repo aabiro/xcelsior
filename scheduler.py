@@ -5536,23 +5536,17 @@ def allocate_best_host(job, hosts):
     if not candidates:
         return None
 
-    # 3. Sort by compute efficiency * reputation boost
-    def score_host(h):
-        compute = h.get("compute_score") or estimate_compute_score(h.get("gpu_model", ""))
-        price = h.get("cost_per_hour", 0.20) or 0.20
-        efficiency = compute / price
+    # 3. Sort by compute efficiency * reputation boost.
+    #
+    # The ranker lives in `control_plane.scheduler.ranking` and neither path
+    # owns it. It used to be a closure here, and `preference.choose_host` picked
+    # the cheapest survivor instead — two selection policies, not two
+    # implementations of one. A constrained request would have been placed by a
+    # different rule than an unconstrained one, silently: jobs landing elsewhere
+    # with nothing erroring.
+    from control_plane.scheduler.ranking import host_efficiency_score
 
-        # Reputation boost
-        try:
-            re = get_reputation_engine()
-            rep = re.compute_score(h["host_id"])
-            boost = rep.search_boost
-        except Exception:
-            boost = 1.0
-
-        return efficiency * boost
-
-    best = max(candidates, key=score_host)
+    best = max(candidates, key=host_efficiency_score)
     log.info(
         "ALLOCATE job=%s -> host=%s (%s, %sGB free)",
         job.get("name", "?"),
