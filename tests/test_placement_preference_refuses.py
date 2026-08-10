@@ -620,3 +620,79 @@ def test_the_builder_refuses_a_host_that_could_not_exist():
         _host("liar", 10, tier="platinum", score=95)
     with pytest.raises(AssertionError, match="impossible host"):
         _host("too-young", 10, up=100.0, total=7200)
+
+
+def test_a_constrained_request_refuses_when_verification_cannot_be_read():
+    """Logging is right for the unconstrained path; here it is the same silent
+    fallback one layer down.
+
+    `scheduler.py` logs and proceeds when the verification store is unreachable
+    — correct for a cold start, which should not stop every launch. But a
+    request that *asked* for verification cannot be honoured on evidence nobody
+    read, and C1 would otherwise write "verified at placement" onto it.
+    """
+    from control_plane.scheduler.preference import PlacementPreference, choose_host
+
+    host = _verified("h", 10, "verified", up=99.9, total=YEAR)
+    host["verification_unavailable"] = True
+
+    result = choose_host([host], PlacementPreference(require_verified=True)).as_dict()
+    assert result["refused"] is True
+    assert result["code"] == "verification_unreadable"
+
+
+def test_an_unconstrained_request_still_places_when_verification_is_unreadable():
+    """The other half — this must not become a blanket outage.
+
+    Without it the fix would stop every launch whenever the verification store
+    hiccups, which is the failure the scheduler's fallback exists to avoid.
+    """
+    from control_plane.scheduler.preference import choose_host
+
+    host = _host("h", 10, up=99.9, total=YEAR)
+    host["verification_unavailable"] = True
+    assert choose_host([host]).as_dict()["refused"] is False
+
+
+def test_the_staleness_tolerance_is_derived_from_the_interval_policy():
+    """A typed `7 * 24 * 3600` whose docstring called it "a multiple of
+    reverify_interval_sec" kept the multiple in the comment and not the code —
+    the `TIER_ORDER` defect again.
+
+    Raise the interval to a week and the tolerance silently becomes 1×; raise it
+    to a month and this gate refuses hosts that are perfectly current.
+    """
+    from verification import VERIFICATION_THRESHOLDS
+    from control_plane.scheduler.preference import (
+        VERIFICATION_STALE_AFTER_INTERVALS,
+        verification_max_age_seconds,
+    )
+
+    interval = float(VERIFICATION_THRESHOLDS["reverify_interval_sec"])
+    assert verification_max_age_seconds() == interval * VERIFICATION_STALE_AFTER_INTERVALS, (
+        "the tolerance has drifted from the interval it is defined against"
+    )
+
+
+def test_the_sweep_and_the_gate_agree_about_a_missing_schedule():
+    """They disagreed, and hosts fell in the gap.
+
+    The gate treats a missing `last_check_at` as stale — refused, correctly.
+    The due query required `next_check_at IS NOT NULL`, so a verified host with
+    no schedule was invisible to the sweep **forever**: permanently refused by
+    the gate and permanently unreachable by the only thing that would fix it.
+    A `verifying` row had no path at all, since the predicate looked only at
+    `verified`.
+    """
+    import inspect
+
+    from verification import VerificationStore
+
+    source = inspect.getsource(VerificationStore.list_hosts_needing_reverification)
+    assert "next_check_at IS NULL OR" in source, (
+        "the due query still exempts hosts with no schedule, so a host the gate "
+        "refuses can never be re-verified"
+    )
+    assert "'verifying'" in source, (
+        "a verification that died mid-flight is never retried"
+    )

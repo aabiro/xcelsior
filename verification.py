@@ -416,12 +416,31 @@ class VerificationStore:
             return [r["host_id"] for r in rows]
 
     def list_hosts_needing_reverification(self) -> list[str]:
-        """Get hosts that are due for periodic re-verification."""
+        """Hosts due for re-verification, treating an absent schedule as due.
+
+        **NULL is due, not exempt.** The previous query required
+        `next_check_at IS NOT NULL`, so a verified host with no schedule was
+        invisible to this sweep forever. Paired with a placement gate that
+        (correctly) refuses a host with no recent check, that is a deadlock: the
+        host is permanently refused by the gate and permanently unreachable by
+        the only thing that would fix it. Prod has no such row today — both
+        verified hosts carry stamps — but it is one write away, and the deadlock
+        would arrive the moment this sweep is wired rather than before.
+
+        **`verifying` is included** for the same reason. The old predicate only
+        looked at `verified`, so a verification that died mid-flight stayed in
+        `verifying` and was never retried. Prod holds none right now; a crashed
+        checker creates one.
+
+        Both defaults now point the same way as the gate: an unstamped host is
+        neither trusted nor ignored.
+        """
         now = time.time()
         with self._conn() as conn:
             rows = conn.execute(
                 """SELECT host_id FROM host_verifications
-                   WHERE state = 'verified' AND next_check_at IS NOT NULL AND next_check_at <= %s""",
+                    WHERE state IN ('verified', 'verifying')
+                      AND (next_check_at IS NULL OR next_check_at <= %s)""",
                 (now,),
             ).fetchall()
             return [r["host_id"] for r in rows]
