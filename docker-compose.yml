@@ -117,6 +117,15 @@ x-api-environment: &api-env
   # SLA / Chat / Inference / Slurm
   XCELSIOR_SLURM_MAP: /data/slurm_jobs.json
   XCELSIOR_BASE_URL: ${XCELSIOR_BASE_URL:-https://xcelsior.ca}
+  # Read in Python with an environment-specific literal fallback, and mapped
+  # nowhere — so the container never received them and the fallback always won.
+  # Invisible on production, because the fallback *is* production; the first
+  # place it shows is staging. Same defect as `XCELSIOR_PUBLIC_URL` (issue #24).
+  # Defaults below are the literals the code already used, so production
+  # behaviour is unchanged and only a non-prod deployment can now differ.
+  XCELSIOR_CORS_ORIGINS: ${XCELSIOR_CORS_ORIGINS:-https://xcelsior.ca,https://www.xcelsior.ca}
+  XCELSIOR_PUBLIC_HOST: ${XCELSIOR_PUBLIC_HOST:-xcelsior.ca}
+  XCELSIOR_SSH_HOST: ${XCELSIOR_SSH_HOST:-connect.xcelsior.ca}
   XCELSIOR_WEB_PUSH_VAPID_PUBLIC_KEY: ${XCELSIOR_WEB_PUSH_VAPID_PUBLIC_KEY:-}
   XCELSIOR_WEB_PUSH_VAPID_PRIVATE_KEY: ${XCELSIOR_WEB_PUSH_VAPID_PRIVATE_KEY:-}
   XCELSIOR_WEB_PUSH_VAPID_SUBJECT: ${XCELSIOR_WEB_PUSH_VAPID_SUBJECT:-mailto:hello@xcelsior.ca}
