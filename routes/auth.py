@@ -1307,7 +1307,23 @@ def api_mcp_quick_connect(request: Request, regenerate: bool = False):
             replace_existing=True,
         )
 
-    mcp_base = os.environ.get("XCELSIOR_PUBLIC_URL", "https://xcelsior.ca")
+    # `XCELSIOR_BASE_URL` is the plumbed name for this. `XCELSIOR_PUBLIC_URL`
+    # was read here and **mapped in no compose file**, so the container never
+    # received it and the literal fallback always won. On production that is
+    # invisible, because the fallback *is* production — which is exactly why it
+    # would have surfaced on staging first, handing a staging user a Quick
+    # Connect config pointing at prod. `.env.staging` already sets
+    # `XCELSIOR_BASE_URL`, so reading it fixes staging with a value that is
+    # already there.
+    #
+    # `XCELSIOR_PUBLIC_URL` still wins when explicitly set, so any deployment
+    # that has been setting it keeps working; it is no longer the *only* name
+    # that works.
+    mcp_base = (
+        os.environ.get("XCELSIOR_PUBLIC_URL")
+        or os.environ.get("XCELSIOR_BASE_URL")
+        or "https://xcelsior.ca"
+    ).rstrip("/")
     return {
         "ok": True,
         "client_id": client_id,
