@@ -5498,7 +5498,20 @@ def allocate_best_host(job, hosts):
     if not hosts:
         return None
 
-    # 1. Verification filter — only use verified hosts for production
+    # 1. Verification filter — prefer verified hosts, but fall back to all.
+    #
+    # **This is the silent fallback Gate P5 names as "the failure mode that
+    # would quietly destroy trust", and it is already shipped.** It is left in
+    # place here deliberately rather than changed in passing: this is the
+    # unconstrained placement path, every job goes through it, and removing the
+    # cold-start fallback would change where every job lands. That is a P5 C2
+    # decision — `docs/placement-preference-plan.md` §5.4 — not a drive-by edit.
+    #
+    # What C2 must reconcile: a `require_verified` preference cannot be honoured
+    # by a scheduler whose behaviour is to fall back when the constraint cannot
+    # be met. Either the preference decides authoritatively for constrained
+    # requests, or this fallback is skipped for them. A correct preference
+    # module wired into this block would still fail the gate end to end.
     try:
         ve = get_verification_engine()
         verified_ids = set(ve.get_verified_hosts())
@@ -5506,8 +5519,16 @@ def allocate_best_host(job, hosts):
         if verified_hosts:
             hosts = verified_hosts
         # If no verified hosts, fall back to all (for cold-start)
-    except Exception:
-        pass
+    except Exception as exc:
+        # Was a bare `except: pass`, which made "the verification store is
+        # unreachable" indistinguishable from "every host is verified" — the
+        # placement proceeded across all hosts either way and said nothing. A
+        # constrained request must not be told it got a verified host after
+        # this branch; that would be a false statement in the audit trail C1
+        # is built to hold.
+        log.warning(
+            "verification filter unavailable, placing across all hosts: %s", exc
+        )
 
     # 2. VRAM filter (with driver-overhead tolerance)
     _needed = job.get("vram_needed_gb", 0) or 0
