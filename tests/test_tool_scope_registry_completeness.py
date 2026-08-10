@@ -97,7 +97,15 @@ def _registered_tool_names() -> set[str]:
 #: Connect token, asserted in `test_connector_tokens_are_scope_restricted.py` —
 #: but the surface is larger than the baseline was measured on, so the next
 #: capture is owed and will not be directly comparable.
-EXPECTED_TOOL_TOTAL = 59
+#:
+#: **60 since P5 C2** added `evaluate_placement_preference`: the agent-native
+#: half of the placement-preference surface, so an assistant can tell a user
+#: what "verified hosts above 99.5% uptime" would actually cost — or that it is
+#: not available — before anything is committed. Read-only, and scoped
+#: identically to its sibling `simulate_instance_placement`
+#: (`instances:read` + `gpu:read`), so it widens no authority. §1.5's delta is
+#: owed against the 50-tool capture of 2026-08-09 (0.9444).
+EXPECTED_TOOL_TOTAL = 60
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition

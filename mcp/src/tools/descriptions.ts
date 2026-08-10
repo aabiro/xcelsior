@@ -284,6 +284,18 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     "requirement, a host preference — before preparing a real launch plan. Read-only and free: " +
     "no capacity is reserved and nothing is billed.",
 
+  evaluate_placement_preference:
+    "Check what a placement preference would actually get you, before committing to anything. " +
+    "Takes a spec plus constraints — minimum uptime, minimum reputation tier, verified hosts " +
+    "only — and an optional cap on how much more you will pay to satisfy them. Returns the host " +
+    "it would pick and the premium over the cheapest eligible host, or a clear refusal naming " +
+    "the constraint that failed and the best value actually available, so the user can decide " +
+    "whether to relax it. Use whenever a user says they want reliable, verified, or high-uptime " +
+    "capacity: this answers whether that is possible right now and what it costs, rather than " +
+    "quietly placing on something that does not meet it. Differs from " +
+    "simulate_instance_placement, which only answers whether any host is available at all. " +
+    "Read-only and free: nothing is reserved and nothing is billed.",
+
   get_instance_timeline:
     "Get the durable attempt timeline for an instance: every scheduling attempt, transition, and " +
     "failure, in order. Use when a job is stuck or failed and the current status alone does not " +
