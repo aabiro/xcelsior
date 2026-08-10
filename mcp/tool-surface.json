@@ -417,6 +417,34 @@
       "hasOutputSchema": true
     },
     {
+      "name": "evaluate_placement_preference",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "gpu:read",
+        "instances:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "spec": {
+          "type": "record",
+          "optional": false
+        },
+        "preference": {
+          "type": "object",
+          "optional": false
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
       "name": "explain_instance_placement",
       "version": "2.0.0",
       "tenantClass": "tenant",
