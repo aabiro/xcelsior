@@ -222,14 +222,51 @@ def host_tier(host: dict) -> str | None:
     return str(tier).strip().lower() if tier else None
 
 
-def host_verified(host: dict) -> bool:
-    """True only for a host whose verification state is exactly `verified`.
+#: A verification stamp older than this is a historical fact, not a current one.
+#: `VERIFICATION_THRESHOLDS["reverify_interval_sec"]` is 86400, so a host is
+#: *due* every day; this allows a generous multiple of that before the stamp
+#: stops counting, because refusing the instant a sweep is late would make the
+#: constraint hostage to the sweep's punctuality.
+VERIFICATION_MAX_AGE_SECONDS = 7 * 24 * 3600
 
-    `unverified`, `verifying` and `deverified` are all "not verified", and
-    `deverified` especially: it is a host that *was* verified and had it
-    revoked, which is further from acceptable than one never checked.
+
+def verification_status(host: dict, *, now: float | None = None) -> str:
+    """`verified`, `stale`, or the raw state — the third instance of one shape.
+
+    `state = 'verified'` means "was verified once and nothing has revoked it
+    since". It is not a current fact: `reverify_interval_sec` is 86400 and
+    `list_hosts_needing_reverification()` implements the due query, but its
+    only wrapper `get_hosts_needing_reverification()` **has no callers** — no
+    worker, no scheduler pass, no timer. `next_check_at` is written and never
+    read, so nothing ever moves a host out of `verified`.
+
+    On production both verified hosts are overdue by **111 and 124 days**
+    against a one-day interval.
+
+    That is the same shape as "unmeasured is not perfect" and "a two-hour window
+    is not a year": **measured, but not recently enough to be evidence.** So it
+    gets the same treatment and its own code, because "no verified hosts exist"
+    and "the checker is not running" call for different next steps — the first
+    is answered by verifying a host, the second by starting a sweep.
     """
-    return str(host.get("verification_state") or "").strip().lower() == "verified"
+    import time as _time
+
+    state = str(host.get("verification_state") or "").strip().lower()
+    if state != "verified":
+        return state or "unknown"
+    checked = host.get("last_check_at")
+    if checked is None:
+        return "stale"
+    try:
+        age = (now if now is not None else _time.time()) - float(checked)
+    except (TypeError, ValueError):
+        return "stale"
+    return "verified" if age <= VERIFICATION_MAX_AGE_SECONDS else "stale"
+
+
+def host_verified(host: dict, *, now: float | None = None) -> bool:
+    """True only for a host verified *and* checked recently enough to mean it."""
+    return verification_status(host, now=now) == "verified"
 
 
 def _price(host: dict) -> float:
@@ -333,10 +370,28 @@ def choose_host(
             )
 
     if preference.require_verified:
-        states = [(h, str(h.get("verification_state") or "").strip().lower()) for h in survivors]
-        survivors = [h for h, state in states if state == "verified"]
+        statuses = [(h, verification_status(h)) for h in survivors]
+        survivors = [h for h, status in statuses if status == "verified"]
         if not survivors:
-            seen = sorted({st for _, st in states if st}) or ["none recorded"]
+            seen = sorted({st for _, st in statuses if st}) or ["none recorded"]
+            # Stale is its own refusal. "No verified hosts exist" is answered by
+            # verifying one; "the checker is not running" is answered by
+            # starting the sweep. Collapsing them sends the operator after the
+            # wrong problem.
+            if "stale" in seen:
+                return PlacementRefused(
+                    code="verification_stale",
+                    detail=(
+                        "candidate hosts carry a `verified` state but no recent "
+                        f"check — the stamp must be under "
+                        f"{VERIFICATION_MAX_AGE_SECONDS // 86400} days old to "
+                        "count as current. `get_hosts_needing_reverification()` "
+                        "has no callers, so nothing moves a host out of "
+                        "`verified` and the stamp ages indefinitely."
+                    ),
+                    asked="verified",
+                    best_available="stale",
+                )
             return PlacementRefused(
                 code="verification_unsatisfiable",
                 detail=(
@@ -422,4 +477,10 @@ def placement_evidence(host: dict) -> dict:
         "verification_state": host.get("verification_state"),
         "verified_at": host.get("verified_at"),
         "deverified_at": host.get("deverified_at"),
+        # `verified_at` alone does not say whether anyone was still *looking*.
+        # These two are what distinguish a live check from a stamp nobody has
+        # revisited, and an incident review needs the difference.
+        "last_check_at": host.get("last_check_at"),
+        "next_check_at": host.get("next_check_at"),
+        "verification_status": verification_status(host),
     }

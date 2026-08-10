@@ -30,8 +30,40 @@ import pytest
 os.environ.setdefault("XCELSIOR_ENV", "test")
 
 
-def _host(host_id, price, *, up=None, total=None, tier=None, score=None):
-    """A host as the scheduler sees it, with SLA and reputation joined on."""
+def _host(host_id, price, *, up=None, total=None, tier=None, score=None, allow_impossible=False):
+    """A host as the scheduler sees it — and one that *could exist*.
+
+    The builder refuses combinations production cannot produce, because relying
+    on vigilance failed twice in this file: `total=1_000_000` (11.5 days) sat
+    under the observation minimum once that existed, and
+    `tier="platinum", score=95` claimed platinum while 95 is `new_user`. Both
+    were harmless until a rule changed and then silently wrong, and a fixture
+    that could not exist in production is not evidence about production.
+
+    `allow_impossible=True` is for tests whose *subject* is the impossible
+    combination — the schema-default tier, or a window under the minimum.
+    """
+    if not allow_impossible:
+        if tier is not None and score is not None:
+            from reputation import score_to_tier
+
+            derived = str(getattr(score_to_tier(float(score)), "value", ""))
+            if derived != tier:
+                raise AssertionError(
+                    f"impossible host {host_id!r}: score {score} derives tier "
+                    f"{derived!r}, not {tier!r}. Pass allow_impossible=True if "
+                    "that disagreement is what the test is about."
+                )
+        if total is not None:
+            from control_plane.scheduler.preference import MIN_OBSERVATION_SECONDS
+
+            if total < MIN_OBSERVATION_SECONDS:
+                raise AssertionError(
+                    f"impossible host {host_id!r}: a {total / 86400:.1f}-day "
+                    "window is under the observation minimum, so any uptime "
+                    "constraint refuses for a reason the test is not about. "
+                    "Pass allow_impossible=True if the window is the subject."
+                )
     h = {"host_id": host_id, "price_cents_per_hour": price}
     if total is not None:
         h["sla_total_seconds"] = total
@@ -236,7 +268,7 @@ def test_a_short_observation_window_does_not_beat_a_year_of_evidence():
     """
     from control_plane.scheduler.preference import PlacementPreference, choose_host
 
-    young = _host("young", 50, up=100.0, total=7200)          # 2 hours, spotless
+    young = _host("young", 50, up=100.0, total=7200, allow_impossible=True)  # 2h, spotless
     veteran = _host("veteran", 60, up=99.6, total=YEAR)
 
     chosen = choose_host([young, veteran], PlacementPreference(min_uptime_pct=99.5))
@@ -255,7 +287,7 @@ def test_insufficient_history_is_its_own_refusal():
     from control_plane.scheduler.preference import PlacementPreference, choose_host
 
     result = choose_host(
-        [_host("young", 50, up=100.0, total=7200)],
+        [_host("young", 50, up=100.0, total=7200, allow_impossible=True)],
         PlacementPreference(min_uptime_pct=99.5),
     ).as_dict()
     assert result["code"] == "insufficient_history"
@@ -341,9 +373,20 @@ def test_the_tier_vocabulary_is_the_one_production_actually_uses():
 # ── The axis the gate's example actually names ───────────────────────
 
 
-def _verified(host_id, price, state, **kw):
+def _verified(host_id, price, state, *, checked_secs_ago=3600, **kw):
+    """A host with a verification state and, by default, a *recent* check.
+
+    Defaulting to a fresh check matters: `state='verified'` with no
+    `last_check_at` now reads as `stale`, so a builder that omitted it would
+    make every `require_verified` test pass for the wrong reason — or fail for
+    one the test is not about.
+    """
+    import time as _time
+
     h = _host(host_id, price, **kw)
     h["verification_state"] = state
+    if state == "verified" and checked_secs_ago is not None:
+        h["last_check_at"] = _time.time() - checked_secs_ago
     return h
 
 
@@ -460,9 +503,10 @@ def test_a_schema_defaulted_tier_does_not_satisfy_a_tier_constraint():
     """
     from control_plane.scheduler.preference import PlacementPreference, choose_host, host_tier
 
-    defaulted = _host("defaulted", 10, up=99.9, total=YEAR)
-    defaulted["reputation_tier"] = "bronze"     # server default
-    defaulted["reputation_score"] = 0.0         # earned nothing
+    defaulted = _host(
+        "defaulted", 10, up=99.9, total=YEAR, tier="bronze", score=0.0,
+        allow_impossible=True,   # the schema default *is* the subject
+    )
 
     assert host_tier(defaulted) == "new_user", "the stored tier outranked the score"
 
@@ -504,3 +548,75 @@ def test_the_observation_minimum_is_reachable_within_one_calendar_month():
         "the trailing window is shorter than the minimum it must contain, so no "
         "host could ever accumulate enough evidence"
     )
+
+
+def test_a_verified_stamp_nobody_rechecked_is_stale_not_verified():
+    """The third instance of one shape: measured, but not recently.
+
+    `state='verified'` means "was verified once and nothing revoked it".
+    `get_hosts_needing_reverification()` has **no callers**, so nothing moves a
+    host out of `verified` and the stamp ages indefinitely — on production both
+    verified hosts are overdue by 111 and 124 days against a one-day interval.
+    """
+    import time
+
+    from control_plane.scheduler.preference import PlacementPreference, choose_host
+
+    old = _verified(
+        "long-ago", 10, "verified",
+        checked_secs_ago=int(120 * 86400), up=99.9, total=YEAR,
+    )
+    result = choose_host([old], PlacementPreference(require_verified=True)).as_dict()
+    assert result["refused"] is True, "a four-month-old stamp counted as verification"
+    assert result["code"] == "verification_stale"
+    assert "no callers" in result["detail"], (
+        "the refusal does not say why the stamp aged — an operator needs to "
+        "know the sweep is not running, not just that a host looks stale"
+    )
+    assert time.time()  # the check is time-based, not a fixed flag
+
+
+def test_stale_and_unverified_are_different_refusals():
+    """"No verified hosts exist" is answered by verifying one; "the checker is
+    not running" is answered by starting the sweep. One code cannot say both."""
+    from control_plane.scheduler.preference import PlacementPreference, choose_host
+
+    stale = choose_host(
+        [_verified("s", 10, "verified", checked_secs_ago=int(90 * 86400), up=99.9, total=YEAR)],
+        PlacementPreference(require_verified=True),
+    ).as_dict()
+    never = choose_host(
+        [_verified("u", 10, "unverified", up=99.9, total=YEAR)],
+        PlacementPreference(require_verified=True),
+    ).as_dict()
+
+    assert stale["code"] == "verification_stale"
+    assert never["code"] == "verification_unsatisfiable"
+    assert stale["code"] != never["code"]
+
+
+def test_evidence_records_whether_anyone_was_still_looking():
+    """`verified_at` alone does not say that."""
+    from control_plane.scheduler.preference import PlacementPreference, choose_host
+
+    host = _verified("v", 10, "verified", up=99.9, total=YEAR)
+    host["next_check_at"] = host["last_check_at"] + 86400
+    evidence = choose_host(
+        [host], PlacementPreference(require_verified=True)
+    ).as_dict()["evidence"]
+
+    assert evidence["last_check_at"] is not None
+    assert evidence["next_check_at"] is not None
+    assert evidence["verification_status"] == "verified"
+
+
+def test_the_builder_refuses_a_host_that_could_not_exist():
+    """The fixtures were impossible twice; make the class unrepresentable.
+
+    A builder that cannot construct an impossible host converts a recurring
+    vigilance failure into a compile-time one.
+    """
+    with pytest.raises(AssertionError, match="impossible host"):
+        _host("liar", 10, tier="platinum", score=95)
+    with pytest.raises(AssertionError, match="impossible host"):
+        _host("too-young", 10, up=100.0, total=7200)
