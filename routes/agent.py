@@ -495,6 +495,12 @@ _AGENT_COMMAND_ALLOWED = {
     # sharded checkpoint, and presigned URLs are read grants for a tenant's
     # weights that would then sit in a queued, logged, retained row.
     "promote_artifacts",
+    # P5 C2: ask a host to re-run its benchmark and resubmit its verification
+    # report. `run_verification` needs telemetry only the host can produce, and
+    # the agent submitted one at startup and never again — so a verified stamp
+    # could sit indefinitely past a one-day reverification interval with nothing
+    # to move it.
+    "reverify",
 }
 
 
