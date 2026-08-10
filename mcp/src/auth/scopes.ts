@@ -92,6 +92,7 @@ export const TOOL_SCOPES: Record<string, ScopeRequirement> = {
   delete_serverless_endpoint: { allOf: ["inference:write"] },
   explain_instance_placement: { allOf: ["instances:read"] },
   simulate_instance_placement: { allOf: ["instances:read", "gpu:read"] },
+  evaluate_placement_preference: { allOf: ["instances:read", "gpu:read"] },
   get_instance_timeline: { allOf: ["instances:read"] },
   get_active_lease: { allOf: ["instances:read"] },
   get_scheduler_health: { allOf: ["control_plane:read"] },

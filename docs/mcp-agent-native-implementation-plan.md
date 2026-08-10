@@ -158,12 +158,14 @@ were failures of *evidence*, not of intent.
 - Every access and billing endpoint named above refuses a token missing its new scope, asserted with a real token against a live server.
 - Regenerating the registry produces byte-identical output; a hand edit to a generated file fails the build.
 - `test_no_runtime_ddl`-style inventory test: zero unclassified endpoints.
-- Eval baseline **captured** at **45 tools total / 36 published**. *P3 has since
-  taken the surface to 53 / 44, so the figures below describe the surface as it
-  stood when they were measured and are not directly comparable to a capture
-  against the larger surface — eight more tools is eight more ways to choose
-  wrongly, and a rate that moves after adding them says nothing on its own.
-  A fresh capture is owed once P3's tools are deployed.*
+- Eval baseline **captured** at **45 tools total / 36 published**. *The surface
+  has grown three times since, and the figures below describe it as it stood
+  when they were measured. Later captures are recorded in `eval-baseline.json`
+  and in the §1.5 row of `docs/gate-truth-table.md`; each states its own tool
+  count, because a rate that moves after adding tools says nothing unless the
+  count moves with it. Do not compare two numbers here without checking both
+  counts and the `base` field — a local capture and a deployed one are not the
+  same measurement.*
 
   Measured then:
   `expected_tool_accuracy` **0.8778** (79 of 90 trials, 3 samples x 30 cases),
