@@ -1622,6 +1622,12 @@ _AGENT_COMMAND_ALLOWED = frozenset(
         "unmount_volume",
         "prepull_image",  # serverless cold-start: pull image on idle host
         "promote_artifacts",  # P3 A1: artifact -> attached volume, sha256 verified
+        # P5 C2: re-run the benchmark and resubmit the verification report. The
+        # server cannot produce this report — only the host can — so before this
+        # existed the agent submitted one at startup and never again, and a
+        # verified stamp aged indefinitely against a one-day reverification
+        # interval.
+        "reverify",
     }
 )
 
@@ -2085,6 +2091,15 @@ def drain_agent_commands() -> int:
                     by,
                 )
                 if _promote_artifacts(args):
+                    dispatched += 1
+            elif name == "reverify":
+                log.info(
+                    "Executing reverify cmd=%s reason=%s by=%s",
+                    cmd_id,
+                    args.get("reason", "?"),
+                    by,
+                )
+                if _start_reverification():
                     dispatched += 1
             elif name == "prepull_image":
                 image_tag = str(args.get("image") or "").strip()
@@ -3363,6 +3378,111 @@ def report_verification(full_report):
             log.warning("Verification submission failed: %s", r.status_code)
     except requests.RequestException as e:
         log.warning("Verification report failed: %s", e)
+
+
+#: Set while a reverification is in flight. A `reverify` command arriving during
+#: one is dropped rather than queued: two concurrent benchmarks contend for the
+#: same GPU and both report worse numbers than either would alone, which would
+#: deverify a healthy host for being asked twice.
+_reverify_running = threading.Event()
+
+
+def run_verification_cycle(gpu_info: dict, versions: dict):
+    """Benchmark this host and submit its verification report. Returns the XCU score.
+
+    **One builder, two callers** — startup and the `reverify` command. Two
+    builders would let a scheduled report differ in shape from a startup report,
+    and `run_verification`'s checks would then disagree for reasons invisible
+    from either side. The server cannot assemble this: PCIe bandwidth, sustained
+    temperature, packet loss and jitter are facts only the host can measure,
+    which is precisely why a stamp goes stale with nothing able to refresh it.
+    """
+    log.info("Running comprehensive benchmark (GPU + network, ~60 seconds)...")
+    bench = run_compute_benchmark()
+    if not bench:
+        log.info("Benchmark skipped (PyTorch/CUDA not available)")
+        return None
+
+    compute_score = bench.get("tflops", 0) / 10  # XCU
+    log.info("GPU Benchmark: %.1f TFLOPS = %.1f XCU", bench["tflops"], compute_score)
+    log.info(
+        "  CUDA %s | Driver %s | CC %s",
+        bench.get("cuda_version", "?"),
+        bench.get("driver_version", "?"),
+        bench.get("compute_capability", "?"),
+    )
+    log.info(
+        "  PCIe: %.2f GB/s | Peak Temp: %s°C",
+        bench.get("pcie_bandwidth_gbps", 0),
+        bench.get("gpu_temp_celsius", "?"),
+    )
+    report_benchmark(bench, gpu_info["gpu_model"])
+
+    # Network benchmark (ping + throughput to scheduler)
+    log.info("Running network quality benchmark...")
+    net_bench = run_network_benchmark()
+    if net_bench:
+        log.info(
+            "  Latency: %.1fms avg | Jitter: %.1fms | Loss: %.1f%% | Throughput: %.1f Mbps",
+            net_bench.get("latency_avg_ms", 0),
+            net_bench.get("jitter_ms", 0),
+            net_bench.get("packet_loss_pct", 0),
+            net_bench.get("throughput_mbps", 0),
+        )
+        bench.update(net_bench)
+
+    # Merge benchmark data with security versions for the complete check set.
+    full_report = {**bench}
+    full_report["claimed_gpu_model"] = gpu_info["gpu_model"]
+    full_report["claimed_vram_gb"] = gpu_info["total_vram_gb"]
+    full_report["versions"] = versions
+    report_verification(full_report)
+    return compute_score
+
+
+def _reverification_worker():
+    try:
+        run_verification_cycle(get_gpu_info(), get_local_versions())
+    except Exception as exc:
+        log.warning("scheduled reverification failed: %s", exc)
+    finally:
+        _reverify_running.clear()
+
+
+def _start_reverification() -> bool:
+    """Begin a scheduled reverification, or decline and say why.
+
+    **Off the drain loop.** `drain_agent_commands` also owns preemption checks
+    and job polling, and the benchmark takes about a minute — running it inline
+    would stall this host's ability to notice it had been preempted.
+
+    **Declined while a job is running.** The benchmark saturates the GPU, so
+    running one under a customer's workload would corrupt their timings to
+    refresh a stamp. A permanently busy host therefore stays stale, and the
+    placement gate says exactly that — which is the honest answer, and better
+    than a fresh stamp bought out of someone's paid run.
+    """
+    if _reverify_running.is_set():
+        log.info("reverify: a verification is already running — request dropped")
+        return False
+
+    with _active_lock:
+        busy = dict(_active_containers)
+    if busy:
+        log.info(
+            "reverify: deferred, %d container(s) running (%s). The benchmark "
+            "saturates the GPU and would corrupt a paying job's timings.",
+            len(busy),
+            ", ".join(sorted(busy)[:5]),
+        )
+        return False
+
+    _reverify_running.set()
+    thread = threading.Thread(
+        target=_reverification_worker, name="reverification", daemon=True
+    )
+    thread.start()
+    return True
 
 
 def report_telemetry(metrics):
@@ -6812,47 +6932,7 @@ def main():
         log.warning("Upgrade vulnerable components to become eligible.")
 
     # ── Step 4: Comprehensive benchmark ──
-    compute_score = None
-    log.info("Running comprehensive benchmark (GPU + network, ~60 seconds)...")
-    bench = run_compute_benchmark()
-    if bench:
-        compute_score = bench.get("tflops", 0) / 10  # XCU
-        log.info("GPU Benchmark: %.1f TFLOPS = %.1f XCU", bench["tflops"], compute_score)
-        log.info(
-            "  CUDA %s | Driver %s | CC %s",
-            bench.get("cuda_version", "?"),
-            bench.get("driver_version", "?"),
-            bench.get("compute_capability", "?"),
-        )
-        log.info(
-            "  PCIe: %.2f GB/s | Peak Temp: %s°C",
-            bench.get("pcie_bandwidth_gbps", 0),
-            bench.get("gpu_temp_celsius", "?"),
-        )
-        report_benchmark(bench, gpu_info["gpu_model"])
-
-        # Network benchmark (ping + throughput to scheduler)
-        log.info("Running network quality benchmark...")
-        net_bench = run_network_benchmark()
-        if net_bench:
-            log.info(
-                "  Latency: %.1fms avg | Jitter: %.1fms | Loss: %.1f%% | Throughput: %.1f Mbps",
-                net_bench.get("latency_avg_ms", 0),
-                net_bench.get("jitter_ms", 0),
-                net_bench.get("packet_loss_pct", 0),
-                net_bench.get("throughput_mbps", 0),
-            )
-            bench.update(net_bench)
-
-        # Build full verification report and submit
-        # Merge benchmark data with security versions for complete check
-        full_report = {**bench}
-        full_report["claimed_gpu_model"] = gpu_info["gpu_model"]
-        full_report["claimed_vram_gb"] = gpu_info["total_vram_gb"]
-        full_report["versions"] = versions
-        report_verification(full_report)
-    else:
-        log.info("Benchmark skipped (PyTorch/CUDA not available)")
+    compute_score = run_verification_cycle(gpu_info, versions)
 
     # ── Step 5: Initial heartbeat ──
     heartbeat(gpu_info, host_ip, compute_score)

@@ -27,6 +27,7 @@ def test_c7_allowlist_covers_known_commands():
         "unmount_volume",
         "prepull_image",
         "promote_artifacts",  # P3 A1: artifact → attached volume, sha256 verified
+        "reverify",  # P5 C2: re-run the benchmark and resubmit the report
     }
     assert worker_agent._AGENT_COMMAND_ALLOWED == expected
 

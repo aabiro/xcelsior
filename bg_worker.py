@@ -344,6 +344,23 @@ def main():
 
     register_task("sla_credits", _sla_credits, 3600)
 
+    # 6b. Re-verification sweep (P5 C2's first commit).
+    #
+    # `VerificationStore.list_hosts_needing_reverification()` has existed and
+    # worked for months; its only wrapper had **no callers**, so `next_check_at`
+    # was written and never read and nothing ever asked a verified host to prove
+    # itself again, so a stamp could age indefinitely against a one-day
+    # interval. A `require_verified` placement control over a fact nothing
+    # maintains would teach users the feature is broken.
+    def _reverification_sweep():
+        from verification_sweep import run_sweep
+
+        run_sweep()
+
+    from verification_sweep import SWEEP_INTERVAL_SEC as _reverify_interval
+
+    register_task("reverification_sweep", _reverification_sweep, _reverify_interval)
+
     # 7. Event snapshotting (every 15 minutes)
     def _event_snapshots():
         from events import get_snapshot_manager, get_event_store

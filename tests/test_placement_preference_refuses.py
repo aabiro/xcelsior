@@ -553,10 +553,11 @@ def test_the_observation_minimum_is_reachable_within_one_calendar_month():
 def test_a_verified_stamp_nobody_rechecked_is_stale_not_verified():
     """The third instance of one shape: measured, but not recently.
 
-    `state='verified'` means "was verified once and nothing revoked it".
-    `get_hosts_needing_reverification()` has **no callers**, so nothing moves a
-    host out of `verified` and the stamp ages indefinitely — on production both
-    verified hosts are overdue by 111 and 124 days against a one-day interval.
+    `state='verified'` means "was verified once and nothing revoked it". The
+    hourly sweep now asks overdue hosts to prove themselves again, but it can
+    only *ask* — an offline host, one busy with a paying job, or one running an
+    agent that predates the `reverify` command never answers, and its stamp goes
+    on ageing — months past due against a one-day interval.
     """
     import time
 
@@ -569,9 +570,9 @@ def test_a_verified_stamp_nobody_rechecked_is_stale_not_verified():
     result = choose_host([old], PlacementPreference(require_verified=True)).as_dict()
     assert result["refused"] is True, "a four-month-old stamp counted as verification"
     assert result["code"] == "verification_stale"
-    assert "no callers" in result["detail"], (
-        "the refusal does not say why the stamp aged — an operator needs to "
-        "know the sweep is not running, not just that a host looks stale"
+    assert "has not answered" in result["detail"], (
+        "the refusal does not say why the stamp aged — an operator needs to know "
+        "the host stopped answering the sweep, not just that it looks stale"
     )
     assert time.time()  # the check is time-based, not a fixed flag
 
