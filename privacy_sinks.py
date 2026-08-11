@@ -39,9 +39,7 @@ def _identifiers(request: Mapping[str, Any]) -> tuple[str, str, list[str]]:
     raw_customers = request.get("subject_customer_ids") or []
     if isinstance(raw_customers, str):
         raw_customers = json.loads(raw_customers)
-    customer_ids = sorted(
-        {str(value).strip() for value in raw_customers if str(value).strip()}
-    )
+    customer_ids = sorted({str(value).strip() for value in raw_customers if str(value).strip()})
     return user_id, email, customer_ids
 
 
@@ -70,15 +68,11 @@ def _append_event(
             "evidence": dict(evidence),
         },
         headers={"classification": "pii"},
-        idempotency_key=(
-            f"{event_type}:{request_id}:{int(request.get('attempt_count') or 0)}"
-        ),
+        idempotency_key=(f"{event_type}:{request_id}:{int(request.get('attempt_count') or 0)}"),
     )
 
 
-def _stop_subject_workloads(
-    conn: Any, customer_ids: list[str]
-) -> tuple[int, int]:
+def _stop_subject_workloads(conn: Any, customer_ids: list[str]) -> tuple[int, int]:
     if not customer_ids:
         return 0, 0
     result = conn.execute(
@@ -150,9 +144,7 @@ def delete_authoritative_subject(
         stored_email = str(_value(user, "email", 1) or email).lower()
         customer_id = str(_value(user, "customer_id", 2) or "").strip()
         provider_id = str(_value(user, "provider_id", 3) or "").strip()
-        customer_ids = sorted(
-            set(request_customer_ids + ([customer_id] if customer_id else []))
-        )
+        customer_ids = sorted(set(request_customer_ids + ([customer_id] if customer_id else [])))
 
         # Account deletion explicitly withdraws compute authorization.  The
         # worker waits for the scheduler/reconciler to observe the stop before
@@ -197,8 +189,7 @@ def delete_authoritative_subject(
                 {
                     "ownership_transfer_required": len(blocked_teams),
                     "team_reference_hashes": [
-                        hashlib.sha256(team.encode()).hexdigest()
-                        for team in blocked_teams
+                        hashlib.sha256(team.encode()).hexdigest() for team in blocked_teams
                     ],
                 },
                 retry_after_sec=86_400,
@@ -467,9 +458,7 @@ def delete_authoritative_subject(
             (anonymous_email, stored_email),
         ).rowcount
 
-        password_tombstone = hashlib.sha256(
-            f"{reference}:{time.time_ns()}".encode()
-        ).hexdigest()
+        password_tombstone = hashlib.sha256(f"{reference}:{time.time_ns()}".encode()).hexdigest()
         counts["users_anonymized"] = conn.execute(
             """
             UPDATE users
@@ -530,16 +519,12 @@ def delete_authoritative_subject(
             "finance_records": "retained_under_legal_and_reconciliation_policy",
             "payment_methods_disabled": True,
         }
-        _append_event(
-            conn, request, "privacy.v1.authority_anonymized", evidence
-        )
+        _append_event(conn, request, "privacy.v1.authority_anonymized", evidence)
         conn.commit()
     return SinkOutcome("completed", evidence)
 
 
-def delete_redis_subject(
-    request: Mapping[str, Any], _sink: Mapping[str, Any]
-) -> SinkOutcome:
+def delete_redis_subject(request: Mapping[str, Any], _sink: Mapping[str, Any]) -> SinkOutcome:
     """Invalidate identifier-derived keys in each configured Redis database."""
     user_id, email, customer_ids = _identifiers(request)
     urls = {
@@ -553,9 +538,7 @@ def delete_redis_subject(
         if value and value.strip()
     }
     if not urls:
-        return SinkOutcome(
-            "not_applicable", {"configured_redis_databases": 0}
-        )
+        return SinkOutcome("not_applicable", {"configured_redis_databases": 0})
 
     try:
         import redis
@@ -603,9 +586,7 @@ def delete_redis_subject(
     )
 
 
-def delete_artifact_subject(
-    request: Mapping[str, Any], _sink: Mapping[str, Any]
-) -> SinkOutcome:
+def delete_artifact_subject(request: Mapping[str, Any], _sink: Mapping[str, Any]) -> SinkOutcome:
     user_id, _email, customer_ids = _identifiers(request)
     request_id = str(request["request_id"])
     pool = _pool()
@@ -697,9 +678,7 @@ def delete_artifact_subject(
                 volume_pending += 1
                 continue
             try:
-                engine.delete_volume(
-                    str(volume["volume_id"]), str(volume["owner_id"])
-                )
+                engine.delete_volume(str(volume["volume_id"]), str(volume["owner_id"]))
                 volume_deleted += 1
             except (RuntimeError, ValueError):
                 volume_pending += 1
@@ -724,9 +703,7 @@ def delete_artifact_subject(
     return SinkOutcome("completed", evidence)
 
 
-def delete_retrieval_subject(
-    request: Mapping[str, Any], _sink: Mapping[str, Any]
-) -> SinkOutcome:
+def delete_retrieval_subject(request: Mapping[str, Any], _sink: Mapping[str, Any]) -> SinkOutcome:
     user_id, email, customer_ids = _identifiers(request)
     pool = _pool()
     with pool.connection() as conn:
@@ -846,9 +823,7 @@ def delete_retrieval_subject(
     )
 
 
-def delete_analytics_subject(
-    _request: Mapping[str, Any], _sink: Mapping[str, Any]
-) -> SinkOutcome:
+def delete_analytics_subject(_request: Mapping[str, Any], _sink: Mapping[str, Any]) -> SinkOutcome:
     configured = any(
         os.environ.get(name, "").strip()
         for name in (
@@ -900,27 +875,28 @@ def _posthog_request(
             payload = response.read()
     except urllib.error.HTTPError as exc:
         detail = exc.read(1_000).decode(errors="replace")
-        raise RuntimeError(
-            f"PostHog API returned HTTP {exc.code}: {detail}"
-        ) from exc
+        raise RuntimeError(f"PostHog API returned HTTP {exc.code}: {detail}") from exc
     return json.loads(payload) if payload else {}
 
 
-def delete_posthog_subject(
-    request: Mapping[str, Any], sink: Mapping[str, Any]
-) -> SinkOutcome:
-    tracking_enabled = bool(
-        os.environ.get("NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN", "").strip()
+def delete_posthog_subject(request: Mapping[str, Any], sink: Mapping[str, Any]) -> SinkOutcome:
+    tracking_enabled = any(
+        os.environ.get(name, "").strip()
+        for name in (
+            "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN",
+            "XCELSIOR_MCP_POSTHOG_PROJECT_API_KEY",
+            "POSTHOG_PROJECT_API_KEY",
+        )
     )
     if not tracking_enabled:
-        return SinkOutcome(
-            "not_applicable", {"posthog_tracking_configured": False}
-        )
+        return SinkOutcome("not_applicable", {"posthog_tracking_configured": False})
 
     api_key = os.environ.get("XCELSIOR_POSTHOG_PERSONAL_API_KEY", "").strip()
     project_id = os.environ.get("XCELSIOR_POSTHOG_PROJECT_ID", "").strip()
+    # Private person/deletion endpoints live on the PostHog app host, not the
+    # public *.i.posthog.com ingestion host used by browser and MCP capture.
     base_url = (
-        os.environ.get("NEXT_PUBLIC_POSTHOG_HOST", "").strip()
+        os.environ.get("XCELSIOR_POSTHOG_API_HOST", "").strip()
         or "https://us.posthog.com"
     )
     if not api_key or not project_id:
@@ -937,9 +913,7 @@ def delete_posthog_subject(
     prior_evidence = sink.get("evidence") or {}
     if isinstance(prior_evidence, str):
         prior_evidence = json.loads(prior_evidence)
-    person_uuids = [
-        str(value) for value in prior_evidence.get("person_uuids", [])
-    ]
+    person_uuids = [str(value) for value in prior_evidence.get("person_uuids", [])]
     if person_uuids:
         pending = 0
         completed = 0
@@ -952,9 +926,7 @@ def delete_posthog_subject(
                 query={"person_uuid": person_uuid, "status": "all"},
             )
             statuses = response.get("results", response if isinstance(response, list) else [])
-            if statuses and all(
-                str(item.get("status")) == "completed" for item in statuses
-            ):
+            if statuses and all(str(item.get("status")) == "completed" for item in statuses):
                 completed += 1
             else:
                 pending += 1
@@ -974,9 +946,7 @@ def delete_posthog_subject(
         return SinkOutcome("completed", evidence)
 
     user_id, email, customer_ids = _identifiers(request)
-    distinct_ids = sorted(
-        {value for value in (user_id, email, *customer_ids) if value}
-    )
+    distinct_ids = sorted({value for value in (user_id, email, *customer_ids) if value})
     found_uuids: set[str] = set()
     for distinct_id in distinct_ids:
         response = _posthog_request(
@@ -1009,9 +979,7 @@ def delete_posthog_subject(
         "person_uuids": sorted(found_uuids),
         "persons_found": int(response.get("persons_found", 0)),
         "persons_deleted": int(response.get("persons_deleted", 0)),
-        "events_queued_for_deletion": bool(
-            response.get("events_queued_for_deletion", False)
-        ),
+        "events_queued_for_deletion": bool(response.get("events_queued_for_deletion", False)),
         "recordings_queued_for_deletion": bool(
             response.get("recordings_queued_for_deletion", False)
         ),
@@ -1034,12 +1002,10 @@ def delete_posthog_subject(
     )
 
 
-def verify_subject_absence(
-    request: Mapping[str, Any], _sink: Mapping[str, Any]
-) -> SinkOutcome:
+def verify_subject_absence(request: Mapping[str, Any], _sink: Mapping[str, Any]) -> SinkOutcome:
     """Count what remains of a subject, and report whether they are gone.
 
-    ## The append-only tables are outside this check, and that is undecided
+    ## The append-only tables are outside this check, and that is now decided
 
     The checks below are a **hand-enumerated literal**. Any table not named here
     is invisible to a function whose name asserts *absence* — so it can return a
@@ -1057,16 +1023,37 @@ def verify_subject_absence(
 
     **This predates all three tables and is not a defect introduced by any of
     them.** It is the standing treatment of immutable audit data in this
-    repository, and a search for "legal basis", "legitimate interest" or "right
-    to erasure" finds nothing anywhere in it. Audit tables legitimately resolve
-    this in one of two ways — pseudonymise the subject's identifiers at erasure
-    time, or record a documented retention basis for keeping them — and **which
-    one applies here has not been decided**.
+    repository. Audit tables legitimately resolve this in one of two ways —
+    pseudonymise the subject's identifiers at erasure time, or record a
+    documented retention basis for keeping them.
 
-    Both branches land on this function. If the answer is "erase", this
-    enumeration is what is wrong. If it is "retained under a stated basis", this
-    enumeration is what has to say so, and the verdict this function returns
-    needs to name the exception rather than imply it does not exist.
+    **The ruling, 2026-08-11 by Aaryn Biro: retained under a documented basis.**
+    Not pseudonymisation. Placement and access decisions are a standard
+    legitimate-interest / legal-obligation retention under GDPR Art. 17(3) and
+    the equivalent carve-outs in other privacy regimes, and partition-dropping
+    already supplied the mechanism, so the cost was a policy statement rather
+    than a rewrite.
+
+    A retention basis is not free, and the three things it owes are now real
+    rather than intended:
+
+    - **A period.** `WORM_RETENTION_MONTHS = 24`.
+    - **Disclosure.** `docs/audit-retention.md`, and the privacy-policy line it
+      carries. Silence was the only genuinely untenable option.
+    - **Enforcement.** `drop_expired_partitions`, scheduled daily. Partitions
+      were created ahead of time and never dropped until then, so a stated
+      period would have been a claim with nothing behind it.
+
+    So the enumeration below stays as it is, and the verdict **names the
+    exception** in `evidence["append_only_records"]` rather than implying the
+    subject is gone from everywhere. A reader of a clean outcome is entitled to
+    know what it does not cover.
+
+    If a contract or regulator later demands attributable erasure, the technical
+    answer is crypto-shredding — hold the tenant identifier encrypted under a
+    per-tenant key stored outside the WORM table and delete the key, which makes
+    rows non-attributable with no UPDATE or DELETE. Recorded as the escape
+    hatch; deliberately not built, because nothing requires it today.
 
     `tests/test_worm_tables_have_an_erasure_decision.py` derives both sides —
     the WORM set from `pg_trigger`, the reachable set from this function's own
@@ -1148,10 +1135,36 @@ def verify_subject_absence(
         }
         conn.rollback()
 
+    from control_plane.audit_partitions import (
+        PARTITIONED_TABLES,
+        WORM_RETENTION_MONTHS,
+    )
+
     evidence = {
         "checks_run": len(checks),
         "residual_counts": residuals,
         "finance_and_audit_records": "retained_under_governed_policy",
+        # The exception, stated rather than implied. This function's name is a
+        # claim of absence, and the claim is not true of the append-only tables:
+        # their trigger rejects DELETE, so no erasure path reaches them and none
+        # is intended to. Saying so in the evidence is the difference between a
+        # documented retention basis and a silent gap — a reader of this outcome
+        # would otherwise conclude the subject is gone from everywhere.
+        #
+        # Derived from `PARTITIONED_TABLES`, so a new WORM table appears here
+        # without an edit. `tests/test_worm_tables_have_an_erasure_decision.py`
+        # holds the other half: it derives the WORM set from `pg_trigger` and
+        # fails when one joins without a decision.
+        "append_only_records": {
+            "tables": sorted(PARTITIONED_TABLES),
+            "erased": False,
+            "basis": "legitimate_interest_and_legal_obligation",
+            "authority": "GDPR Art. 17(3) and equivalent provisions elsewhere",
+            "retention_months": WORM_RETENTION_MONTHS,
+            "enforced_by": "control_plane.audit_partitions.drop_expired_partitions",
+            "decided": "2026-08-11 by Aaryn Biro",
+            "disclosure": "docs/audit-retention.md",
+        },
         "verified_at": datetime.now(timezone.utc).isoformat(),
     }
     if residuals:

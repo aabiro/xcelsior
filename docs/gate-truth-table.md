@@ -226,18 +226,57 @@ gone while rows persist. Everywhere else in that file a missing table is an
 omission; here it is an affirmative statement the code makes for the reader.
 Same shape as a verified badge that means less than it says.
 
-This predates all three tables and a search for "legal basis", "legitimate
-interest" or "right to erasure" finds nothing in the repository. Audit tables
-resolve it by pseudonymising identifiers at erasure time **or** by recording a
-retention basis; **neither has been chosen**.
+### Resolved 2026-08-11 — retained under a documented basis
+
+Audit tables resolve this by pseudonymising identifiers at erasure time **or**
+by recording a retention basis. **Aaryn Biro chose the retention basis**:
+legitimate interest and legal obligation under GDPR Art. 17(3) and the
+equivalent carve-outs in other privacy regimes, for **24 months**. Pseudonymisation was rejected on cost — it means
+rewriting rows in tables whose whole value is that rows cannot be rewritten,
+and the trigger would have to be weakened to allow it.
+
+The ruling was cheap to *decide* and not cheap to *make true*. A retention basis
+owes three things, and only the first was a matter of writing prose:
+
+| Obligation | Where | State before |
+|---|---|---|
+| A stated period | `WORM_RETENTION_MONTHS = 24` | none existed |
+| Disclosure | `docs/audit-retention.md`, carrying the policy line | silence |
+| **Enforcement of that period** | `drop_expired_partitions`, daily | **partitions were created ahead of time and never dropped** |
+
+The third is the one that mattered, and it was invisible until someone went
+looking for the mechanism: the partition maintainer extended the window forever
+and pruned nothing, so publishing "24 months" would have been a claim about a
+system that kept data indefinitely. `tests/test_worm_retention_is_enforced.py`
+proves the pair that makes it real — `DELETE` is refused **and** the partition
+drop removes the same rows. Either half alone proves nothing.
+
+Writing that test found a second defect: the partition-name parser read a
+five-digit suffix like `20249` as September 2024, so a partition nobody named
+that way would have been dropped on a guess. It now requires exactly `YYYYMM`.
+
+`verify_subject_absence` still enumerates by hand and still does not reach these
+tables — that part was correct and is unchanged. What changed is that its
+verdict now **names the exception** in `evidence["append_only_records"]`,
+derived from `PARTITIONED_TABLES`, rather than returning a clean absence that a
+reader would take as absence from everywhere.
+
+Crypto-shredding — encrypt the tenant identifier under a per-tenant key held
+outside the WORM table, delete the key on erasure — is recorded in
+`docs/audit-retention.md` as the escape hatch if attributable erasure is ever
+demanded. Deliberately not built.
 
 | What exists now | Where |
 |---|---|
-| The open decision, stated where both branches land | `privacy_sinks.verify_subject_absence` docstring |
-| A ratchet so a **new** WORM table cannot join the unresolved set silently | `tests/test_worm_tables_have_an_erasure_decision.py` — WORM set derived from `pg_trigger`, reachable set derived from that function's own source, one literal (`ACKNOWLEDGED_UNRESOLVED`) holding the decisions owed |
+| The ruling, stated where the decision lands | `privacy_sinks.verify_subject_absence` docstring |
+| The period, the basis, the disclosure and the escape hatch | `docs/audit-retention.md` |
+| Enforcement, scheduled daily | `control_plane.audit_partitions.drop_expired_partitions`, via `audit_partition_maintenance` |
+| A ratchet so a **new** WORM table cannot join the unresolved set silently | `tests/test_worm_tables_have_an_erasure_decision.py` — WORM set derived from `pg_trigger`, reachable set derived from that function's own source |
+| Proof the period is enforced rather than asserted | `tests/test_worm_retention_is_enforced.py` |
 
-Red on that test means *a decision is owed*, not *erasure is broken*. It is
-load-bearing and must not be deleted as a stale assertion about a bug.
+Red on the ratchet test means *a decision is owed for a newly added table*, not
+*erasure is broken*. It is load-bearing and must not be deleted as a stale
+assertion about a bug.
 
 ---
 
