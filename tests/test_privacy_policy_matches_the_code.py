@@ -266,12 +266,15 @@ def test_nothing_reads_the_deprecated_cross_border_field():
     load-bearing again without a decision, which is how it came to be presented
     as a control in the first place.
     """
-    root = pathlib.Path(__file__).resolve().parent.parent
+    from tests._source_tree import iter_source_files
+
     readers = []
-    for path in root.rglob("*.py"):
-        parts = set(path.parts)
-        if parts & {".venv", "node_modules", "tests", "migrations"}:
-            continue
+    # The shared iterator, not an eighth hand-rolled `rglob`. Eight of those
+    # once failed simultaneously on macOS AppleDouble sidecars with an error
+    # naming neither the sidecar nor the gate's subject —
+    # `test_source_tree_is_shared.py` asserts the convergence, and caught this
+    # file the first time it ran.
+    for path, rel in iter_source_files(exclude_prefixes=("migrations/",)):
         text = path.read_text(encoding="utf-8", errors="ignore")
         for num, line in enumerate(text.splitlines(), 1):
             if "cross_border_consent" not in line:
@@ -280,7 +283,7 @@ def test_nothing_reads_the_deprecated_cross_border_field():
             # The declaration itself, and comments about it, are the point.
             if stripped.startswith("#") or "cross_border_consent: bool" in stripped:
                 continue
-            readers.append(f"{path.relative_to(root)}:{num}")
+            readers.append(f"{rel}:{num}")
     assert not readers, (
         "something now reads the deprecated cross_border_consent field: "
         + ", ".join(readers)
