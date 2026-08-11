@@ -126,7 +126,9 @@ def api_get_privacy_config(org_id: str, request: Request):
 
 class LifecycleConsentRequest(BaseModel):
     entity_id: str
-    consent_type: str  # "cross_border", "data_collection", "telemetry", "profiling"
+    # "cross_border" is accepted for historical records but is no longer
+    # offered in the UI and gates nothing — see privacy.PrivacyConfig.
+    consent_type: str  # "data_collection", "telemetry", "profiling"
     details: dict = None
 
 

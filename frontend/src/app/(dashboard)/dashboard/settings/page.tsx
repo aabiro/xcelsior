@@ -549,9 +549,17 @@ export default function SettingsPage() {
     finally { setChangingPw(false); }
   };
 
-  const consentTypes = ["cross_border", "telemetry", "profiling", "data_collection"];
+  // "cross_border" was removed on 2026-08-11. It presented as a control over
+  // where data is processed and gated nothing: `cross_border_consent` was read
+  // by no code path, and placement selects on price, availability, GPU model
+  // and reputation with no geography input at all. A user who switched it off
+  // believed they had restricted transfers. The privacy policy sentence that
+  // backed that belief has been retracted, so the control goes with it.
+  //
+  // Stored consents are deliberately kept — they are a record of what people
+  // chose while being told it mattered. See docs/audit-retention.md.
+  const consentTypes = ["telemetry", "profiling", "data_collection"];
   const consentLabels: Record<string, { label: string; desc: string }> = {
-    cross_border: { label: "Cross-Border Transfer", desc: "Allow data processing outside Canada when needed" },
     telemetry: { label: "Telemetry Collection", desc: "Platform usage analytics to improve service quality" },
     profiling: { label: "Profiling", desc: "Usage patterns for personalized recommendations" },
     data_collection: { label: "Data Collection", desc: "General data collection for service operation" },
