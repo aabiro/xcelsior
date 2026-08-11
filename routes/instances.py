@@ -1120,9 +1120,14 @@ def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
     # route, and it costs one anchored regex to not assume that.
     from host_key_fingerprint import parse_host_key_fingerprint
 
+    # Both, not either: a port without a host is a leftover from a container
+    # that no longer exists, and a fingerprint anchored to nothing is exactly
+    # the unverifiable value this field exists to avoid. `public_ssh_port`
+    # survives a requeue in the payload, so the port alone is not evidence that
+    # anything is listening.
     j["host_key_fingerprint"] = (
         parse_host_key_fingerprint(j.get("host_key_fingerprint"))
-        if j.get("ssh_port")
+        if j.get("ssh_port") and j.get("host_id")
         else None
     )
 

@@ -21,9 +21,16 @@ genuinely differs from the one launch got.
 
 ## This module has no production caller yet, and that is stated on purpose
 
-The migration *executor* — snapshot, stop, relaunch, verify — is blocked on Gate
-P5 clause 1, which needs two live instances that can share a volume. So the gate
-here is a tested library waiting for its caller, not a wired path.
+The migration *executor* — snapshot, stop, relaunch, verify — is not written.
+C3 wires it. Until then this is a tested library waiting for its caller, not a
+wired path.
+
+**No cause is named here on purpose.** An earlier draft said "blocked on two
+live instances that can share a volume", which was wrong: the fleet is dark
+because production's agent-ingress cutover is half finished, not for want of
+hardware. A docstring is where a cause stops being questioned, so an unverified
+one belongs in it least of all — better to say what is true (nothing calls this
+yet) and let whoever wires it establish why it had not been.
 
 That is a different thing from the defect this phase kept finding — code that
 silently never runs while appearing wired — but the difference only holds if the

@@ -158,23 +158,63 @@ def test_the_observer_never_raises(monkeypatch):
     worker_agent._log_container_host_key_fingerprint("c1", "job-1")
 
 
-def test_a0_publishes_nothing_yet():
-    """The stage boundary, asserted so it cannot be skipped by accident.
+def test_the_observer_still_only_observes():
+    """A0's observer stays an observer even though A1 has shipped.
 
-    A0 observes. If a later change starts reporting this value, that is A1 and
-    it needs the malformed-input refusal at the API boundary that A1 specifies —
-    this column is served to users, and must never carry text a worker chose.
+    This asserted "nothing reports the fingerprint anywhere" until A1 landed,
+    and it went red for the right reason. Rewritten rather than deleted: the
+    boundary it guards still exists, it just moved. Reporting belongs to
+    `_inject_ssh_keys`, which posts through the validated API boundary; the
+    observer must not grow a second, unvalidated path.
+
+    Checked against the parsed body, not the source text — the first version
+    grepped for "report" and matched the word in a docstring, which is the same
+    false-positive shape as a guard that matches its own function name.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    import worker_agent
+
+    tree = ast.parse(
+        textwrap.dedent(
+            inspect.getsource(worker_agent._log_container_host_key_fingerprint)
+        )
+    )
+    called = {
+        ast.unparse(node.func)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+    }
+    for name in called:
+        assert not any(
+            transport in name for transport in ("requests", "httpx", "urllib", "post")
+        ), (
+            f"the A0 observer calls {name!r} — reporting belongs to "
+            "_inject_ssh_keys, behind the validating API boundary"
+        )
+
+
+def test_a1_actually_reports_it():
+    """The half that was missing, and that nothing would have noticed.
+
+    The API accepted `host_key_fingerprint`, the column stored it, the route
+    served it and the tool rendered it — while no agent ever sent one, so the
+    column would have been null in production forever. A feature that ships and
+    does nothing is the defect this phase kept finding.
     """
     import inspect
 
     import worker_agent
 
-    source = inspect.getsource(worker_agent._log_container_host_key_fingerprint)
-    for reporting in ("requests.", "httpx.", "post(", "callback", "report"):
-        assert reporting not in source, (
-            f"A0 appears to be reporting the fingerprint ({reporting!r}); that is "
-            "A1, and it needs input validation at the API boundary first"
-        )
+    source = inspect.getsource(worker_agent._inject_ssh_keys)
+    assert "/agent/ssh-status/" in source
+    assert "host_key_fingerprint" in source, (
+        "the agent does not send the fingerprint, so the column it feeds stays "
+        "null no matter how correct the receiving side is"
+    )
+    assert "read_container_host_key_fingerprint" in source
 
 
 # ── What real hardware corrected ────────────────────────────────────

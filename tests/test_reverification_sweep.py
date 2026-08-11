@@ -296,3 +296,85 @@ def test_the_sweep_does_not_change_any_verification_state(monkeypatch, hosts, as
         conn.execute("DELETE FROM host_verifications WHERE host_id = %s", (host_id,))
 
     assert state == "verified", "the sweep changed placement behaviour as a side effect"
+
+
+# ── The expired rows the drain never gets to ──────────────────────────
+
+
+def test_expired_commands_are_pruned_without_an_agent_draining():
+    """The cleanup must not depend on the thing that is broken.
+
+    `api_agent_commands_drain` deletes expired rows, but only when an agent
+    collects commands — so it stops running in exactly the case that produces
+    the most garbage: a fleet that cannot reach the API. Production accumulated
+    40 expired reverify rows against 2 live ones that way.
+    """
+    from routes.agent import prune_expired_agent_commands
+
+    tag = uuid.uuid4().hex[:12]
+    host = f"prune-{tag}"
+    try:
+        with pg_transaction() as conn:
+            _queue(conn, host, ttl=-60)      # expired
+            _queue(conn, host, ttl=-120)     # expired
+            _queue(conn, host, ttl=3600)     # live
+            before = conn.execute(
+                "SELECT count(*) FROM agent_commands WHERE host_id = %s", (host,)
+            ).fetchone()[0]
+        assert before == 3
+
+        with pg_transaction() as conn:
+            prune_expired_agent_commands(conn)
+            remaining = conn.execute(
+                "SELECT count(*) FROM agent_commands WHERE host_id = %s", (host,)
+            ).fetchone()[0]
+        assert remaining == 1, "the live command was pruned, or the expired ones were not"
+    finally:
+        with pg_transaction() as conn:
+            conn.execute("DELETE FROM agent_commands WHERE host_id = %s", (host,))
+
+
+def test_an_attempt_bound_command_is_never_pruned():
+    """A v2 `start_attempt` carries its own lifecycle and its only delivery.
+
+    Claim/ACK, backoff, dead-letter and cancellation on lease expiry are owned
+    by `/agent/v2` and `control_plane.commands`. Deleting one here would destroy
+    a placement's sole delivery — the same reason the drain excludes them.
+    """
+    from routes.agent import prune_expired_agent_commands
+
+    tag = uuid.uuid4().hex[:12]
+    host = f"prune-att-{tag}"
+    attempt_id = str(uuid.uuid4())
+    try:
+        with pg_transaction() as conn:
+            conn.execute(
+                """INSERT INTO agent_commands
+                     (host_id, command, args, status, created_at, expires_at, attempt_id)
+                   VALUES (%s, 'start_attempt', '{}'::jsonb, 'pending',
+                           EXTRACT(EPOCH FROM NOW()), EXTRACT(EPOCH FROM NOW()) - 60, %s)""",
+                (host, attempt_id),
+            )
+        with pg_transaction() as conn:
+            prune_expired_agent_commands(conn)
+            remaining = conn.execute(
+                "SELECT count(*) FROM agent_commands WHERE host_id = %s", (host,)
+            ).fetchone()[0]
+        assert remaining == 1, (
+            "an expired attempt-bound command was pruned; its lifecycle is not "
+            "this sweep's to end"
+        )
+    finally:
+        with pg_transaction() as conn:
+            conn.execute("DELETE FROM agent_commands WHERE host_id = %s", (host,))
+
+
+def test_the_sweep_is_registered_with_the_background_worker():
+    """A pruner with no caller is the defect this whole branch started from."""
+    import inspect
+
+    import bg_worker
+
+    source = inspect.getsource(bg_worker.main)
+    assert '"expired_agent_command_sweep"' in source
+    assert "prune_expired_agent_commands" in source

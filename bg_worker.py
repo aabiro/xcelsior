@@ -398,6 +398,24 @@ def main():
         "placement_observation_maintenance", _placement_observation_maintenance, 86_400
     )
 
+    # 6d. Expired agent-command sweep.
+    #
+    # `api_agent_commands_drain` already deletes expired rows — but only when an
+    # agent drains, so the cleanup is coupled to fleet health and stops in
+    # exactly the case that generates the most garbage: workers that cannot
+    # reach the API. Production accumulated 40 expired reverify rows against 2
+    # live ones that way, at ~48/day with no ceiling.
+    def _expired_agent_command_sweep():
+        from control_plane.db import control_plane_transaction
+        from routes.agent import prune_expired_agent_commands
+
+        with control_plane_transaction() as conn:
+            removed = prune_expired_agent_commands(conn)
+        if removed:
+            log.info("agent commands: pruned %d expired row(s)", removed)
+
+    register_task("expired_agent_command_sweep", _expired_agent_command_sweep, 3600)
+
     # 7. Event snapshotting (every 15 minutes)
     def _event_snapshots():
         from events import get_snapshot_manager, get_event_store

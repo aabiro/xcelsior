@@ -33,6 +33,44 @@ reconciliation §5.4 names as a C2 decision, and it is not made in passing here.
 The placement gate already treats an overdue stamp as `stale` on read, so a
 `require_verified` request is answered correctly today either way.
 
+## The sweep cannot fire in the failure it detects
+
+**Recovery machinery must not live on the failing side of the boundary it
+recovers, and this does.** `run_verification` needs a telemetry report only the
+host can produce, so refreshing a stamp requires the host to be reachable — and
+a stamp goes stale precisely when it is not. The mechanism for fixing the
+condition is unavailable exactly when the condition holds.
+
+That is not hypothetical here. When this shipped, production's stamps were 112
+and 125 days old and every worker was locked out by a retired public agent
+ingress: the sweep ran correctly, enqueued correctly, deduped correctly, and
+produced **zero fresh stamps**, because nothing could drain the commands. Being
+C2's first commit did not help, and could not have.
+
+So the honest statement of what this buys: it removes "nothing ever asks" as a
+cause. It does not remove "the host never answers", and no amount of sweeping
+will, because the answer has to come from the thing that is down.
+
+**Reading the result — the discriminator is correlation, not severity.**
+Independent host failures do not synchronise; a shared-dependency failure does.
+So *N* hosts reading identically at once is positive evidence of a common cause,
+and a common cause sits upstream of the hosts:
+
+* **all stale → look up the stack.** Ingress, DNS, credentials, the gateway.
+* **one stale → look at the host.**
+
+That makes it a test rather than a hunch, and it is the inference that was
+available and unused: four hosts at 112 and 125 days is *one* fact about the
+path to them, not four facts about them. Read as four, it looks like fleet
+neglect and invites verifying hosts one at a time — none of which could have
+worked, because the answer had to travel back over the link that was down.
+
+Distinct from the scope-mismatch defect this phase kept finding (a mechanism not
+covering the case it was cited for). This mechanism covers its case exactly; the
+problem is *where it runs relative to what it protects against*. The two
+questions predict different searches — "what does this cover?" versus "where
+does this run?" — and the second one is the less asked.
+
 ## Rollout ordering
 
 Agents hard-refuse unknown commands by design, so a fleet that has not taken the
