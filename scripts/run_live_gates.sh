@@ -22,12 +22,46 @@ cd "$ROOT"
 # routinely taken by a developer's own API; picking a different one is cheaper
 # and far safer than stopping whatever is already there.
 PORT="${XCELSIOR_STAGING_PORT:-9600}"
-BASE="http://127.0.0.1:${PORT}"
 PASSWORD="LiveGateTest123abc!"
+
+# ── Which origin the gates run against ───────────────────────────────
+#
+# Staging by default. This was hardcoded, and the consequence was not obvious:
+# the 9 fleet-dependent gates skip because *staging's* hosts table is empty, and
+# restoring the production fleet does nothing for them. A runbook was written
+# claiming otherwise.
+#
+# An explicit origin is honoured so that gap is at least addressable — but
+# everything below this script does to stand an environment up is **local
+# only**. It builds compose services, starts containers, registers a throwaway
+# user and flips `email_verified` straight in the database. Every one of those
+# is wrong to do to production, so against a foreign origin the script does
+# none of them and requires the token to be supplied instead.
+BASE="${XCELSIOR_LIVE_BASE_URL:-http://127.0.0.1:${PORT}}"
+BASE="${BASE%/}"
+case "$BASE" in
+  http://127.0.0.1:*|http://localhost:*) LOCAL_STAGING=1 ;;
+  *)                                     LOCAL_STAGING=0 ;;
+esac
 
 log() { printf '\033[36m▸\033[0m %s\n' "$*"; }
 
-if ! curl -sf -m 5 "${BASE}/healthz" >/dev/null 2>&1; then
+if [ "$LOCAL_STAGING" -eq 0 ]; then
+  log "running against ${BASE} — not local staging"
+  if [ -z "${XCELSIOR_LIVE_USER_TOKEN:-}" ]; then
+    echo "✗ ${BASE} is not local staging, so this script will not create an" >&2
+    echo "  account or touch a database there. Supply XCELSIOR_LIVE_USER_TOKEN" >&2
+    echo "  for a NON-admin user: an admin token makes the scope probes pass" >&2
+    echo "  vacuously and would create a real operator client." >&2
+    exit 1
+  fi
+  if ! curl -sf -m 10 "${BASE}/healthz" >/dev/null 2>&1; then
+    echo "✗ ${BASE} is not reachable; a gate that cannot run must not report green." >&2
+    exit 1
+  fi
+fi
+
+if [ "$LOCAL_STAGING" -eq 1 ] && ! curl -sf -m 5 "${BASE}/healthz" >/dev/null 2>&1; then
   log "starting staging on ${PORT}…"
   XCELSIOR_API_PORT="$PORT" ./scripts/run_staging_compose.sh up -d api >/dev/null
 fi
@@ -44,7 +78,7 @@ fi
 # stopped, and the error was going to /dev/null. `docker ps` tests running, so
 # an exited container took this branch and then the start silently did nothing.
 # Both states are handled now, and neither is silent.
-if ! docker ps --format '{{.Names}}' | grep -q '^xcelsior-staging-redis$'; then
+if [ "$LOCAL_STAGING" -eq 1 ] && ! docker ps --format '{{.Names}}' | grep -q '^xcelsior-staging-redis$'; then
   if docker ps -a --format '{{.Names}}' | grep -q '^xcelsior-staging-redis$'; then
     log "restarting the stopped staging auth cache…"
     docker start xcelsior-staging-redis >/dev/null \
@@ -57,59 +91,71 @@ if ! docker ps --format '{{.Names}}' | grep -q '^xcelsior-staging-redis$'; then
   sleep 3
 fi
 
-# The URL carries a password; read it from the container rather than pinning a
-# secret in this file.
-PW="$(docker exec xcelsior-staging-api-1 sh -c 'printf "%s" "$XCELSIOR_AUTH_REDIS_URL"' \
-      | sed -E 's|redis://:([^@]*)@.*|\1|')"
-[ -n "$PW" ] && docker exec xcelsior-staging-redis redis-cli CONFIG SET requirepass "$PW" >/dev/null
+if [ "$LOCAL_STAGING" -eq 1 ]; then
+  # The URL carries a password; read it from the container rather than pinning a
+  # secret in this file.
+  PW="$(docker exec xcelsior-staging-api-1 sh -c 'printf "%s" "$XCELSIOR_AUTH_REDIS_URL"' \
+        | sed -E 's|redis://:([^@]*)@.*|\1|')"
+  [ -n "$PW" ] && docker exec xcelsior-staging-redis redis-cli CONFIG SET requirepass "$PW" >/dev/null
 
-for _ in $(seq 1 60); do
-  curl -sf -m 5 "${BASE}/healthz" >/dev/null 2>&1 && break
-  sleep 2
-done
-
-if ! curl -sf -m 5 "${BASE}/healthz" >/dev/null 2>&1; then
-  echo "✗ staging never became healthy on ${PORT}; not running the gates." >&2
-  echo "  A gate that cannot run must not report green." >&2
-  exit 1
+  for _ in $(seq 1 60); do
+    curl -sf -m 5 "${BASE}/healthz" >/dev/null 2>&1 && break
+    sleep 2
+  done
 fi
-log "staging healthy at ${BASE}"
 
-# A NON-admin user. `_refuse_undelegatable_scopes` returns early for an admin by
-# design, so an admin token would make every probe "succeed" and the gate would
-# report the deployment vulnerable while creating a real operator client.
-EMAIL="livegate-$(date +%s)-$RANDOM@xcelsior.ca"
-curl -s -m 30 -X POST "${BASE}/api/auth/register" \
-  -H 'Content-Type: application/json' \
-  -d "{\"email\":\"${EMAIL}\",\"password\":\"${PASSWORD}\"}" >/dev/null
+if [ "$LOCAL_STAGING" -eq 1 ]; then
+  if ! curl -sf -m 5 "${BASE}/healthz" >/dev/null 2>&1; then
+    echo "✗ staging never became healthy on ${PORT}; not running the gates." >&2
+    echo "  A gate that cannot run must not report green." >&2
+    exit 1
+  fi
+  log "staging healthy at ${BASE}"
 
-# Registration requires address verification, which no mailbox will complete
-# here. Verifying the row this script just created is not a shortcut around the
-# gate — the gate is about scopes, not about email — and it touches nothing that
-# existed beforehand.
-docker exec xcelsior-staging-api-1 python -c "
-from db import UserStore
-UserStore.update_user('${EMAIL}', {'email_verified': 1})
-" >/dev/null 2>&1
-
-TOKEN="$(curl -s -m 30 -X POST "${BASE}/api/auth/login" \
-  -H 'Content-Type: application/json' \
-  -d "{\"email\":\"${EMAIL}\",\"password\":\"${PASSWORD}\"}" \
-  | python3 -c 'import sys,json; print(json.load(sys.stdin).get("access_token",""))')"
-
-if [ -z "$TOKEN" ]; then
-  # Name the cause rather than the symptom. The usual one is the auth cache:
-  # login answers 503 `auth_cache_unavailable` and this looked like a
-  # credential problem for as long as nobody read the response body.
-  echo "✗ could not obtain a session token; not running the gates." >&2
-  echo "  login said:" >&2
-  curl -s -m 30 -X POST "${BASE}/api/auth/login" \
+  # A NON-admin user. `_refuse_undelegatable_scopes` returns early for an admin by
+  # design, so an admin token would make every probe "succeed" and the gate would
+  # report the deployment vulnerable while creating a real operator client.
+  EMAIL="livegate-$(date +%s)-$RANDOM@xcelsior.ca"
+  curl -s -m 30 -X POST "${BASE}/api/auth/register" \
     -H 'Content-Type: application/json' \
-    -d "{\"email\":\"${EMAIL}\",\"password\":\"${PASSWORD}\"}" | head -c 400 >&2
-  echo >&2
-  exit 1
+    -d "{\"email\":\"${EMAIL}\",\"password\":\"${PASSWORD}\"}" >/dev/null
+
+  # Registration requires address verification, which no mailbox will complete
+  # here. Verifying the row this script just created is not a shortcut around the
+  # gate — the gate is about scopes, not about email — and it touches nothing that
+  # existed beforehand.
+  # One line on purpose: this is a Python payload inside a shell string, so it
+  # does not follow the surrounding indentation. Indenting it once produced an
+  # IndentationError that `>/dev/null 2>&1` swallowed whole.
+  if ! VERIFY_ERR="$(docker exec xcelsior-staging-api-1 python -c \
+      "from db import UserStore; UserStore.update_user('${EMAIL}', {'email_verified': 1})" 2>&1)"; then
+    # This used to be `>/dev/null 2>&1`, which discarded the reason. `set -e`
+    # then exited 1 with no output at all, and the script looked like it had
+    # simply stopped.
+    echo "✗ could not verify the throwaway user; not running the gates." >&2
+    echo "  ${VERIFY_ERR}" >&2
+    exit 1
+  fi
+
+  TOKEN="$(curl -s -m 30 -X POST "${BASE}/api/auth/login" \
+    -H 'Content-Type: application/json' \
+    -d "{\"email\":\"${EMAIL}\",\"password\":\"${PASSWORD}\"}" \
+    | python3 -c 'import sys,json; print(json.load(sys.stdin).get("access_token",""))')"
+
+  if [ -z "$TOKEN" ]; then
+    # Name the cause rather than the symptom. The usual one is the auth cache:
+    # login answers 503 `auth_cache_unavailable` and this looked like a
+    # credential problem for as long as nobody read the response body.
+    echo "✗ could not obtain a session token; not running the gates." >&2
+    echo "  login said:" >&2
+    curl -s -m 30 -X POST "${BASE}/api/auth/login" \
+      -H 'Content-Type: application/json' \
+      -d "{\"email\":\"${EMAIL}\",\"password\":\"${PASSWORD}\"}" | head -c 400 >&2
+    echo >&2
+    exit 1
+  fi
+  log "minted a non-admin session token for ${EMAIL}"
 fi
-log "minted a non-admin session token for ${EMAIL}"
 
 export XCELSIOR_LIVE_BASE_URL="$BASE"
 export XCELSIOR_STAGING_URL="$BASE"
