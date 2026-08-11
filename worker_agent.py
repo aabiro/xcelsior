@@ -5559,13 +5559,32 @@ def _log_container_host_key_fingerprint(container_name: str, job_id: str) -> Non
     SSH setup is on the launch path, so a failure here must cost the user
     nothing — the instance is more important than the telemetry about it.
 
-    **Logged at INFO only when the value is new or has changed.** `_inject_ssh_keys`
-    also runs on the periodic shell re-injection pass over adopted containers, not
-    only at launch, so the naive version emitted one line every cycle: 54 lines for
-    a single container over 13.5 hours. A0's whole purpose is to measure the rate
-    of blanks across *images*, and a count that tracks re-injection cadence instead
-    of launches invites reading n=1 as n=54 — a fabricated sample, which is the
-    same failure as a fabricated measurement.
+    **Logged at INFO only when the value is new or has changed**, because
+    `_inject_ssh_keys` also runs on the periodic shell re-injection pass over
+    adopted containers, not only at launch. A0's purpose is to measure the blank
+    rate across *images*, and a count that tracks re-injection cadence instead of
+    launches invites reading n=1 as n=54.
+
+    **This dedupe is in-memory and therefore restart-scoped.** It suppresses
+    repeats within one agent lifetime and nothing more. The 54 identical lines
+    that prompted it were *not* re-injection at all — they were one line per
+    process start, from a worker crash-looping every 15m20s against a 410 from
+    the retired public agent ingress. This mechanism would not have prevented
+    them. Recorded because the justification and the mechanism were sound
+    separately and never checked against each other, which is how the same shape
+    got past review three times in one phase.
+
+    **Do not persist this across restarts.** Making it survive would "complete"
+    the fix and silence a crash loop: a repeat across restarts is not noise the
+    dedupe missed, it is the agent announcing a restart. The 15m20s
+    cadence in those 54 lines is what surfaced a half-finished agent-ingress
+    cutover that had the whole fleet locked out — persisting the dedupe deletes
+    exactly that evidence.
+
+    The wider rule, since it is easy to get backwards: a limiter that can drop a
+    *distinct* fact is worse than one that duplicates a *known* fact. Duplicate a
+    fact you already hold and you pay storage; collapse a repeat and you lose
+    that it recurred — which here was the entire information content.
 
     A fingerprint that *changes* for one container is worth an INFO line on its
     own: it means the container was recreated underneath the job.
@@ -6070,6 +6089,15 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
                     "level": final_level,
                     "elapsed_sec": round(elapsed, 2),
                     "ts": time.time(),
+                    # A1 of docs/host-key-fingerprint-plan.md. Read *after* the
+                    # sshd setup above, so it is the key the container will
+                    # actually present. `""` when nothing is readable — a
+                    # non-interactive launch, or a host where the provider's
+                    # proxy terminates SSH and the container holds no keys — and
+                    # the API stores that as null rather than inventing one.
+                    "host_key_fingerprint": read_container_host_key_fingerprint(
+                        container_name
+                    ),
                 },
                 timeout=5,
             )
