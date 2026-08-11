@@ -516,8 +516,18 @@ def _ensure_sqlite_tables(conn: sqlite3.Connection) -> None:
                created_at REAL NOT NULL,
                expires_at REAL NOT NULL,
                confirmed_at REAL NOT NULL DEFAULT 0,
-               credited_at REAL NOT NULL DEFAULT 0
+               credited_at REAL NOT NULL DEFAULT 0,
+               idempotency_key TEXT
            )""")
+    # Mirrors migration 109. Postgres is the production store and alembic owns
+    # its schema; this shim exists for SQLite-backed tests, and a shim that does
+    # not carry the same constraint is a test that proves the wrong thing — the
+    # replay guard would pass here and fail in production, or vice versa.
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_crypto_deposits_idempotency "
+        "ON crypto_deposits (customer_id, idempotency_key) "
+        "WHERE idempotency_key IS NOT NULL AND idempotency_key <> ''"
+    )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_crypto_deposits_status ON crypto_deposits(status)")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_crypto_deposits_customer ON crypto_deposits(customer_id)"
@@ -583,11 +593,56 @@ def _conn():
 # ── Deposit API ───────────────────────────────────────────────────────
 
 
-def create_deposit(customer_id: str, amount_cad: float) -> dict:
+class DepositKeyConflict(Exception):
+    """The same idempotency key was reused for a different amount.
+
+    Not a duplicate and not a fresh request — a caller contradicting itself.
+    Returning the original would fund the wrong amount; creating a new deposit
+    would break the key's only guarantee. Both are worse than refusing.
+    """
+
+
+def create_deposit(
+    customer_id: str, amount_cad: float, idempotency_key: str = ""
+) -> dict:
     """Create a new BTC deposit request.
 
     Generates a unique address, locks the BTC/CAD rate for 30 minutes.
+
+    ## Replaying with the same key returns the same deposit
+
+    Gate P1 clause 2. Without this, a retried request — an agent, a
+    double-clicked button, a proxy replay — got a **second Bitcoin address**
+    for one intended deposit, at a different locked rate. Two live addresses
+    for one intent are not obviously duplicates to whoever is looking at them:
+    whichever gets paid, the other stays open and the wallet has burned an
+    address it now has to watch.
+
+    The replay returns the *original* row, address and rate — including when
+    that row has already expired. An idempotency key answers "what did this
+    request create", not "give me a fresh one": a caller who wants a new
+    deposit uses a new key, and a caller retrying a lost response wants the
+    address it already showed the user. `expires_at` is in the result, so an
+    expired original is visible rather than disguised.
+
+    A key reused with a *different* amount raises `DepositKeyConflict`.
     """
+    key = str(idempotency_key or "").strip()
+    if key:
+        existing = _deposit_by_idempotency_key(customer_id, key)
+        if existing is not None:
+            wanted = round(amount_cad * 1_000_000)
+            if int(existing.get("amount_micros") or 0) != wanted:
+                raise DepositKeyConflict(
+                    "that idempotency key was used for a different amount"
+                )
+            log.info(
+                "BTC deposit replay (key=%s) returned existing %s",
+                key,
+                existing["deposit_id"],
+            )
+            return _deposit_result(existing)
+
     rate = get_btc_cad_rate()
     amount_btc = round(amount_cad / rate, 8)
     address = get_new_address(f"xcelsior-{customer_id[:8]}")
@@ -598,8 +653,12 @@ def create_deposit(customer_id: str, amount_cad: float) -> dict:
         c.execute(
             """INSERT INTO crypto_deposits
                (deposit_id, customer_id, btc_address, amount_btc, amount_micros,
-                btc_cad_rate, status, confirmations, txid, created_at, expires_at)
-               VALUES (%s, %s, %s, %s, %s, %s, 'pending', 0, '', %s, %s)""",
+                btc_cad_rate, status, confirmations, txid, created_at, expires_at,
+                idempotency_key)
+               VALUES (%s, %s, %s, %s, %s, %s, 'pending', 0, '', %s, %s, %s)
+               ON CONFLICT (customer_id, idempotency_key)
+                    WHERE idempotency_key IS NOT NULL AND idempotency_key <> ''
+                    DO NOTHING""",
             (
                 deposit_id,
                 customer_id,
@@ -609,8 +668,26 @@ def create_deposit(customer_id: str, amount_cad: float) -> dict:
                 rate,
                 now,
                 now + BTC_DEPOSIT_EXPIRY,
+                key or None,
             ),
         )
+
+    # The read-then-insert above is not atomic, so two concurrent replays can
+    # both miss the SELECT. `ON CONFLICT DO NOTHING` makes the loser a no-op
+    # rather than an error, and it then reads the winner's row — so the
+    # guarantee is held by the unique index rather than by the timing of the
+    # check. Without this, the race produces exactly the second address this
+    # whole mechanism exists to prevent.
+    if key:
+        winner = _deposit_by_idempotency_key(customer_id, key)
+        if winner is not None and winner["deposit_id"] != deposit_id:
+            log.info(
+                "BTC deposit race (key=%s): returning %s, discarding %s",
+                key,
+                winner["deposit_id"],
+                deposit_id,
+            )
+            return _deposit_result(winner)
 
     log.info(
         "BTC deposit created: %s addr=%s amount=%.8f BTC ($%.2f CAD @ %.2f)",
@@ -629,6 +706,42 @@ def create_deposit(customer_id: str, amount_cad: float) -> dict:
         "btc_cad_rate": rate,
         "expires_at": now + BTC_DEPOSIT_EXPIRY,
         "qr_data": f"bitcoin:{address}?amount={amount_btc}",
+    }
+
+
+def _deposit_by_idempotency_key(customer_id: str, key: str) -> dict | None:
+    """The deposit a previous call created under this key, if any.
+
+    Scoped to `customer_id` because the unique index is: a caller-chosen string
+    is only meaningful inside the account that chose it, and a global lookup
+    would hand one tenant another tenant's row on a collision.
+    """
+    with _conn() as c:
+        row = c.execute(
+            "SELECT * FROM crypto_deposits "
+            " WHERE customer_id = %s AND idempotency_key = %s",
+            (customer_id, key),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def _deposit_result(row: dict) -> dict:
+    """The API shape, rebuilt from a stored row.
+
+    A replay has to return what the original returned — same address, same
+    rate, same expiry — so this is derived from the row rather than
+    recomputed. Recomputing would re-fetch the rate and hand back a different
+    number for the same deposit.
+    """
+    amount_cad = int(row.get("amount_micros") or 0) / 1_000_000
+    return {
+        "deposit_id": row["deposit_id"],
+        "btc_address": row["btc_address"],
+        "amount_btc": float(row["amount_btc"]),
+        "amount_cad": amount_cad,
+        "btc_cad_rate": float(row["btc_cad_rate"]),
+        "expires_at": float(row["expires_at"]),
+        "qr_data": f"bitcoin:{row['btc_address']}?amount={row['amount_btc']}",
     }
 
 

@@ -80,7 +80,7 @@ failure this document exists to stop.
 | # | Clause | Status | Evidence |
 |---|---|---|---|
 | 1 | Top-up on a saved card completes with no browser and no elicitation, **real token, live server** | **PARTIAL** | Implemented and tested, but `tests/test_manual_topup_charge.py` monkeypatches `_stripe_for_charge`. No live assertion. |
-| 2 | Replaying any funding call with the same idempotency key produces exactly one charge — **manual top-up, auto-top-up, and the crypto rails** | **PARTIAL** | Manual and the wallet-deposit rail are asserted (`test_funding_replay_is_one_charge.py`), PayPal separately. **The crypto rail is not:** `/api/billing/crypto/deposit` exists ([routes/billing.py:1032](routes/billing.py#L1032)) with no idempotency test. One of the three named rails is unasserted. |
+| 2 | Replaying any funding call with the same idempotency key produces exactly one charge — **manual top-up, auto-top-up, and the crypto rails** | **PASS** *(was PARTIAL)* | All named rails now, and the gap was larger than "unasserted". Manual, wallet-deposit and PayPal were already covered (`test_funding_replay_is_one_charge.py`). **The crypto rails had no mechanism at all** — neither `create_deposit` took a key nor deduplicated anything, so a retried request minted a *second Bitcoin address* or a *second bolt11* for one intended deposit. The clause says "rails" plural and there are two; fixing only on-chain would have left it half met while reading as done. Lightning is the sharper failure: two addresses at least belong to one wallet and both credit if paid, whereas a second invoice is a distinct payment request that settles nothing when the first is paid. Migrations 109/110 add `(customer_id, idempotency_key)` partial-unique indexes — scoped per customer so one tenant's key cannot collide with another's — and `ON CONFLICT DO NOTHING` holds the guarantee at the index rather than at the timing of a read-then-insert. Auto-top-up already reached the asserted `charge_saved_card`; what was unproven was its **key derivation**, now covered. `tests/test_crypto_funding_replay_is_one_deposit.py`, 11 assertions, confirmed failing before the fix (4 of 6 red with the guard removed; the two that stayed green are the negative controls, correct either way). |
 | 3 | An `authentication_required` decline produces a resumable pending state, a visible UI state, and a truthful tool result — **forced with a Stripe test card, not by mocking it** | **PARTIAL** | `test_sca_decline_is_recoverable.py` and `test_sca_pending_is_visible.py` are unusually careful — they build a genuine `stripe.CardError` from Stripe's documented JSON body rather than a hand mock with the attributes the code hopes for. But the decline is still *injected*, and the clause names the mocking exclusion explicitly. The clause as written is unmet. |
 | 4 | The webhook refuses what it cannot verify — `400` on a bad signature | **PASS** | `test_a_wrong_signature_is_refused_with_400` plus a missing-header case, in `test_stripe_webhook_refuses_unverified.py`. The file reasons explicitly about why "400 or 503" would be an untrustworthy assertion. |
 | 5 | No secret in any surface — card data, `client_secret`, processor tokens; canary-tested with fake PANs | **PASS** | `tests/test_no_payment_secrets_in_logs.py`. |
@@ -286,14 +286,14 @@ assertion about a bug.
 |---|---|---|---|---|
 | §1 universal | 4 | 1 | — | — |
 | P0 | 4 | — | — | — |
-| P1 | 4 | 3 | — | — |
+| P1 | 5 | 2 | — | — |
 | P2 | 2 | — | 1 | — |
 | P3 | 1 | 1 | 1 | — |
 | P4 | 4 | — | — | — |
 | P5 | 2 | — | 1 | — |
-| **Total** | **21** | **5** | **3** | **0** |
+| **Total** | **22** | **4** | **3** | **0** |
 
-Twenty-one of twenty-nine clauses are fully met, nothing is BLOCKED, and **Gate P0
+Twenty-two of twenty-nine clauses are fully met, nothing is BLOCKED, and **Gate P0
 and Gate P4 are wholly met**.
 
 The total moved by one this session and the arithmetic is worth stating, because

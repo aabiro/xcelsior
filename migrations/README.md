@@ -90,7 +90,23 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `108_jobs_host_key_fingerprint.py`.**
+**Repository head: `110_lightning_deposit_idempotency.py`.**
+
+(`109` and `110` give the two crypto funding rails an idempotency key —
+`crypto_deposits` and `ln_deposits` respectively. Gate P1 clause 2 requires a
+replayed funding call to produce exactly one charge, and names *"the crypto
+rails"* plural. Neither had a key nor deduplicated anything: a retried request
+minted a **second Bitcoin address**, or a **second bolt11 with a second payment
+hash**, for one intended deposit. Lightning is the sharper failure — two
+addresses at least belong to one wallet and both credit if paid, whereas a
+second invoice is a distinct payment request that settles nothing when the
+first is paid. Both add `(customer_id, idempotency_key)` partial-unique
+indexes: scoped per customer because a caller-chosen key is only meaningful
+inside the account that chose it, and partial so the existing keyless corpus
+does not collide with itself. The insert carries `ON CONFLICT DO NOTHING` so
+the guarantee is held by the index rather than by the timing of a
+read-then-insert.)
+
 (`108` adds the reported SSH host-key fingerprint, and its table choice is a
 **documented deviation from the plan's prose**. A2 says the value belongs to the
 attempt/container — on production that column would be null for the whole fleet
