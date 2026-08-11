@@ -326,16 +326,24 @@ def test_another_tenants_decision_is_not_readable(tenant):
 
 
 def test_the_listing_is_scoped_and_newest_first(tenant):
-    candidates = [_host("only", 20)]
+    """Three **distinct** decisions.
+
+    They used to be three identical ones, which the fingerprint dedupe now
+    correctly collapses to a single row — so the fixture was changed rather than
+    the assertion, or this would have quietly become a test of one row that
+    claimed to be about ordering.
+    """
     with pg_transaction() as conn:
-        for _ in range(3):
+        for price in (20, 21, 22):
+            candidates = [_host("only", price)]
             record_placement(
                 conn, tenant_id=tenant, decision=choose_host(candidates),
                 candidates=candidates,
             )
+        other = [_host("only", 20)]
         record_placement(
-            conn, tenant_id=f"{tenant}-other", decision=choose_host(candidates),
-            candidates=candidates,
+            conn, tenant_id=f"{tenant}-other", decision=choose_host(other),
+            candidates=other,
         )
         listed = list_placements(conn, tenant_id=tenant)
 
@@ -369,3 +377,181 @@ def test_the_premium_is_recomputed_not_stored():
     assert premium_pct(200_000, 220_000) == pytest.approx(10.0)
     assert premium_pct(0, 220_000) is None
     assert premium_pct(200_000, None) is None
+
+
+# ── One row per decision, a count per asking ──────────────────────────
+
+
+def test_polling_the_same_preference_writes_one_row(tenant):
+    """The trail records decisions, not polls.
+
+    Each row carries a `candidates` snapshot that scales with the fleet, so a
+    caller polling a preference would write a fleet snapshot per poll to record
+    nothing new.
+    """
+    candidates = [_host("only", 20)]
+    decision = choose_host(candidates)
+
+    with pg_transaction() as conn:
+        ids = {
+            record_placement(
+                conn, tenant_id=tenant, decision=decision, candidates=candidates
+            )
+            for _ in range(5)
+        }
+        rows = conn.execute(
+            "SELECT count(*) FROM placement_decisions WHERE tenant_id = %s", (tenant,)
+        ).fetchone()[0]
+        seen = conn.execute(
+            """SELECT times_seen FROM placement_decision_observations
+                WHERE tenant_id = %s""",
+            (tenant,),
+        ).fetchone()[0]
+
+    assert len(ids) == 1, "five identical evaluations produced more than one decision id"
+    assert rows == 1, f"{rows} WORM rows for one decision asked five times"
+    assert seen == 5, "the recurrence was not counted"
+
+
+def test_a_different_decision_is_a_different_row(tenant):
+    """Dedupe must not collapse decisions that differ."""
+    verified = [_host("a", 20)]
+    unverified = [_host("a", 20, state="unverified")]
+
+    with pg_transaction() as conn:
+        first = record_placement(
+            conn, tenant_id=tenant, decision=choose_host(verified), candidates=verified
+        )
+        second = record_placement(
+            conn,
+            tenant_id=tenant,
+            decision=choose_host(unverified, PlacementPreference(require_verified=True)),
+            candidates=unverified,
+            preference=PlacementPreference(require_verified=True),
+        )
+    assert first != second
+
+
+def test_the_same_decision_over_a_changed_fleet_is_a_new_decision(tenant):
+    """A refusal is only interpretable against the field it refused over.
+
+    Two refusals carrying the same code over different fleets are different
+    facts, and collapsing them would lose the one a reader came for.
+    """
+    preference = PlacementPreference(require_verified=True)
+    small = [_host("a", 20, state="unverified")]
+    larger = [_host("a", 20, state="unverified"), _host("b", 30, state="unverified")]
+
+    with pg_transaction() as conn:
+        first = record_placement(
+            conn, tenant_id=tenant, decision=choose_host(small, preference),
+            candidates=small, preference=preference,
+        )
+        second = record_placement(
+            conn, tenant_id=tenant, decision=choose_host(larger, preference),
+            candidates=larger, preference=preference,
+        )
+    assert first != second, "a refusal over a changed fleet deduped into the earlier one"
+
+
+def test_candidate_order_is_not_a_new_decision(tenant):
+    """The same fleet listed differently is the same decision."""
+    from control_plane.scheduler.placement_record import decision_fingerprint
+
+    a, b = _host("a", 20), _host("b", 30)
+    base = {"tenant_id": tenant, "job_id": None, "asked": {}, "outcome": "placed",
+            "refusal_code": None, "host_id": "a"}
+    from control_plane.scheduler.placement_record import candidate_summary
+
+    forward = dict(base, candidates=[candidate_summary(a), candidate_summary(b)])
+    reverse = dict(base, candidates=[candidate_summary(b), candidate_summary(a)])
+    assert decision_fingerprint(forward) == decision_fingerprint(reverse)
+
+
+def test_the_observation_points_at_the_row_it_caused(tenant):
+    candidates = [_host("only", 20)]
+    with pg_transaction() as conn:
+        decision_id = record_placement(
+            conn, tenant_id=tenant, decision=choose_host(candidates), candidates=candidates
+        )
+        linked = conn.execute(
+            "SELECT decision_id FROM placement_decision_observations WHERE tenant_id = %s",
+            (tenant,),
+        ).fetchone()[0]
+    assert str(linked) == decision_id
+
+
+def test_observations_can_be_pruned_and_decisions_cannot(tenant):
+    """The reason frequency lives here at all."""
+    from control_plane.scheduler.placement_record import prune_observations
+
+    candidates = [_host("only", 20)]
+    with pg_transaction() as conn:
+        record_placement(
+            conn, tenant_id=tenant, decision=choose_host(candidates), candidates=candidates
+        )
+        conn.execute(
+            """UPDATE placement_decision_observations
+                  SET last_seen_at = clock_timestamp() - interval '400 days'
+                WHERE tenant_id = %s""",
+            (tenant,),
+        )
+        removed = prune_observations(conn, older_than_days=90)
+        remaining_decisions = conn.execute(
+            "SELECT count(*) FROM placement_decisions WHERE tenant_id = %s", (tenant,)
+        ).fetchone()[0]
+
+    assert removed >= 1, "the recurrence count could not be pruned"
+    assert remaining_decisions == 1, "pruning the count removed the decision"
+
+
+def test_the_pruner_is_registered_with_the_background_worker(tenant):
+    """A prune function with no caller makes "prunable" a claim, not a property.
+
+    This is the defect that produced this whole branch of work:
+    `list_hosts_needing_reverification` was correct for months and nothing
+    invoked it, so production's verified stamps aged four months. The check is
+    on the registration, not on `prune_observations` being importable — being
+    importable is what the broken version already was.
+    """
+    import inspect
+
+    import bg_worker
+
+    source = inspect.getsource(bg_worker.main)
+    # The **quoted** name, which appears only in the `register_task` call. The
+    # first version of this asserted the bare substring and passed with the
+    # registration deleted, because it matched the function's own name
+    # (`_placement_observation_maintenance`) — a guard that could not fail,
+    # found by probing it rather than by reading it.
+    assert '"placement_observation_maintenance"' in source, (
+        "the maintenance task is not registered, so nothing calls "
+        "prune_observations and placement_decision_observations grows forever "
+        "while the schema comment claims it is prunable"
+    )
+    assert "prune_observations" in source
+    assert "register_task" in source
+
+
+def test_an_unrecorded_observation_is_findable(tenant):
+    """`decision_id IS NULL` means "seen, and the audit write failed".
+
+    Recording is best-effort so the placement never fails on bookkeeping — which
+    only holds together if the failures are visible afterwards.
+    """
+    candidates = [_host("only", 20)]
+    with pg_transaction() as conn:
+        record_placement(
+            conn, tenant_id=tenant, decision=choose_host(candidates), candidates=candidates
+        )
+        conn.execute(
+            """UPDATE placement_decision_observations SET decision_id = NULL
+                WHERE tenant_id = %s""",
+            (tenant,),
+        )
+        unrecorded = conn.execute(
+            """SELECT count(*) FROM placement_decision_observations
+                WHERE tenant_id = %s AND decision_id IS NULL""",
+            (tenant,),
+        ).fetchone()[0]
+    assert unrecorded == 1
