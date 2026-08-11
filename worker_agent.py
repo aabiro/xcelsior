@@ -1178,6 +1178,29 @@ def _api_headers():
     bearer that rotation is retiring.
     """
     headers = {"Content-Type": "application/json"}
+    # Private-gateway shared secret, when this host has been given one.
+    #
+    # `AgentIngressMiddleware` refuses every worker path with 410 when
+    # `XCELSIOR_AGENT_PUBLIC_INGRESS=deny`, *unless* the request proves it came
+    # through the private gateway — `gateway_headers_authenticated` compares
+    # this header against `XCELSIOR_AGENT_GATEWAY_SECRET` with
+    # `hmac.compare_digest`. A bare `X-Xcelsior-Agent-Gateway: 1` is forgeable
+    # on public ingress; the secret is the proof.
+    #
+    # The check is hostname-independent, so a worker carrying this keeps using
+    # the existing origin — real certificate, working DNS, no nginx change and
+    # no client CA. That is what makes it usable before the mTLS cutover exists
+    # rather than after it.
+    #
+    # **Same variable name the server reads.** A translation layer here would be
+    # one more place for the two to disagree silently.
+    #
+    # Env only: never a literal, never a default, never logged. Absent means the
+    # header is simply not sent, which is the correct behaviour for a host that
+    # has not been enrolled — it then fails the same way it does today.
+    gateway_secret = (os.environ.get("XCELSIOR_AGENT_GATEWAY_SECRET") or "").strip()
+    if gateway_secret:
+        headers["X-Xcelsior-Gateway-Auth"] = gateway_secret
     host_token = _host_token_value()
     if host_token:
         headers["Authorization"] = f"Bearer {host_token}"
