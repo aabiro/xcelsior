@@ -36,11 +36,17 @@ CLAUSE_ROW = re.compile(r"^\|\s*\d+\s*\|")
 #: The bolded verdict, wherever it sits in the verdict cell — rows carry
 #: history like `**PASS** *(was PARTIAL)*`, and the first bold token is the
 #: current one.
-VERDICT = re.compile(r"\*\*([A-Z]+)\*\*")
+#: Hyphen included so `ACCEPTED-UNFIXABLE` is one token. Without it the regex
+#: matched `ACCEPTED` and the verdict would have been silently unrecognised —
+#: counted in no column, which is how a clause disappears from a derived tally.
+VERDICT = re.compile(r"\*\*([A-Z][A-Z-]*)\*\*")
 #: A row of the summary table: `| P3 | 1 | 1 | 1 | — |`.
 TALLY_ROW = re.compile(r"^\|\s*(\*\*)?(§1 universal|P\d|Total)(\*\*)?\s*\|")
 
-VERDICTS = ("PASS", "PARTIAL", "FAIL")
+#: Column order in the Tally table. `ACCEPTED-UNFIXABLE` is last and separate
+#: on purpose: it is neither proven nor outstanding, and giving it its own
+#: column is what stops it inflating either number.
+VERDICTS = ("PASS", "PARTIAL", "FAIL", "ACCEPTED-UNFIXABLE")
 
 
 def _sections() -> dict[str, collections.Counter]:
@@ -84,7 +90,7 @@ def _tally() -> dict[str, list[int]]:
             continue
         cells = [c.strip().replace("*", "") for c in line.split("|")]
         label = cells[1]
-        numbers = [0 if c in ("—", "") else int(c) for c in cells[2:5]]
+        numbers = [0 if c in ("—", "") else int(c) for c in cells[2 : 2 + len(VERDICTS)]]
         rows[label] = numbers
     return rows
 
@@ -162,4 +168,66 @@ def test_the_prose_count_matches_the_table():
     )
     assert words[stated.group(2).capitalize()] == total, (
         f"the prose counts {stated.group(2)} clauses; there are {total}"
+    )
+
+
+def test_no_clause_carries_a_verdict_the_tally_has_no_column_for():
+    """A verdict with no column is a clause that vanishes from a derived tally.
+
+    The tally is computed from the rows, so an unrecognised verdict is not a
+    loud failure — it is a row counted in nothing, and a total that silently
+    drops by one. Introducing `ACCEPTED-UNFIXABLE` was exactly that risk: the
+    original verdict regex was `[A-Z]+`, which matches `ACCEPTED` and stops at
+    the hyphen.
+    """
+    known = set(VERDICTS) | {"BLOCKED", "SUPERSEDED"}
+    seen: set[str] = set()
+    for counts in _sections().values():
+        seen.update(counts)
+    unknown = sorted(seen - known)
+    assert not unknown, (
+        f"clause rows carry verdicts the tally has no column for: {unknown}. "
+        "Add a column, or the rows using them are counted nowhere."
+    )
+
+
+def test_accepted_unfixable_is_not_counted_as_met():
+    """The whole reason it has its own column.
+
+    A clause accepted as unobtainable is not proven. If it ever merges into the
+    PASS column the headline number moves without any clause changing — the
+    same drift this tally already had once, when the Total row overstated by
+    one for as long as nobody compared it to the rows beneath it.
+    """
+    sections = _sections()
+    accepted = sum(c["ACCEPTED-UNFIXABLE"] for c in sections.values())
+    if not accepted:
+        pytest.skip("no clause is currently ACCEPTED-UNFIXABLE")
+
+    met = sum(c["PASS"] for c in sections.values())
+    tally = _tally()
+    assert tally["Total"][VERDICTS.index("PASS")] == met, (
+        "the PASS total no longer equals the PASS rows; an ACCEPTED-UNFIXABLE "
+        "clause may have been folded in"
+    )
+    assert tally["Total"][VERDICTS.index("ACCEPTED-UNFIXABLE")] == accepted
+
+    # And the sentence people quote counts only what is met.
+    import re as _re
+
+    text = TABLE.read_text()
+    stated = _re.search(r"\b([A-Za-z-]+)\b of \b[A-Za-z-]+\b clauses are fully met", text)
+    assert stated, "the prose no longer states how many clauses are met"
+    words = {
+        "Twenty": 20,
+        "Twenty-one": 21,
+        "Twenty-two": 22,
+        "Twenty-three": 23,
+        "Twenty-four": 24,
+        "Twenty-five": 25,
+        "Twenty-six": 26,
+    }
+    assert words.get(stated.group(1).capitalize()) == met, (
+        f"the prose says {stated.group(1)} clauses are fully met; {met} are. "
+        "An accepted-unobtainable clause is not a met one."
     )

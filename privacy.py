@@ -177,7 +177,22 @@ class PrivacyConfig:
     redact_ip_addresses: bool = True  # Replace IPs in stored data
 
     # Consent
-    cross_border_consent: bool = False  # Explicit consent for non-CA processing
+    # DEPRECATED 2026-08-11 — retained, not dropped, and read by nothing.
+    #
+    # This presented as a consent gate over where data is processed and gated
+    # nothing: no code path has ever read it, and placement has no geography
+    # input to gate. The Settings toggle that wrote it is removed and the
+    # privacy-policy sentence that promised it mattered is retracted.
+    #
+    # It stays because the stored values are a record of what people chose
+    # while being told the choice had an effect. Dropping the column in the
+    # same change as removing the control would destroy that record, so the
+    # two are deliberately separated.
+    #
+    # Do not wire this to anything. If geography-aware placement is ever built,
+    # it needs a fresh consent captured against a promise the product can
+    # actually keep — not a value collected under a retracted one.
+    cross_border_consent: bool = False
     data_collection_consent: bool = False  # Consent for analytics/telemetry
 
     def to_dict(self) -> dict:

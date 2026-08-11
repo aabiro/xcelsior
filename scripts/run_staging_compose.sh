@@ -11,6 +11,13 @@ if [[ ! -f .env.staging ]]; then
 fi
 
 export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-xcelsior-staging}"
+
+# Loopback only. These services run with `network_mode: host`, so the
+# production default of 0.0.0.0 would put a staging API — including the worker
+# protocol — on the LAN and the tailnet from a developer machine. Overridable
+# for the rare case of testing from another host, but never by default.
+export XCELSIOR_API_BIND="${XCELSIOR_API_BIND:-127.0.0.1}"
+
 exec docker compose \
   --env-file .env.staging \
   -f docker-compose.yml \

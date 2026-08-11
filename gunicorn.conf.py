@@ -8,7 +8,18 @@ import os
 
 # ---------- Server socket ----------
 _port = os.getenv("XCELSIOR_API_PORT", "9500")
-bind = f"0.0.0.0:{_port}"
+
+# `0.0.0.0` is right for production, where nginx terminates TLS and proxies to
+# this socket. It is wrong for a staging stack on a developer machine: with
+# `network_mode: host` the port is then reachable from the LAN and the tailnet,
+# so a local test environment exposes the worker protocol to every peer.
+#
+# Configurable rather than changed, and defaulted to the existing value, so
+# production's posture is untouched and staging opts into loopback. The
+# alternative — flipping staging's agent ingress to `allow` — would have made
+# the exposure worse, not better.
+_host = os.getenv("XCELSIOR_API_BIND", "0.0.0.0")
+bind = f"{_host}:{_port}"
 
 # ---------- Worker processes ----------
 workers = int(os.getenv("GUNICORN_WORKERS", "2"))
