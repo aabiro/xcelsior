@@ -3704,6 +3704,18 @@ def requeue_job(job_id, *, user_initiated: bool = False, expected_version: int |
             j.pop("host_gpu_model", None)
             j.pop("host_vram_gb", None)
             j.pop("error_message", None)
+            # **A requeue destroys the container, so the host key it presented
+            # is gone.** Clearing on host *change* (in `update_job_status`) is
+            # not sufficient here: a requeue can be re-placed on the same host
+            # and still get a new container with new keys, and even when it
+            # moves there is a window — queued, `host_id` already None,
+            # `public_ssh_port` still in the payload — where the dead
+            # container's fingerprint would still be served.
+            #
+            # It belongs in this list: like `host_gpu_model` and `host_vram_gb`
+            # it is a fact about a container that no longer exists. Ungated, so
+            # it covers automatic retries as well as user relaunches.
+            j.pop("host_key_fingerprint", None)
             if user_initiated:
                 j["relaunch_count"] = int(j.get("relaunch_count", 0) or 0) + 1
             _upsert_job_row(conn, j)

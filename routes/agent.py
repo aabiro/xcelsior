@@ -585,6 +585,40 @@ def api_agent_commands_drain(host_id: str, request: Request):
     return {"ok": True, "commands": commands}
 
 
+def prune_expired_agent_commands(conn, *, limit: int = 5000) -> int:
+    """Delete expired, non-attempt-bound commands. Returns rows removed.
+
+    **The same DELETE `api_agent_commands_drain` runs, on a timer instead of on
+    a drain.** That housekeeping only executes when an agent actually collects
+    commands — so it is coupled to fleet health, and stops running in exactly
+    the situation that produces the most garbage: a fleet that cannot reach the
+    API at all. Observed on production, where the hourly reverification sweep
+    accumulated 40 expired rows against 2 live ones while every worker was
+    locked out by the retired public agent ingress. ~48 rows/day, indefinitely.
+
+    The sweep itself is not at fault and is not the thing to bound: it holds at
+    most one live request per host (`hosts_with_pending_reverify`), verified on
+    production. What was missing is a consumer for the expired rows that does
+    not depend on the consumer being reachable.
+
+    `attempt_id IS NULL` is preserved from the drain, and is not incidental: a
+    v2 `start_attempt` carries its own lifecycle — claim/ACK, backoff,
+    dead-letter, cancellation on lease expiry — owned by the `/agent/v2`
+    protocol and `control_plane.commands`. Deleting one here would destroy a
+    placement's only delivery.
+    """
+    return conn.execute(
+        """DELETE FROM agent_commands
+            WHERE id IN (
+                SELECT id FROM agent_commands
+                 WHERE expires_at < EXTRACT(EPOCH FROM NOW())
+                   AND attempt_id IS NULL
+                 LIMIT %s
+            )""",
+        (int(limit),),
+    ).rowcount
+
+
 def enqueue_agent_command(
     host_id: str,
     command: str,

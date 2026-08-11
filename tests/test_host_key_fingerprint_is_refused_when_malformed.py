@@ -299,6 +299,7 @@ def test_a_fingerprint_is_served_with_its_port():
             "job_id": "j1",
             "status": "running",
             "interactive": True,
+            "host_id": "host-a",
             "public_ssh_port": 10022,
             "host_key_fingerprint": REAL,
         }
@@ -339,6 +340,7 @@ def test_the_served_value_is_revalidated_on_the_way_out():
             "job_id": "j3",
             "status": "running",
             "interactive": True,
+            "host_id": "host-a",
             "public_ssh_port": 10022,
             "host_key_fingerprint": "<script>alert(1)</script>",
         }
@@ -349,6 +351,73 @@ def test_the_served_value_is_revalidated_on_the_way_out():
 
 def test_an_absent_fingerprint_stays_absent():
     j = _enriched(
-        {"job_id": "j4", "status": "running", "interactive": True, "public_ssh_port": 10022}
+        {
+            "job_id": "j4",
+            "status": "running",
+            "interactive": True,
+            "host_id": "host-a",
+            "public_ssh_port": 10022,
+        }
     )
+    assert j["host_key_fingerprint"] is None
+
+
+def test_a_requeue_drops_the_previous_containers_fingerprint():
+    """Gate clause: a requeued instance never publishes the old container's key.
+
+    A requeue destroys the container, so the key it presented is gone — even
+    when the job is re-placed on the *same* host, which clearing on host change
+    alone would miss.
+    """
+    import uuid
+
+    from control_plane.db import control_plane_transaction as tx
+    from scheduler import requeue_job
+
+    job_id = f"hk-{uuid.uuid4().hex[:10]}"
+    with tx() as conn:
+        _make_job(conn, job_id, "host-a", REAL, status="running")
+        assert _stored_fingerprint(conn, job_id) == REAL
+    try:
+        requeue_job(job_id, user_initiated=True)
+        with tx() as conn:
+            assert _stored_fingerprint(conn, job_id) is None, (
+                "a requeued job still carries the dead container's fingerprint"
+            )
+    finally:
+        with tx() as conn:
+            conn.execute("DELETE FROM jobs WHERE job_id = %s", (job_id,))
+
+
+def test_an_automatic_requeue_drops_it_too():
+    """The reset block is ungated, so retries are covered as well as relaunches."""
+    import uuid
+
+    from control_plane.db import control_plane_transaction as tx
+    from scheduler import requeue_job
+
+    job_id = f"hk-{uuid.uuid4().hex[:10]}"
+    with tx() as conn:
+        _make_job(conn, job_id, "host-a", REAL, status="failed")
+    try:
+        requeue_job(job_id)  # no user_initiated — the automatic retry path
+        with tx() as conn:
+            assert _stored_fingerprint(conn, job_id) is None
+    finally:
+        with tx() as conn:
+            conn.execute("DELETE FROM jobs WHERE job_id = %s", (job_id,))
+
+
+def test_a_port_without_a_host_serves_no_fingerprint():
+    """`public_ssh_port` survives a requeue, so a port alone proves nothing."""
+    j = _enriched(
+        {
+            "job_id": "j5",
+            "status": "queued",
+            "interactive": True,
+            "public_ssh_port": 10022,
+            "host_key_fingerprint": REAL,
+        }
+    )
+    assert j["ssh_port"] == 10022
     assert j["host_key_fingerprint"] is None
