@@ -147,6 +147,11 @@ CONTROL_TABLES = frozenset(
         # trigger means the grant is effectively insert-and-select regardless of
         # what this set says.
         "placement_decisions",
+        # Recurrence counts for the above. Deliberately a *separate* table
+        # because it is mutable and prunable — a `times_seen` column on a WORM
+        # row is unimplementable, and that constraint is right: what was decided
+        # is evidence, how often it was asked is telemetry.
+        "placement_decision_observations",
         "mcp_client_policies",
     }
 )

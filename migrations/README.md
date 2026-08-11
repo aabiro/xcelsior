@@ -90,7 +90,19 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `106_partition_placement_decisions.py`.**
+**Repository head: `107_placement_decision_observations.py`.**
+(`107` moves recurrence counting off the WORM table. `placement_decisions`
+records every evaluation — the right write policy — but a caller polling a
+preference writes the same decision repeatedly, and each row carries a
+`candidates` snapshot that scales with the fleet. A `times_seen` column is
+unimplementable there because WORM forbids UPDATE, and that constraint is
+correct rather than an obstacle: frequency is operational telemetry with a
+natural retention policy and no business being immutable. So one WORM row per
+distinct decision, and the count here, in a plain prunable table. Keyed by month
+so dedupe and partition retention share a boundary — without it, an identical
+decision next March would collapse into a row timestamped today and the trail
+would say March never happened.)
+
 (`106` partitions `placement_decisions` by month. `105` claimed WORM "like `075`
 and `072`" and took the trigger from both and the partitioning from neither —
 but `072` is explicit that *partition drops are DDL and are unaffected* by the

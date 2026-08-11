@@ -29,6 +29,7 @@ exists no route reads this table.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any, Sequence
 
@@ -94,6 +95,58 @@ def candidate_summary(host: dict) -> dict:
     }
 
 
+def decision_fingerprint(row: dict) -> str:
+    """What makes two evaluations *the same decision*.
+
+    Everything a reader would use to tell them apart: who asked, for which job,
+    what they asked for, what they were told, and **the field it was decided
+    over** — a refusal is only interpretable against the candidates, so two
+    refusals over different fleets are different decisions even when the code
+    matches.
+
+    Deliberately excludes the timestamp: recurrence is counted in
+    `placement_decision_observations`, not by writing the row again. Candidate
+    summaries are sorted, so the same fleet in a different order is the same
+    decision rather than a new one.
+    """
+    material = {
+        "tenant_id": row.get("tenant_id"),
+        "job_id": row.get("job_id"),
+        "asked": row.get("asked"),
+        "outcome": row.get("outcome"),
+        "refusal_code": row.get("refusal_code"),
+        "host_id": row.get("host_id"),
+        "candidates": sorted(
+            (json.dumps(c, sort_keys=True, default=str) for c in row.get("candidates") or []),
+        ),
+    }
+    return hashlib.sha256(
+        json.dumps(material, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
+
+
+def _observe(conn, *, tenant_id: str, fingerprint: str) -> tuple[bool, str | None]:
+    """Count this evaluation. Returns (is_first_this_month, existing decision id).
+
+    The observation is written **before** the decision, because it is what
+    decides whether a decision gets written at all — and `ON CONFLICT` is what
+    makes two concurrent identical evaluations produce one row rather than two.
+    """
+    record = conn.execute(
+        """INSERT INTO placement_decision_observations
+             (tenant_id, fingerprint, month)
+           VALUES (%s, %s, to_char(clock_timestamp(), 'YYYY-MM'))
+        ON CONFLICT (tenant_id, fingerprint, month) DO UPDATE
+           SET times_seen = placement_decision_observations.times_seen + 1,
+               last_seen_at = clock_timestamp()
+        RETURNING times_seen, decision_id""",
+        (tenant_id, fingerprint),
+    ).fetchone()
+    times_seen = int(record[0])
+    existing = record[1]
+    return times_seen == 1, (str(existing) if existing else None)
+
+
 def record_placement(
     conn,
     *,
@@ -107,6 +160,14 @@ def record_placement(
 
     `candidates` is the list the decision was made over — the same list handed to
     `choose_host`, after `attach_placement_evidence`.
+
+    **Deduplicated by decision, counted by recurrence.** A caller polling a
+    preference decides the same thing repeatedly, and each row carries a
+    `candidates` snapshot that scales with the fleet — a fleet snapshot per poll.
+    The first evaluation of a given decision in a given month writes the WORM row;
+    later identical ones increment `placement_decision_observations.times_seen`
+    and return the id of the row already written. So the trail records decisions,
+    and the count of askings lives in a table that can be pruned.
     """
     if not str(tenant_id or "").strip():
         # A row nobody owns is a row no tenant-scoped read will ever return, and
@@ -144,7 +205,17 @@ def record_placement(
             chosen_price_micros=price_micros(decision.chosen_price),
         )
 
-    return str(
+    fingerprint = decision_fingerprint(row)
+    first_this_month, already_recorded = _observe(
+        conn, tenant_id=row["tenant_id"], fingerprint=fingerprint
+    )
+    if not first_this_month and already_recorded:
+        # Same decision, same month, already written down. The observation's
+        # `times_seen` now carries the recurrence; writing the row again would
+        # duplicate a fleet snapshot to record nothing new.
+        return already_recorded
+
+    decision_id = str(
         conn.execute(
             """INSERT INTO placement_decisions
                  (tenant_id, job_id, host_id, outcome, refusal_code, refusal_detail,
@@ -163,6 +234,33 @@ def record_placement(
             ),
         ).fetchone()[0]
     )
+
+    # Point the observation at the row it caused. Until this lands the
+    # observation reads `decision_id IS NULL`, which is the honest record of
+    # "seen, not written down" and has an index for finding exactly that.
+    conn.execute(
+        """UPDATE placement_decision_observations
+              SET decision_id = %s
+            WHERE tenant_id = %s AND fingerprint = %s
+              AND month = to_char(clock_timestamp(), 'YYYY-MM')""",
+        (decision_id, row["tenant_id"], fingerprint),
+    )
+    return decision_id
+
+
+def prune_observations(conn, *, older_than_days: int = 90) -> int:
+    """Drop recurrence counts past their usefulness. Returns rows removed.
+
+    This table exists to be prunable — that is the whole reason frequency does
+    not live on the WORM row. Deleting here loses how *often* a decision was
+    asked for; it never loses the decision, which is in `placement_decisions`
+    and prunes on its own monthly partition boundary.
+    """
+    return conn.execute(
+        """DELETE FROM placement_decision_observations
+            WHERE last_seen_at < clock_timestamp() - make_interval(days => %s)""",
+        (int(older_than_days),),
+    ).rowcount
 
 
 def read_placement(conn, decision_id: str, *, tenant_id: str) -> dict | None:

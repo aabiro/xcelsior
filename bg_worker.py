@@ -361,6 +361,43 @@ def main():
 
     register_task("reverification_sweep", _reverification_sweep, _reverify_interval)
 
+    # 6c. Placement observation maintenance (P5 C1).
+    #
+    # `placement_decision_observations` counts how often a decision was asked
+    # for, and exists *because* it can be pruned — a `times_seen` column on the
+    # WORM row is unimplementable. A prune function with no caller would make
+    # "prunable" a claim rather than a property, which is the same defect as the
+    # reverification sweep above: correct code that nothing invokes.
+    #
+    # It also reports observations still carrying `decision_id IS NULL` — a
+    # decision that was seen and could not be written down. Recording is
+    # best-effort by design, so those are expected to be rare and are worth
+    # noticing when they are not. The partial index exists for this query, and
+    # an index nothing runs is the same defect one layer down.
+    def _placement_observation_maintenance():
+        from control_plane.db import control_plane_transaction
+        from control_plane.scheduler.placement_record import prune_observations
+
+        with control_plane_transaction() as conn:
+            unrecorded = conn.execute(
+                "SELECT count(*) FROM placement_decision_observations "
+                " WHERE decision_id IS NULL"
+            ).fetchone()[0]
+            pruned = prune_observations(conn)
+
+        if unrecorded:
+            log.warning(
+                "placement observations: %d decision(s) were seen and never "
+                "recorded — the audit write failed for them",
+                unrecorded,
+            )
+        if pruned:
+            log.info("placement observations: pruned %d expired count(s)", pruned)
+
+    register_task(
+        "placement_observation_maintenance", _placement_observation_maintenance, 86_400
+    )
+
     # 7. Event snapshotting (every 15 minutes)
     def _event_snapshots():
         from events import get_snapshot_manager, get_event_store
