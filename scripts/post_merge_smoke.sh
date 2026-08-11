@@ -23,8 +23,8 @@ PYTEST_TARGETS+=(
   tests/test_lifecycle.py
   "tests/test_instance_flow.py::TestWalletEmptyStopStart::test_stop_and_start"
   tests/test_oauth_migration.py::TestOAuthMigrationSecurity
-  tests/test_phase5_features.py::TestOpenTelemetryIntegration
-  tests/test_phase5_features.py::TestOpenTelemetryGracefulDegradation
+  tests/test_telemetry_and_encrypted_volumes.py::TestOpenTelemetryIntegration
+  tests/test_telemetry_and_encrypted_volumes.py::TestOpenTelemetryGracefulDegradation
   tests/test_worker_agent_allowlist.py
 )
 

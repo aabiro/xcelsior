@@ -205,7 +205,7 @@ def _evaluate(client, fleet, preference, *, vram=8):
         "/api/v1/placements/evaluate",
         json={
             "spec": {
-                "name": "p5-gate",
+                "name": "placement-gate",
                 "vram_needed_gb": vram,
                 "num_gpus": 1,
                 "gpu_model": fleet["gpu_model"],

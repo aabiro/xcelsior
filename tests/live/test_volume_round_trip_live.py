@@ -43,7 +43,7 @@ def two_instances():
             f"{BASE}/instance",
             headers=auth(),
             json={
-                "name": f"p3-round-trip-{n}-{int(time.time())}",
+                "name": f"volume-round-trip-{n}-{int(time.time())}",
                 "vram_needed_gb": 1, "num_gpus": 1, "interactive": True,
             },
             timeout=60,
@@ -74,7 +74,7 @@ def volume():
     created = requests.post(
         f"{BASE}/api/v2/volumes",
         headers=auth(),
-        json={"name": f"p3-round-trip-{int(time.time())}", "size_gb": 1},
+        json={"name": f"volume-round-trip-{int(time.time())}", "size_gb": 1},
         timeout=60,
     )
     assert created.status_code in (200, 201), created.text

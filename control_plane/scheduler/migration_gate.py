@@ -1,4 +1,4 @@
-"""A migration target must pass the gate a launch passes. C3.
+"""A migration target must pass the gate a launch passes.
 
 The rule, from `docs/placement-preference-plan.md` §5.3: *"migrated to cheaper"
 must never become a path onto a host that would have failed the gate at launch.*
