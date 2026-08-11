@@ -543,6 +543,10 @@ class DatabaseOps:
             pricing_mode = "on_demand"
         spot_rate = job.get("spot_rate_cad")
         spot_rate_cad = float(spot_rate) if spot_rate is not None else None
+        # Validated at the API boundary (`host_key_fingerprint.parse_...`); this
+        # only carries it. A value that never passed that boundary cannot reach
+        # here, because nothing else writes the key into the job dict.
+        host_key_fingerprint = job.get("host_key_fingerprint") or None
 
         if backend == "postgres":
             from psycopg.types.json import Jsonb
@@ -551,9 +555,9 @@ class DatabaseOps:
                 """
                 INSERT INTO jobs(
                     job_id, status, priority, submitted_at, host_id,
-                    pricing_mode, spot_rate_micros, payload
+                    pricing_mode, spot_rate_micros, host_key_fingerprint, payload
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT(job_id) DO UPDATE SET
                     status = EXCLUDED.status,
                     priority = EXCLUDED.priority,
@@ -561,6 +565,13 @@ class DatabaseOps:
                     host_id = EXCLUDED.host_id,
                     pricing_mode = EXCLUDED.pricing_mode,
                     spot_rate_micros = EXCLUDED.spot_rate_micros,
+                    -- Moves in the *same* statement as host_id. A2 of
+                    -- docs/host-key-fingerprint-plan.md: the fingerprint
+                    -- describes the container, so it cannot be allowed to
+                    -- outlive the host field that defines it. Structural, not
+                    -- procedural — no hook to forget, and automatic failover
+                    -- (which skips `_clear_job_output`) is covered for free.
+                    host_key_fingerprint = EXCLUDED.host_key_fingerprint,
                     payload = EXCLUDED.payload
                 """,
                 (
@@ -571,6 +582,7 @@ class DatabaseOps:
                     host_id,
                     pricing_mode,
                     None if spot_rate_cad is None else round(spot_rate_cad * 1_000_000),
+                    host_key_fingerprint,
                     Jsonb(job),
                 ),
             )
