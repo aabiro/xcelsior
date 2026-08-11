@@ -30,24 +30,43 @@ log() { printf '\033[36m▸\033[0m %s\n' "$*"; }
 if ! curl -sf -m 5 "${BASE}/healthz" >/dev/null 2>&1; then
   log "starting staging on ${PORT}…"
   XCELSIOR_API_PORT="$PORT" ./scripts/run_staging_compose.sh up -d api >/dev/null
-
-  # The auth cache is required for login and is not part of the api service.
-  if ! docker ps --format '{{.Names}}' | grep -q '^xcelsior-staging-redis$'; then
-    log "starting the staging auth cache…"
-    docker run -d --name xcelsior-staging-redis --network host redis:7-alpine >/dev/null
-    sleep 3
-  fi
-  # The URL carries a password; read it from the container rather than pinning a
-  # secret in this file.
-  PW="$(docker exec xcelsior-staging-api-1 sh -c 'printf "%s" "$XCELSIOR_AUTH_REDIS_URL"' \
-        | sed -E 's|redis://:([^@]*)@.*|\1|')"
-  [ -n "$PW" ] && docker exec xcelsior-staging-redis redis-cli CONFIG SET requirepass "$PW" >/dev/null
-
-  for _ in $(seq 1 60); do
-    curl -sf -m 5 "${BASE}/healthz" >/dev/null 2>&1 && break
-    sleep 2
-  done
 fi
+
+# ── The auth cache, checked unconditionally ──────────────────────────
+#
+# This used to live inside the branch above, so it only ran when the API needed
+# starting. A staging API that is already up with a dead cache — which is
+# exactly what happens after a reboot, since the cache is not part of the
+# compose service — skipped the check entirely and the run failed later with
+# "could not obtain a session token", naming nothing useful.
+#
+# `docker run` also fails when a container of that name already *exists* but is
+# stopped, and the error was going to /dev/null. `docker ps` tests running, so
+# an exited container took this branch and then the start silently did nothing.
+# Both states are handled now, and neither is silent.
+if ! docker ps --format '{{.Names}}' | grep -q '^xcelsior-staging-redis$'; then
+  if docker ps -a --format '{{.Names}}' | grep -q '^xcelsior-staging-redis$'; then
+    log "restarting the stopped staging auth cache…"
+    docker start xcelsior-staging-redis >/dev/null \
+      || { echo "✗ could not start xcelsior-staging-redis" >&2; exit 1; }
+  else
+    log "starting the staging auth cache…"
+    docker run -d --name xcelsior-staging-redis --network host redis:7-alpine >/dev/null \
+      || { echo "✗ could not create xcelsior-staging-redis" >&2; exit 1; }
+  fi
+  sleep 3
+fi
+
+# The URL carries a password; read it from the container rather than pinning a
+# secret in this file.
+PW="$(docker exec xcelsior-staging-api-1 sh -c 'printf "%s" "$XCELSIOR_AUTH_REDIS_URL"' \
+      | sed -E 's|redis://:([^@]*)@.*|\1|')"
+[ -n "$PW" ] && docker exec xcelsior-staging-redis redis-cli CONFIG SET requirepass "$PW" >/dev/null
+
+for _ in $(seq 1 60); do
+  curl -sf -m 5 "${BASE}/healthz" >/dev/null 2>&1 && break
+  sleep 2
+done
 
 if ! curl -sf -m 5 "${BASE}/healthz" >/dev/null 2>&1; then
   echo "✗ staging never became healthy on ${PORT}; not running the gates." >&2
@@ -79,7 +98,15 @@ TOKEN="$(curl -s -m 30 -X POST "${BASE}/api/auth/login" \
   | python3 -c 'import sys,json; print(json.load(sys.stdin).get("access_token",""))')"
 
 if [ -z "$TOKEN" ]; then
+  # Name the cause rather than the symptom. The usual one is the auth cache:
+  # login answers 503 `auth_cache_unavailable` and this looked like a
+  # credential problem for as long as nobody read the response body.
   echo "✗ could not obtain a session token; not running the gates." >&2
+  echo "  login said:" >&2
+  curl -s -m 30 -X POST "${BASE}/api/auth/login" \
+    -H 'Content-Type: application/json' \
+    -d "{\"email\":\"${EMAIL}\",\"password\":\"${PASSWORD}\"}" | head -c 400 >&2
+  echo >&2
   exit 1
 fi
 log "minted a non-admin session token for ${EMAIL}"
