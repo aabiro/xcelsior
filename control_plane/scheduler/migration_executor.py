@@ -1,4 +1,4 @@
-"""Move a running job to another host. C3.
+"""Move a running job to another host, and prove it resumed.
 
 Gate P5 clause 1: *"a migrated job resumes from its checkpoint, proven by
 comparing state before and after — not by the absence of an error."*

@@ -1,6 +1,6 @@
 """Gate P5's clauses, against a live server with a real token. §1.3.
 
-`tests/test_gate_p5_placement_refuses_end_to_end.py` drives the route in-process
+`tests/test_placement_refuses_end_to_end.py` drives the route in-process
 with `TestClient`. That proves the logic and, by the plan's own standard, not the
 deployment — *"a mock is what passed while production did not."* P5 has had no
 live assertion at all; this is it.
@@ -29,7 +29,7 @@ fail today.
 
     XCELSIOR_LIVE_BASE_URL=https://xcelsior.ca \\
     XCELSIOR_LIVE_USER_TOKEN=<a session token> \\
-    pytest tests/live/test_placement_preference_refuses_live.py
+    pytest tests/live/test_placement_refuses_live.py
 
 Skips rather than passes without both, so a credential-less run cannot report a
 gate it never exercised.
@@ -60,7 +60,7 @@ pytestmark = pytest.mark.skipif(
     reason="set XCELSIOR_LIVE_BASE_URL and XCELSIOR_LIVE_USER_TOKEN to run the live gate",
 )
 
-SPEC = {"name": "p5-live-gate", "vram_needed_gb": 8, "num_gpus": 1}
+SPEC = {"name": "placement-live-gate", "vram_needed_gb": 8, "num_gpus": 1}
 
 
 def _evaluate(preference: dict) -> dict:

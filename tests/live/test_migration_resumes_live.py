@@ -64,7 +64,7 @@ def running_job(two_hosts):
         f"{BASE}/instance",
         headers=auth(),
         json={
-            "name": f"p5-migrate-{int(time.time())}",
+            "name": f"migration-resume-{int(time.time())}",
             "vram_needed_gb": 1, "num_gpus": 1, "interactive": True,
             "host_id": source,
         },

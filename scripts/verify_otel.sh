@@ -24,8 +24,8 @@ echo "▸ OTEL unit checks (pytest)…"
 if [[ -d venv ]]; then source venv/bin/activate; fi
 export OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_ENDPOINT}"
 python -m pytest \
-  tests/test_phase5_features.py::TestOpenTelemetryIntegration \
-  tests/test_phase5_features.py::TestOpenTelemetryGracefulDegradation \
+  tests/test_telemetry_and_encrypted_volumes.py::TestOpenTelemetryIntegration \
+  tests/test_telemetry_and_encrypted_volumes.py::TestOpenTelemetryGracefulDegradation \
   -q --tb=line
 
 echo "✓ OTEL verification done (set OTEL_EXPORTER_OTLP_ENDPOINT on API for live export)"

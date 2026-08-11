@@ -1,6 +1,5 @@
 """Applying a stated preference to real candidates, and writing down the answer.
-
-C2. `preference.choose_host` is pure and `host_projection` reads the evidence;
+ `preference.choose_host` is pure and `host_projection` reads the evidence;
 this is the one place they meet a live fleet, so there is one place a preference
 is evaluated and one place a decision is recorded.
 

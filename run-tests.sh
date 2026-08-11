@@ -184,10 +184,10 @@ case "${TARGET}" in
         ;;
     phases)
         PYTEST_ARGS=(
-            tests/test_phase3_features.py
-            tests/test_phase4_features.py
-            tests/test_phase5_features.py
-            tests/test_phase6_verification.py
+            tests/test_marketplace_and_sla_features.py
+            tests/test_failover_and_checkpoint_features.py
+            tests/test_telemetry_and_encrypted_volumes.py
+            tests/test_host_verification_features.py
         )
         echo "▸ Running phase feature tests…"
         ;;

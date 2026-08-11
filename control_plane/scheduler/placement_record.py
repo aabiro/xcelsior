@@ -1,4 +1,4 @@
-"""Writing the placement decision down. C1's second half.
+"""Writing the placement decision down.
 
 Gate P5 clause 3: *"preference is honoured in the audit trail: the chosen host's
 reputation and SLA at time of placement are recorded."*

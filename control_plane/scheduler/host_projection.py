@@ -1,4 +1,4 @@
-"""The query that assembles what `preference.choose_host` reads. C1.
+"""The query that assembles what `preference.choose_host` reads.
 
 Until now every field `choose_host` consults was assembled by nobody, so every
 field *name* in that module was an assumption — the same class of assumption
