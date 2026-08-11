@@ -1049,9 +1049,24 @@ def api_crypto_deposit(req: CryptoDepositRequest, request: Request):
             service_status.get("reason") or "Bitcoin service is currently unavailable",
         )
     _validate_topup_amount(req.amount_cad, user)
+
+    # Gate P1 clause 2's third rail. The header is the convention already used
+    # by the privacy and serverless routes; both casings are read because a
+    # client that sets it lowercase is not making a mistake.
+    idem = (
+        request.headers.get("Idempotency-Key")
+        or request.headers.get("idempotency-key")
+        or ""
+    ).strip()[:200]
+
     try:
-        result = _btc_mod.create_deposit(req.customer_id, req.amount_cad)
+        result = _btc_mod.create_deposit(req.customer_id, req.amount_cad, idem)
         return {"ok": True, **result}
+    except _btc_mod.DepositKeyConflict as e:
+        # 409, not 503. The service is fine; the caller contradicted itself by
+        # reusing a key for a different amount, and a 503 would invite the retry
+        # that cannot succeed.
+        raise HTTPException(409, str(e)) from e
     except Exception as e:
         log.error("Crypto deposit error: %s", e)
         detail = _btc_mod.describe_service_error(e)
@@ -1140,13 +1155,23 @@ def api_ln_create_deposit(req: LnDepositRequest, request: Request):
     if not _ln_mod or not _ln_mod.LN_ENABLED:
         raise HTTPException(503, "Lightning deposits are not enabled")
     _validate_topup_amount(req.amount_cad, user)
+    idem = (
+        request.headers.get("Idempotency-Key")
+        or request.headers.get("idempotency-key")
+        or ""
+    ).strip()[:200]
     try:
-        result = _ln_mod.create_deposit(req.customer_id, req.amount_cad)
+        result = _ln_mod.create_deposit(req.customer_id, req.amount_cad, idem)
         broadcast_sse(
             "ln_deposit_created",
             {"deposit_id": result["deposit_id"], "customer_id": req.customer_id},
         )
         return {"ok": True, **result}
+    except _ln_mod.DepositKeyConflict as e:
+        # Before ValueError: DepositKeyConflict is not a ValueError, but keeping
+        # it first makes the ordering intentional rather than incidental. 409,
+        # not 400 — the request is well-formed, it contradicts an earlier one.
+        raise HTTPException(409, str(e)) from e
     except ValueError as e:
         raise HTTPException(400, str(e))
     except RuntimeError as e:

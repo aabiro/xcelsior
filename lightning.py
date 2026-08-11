@@ -243,13 +243,75 @@ def get_service_status() -> dict:
     return result
 
 
-def create_deposit(customer_id: str, amount_cad: float) -> dict:
+class DepositKeyConflict(Exception):
+    """The same idempotency key was reused for a different amount."""
+
+
+def _deposit_by_idempotency_key(customer_id: str, key: str) -> dict | None:
+    """The deposit a previous call created under this key, if any.
+
+    Uses `_fetch_one` rather than `dict(row)` on a bare cursor: this pool hands
+    back tuple rows, and the module's own helper scopes `dict_row` to a single
+    cursor so it does not leak to the next borrower.
+    """
+    with pg_transaction() as conn:
+        return _fetch_one(
+            conn,
+            "SELECT * FROM ln_deposits "
+            " WHERE customer_id = %s AND idempotency_key = %s",
+            (customer_id, key),
+        )
+
+
+def _deposit_result(row: dict) -> dict:
+    """The API shape rebuilt from a stored row, so a replay returns the original.
+
+    Recomputing would fetch the rate again and mint a second invoice — which is
+    the defect, not the fix.
+    """
+    return {
+        "deposit_id": row["deposit_id"],
+        "bolt11": row["bolt11"],
+        "payment_hash": row["payment_hash"],
+        "amount_sats": int(row["amount_sats"]),
+        "amount_cad": int(row.get("amount_micros") or 0) / 1_000_000,
+        "btc_cad_rate": float(row["btc_cad_rate"]),
+        "expires_at": float(row["expires_at"]),
+    }
+
+
+def create_deposit(
+    customer_id: str, amount_cad: float, idempotency_key: str = ""
+) -> dict:
     """Create a Lightning invoice for a CAD deposit.
 
     Returns:
         dict with deposit_id, bolt11, amount_sats, amount_cad, btc_cad_rate,
         expires_at, payment_hash.
+
+    ## Replaying with the same key returns the same invoice
+
+    Gate P1 clause 2, and the sharper half of it. Without this, a retried
+    request minted a **second bolt11 with a second payment hash**. On-chain,
+    two addresses at least both belong to one wallet and both credit if paid.
+    A second invoice is a distinct payment request: a wallet that pays the
+    first settles nothing against the second, and whoever holds the second is
+    waiting on a payment that already happened.
     """
+    key = str(idempotency_key or "").strip()
+    if key:
+        existing = _deposit_by_idempotency_key(customer_id, key)
+        if existing is not None:
+            if int(existing.get("amount_micros") or 0) != round(amount_cad * 1_000_000):
+                raise DepositKeyConflict(
+                    "that idempotency key was used for a different amount"
+                )
+            log.info(
+                "LN deposit replay (key=%s) returned existing %s",
+                key,
+                existing["deposit_id"],
+            )
+            return _deposit_result(existing)
 
     if not LN_ENABLED:
         raise RuntimeError("Lightning deposits are not enabled")
@@ -286,9 +348,13 @@ def create_deposit(customer_id: str, amount_cad: float) -> dict:
                 label, bolt11, payment_hash,
                 amount_msat, amount_sats, amount_btc, amount_micros, btc_cad_rate,
                 amount_cad_minor, btc_cad_rate_exact,
-                status, created_at, expires_at, created_at_ts, expires_at_ts)
+                status, created_at, expires_at, created_at_ts, expires_at_ts,
+                idempotency_key)
                VALUES (%s, %s, %s, 'CAD', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                       'pending', %s, %s, to_timestamp(%s), to_timestamp(%s))""",
+                       'pending', %s, %s, to_timestamp(%s), to_timestamp(%s), %s)
+               ON CONFLICT (customer_id, idempotency_key)
+                    WHERE idempotency_key IS NOT NULL AND idempotency_key <> ''
+                    DO NOTHING""",
             (
                 deposit_id,
                 customer_id,
@@ -310,8 +376,25 @@ def create_deposit(customer_id: str, amount_cad: float) -> dict:
                 invoice["expires_at"],
                 now,
                 invoice["expires_at"],
+                key or None,
             ),
         )
+
+    # The read-then-insert above is not atomic. `ON CONFLICT DO NOTHING` makes
+    # the losing racer a no-op and it then reads the winner's row, so the
+    # guarantee rests on the unique index rather than on the timing of the
+    # check. The invoice this call minted is simply abandoned — unpaid and
+    # expiring — which is the correct outcome: one payable request per key.
+    if key:
+        winner = _deposit_by_idempotency_key(customer_id, key)
+        if winner is not None and winner["deposit_id"] != deposit_id:
+            log.info(
+                "LN deposit race (key=%s): returning %s, abandoning %s",
+                key,
+                winner["deposit_id"],
+                deposit_id,
+            )
+            return _deposit_result(winner)
 
     log.info(
         "LN DEPOSIT CREATED: %s | %s | %d sats ($%.2f CAD) @ $%.0f",
