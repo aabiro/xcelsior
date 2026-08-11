@@ -62,9 +62,10 @@ limit. Shorter would also be defensible. The number is a decision, not a
 derivation — it is recorded here so that changing it is visibly a change to what
 gets deleted rather than a tuning tweak.
 
-## The privacy-policy line
+## The privacy-policy line — published 2026-08-11
 
-To be published under **Aaryn Biro**'s signature. Wording:
+Live in all four locale bundles (`en-public`, `en`, `fr-public`, `fr`) as
+`privacy.s7_p5`, under **Aaryn Biro**'s signature. Wording:
 
 > **Operational and audit records.** We keep an immutable record of operational
 > decisions — which host ran a workload, at what price, under whose approval,
@@ -76,6 +77,42 @@ To be published under **Aaryn Biro**'s signature. Wording:
 > or removed in response to an erasure request; the retention period above
 > applies instead. All other personal data is erased on request in the normal
 > way.
+
+### What publishing it turned up
+
+Going to publish one line found that the policy had drifted from the product in
+three separate places, none of which anything compared:
+
+1. **The policy already stated a retention period, and it was not this one.**
+   `privacy.s7_p5` said *"Audit logs: retained for 1 year (immutable,
+   append-only)"* — against a system that dropped nothing and kept them forever.
+   Aaryn Biro ruled to publish 24 months and change the promise, rather than
+   shorten the code to match a number that had never been true.
+
+2. **The cross-border consent toggle gates nothing.** The policy said *"We do
+   not transfer personal information outside Canada unless you explicitly
+   consent via the cross-border data toggle"*. The toggle exists in Settings
+   and `cross_border_consent` is declared in `privacy.py` — and **nothing reads
+   it**. Placement never consults it, because placement is on price,
+   availability, GPU model and reputation and has no geography input at all.
+   The sentence is removed; a consent control that gates nothing is worse than
+   no control, because a user sets it and believes it did something.
+
+3. **The French policy still made a promise the English one had retracted.**
+   `fr` `s6_p3` read *"les renseignements personnels des résidents de la C.-B.
+   restent au Canada en tout temps"* while `en` `s6_p3` had already been
+   replaced with *"compute may run on independent hosts in any country"*. Two
+   languages of one legal document, live, saying different things — and the
+   French carried the one the product cannot keep. French is now a full mirror
+   of English.
+
+`tests/test_privacy_policy_matches_the_code.py` stops all three recurring. The
+retention number is derived from `WORM_RETENTION_MONTHS`, so the policy and the
+code cannot state different periods; the two languages must offer the same set
+of keys; and no locale may promise data stays in one country. Each was verified
+to fail against the exact text that was live.
+
+### The wording itself
 
 Two things that wording is careful about. It states the period as a period
 rather than "as long as necessary", because the former is enforced and the
