@@ -114,7 +114,7 @@ fingerprint exists.
 | # | Clause | Status | Evidence |
 |---|---|---|---|
 | 1 | Promotion is idempotent under retry; a repeated call produces one volume, not two | **PASS** *(was FAIL)* | Proven the way §4 of the promotion plan says to prove it: call twice, one `volume_promotions` row, second reports `replayed`. `test_promotion_is_idempotent.py`, against the real route and a real database — the mechanism is a unique constraint plus `ON CONFLICT DO NOTHING`, neither of which exists in a fake. Removing the conflict clause reds four of the six. |
-| 2 | The retention clock is asserted: an artifact past `retain_until` is gone, a promoted volume is not | **PARTIAL** | The artifact half is covered (`test_artifact_retention_authority.py`). The *hold* now exists and is tested (`test_promotion_takes_the_hold.py`) — an in-flight promotion stops the clock, and a stale one is swept and released. What is still unproven is the second half as written: expire an artifact **after** a promotion and read the volume anyway. That needs a mounted volume, so it arrives with clause 3. |
+| 2 | The retention clock is asserted: an artifact past `retain_until` is gone, a promoted volume is not | **PASS** *(was PARTIAL)* | The artifact half was already covered (`test_artifact_retention_authority.py`), and the hold is tested (`test_promotion_takes_the_hold.py`). The second half was deferred to clause 3 on the grounds that it "needs a mounted volume" — **and that reason was doing more work than it should**. Surviving is not the same as being mountable: whether a promoted copy still exists after the artifact expires is a property of the *deletion path*, which is code that runs without a fleet. `tests/test_promoted_copy_outlives_the_artifact.py` drives a real deletion job through the reaper and asserts the artifact leaves `available` while `volume_promotions` and `volume_promotion_files` are untouched — **including that the reaper actually claimed the job**, without which "the promotion survived" is equally true of a reaper that declined. A second, structural assertion walks `cleanup_expired`'s own SQL and requires it to name no volume table at all, because the behavioural test only inspects rows it created and would survive a later edit that released the promotion deliberately; verified by making the path touch `volume_promotion_files` and watching it go red. **What remains needs hardware** — reading the promoted bytes back through a mount, which is clause 3's sentence rather than this one, and is named here in the same vocabulary as every other blocker on this page. |
 | 3 | Round-trip: train → promote → mount in a *new* instance → read the weights, tool calls only | **FAIL** | The tool now exists (`promote_artifact_to_volume`, A4), so this is no longer blocked on missing code — it is blocked on a **staging environment**, which the promotion plan named as a dependency in advance rather than discovering here. Unchanged verdict, changed reason. |
 
 **P3's promotion half is now built, A0→A4.** When this table was first written
@@ -289,12 +289,12 @@ assertion about a bug.
 | P0 | 4 | — | — | — |
 | P1 | 5 | 2 | — | — |
 | P2 | 2 | — | 1 | — |
-| P3 | 1 | 1 | 1 | — |
+| P3 | 2 | — | 1 | — |
 | P4 | 4 | — | — | — |
 | P5 | 2 | — | 1 | — |
-| **Total** | **22** | **3** | **3** | **1** |
+| **Total** | **23** | **2** | **3** | **1** |
 
-Twenty-two of twenty-nine clauses are fully met, nothing is BLOCKED, and **Gate P0
+Twenty-three of twenty-nine clauses are fully met, nothing is BLOCKED, and **Gate P0
 and Gate P4 are wholly met**. One is ACCEPTED-UNFIXABLE, and it has its own
 column on purpose: §1.2's historical half is not work anyone can do, so counting
 it as outstanding overstates the backlog — and folding it into PASS would
