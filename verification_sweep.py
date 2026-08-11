@@ -1,4 +1,4 @@
-"""The reverification sweep. C2's first commit, before the launch surface.
+"""The reverification sweep — ask overdue hosts to prove themselves again.
 
 `VerificationStore.list_hosts_needing_reverification()` implements the due
 query. Its only wrapper, `VerificationEngine.get_hosts_needing_reverification()`,

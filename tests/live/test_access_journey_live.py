@@ -40,7 +40,7 @@ def instance():
         f"{BASE}/instance",
         headers=auth(),
         json={
-            "name": f"p2-access-journey-{int(time.time())}",
+            "name": f"access-journey-{int(time.time())}",
             "vram_needed_gb": 1,
             "num_gpus": 1,
             "interactive": True,

@@ -1,4 +1,4 @@
-"""Validating a reported SSH host-key fingerprint. A1.
+"""Validating a reported SSH host-key fingerprint.
 
 The value a worker reports here is **served back to users** as the thing they
 compare against before trusting an SSH connection. So it is attacker-controlled
