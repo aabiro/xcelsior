@@ -129,6 +129,13 @@ docs/*
 # before a negation on a file inside it can match.
 !docs/generated/
 !docs/generated/endpoint-inventory.md
+# The audit-retention ruling. Not a report: `control_plane/audit_partitions.py`,
+# `privacy_sinks.verify_subject_absence` and `docs/gate-truth-table.md` all cite
+# it by path, and it carries the wording of a privacy-policy line that has to be
+# published. `docs/*` swallowing it leaves three code references pointing at a
+# file nobody who clones this repository can read, for the one document whose
+# entire purpose is that the policy is written down somewhere.
+!docs/audit-retention.md
 
 # ── Editor / OS ──────────────────────────────────────────────────────
 .vscode/settings.json

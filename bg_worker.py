@@ -218,8 +218,15 @@ def main():
     register_task("billing_meter_reconcile", _billing_meter_reconcile, 300)
 
     # 1a-iii. Audit partition maintenance (§13.6/§4.5, Track B B4.1): keep the
-    # audit_events_v2 monthly partition window full so a write never creates a
-    # partition inline in a request handler. Daily; idempotent.
+    # monthly partition window full so a write never creates a partition inline
+    # in a request handler, **and drop partitions past the retention period**.
+    # Daily; idempotent.
+    #
+    # The drop is what makes the 24-month retention in docs/audit-retention.md a
+    # policy rather than a claim. These tables are append-only — DELETE is
+    # rejected by trigger — so dropping a whole partition is the only mechanism
+    # that can ever remove a row, and until this task did it, partitions were
+    # created ahead of time and never removed.
     def _audit_partition_maintenance():
         from control_plane.audit_partitions import audit_partition_maintenance_task
 
@@ -380,8 +387,7 @@ def main():
 
         with control_plane_transaction() as conn:
             unrecorded = conn.execute(
-                "SELECT count(*) FROM placement_decision_observations "
-                " WHERE decision_id IS NULL"
+                "SELECT count(*) FROM placement_decision_observations  WHERE decision_id IS NULL"
             ).fetchone()[0]
             pruned = prune_observations(conn)
 
@@ -394,9 +400,7 @@ def main():
         if pruned:
             log.info("placement observations: pruned %d expired count(s)", pruned)
 
-    register_task(
-        "placement_observation_maintenance", _placement_observation_maintenance, 86_400
-    )
+    register_task("placement_observation_maintenance", _placement_observation_maintenance, 86_400)
 
     # 6d. Expired agent-command sweep.
     #
