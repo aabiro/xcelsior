@@ -19,6 +19,18 @@ recomputed from `admission_state` by a database trigger, and a host can be
 drained, disabled, or go stale between the launch and the migration. The answer
 genuinely differs from the one launch got.
 
+## This module has no production caller yet, and that is stated on purpose
+
+The migration *executor* — snapshot, stop, relaunch, verify — is blocked on Gate
+P5 clause 1, which needs two live instances that can share a volume. So the gate
+here is a tested library waiting for its caller, not a wired path.
+
+That is a different thing from the defect this phase kept finding — code that
+silently never runs while appearing wired — but the difference only holds if the
+module says so. `list_hosts_needing_reverification` was also "correct, waiting"
+for months, and nobody knew, and production's verified stamps aged four months
+as a result.
+
 ## What it deliberately does not check
 
 **Attestation freshness.** `host_attestation.validate_attestation` is a shape
