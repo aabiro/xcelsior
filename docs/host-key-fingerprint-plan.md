@@ -93,9 +93,78 @@ otherwise, so a future count means what a reader will take it to mean. A
 fingerprint that changes for one container is itself worth seeing: it means the
 container was recreated underneath the job.
 
-**A1 remains blocked**, and on data rather than code. It needs launches across
-more than one base image. The blocker is the same one holding Gate P2 clause 1
-and Gate P3 clause 3: no Xcelsior-managed fleet activity.
+### 1c. The blank rate, measured across images — **A1 is unblocked** (2026-08-11)
+
+A1 needed image variance, not more hosts. That was measurable on a single
+Xcelsior-managed worker all along, and the earlier "blocked on fleet activity"
+call was wrong.
+
+The agent's own sequence — install `openssh-server` on demand, `ssh-keygen -A`,
+then read in client negotiation order — run against five base images:
+
+| image | readable | key type |
+|---|---|---|
+| `nvidia/cuda:12.4.1-devel-ubuntu22.04` | yes | ED25519 |
+| `ubuntu:22.04` | yes | ED25519 |
+| `python:3.11-slim` | yes | ED25519 |
+| `debian:bookworm-slim` | yes | ED25519 |
+| `alpine:3.20` | yes | ED25519 |
+
+**Blank rate 0/5**, across three package managers, ED25519 every time.
+
+**The first version of this probe reported 100% blank and was wrong.** It skipped
+the on-demand `openssh-server` install and so measured "does the image ship
+`ssh-keygen`" — no, for all four tried — rather than "does the agent's setup
+yield a readable key". The live container falsified it within seconds: same
+image, real fingerprint, 33 hours. A measurement adjacent to the question is
+worse than none, because it looks like an answer.
+
+**So images do not vary in this respect; host *class* does.** §1a's RSA-only and
+no-sshd-at-all findings both came from a **proxy-terminated provider**, where the
+key a client verifies belongs to the proxy and `""` is the correct answer rather
+than a degraded one. That is a property of how SSH is terminated, not of the
+image, and it is already handled. The reader's negotiation-order fix stays: it
+costs nothing and it is what makes the proxy case answerable at all.
+
+A1 may proceed on this evidence.
+
+### 1d. A2's table and clearing point, corrected against production (2026-08-11)
+
+**Both halves of A2's storage instruction are wrong, and they are wrong in
+different ways.** Recorded here because the plan's prose has now been the
+unreliable half three times in this phase — `min_tier`'s invented vocabulary,
+§5.4's fallback, and this.
+
+**"Belongs to the attempt/container, not the job"** — unshippable. Production
+holds **327 jobs, 0 with an active attempt and 1 with any attempt at all**. The
+fenced path that creates attempts is not the path real jobs take, so an
+attempt-scoped column stores nothing for the entire fleet.
+
+**"Cleared wherever `_clear_job_output` is called"** — worse than unshippable:
+its named mechanism defeats its own stated reason. That hook has exactly one call
+site, inside `requeue_job`, gated on `user_initiated` *deliberately* — "a
+failover that erased the logs explaining why it failed over would destroy the
+evidence for the retry it just performed." Correct for logs. Fatal here:
+**automatic failover is the primary way a job changes host**, and it is exactly
+the path that skips the clear. A fingerprint cleared there survives a failover
+onto a new host and then verifies against the wrong one — the precise failure A2
+exists to prevent.
+
+**What is built instead**: a nullable column on `jobs`, nulled wherever `host_id`
+changes, inside the same `upsert_job` statement. Every placement path funnels
+through `update_job_status`: normal placement (`run_job`,
+`process_queue_filtered`, `process_queue_ranked`), the **CRIU checkpoint
+migration**, and failover. The invariant becomes structural rather than
+procedural — the fingerprint sits on the same row as the field that defines its
+container, and the two move atomically or not at all. `_clear_job_output` is left
+untouched; logs and fingerprints are cleared for different reasons and coupling
+them was the error.
+
+The payload is the source and the column its projection, as with `host_id` and
+`status`. That was not obvious: the first version wrote only the column, and the
+next unrelated status update nulled it, because `upsert_job` rebuilds the column
+from the payload every time. Caught by the "same host keeps it" test, which is
+why that direction was worth writing.
 
 ## 2. What this buys, stated exactly
 

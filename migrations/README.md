@@ -90,7 +90,18 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `107_placement_decision_observations.py`.**
+**Repository head: `108_jobs_host_key_fingerprint.py`.**
+(`108` adds the reported SSH host-key fingerprint, and its table choice is a
+**documented deviation from the plan's prose**. A2 says the value belongs to the
+attempt/container — on production that column would be null for the whole fleet
+(327 jobs, 0 with an active attempt). A2 also says it is cleared at
+`_clear_job_output`, which is gated on `user_initiated`; automatic failover is
+the primary way a job changes host and does *not* pass it, so a fingerprint
+cleared there would survive onto the new host and verify against the wrong one —
+the plan's named mechanism defeating the plan's stated reason. Instead the column
+is nulled wherever `host_id` changes, in the same upsert statement, which covers
+normal placement, the CRIU migration, and failover without any hook to remember.)
+
 (`107` moves recurrence counting off the WORM table. `placement_decisions`
 records every evaluation — the right write policy — but a caller polling a
 preference writes the same decision repeatedly, and each row carries a

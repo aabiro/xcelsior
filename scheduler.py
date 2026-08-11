@@ -2179,6 +2179,24 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
         j["status"] = status
         if host_id and not (status == "running" and old_status == "running"):
             j["host_id"] = host_id
+            # **The host changed, so the container changed, so the fingerprint
+            # is stale.** A2 of docs/host-key-fingerprint-plan.md requires that
+            # a reported host key never outlive its container; a stale one makes
+            # a client report "verified" against the wrong host, which is worse
+            # than reporting nothing.
+            #
+            # Cleared here rather than at `_clear_job_output`, which the plan
+            # nominated: that hook is gated on `user_initiated`, and **automatic
+            # failover — the primary way a job changes host — does not pass it**.
+            # The gate is correct for logs (a failover must not erase the
+            # evidence of why it failed over) and fatal for a fingerprint.
+            #
+            # Every placement path reaches this line: normal placement, the CRIU
+            # checkpoint migration, and failover. `_upsert_job_row` writes the
+            # column in the same statement as `host_id`, so the two move
+            # together or not at all.
+            if str(host_id) != str(old_host_id or ""):
+                j.pop("host_key_fingerprint", None)
         if status == "running":
             j["started_at"] = time.time()
         if status in ("completed", "failed", "cancelled"):

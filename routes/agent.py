@@ -477,6 +477,33 @@ def api_schedule_preemption(host_id: str, job_id: str, request: Request):
 # delivery is at-most-once by design (re-inject is idempotent so a lost
 # command is harmless; admins can re-issue).
 
+# A1 of docs/host-key-fingerprint-plan.md — rejected host-key reports.
+#
+# **A rejection and an absence must not look the same.** A host with no sshd
+# legitimately reports nothing; an agent version emitting a malformed value
+# fleet-wide would also store null, and without this counter that breakage is
+# indistinguishable from the normal case. Same distinction as a presence check
+# being read as a usability check.
+try:
+    from prometheus_client import Counter as _PromCounter  # type: ignore
+
+    _host_key_rejected_total = _PromCounter(
+        "xcelsior_host_key_rejected_total",
+        "Host-key fingerprints refused at the API boundary.",
+        ["reason"],
+    )
+except Exception:  # pragma: no cover — prom lib not installed
+
+    class _NoopCounter:
+        def labels(self, *a, **kw):
+            return self
+
+        def inc(self, *a, **kw):
+            return None
+
+    _host_key_rejected_total = _NoopCounter()  # type: ignore
+
+
 _AGENT_COMMAND_ALLOWED = {
     "reinject_shell",
     "upgrade_agent",
@@ -1313,6 +1340,31 @@ async def api_agent_ssh_status(job_id: str, request: Request):
     # Per-instance generated root password (optional). Bounded length to
     # prevent accidental blob storage; empty means "no password available".
     root_password = str(body.get("root_password") or "")[:128]
+    # A1 of docs/host-key-fingerprint-plan.md. **Validated here, not at
+    # display.** This value is served back to users as the thing they compare
+    # before trusting an SSH connection, so it is attacker-controlled text until
+    # the shape proves otherwise, and a renderer that has to remember to escape
+    # is one that will forget. Anything that is not `SHA256:` + 43 unpadded
+    # base64 characters becomes `None` — "unknown" rather than a plausible wrong
+    # value, because null makes a client say "cannot be verified" while a wrong
+    # value makes it say "verified".
+    from host_key_fingerprint import parse_host_key_fingerprint
+
+    reported_fingerprint = body.get("host_key_fingerprint")
+    host_key_fingerprint = parse_host_key_fingerprint(reported_fingerprint)
+    if reported_fingerprint not in (None, "") and host_key_fingerprint is None:
+        # **A rejection is not an absence, and silence would make them look the
+        # same.** A host that legitimately has no key reports nothing; an agent
+        # version emitting a malformed value fleet-wide would also read as
+        # "no fingerprint" and the breakage would be invisible. Counted and
+        # logged so the two are distinguishable.
+        _host_key_rejected_total.labels(reason="malformed").inc()
+        log.warning(
+            "host_key.rejected job=%s len=%d — reported value is not a "
+            "SHA256 fingerprint; stored as null",
+            job_id,
+            len(str(reported_fingerprint)),
+        )
     status = {
         "ok": bool(body.get("ok")),
         "sshd_present": bool(body.get("sshd_present")),
@@ -1321,6 +1373,7 @@ async def api_agent_ssh_status(job_id: str, request: Request):
         "root_password": root_password,
         "summary": summary,
         "level": level,
+        "host_key_fingerprint": host_key_fingerprint,
         "elapsed_sec": float(body.get("elapsed_sec") or 0),
         "ts": float(body.get("ts") or time.time()),
     }
@@ -1333,14 +1386,38 @@ async def api_agent_ssh_status(job_id: str, request: Request):
                 """
                 UPDATE jobs
                    SET payload = jsonb_set(
-                       COALESCE(payload, '{}'::jsonb),
-                       '{ssh_status}',
-                       %s::jsonb,
+                       jsonb_set(
+                           COALESCE(payload, '{}'::jsonb),
+                           '{ssh_status}',
+                           %s::jsonb,
+                           true
+                       ),
+                       -- **The payload is the source; the column is a
+                       -- projection.** Every other field here works that way
+                       -- (`host_id`, `status`, `priority`), and `upsert_job`
+                       -- rebuilds the column from the payload on every write —
+                       -- so a fingerprint that lived only in the column would
+                       -- be nulled by the next unrelated status update.
+                       '{host_key_fingerprint}',
+                       COALESCE(to_jsonb(%s::text),
+                                COALESCE(payload, '{}'::jsonb)->'host_key_fingerprint',
+                                'null'::jsonb),
                        true
-                   )
+                   ),
+                   -- A2's column, kept in step. COALESCE so a later report
+                   -- omitting the field does not erase what the agent already
+                   -- established; only a host change clears it, in
+                   -- `update_job_status`.
+                   host_key_fingerprint =
+                       COALESCE(%s, jobs.host_key_fingerprint)
                  WHERE job_id = %s
                 """,
-                (_json.dumps(status), job_id),
+                (
+                    _json.dumps(status),
+                    host_key_fingerprint,
+                    host_key_fingerprint,
+                    job_id,
+                ),
             )
     except Exception as e:
         log.warning("ssh-status persist failed for job %s: %s", job_id, e)
