@@ -40,7 +40,7 @@ slipped.
 |---|---|---|---|
 | 1 | Behaviour tests, named for the behaviour | **PASS** | Observably followed. `test_agent_can_register_its_own_key`, `test_requeue_clears_output_from_either_door`, `test_serverless_refuses_narrowed_credentials`. No `test_scopes_2` anywhere. |
 | 2 | A confirmed-failing check — every regression test shown to fail *before* the fix | **PARTIAL** | Done and recorded for this session's work (the serverless re-scope was probed by stripping one check; both the structural and behavioural layers fired independently). I cannot evidence it for the whole historical corpus, and I will not claim it. |
-| 3 | A live-credential path — ≥1 assertion per phase, real token, real server | **PARTIAL** *(was FAIL)* | **P0 now has one, and it has actually run** — 12 assertions against a live staging server, `scripts/run_live_gates.sh`. That script is the substantive change: the gate previously existed but had no runner that could execute, and standing the environment up by hand is something nobody does twice. It skips rather than passes without credentials, verified. **P1, P2 and P3 still have no live path**, which is why this is PARTIAL and not PASS. |
+| 3 | A live-credential path — ≥1 assertion per phase, real token, real server | **PASS** *(was PARTIAL, was FAIL)* | **Every phase P0–P5 now has a live assertion, and all of them have run** — 25 passed / 9 skipped against staging, `scripts/run_live_gates.sh`. The 9 skips are the fleet-dependent gates and skip rather than pass, verified. Two things had to be fixed before the clause was honestly met, and both were only visible by running it. The runner checked the auth cache **inside** its `if the API is down` branch, so an API that was already up with a dead cache — the state after any reboot — never checked it and died at "could not obtain a session token". And **two of the assertions pointed at routes that have never existed** (`/api/billing/topup` for P1, `/api/v1/promotions` for P3); since every assertion here is written as "not a 200", a 404 satisfied them and they reported refusals for eight commits without being able to fail. P1 is now Gate P1 clause 4 — a forged webhook signature must get 400 — and P4, whose only other live coverage needs a fleet, asserts that an unapproved pipeline will not run. `tests/test_live_gate_paths_resolve.py` stops the phantom-path defect returning: it resolves every path a live gate names against `app.routes`, both sides derived, needing no credential and no fleet. |
 | 4 | A refusal test — what the phase makes impossible | **PASS** | Dense across the corpus. `test_serverless_refuses_narrowed_credentials`, `test_platform_ssh_key_is_admin_only`, `test_terminal_ticket_needs_connect_scope`, `test_stripe_webhook_refuses_unverified`. |
 | 5 | An eval delta per phase — re-run at the new tool count | **PASS** *(P2's clause SUPERSEDED)* | The loop runs without GitHub Actions (`scripts/run_mcp_eval_locally.sh`), and the clause has now been honoured **end to end for one phase**: P4 captured *before* it added a tool (48 tools, 0.9444) and *after* (50 tools, 0.9444) — two more tools, no accuracy lost. The promotion tools got theirs the same way (46 → 48, 0.9111 → **0.9444**). **PASS**, with one clause-scoped **SUPERSEDED**. P2's SSH tools shipped without a delta and **cannot get one**: the intermediate surface they were measured against no longer exists, so there is nothing left to re-run the eval over, and reconstructing a number from old commits would not be the measurement this clause asks for. Recorded as superseded rather than left open — an open row implies work someone could do, and this is not work, it is a measurement whose subject is gone. **P5's delta is taken**: `evaluate_placement_preference` took the surface to 51 and the headline holds at **0.9444**, identical to the 50-tool baseline of 2026-08-09. Abstention 18/18, unsafe-write 0.0. **The headline is not the whole reading.** Unstable cases went **3 → 4**: `always_failed` emptied and `flaky` grew from two entries to four. `approval-serverless` moved from reliably red to intermittent — a diagnosis regression, not a fix, and the way a known failure quietly stops being tracked as one. `indirect-would-it-fit` is **newly unstable**, appearing in neither list at 50 tools; that is the tool competing with `simulate_instance_placement` for a case it used to win outright, which is exactly the interference an earlier note in this table wrongly claimed had not occurred. Accuracy is unchanged only because the new instability averaged back to 85/90. **A first capture aborted mid-run on an exhausted key and wrote nothing** — the runner refuses to score an unreachable API as a wrong answer, because that records a fabricated regression. Two phases running have now honoured this clause end to end (P4, P5). |
 
@@ -245,7 +245,7 @@ load-bearing and must not be deleted as a stale assertion about a bug.
 
 | Gate | PASS | PARTIAL | FAIL | BLOCKED/SUPERSEDED |
 |---|---|---|---|---|
-| §1 universal | 3 | 2 | — | — |
+| §1 universal | 4 | 1 | — | — |
 | P0 | 4 | — | — | — |
 | P1 | 4 | 3 | — | — |
 | P2 | 2 | — | 1 | — |
@@ -255,8 +255,23 @@ load-bearing and must not be deleted as a stale assertion about a bug.
 | **Total** | **21** | **5** | **3** | **0** |
 
 Twenty-one of twenty-nine clauses are fully met, nothing is BLOCKED, and **Gate P0
-and Gate P4 are wholly met**. P5 moved two clauses this session — not by writing
+and Gate P4 are wholly met**.
+
+The total moved by one this session and the arithmetic is worth stating, because
+it did not move the way it looks. §1.3 went PARTIAL → PASS, which is +1. But the
+**Total** row was already overstating by one before that — it read 21 PASS when
+the clause rows held 20 — so the count that was right is the one that did not
+change. `tests/test_gate_truth_table_tally.py` derives the whole table from the
+clause rows now; the row a human maintains is the row that drifts. P5 moved two clauses earlier — not by writing
 the module, which already refused correctly, but by giving it a caller.
+
+§1.3 moved last, and moved for a different reason than the others: nothing was
+built for it. The clause had been PARTIAL because three phases had no live
+assertion; writing them was straightforward, and *running* them is what took
+the work. Two of the assertions turned out to name routes that do not exist —
+they had been reporting refusals from 404s. A clause can be listed as PARTIAL
+for the wrong reason: it was not short of assertions, it was short of
+assertions that could fail.
 
 The count grew because P4 and P5 added clauses of their own — this table now
 covers P0–P5 rather than P0–P3. Worth saying plainly: Gate P4 passing all four does
