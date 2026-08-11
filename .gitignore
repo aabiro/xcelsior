@@ -4,11 +4,11 @@ scripts/agent-signing.key
 # ── Environment ───────────────────────────────────────────────────────
 .env
 .env.*
+# Templates are tracked; the files they describe are not. This was five
+# per-file negations, so every new template was untracked until someone
+# noticed — which is how a template silently stops describing anything.
 !.env.example
-!.env.audit.example
-!.env.paypal-sandbox.example
-!.env.paypal-live.example
-!.env.stripe-live.example
+!.env.*.example
 
 # ── Python ────────────────────────────────────────────────────────────
 __pycache__/
