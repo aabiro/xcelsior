@@ -111,26 +111,3 @@ def record_decision(
             "refused" if isinstance(decision, PlacementRefused) else "placed",
         )
         return None
-
-
-def evaluate_and_record(
-    conn,
-    hosts: Sequence[dict],
-    preference: PlacementPreference,
-    *,
-    tenant_id: str,
-    job_id: str | None = None,
-    now: float | None = None,
-) -> tuple[PlacementChoice | PlacementRefused, str | None]:
-    """The whole of C2 in one call: decide, then write it down.
-
-    **Refusals are recorded too.** A preference that refused was honoured *by*
-    the refusal, and a trail holding only successes cannot answer "why did
-    nothing launch last Tuesday" — the question an operator actually arrives
-    with.
-    """
-    decision, candidates = evaluate_preference(conn, hosts, preference, now=now)
-    decision_id = record_decision(
-        decision, candidates, preference, tenant_id=tenant_id, job_id=job_id
-    )
-    return decision, decision_id

@@ -78,9 +78,17 @@ def fleet():
     tag = uuid.uuid4().hex[:10]
     cheap, good = f"h-{tag}-cheap", f"h-{tag}-good"
     now = time.time()
+    # **A GPU model no other test can produce.** `filter_hosts` matches
+    # `gpu_model` exactly, so naming it here confines every assertion below to
+    # this fixture's two hosts. Without it the tests assert counts and premiums
+    # over *the whole fleet*, and any other admitted host in the database at
+    # that moment becomes a third candidate — which is exactly how
+    # `candidate_count == 2` became `3` in a full-suite run and passed in
+    # isolation.
+    model = f"TESTGPU-{tag}"
 
     with pg_transaction() as conn:
-        for host_id, cost, gpu in ((cheap, 0.20, "RTX 4090"), (good, 0.22, "RTX 4090")):
+        for host_id, cost, gpu in ((cheap, 0.20, model), (good, 0.22, model)):
             # `admission_state`, **not** `administrative_state`: a BEFORE
             # trigger (`control_plane_project_host`) derives the latter from
             # the former, so setting the projected column directly is silently
@@ -153,7 +161,7 @@ def fleet():
                 (host_id, score, score),
             )
 
-    yield {"cheap": cheap, "good": good}
+    yield {"cheap": cheap, "good": good, "gpu_model": model}
 
     ids = [cheap, good]
     with pg_transaction() as conn:
@@ -190,12 +198,18 @@ def client(monkeypatch):
     return TestClient(api_mod.app), tenant
 
 
-def _evaluate(client, preference, *, vram=8):
+def _evaluate(client, fleet, preference, *, vram=8):
+    """Always asks for the fixture's own GPU model — see the `fleet` fixture."""
     c, tenant = client
     response = c.post(
         "/api/v1/placements/evaluate",
         json={
-            "spec": {"name": "p5-gate", "vram_needed_gb": vram, "num_gpus": 1},
+            "spec": {
+                "name": "p5-gate",
+                "vram_needed_gb": vram,
+                "num_gpus": 1,
+                "gpu_model": fleet["gpu_model"],
+            },
             "preference": preference,
         },
     )
@@ -208,7 +222,7 @@ def _evaluate(client, preference, *, vram=8):
 
 def test_an_unconstrained_preference_places(client, fleet):
     """If everything refused, every refusal below would prove nothing."""
-    body, _ = _evaluate(client, {})
+    body, _ = _evaluate(client, fleet, {})
     assert body["preference"]["refused"] is False, body["preference"]
     assert body["preference"]["host_id"] in (fleet["cheap"], fleet["good"])
 
@@ -222,7 +236,7 @@ def test_an_unsatisfiable_uptime_constraint_refuses_with_the_number(client, flee
     Silently returning `cheap` at 97% would be the failure the plan calls *"the
     failure mode that would quietly destroy trust"*.
     """
-    body, _ = _evaluate(client, {"min_uptime_pct": 99.99})
+    body, _ = _evaluate(client, fleet, {"min_uptime_pct": 99.99})
     pref = body["preference"]
 
     assert pref["refused"] is True, "an unsatisfiable preference placed a host anyway"
@@ -237,7 +251,7 @@ def test_an_unsatisfiable_uptime_constraint_refuses_with_the_number(client, flee
 
 def test_a_satisfiable_constraint_gets_the_host_that_meets_it(client, fleet):
     """The other half. A gate that always refuses is indistinguishable from broken."""
-    body, _ = _evaluate(client, {"min_uptime_pct": 99.5, "require_verified": True})
+    body, _ = _evaluate(client, fleet, {"min_uptime_pct": 99.5, "require_verified": True})
     pref = body["preference"]
     assert pref["refused"] is False, pref
     assert pref["host_id"] == fleet["good"]
@@ -249,7 +263,7 @@ def test_a_satisfiable_constraint_gets_the_host_that_meets_it(client, fleet):
 def test_a_premium_bound_below_the_cost_of_the_constraint_refuses(client, fleet):
     """"Even at 15% more" is a bound. A bound not enforced is a hint."""
     body, _ = _evaluate(
-        client, {"require_verified": True, "max_premium_pct": 5}
+        client, fleet, {"require_verified": True, "max_premium_pct": 5}
     )
     pref = body["preference"]
     assert pref["refused"] is True
@@ -271,7 +285,7 @@ def test_the_verified_constraint_does_not_fall_back_to_unverified(client, fleet)
             (fleet["good"],),
         )
 
-    body, _ = _evaluate(client, {"require_verified": True})
+    body, _ = _evaluate(client, fleet, {"require_verified": True})
     pref = body["preference"]
     assert pref["refused"] is True, (
         "with no verified host in the fleet, the constrained path fell back to "
@@ -285,7 +299,7 @@ def test_the_verified_constraint_does_not_fall_back_to_unverified(client, fleet)
 
 def test_a_placement_is_recorded_with_the_evidence_it_was_made_on(client, fleet):
     c, _ = client
-    body, tenant = _evaluate(client, {"min_uptime_pct": 99.5, "require_verified": True})
+    body, tenant = _evaluate(client, fleet, {"min_uptime_pct": 99.5, "require_verified": True})
     decision_id = body["decision_id"]
     assert decision_id, "the decision was not recorded"
 
@@ -312,7 +326,7 @@ def test_the_record_survives_the_host_changing_afterwards(client, fleet):
     Re-reading the host later answers what its reputation is *now*, which is a
     different question during an incident review six weeks on.
     """
-    body, tenant = _evaluate(client, {"require_verified": True})
+    body, tenant = _evaluate(client, fleet, {"require_verified": True})
     decision_id = body["decision_id"]
 
     with pg_transaction() as conn:
@@ -344,7 +358,7 @@ def test_a_refusal_is_recorded_too(client, fleet):
     "Why did nothing launch last Tuesday" is the question an operator actually
     arrives with, and only this row can answer it.
     """
-    body, tenant = _evaluate(client, {"min_uptime_pct": 99.99})
+    body, tenant = _evaluate(client, fleet, {"min_uptime_pct": 99.99})
     decision_id = body["decision_id"]
     assert decision_id, "a refusal left no trace"
 
@@ -360,7 +374,7 @@ def test_a_refusal_is_recorded_too(client, fleet):
 
 
 def test_the_recorded_decision_is_scoped_to_the_asking_tenant(client, fleet):
-    body, _ = _evaluate(client, {})
+    body, _ = _evaluate(client, fleet, {})
     from control_plane.scheduler.placement_record import read_placement
 
     with pg_transaction() as conn:
