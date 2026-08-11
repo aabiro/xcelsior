@@ -139,6 +139,11 @@ x-api-environment: &api-env
   XCELSIOR_PRIVACY_DELETION_DEADLINE_DAYS: ${XCELSIOR_PRIVACY_DELETION_DEADLINE_DAYS:-30}
   XCELSIOR_POSTHOG_PERSONAL_API_KEY: ${XCELSIOR_POSTHOG_PERSONAL_API_KEY:-}
   XCELSIOR_POSTHOG_PROJECT_ID: ${XCELSIOR_POSTHOG_PROJECT_ID:-}
+  XCELSIOR_POSTHOG_API_HOST: ${XCELSIOR_POSTHOG_API_HOST:-https://us.posthog.com}
+  # The project key is write-only/public, and the API needs the effective value
+  # solely to enforce deletion credentials and run the PostHog erasure sink.
+  XCELSIOR_MCP_POSTHOG_PROJECT_API_KEY: ${XCELSIOR_MCP_POSTHOG_PROJECT_API_KEY:-${POSTHOG_PROJECT_API_KEY:-${NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN:-}}}
+  NEXT_PUBLIC_POSTHOG_HOST: ${NEXT_PUBLIC_POSTHOG_HOST:-}
   XCELSIOR_NFS_SERVER: ${XCELSIOR_NFS_SERVER:-}
   XCELSIOR_NFS_SSH_HOST: ${XCELSIOR_NFS_SSH_HOST:-}
   XCELSIOR_NFS_SSH_USER: ${XCELSIOR_NFS_SSH_USER:-}
@@ -335,6 +340,8 @@ services:
       XCELSIOR_SERVICE: api
       XCELSIOR_POSTGRES_DSN_API: ${XCELSIOR_POSTGRES_DSN_API:-}
       XCELSIOR_API_PORT: ${XCELSIOR_API_PORT:-9500}
+      # Defaults to the production value; the staging runner sets 127.0.0.1.
+      XCELSIOR_API_BIND: ${XCELSIOR_API_BIND:-0.0.0.0}
       XCELSIOR_BG_TASKS: "false"
     network_mode: host
     volumes: *api-volumes
@@ -522,6 +529,10 @@ services:
       # the directory-reviewed surface does not change without a decision.
       XCELSIOR_MCP_COMPANY_KNOWLEDGE: ${XCELSIOR_MCP_COMPANY_KNOWLEDGE:-0}
       XCELSIOR_DOCS_URL: ${XCELSIOR_DOCS_URL:-https://docs.xcelsior.ca}
+      # Optional metadata-only MCP analytics. Prefer the dedicated name; the
+      # existing browser project key/host keep both surfaces in one project.
+      XCELSIOR_MCP_POSTHOG_PROJECT_API_KEY: ${XCELSIOR_MCP_POSTHOG_PROJECT_API_KEY:-${POSTHOG_PROJECT_API_KEY:-${NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN:-}}}
+      XCELSIOR_MCP_POSTHOG_HOST: ${XCELSIOR_MCP_POSTHOG_HOST:-${POSTHOG_HOST:-${NEXT_PUBLIC_POSTHOG_HOST:-https://us.i.posthog.com}}}
       # Set once the OpenAI submission portal issues a verification token.
       XCELSIOR_MCP_OPENAI_APPS_CHALLENGE: ${XCELSIOR_MCP_OPENAI_APPS_CHALLENGE:-}
       XCELSIOR_OAUTH_ISSUER: ${XCELSIOR_OAUTH_ISSUER:-https://xcelsior.ca}
@@ -574,11 +585,17 @@ services:
         NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION: ${NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION:-}
         NEXT_PUBLIC_GA_MEASUREMENT_ID: ${NEXT_PUBLIC_GA_MEASUREMENT_ID:-}
         NEXT_PUBLIC_REOWN_PROJECT_ID: ${NEXT_PUBLIC_REOWN_PROJECT_ID:-}
+        # Public/write-only phc_ token: Next.js must receive this while building
+        # because NEXT_PUBLIC_* values are inlined into the browser bundle.
+        NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN: ${NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN:-}
+        NEXT_PUBLIC_POSTHOG_HOST: ${NEXT_PUBLIC_POSTHOG_HOST:-https://us.i.posthog.com}
     network_mode: host
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://xcelsior.ca}
       INTERNAL_API_URL: ${INTERNAL_API_URL:-http://localhost:9555}
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
+      NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN: ${NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN:-}
+      NEXT_PUBLIC_POSTHOG_HOST: ${NEXT_PUBLIC_POSTHOG_HOST:-https://us.i.posthog.com}
     depends_on:
       - api
     restart: unless-stopped
