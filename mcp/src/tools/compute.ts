@@ -351,6 +351,15 @@ export function registerComputeTools(
       }
 
       const sshPort = Number(instance?.ssh_port ?? 0) || null;
+      // Only ever the API's value — never derived, never defaulted. A
+      // fingerprint this tool invented would be worse than none: null makes a
+      // model say "this cannot be verified", a wrong value makes it say
+      // "verified".
+      const rawFingerprint = instance?.host_key_fingerprint;
+      const hostKeyFingerprint =
+        typeof rawFingerprint === "string" && /^SHA256:[A-Za-z0-9+/]{43}$/.test(rawFingerprint)
+          ? rawFingerprint
+          : null;
       const useSsh = method === "ssh" || (method === "auto" && sshPort !== null);
 
       if (useSsh) {
@@ -370,17 +379,26 @@ export function registerComputeTools(
           port: sshPort,
           user: "root",
           command: `ssh root@${sshHost} -p ${sshPort}`,
-          // Stated, not omitted. Gate P2 asks for "the SSH endpoint plus the
-          // fingerprint to verify", and the platform does not publish one: the
-          // host keys it pins are for the API's own tailnet hop to the worker,
-          // not for what `connect.xcelsior.ca` presents to a user. Returning a
-          // field here would be inventing it, and saying nothing would let a
-          // model tell the user their connection is verified.
-          host_key_fingerprint: null,
-          host_key_note:
-            "Xcelsior does not yet publish a host-key fingerprint for this " +
-            "endpoint, so the first connection cannot be verified against one. " +
-            "Tell the user that, rather than telling them to accept the key.",
+          // A4 of docs/host-key-fingerprint-plan.md. The value when the
+          // platform has observed one, and **the null path is not deleted** —
+          // older instances, non-interactive launches, proxy-terminated hosts
+          // where the container legitimately holds no keys, and agents that
+          // have not yet reported all produce it, and today's wording stays
+          // correct for them forever.
+          //
+          // It arrives paired with the port: the API returns it only when a
+          // port resolved, because a fingerprint beside the wrong port is a
+          // failed verification that reads to the user as an attack.
+          host_key_fingerprint: hostKeyFingerprint,
+          host_key_note: hostKeyFingerprint
+            ? "Verify before trusting the connection. Run: ssh-keyscan -p " +
+              `${sshPort} ${sshHost} 2>/dev/null | ssh-keygen -lf -` +
+              " and check the SHA256 value matches host_key_fingerprint above. " +
+              "If it does not match, do not connect and report it."
+            : "Xcelsior has not observed a host-key fingerprint for this " +
+              "endpoint, so the first connection cannot be verified against " +
+              "one. Tell the user that, rather than telling them to accept " +
+              "the key.",
           requires:
             "A registered public key. If ssh refuses the connection, call " +
             "register_ssh_key with the contents of a .pub file.",

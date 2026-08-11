@@ -1104,6 +1104,28 @@ def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
         if computed:
             j.setdefault("ssh_port", computed)
 
+    # A3 of docs/host-key-fingerprint-plan.md: **the fingerprint travels with
+    # the port it belongs to, or not at all.**
+    #
+    # This is not tidiness. Publish a fingerprint beside a port it does not
+    # belong to and the user runs `ssh-keyscan -p PORT`, gets a different key,
+    # and correctly concludes they are being intercepted — a security incident
+    # manufactured out of a plumbing bug, and one whose correct response is
+    # indistinguishable from the response to a real attack. No port, no
+    # fingerprint.
+    #
+    # Re-validated on the way out as well as in. A1 guards the write path; this
+    # guards what is served, which is the value a user is asked to trust. The
+    # alternative is assuming nothing ever wrote that payload key by another
+    # route, and it costs one anchored regex to not assume that.
+    from host_key_fingerprint import parse_host_key_fingerprint
+
+    j["host_key_fingerprint"] = (
+        parse_host_key_fingerprint(j.get("host_key_fingerprint"))
+        if j.get("ssh_port")
+        else None
+    )
+
     pricing_mode = j.get("pricing_mode") or (
         "spot" if j.get("preemptible") or j.get("spot") else "on_demand"
     )
