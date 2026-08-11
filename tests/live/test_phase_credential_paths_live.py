@@ -1,8 +1,10 @@
-"""§1.3: one live-credential assertion per phase, for P1, P2 and P3.
+"""§1.3: one live-credential assertion per phase, for P1, P2, P3 and P4.
 
 The clause asks each phase to prove *something* against a real server with a
 real token. P0 has `test_named_scopes_refuse_live.py` and P5 has
-`test_placement_preference_refuses_live.py`; these are the three that had none.
+`test_placement_refuses_live.py`; these are the four that had none. P4's only
+other live coverage is `test_access_journey_live.py`, which needs a fleet and
+therefore skips — so until now P4 had no live assertion that ever ran.
 
 Each asserts the narrowest true thing that a mock cannot establish — that the
 deployed surface exists, authenticates, and refuses correctly. They are not
@@ -166,3 +168,61 @@ def test_p3_a_promotion_onto_an_unknown_volume_is_refused():
     response = _post(path, {"job_id": "does-not-exist"})
     assert response.status_code != 200, "a promotion was accepted onto a volume that does not exist"
     assert response.status_code in (400, 403, 404, 422), response.status_code
+
+
+# ── P4: the pipeline ──────────────────────────────────────────────────
+
+
+def test_p4_an_unapproved_pipeline_will_not_run():
+    """Gate P4's server-bound property, in the form that needs no fleet.
+
+    Execution is refused before a single stage is materialised, so this asserts
+    the binding without launching anything. The graph lives in the plan, and a
+    caller can only name a plan — so "approve it first" is the whole of the
+    authority check at this point.
+
+    The create call is this test's positive control: a server that refused
+    everything would produce the same 409 below while proving nothing.
+    """
+    created = _post(
+        "/api/v1/pipelines",
+        {
+            "name": "live-gate-unapproved",
+            # The plan's own worked example, and deliberately two *different*
+            # action types: the union-of-scopes rule only has anything to say
+            # when the stages do not require the same scope.
+            "stages": [
+                {"name": "train", "action_type": "create_instance", "estimate_micros": 0},
+                {
+                    "name": "serve",
+                    "action_type": "create_serverless_endpoint",
+                    "estimate_micros": 0,
+                },
+            ],
+        },
+    )
+    if created.status_code == 403:
+        pytest.skip("this credential lacks the scope to quote a pipeline")
+    assert created.status_code == 200, (
+        f"could not create a pipeline to test against ({created.status_code}): {created.text[:200]}"
+    )
+    plan_id = (created.json() or {}).get("plan_id")
+    assert plan_id, f"the pipeline was created with no plan id: {created.text[:200]}"
+
+    ran = _post(f"/api/v1/pipelines/{plan_id}/execute", {})
+    assert ran.status_code == 409, (
+        f"an unapproved pipeline returned {ran.status_code}; the approval is not binding"
+    )
+    # `problem_response` emits RFC 7807, where the code is top-level — not the
+    # `{"ok": false, "error": {...}}` envelope the auth layer uses. Reading the
+    # wrong one gives `None`, which compares unequal to everything and would
+    # have read as "refused for the wrong reason" against correct behaviour.
+    assert ran.json().get("code") == "approval_required", (
+        f"refused, but not for the reason the clause names: {ran.text[:200]}"
+    )
+
+
+def test_p4_a_pipeline_belonging_to_nobody_is_not_found():
+    """Tenant scoping, asserted at the same surface: naming a plan is not owning it."""
+    ran = _post("/api/v1/pipelines/00000000-0000-0000-0000-000000000000/execute", {})
+    assert ran.status_code == 404, ran.status_code
