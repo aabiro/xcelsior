@@ -42,7 +42,7 @@ slipped.
 | 2 | A confirmed-failing check — every regression test shown to fail *before* the fix | **PARTIAL** | Done and recorded for this session's work (the serverless re-scope was probed by stripping one check; both the structural and behavioural layers fired independently). I cannot evidence it for the whole historical corpus, and I will not claim it. |
 | 3 | A live-credential path — ≥1 assertion per phase, real token, real server | **PARTIAL** *(was FAIL)* | **P0 now has one, and it has actually run** — 12 assertions against a live staging server, `scripts/run_live_gates.sh`. That script is the substantive change: the gate previously existed but had no runner that could execute, and standing the environment up by hand is something nobody does twice. It skips rather than passes without credentials, verified. **P1, P2 and P3 still have no live path**, which is why this is PARTIAL and not PASS. |
 | 4 | A refusal test — what the phase makes impossible | **PASS** | Dense across the corpus. `test_serverless_refuses_narrowed_credentials`, `test_platform_ssh_key_is_admin_only`, `test_terminal_ticket_needs_connect_scope`, `test_stripe_webhook_refuses_unverified`. |
-| 5 | An eval delta per phase — re-run at the new tool count | **PARTIAL** | The loop runs without GitHub Actions (`scripts/run_mcp_eval_locally.sh`), and the clause has now been honoured **end to end for one phase**: P4 captured *before* it added a tool (48 tools, 0.9444) and *after* (50 tools, 0.9444) — two more tools, no accuracy lost. The promotion tools got theirs the same way (46 → 48, 0.9111 → **0.9444**). Still PARTIAL because **P2's SSH tools have no delta and cannot get one**: the intermediate surface no longer exists to measure, and reconstructing a number from old commits would not be the measurement the clause asks for. |
+| 5 | An eval delta per phase — re-run at the new tool count | **PARTIAL** | The loop runs without GitHub Actions (`scripts/run_mcp_eval_locally.sh`), and the clause has now been honoured **end to end for one phase**: P4 captured *before* it added a tool (48 tools, 0.9444) and *after* (50 tools, 0.9444) — two more tools, no accuracy lost. The promotion tools got theirs the same way (46 → 48, 0.9111 → **0.9444**). Still PARTIAL for **one** reason only: **P2's SSH tools have no delta and cannot get one** — the intermediate surface no longer exists to measure, and reconstructing a number from old commits would not be the measurement the clause asks for. **P5's delta is taken**: `evaluate_placement_preference` took the surface to 51 and the headline holds at **0.9444**, identical to the 50-tool baseline of 2026-08-09. Abstention 18/18, unsafe-write 0.0. **The headline is not the whole reading.** Unstable cases went **3 → 4**: `always_failed` emptied and `flaky` grew from two entries to four. `approval-serverless` moved from reliably red to intermittent — a diagnosis regression, not a fix, and the way a known failure quietly stops being tracked as one. `indirect-would-it-fit` is **newly unstable**, appearing in neither list at 50 tools; that is the tool competing with `simulate_instance_placement` for a case it used to win outright, which is exactly the interference an earlier note in this table wrongly claimed had not occurred. Accuracy is unchanged only because the new instability averaged back to 85/90. **A first capture aborted mid-run on an exhausted key and wrote nothing** — the runner refuses to score an unreachable API as a wrong answer, because that records a fabricated regression. Two phases running have now honoured this clause end to end (P4, P5). |
 
 §1.3 and §1.5 were the two structural failures on this page and are now the two
 structural *partials*: both have a runner that works and neither is honoured per
@@ -166,30 +166,78 @@ goes through. Neither should be chosen by whoever happens to be typing.
 
 ## Gate P5 — Spot migration and placement preference
 
-*Added 2026-08-10, mid-phase. Written now rather than at the end, because the
-reason clause 2 is PARTIAL is the interesting part and it is freshest while the
-work is open.*
+*Added 2026-08-10 mid-phase, when clause 2 was PARTIAL and the reason was the
+interesting part. Clauses 2 and 3 have since moved to PASS; the paragraphs below
+record how, because the distance a clause travelled is worth more than its
+current letter.*
 
 | # | Clause | Status | Evidence |
 |---|---|---|---|
-| 1 | A migrated job resumes from its checkpoint, proven by comparing state before and after — not by the absence of an error | **FAIL** | C3, not started. Needs two live instances that can share a volume. |
-| 2 | A placement preference that cannot be satisfied **refuses clearly** rather than silently falling back to the cheapest host | **PARTIAL** | **The module refuses correctly; the system still falls back.** `control_plane/scheduler/preference.py` gates rather than ranks, refuses with the failing number, and 33 tests drive it — including a probe showing that reranking instead of gating reds four of them. But `scheduler.py:5501` prefers verified hosts and **falls back to all when none qualify**, which is the very failure this clause names, already shipped. A correct module wired into that block still fails the clause end to end. `docs/placement-preference-plan.md` §5.4 is why, with the code inline. |
-| 3 | Preference is honoured in the audit trail: the chosen host's reputation and SLA at time of placement are recorded | **PARTIAL** | The values are copied rather than referenced, and verification state, `verified_at`, `last_check_at` and `next_check_at` come with them — verification is revocable, so it is precisely the fact that goes stale. What does not exist yet is the **record**: C1 writes it, and it must be append-only. |
+| 1 | A migrated job resumes from its checkpoint, proven by comparing state before and after — not by the absence of an error | **FAIL** | **The gate around the migration is built; the resume proof is not.** `control_plane/scheduler/migration_gate.py` re-runs `filter_hosts` — the same Stage-C filter a launch runs — and re-evaluates the preference on the target, so "migrated to cheaper" cannot reach a host that would have failed admission at launch (11 tests, including that the fixture's *cheapest* host is the never-admitted one). That is not this clause. This clause asks that a job **resumes from its checkpoint, compared before and after**, and that needs two live instances able to share a volume. Not started, not simulated, and deliberately not softened. |
+| 2 | A placement preference that cannot be satisfied **refuses clearly** rather than silently falling back to the cheapest host | **PASS** | **Asserted through the route, against real hosts in the database.** `POST /api/v1/placements/evaluate` takes a preference, evaluates it over the same consistent snapshot the hard filter uses, and returns a typed refusal carrying the number that failed. `tests/test_gate_p5_placement_refuses_end_to_end.py` asks for 99.99% where the best is 99.95% and asserts no host comes back; asks for a verified host when none is verified and asserts it does **not** fall back to an unverified one — the §5.4 reconciliation, which is what made this PARTIAL for four commits. `scheduler.allocate_best_host` keeps its cold-start fallback for **unconstrained** placement, untouched: the fallback is skipped only when the request is constrained. A calibration test asserts the fixture fleet is placeable, so the refusals are not passing for the wrong reason, and the fixture uses a GPU model no other test can produce — it previously asserted a count over the *whole* fleet, passed in isolation and failed in a full run. **Also asserted live**: `tests/live/test_placement_preference_refuses_live.py` drives the deployed route with a real token, and production answered `no_eligible_hosts` with a recorded `decision_id`. |
+| 3 | Preference is honoured in the audit trail: the chosen host's reputation and SLA at time of placement are recorded | **PASS** | **The writer now has a caller, and the record is read back to prove it.** Every evaluation appends to `placement_decisions` (migration 105, partitioned by 106) — placements *and* refusals, because a preference that refused was honoured by the refusal and a successes-only trail cannot answer "why did nothing launch last Tuesday". WORM by trigger, probed with a real UPDATE and a real DELETE. The evidence is **copied**: a test changes the host's score and deverifies it after the fact and asserts the row still reads what was true at the time. Recording is best-effort in its own transaction — an audit write must never be the thing that fails a placement — and `decision_id` is returned as `null` rather than hidden when it could not be written. |
 
-**This is the P4 sentence again.** A clause can be honestly met by a module
-sitting inside a system that does not yet honour it, and the distance between
-those two is exactly what this table exists to hold. Clause 2 is PARTIAL and not
-PASS for that reason alone — nothing is wrong with the module.
+**This was the P4 sentence, and it no longer applies to clauses 2 and 3.** For
+four commits the honest answer was "the module refuses correctly and nothing
+calls it" — a clause met by a module sitting inside a system that did not honour
+it. `POST /api/v1/placements/evaluate` is the caller that closed the distance,
+and `tests/live/test_placement_preference_refuses_live.py` asserts it against a
+deployed server with a real token rather than in-process. Clause 1 keeps the
+sentence: its gate is built and its proof is not.
 
 **Neither constraint is shippable today, on production numbers.**
 `min_uptime_pct` refuses everything because `sla_monthly` has zero rows.
 `min_tier` refuses everything above `new_user` and admits everyone at it.
-`require_verified` refuses everything because the two verified hosts are 111 and
-124 days past a 7-day tolerance — the reverification sweep exists
-(`list_hosts_needing_reverification`) and **has no callers**. That sweep is
-therefore C2's first commit, before the launch surface: one pass makes the
-control live, and shipping it beforehand would teach users the feature is
-broken.
+`require_verified` refuses everything because the two verified hosts are 112 and
+125 days past a 7-day tolerance.
+
+**The sweep is done — C2's first commit, as the plan said it had to be.**
+`list_hosts_needing_reverification` had **no callers at all**; it now runs hourly
+from `bg_worker.py`. The finding that shaped it: *the server cannot re-verify a
+host by itself.* `run_verification` needs a telemetry report only the host can
+produce, and the agent submitted one at startup and never again — that is the
+whole explanation for stamps 112 days old. So the sweep asks, over a new
+`reverify` agent command, and the agent re-runs **the same builder startup
+uses**. Twelve tests, including one that drives the store's real due query
+against production's exact shape.
+
+It does not clear the clause on its own, and says so: the sweep can only ask. A
+host that is offline, busy with a paying job, or running an agent that predates
+the command never answers, and `verification_status` still reads its stamp as
+`stale`. What changes is that a healthy host now has something that asks it.
+
+---
+
+## Carried, not owned by any gate — WORM tables and the right to erasure
+
+*Recorded here because a code comment is durable but invisible at gate review,
+and this is the kind of finding that gets rediscovered every six months.*
+
+**Not P5's, and not a defect of any migration.** Three tables carry an
+append-only trigger — `audit_events_v2` (072), `audit_checkpoints` (075),
+`placement_decisions` (105/106) — and **none is reachable from the erasure
+path**. `privacy_sinks.verify_subject_absence` is a hand-enumerated list that
+names none of them; the trigger rejects DELETE unconditionally; partitioning
+prunes by time, not by tenant.
+
+The sharp edge is not the omission, it is the **claim**: that function returns a
+verdict named *absence* over a partial enumeration, so it can report a subject
+gone while rows persist. Everywhere else in that file a missing table is an
+omission; here it is an affirmative statement the code makes for the reader.
+Same shape as a verified badge that means less than it says.
+
+This predates all three tables and a search for "legal basis", "legitimate
+interest" or "right to erasure" finds nothing in the repository. Audit tables
+resolve it by pseudonymising identifiers at erasure time **or** by recording a
+retention basis; **neither has been chosen**.
+
+| What exists now | Where |
+|---|---|
+| The open decision, stated where both branches land | `privacy_sinks.verify_subject_absence` docstring |
+| A ratchet so a **new** WORM table cannot join the unresolved set silently | `tests/test_worm_tables_have_an_erasure_decision.py` — WORM set derived from `pg_trigger`, reachable set derived from that function's own source, one literal (`ACKNOWLEDGED_UNRESOLVED`) holding the decisions owed |
+
+Red on that test means *a decision is owed*, not *erasure is broken*. It is
+load-bearing and must not be deleted as a stale assertion about a bug.
 
 ---
 
@@ -203,11 +251,12 @@ broken.
 | P2 | 2 | — | 1 | — |
 | P3 | 1 | 1 | 1 | — |
 | P4 | 4 | — | — | — |
-| P5 | — | 2 | 1 | — |
-| **Total** | **18** | **8** | **3** | **0** |
+| P5 | 2 | — | 1 | — |
+| **Total** | **20** | **6** | **3** | **0** |
 
-Eighteen of twenty-nine clauses are fully met, nothing is BLOCKED, and **Gate P0
-and Gate P4 are wholly met**.
+Twenty of twenty-nine clauses are fully met, nothing is BLOCKED, and **Gate P0
+and Gate P4 are wholly met**. P5 moved two clauses this session — not by writing
+the module, which already refused correctly, but by giving it a caller.
 
 The count grew because P4 and P5 added clauses of their own — this table now
 covers P0–P5 rather than P0–P3. Worth saying plainly: Gate P4 passing all four does
