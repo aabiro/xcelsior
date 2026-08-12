@@ -220,7 +220,7 @@ are here now with the verdicts the evidence supports, not with placeholders.*
 |---|---|---|---|
 | 1 | A provider journey — register → admit → publish → earn → payout — completes through tools plus the browser handoffs, **on a live staging tenant** | **FAIL** | No such journey has been run. The pieces exist individually — host registration and `decide_admission` were both exercised end to end this session on the RTX 2060 canary, with real hardware evidence — but nothing carries a provider from registration through to a payout in one pass. The clause names a live staging tenant, and the same **cutover** that blocks Gate P2 clause 1 applies: earnings and payouts settle from webhook-confirmed money, and staging receives no webhooks. |
 | 2 | A payout is bound to job, amount, currency, destination state and idempotency key; **replay produces one payout** | **PASS** | `tests/test_provider_settlement.py`. The binding is not a convention — `prepare_settlement` derives money, owner, currency and tax from PostgreSQL rather than from the caller, and `test_payout_api_signature_has_no_caller_amount` asserts the route cannot be told an amount. Replay is closed at two levels: `test_concurrent_cross_rail_prepare_creates_one_settlement` and `test_concurrent_workers_claim_a_settlement_once` hold it in the database, and `test_stripe_transfer_uses_exact_db_amount_and_is_idempotent` asserts the `rail_idempotency_key` reaches `Transfer.create` as `provider-settlement:{job_id}`, so a retry Stripe sees returns the original transfer. PayPal is covered separately, with the replay asserted to return the same `capture_id`. |
-| 3 | Returning from `return_url` proves nothing — asserted by returning **without completing** and checking the state is still `pending_requirements` | **FAIL** | Nothing asserts it. `pending_requirements` appears once in the repository, in a *comment* in `tests/test_stripe_webhook_refuses_unverified.py`, which is the shape this page has learned to distrust: a word present in prose reads as coverage to a grep and is none. The clause is unusually specific about method — return without completing — because the browser return is worthless as a signal and the webhook is the only authority. That is exactly the assertion missing. **This is code, not a blocker:** it needs no fleet, no funded wallet and no webhook delivery, only a KYC-incomplete account and one request. |
+| 3 | Returning from `return_url` proves nothing — asserted by returning **without completing** and checking the state is still `pending_requirements` | **PASS** *(was FAIL)* | `tests/test_returning_from_onboarding_proves_nothing.py`. **The property was already true and simply unasserted** — every path that marks a provider onboarded is gated on Stripe's own `charges_enabled and payouts_enabled`, once in the `account.updated` webhook and once in `create_provider_account`, which *re-retrieves* the account rather than trusting the return. Asserted structurally rather than by a live return, because the behavioural version needs an account created and **abandoned mid-KYC**, and abandoning is a human closing a browser tab — not something an API call can produce. What is asserted instead is the thing that actually matters: no code path completes onboarding on any input other than Stripe's capability flags, and no request handler may call the completion writer at all. Both verified against the bug they exist for — completing on return, and a route handler marking the provider active so the dashboard looks right immediately. The indirection is closed too: one guard tests `status == "active"`, which is only legitimate because that status is derived from a live read of both flags, and a separate assertion pins that derivation so the indirection cannot become a loophole. |
 
 ---
 
@@ -315,11 +315,11 @@ assertion about a bug.
 | P3 | 2 | — | 1 | — |
 | P4 | 4 | — | — | — |
 | P5 | 2 | — | 1 | — |
-| P6 | 1 | — | 2 | — |
+| P6 | 2 | — | 1 | — |
 | P7 | — | — | 1 | — |
-| **Total** | **26** | **—** | **6** | **1** |
+| **Total** | **27** | **—** | **5** | **1** |
 
-Twenty-six of thirty-three clauses are fully met, nothing is BLOCKED, **no clause is
+Twenty-seven of thirty-three clauses are fully met, nothing is BLOCKED, **no clause is
 PARTIAL any more**, and **Gates P0, P1 and P4 are wholly met**.
 
 The denominator moved from 29 to 33 because **P6 and P7 were never on this
@@ -341,17 +341,18 @@ unasserted but **impossible**, because `list_payment_methods` raised on any
 customer who actually had a saved card. A mock had been standing in for a code
 path that could not run.
 
-What remains is six FAIL clauses and one ACCEPTED-UNFIXABLE. The six split by
+What remains is five FAIL clauses and one ACCEPTED-UNFIXABLE. The six split by
 what is actually in the way, in the vocabulary this page now uses throughout:
 
 | blocker | clauses |
 |---|---|
 | **hardware** | P5.1 (one host exists; a migration needs two), P3.3 (the NFS export is unreachable from staging) |
 | **cutover** | P2.1 and P6.1 (both need webhook delivery into staging before money can move) |
-| **code** | P6.3 (return-without-completing is unasserted) and P7.1 (no sweep, and snapshots record no lineage) |
+| **code** | P7.1 (no sweep, and snapshots record no lineage) |
 
-The two under **code** are the ones someone can start this afternoon without
-waiting for anything. One is ACCEPTED-UNFIXABLE, and it has its own
+P6.3 was in that **code** row and is now PASS — the property turned out to be
+true already, and what was missing was the assertion. P7.1 is what remains that
+needs nothing from anyone else. One is ACCEPTED-UNFIXABLE, and it has its own
 column on purpose: §1.2's historical half is not work anyone can do, so counting
 it as outstanding overstates the backlog — and folding it into PASS would
 overstate what is proven. The tally is derived from the clause rows, so a
