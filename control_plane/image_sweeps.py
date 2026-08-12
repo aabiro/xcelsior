@@ -235,6 +235,106 @@ def create_sweep(
     )
 
 
+def record_fingerprint(
+    conn, sweep_id: str, member_index: int, *, hash_: str, manifest: dict
+) -> None:
+    """Store what a member's container reported about its own environment.
+
+    Both halves or neither — the schema enforces it, and the reason is that a
+    hash without a manifest is a mismatch nobody can diagnose while a manifest
+    without a hash is a comparison nobody can make.
+    """
+    import json as _json
+
+    if not hash_ or not isinstance(manifest, dict) or not manifest:
+        raise SweepRefused(
+            "incomplete_fingerprint",
+            "a fingerprint needs both a hash and its manifest; storing half of "
+            "it produces a mismatch that cannot be diagnosed",
+        )
+    conn.execute(
+        "UPDATE image_sweep_members "
+        "   SET fingerprint_hash=%s, fingerprint_manifest=%s::jsonb, "
+        "       fingerprint_at=clock_timestamp(), state='reported', "
+        "       updated_at=clock_timestamp() "
+        " WHERE sweep_id=%s AND member_index=%s",
+        (hash_, _json.dumps(manifest, sort_keys=True), sweep_id, member_index),
+    )
+
+
+def compare_fingerprints(conn, sweep_id: str, *, tenant_id: str) -> dict:
+    """Whether the members that reported agree, and where they differ if not.
+
+    ## A missing fingerprint is never agreement
+
+    This is the whole safety property. A collector that errors and returns
+    nothing would leave every member `NULL`, and a comparison written as "are
+    all the values equal" would find one distinct value — none — and report a
+    perfect pass. So `verified` requires at least two members to have actually
+    reported, and members that did not are counted and named rather than
+    quietly dropped from the denominator.
+
+    ## The differing fields are named, not just the fact of difference
+
+    A bare hash mismatch is undiagnosable. When the hashes disagree the stored
+    manifests are diffed key by key and the differing keys are returned, so the
+    first red result is actionable rather than the beginning of an
+    investigation.
+    """
+    rows = conn.execute(
+        "SELECT member_index, fingerprint_hash, fingerprint_manifest, state "
+        "  FROM image_sweep_members m "
+        " WHERE m.sweep_id = %s AND m.tenant_id = %s "
+        " ORDER BY member_index",
+        (sweep_id, tenant_id),
+    ).fetchall()
+    if not rows:
+        return {"verified": False, "reason": "sweep_not_found"}
+
+    reported = [(int(r[0]), str(r[1]), r[2]) for r in rows if r[1]]
+    missing = [int(r[0]) for r in rows if not r[1]]
+
+    if len(reported) < 2:
+        return {
+            "verified": False,
+            "reason": "insufficient_reports",
+            "detail": (
+                f"{len(reported)} of {len(rows)} members reported a fingerprint. "
+                "Byte-identity across N cannot be established from fewer than "
+                "two readings, and treating unreported members as agreeing is "
+                "how a broken collector reports a perfect sweep."
+            ),
+            "reported": [i for i, _, _ in reported],
+            "missing": missing,
+        }
+
+    hashes = {h for _, h, _ in reported}
+    if len(hashes) == 1:
+        return {
+            "verified": not missing,
+            "reason": "identical" if not missing else "identical_but_incomplete",
+            "hash": next(iter(hashes)),
+            "reported": [i for i, _, _ in reported],
+            "missing": missing,
+        }
+
+    # Named, not merely counted.
+    baseline_index, _, baseline = reported[0]
+    differing: dict[str, list[int]] = {}
+    for index, _, manifest in reported[1:]:
+        for key in sorted(set(baseline or {}) | set(manifest or {})):
+            if (baseline or {}).get(key) != (manifest or {}).get(key):
+                differing.setdefault(key, []).append(index)
+    return {
+        "verified": False,
+        "reason": "mismatch",
+        "baseline_member": baseline_index,
+        "differing_fields": {k: v for k, v in sorted(differing.items())},
+        "reported": [i for i, _, _ in reported],
+        "missing": missing,
+    }
+
+
 def read_sweep(conn, sweep_id: str, *, tenant_id: str) -> Sweep | None:
     """A sweep and its members, or `None` when it is not this tenant's."""
     row = conn.execute(
@@ -273,6 +373,8 @@ __all__ = [
     "Sweep",
     "SweepMember",
     "SweepRefused",
+    "compare_fingerprints",
     "create_sweep",
     "read_sweep",
+    "record_fingerprint",
 ]
