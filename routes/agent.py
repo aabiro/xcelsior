@@ -48,9 +48,7 @@ def _bearer_credential(request: Request) -> str | None:
     return (request.headers.get("x-api-key") or "").strip() or None
 
 
-def _resolve_host_token_identity(
-    request: Request, host_id: str | None
-) -> dict | None:
+def _resolve_host_token_identity(request: Request, host_id: str | None) -> dict | None:
     """Authenticate a per-host agent token (blueprint §19.2 rotation).
 
     Returns a principal on success, ``None`` when no host token was
@@ -109,9 +107,7 @@ def _resolve_host_token_identity(
     except Exception as exc:
         # Blueprint §31: identity verification never fails open.
         log.error("host agent token verification failed (fail-closed): %s", exc)
-        raise HTTPException(
-            503, "Identity verification temporarily unavailable"
-        ) from exc
+        raise HTTPException(503, "Identity verification temporarily unavailable") from exc
 
     # The credential proves possession; the host must still be admitted.
     from control_plane.identity import IdentityAdmissionError, require_admitted_host
@@ -126,9 +122,7 @@ def _resolve_host_token_identity(
         raise
     except Exception as exc:
         log.error("host token admission lookup failed (fail-closed): %s", exc)
-        raise HTTPException(
-            503, "Identity verification temporarily unavailable"
-        ) from exc
+        raise HTTPException(503, "Identity verification temporarily unavailable") from exc
 
     return {
         "user_id": f"host:{verified.host_id}",
@@ -203,9 +197,7 @@ def _require_agent_auth(request: Request, *, host_id: str | None = None) -> dict
                 raise HTTPException(exc.http_status, exc.message) from exc
             except Exception as exc:
                 log.error("agent identity host lookup failed (fail-closed): %s", exc)
-                raise HTTPException(
-                    503, "Identity verification temporarily unavailable"
-                ) from exc
+                raise HTTPException(503, "Identity verification temporarily unavailable") from exc
             return {
                 "agent_gateway": True,
                 "host_id": admitted.host_id,
@@ -246,9 +238,7 @@ def _require_agent_auth(request: Request, *, host_id: str | None = None) -> dict
                 raise HTTPException(exc.http_status, exc.message) from exc
             except Exception as exc:
                 log.error("agent host admission lookup failed (fail-closed): %s", exc)
-                raise HTTPException(
-                    503, "Identity verification temporarily unavailable"
-                ) from exc
+                raise HTTPException(503, "Identity verification temporarily unavailable") from exc
             # Ownership / shared fleet bearer (Phase 10 residual closeout):
             # shared api-token is NOT a permanent fail-open for arbitrary hosts.
             # Requires XCELSIOR_AGENT_SHARED_BEARER_MIGRATION=1 (+ optional host CSV).
@@ -297,9 +287,7 @@ def _require_agent_auth(request: Request, *, host_id: str | None = None) -> dict
         except Exception as exc:
             # Blueprint §31: auth/identity verification fails closed (503).
             log.error("strict host binding lookup failed (fail-closed): %s", exc)
-            raise HTTPException(
-                503, "Identity verification temporarily unavailable"
-            ) from exc
+            raise HTTPException(503, "Identity verification temporarily unavailable") from exc
         if not any(h.get("host_id") == host_id for h in all_hosts):
             raise HTTPException(403, "Unknown host_id")
 
@@ -329,9 +317,7 @@ def _require_agent_auth(request: Request, *, host_id: str | None = None) -> dict
             host = next((h for h in all_hosts if h.get("host_id") == host_id), None)
         except Exception as exc:
             log.error("agent host ownership lookup failed (fail-closed): %s", exc)
-            raise HTTPException(
-                503, "Identity verification temporarily unavailable"
-            ) from exc
+            raise HTTPException(503, "Identity verification temporarily unavailable") from exc
         if host:
             owner = host.get("owner") or ""
             if owner and owner != user.get("user_id") and owner != user.get("email"):
@@ -528,6 +514,12 @@ _AGENT_COMMAND_ALLOWED = {
     # could sit indefinitely past a one-day reverification interval with nothing
     # to move it.
     "reverify",
+    # P7: ask a sweep member's container to fingerprint its own environment.
+    # The control plane already knows the digest it sent to all N members, so
+    # comparing that to itself establishes the request was consistent rather
+    # than the containers. Only the container can answer, which is why this is
+    # a command and not a query. Carries `{sweep_id, member_index, job_id}`.
+    "fingerprint_environment",
 }
 
 
@@ -644,8 +636,7 @@ def enqueue_agent_command(
     if len(args_json) > _AGENT_ARGS_MAX_BYTES:
         raise HTTPException(
             413,
-            f"Agent command args too large: {len(args_json)} bytes "
-            f"(max {_AGENT_ARGS_MAX_BYTES}).",
+            f"Agent command args too large: {len(args_json)} bytes (max {_AGENT_ARGS_MAX_BYTES}).",
         )
 
     pool = _get_pg_pool()
@@ -1457,3 +1448,62 @@ async def api_agent_ssh_status(job_id: str, request: Request):
         log.warning("ssh-status persist failed for job %s: %s", job_id, e)
         raise HTTPException(500, "Failed to persist ssh status")
     return {"ok": True}
+
+
+# ── P7: a sweep member reports its own environment ────────────────────
+
+
+class _SweepFingerprintIn(BaseModel):
+    hash: str = Field(min_length=16, max_length=128)
+    manifest: dict
+
+
+@router.post(
+    "/api/v1/image-sweeps/{sweep_id}/members/{member_index}/fingerprint",
+    tags=["Agent"],
+)
+def api_report_sweep_fingerprint(
+    sweep_id: str,
+    member_index: int,
+    body: _SweepFingerprintIn,
+    request: Request,
+):
+    """Receive what a sweep member's container said about its own environment.
+
+    Gate P7's evidence has to come from the running container: the control
+    plane already knows the digest it sent to all N members, so comparing that
+    to itself establishes the request was consistent rather than the
+    containers.
+
+    Authenticated as the agent, not as a user — the reporter is the worker that
+    ran the collector, and `_require_agent_auth` binds the credential to the
+    host in the usual way.
+
+    **Both halves or neither.** `record_fingerprint` refuses a hash without its
+    manifest: a bare mismatch is undiagnosable, and the first time a sweep goes
+    red the question is which field.
+    """
+    from control_plane.db import control_plane_transaction
+    from control_plane.image_sweeps import SweepRefused, record_fingerprint
+
+    _require_agent_auth(request)
+
+    try:
+        with control_plane_transaction() as conn:
+            owner = conn.execute(
+                "SELECT tenant_id FROM image_sweeps WHERE sweep_id = %s", (sweep_id,)
+            ).fetchone()
+            if not owner:
+                raise HTTPException(404, "no such sweep")
+            record_fingerprint(
+                conn,
+                sweep_id,
+                int(member_index),
+                hash_=body.hash,
+                manifest=body.manifest,
+            )
+    except SweepRefused as exc:
+        raise HTTPException(422, f"{exc.code}: {exc.detail}") from exc
+
+    log.info("sweep %s member %s reported a fingerprint", sweep_id, member_index)
+    return {"ok": True, "sweep_id": sweep_id, "member_index": member_index}

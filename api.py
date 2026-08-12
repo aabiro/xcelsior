@@ -749,6 +749,12 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         "/instances/{job_id}/auto-launch/report",
         "/instances/{job_id}/http-ports/report",
         "/user-images/{image_id}/complete",
+        # P7: a sweep member reports the fingerprint its container produced.
+        # Added because the derived guard caught it the moment the route
+        # existed — which is the guard doing its job, and the reason it
+        # identifies agent routes by "calls `_require_agent_auth`" rather than
+        # by path.
+        "/api/v1/image-sweeps/{sweep_id}/members/{member_index}/fingerprint",
     )
 
     @staticmethod

@@ -1516,6 +1516,66 @@
         }
       }
     },
+    "/api/v1/image-sweeps/{sweep_id}/members/{member_index}/fingerprint": {
+      "post": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Api Report Sweep Fingerprint",
+        "description": "Receive what a sweep member's container said about its own environment.\n\nGate P7's evidence has to come from the running container: the control\nplane already knows the digest it sent to all N members, so comparing that\nto itself establishes the request was consistent rather than the\ncontainers.\n\nAuthenticated as the agent, not as a user \u2014 the reporter is the worker that\nran the collector, and `_require_agent_auth` binds the credential to the\nhost in the usual way.\n\n**Both halves or neither.** `record_fingerprint` refuses a hash without its\nmanifest: a bare mismatch is undiagnosable, and the first time a sweep goes\nred the question is which field.",
+        "operationId": "api_report_sweep_fingerprint_api_v1_image_sweeps__sweep_id__members__member_index__fingerprint_post",
+        "parameters": [
+          {
+            "name": "sweep_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sweep Id"
+            }
+          },
+          {
+            "name": "member_index",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Member Index"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/_SweepFingerprintIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/serverless/endpoint-plans": {
       "post": {
         "tags": [
@@ -6896,6 +6956,27 @@
         },
         "type": "object",
         "title": "_RevokeIn"
+      },
+      "_SweepFingerprintIn": {
+        "properties": {
+          "hash": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 16,
+            "title": "Hash"
+          },
+          "manifest": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Manifest"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hash",
+          "manifest"
+        ],
+        "title": "_SweepFingerprintIn"
       },
       "_UserImageCompleteIn": {
         "properties": {
