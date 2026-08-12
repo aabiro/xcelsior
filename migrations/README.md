@@ -90,7 +90,18 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `110_lightning_deposit_idempotency.py`.**
+**Repository head: `111_user_image_lineage.py`.**
+
+(`111` records what a snapshot was built *from*. Gate P7 asks a snapshot to
+record its lineage — "what it was built from, when, by which run" — and three of
+those four were already on `user_images`: `created_at`, `source_job_id` and
+`host_id`. The base image was not. A snapshot is `docker commit` over a running
+container, so the image is a diff on top of whatever base the job launched with;
+without it the row says which run produced the image but nothing about what is
+underneath the commit, which is the half an audit needs when a CVE lands in a
+base image. Nullable with no backfill: existing rows genuinely do not know, and
+inferring the base from the job afterwards is the guess this column exists to
+prevent.)
 
 (`109` and `110` give the two crypto funding rails an idempotency key —
 `crypto_deposits` and `ln_deposits` respectively. Gate P1 clause 2 requires a

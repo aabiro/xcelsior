@@ -228,7 +228,7 @@ are here now with the verdicts the evidence supports, not with placeholders.*
 
 | # | Clause | Verdict | Evidence |
 |---|---|---|---|
-| 1 | A sweep of N nodes from one snapshot is **byte-identical in environment**; a snapshot **records its lineage** | **FAIL** | Half the surface exists and the half the clause is about does not. `POST /instances/{job_id}/snapshot` commits a running container to a `user_images` row and enqueues the work, and volumes have their own snapshot/restore endpoints. **There is no sweep**: nothing launches N nodes from one image, so "byte-identical across N" has never had anything to compare. Lineage is the sharper gap — the clause asks a snapshot to record *what it was built from, when, and by which run*, and the frontend half of the phase describes exactly that library. Until a snapshot carries provenance, a sweep from it could not be audited even if it existed. **Code, not a blocker.** |
+| 1 | A sweep of N nodes from one snapshot is **byte-identical in environment**; a snapshot **records its lineage** | **FAIL** *(reason narrowed)* | The clause has two halves and **lineage is now closed**. `created_at`, `source_job_id` and `host_id` were already recorded; migration 111 adds `base_image_ref`, written at snapshot time from the job that ran. That is the half an audit actually needs: a snapshot is `docker commit` over a running container, so the image is a diff on top of whatever base the job launched with, and "which snapshots contain this CVE" is unanswerable from `source_job_id` alone — the job may since have been requeued onto a different image, or deleted. Nullable with no backfill, because existing rows genuinely do not know and inferring the base afterwards is the guess the column exists to prevent. Recorded *and* returned by the listing, since a column no surface reads answers no question. `tests/test_snapshot_records_its_lineage.py`; both the write and the read verified to go red when removed. **What remains is the sweep** — nothing launches N nodes from one image, so "byte-identical across N" still has nothing to compare, and the clause stays FAIL on that alone. A test in that file asserts the sweep is still absent, so whoever ships one is told to update this gate rather than leaving a half-met clause reading as whole. **Code, not a blocker.** |
 
 ---
 
@@ -348,11 +348,20 @@ what is actually in the way, in the vocabulary this page now uses throughout:
 |---|---|
 | **hardware** | P5.1 (one host exists; a migration needs two), P3.3 (the NFS export is unreachable from staging) |
 | **cutover** | P2.1 and P6.1 (both need webhook delivery into staging before money can move) |
-| **code** | P7.1 (no sweep, and snapshots record no lineage) |
+| **code** | P7.1 — **the sweep only**; lineage is closed (111 + `base_image_ref`) |
 
 P6.3 was in that **code** row and is now PASS — the property turned out to be
-true already, and what was missing was the assertion. P7.1 is what remains that
-needs nothing from anyone else. One is ACCEPTED-UNFIXABLE, and it has its own
+true already, and what was missing was the assertion.
+
+What remains that needs nothing from anyone else is **the sweep half of P7.1**:
+nothing launches N nodes from one image. Its lineage half is done — migration
+111 records `base_image_ref` and the listing returns it. The sweep is not a loop
+over the launch path: the clause needs the image pinned by **digest** rather
+than a mutable tag (`_build_image_ref` returns a tag, and `user_images` has no
+digest column, so "N nodes from the same bytes" is unprovable in principle until
+that is fixed), one row the N members belong to so partial failure is visible,
+and a fingerprint produced *by the running container* — comparing the image ref
+the control plane just sent to all N compares the request against itself. One is ACCEPTED-UNFIXABLE, and it has its own
 column on purpose: §1.2's historical half is not work anyone can do, so counting
 it as outstanding overstates the backlog — and folding it into PASS would
 overstate what is proven. The tally is derived from the clause rows, so a
