@@ -2950,9 +2950,9 @@ def api_snapshot_instance(job_id: str, body: SnapshotIn, request: Request):
             """
             INSERT INTO user_images (
                 image_id, owner_id, name, tag, description,
-                source_job_id, host_id, image_ref, size_bytes,
+                source_job_id, host_id, image_ref, base_image_ref, size_bytes,
                 status, created_at, deleted_at
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,0,%s,%s,0)
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,0,%s,%s,0)
             """,
             (
                 image_id,
@@ -2963,6 +2963,16 @@ def api_snapshot_instance(job_id: str, body: SnapshotIn, request: Request):
                 job_id,
                 host_id,
                 image_ref,
+                # Gate P7's lineage: what this snapshot was built *from*. A
+                # `docker commit` is a diff on top of the base the job launched
+                # with, so without this the row records which run produced the
+                # image but nothing about what is underneath the commit — which
+                # is the half an audit needs when a CVE lands in a base image.
+                #
+                # Recorded from the job rather than inferred later, because the
+                # job is the only place that knows, and it can be requeued onto
+                # a different image afterwards.
+                str(job.get("image") or job.get("docker_image") or "") or None,
                 initial_status,
                 now,
             ),
@@ -3093,8 +3103,8 @@ def api_list_user_images(
 
     sql = (
         "SELECT image_id, owner_id, name, tag, description, source_job_id, "
-        "host_id, image_ref, size_bytes, status, created_at, is_public, "
-        "labels, starred_at "
+        "host_id, image_ref, base_image_ref, size_bytes, status, created_at, "
+        "is_public, labels, starred_at "
         f"FROM user_images WHERE {' AND '.join(where)} "
         "ORDER BY starred_at DESC NULLS LAST, created_at DESC "
         "LIMIT %s OFFSET %s"
