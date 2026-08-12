@@ -1970,6 +1970,11 @@ def drain_agent_commands() -> int:
                 status = "failed"
                 size_bytes = 0
                 err_msg = ""
+                # Empty on every path that does not reach a successful push.
+                # "Unknown" is the honest value for a snapshot that never
+                # produced a manifest, and the column is nullable so it can say
+                # so rather than claim a digest it does not have.
+                image_digest = ""
                 committed_locally = False  # P3/B6 — track so we can rmi on push fail
                 try:
                     # Step 1: docker commit (local tag created).
@@ -2044,6 +2049,19 @@ def drain_agent_commands() -> int:
                                     )
                             else:
                                 status = "ready"
+                                # The manifest digest, read straight after the
+                                # push that produced it. Gate P7 asks a sweep of
+                                # N nodes to be byte-identical, and N containers
+                                # launched from a *tag* are not evidence of
+                                # that — a tag is mutable, so "same tag" and
+                                # "same bytes" are different claims.
+                                #
+                                # Captured here rather than resolved later from
+                                # the registry because this is the only moment
+                                # anything knows the digest belongs to the bytes
+                                # just pushed; a later lookup answers "what does
+                                # the tag point at now".
+                                image_digest = _read_repo_digest(image_ref)
                         else:
                             # image_ref doesn't match registry prefix.
                             # Shouldn't happen (API builds the ref from the
@@ -2074,7 +2092,12 @@ def drain_agent_commands() -> int:
                     resp = requests.post(
                         _api_url(f"/user-images/{image_id}/complete"),
                         headers=_api_headers(),
-                        json={"status": status, "size_bytes": size_bytes, "error": err_msg},
+                        json={
+                            "status": status,
+                            "size_bytes": size_bytes,
+                            "error": err_msg,
+                            "image_digest": image_digest,
+                        },
                         timeout=10,
                     )
                     if resp.status_code >= 400:
@@ -7282,6 +7305,41 @@ if __name__ == "__main__":
 # One host, an already-attached volume, no resume. The narrowest end-to-end
 # path, built before holds and idempotency because if a host cannot stream from
 # object storage to a mount at a usable rate, everything after it is rework.
+
+def _read_repo_digest(image_ref: str) -> str:
+    """The manifest digest docker recorded for `image_ref`, or "" if unknown.
+
+    Read with `docker inspect` immediately after a successful push, because
+    that is the only moment anything knows this digest belongs to the bytes
+    just pushed. Resolving the tag from the registry later answers a different
+    question — "what does this tag point at now" — and a tag is mutable, which
+    is the whole reason Gate P7 cannot be proven from one.
+
+    Never raises: a snapshot that pushed successfully must not be reported as
+    failed because an inspect did. The digest is evidence, not the artifact.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", "--format", "{{index .RepoDigests 0}}", image_ref],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning("could not read repo digest for %s: %s", image_ref, exc)
+        return ""
+    if result.returncode != 0:
+        log.warning(
+            "could not read repo digest for %s: %s",
+            image_ref,
+            (result.stderr or "").strip()[:200],
+        )
+        return ""
+    digest = (result.stdout or "").strip()
+    # `repo@sha256:…` is the shape; anything else is not a digest and saying
+    # nothing beats recording a value that will not match a later comparison.
+    return digest if "@sha256:" in digest else ""
+
 
 def _promotion_dest_dir(volume_id: str) -> str:
     """Where a promoted artifact lands on this host."""

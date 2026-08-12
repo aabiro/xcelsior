@@ -6912,6 +6912,11 @@
             "type": "string",
             "title": "Error",
             "default": ""
+          },
+          "image_digest": {
+            "type": "string",
+            "title": "Image Digest",
+            "default": ""
           }
         },
         "type": "object",

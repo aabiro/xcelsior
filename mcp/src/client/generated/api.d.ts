@@ -3187,6 +3187,11 @@ export interface components {
              * @default
              */
             error: string;
+            /**
+             * Image Digest
+             * @default
+             */
+            image_digest: string;
         };
         /**
          * _UserImagePatchIn

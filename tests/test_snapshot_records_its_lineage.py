@@ -198,3 +198,78 @@ def test_the_listing_mapping_covers_every_column_it_selects():
         f"r[{max(indices)}]. A column was added or removed on one side only, and "
         "every field after it is now reading its neighbour."
     )
+
+
+# ── The digest: Gate P7's sweep is unprovable without it ──────────────
+
+
+def test_the_digest_column_admits_unknown():
+    """A snapshot whose push succeeded but whose inspect failed knows nothing.
+
+    `NULL` must stay available for that, and for every row predating this. A
+    default would hand a sweep a digest to compare that was never observed.
+    """
+    with _get_pg_pool().connection() as conn:
+        row = conn.execute(
+            "SELECT is_nullable, column_default FROM information_schema.columns "
+            " WHERE table_name = 'user_images' AND column_name = 'image_digest'"
+        ).fetchone()
+    assert row is not None, "image_digest is missing"
+    assert row[0] == "YES", "image_digest is NOT NULL; unknown must be expressible"
+    assert row[1] is None, f"image_digest has a default ({row[1]!r})"
+
+
+def test_the_completion_callback_cannot_erase_a_digest_it_does_not_know():
+    """An older agent sends no digest. Silence means "I don't know", not "none".
+
+    Overwriting with `''` would delete evidence recorded by a newer agent on a
+    retry — and retries are the normal case for this callback.
+    """
+    import pathlib
+
+    # **Code only.** The first version searched the whole file and matched
+    # the *comment* directly above the SQL, so removing the COALESCE left it
+    # green. Same match-a-mention defect this suite has caught repeatedly —
+    # found by checking the injection landed rather than trusting a pass.
+    code = "\n".join(
+        line
+        for line in pathlib.Path(ROUTES).read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    assert "COALESCE(NULLIF(%s, ''), image_digest)" in code, (
+        "the completion callback no longer preserves an existing digest when "
+        "the agent sends none; a retry from an older agent would erase it"
+    )
+
+
+def test_the_worker_reads_the_digest_at_push_time():
+    """From the push that produced it, not from a later registry lookup.
+
+    A later lookup answers "what does this tag point at now", which is a
+    different question — and the mutability of the tag is the whole reason the
+    digest is needed.
+    """
+    import pathlib
+
+    agent = pathlib.Path("worker_agent.py").read_text(encoding="utf-8")
+    assert "def _read_repo_digest(" in agent, "the worker no longer reads a digest"
+    assert '"{{index .RepoDigests 0}}"' in agent, (
+        "the digest is no longer read from docker's own record of the push"
+    )
+    assert '"image_digest": image_digest' in agent, (
+        "the worker no longer reports the digest to /user-images/{id}/complete"
+    )
+
+
+def test_a_digest_that_is_not_one_is_not_recorded():
+    """`docker inspect` can return `<no value>` when there are no RepoDigests.
+
+    Recording that would give a sweep a string to compare that means nothing,
+    and two members agreeing on `<no value>` would read as byte-identical.
+    """
+    import pathlib
+
+    agent = pathlib.Path("worker_agent.py").read_text(encoding="utf-8")
+    assert 'return digest if "@sha256:" in digest else ""' in agent, (
+        "the worker no longer checks the digest is shaped like one before reporting it"
+    )

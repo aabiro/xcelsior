@@ -3103,8 +3103,8 @@ def api_list_user_images(
 
     sql = (
         "SELECT image_id, owner_id, name, tag, description, source_job_id, "
-        "host_id, image_ref, base_image_ref, size_bytes, status, created_at, "
-        "is_public, labels, starred_at "
+        "host_id, image_ref, base_image_ref, image_digest, size_bytes, status, "
+        "created_at, is_public, labels, starred_at "
         f"FROM user_images WHERE {' AND '.join(where)} "
         "ORDER BY starred_at DESC NULLS LAST, created_at DESC "
         "LIMIT %s OFFSET %s"
@@ -3129,13 +3129,14 @@ def api_list_user_images(
             # every index after it — `size_bytes` read the image string and
             # `int()` raised. Caught by the suite, not by the change.
             "base_image_ref": r[8],
-            "size_bytes": int(r[9] or 0),
-            "status": r[10],
-            "created_at": float(r[11]),
-            "is_public": bool(r[12]),
-            "labels": r[13] or [],
-            "starred_at": float(r[14]) if r[14] is not None else None,
-            "starred": r[14] is not None,
+            "image_digest": r[9],
+            "size_bytes": int(r[10] or 0),
+            "status": r[11],
+            "created_at": float(r[12]),
+            "is_public": bool(r[13]),
+            "labels": r[14] or [],
+            "starred_at": float(r[15]) if r[15] is not None else None,
+            "starred": r[15] is not None,
             "is_mine": r[1] == scope_owner_id,
         }
         for r in rows
@@ -3303,6 +3304,11 @@ class _UserImageCompleteIn(BaseModel):
     status: str
     size_bytes: int = 0
     error: str = ""
+    #: `repo@sha256:…`, read by the worker straight after the push. Optional
+    #: because an older agent does not send it and a push can succeed while the
+    #: inspect fails — "unknown" is honest and a sweep must refuse to claim
+    #: byte-identity without it, rather than falling back to the mutable tag.
+    image_digest: str = ""
 
     @field_validator("status")
     @classmethod
@@ -3350,8 +3356,18 @@ def api_user_image_complete(image_id: str, body: _UserImageCompleteIn, request: 
             # Idempotent: callback may arrive twice; accept without re-update.
             return {"ok": True, "status": prev_status}
         cur.execute(
-            "UPDATE user_images SET status=%s, size_bytes=%s WHERE image_id=%s",
-            (body.status, max(0, int(body.size_bytes)), image_id),
+            # `COALESCE(NULLIF(%s, ''), image_digest)` so an agent that does
+            # not send one cannot erase a digest already recorded — the older
+            # agent's silence means "I don't know", not "there isn't one".
+            "UPDATE user_images SET status=%s, size_bytes=%s, "
+            "image_digest=COALESCE(NULLIF(%s, ''), image_digest) "
+            "WHERE image_id=%s",
+            (
+                body.status,
+                max(0, int(body.size_bytes)),
+                str(body.image_digest or "").strip()[:255],
+                image_id,
+            ),
         )
     # P3/C1 — record worker-side outcome for dashboards + alerting.
     _snapshot_completions_total.labels(status=body.status).inc()
