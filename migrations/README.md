@@ -90,7 +90,21 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `112_user_image_digest.py`.**
+**Repository head: `113_image_sweeps.py`.**
+
+(`113` makes a sweep a record rather than a loop. Gate P7 asks N nodes from one
+snapshot to be byte-identical; a route calling the launch path N times and
+returning N job ids leaves that as an intention in the caller, unverifiable
+afterwards, with partial failure invisible and nothing for a fingerprint
+comparison to be compared across. `image_sweeps` pins the digest once —
+`NOT NULL` with a `LIKE '%@sha256:%'` check, because a sweep from an unknown
+digest cannot support the claim and must be refused rather than launched from
+the mutable tag — and `image_sweep_members` records `host_id` per member so
+"how many distinct hosts did this actually cover" is a query. Two constraints
+carry reasoning: a member that is `launched` must have a `job_id`, or the
+partial-failure count would be wrong in the direction that flatters it; and
+`job_id`/`host_id` stay nullable because a member that never launched is
+precisely the case the table exists to make visible.)
 
 (`112` records a snapshot's manifest digest. Gate P7 asks a sweep of N nodes to
 be *byte-identical*, and `_build_image_ref` returns a **mutable tag** — so N
