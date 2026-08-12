@@ -130,6 +130,14 @@ CONTROL_TABLES = frozenset(
         # it names live in `storage.artifacts` and are only read.
         "volume_promotions",
         "volume_promotion_files",
+        # Environment sweeps (P7). Claimed alongside the volume/launch state
+        # rather than with `user_images`, which sits in the user domain: the
+        # image is the user's *asset*, while a sweep is control-plane state
+        # about instances the scheduler placed. The row is written by the
+        # service that launches the members and records which host each landed
+        # on, which is the same writer that owns the rest of this group.
+        "image_sweeps",
+        "image_sweep_members",
         "worker_model_cache",
         "registry_health_cache",
         "benchmarks",
