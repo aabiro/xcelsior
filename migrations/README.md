@@ -90,7 +90,17 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `113_image_sweeps.py`.**
+**Repository head: `114_sweep_fingerprints.py`.**
+
+(`114` stores what a sweep member's container reported about its own
+environment — both the hash and the raw manifest, with a check constraint
+refusing half of one. A hash answers "did these differ" and nothing else; the
+first time a sweep goes red the question is *which field*. `JSONB` so that
+question is a query rather than a diff by hand. The columns are nullable
+because a member that never reported is a different fact from one that reported
+an empty environment, and the comparison above them treats missing as
+**unknown, never as agreement** — a collector that errors and returns nothing
+would otherwise make all N equal and the sweep would report a perfect pass.)
 
 (`113` makes a sweep a record rather than a loop. Gate P7 asks N nodes from one
 snapshot to be byte-identical; a route calling the launch path N times and
