@@ -239,3 +239,76 @@ def test_which_inventories_answered_is_recorded():
     _hash, manifest = ef.fingerprint(DIGEST)
     assert "sources" in manifest
     assert set(manifest["sources"]) >= {"python", "system"}
+
+
+# ── The collector must actually run somewhere ─────────────────────────
+
+
+def test_the_fingerprint_command_is_on_both_allowlists():
+    """A module with no caller is the defect this codebase keeps finding.
+
+    `record_fingerprint` existed with nothing invoking it until the agent
+    command did. Both sides must list it: a command the server enqueues and the
+    worker will not run is a directive that vanishes; one the worker runs and
+    the server will not enqueue is dead code that reads as a capability.
+    """
+    import ast
+    import pathlib
+
+    import worker_agent
+
+    assert "fingerprint_environment" in worker_agent._AGENT_COMMAND_ALLOWED
+
+    tree = ast.parse(pathlib.Path("routes/agent.py").read_text(encoding="utf-8"))
+    server: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and any(
+            getattr(t, "id", None) == "_AGENT_COMMAND_ALLOWED" for t in node.targets
+        ):
+            server = {
+                e.value
+                for e in getattr(node.value, "elts", [])
+                if isinstance(e, ast.Constant) and isinstance(e.value, str)
+            }
+    assert "fingerprint_environment" in server
+
+
+def test_the_worker_runs_the_collector_inside_the_container():
+    """Not on the host, and not from the control plane's own knowledge.
+
+    Running it on the host would fingerprint the *host's* Python and packages,
+    which is the one environment the clause explicitly does not mean.
+    """
+    import pathlib
+
+    agent = pathlib.Path("worker_agent.py").read_text(encoding="utf-8")
+    assert "_report_environment_fingerprint" in agent
+    assert '"docker", "cp", collector' in agent, (
+        "the collector is no longer copied into the container"
+    )
+    assert '"docker", "exec"' in agent and "_xcl_fingerprint.py" in agent, (
+        "the collector is no longer executed inside the container"
+    )
+
+
+def test_a_failed_collection_is_not_reported_as_an_empty_fingerprint():
+    """The failure the whole comparison is built to survive.
+
+    A member that silently reported nothing would be counted as agreeing with
+    every other member by a comparison written the obvious way. Every failure
+    path in the reporter returns False rather than posting a blank reading.
+    """
+    import pathlib
+    import re as _re
+
+    agent = pathlib.Path("worker_agent.py").read_text(encoding="utf-8")
+    start = agent.index("def _report_environment_fingerprint(")
+    body = agent[start : agent.index("\ndef ", start + 1)]
+    # Every early exit is a False, never a post with empty values.
+    assert 'json={"hash": "", ' not in body
+    assert body.count("return False") >= 5, (
+        "the reporter has fewer failure paths than it has ways to fail; a "
+        "silent partial read would reach the comparison"
+    )
+    posts = _re.findall(r"requests\.post\(", body)
+    assert len(posts) == 1, "more than one report path; only one may carry a reading"
