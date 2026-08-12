@@ -2,7 +2,9 @@
 # FastAPI orchestrator. Middleware, lifespan, background tasks, router mounting.
 
 import asyncio
+import functools
 import hmac
+import re
 import json
 import os
 import time
@@ -723,6 +725,57 @@ if AUTOSCALE_ENABLED:
 class TokenAuthMiddleware(BaseHTTPMiddleware):
     """Bearer token auth."""
 
+    #: Worker-protocol paths where a per-host agent token is a *candidate*
+    #: credential. The trailing slash on `/host/` is load-bearing for the same
+    #: reason it is in `AgentIngressMiddleware`: `"/hosts".startswith("/host")`
+    #: is true, and `/hosts` is product API. Letting an unverified `xat_` string
+    #: through there would be the inverse of the 410 bug — same one-character
+    #: cause, opposite direction.
+    HOST_TOKEN_PREFIXES = ("/agent/", "/host/")
+
+    #: Worker callbacks that do **not** live under a worker prefix. The agent
+    #: reports to these, they call `_require_agent_auth`, and they sit under
+    #: `/instances/` and `/user-images/` — which are product namespaces, so no
+    #: prefix rule can reach them without also opening the product API.
+    #:
+    #: A hand-kept list, and it is only safe because it is ratcheted:
+    #: `test_no_route_that_verifies_a_host_token_is_challenged_by_the_middleware`
+    #: derives the real set from *behaviour* — every handler that calls
+    #: `_require_agent_auth` — and fails when one is missing here. These three
+    #: were found that way; a prefix-based test would not have seen them,
+    #: because a prefix-based test asks the middleware's own rule to validate
+    #: itself.
+    HOST_TOKEN_PATH_TEMPLATES = (
+        "/instances/{job_id}/auto-launch/report",
+        "/instances/{job_id}/http-ports/report",
+        "/user-images/{image_id}/complete",
+    )
+
+    @staticmethod
+    def _may_carry_host_token(path: str) -> bool:
+        """Whether a host-token-shaped bearer may be passed to the route here."""
+        if path == "/host" or path.startswith(TokenAuthMiddleware.HOST_TOKEN_PREFIXES):
+            return True
+        return any(
+            matcher.match(path)
+            for matcher in TokenAuthMiddleware._template_matchers()
+        )
+
+    @staticmethod
+    @functools.lru_cache(maxsize=1)
+    def _template_matchers() -> tuple[re.Pattern[str], ...]:
+        """`{param}` → one path segment, anchored. Compiled once.
+
+        The same technique `tests/test_live_gate_paths_resolve.py` uses to
+        resolve a literal against a route template, so the two agree about what
+        a template means.
+        """
+        compiled = []
+        for template in TokenAuthMiddleware.HOST_TOKEN_PATH_TEMPLATES:
+            pattern = re.sub(r"\\\{[^}]+\\\}", "[^/]+", re.escape(template))
+            compiled.append(re.compile("^" + pattern + "$"))
+        return tuple(compiled)
+
     async def dispatch(self, request: Request, call_next):
         if not AUTH_REQUIRED:
             return await call_next(request)
@@ -764,6 +817,42 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         token = auth[7:] if auth.startswith("Bearer ") else ""
         if not token:
             token = request.cookies.get(_AUTH_COOKIE_NAME, "")
+
+        # ── Per-host agent tokens (§19.2) ─────────────────────────────
+        #
+        # This middleware compares the bearer against the single shared
+        # `XCELSIOR_API_TOKEN`, so a per-host `xat_` credential was answered 401
+        # here — before `_resolve_host_token_identity` in `routes/agent.py`
+        # could verify it. `/agent/*` and `/host` appear in
+        # `AGENT_RATE_LIMIT_EXEMPT_PREFIXES`, but that is the rate limiter, not
+        # auth, and they are in neither `PUBLIC_PATHS` nor
+        # `PUBLIC_PATH_PREFIXES`.
+        #
+        # That made `XCELSIOR_AGENT_HOST_TOKENS=require` a **fleet outage**
+        # rather than the completed rotation it is described as: the route
+        # refuses the shared bearer, this refuses the host token, and nothing
+        # is left that works. It is the second instance of the defect recorded
+        # above `/api/connect/webhooks` in `PUBLIC_PATHS` — same middleware,
+        # same shape, different caller.
+        #
+        # **Recognised, not trusted.** Passing here grants no principal and
+        # sets no `request.state`; it only declines to answer on the route's
+        # behalf. `_resolve_host_token_identity` still hashes the secret,
+        # looks it up, and binds it to the host in the path — a token issued
+        # for one host is still 403 on another.
+        #
+        # Scoped to the worker prefixes rather than exempting `/agent/*`
+        # wholesale: a blanket exemption would make this middleware's safety
+        # depend on every route under that prefix remembering to call its own
+        # auth, which is the failure mode one layer down.
+        if token and self._may_carry_host_token(request.url.path):
+            try:
+                from control_plane.agent_tokens import looks_like_host_token
+
+                if looks_like_host_token(token):
+                    return await call_next(request)
+            except Exception:  # pragma: no cover - fail closed on import trouble
+                pass
 
         if not token or not hmac.compare_digest(token, api_token):
             return JSONResponse(

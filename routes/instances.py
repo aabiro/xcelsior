@@ -3125,13 +3125,17 @@ def api_list_user_images(
             "source_job_id": r[5],
             "host_id": r[6],
             "image_ref": r[7],
-            "size_bytes": int(r[8] or 0),
-            "status": r[9],
-            "created_at": float(r[10]),
-            "is_public": bool(r[11]),
-            "labels": r[12] or [],
-            "starred_at": float(r[13]) if r[13] is not None else None,
-            "starred": r[13] is not None,
+            # Positional, and adding `base_image_ref` to the SELECT shifted
+            # every index after it — `size_bytes` read the image string and
+            # `int()` raised. Caught by the suite, not by the change.
+            "base_image_ref": r[8],
+            "size_bytes": int(r[9] or 0),
+            "status": r[10],
+            "created_at": float(r[11]),
+            "is_public": bool(r[12]),
+            "labels": r[13] or [],
+            "starred_at": float(r[14]) if r[14] is not None else None,
+            "starred": r[14] is not None,
             "is_mine": r[1] == scope_owner_id,
         }
         for r in rows
