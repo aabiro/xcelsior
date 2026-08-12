@@ -46,6 +46,22 @@ if _STRIPE_MODE == "sandbox":
     STRIPE_WEBHOOK_SECRET = os.environ.get(
         "XCELSIOR_STRIPE_SANDBOX_WEBHOOK_SECRET", ""
     ) or os.environ.get("XCELSIOR_STRIPE_WEBHOOK_SECRET", "")
+
+    # **Sandbox must never resolve to a live key.** The `or` above falls back to
+    # `XCELSIOR_STRIPE_SECRET_KEY` when no sandbox key is set, which is a
+    # convenience for an environment that has only one key — and a live key is
+    # exactly the case where that convenience charges a real card while the
+    # operator believes they are in a sandbox. An environment that asks for
+    # sandbox and has no sandbox key gets Stripe *disabled*, loudly, rather than
+    # silently promoted to live.
+    if STRIPE_SECRET_KEY.startswith("sk_live"):
+        log.error(
+            "XCELSIOR_STRIPE_MODE=sandbox resolved to a LIVE secret key — "
+            "refusing. Set XCELSIOR_STRIPE_SANDBOX_SECRET_KEY, or set "
+            "XCELSIOR_STRIPE_MODE=live if live is genuinely intended."
+        )
+        STRIPE_SECRET_KEY = ""
+        STRIPE_WEBHOOK_SECRET = ""
 else:
     STRIPE_SECRET_KEY = os.environ.get("XCELSIOR_STRIPE_SECRET_KEY", "")
     STRIPE_WEBHOOK_SECRET = os.environ.get("XCELSIOR_STRIPE_WEBHOOK_SECRET", "")
