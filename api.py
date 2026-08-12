@@ -932,7 +932,18 @@ class AgentIngressMiddleware:
     """
 
     #: Path prefixes that are worker protocol surface, not product API.
-    WORKER_PREFIXES = ("/agent/", "/host")
+    #:
+    #: **The trailing slash on `/host/` is load-bearing.** Without it,
+    #: `"/hosts".startswith("/host")` is true, and the *product* endpoints
+    #: `GET /hosts` and `POST /hosts/check` are answered `410
+    #: agent_ingress_retired` — telling a dashboard user their host list has
+    #: "moved to the private agent gateway". Production runs this middleware in
+    #: `deny`, so that is what the host list has been returning.
+    #:
+    #: The exact path `/host` is still matched by the `path == prefix` clause
+    #: below, which is what the worker's `PUT /host` heartbeat uses, and
+    #: `/host/{id}` still matches through the slash.
+    WORKER_PREFIXES = ("/agent/", "/host/")
 
     def __init__(self, app):
         self.app = app
