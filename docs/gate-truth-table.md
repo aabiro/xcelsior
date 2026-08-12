@@ -80,9 +80,9 @@ failure this document exists to stop.
 
 | # | Clause | Status | Evidence |
 |---|---|---|---|
-| 1 | Top-up on a saved card completes with no browser and no elicitation, **real token, live server** | **PARTIAL** | Implemented and tested, but `tests/test_manual_topup_charge.py` monkeypatches `_stripe_for_charge`. No live assertion. |
+| 1 | Top-up on a saved card completes with no browser and no elicitation, **real token, live server** | **PASS** *(was PARTIAL)* | `tests/live/test_saved_card_topup_live.py`, against a live server in Stripe **test mode**, and verified in Stripe rather than by trusting the route: two PaymentIntents `status: succeeded`, `amount_received: 500`, **`next_action: null`** — charged off-session with no browser step and no elicitation. The response is also asserted to carry no `next_action`, `redirect_to_url` or hosted-page URL, since any of those *is* the browser step the clause forbids. **Running it found the clause was not merely unasserted but impossible:** `list_payment_methods` called `pm.get("card")` on a Stripe object, which raises `AttributeError: get` on SDK 15.3.1 — so every caller saw "no saved cards", including manual top-up and the auto-top-up sweep. It survived because with *zero* cards the loop body never runs and it returns `[]`; it only broke for a customer who actually had one. |
 | 2 | Replaying any funding call with the same idempotency key produces exactly one charge — **manual top-up, auto-top-up, and the crypto rails** | **PASS** *(was PARTIAL)* | All named rails now, and the gap was larger than "unasserted". Manual, wallet-deposit and PayPal were already covered (`test_funding_replay_is_one_charge.py`). **The crypto rails had no mechanism at all** — neither `create_deposit` took a key nor deduplicated anything, so a retried request minted a *second Bitcoin address* or a *second bolt11* for one intended deposit. The clause says "rails" plural and there are two; fixing only on-chain would have left it half met while reading as done. Lightning is the sharper failure: two addresses at least belong to one wallet and both credit if paid, whereas a second invoice is a distinct payment request that settles nothing when the first is paid. Migrations 109/110 add `(customer_id, idempotency_key)` partial-unique indexes — scoped per customer so one tenant's key cannot collide with another's — and `ON CONFLICT DO NOTHING` holds the guarantee at the index rather than at the timing of a read-then-insert. Auto-top-up already reached the asserted `charge_saved_card`; what was unproven was its **key derivation**, now covered. `tests/test_crypto_funding_replay_is_one_deposit.py`, 11 assertions, confirmed failing before the fix (4 of 6 red with the guard removed; the two that stayed green are the negative controls, correct either way). |
-| 3 | An `authentication_required` decline produces a resumable pending state, a visible UI state, and a truthful tool result — **forced with a Stripe test card, not by mocking it** | **PARTIAL** | `test_sca_decline_is_recoverable.py` and `test_sca_pending_is_visible.py` are unusually careful — they build a genuine `stripe.CardError` from Stripe's documented JSON body rather than a hand mock with the attributes the code hopes for. But the decline is still *injected*, and the clause names the mocking exclusion explicitly. The clause as written is unmet. |
+| 3 | An `authentication_required` decline produces a resumable pending state, a visible UI state, and a truthful tool result — **forced with a Stripe test card, not by mocking it** | **PASS** *(was PARTIAL)* | Forced with a real test card, which the clause names as its own exclusion. `pm_card_authenticationRequired` (4000002760003184) *"requires authentication on all transactions, regardless of how the card is set up"* — chosen over `4000002500003155`, which stops requiring authentication once set up for off-session use and would let the test go green because the setup succeeded rather than because the decline was handled. Stripe recorded two intents at `status: requires_payment_method` with `last_payment_error.decline_code: authentication_required`, so the decline came from the processor and not from this repository. The route's answer is asserted to be neither a 200 nor a 500, to say *authentication*, to state that the charge did not happen, and to point at a resumable state. The prior in-process tests remain — they were careful work, and the clause simply asked for something they could not give. `tests/live/test_saved_card_topup_live.py`. |
 | 4 | The webhook refuses what it cannot verify — `400` on a bad signature | **PASS** | `test_a_wrong_signature_is_refused_with_400` plus a missing-header case, in `test_stripe_webhook_refuses_unverified.py`. The file reasons explicitly about why "400 or 503" would be an untrustworthy assertion. |
 | 5 | No secret in any surface — card data, `client_secret`, processor tokens; canary-tested with fake PANs | **PASS** | `tests/test_no_payment_secrets_in_logs.py`. |
 | 6 | **Raising a spend cap requires approval; lowering one does not. Both asserted.** | **PASS** *(was FAIL)* | Ruled Option A (§Ruling) and implemented. A widening by any caller that is not an interactive human is refused `409` and directed to `/api/v2/billing/auto-topup-plans`; narrowing and disabling stay single-call. `approval_mode` is hard-coded `"human"` so a standing policy cannot approve a change to its own ceilings. Both halves asserted in `test_widening_auto_topup_needs_approval.py`, with the plan lifecycle driven against real PostgreSQL in `test_auto_topup_plan_lifecycle.py`. |
@@ -287,15 +287,29 @@ assertion about a bug.
 |---|---|---|---|---|
 | §1 universal | 4 | — | — | 1 |
 | P0 | 4 | — | — | — |
-| P1 | 5 | 2 | — | — |
+| P1 | 7 | — | — | — |
 | P2 | 2 | — | 1 | — |
 | P3 | 2 | — | 1 | — |
 | P4 | 4 | — | — | — |
 | P5 | 2 | — | 1 | — |
-| **Total** | **23** | **2** | **3** | **1** |
+| **Total** | **25** | **—** | **3** | **1** |
 
-Twenty-three of twenty-nine clauses are fully met, nothing is BLOCKED, and **Gate P0
-and Gate P4 are wholly met**. One is ACCEPTED-UNFIXABLE, and it has its own
+Twenty-five of twenty-nine clauses are fully met, nothing is BLOCKED, **no clause is
+PARTIAL any more**, and **Gates P0, P1 and P4 are wholly met**.
+
+PARTIAL reaching zero is worth a sentence, because it is the verdict this page
+was built to resist inflating. Every clause that carried it did so for the same
+reason — the behaviour worked and the clause's *own* evidentiary standard was
+unmet — and each was closed by meeting that standard rather than by softening
+it. P1's last two were the hardest and the most instructive: running them
+against a live server in test mode showed that clause 1 was not merely
+unasserted but **impossible**, because `list_payment_methods` raised on any
+customer who actually had a saved card. A mock had been standing in for a code
+path that could not run.
+
+What remains is three FAIL clauses, all of them blocked on hardware — a second
+host for the migration, a reachable NFS server for the volume round trip — and
+one ACCEPTED-UNFIXABLE. One is ACCEPTED-UNFIXABLE, and it has its own
 column on purpose: §1.2's historical half is not work anyone can do, so counting
 it as outstanding overstates the backlog — and folding it into PASS would
 overstate what is proven. The tally is derived from the clause rows, so a
