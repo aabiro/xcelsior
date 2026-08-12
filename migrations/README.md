@@ -90,7 +90,18 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `111_user_image_lineage.py`.**
+**Repository head: `112_user_image_digest.py`.**
+
+(`112` records a snapshot's manifest digest. Gate P7 asks a sweep of N nodes to
+be *byte-identical*, and `_build_image_ref` returns a **mutable tag** — so N
+containers launched from it were asked for the same name, not given the same
+bytes, and the clause is unprovable in principle from a tag. The worker captures
+`repo@sha256:…` with `docker inspect` immediately after the push that produced
+it, which is the only moment anything knows the digest belongs to those bytes;
+resolving the tag later answers "what does this point at now". Nullable with no
+backfill or default: a snapshot that predates this, or whose push succeeded
+while the inspect failed, genuinely does not know, and a sweep that cannot pin a
+digest must refuse to claim byte-identity rather than fall back to the tag.)
 
 (`111` records what a snapshot was built *from*. Gate P7 asks a snapshot to
 record its lineage — "what it was built from, when, by which run" — and three of
