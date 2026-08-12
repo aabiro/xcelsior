@@ -57,7 +57,17 @@ def _shipped_modules() -> list[Path]:
 #: server config was pasted in, which is exactly what the template exists to
 #: stop — a worker env file is copied onto rented machines the operator does
 #: not control.
-NOT_WORKER_CONFIG = frozenset({"XCELSIOR_AGENT_PUBLIC_INGRESS"})
+NOT_WORKER_CONFIG = frozenset(
+    {
+        "XCELSIOR_AGENT_PUBLIC_INGRESS",
+        # Set *by the worker*, for the container, when it execs the P7
+        # fingerprint collector — `docker exec -e XCELSIOR_IMAGE_DIGEST=…`. A
+        # container cannot see the digest it was created from, so the value is
+        # passed in; an operator never sets it, and documenting it in the
+        # template would invite someone to.
+        "XCELSIOR_IMAGE_DIGEST",
+    }
+)
 
 
 def _env_names_read_by(path: Path) -> set[str]:

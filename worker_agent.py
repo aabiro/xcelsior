@@ -1651,6 +1651,11 @@ _AGENT_COMMAND_ALLOWED = frozenset(
         # verified stamp aged indefinitely against a one-day reverification
         # interval.
         "reverify",
+        # P7: fingerprint this container's own environment. The collector runs
+        # *inside* the container because the control plane comparing the image
+        # ref it just sent to all N members compares the request against
+        # itself.
+        "fingerprint_environment",
     }
 )
 
@@ -2146,6 +2151,31 @@ def drain_agent_commands() -> int:
                     by,
                 )
                 if _start_reverification():
+                    dispatched += 1
+            elif name == "fingerprint_environment":
+                sweep_id = str(args.get("sweep_id") or "")
+                member_index = args.get("member_index")
+                container = str(args.get("container_name") or "")
+                if not (sweep_id and container) or member_index is None:
+                    log.warning(
+                        "fingerprint_environment cmd=%s missing sweep_id/"
+                        "member_index/container_name",
+                        cmd_id,
+                    )
+                    continue
+                log.info(
+                    "Executing fingerprint_environment cmd=%s sweep=%s member=%s by=%s",
+                    cmd_id,
+                    sweep_id,
+                    member_index,
+                    by,
+                )
+                if _report_environment_fingerprint(
+                    sweep_id,
+                    int(member_index),
+                    container,
+                    str(args.get("image_digest") or ""),
+                ):
                     dispatched += 1
             elif name == "prepull_image":
                 image_tag = str(args.get("image") or "").strip()
@@ -7305,6 +7335,81 @@ if __name__ == "__main__":
 # One host, an already-attached volume, no resume. The narrowest end-to-end
 # path, built before holds and idempotency because if a host cannot stream from
 # object storage to a mount at a usable rate, everything after it is rework.
+
+def _report_environment_fingerprint(
+    sweep_id: str, member_index: int, container_name: str, image_digest: str
+) -> bool:
+    """Run the collector **inside** the container and post what it says.
+
+    Gate P7's fingerprint has to come from the running environment. The control
+    plane knows the digest it sent to all N members; comparing that to itself
+    establishes the request was consistent, not the containers. So the
+    collector is copied in and executed there, and this function only carries
+    the answer back.
+
+    Returns True when a fingerprint was reported. **A failure here is reported
+    as a failure, never as an empty fingerprint** — a member that silently
+    reported nothing would be counted as agreeing with every other member by a
+    comparison written the obvious way, and the sweep would show a perfect pass
+    on an environment nobody measured.
+    """
+    collector = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "environment_fingerprint.py")
+    if not os.path.exists(collector):
+        log.warning("fingerprint: collector missing at %s", collector)
+        return False
+    try:
+        subprocess.run(
+            ["docker", "cp", collector, f"{container_name}:/tmp/_xcl_fingerprint.py"],
+            capture_output=True, text=True, timeout=60, check=True,
+        )
+        result = subprocess.run(
+            ["docker", "exec", "-e", f"XCELSIOR_IMAGE_DIGEST={image_digest}",
+             container_name, "python3", "/tmp/_xcl_fingerprint.py"],
+            capture_output=True, text=True, timeout=180,
+        )
+    except Exception as exc:
+        log.warning("fingerprint: could not run the collector in %s: %s", container_name, exc)
+        return False
+    if result.returncode != 0:
+        log.warning(
+            "fingerprint: collector failed in %s: %s",
+            container_name,
+            (result.stderr or "").strip()[:300],
+        )
+        return False
+    try:
+        payload = json.loads(result.stdout or "{}")
+        digest, manifest = payload["hash"], payload["manifest"]
+    except Exception as exc:
+        log.warning("fingerprint: unreadable collector output from %s: %s", container_name, exc)
+        return False
+    if not digest or not isinstance(manifest, dict) or not manifest:
+        # Half a fingerprint is refused server-side too; refusing here as well
+        # keeps a partial read from ever reaching the comparison.
+        log.warning("fingerprint: incomplete reading from %s", container_name)
+        return False
+
+    try:
+        response = requests.post(
+            _api_url(f"/api/v1/image-sweeps/{sweep_id}/members/{member_index}/fingerprint"),
+            headers=_api_headers(),
+            json={"hash": digest, "manifest": manifest},
+            timeout=60,
+        )
+        if response.status_code >= 400:
+            log.warning(
+                "fingerprint: report rejected (%s): %s",
+                response.status_code,
+                response.text[:200],
+            )
+            return False
+    except Exception as exc:
+        log.warning("fingerprint: could not report for sweep %s: %s", sweep_id, exc)
+        return False
+    log.info("fingerprint reported sweep=%s member=%s", sweep_id, member_index)
+    return True
+
 
 def _read_repo_digest(image_ref: str) -> str:
     """The manifest digest docker recorded for `image_ref`, or "" if unknown.

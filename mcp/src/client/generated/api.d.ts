@@ -771,6 +771,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/image-sweeps/{sweep_id}/members/{member_index}/fingerprint": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Api Report Sweep Fingerprint
+         * @description Receive what a sweep member's container said about its own environment.
+         *
+         *     Gate P7's evidence has to come from the running container: the control
+         *     plane already knows the digest it sent to all N members, so comparing that
+         *     to itself establishes the request was consistent rather than the
+         *     containers.
+         *
+         *     Authenticated as the agent, not as a user — the reporter is the worker that
+         *     ran the collector, and `_require_agent_auth` binds the credential to the
+         *     host in the usual way.
+         *
+         *     **Both halves or neither.** `record_fingerprint` refuses a hash without its
+         *     manifest: a bare mismatch is undiagnosable, and the first time a sweep goes
+         *     red the question is which field.
+         */
+        post: operations["api_report_sweep_fingerprint_api_v1_image_sweeps__sweep_id__members__member_index__fingerprint_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/serverless/endpoint-plans": {
         parameters: {
             query?: never;
@@ -3173,6 +3206,15 @@ export interface components {
              */
             reason: string;
         };
+        /** _SweepFingerprintIn */
+        _SweepFingerprintIn: {
+            /** Hash */
+            hash: string;
+            /** Manifest */
+            manifest: {
+                [key: string]: unknown;
+            };
+        };
         /** _UserImageCompleteIn */
         _UserImageCompleteIn: {
             /** Status */
@@ -4254,6 +4296,42 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["_OpIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_report_sweep_fingerprint_api_v1_image_sweeps__sweep_id__members__member_index__fingerprint_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sweep_id: string;
+                member_index: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["_SweepFingerprintIn"];
             };
         };
         responses: {
