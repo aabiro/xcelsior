@@ -23,13 +23,22 @@ from tests.live._fleet import (  # noqa: E402
     FLEET_EXPECTED,
     MISSING_CREDENTIALS,
     MISSING_FLEET,
+    MISSING_WEBHOOKS,
     TOKEN,
+    WEBHOOKS_EXPECTED,
     auth,
 )
 
+# The webhook precondition is not paperwork. This journey launches an instance,
+# which needs a funded wallet, and a wallet is credited only by
+# `payment_intent.succeeded` — the processor is the sole authority on whether
+# money moved. Without a forwarder the run either fails on `402` or, worse,
+# **passes on a balance left over from an earlier run**, which would report the
+# funding path working when it was never exercised.
 pytestmark = [
     pytest.mark.skipif(not BASE or not TOKEN, reason=MISSING_CREDENTIALS),
     pytest.mark.skipif(not FLEET_EXPECTED, reason=MISSING_FLEET),
+    pytest.mark.skipif(not WEBHOOKS_EXPECTED, reason=MISSING_WEBHOOKS),
 ]
 
 

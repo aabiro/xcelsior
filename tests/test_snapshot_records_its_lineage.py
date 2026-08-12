@@ -163,3 +163,38 @@ def test_the_sweep_half_of_the_clause_is_still_absent():
         f"a sweep endpoint now exists ({sweep_routes}) — Gate P7's other half "
         "may now be assertable. Update the gate rather than deleting this test."
     )
+
+
+def test_the_listing_mapping_covers_every_column_it_selects():
+    """The user-images listing maps rows **positionally**, so a shift is silent.
+
+    Adding `base_image_ref` to the SELECT moved every index after it: the
+    mapping kept reading `r[8]` for `size_bytes` and got the image string, and
+    `int()` raised. Two unrelated test files caught it, which is luck rather
+    than design — nothing tied the column list to the mapping.
+
+    This ties them. It does not force a rewrite to `dict_row`; it just refuses
+    to let the two drift, which is the whole failure mode.
+    """
+    import pathlib
+
+    source = pathlib.Path(ROUTES).read_text(encoding="utf-8")
+    select = re.search(
+        r'"SELECT (image_id, owner_id, name, tag.*?)"\s*\n?\s*f?"FROM user_images', source, re.S
+    )
+    assert select, "the user_images listing query is no longer findable"
+
+    columns = [c.strip() for c in re.sub(r'"\s*\n\s*"', "", select.group(1)).split(",")]
+    columns = [c for c in columns if c]
+    assert len(columns) > 5, f"only parsed {columns} from the SELECT"
+
+    # The mapping immediately after it, by highest positional index used.
+    mapping = source[select.end() : select.end() + 2000]
+    indices = {int(m) for m in re.findall(r"\br\[(\d+)\]", mapping)}
+    assert indices, "no positional row access found after the query"
+
+    assert max(indices) == len(columns) - 1, (
+        f"the listing selects {len(columns)} columns but its mapping reads up to "
+        f"r[{max(indices)}]. A column was added or removed on one side only, and "
+        "every field after it is now reading its neighbour."
+    )
