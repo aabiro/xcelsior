@@ -94,7 +94,7 @@ failure this document exists to stop.
 
 | # | Clause | Status | Evidence |
 |---|---|---|---|
-| 1 | A scripted journey — launch, wait, connect, run a command, terminate — completes using **only tool calls**, against a live staging tenant | **FAIL** | No such script exists. Nothing in `scripts/` performs this journey. This is the phase's headline clause and it has never been run. |
+| 1 | A scripted journey — launch, wait, connect, run a command, terminate — completes using **only tool calls**, against a live staging tenant | **FAIL** *(reason superseded)* | The script now exists — `tests/live/test_access_journey_live.py` — and **has been run**, which is the change: the earlier note said "no such script exists" and that is no longer why this fails. It gets as far as launching and stops at `402 Insufficient wallet balance`. **The blocker is a cutover, and it is precise:** a top-up only *submits* a charge, and the wallet is credited by Stripe's `payment_intent.succeeded` webhook, because the processor is the sole authority on whether money moved. Staging receives no webhooks — it binds `127.0.0.1:9600` and Stripe cannot reach it. The direct-deposit endpoint is refused because `is_relaxed_env()` is false for staging by design (*"the answer for staging is no, because staging holds real data"*), which is correct and not worth weakening for a gate. So the journey needs webhook delivery into staging — `stripe listen --forward-to` or an equivalent — or a platform-admin deposit as fixture setup, kept separate from the non-admin credential the gate itself must use. Everything upstream of funding now works: the fleet is admitted and heartbeating, and `/agent/*` is reachable. |
 | 2 | Connection material is short-lived and single-use; a replayed ticket is refused | **PASS** *(was PARTIAL)* | `tests/test_ws_ticket_is_single_use.py` — 8 assertions across **both** consume implementations (shared-state and in-process), 16 in total. Replay, expiry, and each of the three pins (purpose, target, client IP) are asserted separately so a regression names itself. Parametrizing both paths was not ceremony: removing the in-memory pop reds `[memory]` while `[shared]` keeps passing, so a test of either alone would have proven nothing about the other — and the suite runs one while production runs the other. |
 | 3 | No private key material appears in any tool result. Asserted, not assumed | **PASS** | `mcp/tests/unit/private-key-hygiene.test.ts` and `hygiene.test.ts`, plus `inspectSshKeyInput()` classifying and refusing a private key *before* any network call. The scrubber also handles the truncated-log case (BEGIN with no END). |
 
@@ -115,7 +115,7 @@ fingerprint exists.
 |---|---|---|---|
 | 1 | Promotion is idempotent under retry; a repeated call produces one volume, not two | **PASS** *(was FAIL)* | Proven the way §4 of the promotion plan says to prove it: call twice, one `volume_promotions` row, second reports `replayed`. `test_promotion_is_idempotent.py`, against the real route and a real database — the mechanism is a unique constraint plus `ON CONFLICT DO NOTHING`, neither of which exists in a fake. Removing the conflict clause reds four of the six. |
 | 2 | The retention clock is asserted: an artifact past `retain_until` is gone, a promoted volume is not | **PASS** *(was PARTIAL)* | The artifact half was already covered (`test_artifact_retention_authority.py`), and the hold is tested (`test_promotion_takes_the_hold.py`). The second half was deferred to clause 3 on the grounds that it "needs a mounted volume" — **and that reason was doing more work than it should**. Surviving is not the same as being mountable: whether a promoted copy still exists after the artifact expires is a property of the *deletion path*, which is code that runs without a fleet. `tests/test_promoted_copy_outlives_the_artifact.py` drives a real deletion job through the reaper and asserts the artifact leaves `available` while `volume_promotions` and `volume_promotion_files` are untouched — **including that the reaper actually claimed the job**, without which "the promotion survived" is equally true of a reaper that declined. A second, structural assertion walks `cleanup_expired`'s own SQL and requires it to name no volume table at all, because the behavioural test only inspects rows it created and would survive a later edit that released the promotion deliberately; verified by making the path touch `volume_promotion_files` and watching it go red. **What remains needs hardware** — reading the promoted bytes back through a mount, which is clause 3's sentence rather than this one, and is named here in the same vocabulary as every other blocker on this page. |
-| 3 | Round-trip: train → promote → mount in a *new* instance → read the weights, tool calls only | **FAIL** | The tool now exists (`promote_artifact_to_volume`, A4), so this is no longer blocked on missing code — it is blocked on a **staging environment**, which the promotion plan named as a dependency in advance rather than discovering here. Unchanged verdict, changed reason. |
+| 3 | Round-trip: train → promote → mount in a *new* instance → read the weights, tool calls only | **FAIL** | The tool exists (`promote_artifact_to_volume`, A4) and **staging now exists too**, so the previously recorded reason is spent. `tests/live/test_volume_round_trip_live.py` ran for the first time and stopped earlier than the round trip: the volume is created with `status: error` after `NFS provision failed for vol-… — retrying once`. **The blocker is hardware:** the NFS export the volume is provisioned onto is not reachable from staging. Nothing about the promotion path has been exercised yet, so this remains FAIL on its own terms rather than partially met — but the next thing to fix is a mount, not code. One of the file's tests skips separately and correctly on a **credential**, `XCELSIOR_LIVE_SSH_KEY`, which it needs to read the bytes back. |
 
 **P3's promotion half is now built, A0→A4.** When this table was first written
 — the same day — this paragraph read *"the promotion half is not started;
@@ -174,7 +174,7 @@ current letter.*
 
 | # | Clause | Status | Evidence |
 |---|---|---|---|
-| 1 | A migrated job resumes from its checkpoint, proven by comparing state before and after — not by the absence of an error | **FAIL** | **The gate around the migration is built; the resume proof is not.** `control_plane/scheduler/migration_gate.py` re-runs `filter_hosts` — the same Stage-C filter a launch runs — and re-evaluates the preference on the target, so "migrated to cheaper" cannot reach a host that would have failed admission at launch (11 tests, including that the fixture's *cheapest* host is the never-admitted one). That is not this clause. This clause asks that a job **resumes from its checkpoint, compared before and after**, and that needs two live instances able to share a volume. Not started, not simulated, and deliberately not softened. |
+| 1 | A migrated job resumes from its checkpoint, proven by comparing state before and after — not by the absence of an error | **FAIL** | **The gate around the migration is built, the executor exists, and the proof still cannot run.** `control_plane/scheduler/migration_gate.py` re-runs `filter_hosts` and re-evaluates the preference on the target, and `migration_executor.migrate_job` returns `resumed=True` only when a probe read matching state on both sides. `tests/live/test_migration_resumes_live.py` now executes and skips with its own reason: *"0 active host(s); a migration needs two, and a same-host move would not exercise the checkpoint transfer"*. **The blocker is hardware** — one admitted host exists (the RTX 2060 canary) and a migration needs a source and a target. The skip is the honest verdict: a same-host move would return `ok` while proving nothing, which is exactly the shape `resumed is None` was introduced to refuse. |
 | 2 | A placement preference that cannot be satisfied **refuses clearly** rather than silently falling back to the cheapest host | **PASS** | **Asserted through the route, against real hosts in the database.** `POST /api/v1/placements/evaluate` takes a preference, evaluates it over the same consistent snapshot the hard filter uses, and returns a typed refusal carrying the number that failed. `tests/test_gate_p5_placement_refuses_end_to_end.py` asks for 99.99% where the best is 99.95% and asserts no host comes back; asks for a verified host when none is verified and asserts it does **not** fall back to an unverified one — the §5.4 reconciliation, which is what made this PARTIAL for four commits. `scheduler.allocate_best_host` keeps its cold-start fallback for **unconstrained** placement, untouched: the fallback is skipped only when the request is constrained. A calibration test asserts the fixture fleet is placeable, so the refusals are not passing for the wrong reason, and the fixture uses a GPU model no other test can produce — it previously asserted a count over the *whole* fleet, passed in isolation and failed in a full run. **Also asserted live**: `tests/live/test_placement_preference_refuses_live.py` drives the deployed route with a real token, and production answered `no_eligible_hosts` with a recorded `decision_id`. |
 | 3 | Preference is honoured in the audit trail: the chosen host's reputation and SLA at time of placement are recorded | **PASS** | **The writer now has a caller, and the record is read back to prove it.** Every evaluation appends to `placement_decisions` (migration 105, partitioned by 106) — placements *and* refusals, because a preference that refused was honoured by the refusal and a successes-only trail cannot answer "why did nothing launch last Tuesday". WORM by trigger, probed with a real UPDATE and a real DELETE. The evidence is **copied**: a test changes the host's score and deverifies it after the fact and asserts the row still reads what was true at the time. Recording is best-effort in its own transaction — an audit write must never be the thing that fails a placement — and `decision_id` is returned as `null` rather than hidden when it could not be written. |
 
@@ -206,6 +206,29 @@ It does not clear the clause on its own, and says so: the sweep can only ask. A
 host that is offline, busy with a paying job, or running an agent that predates
 the command never answers, and `verification_status` still reads its stamp as
 `stale`. What changes is that a healthy host now has something that asks it.
+
+---
+
+## Gate P6 — The provider surface
+
+*Added 2026-08-12. This page has covered P0–P5 since it was written; P6 and P7
+existed in the plan the whole time and were simply never on it. An absent phase
+reads as a met one, which is the failure this table exists to prevent — so they
+are here now with the verdicts the evidence supports, not with placeholders.*
+
+| # | Clause | Verdict | Evidence |
+|---|---|---|---|
+| 1 | A provider journey — register → admit → publish → earn → payout — completes through tools plus the browser handoffs, **on a live staging tenant** | **FAIL** | No such journey has been run. The pieces exist individually — host registration and `decide_admission` were both exercised end to end this session on the RTX 2060 canary, with real hardware evidence — but nothing carries a provider from registration through to a payout in one pass. The clause names a live staging tenant, and the same **cutover** that blocks Gate P2 clause 1 applies: earnings and payouts settle from webhook-confirmed money, and staging receives no webhooks. |
+| 2 | A payout is bound to job, amount, currency, destination state and idempotency key; **replay produces one payout** | **PASS** | `tests/test_provider_settlement.py`. The binding is not a convention — `prepare_settlement` derives money, owner, currency and tax from PostgreSQL rather than from the caller, and `test_payout_api_signature_has_no_caller_amount` asserts the route cannot be told an amount. Replay is closed at two levels: `test_concurrent_cross_rail_prepare_creates_one_settlement` and `test_concurrent_workers_claim_a_settlement_once` hold it in the database, and `test_stripe_transfer_uses_exact_db_amount_and_is_idempotent` asserts the `rail_idempotency_key` reaches `Transfer.create` as `provider-settlement:{job_id}`, so a retry Stripe sees returns the original transfer. PayPal is covered separately, with the replay asserted to return the same `capture_id`. |
+| 3 | Returning from `return_url` proves nothing — asserted by returning **without completing** and checking the state is still `pending_requirements` | **FAIL** | Nothing asserts it. `pending_requirements` appears once in the repository, in a *comment* in `tests/test_stripe_webhook_refuses_unverified.py`, which is the shape this page has learned to distrust: a word present in prose reads as coverage to a grep and is none. The clause is unusually specific about method — return without completing — because the browser return is worthless as a signal and the webhook is the only authority. That is exactly the assertion missing. **This is code, not a blocker:** it needs no fleet, no funded wallet and no webhook delivery, only a KYC-incomplete account and one request. |
+
+---
+
+## Gate P7 — Environment snapshot and sweep
+
+| # | Clause | Verdict | Evidence |
+|---|---|---|---|
+| 1 | A sweep of N nodes from one snapshot is **byte-identical in environment**; a snapshot **records its lineage** | **FAIL** | Half the surface exists and the half the clause is about does not. `POST /instances/{job_id}/snapshot` commits a running container to a `user_images` row and enqueues the work, and volumes have their own snapshot/restore endpoints. **There is no sweep**: nothing launches N nodes from one image, so "byte-identical across N" has never had anything to compare. Lineage is the sharper gap — the clause asks a snapshot to record *what it was built from, when, and by which run*, and the frontend half of the phase describes exactly that library. Until a snapshot carries provenance, a sweep from it could not be audited even if it existed. **Code, not a blocker.** |
 
 ---
 
@@ -292,10 +315,21 @@ assertion about a bug.
 | P3 | 2 | — | 1 | — |
 | P4 | 4 | — | — | — |
 | P5 | 2 | — | 1 | — |
-| **Total** | **25** | **—** | **3** | **1** |
+| P6 | 1 | — | 2 | — |
+| P7 | — | — | 1 | — |
+| **Total** | **26** | **—** | **6** | **1** |
 
-Twenty-five of twenty-nine clauses are fully met, nothing is BLOCKED, **no clause is
+Twenty-six of thirty-three clauses are fully met, nothing is BLOCKED, **no clause is
 PARTIAL any more**, and **Gates P0, P1 and P4 are wholly met**.
+
+The denominator moved from 29 to 33 because **P6 and P7 were never on this
+page**. They were in the plan the whole time; the table covered P0–P5 and said
+so, which is not the same as anyone noticing that two phases had no row. An
+absent phase reads as a met one — the same failure mode as a clause counted in
+no column — so they are here now, with four clauses between them and the
+verdicts the evidence supports. Three of the four are FAIL, and adding them
+made the headline worse, which is the point: a tally that only ever improves is
+not measuring anything.
 
 PARTIAL reaching zero is worth a sentence, because it is the verdict this page
 was built to resist inflating. Every clause that carried it did so for the same
@@ -307,9 +341,17 @@ unasserted but **impossible**, because `list_payment_methods` raised on any
 customer who actually had a saved card. A mock had been standing in for a code
 path that could not run.
 
-What remains is three FAIL clauses, all of them blocked on hardware — a second
-host for the migration, a reachable NFS server for the volume round trip — and
-one ACCEPTED-UNFIXABLE. One is ACCEPTED-UNFIXABLE, and it has its own
+What remains is six FAIL clauses and one ACCEPTED-UNFIXABLE. The six split by
+what is actually in the way, in the vocabulary this page now uses throughout:
+
+| blocker | clauses |
+|---|---|
+| **hardware** | P5.1 (one host exists; a migration needs two), P3.3 (the NFS export is unreachable from staging) |
+| **cutover** | P2.1 and P6.1 (both need webhook delivery into staging before money can move) |
+| **code** | P6.3 (return-without-completing is unasserted) and P7.1 (no sweep, and snapshots record no lineage) |
+
+The two under **code** are the ones someone can start this afternoon without
+waiting for anything. One is ACCEPTED-UNFIXABLE, and it has its own
 column on purpose: §1.2's historical half is not work anyone can do, so counting
 it as outstanding overstates the backlog — and folding it into PASS would
 overstate what is proven. The tally is derived from the clause rows, so a

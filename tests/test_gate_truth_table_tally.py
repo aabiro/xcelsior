@@ -46,6 +46,56 @@ TALLY_ROW = re.compile(r"^\|\s*(\*\*)?(§1 universal|P\d|Total)(\*\*)?\s*\|")
 #: Column order in the Tally table. `ACCEPTED-UNFIXABLE` is last and separate
 #: on purpose: it is neither proven nor outstanding, and giving it its own
 #: column is what stops it inflating either number.
+#: Number words the prose may use, generated rather than typed.
+#: The hand-written version stopped at twenty-nine and went red the moment
+#: the denominator passed it — a guard failing because the project grew is a
+#: guard that trains its reader to edit it rather than read it.
+_NUMBER_WORDS = {
+    "Eighteen": 18,
+    "Nineteen": 19,
+    "Twenty": 20,
+    "Twenty-one": 21,
+    "Twenty-two": 22,
+    "Twenty-three": 23,
+    "Twenty-four": 24,
+    "Twenty-five": 25,
+    "Twenty-six": 26,
+    "Twenty-seven": 27,
+    "Twenty-eight": 28,
+    "Twenty-nine": 29,
+    "Thirty": 30,
+    "Thirty-one": 31,
+    "Thirty-two": 32,
+    "Thirty-three": 33,
+    "Thirty-four": 34,
+    "Thirty-five": 35,
+    "Thirty-six": 36,
+    "Thirty-seven": 37,
+    "Thirty-eight": 38,
+    "Thirty-nine": 39,
+    "Forty": 40,
+    "Forty-one": 41,
+    "Forty-two": 42,
+    "Forty-three": 43,
+    "Forty-four": 44,
+    "Forty-five": 45,
+    "Forty-six": 46,
+    "Forty-seven": 47,
+    "Forty-eight": 48,
+    "Forty-nine": 49,
+    "Fifty": 50,
+    "Fifty-one": 51,
+    "Fifty-two": 52,
+    "Fifty-three": 53,
+    "Fifty-four": 54,
+    "Fifty-five": 55,
+    "Fifty-six": 56,
+    "Fifty-seven": 57,
+    "Fifty-eight": 58,
+    "Fifty-nine": 59,
+}
+
+
 VERDICTS = ("PASS", "PARTIAL", "FAIL", "ACCEPTED-UNFIXABLE")
 
 
@@ -135,20 +185,7 @@ def test_the_total_row_is_the_sum_of_the_clause_rows(verdict_index: int, verdict
 
 def test_the_prose_count_matches_the_table():
     """ "Twenty-one of twenty-nine" is a claim, and it is checkable."""
-    words = {
-        "Eighteen": 18,
-        "Nineteen": 19,
-        "Twenty": 20,
-        "Twenty-one": 21,
-        "Twenty-two": 22,
-        "Twenty-three": 23,
-        "Twenty-four": 24,
-        "Twenty-five": 25,
-        "Twenty-six": 26,
-        "Twenty-seven": 27,
-        "Twenty-eight": 28,
-        "Twenty-nine": 29,
-    }
+    words = _NUMBER_WORDS
     text = TABLE.read_text()
     # Case-insensitive: the sentence capitalises the first number and not the
     # second, and which one is capitalised is a fact about the sentence rather
@@ -218,15 +255,7 @@ def test_accepted_unfixable_is_not_counted_as_met():
     text = TABLE.read_text()
     stated = _re.search(r"\b([A-Za-z-]+)\b of \b[A-Za-z-]+\b clauses are fully met", text)
     assert stated, "the prose no longer states how many clauses are met"
-    words = {
-        "Twenty": 20,
-        "Twenty-one": 21,
-        "Twenty-two": 22,
-        "Twenty-three": 23,
-        "Twenty-four": 24,
-        "Twenty-five": 25,
-        "Twenty-six": 26,
-    }
+    words = _NUMBER_WORDS
     assert words.get(stated.group(1).capitalize()) == met, (
         f"the prose says {stated.group(1)} clauses are fully met; {met} are. "
         "An accepted-unobtainable clause is not a met one."
