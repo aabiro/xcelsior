@@ -2893,17 +2893,30 @@ class BillingEngine:
         default_pm = (wallet.get("stripe_payment_method_id") or "").strip()
         methods = _stripe_mod.PaymentMethod.list(customer=stripe_customer_id, type="card")
         out: list[dict] = []
-        # Stripe objects are dict-like at runtime but typed without .get().
+        # **Subscript, not `.get()`.** The previous comment here read "Stripe
+        # objects are dict-like at runtime but typed without .get()", and that
+        # is false for the installed SDK (15.3.1): `StripeObject.__getattr__`
+        # raises `AttributeError: get`.
+        #
+        # The shape of that bug is why it survived. With **zero** saved cards
+        # the loop body never runs and this returns `[]` harmlessly; it only
+        # raises for a customer who actually has a card. So every caller saw
+        # "no saved cards" — including the manual top-up and the auto-top-up
+        # sweep, both of which resolve a payment method through here. P1's
+        # headline behaviour, a top-up on a saved card, could not work at all.
+        #
+        # Subscript access is what the SDK supports on both `StripeObject` and
+        # the plain dicts a test double is likely to supply.
         for pm in cast("list[Any]", methods.data):
-            card = pm.get("card") or {}
+            card = pm["card"] if "card" in pm else {}
             out.append(
                 {
-                    "id": pm.get("id"),
-                    "brand": card.get("brand", ""),
-                    "last4": card.get("last4", ""),
-                    "exp_month": card.get("exp_month"),
-                    "exp_year": card.get("exp_year"),
-                    "is_default": pm.get("id") == default_pm,
+                    "id": pm["id"],
+                    "brand": card["brand"] if "brand" in card else "",
+                    "last4": card["last4"] if "last4" in card else "",
+                    "exp_month": card["exp_month"] if "exp_month" in card else None,
+                    "exp_year": card["exp_year"] if "exp_year" in card else None,
+                    "is_default": pm["id"] == default_pm,
                 }
             )
         return out
