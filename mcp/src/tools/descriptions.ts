@@ -19,7 +19,15 @@
  * `tests/unit/descriptions.test.ts` enforces all three.
  */
 
-export const TOOL_DESCRIPTIONS: Record<string, string> = {
+import type { ToolName } from "../auth/scopes.js";
+
+/**
+ * Keyed by `ToolName`, so a tool registered with no description here **fails to
+ * compile**, and a description for a tool that no longer exists fails the same
+ * way. Previously both were caught — if at all — by a test reading this file
+ * with a regex.
+ */
+const DESCRIPTIONS: Record<ToolName, string> = {
   // ── Discovery ───────────────────────────────────────────────────────────
   list_available_gpus:
     "List GPUs currently offered by independent hosts on the Xcelsior marketplace, with VRAM, " +
@@ -445,3 +453,11 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     "reader can open. Use after search, with an id it returned — ids are not guessable and an " +
     "unknown one returns not_found rather than a nearby match. Read-only and free.",
 };
+
+/**
+ * Indexed loosely for the same reason `TOOL_SCOPES` is: `audit/context.ts`
+ * looks up whatever name arrived, and a missing entry must read as `undefined`
+ * rather than be a type error that invites a cast. The completeness guarantee
+ * lives on the declaration above.
+ */
+export const TOOL_DESCRIPTIONS: Record<string, string> = DESCRIPTIONS;
