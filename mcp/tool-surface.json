@@ -271,17 +271,17 @@
     },
     {
       "name": "create_volume",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "volumes:write"
       ],
-      "idempotency": "keyed",
-      "retry": "idempotent",
+      "idempotency": "none",
+      "retry": "none",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": true,
+        "idempotentHint": false,
         "openWorldHint": false
       },
       "input": {
@@ -945,18 +945,18 @@
     },
     {
       "name": "open_instance_access",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "instances:connect",
         "instances:read"
       ],
-      "idempotency": "keyed",
-      "retry": "idempotent",
+      "idempotency": "none",
+      "retry": "none",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": true,
+        "idempotentHint": false,
         "openWorldHint": false
       },
       "input": {
@@ -1099,17 +1099,17 @@
     },
     {
       "name": "run_pipeline",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "instances:write"
       ],
-      "idempotency": "keyed",
-      "retry": "idempotent",
+      "idempotency": "none",
+      "retry": "none",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": true,
+        "idempotentHint": false,
         "openWorldHint": false
       },
       "input": {
@@ -1157,18 +1157,18 @@
     },
     {
       "name": "run_training_job",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "billing:read",
         "instances:write"
       ],
-      "idempotency": "keyed",
-      "retry": "idempotent",
+      "idempotency": "none",
+      "retry": "none",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": true,
+        "idempotentHint": false,
         "openWorldHint": false
       },
       "input": {
@@ -1229,19 +1229,19 @@
     },
     {
       "name": "schedule_under_budget",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "gpu:read",
         "instances:write",
         "marketplace:read"
       ],
-      "idempotency": "keyed",
-      "retry": "idempotent",
+      "idempotency": "none",
+      "retry": "none",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": true,
+        "idempotentHint": false,
         "openWorldHint": false
       },
       "input": {
@@ -1431,17 +1431,17 @@
     },
     {
       "name": "snapshot_volume",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "volumes:write"
       ],
-      "idempotency": "keyed",
-      "retry": "idempotent",
+      "idempotency": "none",
+      "retry": "none",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": true,
+        "idempotentHint": false,
         "openWorldHint": false
       },
       "input": {

@@ -220,7 +220,6 @@ export function registerWorkflowTools(
           .max(20)
           .describe("Stages in the order they must run. Each one's on_failure is fixed at approval."),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ name, stages }) => {
       const denied = scopeDenied("run_pipeline", user);
