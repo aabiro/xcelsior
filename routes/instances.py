@@ -233,7 +233,7 @@ def _count_active_instances(customer_id: str) -> int:
 
         with _get_pg_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT COUNT(*) FROM jobs " "WHERE payload->>'owner' = %s AND status = ANY(%s)",
+                "SELECT COUNT(*) FROM jobs WHERE payload->>'owner' = %s AND status = ANY(%s)",
                 (customer_id, list(_ACTIVE_STATUSES)),
             )
             row = cur.fetchone()
@@ -489,9 +489,7 @@ def _wallet_preflight(
         raise HTTPException(402, detail="Wallet suspended — please add funds to resume service")
 
     in_grace = float(wallet.get("grace_until", 0) or 0) >= time.time()
-    available = float(
-        wallet.get("available_cad", wallet.get("balance_cad", 0)) or 0
-    )
+    available = float(wallet.get("available_cad", wallet.get("balance_cad", 0)) or 0)
 
     if pricing_mode == "spot":
         from spot.feature import spot_global_enabled
@@ -540,9 +538,7 @@ def _wallet_preflight(
         # Grace period is the only soft-pass exception (legacy underfunded).
         if in_grace:
             return None
-        raise HTTPException(
-            402, detail="Unable to reserve wallet funds for launch"
-        ) from exc
+        raise HTTPException(402, detail="Unable to reserve wallet funds for launch") from exc
 
     if not result.get("held"):
         if in_grace and result.get("reason") == "insufficient_available":
@@ -925,9 +921,7 @@ def api_submit_instance(j: JobIn, request: Request):
                 try:
                     from billing import get_billing_engine
 
-                    get_billing_engine().release_wallet_hold(
-                        hold_id, reason="launch_submit_failed"
-                    )
+                    get_billing_engine().release_wallet_hold(hold_id, reason="launch_submit_failed")
                 except Exception:
                     pass
             raise
@@ -1023,10 +1017,9 @@ def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
             host = enrich_host_for_api(host)
         except Exception:
             pass
-    actual_gpu = (
-        (j.get("host_gpu_model") or "").strip()
-        or (host.get("gpu_model", "") if host else "").strip()
-    )
+    actual_gpu = (j.get("host_gpu_model") or "").strip() or (
+        host.get("gpu_model", "") if host else ""
+    ).strip()
     if not actual_gpu and hid:
         try:
             from host_metadata import infer_gpu_from_host_id
@@ -1042,7 +1035,9 @@ def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
     elif j.get("status") == "queued":
         tier_label = (j.get("tier") or "standard").capitalize()
         req_gpu = (j.get("gpu_model") or "").strip()
-        j["gpu_display"] = f"{req_gpu} ({tier_label})" if req_gpu else f"{tier_label} tier · any GPU"
+        j["gpu_display"] = (
+            f"{req_gpu} ({tier_label})" if req_gpu else f"{tier_label} tier · any GPU"
+        )
 
     # Host + VRAM visible as soon as a host is assigned (not only when running)
     if hid and host:
@@ -1099,7 +1094,12 @@ def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
     pub_port = j.get("public_ssh_port")
     if pub_port:
         j["ssh_port"] = pub_port
-    elif j.get("interactive") and j.get("status") in ("running", "starting", "stopped", "restarting"):
+    elif j.get("interactive") and j.get("status") in (
+        "running",
+        "starting",
+        "stopped",
+        "restarting",
+    ):
         computed = _compute_public_ssh_port(str(j.get("job_id") or ""))
         if computed:
             j.setdefault("ssh_port", computed)
@@ -1411,7 +1411,7 @@ def api_update_instance(job_id: str, update: StatusUpdate, request: Request):
                 raise HTTPException(
                     status_code=400,
                     detail=(
-                        f"ssh_port {update.ssh_port} outside reserved gateway " "range 10000-65000"
+                        f"ssh_port {update.ssh_port} outside reserved gateway range 10000-65000"
                     ),
                 )
             # DEFENSE-IN-DEPTH: persist under `public_ssh_port` — NOT
@@ -1515,7 +1515,9 @@ def api_cancel_instance(job_id: str, request: Request):
     active_attempt_id = (
         active_attempt["active_attempt_id"]
         if isinstance(active_attempt, dict)
-        else active_attempt[0] if active_attempt else None
+        else active_attempt[0]
+        if active_attempt
+        else None
     )
     if active_attempt_id is not None:
         from control_plane.lifecycle import request_fenced_stop_remove
@@ -1523,9 +1525,7 @@ def api_cancel_instance(job_id: str, request: Request):
         fenced = request_fenced_stop_remove(
             job_id=job_id,
             intent="cancel",
-            created_by=str(
-                user.get("customer_id") or user.get("user_id") or "user_cancel"
-            ),
+            created_by=str(user.get("customer_id") or user.get("user_id") or "user_cancel"),
             container_name=job.get("container_name") or f"xcl-{job_id}",
             reason_tag="user_cancelled",
         )
@@ -1987,10 +1987,15 @@ def api_terminate_instance(job_id: str, request: Request):
     result = be.terminate_instance(job_id)
     if not result.get("terminated"):
         detail = result.get("reason", "terminate failed")
-        code = 409 if detail in (
-            "fenced_terminate_requires_controller",
-            "no_active_fenced_authority",
-        ) else 400
+        code = (
+            409
+            if detail
+            in (
+                "fenced_terminate_requires_controller",
+                "no_active_fenced_authority",
+            )
+            else 400
+        )
         raise HTTPException(status_code=code, detail=detail)
 
     _broadcast_instance_lifecycle_sse(
@@ -2019,12 +2024,7 @@ def emit_lifecycle_log(
 
     host_id = job.get("host_id") or "—"
     tier = job.get("tier") or "standard"
-    gpu = (
-        job.get("host_gpu_model")
-        or job.get("gpu_model")
-        or job.get("gpu_type")
-        or ""
-    )
+    gpu = job.get("host_gpu_model") or job.get("gpu_model") or job.get("gpu_type") or ""
     if not gpu and host_id and host_id != "—":
         try:
             from host_metadata import infer_gpu_from_host_id
@@ -2556,8 +2556,7 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
                 from host_metadata import enrich_host_for_api
 
                 _host_map_cache = {
-                    h["host_id"]: enrich_host_for_api(h)
-                    for h in list_hosts(active_only=False)
+                    h["host_id"]: enrich_host_for_api(h) for h in list_hosts(active_only=False)
                 }
             except Exception:
                 _host_map_cache = {h["host_id"]: h for h in list_hosts(active_only=False)}
@@ -3330,8 +3329,7 @@ def api_user_image_complete(image_id: str, body: _UserImageCompleteIn, request: 
     pool = _user_images_pool()
     with pool.connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT owner_id, status, host_id FROM user_images "
-            "WHERE image_id=%s AND deleted_at=0",
+            "SELECT owner_id, status, host_id FROM user_images WHERE image_id=%s AND deleted_at=0",
             (image_id,),
         )
         row = cur.fetchone()
@@ -3844,3 +3842,127 @@ def api_internal_route(slug: str, port: int, request: Request):
     )
     resp.headers["X-Upstream"] = upstream
     return resp
+
+
+# ── P7: launch N instances from one snapshot ──────────────────────────
+
+
+class _SweepIn(BaseModel):
+    image_id: str = Field(min_length=1, max_length=64)
+    count: int = Field(ge=1, le=64)
+    name: str = Field(default="sweep", min_length=1, max_length=96)
+    vram_needed_gb: float = Field(default=0, ge=0)
+    num_gpus: int = Field(default=1, ge=1, le=8)
+    gpu_model: str | None = None
+    command: str | None = None
+    interactive: bool = True
+
+
+@router.post("/api/v1/image-sweeps", tags=["Instances"])
+def api_create_image_sweep(body: _SweepIn, request: Request):
+    """Launch N instances from one snapshot, recorded as one sweep.
+
+    Gate P7. The record is the feature: N job ids handed back from N calls
+    leaves "these came from one snapshot" as an intention in the caller, with
+    partial failure invisible and nothing for the fingerprint comparison to be
+    compared across.
+
+    **No host pin.** Each member goes through the ordinary queue and the
+    scheduler places it — which is what a sweep wants anyway, since members
+    spread across hosts establish more than members stacked on one. It also
+    means this route never touches the direct-assignment branch of
+    `api_submit_instance`, which is where that handler's complexity lives.
+
+    **Every member is funded before it is submitted.** A sweep is N times the
+    spend of one launch, so `_wallet_preflight` runs per member and a member
+    that cannot be funded is recorded `failed` rather than launched — the wallet
+    check is not something a bulk path gets to skip. The hold is linked to the
+    job exactly as the single-instance path does it, so a sweep member's money
+    is accounted for the same way.
+
+    **A launch failure does not abort the sweep.** It is recorded against that
+    member with its reason, because "3 of 5 launched, and here are the two that
+    did not" is the answer an operator needs, and aborting would strand the
+    three that started.
+    """
+    from control_plane.db import control_plane_transaction
+    from control_plane.image_sweeps import SweepRefused, create_sweep
+
+    user = _require_auth(request)
+    _require_scope(user, "instances:write")
+    _require_team_instance_write(user)
+    customer_id = _user_image_scope_owner_id(user)
+
+    def _launch_one(image_digest: str, index: int) -> dict:
+        """Fund, submit, link. Raises on failure; the sweep records the reason."""
+        from billing import get_billing_engine
+
+        hold_id = _wallet_preflight(
+            customer_id,
+            gpu_model=body.gpu_model,
+            num_gpus=body.num_gpus,
+            idempotency_key=f"sweep:{image_digest}:{index}",
+        )
+        try:
+            job = submit_job(
+                f"{body.name}-{index}",
+                float(body.vram_needed_gb),
+                0,
+                num_gpus=body.num_gpus,
+                gpu_model=body.gpu_model,
+                # The digest, never the tag. This is the whole reason the sweep
+                # pins one: `image_ref` is mutable and could move between the
+                # first member and the last.
+                image=image_digest,
+                interactive=body.interactive,
+                command=body.command,
+                owner=customer_id,
+            )
+        except Exception:
+            if hold_id:
+                try:
+                    get_billing_engine().release_wallet_hold(hold_id, reason="sweep_submit_failed")
+                except Exception:
+                    log.warning("sweep: could not release hold %s", hold_id[:8])
+            raise
+        if hold_id:
+            try:
+                get_billing_engine().link_wallet_hold_to_job(hold_id, job["job_id"])
+            except Exception:
+                log.warning("sweep: could not link hold %s", hold_id[:8])
+        return {"job_id": job["job_id"], "host_id": job.get("host_id") or ""}
+
+    try:
+        with control_plane_transaction() as conn:
+            sweep = create_sweep(
+                conn,
+                tenant_id=str(customer_id),
+                owner_id=str(customer_id),
+                image_id=body.image_id,
+                count=body.count,
+                launch=_launch_one,
+            )
+    except SweepRefused as exc:
+        status = 404 if exc.code == "image_not_found" else 422
+        raise HTTPException(status, f"{exc.code}: {exc.detail}") from exc
+
+    return {"ok": True, "sweep": sweep.as_dict()}
+
+
+@router.get("/api/v1/image-sweeps/{sweep_id}", tags=["Instances"])
+def api_get_image_sweep(sweep_id: str, request: Request):
+    """The sweep, its members, and whether their environments agree."""
+    from control_plane.db import control_plane_transaction
+    from control_plane.image_sweeps import compare_fingerprints, read_sweep
+
+    user = _require_auth(request)
+    _require_scope(user, "instances:read")
+    customer_id = str(_user_image_scope_owner_id(user))
+
+    with control_plane_transaction() as conn:
+        sweep = read_sweep(conn, sweep_id, tenant_id=customer_id)
+        if not sweep:
+            raise HTTPException(404, "no such sweep")
+        verification = compare_fingerprints(conn, sweep_id, tenant_id=customer_id)
+
+    return {"ok": True, "sweep": sweep.as_dict(), "verification": verification}

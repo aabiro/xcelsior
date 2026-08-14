@@ -679,6 +679,10 @@
     "class": "internal",
     "notes": "control-plane telemetry for a host; operator diagnostics"
   },
+  "GET /api/v1/image-sweeps/{sweep_id}": {
+    "class": "gap",
+    "notes": "the sweep record plus whether its members' environments agree. Pairs with the creation route; an agent that launches a sweep needs to know which members came up and whether they are actually identical"
+  },
   "GET /api/v1/instances/{job_id}": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -1678,6 +1682,10 @@
   "POST /api/v1/hosts/{host_id}/undrain": {
     "class": "covered",
     "notes": "MCP server calls this path"
+  },
+  "POST /api/v1/image-sweeps": {
+    "class": "gap",
+    "notes": "launch N instances from one snapshot as a recorded sweep. A real agent journey with no tool yet \u2014 'give me eight identical nodes from this image' is exactly the token-expensive thing an agent otherwise does by rebuilding CUDA state per node in prose"
   },
   "POST /api/v1/image-sweeps/{sweep_id}/members/{member_index}/fingerprint": {
     "class": "internal",

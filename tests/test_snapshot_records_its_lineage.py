@@ -143,25 +143,65 @@ def test_the_listing_returns_the_lineage_it_records():
 # ── What this does not claim ──────────────────────────────────────────
 
 
-def test_the_sweep_half_of_the_clause_is_still_absent():
-    """Asserted so the half-met clause cannot quietly read as met.
+def test_the_sweep_exists_and_pins_a_digest():
+    """The ratchet that stood here has fired, and this is what replaces it.
 
-    Gate P7 has two halves. This file closes lineage. If a sweep ships, this
-    test fails and whoever ships it updates the gate — which is the point: the
-    reminder lives next to the work rather than in someone's memory.
+    It asserted the sweep was *still absent* so that whoever shipped one was
+    told to update the gate rather than leaving a half-met clause reading as
+    whole. It went red the moment the route existed — that is the ratchet
+    working — and deleting it would be the failure mode the plan names. So it
+    is replaced by the assertion it was holding a place for.
+
+    What is asserted is the property the clause turns on: a sweep launches its
+    members against a **digest**, never the mutable tag. Everything else about
+    the sweep is covered by `tests/test_a_sweep_is_a_record.py`; this is the
+    one fact that connects the sweep back to the snapshot's lineage.
     """
     import pathlib
 
-    routes = pathlib.Path("routes")
-    sweep_routes = [
-        f"{path.name}:{num}"
-        for path in routes.glob("*.py")
-        for num, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
-        if re.search(r'@router\.\w+\("[^"]*sweep', line)
-    ]
-    assert not sweep_routes, (
-        f"a sweep endpoint now exists ({sweep_routes}) — Gate P7's other half "
-        "may now be assertable. Update the gate rather than deleting this test."
+    routes = pathlib.Path("routes/instances.py").read_text(encoding="utf-8")
+    assert '@router.post("/api/v1/image-sweeps"' in routes, (
+        "the sweep creation route is gone; if it moved, point this at it"
+    )
+
+    start = routes.index("def api_create_image_sweep(")
+    body = routes[start : routes.index("\n@router.", start + 1)]
+    assert "image=image_digest" in body, (
+        "the sweep no longer launches members against the pinned digest. A tag "
+        "can be re-pushed between the first member and the last, so 'N nodes "
+        "from one snapshot' would be unprovable — which is the whole reason "
+        "migration 112 records a digest at all."
+    )
+    # `image=image_ref`, not the bare word. The route's own docstring explains
+    # why the tag is unusable, so a substring check matches the explanation
+    # rather than a use — the third time that shape has caught me today, and
+    # the reason the assertion names the assignment.
+    assert "image=image_ref" not in body, (
+        "the sweep launches members from the mutable tag; a tag can be "
+        "re-pushed between the first member and the last"
+    )
+
+
+def test_the_sweep_funds_every_member_before_submitting_it():
+    """A sweep is N times the spend. The wallet check is not a bulk-path exemption.
+
+    Skipping it would let one call launch 64 instances on a wallet that could
+    fund one — the single-instance path's fund gate exists for a reason and a
+    bulk path does not get to be the exception.
+    """
+    import pathlib
+
+    routes = pathlib.Path("routes/instances.py").read_text(encoding="utf-8")
+    start = routes.index("def api_create_image_sweep(")
+    body = routes[start : routes.index("\n@router.", start + 1)]
+    assert "_wallet_preflight(" in body, "the sweep no longer funds members before submitting them"
+    assert "link_wallet_hold_to_job" in body, (
+        "the sweep no longer links each member's hold to its job, so the money "
+        "is held and never attributed"
+    )
+    assert "release_wallet_hold" in body, (
+        "a member whose submit fails no longer releases its hold — the wallet "
+        "would keep money reserved against a job that does not exist"
     )
 
 
