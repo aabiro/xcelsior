@@ -844,6 +844,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/image-sweeps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Api Create Image Sweep
+         * @description Launch N instances from one snapshot, recorded as one sweep.
+         *
+         *     Gate P7. The record is the feature: N job ids handed back from N calls
+         *     leaves "these came from one snapshot" as an intention in the caller, with
+         *     partial failure invisible and nothing for the fingerprint comparison to be
+         *     compared across.
+         *
+         *     **No host pin.** Each member goes through the ordinary queue and the
+         *     scheduler places it — which is what a sweep wants anyway, since members
+         *     spread across hosts establish more than members stacked on one. It also
+         *     means this route never touches the direct-assignment branch of
+         *     `api_submit_instance`, which is where that handler's complexity lives.
+         *
+         *     **Every member is funded before it is submitted.** A sweep is N times the
+         *     spend of one launch, so `_wallet_preflight` runs per member and a member
+         *     that cannot be funded is recorded `failed` rather than launched — the wallet
+         *     check is not something a bulk path gets to skip. The hold is linked to the
+         *     job exactly as the single-instance path does it, so a sweep member's money
+         *     is accounted for the same way.
+         *
+         *     **A launch failure does not abort the sweep.** It is recorded against that
+         *     member with its reason, because "3 of 5 launched, and here are the two that
+         *     did not" is the answer an operator needs, and aborting would strand the
+         *     three that started.
+         */
+        post: operations["api_create_image_sweep_api_v1_image_sweeps_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/image-sweeps/{sweep_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api Get Image Sweep
+         * @description The sweep, its members, and whether their environments agree.
+         */
+        get: operations["api_get_image_sweep_api_v1_image_sweeps__sweep_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/promotions/{promotion_id}/manifest": {
         parameters: {
             query?: never;
@@ -3215,6 +3278,37 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** _SweepIn */
+        _SweepIn: {
+            /** Image Id */
+            image_id: string;
+            /** Count */
+            count: number;
+            /**
+             * Name
+             * @default sweep
+             */
+            name: string;
+            /**
+             * Vram Needed Gb
+             * @default 0
+             */
+            vram_needed_gb: number;
+            /**
+             * Num Gpus
+             * @default 1
+             */
+            num_gpus: number;
+            /** Gpu Model */
+            gpu_model?: string | null;
+            /** Command */
+            command?: string | null;
+            /**
+             * Interactive
+             * @default true
+             */
+            interactive: boolean;
+        };
         /** _UserImageCompleteIn */
         _UserImageCompleteIn: {
             /** Status */
@@ -4394,6 +4488,70 @@ export interface operations {
             header?: never;
             path: {
                 plan_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_create_image_sweep_api_v1_image_sweeps_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["_SweepIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_get_image_sweep_api_v1_image_sweeps__sweep_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sweep_id: string;
             };
             cookie?: never;
         };

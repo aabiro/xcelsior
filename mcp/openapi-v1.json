@@ -1657,6 +1657,87 @@
         }
       }
     },
+    "/api/v1/image-sweeps": {
+      "post": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Api Create Image Sweep",
+        "description": "Launch N instances from one snapshot, recorded as one sweep.\n\nGate P7. The record is the feature: N job ids handed back from N calls\nleaves \"these came from one snapshot\" as an intention in the caller, with\npartial failure invisible and nothing for the fingerprint comparison to be\ncompared across.\n\n**No host pin.** Each member goes through the ordinary queue and the\nscheduler places it \u2014 which is what a sweep wants anyway, since members\nspread across hosts establish more than members stacked on one. It also\nmeans this route never touches the direct-assignment branch of\n`api_submit_instance`, which is where that handler's complexity lives.\n\n**Every member is funded before it is submitted.** A sweep is N times the\nspend of one launch, so `_wallet_preflight` runs per member and a member\nthat cannot be funded is recorded `failed` rather than launched \u2014 the wallet\ncheck is not something a bulk path gets to skip. The hold is linked to the\njob exactly as the single-instance path does it, so a sweep member's money\nis accounted for the same way.\n\n**A launch failure does not abort the sweep.** It is recorded against that\nmember with its reason, because \"3 of 5 launched, and here are the two that\ndid not\" is the answer an operator needs, and aborting would strand the\nthree that started.",
+        "operationId": "api_create_image_sweep_api_v1_image_sweeps_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/_SweepIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/image-sweeps/{sweep_id}": {
+      "get": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Api Get Image Sweep",
+        "description": "The sweep, its members, and whether their environments agree.",
+        "operationId": "api_get_image_sweep_api_v1_image_sweeps__sweep_id__get",
+        "parameters": [
+          {
+            "name": "sweep_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sweep Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/promotions/{promotion_id}/manifest": {
       "get": {
         "tags": [
@@ -6977,6 +7058,75 @@
           "manifest"
         ],
         "title": "_SweepFingerprintIn"
+      },
+      "_SweepIn": {
+        "properties": {
+          "image_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Image Id"
+          },
+          "count": {
+            "type": "integer",
+            "maximum": 64.0,
+            "minimum": 1.0,
+            "title": "Count"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 96,
+            "minLength": 1,
+            "title": "Name",
+            "default": "sweep"
+          },
+          "vram_needed_gb": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Vram Needed Gb",
+            "default": 0
+          },
+          "num_gpus": {
+            "type": "integer",
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "Num Gpus",
+            "default": 1
+          },
+          "gpu_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Model"
+          },
+          "command": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Command"
+          },
+          "interactive": {
+            "type": "boolean",
+            "title": "Interactive",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "image_id",
+          "count"
+        ],
+        "title": "_SweepIn"
       },
       "_UserImageCompleteIn": {
         "properties": {
