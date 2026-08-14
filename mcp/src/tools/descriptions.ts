@@ -117,13 +117,15 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "for the instance to reach running, and returns connection details plus a log tail. Use when " +
     "the user wants a repo trained on a GPU in one step rather than orchestrating create + poll " +
     "themselves. Spends money exactly as create_instance does — the same plan preparation and " +
-    "approval apply — and blocks for up to several minutes while the instance starts.",
+    "approval apply — and blocks for up to several minutes while the instance starts." +
+    "Not idempotent: no idempotency key is sent, so calling it again after a timeout launches a second instance and bills for both. If a call seems to have failed, check list_instances before retrying.",
 
   schedule_under_budget:
     "Find available capacity at or below a maximum CAD hourly rate and, optionally, launch it. " +
     "Use when price is the binding constraint and the user has not picked a specific host. " +
     "Searching is read-only and free; launching spends money through the same plan-and-approval " +
-    "path as create_instance, so nothing is allocated without it.",
+    "path as create_instance, so nothing is allocated without it." +
+    "Not idempotent: no idempotency key is sent, so a retry launches a second billed instance. Check list_instances before calling again.",
 
   // ── Access ──────────────────────────────────────────────────────────────
   register_ssh_key:
@@ -147,7 +149,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "it never launches, cancels or reconfigures anything, and it does not change what the job " +
     "costs — the instance goes on billing at its hourly rate whether or not anyone connects. " +
     "SSH needs a key the account has already registered; if the connection is refused, " +
-    "register_ssh_key is the fix.",
+    "register_ssh_key is the fix." +
+    "Not idempotent: every call mints a new single-use ticket and does not return the previous one. Request it once and use it.",
 
   cancel_serverless_job:
     "Cancel an inference job that is still running on a serverless endpoint. Use when the user " +
@@ -179,7 +182,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "Create a persistent volume that outlives any instance. Use when work must survive a " +
     "relaunch — checkpoints, datasets, model weights — because an instance's own disk is " +
     "destroyed with it. Creates storage that bills per GB-month from the moment it exists, " +
-    "attached or not, so size it for what is needed rather than rounding up.",
+    "attached or not, so size it for what is needed rather than rounding up." +
+    "Not idempotent: calling it twice creates two volumes, both billed per GB-month. Check list_volumes before retrying.",
 
   attach_volume:
     "Attach a volume to a running instance at a mount path. Use after launching, so the job " +
@@ -209,7 +213,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     + "that choice is fixed when the graph is approved. The pipeline cannot spend more than the "
     + "quoted total: a stage that would exceed it never starts. **Returns as soon as the pipeline "
     + "is quoted, before it has run or even been approved** — say it is awaiting approval, and "
-    + "check get_pipeline_status before reporting any stage as done.",
+    + "check get_pipeline_status before reporting any stage as done." +
+    "Not idempotent: each call creates another plan awaiting approval, so retrying a call that appeared to fail leaves two plans for the same work.",
   get_pipeline_status:
     "Reports which pipeline stage is running, which finished, and which were skipped and why. "
     + "Use when a pipeline was started and the user asks how far along it is, or before claiming "
@@ -233,7 +238,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "Creates a point-in-time snapshot of a volume, so its current contents can be restored " +
     "later. Use before anything destructive — a delete, a risky job, a version bump — and when " +
     "the user wants a checkpoint they can return to. The snapshot is new stored data and bills " +
-    "per GB-month like the volume it came from.",
+    "per GB-month like the volume it came from." +
+    "Not idempotent: each call creates another snapshot and snapshots are billed for storage. List the volume's snapshots before retrying.",
 
   get_artifact_expiry:
     "Show when a job's artifacts will be deleted: each file with its creation time and the date " +
