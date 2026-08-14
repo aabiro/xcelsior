@@ -33,7 +33,18 @@ export interface ScopeRequirement {
   anyOf?: McpScope[];
 }
 
-export const TOOL_SCOPES: Record<string, ScopeRequirement> = {
+/**
+ * The tool registry. This object's **key set is the source of truth** for which
+ * tools exist, and `ToolName` below is what every other per-tool table is keyed
+ * by — policy, annotations, descriptions. Adding an entry here and nowhere else
+ * is a compile error rather than a drift a test has to catch.
+ *
+ * Declared as a `const` with `satisfies` rather than annotated directly: an
+ * annotation of `Record<string, ScopeRequirement>` would widen the key type to
+ * `string` and `ToolName` would become useless, which is the failure mode that
+ * makes an inversion like this quietly do nothing.
+ */
+const TOOL_SCOPE_REGISTRY = {
   list_available_gpus: { allOf: ["gpu:read"] },
   get_spot_prices: { allOf: ["marketplace:read"] },
   get_pricing_reference: { allOf: ["gpu:read"] },
@@ -123,7 +134,28 @@ export const TOOL_SCOPES: Record<string, ScopeRequirement> = {
   // security gain over content anyone can already load in a browser.
   search: { anyOf: ["gpu:read", "marketplace:read", "instances:read", "inference:read", "billing:read"] },
   fetch: { anyOf: ["gpu:read", "marketplace:read", "instances:read", "inference:read", "billing:read"] },
-};
+} satisfies Record<string, ScopeRequirement>;
+
+/**
+ * Every registered tool name, as a union type.
+ *
+ * This is what makes the other tables complete by construction rather than by
+ * inspection. `Record<ToolName, …>` in `contracts.ts` and `descriptions.ts`
+ * rejects both a missing tool and one that does not exist.
+ */
+export type ToolName = keyof typeof TOOL_SCOPE_REGISTRY;
+
+/**
+ * Scope requirements, indexed loosely on purpose.
+ *
+ * The enforcement call sites look up whatever name arrived on the wire, and an
+ * unregistered name **must** read as `undefined` so `satisfiesScope` denies it.
+ * Narrowing this export to `Record<ToolName, …>` would make that lookup a type
+ * error and invite a cast, which is how a deny-by-default becomes an assertion
+ * that the name is valid. Completeness is enforced where the tables are
+ * *declared*; lookup stays permissive so an unknown tool is denied, not trusted.
+ */
+export const TOOL_SCOPES: Record<string, ScopeRequirement> = TOOL_SCOPE_REGISTRY;
 
 /**
  * Whether a granted scope set satisfies one required scope.

@@ -14,7 +14,7 @@
  * not make. Filtering happens at registration, not at call time, because
  * `tools/list` is what gets snapshotted.
  */
-import { TOOL_CONTRACTS } from "./contracts.js";
+import { TOOL_CONTRACTS, COMPANY_KNOWLEDGE_TOOL_NAMES } from "./contracts.js";
 
 export type ToolProfile = "customer" | "operator";
 
@@ -59,8 +59,12 @@ export function toolIsVisible(
  * when the deployment opts in. Anything describing the surface — the snapshot,
  * the advertised scopes, the E2E's expected listing — has to account for that,
  * or it describes a surface the server does not actually serve.
+ *
+ * Re-exported from the policy table rather than restated here. It was a
+ * second hand-written literal of the same fact, and two literals of one fact
+ * is the shape S1 removed everywhere else in this package.
  */
-export const COMPANY_KNOWLEDGE_TOOLS = new Set(["search", "fetch"]);
+export const COMPANY_KNOWLEDGE_TOOLS: ReadonlySet<string> = COMPANY_KNOWLEDGE_TOOL_NAMES;
 
 export interface ProfileOptions {
   /** Defaults to false, matching the deployment default. */
