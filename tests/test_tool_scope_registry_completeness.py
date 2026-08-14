@@ -31,15 +31,48 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCOPES_TS = ROOT / "mcp" / "src" / "auth" / "scopes.ts"
 
 
+CONTRACTS_TS = ROOT / "mcp" / "src" / "tools" / "contracts.ts"
+
+
 def _tool_scope_entries() -> dict[str, str]:
-    """tool name -> raw requirement text, from TOOL_SCOPES."""
+    """tool name -> raw requirement text, from the scope registry.
+
+    Split on the **declaration**, not on `export const TOOL_SCOPES`. Since the
+    S1 inversion the file holds both: `TOOL_SCOPE_REGISTRY` is the literal whose
+    key set types every other table, and `TOOL_SCOPES` is a one-line loose-typed
+    re-export of it at the bottom. Splitting on the export would take the tail
+    of the file and parse zero tools — which `test_the_discovery_actually_finds
+    _tools` exists to catch, and did.
+    """
     text = SCOPES_TS.read_text(encoding="utf-8")
-    block = text.split("export const TOOL_SCOPES", 1)[1]
-    block = block.split("\n};", 1)[0]
+    block = text.split("const TOOL_SCOPE_REGISTRY = {", 1)[1]
+    block = block.split("\n} satisfies", 1)[0]
     return {
         m.group(1): m.group(2)
         for m in re.finditer(r"^\s{2}(\w+):\s*(\{[^}]*\})", block, re.MULTILINE)
     }
+
+
+def _tool_policy() -> dict[str, str]:
+    """tool name -> raw policy text, from `TOOL_POLICY` in contracts.ts.
+
+    Comments are stripped first. A tool named in the reasoning above an entry —
+    `drain_host` is named in `evict_host_workloads`'s note — would otherwise
+    read as an entry of its own, which is the match-a-mention defect this suite
+    has caught repeatedly.
+    """
+    text = CONTRACTS_TS.read_text(encoding="utf-8")
+    block = text.split("const TOOL_POLICY: Record<ToolName, ToolPolicy> = {", 1)[1]
+    block = block.split("\n};", 1)[0]
+    block = re.sub(r"//[^\n]*", "", block)
+    return {
+        m.group(1): m.group(2)
+        for m in re.finditer(r"^\s{2}(\w+):\s*\{([^}]*)\}", block, re.MULTILINE)
+    }
+
+
+def _tools_with_audience(audience: str) -> set[str]:
+    return {n for n, body in _tool_policy().items() if f'audience: "{audience}"' in body}
 
 
 def _declared_scopes() -> set[str]:
