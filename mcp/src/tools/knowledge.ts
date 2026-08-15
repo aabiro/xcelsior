@@ -52,10 +52,6 @@ const MAX_DOCUMENT_BYTES = 512 * 1024;
 
 let indexCache: { at: number; records: KnowledgeRecord[] } | null = null;
 
-export function resetKnowledgeCache(): void {
-  indexCache = null;
-}
-
 async function getText(url: string): Promise<string> {
   const response = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
   if (!response.ok) throw new Error(`${url} returned HTTP ${response.status}`);
