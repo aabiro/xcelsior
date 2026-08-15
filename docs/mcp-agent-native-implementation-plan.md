@@ -204,8 +204,10 @@ were failures of *evidence*, not of intent.
   the platform must accept) and `open_instance_access` (the way in once it
   does). Both are inside the default profile, so both counts move by two.*
 
-  *Restated on 2026-08-15: **`TOOL_SCOPES` holds 65 and `tool-surface.json`
-  publishes 56**. `create_instance_snapshot`, `list_user_images` and
+  *Restated on 2026-08-15: **`TOOL_SCOPES` holds 66 and `tool-surface.json`
+  publishes 57** — `list_pending_verifications` closes the SCA-pending exit, a
+  route that had diagnosed its own missing tool in its docstring and never got
+  one. The 65/56 step before it. `create_instance_snapshot`, `list_user_images` and
   `delete_user_image` close the journey the sweep needed — the sweep shipped
   requiring an `image_id` that no tool could produce or find, and its own input
   schema pointed at `list_user_images`, which did not exist. Closing a gap with

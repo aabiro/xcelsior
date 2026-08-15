@@ -159,7 +159,19 @@ def _registered_tool_names() -> set[str]:
 #: wanted. The delete exists because GT0's finding was entrances everywhere and
 #: exits missing, and an agent that can create images that cost storage should
 #: be able to stop paying for them.
-EXPECTED_TOOL_TOTAL = 65
+#: **66 with `list_pending_verifications`.** `top_up_wallet` can leave a charge
+#: stopped for a bank challenge — the money has not moved and the wallet was not
+#: credited — and nothing could report that afterwards. The route existed and
+#: said so itself: *"an agent had no way to tell the user 'one of your top-ups
+#: needs you'"*. It was built for that sentence and never given a tool, so the
+#: agent still had no way. A balance check cannot substitute, because an
+#: unconfirmed charge looks exactly like one never attempted.
+#:
+#: The **resume** route is deliberately not on the surface. It returns a
+#: `client_secret`, a bearer credential that completes a charge, and a tool
+#: response lands in a model's context and in audit records. The user finishes
+#: the challenge in a browser from the link they were already given.
+EXPECTED_TOOL_TOTAL = 66
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition
