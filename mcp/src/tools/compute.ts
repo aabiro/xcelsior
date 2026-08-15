@@ -308,6 +308,78 @@ export function registerComputeTools(
   );
 
   server.registerTool(
+    "list_ssh_keys",
+    {
+      // No arguments: the route resolves the account from the caller's own
+      // credential, so there is no way to ask for somebody else's keys.
+      inputSchema: z.object({}),
+    },
+    async () => {
+      const denied = scopeDenied("list_ssh_keys", user);
+      if (denied) return denied;
+      try {
+        // Fingerprints and names only — the response carries public keys, which
+        // are public by construction, and no private material can exist here.
+        const data = await client.get("/api/ssh/keys");
+        return jsonText(data);
+      } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
+
+  server.registerTool(
+    "delete_ssh_key",
+    {
+      inputSchema: z.object({
+        key_id: z.string().min(1).max(160),
+        confirm: z
+          .boolean()
+          .default(false)
+          .describe("false returns a preview of the key that would be removed"),
+      }),
+    },
+    async ({ key_id, confirm }) => {
+      const denied = scopeDenied("delete_ssh_key", user);
+      if (denied) return denied;
+      // Preview first, for the same reason `delete_volume` does: revocation
+      // reaches running instances, so someone working through that key is
+      // disconnected. A model that guessed an id gets one chance to notice.
+      if (!confirm) {
+        try {
+          const listing = (await client.get("/api/ssh/keys")) as Record<string, unknown>;
+          const keys = (listing.keys as Array<Record<string, unknown>>) ?? [];
+          const match = keys.find((k) => String(k.key_id ?? k.id) === key_id);
+          return jsonText({
+            ok: true,
+            preview: true,
+            confirm_required: true,
+            key: match ?? null,
+            message: match
+              ? `Would remove ${match.name ?? key_id} (${match.fingerprint ?? "no fingerprint"}). ` +
+                "Shell access is revoked on running instances too, disconnecting anyone " +
+                "using it. Call again with confirm:true."
+              : `No key ${key_id} is on this account — list_ssh_keys shows what is.`,
+          });
+        } catch (e) {
+          return jsonText({ error: formatApiError(e) });
+        }
+      }
+      try {
+        const data = await client.delete(`/api/ssh/keys/${encodeURIComponent(key_id)}`);
+        return jsonText({
+          ...(data as Record<string, unknown>),
+          note:
+            "Revoked, including on running instances. The user can restore access " +
+            "by registering the same public key again; nobody else can do that for them.",
+        });
+      } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
+
+  server.registerTool(
     "open_instance_access",
     {
       inputSchema: z.object({

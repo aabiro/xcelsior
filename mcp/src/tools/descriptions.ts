@@ -143,6 +143,24 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "interactive instances, so it takes effect without a relaunch. Registering a key that is " +
     "already on the account changes nothing and is safe to repeat.",
 
+  list_ssh_keys:
+    "Show which SSH public keys can currently open a shell on this account's instances, with " +
+    "their fingerprints and when each was added. Use when the user asks what has access, before " +
+    "adding a key so you can say whether it is already there, or when they suspect a key they no " +
+    "longer recognise. Read-only and free. Registering a key is the step that grants shell " +
+    "access, so this is how you show what that has amounted to. Returns the key_id that delete_ssh_key " +
+    "needs — ids are not guessable, so revoking starts here.",
+
+  delete_ssh_key:
+    "Remove an SSH public key, revoking its shell access — including on instances already " +
+    "running, which have the key withdrawn from them. Use when a key belongs to a laptop that is " +
+    "gone, a person who has left, or one the user does not recognise from list_ssh_keys. Call it " +
+    "with confirm:false first for a preview of which key would go. Recoverable only by the " +
+    "person holding the private half: re-registering the same public key restores access, and " +
+    "nobody else can do it for them. Free, and it changes nothing about billing — instances keep " +
+    "running and accruing their hourly cost; only the way in is closed. Anyone connected through " +
+    "that key is disconnected.",
+
   open_instance_access:
     "Get a way in to a running instance: either the SSH endpoint to connect to, or a " +
     "single-use ticket for the browser/websocket terminal. Use when the user wants a shell on " +

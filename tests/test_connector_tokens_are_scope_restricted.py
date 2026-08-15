@@ -235,7 +235,7 @@ def test_the_default_mode_is_enforce():
     )
 
 
-def test_the_two_tools_quick_connect_cannot_satisfy_are_the_expected_ones():
+def test_the_tools_quick_connect_cannot_satisfy_are_the_expected_ones():
     """The blast radius, pinned rather than described.
 
     If a third tool ever needs a scope Quick Connect withholds, enforcement
@@ -263,8 +263,26 @@ def test_the_two_tools_quick_connect_cannot_satisfy_are_the_expected_ones():
         if not satisfied:
             unsatisfiable.add(tool)
 
-    assert unsatisfiable == {"top_up_wallet", "configure_auto_topup"}, (
+    # The two billing writes this cutover was measured against, plus the two SSH
+    # key-management tools added 2026-08-15. That addition is the event this test
+    # was written to surface, and the answer was to accept it rather than widen
+    # the token: `GET /api/ssh/keys` says the split is deliberate — "Quick
+    # Connect holds `ssh:write` and not `ssh:read`, so it registers and does not
+    # enumerate" — because enumerating tells a connector which other machines and
+    # people hold shell access. `delete_ssh_key` requires read as well as write
+    # so it lands on the same side: revoking what you cannot list means acting on
+    # an id from elsewhere, on a call that disconnects live sessions.
+    #
+    # **A connector agent can register a key and cannot list or revoke one.**
+    # That is the cost, and it is written here so the next person meets it as a
+    # decision rather than as a refusal in production.
+    assert unsatisfiable == {
+        "top_up_wallet",
+        "configure_auto_topup",
+        "list_ssh_keys",
+        "delete_ssh_key",
+    }, (
         f"the set of published tools a Quick Connect token cannot use is "
-        f"{sorted(unsatisfiable)}, not the two billing writes this cutover was "
-        "measured against"
+        f"{sorted(unsatisfiable)}. Adding to it widens what a connector agent "
+        "cannot do — record why here, in the same commit."
     )
