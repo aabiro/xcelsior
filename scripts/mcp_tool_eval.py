@@ -365,7 +365,38 @@ def main() -> int:
         for case, note in failures:
             print(f"  {case.id}: {note}\n    why this case exists: {case.why}")
 
-    ok = rate >= args.threshold and abstention_rate >= args.abstention_threshold
+    # **How precise this number is not.** Two consecutive 3-sample runs against
+    # an unchanged surface scored 83/90 (0.9222) and 80/90 (0.8889) — one above
+    # the 0.90 threshold and one below it. That is not a bug in either run: at
+    # n=90 and p≈0.92 the binomial standard error is ≈0.029, so a 0.033 swing is
+    # about 1.2 SE and entirely expected.
+    #
+    # The consequence is that a single capture cannot distinguish a real
+    # regression from sampling noise unless the shift is larger than roughly
+    # 2 SE, and the threshold sits *inside* that band. `temperature: 0` would be
+    # the usual fix and is **not available** — the API rejects it on Opus 5 with
+    # "`temperature` is deprecated for this model" — so the only lever is n.
+    #
+    # Rather than quietly raising the default sample count, which multiplies the
+    # cost of every capture, the resolution is computed and reported so nobody
+    # reads a point estimate as exact. Raising `--samples` is a spending
+    # decision and belongs to whoever is paying.
+    standard_error = (rate * (1.0 - rate) / total) ** 0.5 if total else 0.0
+    resolution = 2 * standard_error
+
+    # `always_failed` is the part of this eval that noise cannot flip: a case
+    # that fails every sample is a real failure at any sample count. It is
+    # required to be empty as well as the rate clearing its threshold, so the
+    # gate keeps one signal that does not move with the draw.
+    ok = (
+        rate >= args.threshold
+        and abstention_rate >= args.abstention_threshold
+        and not [cid for cid, r in per_case.items() if not any(r)]
+    )
+    print(
+        f"\nResolution: +/-{resolution:.3f} at 2 SE (n={total}). A change smaller "
+        f"than that is not distinguishable from noise in one capture."
+    )
 
     if args.out:
         # `live-gates.yml` has always invoked this with `--out eval-baseline.json`
@@ -413,7 +444,15 @@ def main() -> int:
                     # The abstention cases are the ones where calling *any* tool
                     # is the failure, so the interesting rate is the inverse.
                     "abstention_rate": round(abstention_rate, 4),
+                    # Named for what it counts, which is **not** writes: it is
+                    # the complement of abstention, so a *read* tool called at a
+                    # greeting scores here too. The old name asserted a check
+                    # the computation never performed, and it was misread as an
+                    # unsafe write having occurred.
+                    "non_abstention_rate": round(1.0 - abstention_rate, 4),
                     "unsafe_write_rate": round(1.0 - abstention_rate, 4),
+                    "standard_error": round(standard_error, 4),
+                    "resolution_2se": round(resolution, 4),
                     "by_category": {
                         k: {"passed": sum(v), "total": len(v)}
                         for k, v in sorted(by_category.items())
