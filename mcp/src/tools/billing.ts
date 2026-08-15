@@ -276,6 +276,27 @@ export function registerBillingTools(
   );
 
   server.registerTool(
+    "get_auto_topup",
+    {
+      inputSchema: z.object({}),
+    },
+    async () => {
+      const denied = scopeDenied("get_auto_topup", user);
+      if (denied) return denied;
+      try {
+        // The read half. Until this existed the only way to learn the current
+        // settings was to POST a change and read `previous` out of the
+        // response — you had to write in order to read, on the one surface
+        // that authorises unattended charges.
+        const data = await client.get("/api/v2/billing/auto-topup");
+        return jsonText(data);
+      } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
+
+  server.registerTool(
     "list_pending_verifications",
     {
       // No arguments, same as list_payment_methods: the route resolves the

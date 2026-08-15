@@ -204,8 +204,17 @@ were failures of *evidence*, not of intent.
   the platform must accept) and `open_instance_access` (the way in once it
   does). Both are inside the default profile, so both counts move by two.*
 
-  *Restated on 2026-08-15: **`TOOL_SCOPES` holds 66 and `tool-surface.json`
-  publishes 57** — `list_pending_verifications` closes the SCA-pending exit, a
+  *Restated on 2026-08-15: **`TOOL_SCOPES` holds 67 and `tool-surface.json`
+  publishes 58**. `get_auto_topup` closes a read that required a write, and six
+  endpoints labelled `covered` turned out to have no tool calling them — the
+  real counts are 62 covered and 155 gap. **`covered` is a human judgement and
+  is not machine-verified.** Three attempts to check it mechanically each
+  produced wrong answers — one method-blind, one defeated by nested generics in
+  `client.get<...>(`, one blind to paths built in a lambda table — so the labels
+  were corrected by reading and no guard was shipped. A check known to cry wolf
+  is worse than none.*
+
+  *The 66/57 step* — `list_pending_verifications` closes the SCA-pending exit, a
   route that had diagnosed its own missing tool in its docstring and never got
   one. The 65/56 step before it. `create_instance_snapshot`, `list_user_images` and
   `delete_user_image` close the journey the sweep needed — the sweep shipped
