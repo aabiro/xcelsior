@@ -48,6 +48,10 @@ reflected here and version-bumped fails the build.
 
 ### Added
 
+- **PostHog MCP analytics.** The pinned `@posthog/mcp` beta captures standard
+  MCP lifecycle/tool metadata for HTTP and STDIO, groups stateless calls by the
+  authenticated principal, preserves the reviewed tool schemas, strips request
+  and response content before send, and flushes on graceful shutdown.
 - **Connector OAuth front door.** `WWW-Authenticate` now accompanies every 401,
   naming the protected-resource metadata, so a connector can discover how to
   authenticate. Client identification by CIMD or RFC 7591 dynamic registration,
