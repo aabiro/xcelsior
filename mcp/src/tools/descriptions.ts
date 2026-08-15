@@ -450,7 +450,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "that timed out without passing the same idempotency key — the charge may already have gone " +
     "through. If more than one saved card matches, this refuses and lists them rather than " +
     "guessing; ask which one. If the bank requires verification the card is NOT charged and a link " +
-    "is returned for the user to confirm in a browser. " +
+    "is returned for the user to confirm in a browser — list_pending_verifications shows later " +
+    "whether that was ever done, which a balance check cannot tell you. " +
     "The wallet is credited when the payment processor confirms, moments later — not when this " +
     "returns, so do not report a new balance you have not read.",
 
@@ -462,6 +463,16 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "and returns no card number and no secret.",
 
   // ── Company knowledge (optional; only registered when enabled) ──────────
+  list_pending_verifications:
+    "List top-ups that stopped because the cardholder's bank wants them to confirm — the money " +
+    "has not moved and the wallet was not credited. Use when a user asks whether a top-up went " +
+    "through, when a balance is lower than they expect after topping up, or when top_up_wallet " +
+    "returned a verification link earlier in the conversation and you need to know whether it " +
+    "was ever followed. A balance check cannot answer this: an unconfirmed charge looks " +
+    "identical to one that was never attempted. Read-only and free, and it returns no " +
+    "credential — completing the challenge happens in a browser, from the link the user was " +
+    "given, and nothing here can finish a payment on their behalf.",
+
   create_instance_snapshot:
     "Create a reusable image from a running instance's container, so the exact environment can be " +
     "launched again later or run across several machines at once. Use when the user wants to " +

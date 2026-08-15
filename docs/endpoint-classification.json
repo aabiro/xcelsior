@@ -740,8 +740,8 @@
     "notes": "configure_auto_topup calls this path"
   },
   "GET /api/v2/billing/pending-verification": {
-    "class": "gap",
-    "notes": "an agent should be able to say 'one of your top-ups needs you'; no tool reaches it yet. Carries no client_secret by design"
+    "class": "covered",
+    "notes": "list_pending_verifications. The exit for the SCA-pending state top_up_wallet can create."
   },
   "GET /api/v2/burst/status": {
     "class": "internal",

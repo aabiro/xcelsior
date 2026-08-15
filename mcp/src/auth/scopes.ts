@@ -126,6 +126,10 @@ const TOOL_SCOPE_REGISTRY = {
   list_invoices: { allOf: ["billing:read"] },
   list_payment_methods: { allOf: ["billing:read"] },
   top_up_wallet: { allOf: ["billing:write"] },
+  // Reading which charges stopped for a bank challenge. `billing:read`, not
+  // write: it moves nothing and returns no `client_secret`. The resume route
+  // that does return one is deliberately not on the tool surface.
+  list_pending_verifications: { allOf: ["billing:read"] },
   configure_auto_topup: { allOf: ["billing:write"] },
   // The snapshot half of P7, and the reason the sweep was unusable without it:
   // `create_image_sweep` needs an `image_id` and nothing could produce or find

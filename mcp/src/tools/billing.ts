@@ -274,4 +274,31 @@ export function registerBillingTools(
       }
     },
   );
+
+  server.registerTool(
+    "list_pending_verifications",
+    {
+      // No arguments, same as list_payment_methods: the route resolves the
+      // customer from the caller's credential.
+      inputSchema: z.object({}),
+    },
+    async () => {
+      const denied = scopeDenied("list_pending_verifications", user);
+      if (denied) return denied;
+      try {
+        // Deliberately the **list** route and not
+        // `pending-verification/{id}/resume`. That one returns a
+        // `client_secret` — a bearer credential that can complete a charge —
+        // and the route's own docstring is explicit that it is `billing:write`
+        // for that reason. A tool response goes into a model's context and into
+        // audit records; a payment-completing credential does not belong in
+        // either. The link the user follows in a browser is the resume path,
+        // and this tool exists to tell them a link is waiting.
+        const data = await client.get("/api/v2/billing/pending-verification");
+        return jsonText(data);
+      } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
 }
