@@ -23,9 +23,13 @@
           "type": "string",
           "optional": false
         },
+        "job_id": {
+          "type": "string",
+          "optional": true
+        },
         "instance_id": {
           "type": "string",
-          "optional": false
+          "optional": true
         },
         "mount_path": {
           "type": "string",

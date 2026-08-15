@@ -64,6 +64,24 @@ describe("tool descriptions", () => {
     }
   });
 
+  it("reads as prose, not as concatenated fragments", () => {
+    // Descriptions are built by joining string literals, and a fragment
+    // appended without a leading space silently produces "instance starts.Not
+    // idempotent:". Eight descriptions carried that at once, from one helper
+    // that dropped the space — invisible in the source, visible to every model
+    // that reads the surface.
+    const glued: string[] = [];
+    const doubled: string[] = [];
+    for (const [name, text] of Object.entries(TOOL_DESCRIPTIONS)) {
+      const g = text.match(/.{0,24}[a-z][.!?][A-Z].{0,24}/);
+      if (g) glued.push(`${name}: ...${g[0]}...`);
+      const d = text.match(/.{0,24}  .{0,24}/);
+      if (d) doubled.push(`${name}: ...${d[0]}...`);
+    }
+    expect(glued, "sentence boundary with no space between concatenated parts").toEqual([]);
+    expect(doubled, "double space from a fragment joined twice").toEqual([]);
+  });
+
   it("says that a non-idempotent tool must not be blindly retried", () => {
     for (const name of NAMES) {
       const contract = TOOL_CONTRACTS[name];
