@@ -1038,6 +1038,24 @@
       "hasOutputSchema": true
     },
     {
+      "name": "list_pending_verifications",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "billing:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {},
+      "hasOutputSchema": true
+    },
+    {
       "name": "list_serverless_endpoints",
       "version": "2.0.0",
       "tenantClass": "tenant",

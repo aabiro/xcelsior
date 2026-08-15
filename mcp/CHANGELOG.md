@@ -67,6 +67,22 @@ reflected here and version-bumped fails the build.
 
 ### Added
 
+- **`list_pending_verifications`** — the top-ups that stopped because a
+  cardholder's bank wants them confirmed. The money has not moved and the wallet
+  was not credited.
+
+  `top_up_wallet` can create this state and says so. Nothing could report it
+  afterwards, and a balance check cannot: **an unconfirmed charge looks
+  identical to one that was never attempted**, so an agent asked "did that go
+  through?" would read the old balance and call it settled. The route existed
+  and had named the gap itself — *"an agent had no way to tell the user 'one of
+  your top-ups needs you'"* — and was never given a tool.
+
+  The **resume** route is deliberately not exposed. It returns a
+  `client_secret`, a bearer credential that completes a charge; a tool response
+  lands in a model's context and in audit records. The cardholder finishes the
+  challenge in a browser from the link they already have.
+
 - **`create_instance_snapshot`, `list_user_images`, `delete_user_image`** — the
   snapshot half of the sweep journey. Capture a working environment from a
   running instance, find it again, and delete it when the storage is no longer

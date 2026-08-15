@@ -213,6 +213,7 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   estimate_job_cost: { readOnly: true, destructive: false, audience: "customer" },
   list_invoices: { readOnly: true, destructive: false, audience: "customer" },
   list_payment_methods: { readOnly: true, destructive: false, audience: "customer" },
+  list_pending_verifications: { readOnly: true, destructive: false, audience: "customer" },
   top_up_wallet: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
   configure_auto_topup: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
   // Company knowledge, off by default. Both index the published documentation
