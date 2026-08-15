@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { XcelsiorApiClient } from "../../src/client/api.js";
+import { installToolAudit } from "../../src/audit/context.js";
 import { registerAllTools } from "../../src/tools/index.js";
 import { registerDiscoveryTools } from "../../src/tools/discovery.js";
 import { registerBillingTools } from "../../src/tools/billing.js";
@@ -15,66 +16,75 @@ import { registerVolumeTools } from "../../src/tools/volumes.js";
 import { TOOL_CONTRACTS } from "../../src/tools/contracts.js";
 
 /**
- * The annotations a client actually receives must be the ones we decided on.
+ * What a client actually receives must be what the policy table decided.
  *
- * `tool-surface.json` is built in `describeToolSurface`, which reads
- * `contract.annotations` and **discards whatever `registerTool` was passed**.
- * So the manifest was correct by construction while the live server published
- * whatever each call site happened to type — and nothing compared the two.
+ * ## Measure the composition, not a part of it
  *
- * When this test was written, **38 of 60 tools reached the wire with no
- * annotations object at all**, including five of the six destructive ones.
- * Under the MCP defaults (`readOnlyHint` false, `destructiveHint` **true**,
- * `openWorldHint` **true**) that advertises every pure read — `get_instance`,
- * `get_wallet_balance`, `list_available_gpus` — as a destructive, open-world
- * call, which is the opposite of what the manifest promised a reviewer.
+ * This file first asserted against `registerAllTools` called with a bare
+ * recorder, and reported that **38 of 60 tools shipped with no annotations**.
+ * That was wrong, and wrong in an instructive way: `createMcpServer` calls
+ * `installToolAudit` *before* `registerAllTools`, and the audit wrapper sets
+ * `annotations: { ...contract.annotations }` on every registration. The
+ * contract has always won on every server that is actually built. Registering
+ * without the audit wrapper is not a production path — it is only reachable
+ * from a test, and the test was the only thing reaching it.
  *
- * The registry inversion made the policy table authoritative for the manifest.
- * This is what makes it authoritative for the runtime.
+ * So the composed order is what is exercised here. It is a guard that did not
+ * exist: nothing asserted that a server built the way production builds one
+ * carries the contract's annotations for every tool, and the property is worth
+ * pinning precisely because it depends on two components being wired in one
+ * order.
  */
 
 const HINTS = ["readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"] as const;
 
-function recordRegistrations(): Map<string, Record<string, unknown>> {
+/** Every scope any tool requires, so profile filtering hides nothing. */
+const ALL_SCOPES = [
+  ...new Set(Object.values(TOOL_CONTRACTS).flatMap((c) => [...c.requiredScopes])),
+];
+
+/** The production wiring: audit installed first, then tools registered. */
+function registerAsProductionDoes(): Map<string, Record<string, unknown>> {
   const recorded = new Map<string, Record<string, unknown>>();
   const recorder = {
     registerTool(name: string, config: Record<string, unknown>) {
       recorded.set(name, config);
       return undefined;
     },
-  };
-  registerAllTools(
-    recorder as unknown as McpServer,
-    {} as XcelsiorApiClient,
-    undefined,
-    { companyKnowledge: {} as never },
-  );
+  } as unknown as McpServer;
+  const user = { scopes: ALL_SCOPES } as never;
+  installToolAudit(recorder, {} as XcelsiorApiClient, user, "streamable_http", "operator");
+  registerAllTools(recorder, {} as XcelsiorApiClient, user, {
+    companyKnowledge: {} as never,
+  });
   return recorded;
 }
 
 describe("tool annotations reach the wire", () => {
   it("registers every tool in the contract registry", () => {
-    // Calibration. An empty recording agrees with everything.
-    const recorded = recordRegistrations();
+    // Calibration. An empty recording agrees with everything, and the first
+    // version of this file drew a conclusion from a recording that was real
+    // but taken from the wrong seam.
+    const recorded = registerAsProductionDoes();
     expect(recorded.size).toBe(Object.keys(TOOL_CONTRACTS).length);
     expect(recorded.size).toBeGreaterThan(40);
   });
 
   it("gives every registered tool an annotations object", () => {
-    const missing = [...recordRegistrations().entries()]
+    const missing = [...registerAsProductionDoes().entries()]
       .filter(([, config]) => !config.annotations)
       .map(([name]) => name)
       .sort();
     expect(
       missing,
-      "these tools reach the client with no annotations, so MCP's defaults " +
-        "apply: not read-only, destructive, open world",
+      "these tools would reach the client with no annotations, so MCP's " +
+        "defaults apply: not read-only, destructive, open world",
     ).toEqual([]);
   });
 
   it("publishes exactly the annotations the contract declares", () => {
     const drift: string[] = [];
-    for (const [name, config] of recordRegistrations()) {
+    for (const [name, config] of registerAsProductionDoes()) {
       const want = TOOL_CONTRACTS[name].annotations as Record<string, boolean>;
       const got = (config.annotations ?? {}) as Record<string, boolean>;
       for (const hint of HINTS) {
@@ -85,16 +95,14 @@ describe("tool annotations reach the wire", () => {
     }
     expect(
       drift,
-      "the running server advertises something other than the policy table. " +
-        "tool-surface.json is generated from the contract and would not show this.",
+      "the server would advertise something other than the policy table",
     ).toEqual([]);
   });
 
   it("marks every destructive tool destructive on the wire", () => {
-    // Named separately because this is the one a model acts on. It would be
-    // covered by the check above, but a failure there reads as a drift list;
-    // this one names the actual danger.
-    const recorded = recordRegistrations();
+    // Named separately because this is the one a model acts on: it decides
+    // whether a call needs confirmation.
+    const recorded = registerAsProductionDoes();
     const wrong = Object.entries(TOOL_CONTRACTS)
       .filter(([, c]) => c.annotations.destructiveHint)
       .filter(([name]) => {
@@ -107,7 +115,7 @@ describe("tool annotations reach the wire", () => {
   });
 
   it("marks every read-only tool read-only on the wire", () => {
-    const recorded = recordRegistrations();
+    const recorded = registerAsProductionDoes();
     const wrong = Object.entries(TOOL_CONTRACTS)
       .filter(([, c]) => c.annotations.readOnlyHint)
       .filter(([name]) => {
@@ -118,16 +126,18 @@ describe("tool annotations reach the wire", () => {
       .sort();
     expect(
       wrong,
-      "read-only tools that default to destructive for any spec-compliant client",
+      "read-only tools that would default to destructive for a spec-compliant client",
     ).toEqual([]);
   });
 
   it("has no call-site literal that contradicts the contract", () => {
-    // The wrapper makes a wrong literal harmless, which is not the same as
-    // making it fine: it records an author's belief about a tool that
-    // disagrees with the policy table, and the next reader believes the
-    // literal. Registrars are called **directly** here, bypassing the
-    // wrapper, so this sees what was actually typed.
+    // `assertAnnotationsMatchContract` throws on this — but only after
+    // `toolIsVisible` has returned early, so a contradicting literal on an
+    // **operator-only** tool is never validated while running the customer
+    // profile. It would throw on the operator deployment and nowhere else.
+    //
+    // Registrars are called directly here, with no audit wrapper, precisely to
+    // see the literals as typed rather than as overridden.
     const raw = new Map<string, Record<string, unknown>>();
     const recorder = {
       registerTool(name: string, config: Record<string, unknown>) {
@@ -153,7 +163,7 @@ describe("tool annotations reach the wire", () => {
     const contradictions: string[] = [];
     for (const [name, config] of raw) {
       const literal = config.annotations as Record<string, boolean> | undefined;
-      if (!literal) continue; // absent is the wrapper's job, asserted above
+      if (!literal) continue;
       const want = TOOL_CONTRACTS[name]?.annotations as Record<string, boolean>;
       if (!want) continue;
       for (const hint of HINTS) {
@@ -166,9 +176,7 @@ describe("tool annotations reach the wire", () => {
     }
     expect(
       contradictions,
-      "a registration hardcodes an annotation that disagrees with TOOL_POLICY. " +
-        "The wrapper overrides it, so nothing breaks — but one of the two is " +
-        "wrong and the literal is what the next reader will believe.",
+      "a registration hardcodes an annotation that disagrees with TOOL_POLICY",
     ).toEqual([]);
   });
 });

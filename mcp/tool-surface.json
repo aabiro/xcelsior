@@ -1229,7 +1229,7 @@
     },
     {
       "name": "schedule_under_budget",
-      "version": "2.1.0",
+      "version": "2.2.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "gpu:read",
@@ -1242,7 +1242,7 @@
         "readOnlyHint": false,
         "destructiveHint": false,
         "idempotentHint": false,
-        "openWorldHint": false
+        "openWorldHint": true
       },
       "input": {
         "max_hourly_cad": {

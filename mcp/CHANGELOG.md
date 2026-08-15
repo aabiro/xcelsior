@@ -15,7 +15,36 @@ reflected here and version-bumped fails the build.
 
 ### Breaking
 
-_None._
+- **Seven tools no longer claim that repeating a call is free.** `run_training_job`,
+  `schedule_under_budget`, `create_volume`, `snapshot_volume`, `run_pipeline` and
+  `open_instance_access` move to `idempotency: "none"` and
+  `idempotentHint: false` (**2.0.0 → 2.1.0**); `schedule_under_budget` also gains
+  `openWorldHint: true` (**→ 2.2.0**).
+
+  `idempotency` defaulted to `"keyed"` for anything not read-only, so 25 tools
+  advertised *"calling this again has no additional effect"* when only four sent
+  an idempotency key. `run_training_job` and `schedule_under_budget` both POST
+  `/instance` with no key, so a client that trusted the hint and retried a call
+  that appeared to time out would launch **a second instance and be billed for
+  both**; `open_instance_access` mints a fresh single-use ticket per call rather
+  than returning the previous one.
+
+  **No notice period, and that is deliberate.** §3's notice exists so a client
+  is not surprised by a deliberate design change. This is the retraction of a
+  promise that was never true, and every day it stands is a day a client can
+  lose money by believing it. Tools whose repeat really is harmless are
+  unaffected — `terminate_instance`, `register_ssh_key`, which 409s on a
+  duplicate fingerprint, and `promote_artifact_to_volume`, whose endpoint
+  carries its own idempotency key.
+
+  `schedule_under_budget` reads `/api/v2/gpu/available` and
+  `/api/v2/marketplace/spot-prices` — the two live third-party feeds behind
+  `list_available_gpus` and `get_spot_prices`, both already flagged — and then
+  spends against the answer, so a cached reading must not be assumed to hold.
+
+  **Action:** if you retry these tools on timeout, check state first —
+  `list_instances`, `list_volumes`, or the volume's snapshots — rather than
+  calling again. Each tool's description now says so.
 
 ### Added
 
