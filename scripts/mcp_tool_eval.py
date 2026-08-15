@@ -278,6 +278,17 @@ def main() -> int:
     args = parser.parse_args()
 
     cases = load_cases(EVAL_FILE)
+    # **Newest first.** Cases are appended to the JSONL, so file order puts the
+    # least-verified cases last — and a capture that runs out of credit partway
+    # loses exactly the evidence it was run to get. On 2026-08-15 a 40-case run
+    # died at case 31 and every one of the nine it never reached was a case for
+    # a tool added that day, including the one already known to be failing.
+    #
+    # Order does not affect a completed run: each case is graded independently
+    # and the rate is a sum. It only decides what a *partial* run buys, so it
+    # should buy the unknown. Reversing costs nothing and needs no metadata —
+    # append position already encodes recency.
+    cases = list(reversed(cases))
     if args.only:
         cases = [case for case in cases if case.category == args.only]
     if args.case:
