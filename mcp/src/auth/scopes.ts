@@ -127,6 +127,13 @@ const TOOL_SCOPE_REGISTRY = {
   list_payment_methods: { allOf: ["billing:read"] },
   top_up_wallet: { allOf: ["billing:write"] },
   configure_auto_topup: { allOf: ["billing:write"] },
+  // The snapshot half of P7, and the reason the sweep was unusable without it:
+  // `create_image_sweep` needs an `image_id` and nothing could produce or find
+  // one. Listing is `instances:read`; taking or deleting a snapshot mutates the
+  // tenant's images and is `instances:write`.
+  create_instance_snapshot: { allOf: ["instances:write"] },
+  list_user_images: { allOf: ["instances:read"] },
+  delete_user_image: { allOf: ["instances:write"] },
   // P7 — the image sweep. Creating one only *quotes* it: the launch happens
   // when an approved plan is executed, and both halves are `instances:write`
   // because a caller who can quote a sweep must be able to run the one they

@@ -116,8 +116,8 @@
     "notes": "Provider axis. Delisting a rig \u2014 the counterpart of POST /marketplace/list."
   },
   "DELETE /user-images/{image_id}": {
-    "class": "gap",
-    "notes": "P7's image library with provenance \u2014 commit an instance to a reusable image and manage the result; no tool reaches it"
+    "class": "covered",
+    "notes": "delete_user_image, confirm-gated with a preview. The exit for storage an agent created."
   },
   "GET /": {
     "class": "internal",
@@ -1052,8 +1052,8 @@
     "notes": "MCP server calls this path"
   },
   "GET /user-images": {
-    "class": "gap",
-    "notes": "P7's image library with provenance \u2014 commit an instance to a reusable image and manage the result; no tool reaches it"
+    "class": "covered",
+    "notes": "list_user_images. How an agent finds an image_id, which cannot be guessed."
   },
   "GET /v1/inference/{job_id}": {
     "class": "gap",
@@ -2004,8 +2004,8 @@
     "notes": "stop/start/restart preserve the container, which is the lifecycle the platform chose over pause/resume; no tool reaches them, so an agent can only cancel or terminate"
   },
   "POST /instances/{job_id}/snapshot": {
-    "class": "gap",
-    "notes": "P7 commits a configured instance to a reusable image; this is that step and no tool reaches it"
+    "class": "covered",
+    "notes": "create_instance_snapshot. The producer of image_id; the sweep was unusable without it."
   },
   "POST /instances/{job_id}/start": {
     "class": "gap",

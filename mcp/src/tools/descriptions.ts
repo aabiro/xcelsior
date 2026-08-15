@@ -458,6 +458,29 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "and returns no card number and no secret.",
 
   // ── Company knowledge (optional; only registered when enabled) ──────────
+  create_instance_snapshot:
+    "Create a reusable image from a running instance's container, so the exact environment can be " +
+    "launched again later or run across several machines at once. Use when the user wants to " +
+    "keep a working setup, reproduce a result, or prepare an image to sweep — installing " +
+    "packages again on a fresh instance is what this avoids. The image is built on the host in " +
+    "the background and is not usable until it reports ready; list_user_images shows the " +
+    "status. Costs storage while it exists, and taking the same name and tag twice is refused " +
+    "rather than overwriting, so an existing image must be deleted first.",
+
+  list_user_images:
+    "List the saved images this account can launch from, with their status, size, and the job " +
+    "each was captured from. Use to find an image_id — create_image_sweep and a snapshot-based " +
+    "launch both need one and it cannot be guessed — or to check whether a snapshot taken " +
+    "earlier has finished building. Read-only and free.",
+
+  delete_user_image:
+    "Permanently delete a saved image, stopping its storage cost. Use when the user says an " +
+    "image is no longer needed, or when a snapshot must be retaken under a name that is " +
+    "already taken, since create_instance_snapshot refuses to overwrite. Irreversible through " +
+    "the API: anything that referenced the image — a past sweep, a launch you might want to " +
+    "reproduce — can no longer be launched from it. Check list_user_images first if there is " +
+    "any doubt about which image is which.",
+
   create_image_sweep:
     "Find out whether one image actually behaves the same on different machines, by running it " +
     "on several at once and comparing what each container ended up with — package versions, " +

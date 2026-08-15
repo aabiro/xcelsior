@@ -270,6 +270,41 @@
       "hasOutputSchema": true
     },
     {
+      "name": "create_instance_snapshot",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "instances:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "job_id": {
+          "type": "string",
+          "optional": false
+        },
+        "name": {
+          "type": "string",
+          "optional": false
+        },
+        "tag": {
+          "type": "string",
+          "optional": true
+        },
+        "description": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
       "name": "create_serverless_endpoint",
       "version": "2.0.0",
       "tenantClass": "tenant",
@@ -380,6 +415,33 @@
       },
       "input": {
         "endpoint_id": {
+          "type": "string",
+          "optional": false
+        },
+        "confirm": {
+          "type": "boolean",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "delete_user_image",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "instances:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "image_id": {
           "type": "string",
           "optional": false
         },
@@ -1005,6 +1067,42 @@
         "openWorldHint": false
       },
       "input": {},
+      "hasOutputSchema": true
+    },
+    {
+      "name": "list_user_images",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "instances:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "scope": {
+          "type": "enum",
+          "optional": true,
+          "values": [
+            "all",
+            "mine",
+            "team"
+          ]
+        },
+        "q": {
+          "type": "string",
+          "optional": true
+        },
+        "limit": {
+          "type": "number",
+          "optional": true
+        }
+      },
       "hasOutputSchema": true
     },
     {
