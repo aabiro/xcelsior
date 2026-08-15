@@ -121,14 +121,14 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "the user wants a repo trained on a GPU in one step rather than orchestrating create + poll " +
     "themselves. Spends money exactly as create_instance does — the same plan preparation and " +
     "approval apply — and blocks for up to several minutes while the instance starts." +
-    "Not idempotent: no idempotency key is sent, so calling it again after a timeout launches a second instance and bills for both. If a call seems to have failed, check list_instances before retrying.",
+    " Not idempotent: no idempotency key is sent, so calling it again after a timeout launches a second instance and bills for both. If a call seems to have failed, check list_instances before retrying.",
 
   schedule_under_budget:
     "Find available capacity at or below a maximum CAD hourly rate and, optionally, launch it. " +
     "Use when price is the binding constraint and the user has not picked a specific host. " +
     "Searching is read-only and free; launching spends money through the same plan-and-approval " +
     "path as create_instance, so nothing is allocated without it." +
-    "Not idempotent: no idempotency key is sent, so a retry launches a second billed instance. Check list_instances before calling again.",
+    " Not idempotent: no idempotency key is sent, so a retry launches a second billed instance. Check list_instances before calling again.",
 
   // ── Access ──────────────────────────────────────────────────────────────
   register_ssh_key:
@@ -153,7 +153,7 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "costs — the instance goes on billing at its hourly rate whether or not anyone connects. " +
     "SSH needs a key the account has already registered; if the connection is refused, " +
     "register_ssh_key is the fix." +
-    "Not idempotent: every call mints a new single-use ticket and does not return the previous one. Request it once and use it.",
+    " Not idempotent: every call mints a new single-use ticket and does not return the previous one. Request it once and use it.",
 
   cancel_serverless_job:
     "Cancel an inference job that is still running on a serverless endpoint. Use when the user " +
@@ -186,14 +186,15 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "relaunch — checkpoints, datasets, model weights — because an instance's own disk is " +
     "destroyed with it. Creates storage that bills per GB-month from the moment it exists, " +
     "attached or not, so size it for what is needed rather than rounding up." +
-    "Not idempotent: calling it twice creates two volumes, both billed per GB-month. Check list_volumes before retrying.",
+    " Not idempotent: calling it twice creates two volumes, both billed per GB-month. Check list_volumes before retrying.",
 
   attach_volume:
     "Attach a volume to a running instance at a mount path. Use after launching, so the job " +
     "writes somewhere durable instead of into the container. Free in itself — the volume was " +
     "already billing — and it changes what the instance can see: a job started before the " +
-    "attach may need restarting to notice the new path.",
-
+    "attach may need restarting to notice the new path." +
+    " Takes job_id, the instance id list_instances returns; instance_id is a deprecated alias " +
+    "that still works.",
   detach_volume:
     "Detach a volume from the instance it is mounted on. Use when moving storage to another " +
     "instance, or before deleting the instance it is attached to. Call it with confirm:false " +
@@ -217,7 +218,7 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     + "quoted total: a stage that would exceed it never starts. **Returns as soon as the pipeline "
     + "is quoted, before it has run or even been approved** — say it is awaiting approval, and "
     + "check get_pipeline_status before reporting any stage as done." +
-    "Not idempotent: each call creates another plan awaiting approval, so retrying a call that appeared to fail leaves two plans for the same work.",
+    " Not idempotent: each call creates another plan awaiting approval, so retrying a call that appeared to fail leaves two plans for the same work.",
   get_pipeline_status:
     "Reports which pipeline stage is running, which finished, and which were skipped and why. "
     + "Use when a pipeline was started and the user asks how far along it is, or before claiming "
@@ -231,7 +232,10 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     + "data bills per GB-month as volume storage for as long as it is kept, so it is a standing "
     + "cost rather than a one-off. **Returns as soon as the copy STARTS, not when it finishes.** "
     + "A large checkpoint takes minutes; say it is running and check get_promotion_status before "
-    + "telling anyone their files are safe. Asking twice for the same job does not copy twice.",
+    + "telling anyone their files are safe. Asking twice for the same job does not copy twice." +
+    " Returns a promotion_id; the copy is still running when this returns, so pass that id to " +
+    "get_promotion_status before telling the user their files are on the volume.",
+
   get_promotion_status:
     "Reports whether a promotion started by promote_artifact_to_volume has finished, and how "
     + "much it has copied. Use when you started a promotion and need to know whether the files "
@@ -242,7 +246,7 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "later. Use before anything destructive — a delete, a risky job, a version bump — and when " +
     "the user wants a checkpoint they can return to. The snapshot is new stored data and bills " +
     "per GB-month like the volume it came from." +
-    "Not idempotent: each call creates another snapshot and snapshots are billed for storage. List the volume's snapshots before retrying.",
+    " Not idempotent: each call creates another snapshot and snapshots are billed for storage. List the volume's snapshots before retrying.",
 
   get_artifact_expiry:
     "Show when a job's artifacts will be deleted: each file with its creation time and the date " +
@@ -494,7 +498,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "tool is called again with plan_id and confirm:true. The approved plan carries the member " +
     "count, so approving three cannot launch sixty-four. " +
     "Not idempotent: each call without plan_id creates another plan awaiting approval, so " +
-    "retrying a call that appeared to fail leaves two plans for the same work.",
+    "retrying a call that appeared to fail leaves two plans for the same work. Returns a " +
+    "sweep_id once it launches; pass that to get_image_sweep to see whether the members agree.",
 
   get_image_sweep:
     "Get one sweep: its members, which of them launched, the hosts they landed on, and whether " +

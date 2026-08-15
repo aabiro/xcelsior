@@ -46,6 +46,25 @@ reflected here and version-bumped fails the build.
   `list_instances`, `list_volumes`, or the volume's snapshots — rather than
   calling again. Each tool's description now says so.
 
+### Deprecated
+
+- **`attach_volume`'s `instance_id` input** — use `job_id`. Both work today;
+  `instance_id` is removed on or after **2026-11-13** (90 days from this entry,
+  per §3).
+
+  It was the only tool of seventeen calling the instance identifier
+  `instance_id`; every other one — `get_instance`, `terminate_instance`,
+  `get_instance_logs`, `create_instance_snapshot` — calls it `job_id`. A model
+  holding ids from `list_instances` had no reason to believe they fit here, and
+  nothing in the surface said they did. The API field is unchanged; only the
+  tool's vocabulary moves.
+
+  Shipped additively rather than as a rename because §3 requires the old shape
+  to keep working for the full period, and because a rename would be a breaking
+  input change — which the immediate-ship carve-out does **not** cover: that
+  carve-out is for retracting a claim that was never true, and `instance_id`
+  worked exactly as documented. It was inconsistent, not false.
+
 ### Added
 
 - **`create_instance_snapshot`, `list_user_images`, `delete_user_image`** — the
