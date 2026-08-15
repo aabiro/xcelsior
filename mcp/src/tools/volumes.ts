@@ -104,7 +104,16 @@ export function registerVolumeTools(
     {
       inputSchema: z.object({
         volume_id: z.string().min(1).max(160),
-        instance_id: z.string().min(1).max(160),
+        // `job_id` everywhere else on this surface — sixteen tools use that
+        // name and this was the only one calling the same identifier something
+        // different, so a model holding ids from `list_instances` had no way to
+        // know they fit here. Both are accepted for now; `instance_id` is
+        // deprecated and the changelog carries its removal date, per §3's rule
+        // that the old shape keeps working for the full notice period.
+        job_id: z.string().min(1).max(160).optional()
+          .describe("The instance to attach to, as returned by list_instances"),
+        instance_id: z.string().min(1).max(160).optional()
+          .describe("Deprecated alias for job_id"),
         mount_path: z
           .string()
           .regex(/^\/(workspace|mnt\/[a-zA-Z0-9._-]+|data)$/)
@@ -116,10 +125,19 @@ export function registerVolumeTools(
     async (args) => {
       const denied = scopeDenied("attach_volume", user);
       if (denied) return denied;
+      const target = args.job_id ?? args.instance_id;
+      if (!target) {
+        return jsonText({
+          error: "missing_instance",
+          message: "attach_volume needs job_id — the instance id from list_instances.",
+        });
+      }
       try {
         const data = (await client.post(
           `/api/v2/volumes/${encodeURIComponent(args.volume_id)}/attach`,
-          { instance_id: args.instance_id, mount_path: args.mount_path, mode: args.mode },
+          // The API field stays `instance_id`; only the tool's vocabulary
+          // changes, so this is a rename at the surface and not a route change.
+          { instance_id: target, mount_path: args.mount_path, mode: args.mode },
         )) as Record<string, unknown>;
         return jsonText(data);
       } catch (e) {
