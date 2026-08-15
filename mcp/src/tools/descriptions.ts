@@ -237,6 +237,16 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     + "is quoted, before it has run or even been approved** — say it is awaiting approval, and "
     + "check get_pipeline_status before reporting any stage as done." +
     " Not idempotent: each call creates another plan awaiting approval, so retrying a call that appeared to fail leaves two plans for the same work.",
+  revoke_launch_plan:
+    "Withdraw a launch plan so it can no longer be approved or executed. Use when the user " +
+    "changes their mind about something you quoted, when a plan was prepared for the wrong " +
+    "spec, or when they say to cancel before anything has started — a plan left sitting is " +
+    "still approvable later by anyone who can approve. Costs nothing and refunds nothing, " +
+    "because nothing has run: it only removes the ability to spend. Safe to call twice; a plan " +
+    "already withdrawn reports it. A plan that has already executed cannot be revoked — the " +
+    "instance it created is stopped with terminate_instance instead. The plan_id comes from " +
+    "whichever tool quoted it: create_instance, run_pipeline or create_image_sweep.",
+
   get_pipeline_status:
     "Reports which pipeline stage is running, which finished, and which were skipped and why. "
     + "Use when a pipeline was started and the user asks how far along it is, or before claiming "
