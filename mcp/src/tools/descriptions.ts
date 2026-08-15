@@ -447,14 +447,17 @@ const DESCRIPTIONS: Record<ToolName, string> = {
 
   // ── Company knowledge (optional; only registered when enabled) ──────────
   create_image_sweep:
-    "Launch N instances from ONE saved image snapshot, recorded as a single sweep whose members " +
-    "can be compared for environment drift. Use when the question is whether the same image " +
-    "behaves identically across machines — a flaky test that passes on one host, or a training " +
-    "run to reproduce — rather than when you simply want several instances, which is " +
-    "create_instance called N times. Spends N times one launch: called without plan_id it only " +
-    "quotes the sweep and returns a plan awaiting approval, and nothing runs until that plan is " +
-    "approved and this tool is called again with plan_id and confirm:true. The approved plan " +
-    "carries the member count, so approving three cannot launch sixty-four. " +
+    "Find out whether one image actually behaves the same on different machines, by running it " +
+    "on several at once and comparing what each container ended up with — package versions, " +
+    "environment, entrypoint. Use when something works on one host and not another, when a " +
+    "result will not reproduce, or when the user asks whether an environment is really " +
+    "identical across nodes; that question cannot be answered from list_instances, which shows " +
+    "what is running but not what is inside it. Not the tool for simply wanting several " +
+    "instances — that is create_instance called N times, and it produces no record to compare " +
+    "across. Spends N times one launch: called without plan_id it only quotes the sweep and " +
+    "returns a plan awaiting approval, and nothing runs until that plan is approved and this " +
+    "tool is called again with plan_id and confirm:true. The approved plan carries the member " +
+    "count, so approving three cannot launch sixty-four. " +
     "Not idempotent: each call without plan_id creates another plan awaiting approval, so " +
     "retrying a call that appeared to fail leaves two plans for the same work.",
 
