@@ -204,8 +204,9 @@ were failures of *evidence*, not of intent.
   the platform must accept) and `open_instance_access` (the way in once it
   does). Both are inside the default profile, so both counts move by two.*
 
-  *Restated on 2026-08-15: **`TOOL_SCOPES` holds 69 and `tool-surface.json`
-  publishes 60** — `list_ssh_keys` and `delete_ssh_key` give `ssh:read` its
+  *Restated on 2026-08-15: **`TOOL_SCOPES` holds 70 and `tool-surface.json`
+  publishes 61** — `revoke_launch_plan` gives the four plan-quoting tools an
+  undo. The 69/60 step — `list_ssh_keys` and `delete_ssh_key` give `ssh:read` its
   first user, a scope declared when the split was made and never wired to a
   tool. Both sit outside Quick Connect's reach on purpose. The 67/58 step. `get_auto_topup` closes a read that required a write, and six
   endpoints labelled `covered` turned out to have no tool calling them — the

@@ -92,6 +92,13 @@ const TOOL_SCOPE_REGISTRY = {
   // all; `instances:write` is what quoting a graph costs, and the route then
   // demands each stage's own scope before the plan is created.
   run_pipeline: { allOf: ["instances:write"] },
+  // Withdrawing a plan you asked for. `anyOf` rather than a single scope
+  // because plans exist for instances, serverless endpoints, pipelines and
+  // sweeps, each requiring its own write authority — and the route re-checks
+  // the plan's *actual* `required_scopes` on top of this. A permissive floor is
+  // safe here in a way it would not be elsewhere: revoking only ever removes
+  // the ability to spend. It cannot cause a charge.
+  revoke_launch_plan: { anyOf: ["instances:write", "inference:write"] },
   get_pipeline_status: { allOf: ["instances:read"] },
   attach_volume: { allOf: ["volumes:write", "instances:read"] },
   detach_volume: { allOf: ["volumes:write"] },

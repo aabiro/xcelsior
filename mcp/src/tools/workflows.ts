@@ -250,6 +250,38 @@ export function registerWorkflowTools(
   );
 
   server.registerTool(
+    "revoke_launch_plan",
+    {
+      inputSchema: z.object({
+        plan_id: z.string().min(1).max(160).describe("From whatever tool quoted it"),
+        reason: z.string().max(500).optional(),
+      }),
+    },
+    async ({ plan_id, reason }) => {
+      const denied = scopeDenied("revoke_launch_plan", user);
+      if (denied) return denied;
+      try {
+        // No confirm gate, deliberately. Every other write on this surface has
+        // one because it can spend or destroy; this only ever *removes* the
+        // ability to spend, and making a user confirm the safe direction
+        // teaches them to click through the prompts that matter.
+        const data = (await client.post(
+          `/api/v1/launch-plans/${encodeURIComponent(plan_id)}/revoke`,
+          reason ? { reason } : {},
+        )) as Record<string, unknown>;
+        return jsonText({
+          ...data,
+          note:
+            "Withdrawn. Nothing ran, so there is nothing to refund. Quoting again " +
+            "produces a new plan; this id cannot be revived.",
+        });
+      } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
+
+  server.registerTool(
     "get_pipeline_status",
     {
       inputSchema: z.object({ plan_id: z.string().min(1).max(160) }),

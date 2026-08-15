@@ -158,6 +158,10 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   promote_artifact_to_volume: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
   get_promotion_status: { readOnly: true, destructive: false, audience: "customer" },
   run_pipeline: { readOnly: false, destructive: false, audience: "customer", idempotency: "none", version: "2.1.0" },
+  // Idempotent by the service's own contract — revoking a revoked plan returns
+  // the same result marked `idempotent`. Not destructive: nothing has run yet,
+  // so nothing is lost, and a withdrawn plan is replaced by quoting again.
+  revoke_launch_plan: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
   get_pipeline_status: { readOnly: true, destructive: false, audience: "customer" },
   attach_volume: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
   // **Not** destructive, and this was reconsidered rather than assumed. It is

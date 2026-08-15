@@ -1364,6 +1364,34 @@
       "hasOutputSchema": true
     },
     {
+      "name": "revoke_launch_plan",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "inference:write",
+        "instances:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "plan_id": {
+          "type": "string",
+          "optional": false
+        },
+        "reason": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
       "name": "run_pipeline",
       "version": "2.1.0",
       "tenantClass": "tenant",
