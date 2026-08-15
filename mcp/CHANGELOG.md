@@ -67,6 +67,22 @@ reflected here and version-bumped fails the build.
 
 ### Added
 
+- **`revoke_launch_plan`** — withdraw a quoted plan so it can no longer be
+  approved or executed.
+
+  Four tools quote a plan — `create_instance`, `create_serverless_endpoint`,
+  `run_pipeline`, `create_image_sweep` — and none could withdraw one, so
+  "actually, cancel that" had no answer short of a browser. A plan left sitting
+  stays approvable later by anyone who can approve it.
+
+  The one write on this surface with **no confirm gate**, deliberately:
+  everything else previews because it can spend or destroy, and this only ever
+  removes the ability to spend. Requiring a confirmation for the safe direction
+  teaches people to click through the ones that matter.
+
+  `approve` remains deliberately absent. The approval is the human in the loop;
+  a tool for it would let an agent authorise its own spend.
+
 - **`list_ssh_keys` and `delete_ssh_key`** — see what has shell access, and take
   it away.
 

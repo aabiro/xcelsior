@@ -187,7 +187,17 @@ def _registered_tool_names() -> set[str]:
 #: requires `ssh:read` *as well as* `ssh:write` to keep it that way — you cannot
 #: revoke what you cannot enumerate, and a connector holding write alone could
 #: otherwise disconnect a live session using an id it was handed.
-EXPECTED_TOOL_TOTAL = 69
+#: **70 with `revoke_launch_plan`.** Four tools quote a plan — `create_instance`,
+#: `create_serverless_endpoint`, `run_pipeline`, `create_image_sweep` — and none
+#: could withdraw one. A plan left sitting stays approvable by anyone who can
+#: approve, so "actually, cancel that" had no answer short of a browser.
+#:
+#: `approve` stays a gap on purpose and is not an oversight: the approval is the
+#: human in the loop, and a tool for it would let an agent authorise its own
+#: spend. Revoking is the opposite direction — it can only ever remove the
+#: ability to spend — which is also why it is the one write on this surface with
+#: no confirm gate.
+EXPECTED_TOOL_TOTAL = 70
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition

@@ -1708,16 +1708,16 @@
     "notes": "MCP server calls this path"
   },
   "POST /api/v1/launch-plans/{plan_id}/approve": {
-    "class": "gap",
-    "notes": "approving and revoking a launch plan. P4 turns the approval gate into leverage \u2014 one approval covering a dependency graph \u2014 and no tool approves anything today; get_mcp_action_status only reads"
+    "class": "internal",
+    "notes": "Deliberately not a tool. Approval is the human in the loop; an agent tool for it would let an agent authorise its own spend, which is what the gate exists to prevent."
   },
   "POST /api/v1/launch-plans/{plan_id}/execute": {
     "class": "covered",
     "notes": "MCP server calls this path"
   },
   "POST /api/v1/launch-plans/{plan_id}/revoke": {
-    "class": "gap",
-    "notes": "approving and revoking a launch plan. P4 turns the approval gate into leverage \u2014 one approval covering a dependency graph \u2014 and no tool approves anything today; get_mcp_action_status only reads"
+    "class": "covered",
+    "notes": "revoke_launch_plan. Withdraws a quoted plan; the only direction that cannot spend."
   },
   "POST /api/v1/mcp/tool-audit": {
     "class": "covered",
