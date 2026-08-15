@@ -37,7 +37,27 @@ The wizard has completed a deep integration of PostHog analytics into the Xcelsi
 - `frontend/src/app/(dashboard)/dashboard/billing/page.tsx` — `free_credits_claimed`, `credits_deposit_initiated`, `auto_topup_configured`
 - `frontend/src/components/billing/payment-method-modal.tsx` — `payment_method_added`
 
-> **Install required:** Run `npm install posthog-js posthog-node` in the `frontend/` directory to complete setup.
+> **Installed:** `posthog-js` and `posthog-node` are present. The Compose build
+> now passes the project token and host into the Next.js build so automatic
+> `$pageview` and `$pageleave` events are included in production images.
+
+### Release smoke
+
+The smoke intercepts PostHog traffic by default, verifies both lifecycle event
+payloads target the first-party `/ingest` proxy, and writes no analytics data:
+
+```bash
+npm run build
+npm run test:posthog:smoke
+```
+
+After deployment, opt into a real proxy/ingestion check with:
+
+```bash
+XCELSIOR_E2E_BASE_URL=https://xcelsior.ca \
+XCELSIOR_POSTHOG_SMOKE_LIVE=1 \
+npm run test:posthog:smoke
+```
 
 ## Next steps
 
