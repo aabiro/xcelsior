@@ -251,6 +251,15 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument("--only", default="", help="run one category: direct|indirect|followup|approval|no_tool")
     parser.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="grade only the first N cases after ordering. With newest-first "
+        "that is the least-verified N, which makes this a budget bound: a run "
+        "costs roughly N x samples x $0.016 and stops there instead of "
+        "continuing into cases that already have evidence.",
+    )
+    parser.add_argument(
         "--case",
         default="",
         help="run one case by id. For re-checking a single description change "
@@ -291,6 +300,8 @@ def main() -> int:
     cases = list(reversed(cases))
     if args.only:
         cases = [case for case in cases if case.category == args.only]
+    if args.limit:
+        cases = cases[: args.limit]
     if args.case:
         cases = [case for case in cases if case.id == args.case]
         if not cases:
