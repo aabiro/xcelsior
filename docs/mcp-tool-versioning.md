@@ -29,6 +29,13 @@ beside `list_instances` at 2.0.0. A client that pins behaviour should read
 `_meta["xcelsior/toolVersion"]` from `tools/list` and compare it to what it was
 built against.
 
+*This paragraph described a mechanism that did not exist until 2026-08-14.*
+Every contract read one shared `"2.0.0"` literal, so §6's instruction to "bump
+that tool's version" had nothing to bump: the only ways past the breaking-change
+guard were moving all 60 tools at once or overwriting the snapshot, which §6
+tells you not to do. `ToolPolicy.version` now overrides the shared default per
+tool, and the sentence above is true.
+
 Semantics:
 
 | Part | Changes when |
@@ -56,6 +63,28 @@ enforces, and it is derived by diffing the committed surface snapshot
 - An annotation changes — `readOnlyHint`, `destructiveHint`, `idempotentHint`,
   `openWorldHint`. These are promises about behaviour, and a model that trusted
   one is entitled to keep trusting it.
+
+  **Unless the old value was false.** Correcting an annotation that never
+  described the tool ships immediately: version bump and changelog entry, no
+  notice period. This is not a new severity tier and should not become one —
+  a third category would only invite arguing about which bucket a change falls
+  in. It is a single carve-out with a single test: *was the previous value ever
+  true?*
+
+  The notice period in §3 exists so a client is not surprised by a deliberate
+  change to a working promise. A false annotation has already surprised them —
+  the harm is live, and every day of notice is another day a client can act on
+  something untrue. On 2026-08-14 six tools advertised `idempotentHint: true`
+  while sending no idempotency key; `run_training_job` and
+  `schedule_under_budget` both POST `/instance`, so a client retrying a call
+  that appeared to time out launched a second billed instance. Holding that
+  correction for a notice period would have protected nobody and billed
+  somebody.
+
+  A correction still carries a **version bump**, because a client pinning
+  behaviour needs to see that something moved, and still carries a **changelog
+  entry saying the old value was wrong** — which is the part that does the work
+  a notice period would otherwise do.
 - An output schema is removed.
 
 **Not breaking:**
