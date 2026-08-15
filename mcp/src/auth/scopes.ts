@@ -131,6 +131,7 @@ const TOOL_SCOPE_REGISTRY = {
   // that does return one is deliberately not on the tool surface.
   list_pending_verifications: { allOf: ["billing:read"] },
   configure_auto_topup: { allOf: ["billing:write"] },
+  get_auto_topup: { allOf: ["billing:read"] },
   // The snapshot half of P7, and the reason the sweep was unusable without it:
   // `create_image_sweep` needs an `image_id` and nothing could produce or find
   // one. Listing is `instances:read`; taking or deleting a snapshot mutates the

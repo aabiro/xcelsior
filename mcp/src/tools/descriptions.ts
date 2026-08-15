@@ -439,6 +439,14 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "Every change is recorded on the account, and the response includes the previous settings so " +
     "you can tell the user exactly what changed.",
 
+  get_auto_topup:
+    "Show the current automatic top-up settings: whether it is on, the balance that triggers a " +
+    "charge, and how much is charged. Use when the user asks what their auto top-up is set to, " +
+    "before changing it so you can state what is changing, or when a wallet was topped up with " +
+    "nobody present and they want to know why. Read-only and free — configure_auto_topup is what " +
+    "changes them, and calling that to find out the current values would alter the unattended " +
+    "spending you were only trying to read.",
+
   top_up_wallet:
     "Charge a card already saved on the account and credit the wallet. " +
     "Use this when the user asks to add funds — 'put $20 on my account', 'top me up' — or when a " +

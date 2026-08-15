@@ -67,6 +67,15 @@ reflected here and version-bumped fails the build.
 
 ### Added
 
+- **`get_auto_topup`** — read the current automatic top-up settings without
+  changing them.
+
+  There was no read. The only way to learn the settings was to call
+  `configure_auto_topup`, which returns the previous values in its response —
+  **you had to write in order to read**, on the one surface that authorises
+  charges with nobody present. `GET /api/v2/billing/auto-topup` had been
+  labelled `covered` in the endpoint classification while nothing called it.
+
 - **`list_pending_verifications`** — the top-ups that stopped because a
   cardholder's bank wants them confirmed. The money has not moved and the wallet
   was not credited.

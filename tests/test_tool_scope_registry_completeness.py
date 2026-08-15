@@ -171,7 +171,12 @@ def _registered_tool_names() -> set[str]:
 #: `client_secret`, a bearer credential that completes a charge, and a tool
 #: response lands in a model's context and in audit records. The user finishes
 #: the challenge in a browser from the link they were already given.
-EXPECTED_TOOL_TOTAL = 66
+#: **67 with `get_auto_topup`.** `GET /api/v2/billing/auto-topup` was labelled
+#: `covered` and nothing called it: the only way to learn the current settings
+#: was to POST a change and read `previous` out of the response. You had to
+#: write in order to read, on the one surface that authorises charges with
+#: nobody present.
+EXPECTED_TOOL_TOTAL = 67
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition
