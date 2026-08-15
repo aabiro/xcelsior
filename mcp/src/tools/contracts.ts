@@ -217,6 +217,12 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   configure_auto_topup: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
   // Company knowledge, off by default. Both index the published documentation
   // site and the live marketplace, which change without a deploy on our side.
+  // Preparing a sweep plan spends nothing, but each call creates another plan
+  // awaiting approval — the same shape as `run_pipeline`, and classified the
+  // same way. Executing an approved plan *is* repeat-safe; that is the execute
+  // route's `mark_consumed`, not this tool.
+  create_image_sweep: { readOnly: false, destructive: false, audience: "customer", idempotency: "none" },
+  get_image_sweep: { readOnly: true, destructive: false, audience: "customer" },
   search: { readOnly: true, destructive: false, audience: "company-knowledge", openWorld: true },
   fetch: { readOnly: true, destructive: false, audience: "company-knowledge", openWorld: true },
 };

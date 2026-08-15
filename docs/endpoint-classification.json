@@ -680,8 +680,8 @@
     "notes": "control-plane telemetry for a host; operator diagnostics"
   },
   "GET /api/v1/image-sweeps/{sweep_id}": {
-    "class": "gap",
-    "notes": "the sweep record plus whether its members' environments agree. Pairs with the creation route; an agent that launches a sweep needs to know which members came up and whether they are actually identical"
+    "class": "covered",
+    "notes": "get_image_sweep. Returns the members and the fingerprint verdict."
   },
   "GET /api/v1/instances/{job_id}": {
     "class": "covered",
@@ -1683,9 +1683,13 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "POST /api/v1/image-sweep-plans/{plan_id}/execute": {
+    "class": "covered",
+    "notes": "create_image_sweep with plan_id + confirm:true. The launching half, behind an approved plan whose canonical hash binds the member count."
+  },
   "POST /api/v1/image-sweeps": {
-    "class": "gap",
-    "notes": "launch N instances from one snapshot as a recorded sweep. A real agent journey with no tool yet \u2014 'give me eight identical nodes from this image' is exactly the token-expensive thing an agent otherwise does by rebuilding CUDA state per node in prose"
+    "class": "covered",
+    "notes": "create_image_sweep (quote half). Reachable by an agent since 2026-08-14; prepares an approvable plan and launches nothing."
   },
   "POST /api/v1/image-sweeps/{sweep_id}/members/{member_index}/fingerprint": {
     "class": "internal",

@@ -136,6 +136,65 @@
       "hasOutputSchema": true
     },
     {
+      "name": "create_image_sweep",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "instances:write"
+      ],
+      "idempotency": "none",
+      "retry": "none",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input": {
+        "image_id": {
+          "type": "string",
+          "optional": false
+        },
+        "count": {
+          "type": "number",
+          "optional": false
+        },
+        "name": {
+          "type": "string",
+          "optional": true
+        },
+        "vram_needed_gb": {
+          "type": "number",
+          "optional": true
+        },
+        "num_gpus": {
+          "type": "number",
+          "optional": true
+        },
+        "gpu_model": {
+          "type": "string",
+          "optional": true
+        },
+        "command": {
+          "type": "string",
+          "optional": true
+        },
+        "interactive": {
+          "type": "boolean",
+          "optional": true
+        },
+        "confirm": {
+          "type": "boolean",
+          "optional": true
+        },
+        "plan_id": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
       "name": "create_instance",
       "version": "2.0.0",
       "tenantClass": "tenant",
@@ -507,6 +566,29 @@
       },
       "input": {
         "job_id": {
+          "type": "string",
+          "optional": false
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "get_image_sweep",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "instances:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "sweep_id": {
           "type": "string",
           "optional": false
         }

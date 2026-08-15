@@ -48,6 +48,22 @@ reflected here and version-bumped fails the build.
 
 ### Added
 
+- **`create_image_sweep` and `get_image_sweep`** — P7's sweep, reachable by an
+  agent. Launch N instances from one snapshot as a single record whose members
+  can be compared for environment drift, and read back which of them agree.
+
+  `create_image_sweep` goes through prepare-approve-execute, not around it.
+  Called without `plan_id` it quotes the sweep and returns a plan awaiting
+  approval; nothing launches until it is called again with `plan_id` and
+  `confirm:true`. **The member count is inside the approved arguments and bound
+  by the plan's canonical hash**, so an approval for three members cannot be
+  spent on sixty-four — which is what reusing the single-job launch-plan
+  endpoint would have allowed, while still producing a record that consent was
+  given.
+
+  Not idempotent, and the description says so: each call without `plan_id`
+  creates another plan awaiting approval.
+
 - **PostHog MCP analytics.** The pinned `@posthog/mcp` beta captures standard
   MCP lifecycle/tool metadata for HTTP and STDIO, groups stateless calls by the
   authenticated principal, preserves the reviewed tool schemas, strips request

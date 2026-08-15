@@ -855,7 +855,42 @@ export interface paths {
         put?: never;
         /**
          * Api Create Image Sweep
-         * @description Launch N instances from one snapshot, recorded as one sweep.
+         * @description Quote a sweep and persist it as one approvable plan. Nothing launches here.
+         *
+         *     **A sweep is the largest single spend on the platform and had the weakest
+         *     gate.** `create_instance` refuses to launch one instance without an approved
+         *     `plan_id`; this route launched up to sixty-four on a bare call. Exposing it
+         *     to an agent in that shape would have made the bulk path the way to skip the
+         *     approval that guards the single path.
+         *
+         *     The obvious shortcut — reuse `/api/v1/launch-plans`, which quotes one job —
+         *     is worse than no gate: `count` would sit outside the approved canonical
+         *     args, so a plan approved for one instance would authorise sixty-four. The
+         *     count is inside the plan here, and the canonical hash binds it, so an
+         *     approval means the number that was shown.
+         *
+         *     The image is validated **before** a plan is written, so an unsweepable image
+         *     is refused now rather than after someone approves a spend for it.
+         */
+        post: operations["api_create_image_sweep_api_v1_image_sweeps_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/image-sweep-plans/{plan_id}/execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Api Execute Image Sweep Plan
+         * @description Launch N instances from one snapshot for one approved plan.
          *
          *     Gate P7. The record is the feature: N job ids handed back from N calls
          *     leaves "these came from one snapshot" as an intention in the caller, with
@@ -880,7 +915,7 @@ export interface paths {
          *     did not" is the answer an operator needs, and aborting would strand the
          *     three that started.
          */
-        post: operations["api_create_image_sweep_api_v1_image_sweeps_post"];
+        post: operations["api_execute_image_sweep_plan_api_v1_image_sweep_plans__plan_id__execute_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4525,6 +4560,37 @@ export interface operations {
                 "application/json": components["schemas"]["_SweepIn"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_execute_image_sweep_plan_api_v1_image_sweep_plans__plan_id__execute_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

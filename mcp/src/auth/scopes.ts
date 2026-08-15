@@ -127,6 +127,12 @@ const TOOL_SCOPE_REGISTRY = {
   list_payment_methods: { allOf: ["billing:read"] },
   top_up_wallet: { allOf: ["billing:write"] },
   configure_auto_topup: { allOf: ["billing:write"] },
+  // P7 — the image sweep. Creating one only *quotes* it: the launch happens
+  // when an approved plan is executed, and both halves are `instances:write`
+  // because a caller who can quote a sweep must be able to run the one they
+  // approved.
+  create_image_sweep: { allOf: ["instances:write"] },
+  get_image_sweep: { allOf: ["instances:read"] },
   // Company knowledge (optional, off by default). These read published
   // documentation and public pricing — no tenant data — so they take the
   // broad read set rather than a scope of their own. A dedicated scope would
