@@ -50,6 +50,15 @@ MIGRATIONS_DIR = pathlib.Path(__file__).resolve().parent.parent / "migrations" /
 _CREATE_TABLE = re.compile(
     r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-z_][a-z0-9_]*)\s*\(", re.I
 )
+#: Expand-contract builds the new shape beside the old one and renames it at the
+#: end. Without following the rename the *transitional* name enters the governed
+#: set — `placement_decisions_new` from 106 did, and because no such table
+#: survives the migration, three tests skipped on every run instead of checking
+#: anything. A guard that silently skips is worse than one that fails: it reads
+#: as coverage.
+_RENAME_TABLE = re.compile(
+    r"ALTER\s+TABLE\s+([a-z_][a-z0-9_]*)\s+RENAME\s+TO\s+([a-z_][a-z0-9_]*)", re.I
+)
 
 
 def _tables_created_since(revision: str) -> frozenset[str]:
@@ -62,11 +71,24 @@ def _tables_created_since(revision: str) -> frozenset[str]:
     now attaches to the migration itself, so it cannot be skipped by omission.
     """
     tables: set[str] = set()
+    renames: dict[str, str] = {}
     for path in sorted(MIGRATIONS_DIR.glob("*.py")):
         rev = path.name.split("_", 1)[0]
         if rev.isdigit() and rev >= revision:
-            tables |= set(_CREATE_TABLE.findall(path.read_text()))
-    return frozenset(tables)
+            text = path.read_text()
+            tables |= set(_CREATE_TABLE.findall(text))
+            renames.update(dict(_RENAME_TABLE.findall(text)))
+
+    # Follow renames to the name the table actually ends up with, chasing
+    # chains and stopping on a cycle rather than looping forever.
+    def _final(name: str) -> str:
+        seen = {name}
+        while name in renames and renames[name] not in seen:
+            name = renames[name]
+            seen.add(name)
+        return name
+
+    return frozenset(_final(t) for t in tables)
 
 
 # Pre-existing tables a later migration brought up to the companion's standard.
@@ -109,6 +131,33 @@ def test_governed_set_is_derived_and_populated():
     # renamed does not go unnoticed.
     for anchor in ("agent_api_keys", "host_admission_decisions", "casl_consent"):
         assert anchor in GOVERNED_TABLES, f"{anchor} is no longer governed"
+
+
+def test_every_governed_table_actually_exists():
+    """A governed name with no table behind it is coverage that never ran.
+
+    The other tests in this file skip a table that is not present, which reads
+    as "nothing to check here" and is indistinguishable from a passing run. That
+    is how `placement_decisions_new` — the transitional name migration 106
+    renames away — sat in the governed set producing three skips per run instead
+    of one failure.
+
+    Asserting existence turns the silent version into a loud one: a name that
+    survives extraction but not the migration now fails here, once, with the
+    name in the message, rather than quietly reducing what the file checks.
+    """
+    with _get_pg_pool().connection() as conn:
+        missing = [
+            t
+            for t in GOVERNED_TABLES
+            if conn.execute("SELECT to_regclass(%s)", (t,)).fetchone()[0] is None
+        ]
+    assert not missing, (
+        f"governed tables with nothing behind them: {missing}. Either the "
+        "migration that creates them has not run, or extraction picked up a "
+        "transitional name that a later ALTER ... RENAME TO replaced — in "
+        "which case _tables_created_since must follow the rename."
+    )
 
 
 def _columns(table: str) -> dict[str, str]:
