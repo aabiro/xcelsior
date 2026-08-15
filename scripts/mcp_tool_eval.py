@@ -251,6 +251,15 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument("--only", default="", help="run one category: direct|indirect|followup|approval|no_tool")
     parser.add_argument(
+        "--case",
+        default="",
+        help="run one case by id. For re-checking a single description change "
+        "without paying for the set — a full capture is ~30x the trials. It is "
+        "deliberately narrow: a description names other tools, so a fix "
+        "verified this way is unverified against the cases it might disturb, "
+        "and the run's rate is not comparable to a baseline.",
+    )
+    parser.add_argument(
         "--out",
         default="",
         help="write the baseline JSON here. `live-gates.yml` has always passed "
@@ -271,6 +280,11 @@ def main() -> int:
     cases = load_cases(EVAL_FILE)
     if args.only:
         cases = [case for case in cases if case.category == args.only]
+    if args.case:
+        cases = [case for case in cases if case.id == args.case]
+        if not cases:
+            print(f"BLOCKED: no case with id {args.case!r}")
+            return 2
     print(f"GX1 tool-selection eval — {len(cases)} cases against {args.base}\n")
 
     if not args.token:

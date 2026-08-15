@@ -27,11 +27,19 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORT=39412
 SAMPLES=3
 OUT="${REPO}/eval-baseline.json"
+ONLY=""
+CASE=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --samples) SAMPLES="$2"; shift 2 ;;
     --out) OUT="$2"; shift 2 ;;
+    # Forwarded so a single category can be re-checked after a description
+    # change without paying for the whole set. `mcp_tool_eval.py` has always
+    # accepted it; this script did not pass it through, so the only way to
+    # verify a one-tool fix was a full capture.
+    --only) ONLY="$2"; shift 2 ;;
+    --case) CASE="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -78,6 +86,8 @@ python3 "${REPO}/scripts/mcp_tool_eval.py" \
   --base "http://127.0.0.1:${PORT}/mcp" \
   --token local-eval-token \
   --samples "${SAMPLES}" \
+  ${ONLY:+--only "${ONLY}"} \
+  ${CASE:+--case "${CASE}"} \
   --out "${OUT}"
 status=$?
 exit "$status"
