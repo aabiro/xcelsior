@@ -1663,7 +1663,7 @@
           "Instances"
         ],
         "summary": "Api Create Image Sweep",
-        "description": "Launch N instances from one snapshot, recorded as one sweep.\n\nGate P7. The record is the feature: N job ids handed back from N calls\nleaves \"these came from one snapshot\" as an intention in the caller, with\npartial failure invisible and nothing for the fingerprint comparison to be\ncompared across.\n\n**No host pin.** Each member goes through the ordinary queue and the\nscheduler places it \u2014 which is what a sweep wants anyway, since members\nspread across hosts establish more than members stacked on one. It also\nmeans this route never touches the direct-assignment branch of\n`api_submit_instance`, which is where that handler's complexity lives.\n\n**Every member is funded before it is submitted.** A sweep is N times the\nspend of one launch, so `_wallet_preflight` runs per member and a member\nthat cannot be funded is recorded `failed` rather than launched \u2014 the wallet\ncheck is not something a bulk path gets to skip. The hold is linked to the\njob exactly as the single-instance path does it, so a sweep member's money\nis accounted for the same way.\n\n**A launch failure does not abort the sweep.** It is recorded against that\nmember with its reason, because \"3 of 5 launched, and here are the two that\ndid not\" is the answer an operator needs, and aborting would strand the\nthree that started.",
+        "description": "Quote a sweep and persist it as one approvable plan. Nothing launches here.\n\n**A sweep is the largest single spend on the platform and had the weakest\ngate.** `create_instance` refuses to launch one instance without an approved\n`plan_id`; this route launched up to sixty-four on a bare call. Exposing it\nto an agent in that shape would have made the bulk path the way to skip the\napproval that guards the single path.\n\nThe obvious shortcut \u2014 reuse `/api/v1/launch-plans`, which quotes one job \u2014\nis worse than no gate: `count` would sit outside the approved canonical\nargs, so a plan approved for one instance would authorise sixty-four. The\ncount is inside the plan here, and the canonical hash binds it, so an\napproval means the number that was shown.\n\nThe image is validated **before** a plan is written, so an unsweepable image\nis refused now rather than after someone approves a spend for it.",
         "operationId": "api_create_image_sweep_api_v1_image_sweeps_post",
         "requestBody": {
           "content": {
@@ -1675,6 +1675,47 @@
           },
           "required": true
         },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/image-sweep-plans/{plan_id}/execute": {
+      "post": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Api Execute Image Sweep Plan",
+        "description": "Launch N instances from one snapshot for one approved plan.\n\nGate P7. The record is the feature: N job ids handed back from N calls\nleaves \"these came from one snapshot\" as an intention in the caller, with\npartial failure invisible and nothing for the fingerprint comparison to be\ncompared across.\n\n**No host pin.** Each member goes through the ordinary queue and the\nscheduler places it \u2014 which is what a sweep wants anyway, since members\nspread across hosts establish more than members stacked on one. It also\nmeans this route never touches the direct-assignment branch of\n`api_submit_instance`, which is where that handler's complexity lives.\n\n**Every member is funded before it is submitted.** A sweep is N times the\nspend of one launch, so `_wallet_preflight` runs per member and a member\nthat cannot be funded is recorded `failed` rather than launched \u2014 the wallet\ncheck is not something a bulk path gets to skip. The hold is linked to the\njob exactly as the single-instance path does it, so a sweep member's money\nis accounted for the same way.\n\n**A launch failure does not abort the sweep.** It is recorded against that\nmember with its reason, because \"3 of 5 launched, and here are the two that\ndid not\" is the answer an operator needs, and aborting would strand the\nthree that started.",
+        "operationId": "api_execute_image_sweep_plan_api_v1_image_sweep_plans__plan_id__execute_post",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Plan Id"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",

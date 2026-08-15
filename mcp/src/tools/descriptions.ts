@@ -446,6 +446,25 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "and returns no card number and no secret.",
 
   // ── Company knowledge (optional; only registered when enabled) ──────────
+  create_image_sweep:
+    "Launch N instances from ONE saved image snapshot, recorded as a single sweep whose members " +
+    "can be compared for environment drift. Use when the question is whether the same image " +
+    "behaves identically across machines — a flaky test that passes on one host, or a training " +
+    "run to reproduce — rather than when you simply want several instances, which is " +
+    "create_instance called N times. Spends N times one launch: called without plan_id it only " +
+    "quotes the sweep and returns a plan awaiting approval, and nothing runs until that plan is " +
+    "approved and this tool is called again with plan_id and confirm:true. The approved plan " +
+    "carries the member count, so approving three cannot launch sixty-four. " +
+    "Not idempotent: each call without plan_id creates another plan awaiting approval, so " +
+    "retrying a call that appeared to fail leaves two plans for the same work.",
+
+  get_image_sweep:
+    "Get one sweep: its members, which of them launched, the hosts they landed on, and whether " +
+    "their environments are byte-identical. Use after create_image_sweep to see whether the " +
+    "members agree, and to find which field differs when they do not — the verdict names the " +
+    "differing keys rather than only reporting a mismatch. A member that never reported a " +
+    "fingerprint is unknown, never counted as agreeing. Read-only and free.",
+
   search:
     "Search Xcelsior's published knowledge — product documentation, the platform overview, the " +
     "GPU pricing table, and live marketplace listings — and return citable results. Use when the " +
