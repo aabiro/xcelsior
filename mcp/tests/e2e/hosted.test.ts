@@ -11,6 +11,7 @@ let mcp: ChildProcess;
 let client: Client;
 let transport: StreamableHTTPClientTransport;
 let serverStderr = "";
+let serverStdout = "";
 let serverExit: string | null = null;
 const auditRows: unknown[] = [];
 let instanceStatus = "running";
@@ -20,7 +21,12 @@ beforeAll(async () => {
   api = http.createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(Buffer.from(chunk));
-    const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : {};
+    let body: Record<string, unknown> = {};
+    if (chunks.length) {
+      try {
+        body = JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>;
+      } catch { /* an ingestion request body is not part of the API fixture */ }
+    }
     const send = (status: number, value: unknown) => {
       res.writeHead(status, { "content-type": "application/json" });
       res.end(JSON.stringify(value));
@@ -41,6 +47,7 @@ beforeAll(async () => {
     if (req.url === "/api/v1/mcp/tool-audit") {
       auditRows.push(body); return send(202, { ok: true, audit_id: "audit-e2e" });
     }
+    if (req.url?.startsWith("/batch")) return send(200, { status: "ok" });
     if (req.url === "/instance/job-watch") return send(200, { instance: { job_id: "job-watch", status: instanceStatus } });
     if (req.url?.startsWith("/api/instances/job-watch/telemetry")) return send(200, { telemetry: {} });
     if (req.url?.startsWith("/instances/job-watch/logs")) return send(200, { logs: [] });
@@ -77,6 +84,8 @@ beforeAll(async () => {
       MCP_HOST: "127.0.0.1", MCP_PORT: String(mcpPort), MCP_PATH: "/mcp",
       MCP_RATE_LIMIT_BACKEND: "memory", MCP_RATE_LIMIT_PER_MIN: "1000",
       XCELSIOR_MCP_OPENAI_APPS_CHALLENGE: "  openai-apps-challenge-token-e2e\n",
+      XCELSIOR_MCP_POSTHOG_PROJECT_API_KEY: "phc_hosted_e2e_not_a_real_key",
+      XCELSIOR_MCP_POSTHOG_HOST: `http://127.0.0.1:${apiPort}`,
       OTEL_EXPORTER_OTLP_ENDPOINT: "",
     },
     stdio: "pipe",
@@ -84,6 +93,7 @@ beforeAll(async () => {
   // Kept, not discarded: a server that dies at boot used to leave nothing but a
   // connection refusal in an unrelated assertion.
   mcp.stderr?.on("data", (chunk) => { serverStderr += String(chunk); });
+  mcp.stdout?.on("data", (chunk) => { serverStdout += String(chunk); });
   mcp.on("exit", (code, signal) => { serverExit = `exit=${code} signal=${signal}`; });
 
   // Waiting for readiness is the whole precondition of this file, so failing to
@@ -123,7 +133,24 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await transport?.close();
-  mcp?.kill("SIGTERM");
+  if (mcp && mcp.exitCode === null && mcp.signalCode === null) {
+    const exited = new Promise<boolean>((resolve) => mcp.once("exit", () => resolve(true)));
+    mcp.kill("SIGTERM");
+    const stoppedGracefully = await Promise.race([
+      exited,
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5_000)),
+    ]);
+    if (!stoppedGracefully) {
+      mcp.kill("SIGKILL");
+      throw new Error(
+        `MCP did not flush and exit within 5s of SIGTERM\n` +
+        `--- stdout ---\n${serverStdout}\n--- stderr ---\n${serverStderr}`,
+      );
+    }
+    if (!serverExit?.startsWith("exit=0")) {
+      throw new Error(`MCP graceful shutdown was not clean: ${serverExit}`);
+    }
+  }
   await new Promise<void>((resolve) => api?.close(() => resolve()));
 });
 
@@ -189,6 +216,30 @@ describe("hosted Streamable HTTP MCP", () => {
     const challenge = response.headers.get("www-authenticate") ?? "";
     expect(challenge).toContain('error="invalid_token"');
     expect(challenge).toContain("resource_metadata=");
+  });
+
+  it("mints a stateless analytics session token on initialize", async () => {
+    const response = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        authorization: "Bearer e2e-token",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "raw-session-test", version: "1.0.0" },
+        },
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    expect(response.headers.get("mcp-session-id")).toBeTruthy();
   });
 
   it("initializes and exposes complete structured tool contracts", async () => {

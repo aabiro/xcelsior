@@ -2,6 +2,9 @@
 
 Hosted Model Context Protocol server for the Xcelsior GPU platform.
 
+Requires Node.js `^20.20.0` or `>=22.22.0` (the pinned PostHog MCP beta no
+longer supports Node 18).
+
 ## Quick start (local)
 
 ```bash
@@ -100,11 +103,34 @@ operator scopes never enumerates them even on the operator host.
 | `XCELSIOR_MCP_RESOURCE_METADATA_URL` | derived | What the 401 challenge points at |
 | `XCELSIOR_MCP_TOOL_PROFILE` | `customer` | `customer` or `operator` |
 | `XCELSIOR_MCP_COMPANY_KNOWLEDGE` | `0` | Register ChatGPT company-knowledge `search`/`fetch` |
+| `XCELSIOR_MCP_POSTHOG_PROJECT_API_KEY` | browser project key, then disabled | PostHog `phc_` project key for MCP analytics |
+| `XCELSIOR_MCP_POSTHOG_HOST` | browser host or `https://us.i.posthog.com` | PostHog ingestion host |
 | `XCELSIOR_DOCS_URL` | `https://docs.xcelsior.ca` | Documentation corpus for company knowledge |
 | `MCP_HOST` | `0.0.0.0` | Bind address |
 | `MCP_PORT` | `8770` | Listen port |
 | `MCP_PATH` | `/mcp` | HTTP path |
 | `MCP_RATE_LIMIT_PER_MIN` | `60` | Per-token tool call budget |
+
+## MCP analytics
+
+`@posthog/mcp` is pinned to `0.11.4` because its pre-1.0 API may change. When a
+PostHog project key is configured, the server instruments both hosted HTTP and
+STDIO MCP traffic and emits the standard `$mcp_*` lifecycle/tool events. The
+authenticated Xcelsior `user_id` is used as `distinct_id` (with OAuth subject
+and tenant id as machine-principal fallbacks), so calls remain grouped across
+the hosted service's stateless per-request server instances.
+
+Analytics is metadata-only: Xcelsior removes tool arguments, tool results, and
+exception messages before send, disables GeoIP and exception fan-out, and does
+not inject PostHog's `context` or `conversation_id` arguments into the reviewed
+tool schemas. The Streamable HTTP transport uses JSON responses so the SDK can
+carry its signed `Mcp-Session-Id` token across replicas. The shared
+`posthog-node` client is flushed during graceful shutdown.
+
+If MCP analytics identifies users, production must also set
+`XCELSIOR_POSTHOG_PERSONAL_API_KEY` and `XCELSIOR_POSTHOG_PROJECT_ID` for the
+privacy-deletion worker. Startup validation rejects identification without
+those deletion credentials.
 
 ## Tools (v2)
 

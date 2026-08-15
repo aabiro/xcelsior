@@ -1,8 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const PORT = 3100;
-const REMOTE_BASE_URL = process.env.XCELSIOR_PWA_SMOKE_BASE_URL?.trim();
+const REMOTE_BASE_URL =
+  process.env.XCELSIOR_E2E_BASE_URL?.trim() ||
+  process.env.XCELSIOR_PWA_SMOKE_BASE_URL?.trim();
 const BASE_URL = REMOTE_BASE_URL || `http://127.0.0.1:${PORT}`;
+const BROWSER_EXECUTABLE = process.env.XCELSIOR_PLAYWRIGHT_EXECUTABLE_PATH?.trim();
 
 export default defineConfig({
   testDir: "./e2e",
@@ -15,6 +18,9 @@ export default defineConfig({
     ...devices["Desktop Chrome"],
     baseURL: BASE_URL,
     serviceWorkers: "allow",
+    launchOptions: BROWSER_EXECUTABLE
+      ? { executablePath: BROWSER_EXECUTABLE }
+      : undefined,
   },
   webServer: REMOTE_BASE_URL
     ? undefined

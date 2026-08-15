@@ -37,6 +37,8 @@ def clean_env(monkeypatch):
         "test-privacy-reference-secret-with-high-entropy",
     )
     monkeypatch.delenv("NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN", raising=False)
+    monkeypatch.delenv("XCELSIOR_MCP_POSTHOG_PROJECT_API_KEY", raising=False)
+    monkeypatch.delenv("POSTHOG_PROJECT_API_KEY", raising=False)
     monkeypatch.delenv("XCELSIOR_POSTHOG_PERSONAL_API_KEY", raising=False)
     monkeypatch.delenv("XCELSIOR_POSTHOG_PROJECT_ID", raising=False)
     monkeypatch.delenv("XCELSIOR_ALLOW_UNAUTH_AGENT", raising=False)
@@ -119,8 +121,18 @@ def test_rejects_missing_privacy_reference_secret(clean_env):
     assert "privacy_reference_secret_missing" in _codes(sv.collect_findings())
 
 
-def test_posthog_identification_requires_deletion_credentials(clean_env):
-    clean_env.setenv("NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN", "phc_enabled")
+@pytest.mark.parametrize(
+    "project_key_name",
+    [
+        "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN",
+        "XCELSIOR_MCP_POSTHOG_PROJECT_API_KEY",
+        "POSTHOG_PROJECT_API_KEY",
+    ],
+)
+def test_posthog_identification_requires_deletion_credentials(
+    clean_env, project_key_name
+):
+    clean_env.setenv(project_key_name, "phc_enabled")
     findings = sv.collect_findings()
     assert "posthog_deletion_credentials_missing" in _codes(findings)
 

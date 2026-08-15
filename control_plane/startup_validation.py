@@ -214,8 +214,13 @@ def _check_privacy_deletion_credentials() -> Finding | None:
             ),
         )
 
-    posthog_enabled = bool(
-        (os.environ.get("NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN") or "").strip()
+    posthog_enabled = any(
+        (os.environ.get(name) or "").strip()
+        for name in (
+            "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN",
+            "XCELSIOR_MCP_POSTHOG_PROJECT_API_KEY",
+            "POSTHOG_PROJECT_API_KEY",
+        )
     )
     if not posthog_enabled:
         return None

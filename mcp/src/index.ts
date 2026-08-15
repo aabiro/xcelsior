@@ -12,6 +12,8 @@ import { log } from "./observability/logging.js";
 import { TOOL_CONTRACTS } from "./tools/contracts.js";
 import { TOOL_SCOPES } from "./auth/scopes.js";
 import { scopesForProfile, toolsInProfile } from "./tools/profiles.js";
+import { instrumentMcpAnalytics, shutdownMcpAnalytics } from "./analytics.js";
+import { shutdownObservability } from "./observability/setup.js";
 
 const config = loadConfig();
 const PROFILE_OPTIONS = { companyKnowledge: config.companyKnowledge };
@@ -124,11 +126,18 @@ async function handleMcp(
       ? { siteUrl: config.siteUrl, docsUrl: config.docsUrl }
       : false,
   });
-  // Stateless mode: each request is self-contained (no Mcp-Session-Id round-trip),
-  // so the client's `initialize` POST gets an immediate JSON response instead of
-  // hanging on a session-scoped stream we tear down per request.
+  instrumentMcpAnalytics(mcp, config.posthogAnalytics, {
+    user,
+    transport: "streamable_http",
+    profile: config.toolProfile,
+  });
+  // Stateless mode: each request gets a fresh server/transport and an immediate
+  // JSON response. JSON mode also lets @posthog/mcp mint its self-encoded
+  // Mcp-Session-Id header after initialize, preserving client/session metadata
+  // across requests and replicas without server-side session storage.
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
+    enableJsonResponse: true,
   });
   activeTransports.inc({ transport: "streamable_http" });
 
@@ -270,3 +279,40 @@ function extractToolName(body: unknown): string | null {
 httpServer.listen(config.port, config.host, () => {
   log.info({ host: config.host, port: config.port, path: config.mcpPath, api_url: config.apiUrl }, "MCP listening");
 });
+
+let shuttingDown = false;
+
+async function gracefulShutdown(signal: NodeJS.Signals): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  log.info({ signal }, "MCP shutting down");
+  let exitCode = 0;
+  try {
+    if (httpServer.listening) {
+      await new Promise<void>((resolve, reject) => {
+        httpServer.close((error) => error ? reject(error) : resolve());
+      });
+    }
+    log.info("MCP HTTP listener drained");
+    const results = await Promise.allSettled([
+      shutdownMcpAnalytics().then(() => { log.info("MCP PostHog analytics flushed"); }),
+      shutdownObservability().then(() => { log.info("MCP OpenTelemetry flushed"); }),
+    ]);
+    log.info("MCP telemetry flushed");
+    for (const result of results) {
+      if (result.status === "rejected") {
+        exitCode = 1;
+        log.error({ err: result.reason }, "MCP shutdown hook failed");
+      }
+    }
+  } catch (err) {
+    exitCode = 1;
+    log.error({ err }, "MCP graceful shutdown failed");
+  } finally {
+    process.exit(exitCode);
+  }
+}
+
+for (const signal of ["SIGTERM", "SIGINT"] as const) {
+  process.once(signal, () => { void gracefulShutdown(signal); });
+}

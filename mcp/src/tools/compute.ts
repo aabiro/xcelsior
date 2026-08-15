@@ -395,10 +395,10 @@ export function registerComputeTools(
               `${sshPort} ${sshHost} 2>/dev/null | ssh-keygen -lf -` +
               " and check the SHA256 value matches host_key_fingerprint above. " +
               "If it does not match, do not connect and report it."
-            : "Xcelsior has not observed a host-key fingerprint for this " +
-              "endpoint, so the first connection cannot be verified against " +
-              "one. Tell the user that, rather than telling them to accept " +
-              "the key.",
+            : "Xcelsior does not yet publish a host-key fingerprint for this " +
+              "endpoint because it has not observed one, so the first " +
+              "connection cannot be verified against one. Tell the user " +
+              "that, rather than telling them to accept the key.",
           requires:
             "A registered public key. If ssh refuses the connection, call " +
             "register_ssh_key with the contents of a .pub file.",

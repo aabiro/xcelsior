@@ -3,6 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { loadConfig } from "./config.js";
 import { createMcpServer } from "./server.js";
 import { createApiClient, validateBearer } from "./auth/bearer.js";
+import { instrumentMcpAnalytics, shutdownMcpAnalytics } from "./analytics.js";
 
 // stdio transport: launched as a subprocess by the MCP client (VS Code, Claude,
 // Cursor, …). Unlike the hosted HTTP transport it never speaks HTTP to the
@@ -47,7 +48,32 @@ async function main(): Promise<void> {
 
   const client = createApiClient(config.apiUrl, token);
   const server = createMcpServer(client, user, "stdio");
-  await server.connect(new StdioServerTransport());
+  instrumentMcpAnalytics(server, config.posthogAnalytics, {
+    user,
+    transport: "stdio",
+    profile: config.toolProfile,
+  });
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+
+  let shuttingDown = false;
+  const shutdown = async (exitCode: number): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    try {
+      await server.close();
+      await shutdownMcpAnalytics();
+    } catch (err) {
+      console.error(`[xcelsior-mcp] shutdown failed: ${String(err)}`);
+      exitCode = 1;
+    } finally {
+      process.exit(exitCode);
+    }
+  };
+  for (const signal of ["SIGTERM", "SIGINT"] as const) {
+    process.once(signal, () => { void shutdown(0); });
+  }
+  process.once("beforeExit", () => { void shutdownMcpAnalytics(); });
 }
 
 main().catch((err) => {

@@ -1,5 +1,10 @@
 import { loadRateLimitConfig, type RateLimitConfig } from "./rate-limit.js";
 
+export interface PostHogAnalyticsConfig {
+  projectApiKey: string;
+  host: string;
+}
+
 export interface AppConfig {
   apiUrl: string;
   host: string;
@@ -53,6 +58,8 @@ export interface AppConfig {
    * value (adoption plan BLOCKER 4).
    */
   openaiAppsChallenge: string;
+  /** Optional metadata-only MCP analytics. Disabled when no project key is set. */
+  posthogAnalytics: PostHogAnalyticsConfig;
 }
 
 /** Origin of an absolute URL, or "" when it cannot be parsed. */
@@ -117,6 +124,20 @@ export function loadConfig(): AppConfig {
     // would make the response body differ from the token by one byte, which is
     // exactly the kind of failure that reads as "verification just doesn't work".
     openaiAppsChallenge: (process.env.XCELSIOR_MCP_OPENAI_APPS_CHALLENGE || "").trim(),
+    posthogAnalytics: {
+      projectApiKey: (
+        process.env.XCELSIOR_MCP_POSTHOG_PROJECT_API_KEY
+        || process.env.POSTHOG_PROJECT_API_KEY
+        || process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN
+        || ""
+      ).trim(),
+      host: (
+        process.env.XCELSIOR_MCP_POSTHOG_HOST
+        || process.env.POSTHOG_HOST
+        || process.env.NEXT_PUBLIC_POSTHOG_HOST
+        || "https://us.i.posthog.com"
+      ).replace(/\/$/, ""),
+    },
   };
 }
 
