@@ -64,6 +64,18 @@ const TOOL_SCOPE_REGISTRY = {
   // `ssh:write` is split from `ssh:read` and why its consent text names
   // shell access rather than "manage keys".
   register_ssh_key: { allOf: ["ssh:write"] },
+  // The other two thirds of the same journey. `ssh:read` was declared when the
+  // scope was split and **no tool ever used it** — the read half was designed
+  // and not built, so an agent could grant shell access and neither show which
+  // keys were authorised nor take one away.
+  list_ssh_keys: { allOf: ["ssh:read"] },
+  // Both halves, deliberately: **you cannot revoke what you cannot see.**
+  // The route asks only for `ssh:write`; requiring `ssh:read` as well keeps
+  // this out of Quick Connect's reach, which holds write and not read so a
+  // connector can register its own key and not enumerate the account's.
+  // Reachable with `ssh:write` alone, a connector could disconnect a live
+  // session using an id it was handed rather than one it could look up.
+  delete_ssh_key: { allOf: ["ssh:write", "ssh:read"] },
   // P3 — durable state. Reads are `volumes:read`; anything that creates,
   // moves or destroys is `volumes:write`, and every destructive one is
   // confirm-gated in the handler as well.

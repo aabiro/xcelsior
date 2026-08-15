@@ -430,6 +430,34 @@
       "hasOutputSchema": true
     },
     {
+      "name": "delete_ssh_key",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "ssh:read",
+        "ssh:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "key_id": {
+          "type": "string",
+          "optional": false
+        },
+        "confirm": {
+          "type": "boolean",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
       "name": "delete_user_image",
       "version": "2.0.0",
       "tenantClass": "tenant",
@@ -1079,6 +1107,24 @@
       "tenantClass": "tenant",
       "requiredScopes": [
         "inference:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {},
+      "hasOutputSchema": true
+    },
+    {
+      "name": "list_ssh_keys",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "ssh:read"
       ],
       "idempotency": "read",
       "retry": "safe",

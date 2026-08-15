@@ -176,7 +176,18 @@ def _registered_tool_names() -> set[str]:
 #: was to POST a change and read `previous` out of the response. You had to
 #: write in order to read, on the one surface that authorises charges with
 #: nobody present.
-EXPECTED_TOOL_TOTAL = 67
+#: **69 with `list_ssh_keys` and `delete_ssh_key`.** `register_ssh_key`'s own
+#: scope comment says adding a key "is the step that grants shell access" — and
+#: an agent could take that step while being unable to show which keys were
+#: authorised or take one away. `ssh:read` had been declared when the scope was
+#: split and **no tool ever used it**: the read half was designed and never
+#: built.
+#:
+#: Both are out of Quick Connect's reach by design, and `delete_ssh_key`
+#: requires `ssh:read` *as well as* `ssh:write` to keep it that way — you cannot
+#: revoke what you cannot enumerate, and a connector holding write alone could
+#: otherwise disconnect a live session using an id it was handed.
+EXPECTED_TOOL_TOTAL = 69
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition

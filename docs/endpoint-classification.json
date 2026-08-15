@@ -64,8 +64,8 @@
     "notes": "the Slurm bridge for HPC clusters \u2014 a separate scheduler integration, admin-only, and not the GPU-instance journey any P0-P7 phase describes"
   },
   "DELETE /api/ssh/keys/{key_id}": {
-    "class": "gap",
-    "notes": "No tool removes a key. Revocation is the operation most likely to be wanted under pressure, so it needs a confirm-gated tool rather than arriving as a side effect of the registration one"
+    "class": "covered",
+    "notes": "delete_ssh_key, confirm-gated. Revokes on running instances too."
   },
   "DELETE /api/teams/{team_id}": {
     "class": "internal",
@@ -616,8 +616,8 @@
     "notes": "the Slurm bridge for HPC clusters \u2014 a separate scheduler integration, admin-only, and not the GPU-instance journey any P0-P7 phase describes"
   },
   "GET /api/ssh/keys": {
-    "class": "gap",
-    "notes": "No tool lists keys. Deliberate: Quick Connect holds ssh:write and not ssh:read, so granting a listing tool would widen the connector's read surface for no capability it needs today"
+    "class": "covered",
+    "notes": "list_ssh_keys. Shows what has shell access; the only source of key_id."
   },
   "GET /api/ssh/pubkey": {
     "class": "internal",

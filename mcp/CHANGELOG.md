@@ -67,6 +67,22 @@ reflected here and version-bumped fails the build.
 
 ### Added
 
+- **`list_ssh_keys` and `delete_ssh_key`** — see what has shell access, and take
+  it away.
+
+  `register_ssh_key` grants shell access — its scope comment says so — and an
+  agent could take that step while being unable to show which keys were
+  authorised or revoke one. `ssh:read` was declared when the scope was split and
+  **no tool ever used it**: the read half was designed and never built.
+
+  **Neither is reachable with a Quick Connect token**, and that is deliberate.
+  The connector holds `ssh:write` and not `ssh:read` so it can register its own
+  key without enumerating the account's — which would reveal what other machines
+  and people can get in. `delete_ssh_key` requires read *as well as* write for
+  the same reason: you cannot revoke what you cannot list, and revocation
+  disconnects anyone currently using that key. Full-scope credentials are
+  unaffected.
+
 - **`get_auto_topup`** — read the current automatic top-up settings without
   changing them.
 

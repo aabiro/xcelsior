@@ -105,6 +105,15 @@ describe("scope enforcement", () => {
     // connector token holds `billing:read`, and widening automatic spending is
     // not something it should be able to do.
     "configure_auto_topup",
+    // Key management is account administration, not connector work. The
+    // `ssh:read` split exists so a Quick Connect token can register its own key
+    // and **not** enumerate the account's — which would tell it which other
+    // machines and people hold shell access. `delete_ssh_key` requires read as
+    // well as write for the same reason: revoking what you cannot list means
+    // acting on an id from somewhere else, on a call that disconnects live
+    // sessions.
+    "list_ssh_keys",
+    "delete_ssh_key",
   ]);
 
   it("still admits the Quick Connect scope set for every customer tool", () => {

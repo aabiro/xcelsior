@@ -145,6 +145,13 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   // state, so the 15s default would end every useful call.
   watch_instance: { readOnly: true, destructive: false, audience: "customer", timeoutMs: 3_600_000 },
   register_ssh_key: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
+  list_ssh_keys: { readOnly: true, destructive: false, audience: "customer" },
+  // **Not** destructive, on the same reasoning as `detach_volume`: the question
+  // `destructiveHint` asks is whether the effect is undone by acting again, and
+  // the user holds the private key — re-registering the public half restores
+  // access. What it does disrupt is any live session the key authorised, which
+  // is why it previews before acting rather than why it is flagged.
+  delete_ssh_key: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
   list_volumes: { readOnly: true, destructive: false, audience: "customer" },
   get_volume: { readOnly: true, destructive: false, audience: "customer" },
   create_volume: { readOnly: false, destructive: false, audience: "customer", idempotency: "none", version: "2.1.0" },
