@@ -72,10 +72,13 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "was actually allocated. Read-only and free.",
 
   get_instance_logs:
-    "Get the most recent buffered log lines for an instance. Use when diagnosing why a job " +
-    "failed or checking progress on a running one; it returns a snapshot, so call it again for " +
-    "newer output rather than expecting a stream. Read-only and free. For a live view over " +
-    "several minutes, use watch_instance instead.",
+    "Get the most recent buffered log lines an instance has printed — its output, stdout and " +
+    "stderr. Use when the user asks what a job is printing, what it is doing right now, or why " +
+    "it failed; the instance id can come from earlier in the conversation rather than from a " +
+    "fresh listing. It returns a snapshot, so call it again for newer output rather than " +
+    "expecting a stream. Read-only and free. If the user asks to be told when the job finishes, " +
+    "or to be notified on completion or failure, that is watch_instance — this tool returns " +
+    "immediately and will not wait for anything.",
 
   create_instance:
     "Prepare or execute a server-bound plan to rent a GPU instance. Use when the user has " +
@@ -250,11 +253,13 @@ const DESCRIPTIONS: Record<ToolName, string> = {
 
   // ── Monitoring ──────────────────────────────────────────────────────────
   watch_instance:
-    "Poll one instance's status, telemetry, and recent logs for up to 60 minutes, returning as " +
-    "soon as it reaches one of the phases you name. Use when the user wants to wait for a job to " +
-    "finish or fail rather than checking repeatedly. Read-only: it never cancels or modifies the " +
-    "instance, and abandoning the watch leaves the job running and still billing. The instance " +
-    "keeps accruing hourly cost for as long as it runs, whether or not you are watching.",
+    "Wait for an instance to reach a phase you name — finished, failed, running — polling its " +
+    "status, telemetry, and recent logs for up to 60 minutes and returning as soon as it gets " +
+    "there. Use when the user asks to be told when something finishes, to be notified when it " +
+    "is done, or to wait for a result, rather than calling get_instance_logs repeatedly and " +
+    "guessing. Read-only: it never cancels or modifies the instance, and abandoning the watch " +
+    "leaves the job running and still billing. The instance keeps accruing hourly cost for as " +
+    "long as it runs, whether or not you are watching.",
 
   // ── Serverless ──────────────────────────────────────────────────────────
   list_serverless_endpoints:
@@ -271,9 +276,13 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "costs nothing while idle.",
 
   should_i_run_pel_job:
-    "Decide whether a serverless inference job is affordable: estimates token and GPU cost " +
-    "against the wallet balance and returns a verdict. Use before run_serverless_job on anything " +
-    "large or repeated. Read-only and free; it never invokes the endpoint.",
+    "Decide whether serverless inference is affordable before committing to it: estimates token " +
+    "and GPU cost against the wallet balance and returns a verdict. Use before " +
+    "create_serverless_endpoint when deploying a model, and before run_serverless_job on " +
+    "anything large or repeated — deploying an endpoint commits to standing capacity, so the " +
+    "check belongs there too, not only at invocation. Checking the wallet balance directly " +
+    "answers a smaller question: it says what is available, not what this will cost. Read-only " +
+    "and free; it never deploys an endpoint or invokes one.",
 
   run_serverless_job:
     "Enqueue an asynchronous inference job on an existing serverless endpoint and return a job " +
@@ -293,10 +302,13 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "somewhere they expected. Read-only and free.",
 
   simulate_instance_placement:
-    "Run a proposed instance spec through the scheduler and return where it would be placed, " +
-    "without allocating anything. Use to test feasibility — a region preference, a VRAM " +
-    "requirement, a host preference — before preparing a real launch plan. Read-only and free: " +
-    "no capacity is reserved and nothing is billed.",
+    "Answer whether a proposed spec would actually schedule — run it through the real scheduler " +
+    "and get back where it would be placed, or why it would not be, without allocating " +
+    "anything. Use when the user asks whether something is possible, whether it would fit, or " +
+    "whether a combination of GPU model, count, and region can be satisfied at all. Browsing " +
+    "inventory does not answer this: list_available_gpus and search_marketplace show what " +
+    "exists, not whether one host can satisfy four of them in the region asked for. Read-only " +
+    "and free: no capacity is reserved and nothing is billed.",
 
   evaluate_placement_preference:
     "Check what a placement preference would actually get you, before committing to anything. " +
