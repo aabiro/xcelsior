@@ -22,8 +22,15 @@ try:
     with _pool.connection() as _c:
         _has = (
             _c.execute(
+                # `spend_limit_micros`, not `_cad`. Migration 097 dropped every
+                # float money column; `spend_limit_cad` survives only as a
+                # derived alias in `serverless/repo.py`'s SELECTs, and
+                # `information_schema` does not list aliases. So this guard went
+                # permanently false at 097 and **these six tests have not run
+                # since** — a spend-ceiling suite disabled by the same migration
+                # that renamed what it was guarding.
                 "SELECT 1 FROM information_schema.columns "
-                "WHERE table_name='serverless_endpoints' AND column_name='spend_limit_cad'"
+                "WHERE table_name='serverless_endpoints' AND column_name='spend_limit_micros'"
             ).fetchone()
             is not None
         )
@@ -32,7 +39,7 @@ except Exception as _e:  # pragma: no cover
     _pool = None
 else:
     if not _has:  # pragma: no cover
-        pytestmark = pytest.mark.skip("serverless_endpoints.spend_limit_cad missing — upgrade >= 071")
+        pytestmark = pytest.mark.skip("serverless_endpoints.spend_limit_micros missing — upgrade >= 097")
 
 from serverless.repo import EndpointCreate, ServerlessRepo
 
@@ -88,7 +95,12 @@ def test_enqueue_refused_when_endpoint_over_budget_no_job_created(endpoint):
     # Set a $1 cap and $2 accrued — exhausted.
     with _pool.connection() as conn:
         conn.execute(
-            "UPDATE serverless_endpoints SET spend_limit_cad = 1.0, total_cost_cad = 2.0 WHERE endpoint_id=%s",
+            # Micros, because 097 dropped the float columns. The read path still
+            # yields `spend_limit_cad` — `serverless/repo.py` derives it in the
+            # SELECT — so the assertions below stay in CAD, which is the
+            # boundary this codebase speaks.
+            "UPDATE serverless_endpoints SET spend_limit_micros = 1000000, "
+            "total_cost_micros = 2000000 WHERE endpoint_id=%s",
             (endpoint_id,),
         )
         conn.commit()
@@ -112,7 +124,7 @@ def test_enqueue_proceeds_within_budget(endpoint):
     owner = str(ep["owner_id"])
     with _pool.connection() as conn:
         conn.execute(
-            "UPDATE serverless_endpoints SET spend_limit_cad = 100.0, total_cost_cad = 1.0 WHERE endpoint_id=%s",
+            "UPDATE serverless_endpoints SET spend_limit_micros = 100000000, total_cost_micros = 1000000 WHERE endpoint_id=%s",
             (endpoint_id,),
         )
         conn.commit()

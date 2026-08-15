@@ -1990,12 +1990,6 @@ class BillingEngine:
     # ``paused_low_balance`` status, so the UI has one consistent
     # "stopped" surface. See alembic migration 031_drop_pause_resume_state.
 
-    def _removed_pause_resume_stub(self, job_id: str, *args, **kwargs) -> dict:
-        """Placeholder — pause/resume removed; callers must use stop/start."""
-        raise RuntimeError(
-            "pause_instance/resume_instance were removed; use stop_instance/start_instance"
-        )
-
     # ── Instance Lifecycle: Stop / Start / Restart / Terminate ───────
 
     _VALID_STOP_REASONS = frozenset(
