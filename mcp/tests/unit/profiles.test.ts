@@ -87,6 +87,12 @@ describe("annotation accuracy", () => {
     expect(openWorld).toEqual([
       // Live third-party marketplace inventory and pricing.
       "get_spot_prices", "list_available_gpus", "search_marketplace",
+      // Reads `/api/v2/gpu/available` and `/api/v2/marketplace/spot-prices` —
+      // the two feeds behind the first two above — and then **spends money
+      // against the answer**. Added 2026-08-14; it had been missed because the
+      // rationale in contracts.ts said "everything else reads our own
+      // records", and a summary of a list is not a check of it.
+      "schedule_under_budget",
       // Company knowledge indexes the published docs site, which changes
       // without a deploy on our side.
       "fetch", "search",

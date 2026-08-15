@@ -41,9 +41,37 @@ interface ToolPolicyBase {
    * written.
    */
   version?: string;
-  /** Reads a domain that changes without us doing anything. Defaults false. */
+  /**
+   * Reads a domain that changes without us doing anything. Defaults false.
+   *
+   * A statement about the **domain**, not about network I/O — every tool here
+   * reaches our API over a network. The ones that carry it surface a live
+   * marketplace of independent third-party hosts whose inventory, pricing and
+   * membership move without any deploy of ours, so a model must not assume a
+   * previous answer still holds.
+   *
+   * The rationale this replaces said "everything else reads our own records",
+   * and that sentence is how `schedule_under_budget` was missed: it reads
+   * `/api/v2/gpu/available` and `/api/v2/marketplace/spot-prices` — the exact
+   * two feeds behind `list_available_gpus` and `get_spot_prices`, both flagged
+   * — and then **spends money against the answer**. A summary of a list is not
+   * a check of it.
+   */
   openWorld?: boolean;
-  /** Overrides the 15s default. */
+  /**
+   * Advisory ceiling, recorded in the audit record's `_meta`. **Not enforced.**
+   *
+   * Worth stating because the name says otherwise. The request deadline comes
+   * from `RequestOptions.timeoutMs` at each call site, defaulting to 15s in
+   * `client/api.ts`; nothing reads this field except `audit/context.ts`, which
+   * emits it as `xcelsior/timeoutMs`. `watch_instance` declares an hour and
+   * every HTTP call inside its polling loop still gets 15s — the hour describes
+   * how long the *tool* may run, not how long a request may take.
+   *
+   * Left as-is rather than renamed or wired up: deciding which of those two
+   * things it should mean is a design question, and it reaches no client, since
+   * `tool-surface.json` does not publish it.
+   */
   timeoutMs?: number;
 }
 
@@ -112,7 +140,7 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   terminate_instance: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed" },
   should_i_run_this: { readOnly: true, destructive: false, audience: "customer" },
   run_training_job: { readOnly: false, destructive: false, audience: "customer", idempotency: "none", version: "2.1.0" },
-  schedule_under_budget: { readOnly: false, destructive: false, audience: "customer", idempotency: "none", version: "2.1.0" },
+  schedule_under_budget: { readOnly: false, destructive: false, audience: "customer", idempotency: "none", openWorld: true, version: "2.2.0" },
   // The one long timeout: it holds a connection open while an instance changes
   // state, so the 15s default would end every useful call.
   watch_instance: { readOnly: true, destructive: false, audience: "customer", timeoutMs: 3_600_000 },
