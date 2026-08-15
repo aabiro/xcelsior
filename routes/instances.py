@@ -3059,6 +3059,9 @@ def api_list_user_images(
     the partial indexes keep all three scopes O(page) without a seq scan.
     """
     user = _require_auth(request)
+    # A token holding no instance scope should not enumerate a tenant's
+    # images, even though reading them changes nothing.
+    _require_scope(user, "instances:read")
     scope_owner_id = _user_image_scope_owner_id(user)
     if not scope_owner_id:
         raise HTTPException(401, "Authentication required")
@@ -3212,6 +3215,9 @@ class _UserImagePatchIn(BaseModel):
 def api_patch_user_image(image_id: str, body: _UserImagePatchIn, request: Request):
     """Phase D — update description/labels/visibility/star on a template."""
     user = _require_auth(request)
+    # Renaming or re-labelling someone's image is a mutation; the same
+    # narrowed-token argument as the delete route applies.
+    _require_scope(user, "instances:write")
     if not _user_image_scope_owner_id(user):
         raise HTTPException(401, "Authentication required")
     is_admin = bool(user.get("is_admin") or user.get("admin"))
@@ -3269,6 +3275,10 @@ def api_patch_user_image(image_id: str, body: _UserImagePatchIn, request: Reques
 def api_delete_user_image(image_id: str, request: Request):
     """Soft-delete a user image record. (Underlying docker image not removed.)"""
     user = _require_auth(request)
+    # Ownership is checked below and is not a substitute for this. A Quick
+    # Connect key issued with `instances:read` belongs to the owner too, and
+    # the whole point of issuing it narrowed is that it cannot mutate.
+    _require_scope(user, "instances:write")
     if not _user_image_scope_owner_id(user):
         raise HTTPException(401, "Authentication required")
     is_admin = bool(user.get("is_admin") or user.get("admin"))

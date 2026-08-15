@@ -48,6 +48,28 @@ reflected here and version-bumped fails the build.
 
 ### Added
 
+- **`create_instance_snapshot`, `list_user_images`, `delete_user_image`** — the
+  snapshot half of the sweep journey. Capture a working environment from a
+  running instance, find it again, and delete it when the storage is no longer
+  wanted.
+
+  These exist because `create_image_sweep` shipped **unusable**: it requires an
+  `image_id` and nothing on the tool surface could produce or find one. Its own
+  input schema referred callers to `list_user_images`, which did not exist.
+
+  `delete_user_image` is annotated destructive and previews before it acts —
+  the record cannot be recovered through the API, and anything that referenced
+  the image can no longer be launched from it. `create_instance_snapshot`
+  refuses to overwrite an existing `name:tag` rather than replacing it, so it is
+  safe to repeat.
+
+  **Scope enforcement on the underlying routes was fixed in the same change.**
+  `DELETE` and `PATCH /user-images/{image_id}` checked authentication and
+  ownership but no scope, so a key issued with `instances:read` could delete or
+  rename an image. They now require `instances:write`, and `GET /user-images`
+  requires `instances:read`. No published annotation changed, so no version
+  bump: this closes a hole rather than altering a promise.
+
 - **`create_image_sweep` and `get_image_sweep`** — P7's sweep, reachable by an
   agent. Launch N instances from one snapshot as a single record whose members
   can be compared for environment drift, and read back which of them agree.

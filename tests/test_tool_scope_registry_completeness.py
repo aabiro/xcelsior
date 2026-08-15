@@ -150,7 +150,16 @@ def _registered_tool_names() -> set[str]:
 #: canonical hash binds it, so approving three cannot be spent on sixty-four.
 #: §1.5's delta is owed against the 51-tool capture of 2026-08-11 (0.9444), and
 #: the surface has moved, so it will not be directly comparable.
-EXPECTED_TOOL_TOTAL = 62
+#: **65 since the snapshot half of P7.** `create_image_sweep` needed an
+#: `image_id` and nothing on the tool surface could produce or find one, so the
+#: sweep shipped unusable by the agent it was built for: its own input schema
+#: pointed at `list_user_images`, which did not exist. `create_instance_snapshot`,
+#: `list_user_images` and `delete_user_image` close the journey — capture an
+#: environment, find it, sweep it, and remove it when the storage is no longer
+#: wanted. The delete exists because GT0's finding was entrances everywhere and
+#: exits missing, and an agent that can create images that cost storage should
+#: be able to stop paying for them.
+EXPECTED_TOOL_TOTAL = 65
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition
