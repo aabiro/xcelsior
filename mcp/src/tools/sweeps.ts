@@ -38,7 +38,7 @@ export function registerSweepTools(
     "create_image_sweep",
     {
       inputSchema: z.object({
-        image_id: z.string().min(1).max(64).describe("A ready snapshot from list_user_images"),
+        image_id: z.string().min(1).max(64).describe("A ready image_id from list_user_images"),
         count: z.number().int().min(1).max(64).describe("How many instances to launch"),
         name: z.string().min(1).max(96).default("sweep"),
         vram_needed_gb: z.number().min(0).default(0),
@@ -107,6 +107,132 @@ export function registerSweepTools(
         return structuredResult(data, `Sweep launched from approved plan ${plan_id}.`);
       } catch (error) {
         return structuredResult({ ok: false, error: formatApiError(error) }, "create_image_sweep failed.");
+      }
+    },
+  );
+
+  server.registerTool(
+    "create_instance_snapshot",
+    {
+      inputSchema: z.object({
+        job_id: z.string().min(1).max(160),
+        name: z.string().min(1).max(63).describe("Lowercase repository name"),
+        tag: z.string().max(63).default("latest"),
+        description: z.string().max(512).default(""),
+      }),
+      outputSchema: z.object({}).passthrough(),
+    },
+    async (args: Record<string, unknown>) => {
+      if (!userHasScope(user?.scopes, TOOL_SCOPES.create_instance_snapshot)) {
+        return denied("create_instance_snapshot");
+      }
+      const { job_id, ...body } = args;
+      try {
+        const data = await client.post<Record<string, unknown>>(
+          `/instances/${encodeURIComponent(String(job_id))}/snapshot`,
+          body,
+        );
+        return structuredResult(
+          data,
+          "Snapshot queued. It builds on the host in the background — check " +
+            "list_user_images for when it reports ready.",
+        );
+      } catch (error) {
+        return structuredResult(
+          { ok: false, error: formatApiError(error) },
+          "create_instance_snapshot failed.",
+        );
+      }
+    },
+  );
+
+  server.registerTool(
+    "list_user_images",
+    {
+      inputSchema: z.object({
+        scope: z.enum(["mine", "team", "all"]).default("mine"),
+        q: z.string().max(200).default("").describe("Filter by name substring"),
+        limit: z.number().int().min(1).max(500).default(100),
+      }),
+      outputSchema: z.object({}).passthrough(),
+    },
+    async (args: Record<string, unknown>) => {
+      if (!userHasScope(user?.scopes, TOOL_SCOPES.list_user_images)) {
+        return denied("list_user_images");
+      }
+      try {
+        const data = await client.get<Record<string, unknown>>("/user-images", {
+          scope: String(args.scope ?? "mine"),
+          q: String(args.q ?? ""),
+          limit: Number(args.limit ?? 100),
+        });
+        return structuredResult(data, "Images retrieved.");
+      } catch (error) {
+        return structuredResult(
+          { ok: false, error: formatApiError(error) },
+          "list_user_images failed.",
+        );
+      }
+    },
+  );
+
+  server.registerTool(
+    "delete_user_image",
+    {
+      inputSchema: z.object({
+        image_id: z.string().min(1).max(64),
+        confirm: z
+          .boolean()
+          .default(false)
+          .describe("false returns a preview of what would be deleted"),
+      }),
+      outputSchema: z.object({}).passthrough(),
+    },
+    async (args: Record<string, unknown>) => {
+      if (!userHasScope(user?.scopes, TOOL_SCOPES.delete_user_image)) {
+        return denied("delete_user_image");
+      }
+      const imageId = String(args.image_id);
+      // Preview before destroying, the same shape `delete_volume` uses. The
+      // deletion cannot be undone through the API, so a model that guessed an
+      // id has one chance to notice.
+      if (!args.confirm) {
+        try {
+          const listing = await client.get<Record<string, unknown>>("/user-images", {
+            limit: 500,
+          });
+          const images = (listing.images as Array<Record<string, unknown>>) ?? [];
+          const match = images.find((i) => String(i.image_id) === imageId);
+          return structuredResult(
+            {
+              ok: true,
+              preview: true,
+              confirm_required: true,
+              image: match ?? null,
+              message: match
+                ? `Would delete ${match.name}:${match.tag}. This cannot be undone — ` +
+                  "call again with confirm:true."
+                : `No image ${imageId} is visible on this account.`,
+            },
+            "Preview only — nothing was deleted.",
+          );
+        } catch (error) {
+          return structuredResult(
+            { ok: false, error: formatApiError(error) },
+            "delete_user_image preview failed.",
+          );
+        }
+      }
+      try {
+        const data = await client.delete<Record<string, unknown>>(
+          `/user-images/${encodeURIComponent(imageId)}`,
+        );
+        return structuredResult(data, `Image ${imageId} deleted.`);
+      } catch (error) {
+        return structuredResult(
+          { ok: false, error: formatApiError(error) },
+          "delete_user_image failed.",
+        );
       }
     },
   );

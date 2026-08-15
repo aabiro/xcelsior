@@ -217,6 +217,14 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   configure_auto_topup: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
   // Company knowledge, off by default. Both index the published documentation
   // site and the live marketplace, which change without a deploy on our side.
+  // Repeat-safe by nature rather than by key: a second snapshot of the same
+  // `name:tag` 409s with "already exists (delete it first to overwrite)", so
+  // calling twice has no additional effect. Same shape as `register_ssh_key`.
+  create_instance_snapshot: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
+  list_user_images: { readOnly: true, destructive: false, audience: "customer" },
+  // Destructive: the record cannot be brought back through the API, and a
+  // sweep or launch that referenced the image stops being reproducible.
+  delete_user_image: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed" },
   // Preparing a sweep plan spends nothing, but each call creates another plan
   // awaiting approval — the same shape as `run_pipeline`, and classified the
   // same way. Executing an approved plan *is* repeat-safe; that is the execute

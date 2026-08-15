@@ -115,9 +115,15 @@ describe("annotation accuracy", () => {
     // resolving — a replacement is a new deployment, not the same one back.
     // Cancelling an inference job ends it; there is no resume, only a new job,
     // which is the same shape as cancel_instance.
+    // `delete_user_image` joins them: the record cannot be brought back through
+    // the API, and anything that referenced the image — a past sweep, a launch
+    // worth reproducing — can no longer be launched from it. Re-snapshotting
+    // produces a *new* image from whatever the instance holds now, which is not
+    // the same bytes.
     expect(destructive).toEqual([
       "cancel_instance", "cancel_serverless_job", "delete_serverless_endpoint",
-      "delete_volume", "evict_host_workloads", "terminate_instance",
+      "delete_user_image", "delete_volume", "evict_host_workloads",
+      "terminate_instance",
     ]);
   });
 
