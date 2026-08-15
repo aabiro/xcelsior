@@ -138,7 +138,19 @@ def _registered_tool_names() -> set[str]:
 #: identically to its sibling `simulate_instance_placement`
 #: (`instances:read` + `gpu:read`), so it widens no authority. §1.5's delta is
 #: owed against the 50-tool capture of 2026-08-09 (0.9444).
-EXPECTED_TOOL_TOTAL = 60
+#: **62 since P7** added `create_image_sweep` and `get_image_sweep`, the
+#: agent-facing half of the sweep. The routes had existed since 2026-08-14 and
+#: were classified `gap` — an agent journey the plan names with no tool to
+#: reach it — which on an *agent-native* plan is the omission that matters.
+#:
+#: The create tool widens authority further than any tool added before it: it
+#: can launch sixty-four instances. It is deliberately **not** a thinner gate
+#: than `create_instance`, which will not launch one without an approved plan —
+#: the sweep prepares a plan, the plan carries its member count, and the
+#: canonical hash binds it, so approving three cannot be spent on sixty-four.
+#: §1.5's delta is owed against the 51-tool capture of 2026-08-11 (0.9444), and
+#: the surface has moved, so it will not be directly comparable.
+EXPECTED_TOOL_TOTAL = 62
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition

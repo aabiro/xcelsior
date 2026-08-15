@@ -160,11 +160,11 @@ def test_the_sweep_exists_and_pins_a_digest():
     import pathlib
 
     routes = pathlib.Path("routes/instances.py").read_text(encoding="utf-8")
-    assert '@router.post("/api/v1/image-sweeps"' in routes, (
-        "the sweep creation route is gone; if it moved, point this at it"
+    assert '@router.post("/api/v1/image-sweep-plans/{plan_id}/execute"' in routes, (
+        "the sweep execute route is gone; if it moved, point this at it"
     )
 
-    start = routes.index("def api_create_image_sweep(")
+    start = routes.index("def api_execute_image_sweep_plan(")
     body = routes[start : routes.index("\n@router.", start + 1)]
     assert "image=image_digest" in body, (
         "the sweep no longer launches members against the pinned digest. A tag "
@@ -192,7 +192,7 @@ def test_the_sweep_funds_every_member_before_submitting_it():
     import pathlib
 
     routes = pathlib.Path("routes/instances.py").read_text(encoding="utf-8")
-    start = routes.index("def api_create_image_sweep(")
+    start = routes.index("def api_execute_image_sweep_plan(")
     body = routes[start : routes.index("\n@router.", start + 1)]
     assert "_wallet_preflight(" in body, "the sweep no longer funds members before submitting them"
     assert "link_wallet_hold_to_job" in body, (

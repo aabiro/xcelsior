@@ -204,8 +204,20 @@ were failures of *evidence*, not of intent.
   the platform must accept) and `open_instance_access` (the way in once it
   does). Both are inside the default profile, so both counts move by two.*
 
+  *Restated again on 2026-08-14: **`TOOL_SCOPES` holds 62 and
+  `tool-surface.json` publishes 53**, the difference being the seven operator
+  tools and the two company-knowledge ones. P7 added `create_image_sweep` and
+  `get_image_sweep`; the sweep routes had existed since earlier that day and
+  were classified `gap`, which on an agent-native plan is the omission that
+  matters — the feature was built and no agent could reach it. The create tool
+  can launch sixty-four instances and is deliberately not a thinner gate than
+  `create_instance`: it prepares a plan, the plan carries its member count, and
+  the canonical hash binds it. Two eval cases were added with the tools, because
+  `evals.test.ts` requires the case set to cover half the customer surface and
+  adding tools without cases silently lowers that coverage.*
+
   *Restated from "39 tools", and the correction is two separate things. The
-  count moved — `TOOL_SCOPES` holds 43 and `tool-surface.json` publishes 34,
+  count moved — `TOOL_SCOPES` held 43 and `tool-surface.json` published 34,
   the difference being tools outside the default profile — and
   `tests/test_tool_scope_registry_completeness.py` refuses to let that drift
   silently, which is why this line changes in the same commit as the constant.*

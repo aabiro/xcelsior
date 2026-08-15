@@ -3858,9 +3858,126 @@ class _SweepIn(BaseModel):
     interactive: bool = True
 
 
+def _sweep_plan_principal(user: dict):
+    """The principal a sweep plan is bound to.
+
+    Same shape as the serverless one: a plan is owned by a tenant, and the
+    execute route compares `plan["tenant_id"]` against this before it will look
+    at the plan's status at all.
+    """
+    from control_plane.launch.service import Principal
+
+    return Principal(
+        principal_id=str(_user_image_scope_owner_id(user)),
+        tenant_id=str(_user_image_scope_owner_id(user)),
+        client_id=user.get("client_id"),
+        team_id=user.get("team_id"),
+        scopes=tuple(user.get("scopes") or ()),
+    )
+
+
 @router.post("/api/v1/image-sweeps", tags=["Instances"])
 def api_create_image_sweep(body: _SweepIn, request: Request):
-    """Launch N instances from one snapshot, recorded as one sweep.
+    """Quote a sweep and persist it as one approvable plan. Nothing launches here.
+
+    **A sweep is the largest single spend on the platform and had the weakest
+    gate.** `create_instance` refuses to launch one instance without an approved
+    `plan_id`; this route launched up to sixty-four on a bare call. Exposing it
+    to an agent in that shape would have made the bulk path the way to skip the
+    approval that guards the single path.
+
+    The obvious shortcut — reuse `/api/v1/launch-plans`, which quotes one job —
+    is worse than no gate: `count` would sit outside the approved canonical
+    args, so a plan approved for one instance would authorise sixty-four. The
+    count is inside the plan here, and the canonical hash binds it, so an
+    approval means the number that was shown.
+
+    The image is validated **before** a plan is written, so an unsweepable image
+    is refused now rather than after someone approves a spend for it.
+    """
+    from control_plane.db import control_plane_transaction
+    import hashlib
+
+    from control_plane.image_sweeps import SweepRefused, assert_sweepable
+    from control_plane.launch import action_plans as plans_repo, spend_policy
+    from control_plane.launch.service import DEFAULT_TOLERANCE_BPS, plan_ttl_sec
+
+    user = _require_auth(request)
+    _require_scope(user, "instances:write")
+    _require_team_instance_write(user)
+    customer_id = _user_image_scope_owner_id(user)
+    principal = _sweep_plan_principal(user)
+
+    try:
+        with control_plane_transaction() as conn:
+            assert_sweepable(
+                conn, tenant_id=str(customer_id), image_id=body.image_id, count=body.count
+            )
+    except SweepRefused as exc:
+        status = 404 if exc.code == "image_not_found" else 422
+        raise HTTPException(status, f"{exc.code}: {exc.detail}") from exc
+
+    from billing import get_billing_engine
+
+    # Worst case, not a hope: the same one-hour hold the fund gate will take per
+    # member, times the members. A plan that under-quotes a bulk spend is an
+    # approval for a number nobody agreed to.
+    per_member_cad = float(
+        get_billing_engine().estimate_launch_hold_cad(
+            gpu_model=body.gpu_model, num_gpus=body.num_gpus
+        )
+        or 0.0
+    )
+    estimate_micros = int(round(per_member_cad * body.count * 1_000_000))
+
+    canonical = body.model_dump(mode="json")
+    canonical_hash = hashlib.sha256(
+        json.dumps(canonical, sort_keys=True, separators=(",", ":"), default=str).encode()
+    ).hexdigest()
+
+    with control_plane_transaction() as conn:
+        policy = plans_repo.load_client_policy(
+            conn, client_id=principal.client_id, tenant_id=principal.tenant_id
+        )
+        decision = spend_policy.evaluate(
+            canonical, estimate_micros=estimate_micros, policy=policy
+        )
+        plan = plans_repo.create_quoted_plan(
+            conn,
+            action_type="create_image_sweep",
+            principal_id=principal.principal_id,
+            client_id=principal.client_id,
+            tenant_id=principal.tenant_id,
+            team_id=principal.team_id,
+            canonical_args=canonical,
+            canonical_args_hash=canonical_hash,
+            spec_hash=canonical_hash,
+            quote_id=f"sweep:{canonical_hash[:20]}",
+            pricing_version="sweep-v1",
+            estimate_micros=estimate_micros,
+            currency="CAD",
+            price_tolerance_bps=DEFAULT_TOLERANCE_BPS,
+            required_scopes=["instances:write"],
+            approval_mode=decision.approval_mode,
+            ttl_sec=plan_ttl_sec(),
+            trace_id="",
+        )
+
+    plan_id = str(plan["plan_id"])
+    return {
+        "ok": True,
+        "preview": True,
+        "plan_id": plan_id,
+        "members": body.count,
+        "estimate_cad": round(estimate_micros / 1_000_000, 2),
+        "approval_url": f"/dashboard/launch-plans/{plan_id}",
+        "approval_state": str(plan.get("status") or "pending"),
+    }
+
+
+@router.post("/api/v1/image-sweep-plans/{plan_id}/execute", tags=["Instances"])
+def api_execute_image_sweep_plan(plan_id: str, request: Request):
+    """Launch N instances from one snapshot for one approved plan.
 
     Gate P7. The record is the feature: N job ids handed back from N calls
     leaves "these came from one snapshot" as an intention in the caller, with
@@ -3886,12 +4003,41 @@ def api_create_image_sweep(body: _SweepIn, request: Request):
     three that started.
     """
     from control_plane.db import control_plane_transaction
+    import hashlib
+
     from control_plane.image_sweeps import SweepRefused, create_sweep
+    from control_plane.launch import action_plans as plans_repo
+    from control_plane.launch.service import PlanConflict, PlanNotFound
 
     user = _require_auth(request)
     _require_scope(user, "instances:write")
     _require_team_instance_write(user)
     customer_id = _user_image_scope_owner_id(user)
+    principal = _sweep_plan_principal(user)
+
+    with control_plane_transaction() as conn:
+        plan = plans_repo.get_plan_for_update(conn, plan_id)
+        if not plan or str(plan["tenant_id"]) != principal.tenant_id:
+            # Not-found rather than forbidden: `forbidden` would confirm that a
+            # plan with this id exists under some other tenant.
+            raise PlanNotFound()
+        if plan["action_type"] != "create_image_sweep":
+            raise PlanConflict("wrong_action_type", "the plan is not for an image sweep")
+        if plan["status"] == "succeeded":
+            return {**dict(plan["idempotent_response"]), "idempotent": True}
+        if plan["status"] != "approved":
+            raise PlanConflict("approval_required", "approve the sweep plan before execution")
+        canonical = dict(plan["canonical_args"])
+        digest = hashlib.sha256(
+            json.dumps(canonical, sort_keys=True, separators=(",", ":"), default=str).encode()
+        ).hexdigest()
+        if digest != plan["canonical_args_hash"]:
+            # The check that makes `count` mean something. Without it an
+            # approved 3-member sweep could be edited to 64 between approval
+            # and execution, and the approval would still read as given.
+            raise PlanConflict("argument_hash_mismatch", "the approved sweep plan was altered")
+
+    body = _SweepIn.model_validate(canonical)
 
     def _launch_one(image_digest: str, index: int) -> dict:
         """Fund, submit, link. Raises on failure; the sweep records the reason."""
@@ -3946,7 +4092,22 @@ def api_create_image_sweep(body: _SweepIn, request: Request):
         status = 404 if exc.code == "image_not_found" else 422
         raise HTTPException(status, f"{exc.code}: {exc.detail}") from exc
 
-    return {"ok": True, "sweep": sweep.as_dict()}
+    response = {"ok": True, "sweep": sweep.as_dict(), "plan_id": plan_id}
+    with control_plane_transaction() as conn:
+        locked = plans_repo.get_plan_for_update(conn, plan_id)
+        if locked and locked["status"] == "succeeded":
+            # Another caller executed the same plan while this one was
+            # launching. Return their sweep rather than reporting two.
+            return {**dict(locked["idempotent_response"]), "idempotent": True}
+        plans_repo.mark_consumed(
+            conn,
+            plan_id,
+            job_id=sweep.sweep_id,
+            wallet_hold_id=None,
+            idempotent_response=response,
+            idempotency_key=f"sweep-plan:{plan_id}",
+        )
+    return response
 
 
 @router.get("/api/v1/image-sweeps/{sweep_id}", tags=["Instances"])

@@ -146,6 +146,27 @@ def _pinned_image(conn, image_id: str, owner_id: str) -> tuple[str, str]:
     return str(image_ref), str(digest)
 
 
+def assert_sweepable(conn, *, tenant_id: str, image_id: str, count: int) -> str:
+    """Refuse now what `create_sweep` would refuse later. Returns the digest.
+
+    Exists because the approval gate put a **human decision** between wanting a
+    sweep and running one. Every refusal `create_sweep` raises — an unknown
+    digest, an image that is not ready, an image belonging to someone else, a
+    count out of range — is knowable before a plan is written, and finding out
+    afterwards means someone approved a spend for a sweep that was never going
+    to run.
+
+    Deliberately the same checks in the same order as `create_sweep`, which
+    still performs them: this is an early refusal, never a substitute. The
+    execute route re-validates because a plan can sit approved while the image
+    is deleted underneath it.
+    """
+    if count < 1 or count > MAX_SWEEP_SIZE:
+        raise SweepRefused("invalid_count", f"count must be between 1 and {MAX_SWEEP_SIZE}")
+    _, digest = _pinned_image(conn, image_id, tenant_id)
+    return digest
+
+
 def create_sweep(
     conn,
     *,

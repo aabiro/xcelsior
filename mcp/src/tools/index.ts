@@ -11,6 +11,7 @@ import { registerMonitoringTools } from "./monitoring.js";
 import { registerDiagnosticTools } from "./diagnostics.js";
 import { registerOperatorTools } from "./operator.js";
 import { registerVolumeTools } from "./volumes.js";
+import { registerSweepTools } from "./sweeps.js";
 import { registerKnowledgeTools, type KnowledgeSources } from "./knowledge.js";
 
 export interface ToolRegistrationOptions {
@@ -55,6 +56,7 @@ export function registerAllTools(
   registerDiagnosticTools(server, client, user);
   registerOperatorTools(server, client, user);
   registerVolumeTools(server, client, user);
+  registerSweepTools(server, client, user);
   if (options.companyKnowledge) {
     registerKnowledgeTools(server, client, options.companyKnowledge, user);
   }
