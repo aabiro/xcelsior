@@ -29,6 +29,7 @@ SAMPLES=3
 OUT="${REPO}/eval-baseline.json"
 ONLY=""
 CASE=""
+LIMIT=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -40,6 +41,7 @@ while [ $# -gt 0 ]; do
     # verify a one-tool fix was a full capture.
     --only) ONLY="$2"; shift 2 ;;
     --case) CASE="$2"; shift 2 ;;
+    --limit) LIMIT="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -88,6 +90,7 @@ python3 "${REPO}/scripts/mcp_tool_eval.py" \
   --samples "${SAMPLES}" \
   ${ONLY:+--only "${ONLY}"} \
   ${CASE:+--case "${CASE}"} \
+  ${LIMIT:+--limit "${LIMIT}"} \
   --out "${OUT}"
 status=$?
 exit "$status"
