@@ -8,6 +8,8 @@ os.environ["XCELSIOR_RATE_LIMIT_REQUESTS"] = "5000"
 os.environ["XCELSIOR_AUTH_RATE_LIMIT_REQUESTS"] = "5000"
 
 import pytest
+
+from tests._stripe_cleanup import account_id_from_registration, delete_connected_account
 from fastapi.testclient import TestClient
 
 from api import app
@@ -103,26 +105,62 @@ def test_events_all_requires_admin(two_users):
     assert r.status_code == 403
 
 
-def test_provider_list_only_own_account(two_users):
-    user_a, user_b = two_users
-    provider_id = f"prov-{uuid.uuid4().hex[:8]}"
-    client.post(
+
+
+def _schedule_account_cleanup(request, response):
+    """Delete whatever Connect account this registration created, afterwards."""
+    account_id = account_id_from_registration(
+        response.json() if response.status_code == 200 else {}
+    )
+    if account_id:
+        request.addfinalizer(lambda: delete_connected_account(account_id))
+
+
+def _register_provider_and_clean_up(request, *, provider_id, email, headers, legal_name):
+    """Register a provider and schedule the Connect account for deletion.
+
+    Registration creates a **real** Stripe Connect account in the test account.
+    These tests registered and never cleaned up, and `idor-*` fixtures were the
+    largest single source of the hundred-plus abandoned accounts found on
+    2026-08-16. `addfinalizer` rather than a fixture, because the registration
+    is part of what each test is asserting about — moving it out would hide the
+    call whose authorization is under test.
+    """
+    response = client.post(
         "/api/providers/register",
         json={
             "provider_id": provider_id,
-            "email": user_a["email"],
+            "email": email,
             "provider_type": "individual",
-            "legal_name": "Test Provider",
+            "legal_name": legal_name,
             "province": "ON",
         },
+        headers=headers,
+    )
+    account_id = account_id_from_registration(
+        response.json() if response.status_code == 200 else {}
+    )
+    if account_id:
+        request.addfinalizer(lambda: delete_connected_account(account_id))
+    return response
+
+
+def test_provider_list_only_own_account(two_users, request):
+    user_a, user_b = two_users
+    provider_id = f"prov-{uuid.uuid4().hex[:8]}"
+    _register_provider_and_clean_up(
+        request,
+        provider_id=provider_id,
+        email=user_a["email"],
         headers=user_a["headers"],
+        legal_name="Test Provider",
     )
     r = client.get("/api/providers", headers=user_b["headers"])
     assert r.status_code == 200
     assert r.json()["count"] == 0
 
 
-def test_provider_register_email_mismatch_forbidden(two_users):
+def test_provider_register_email_mismatch_forbidden(two_users, request):
     user_a, user_b = two_users
     r = client.post(
         "/api/providers/register",
@@ -135,10 +173,11 @@ def test_provider_register_email_mismatch_forbidden(two_users):
         },
         headers=user_b["headers"],
     )
+    _schedule_account_cleanup(request, r)
     assert r.status_code == 403
 
 
-def test_provider_earnings_forbidden_cross_account(two_users):
+def test_provider_earnings_forbidden_cross_account(two_users, request):
     import time
 
     from db import UserStore
@@ -157,6 +196,7 @@ def test_provider_earnings_forbidden_cross_account(two_users):
         },
         headers=user_a["headers"],
     )
+    _schedule_account_cleanup(request, reg)
     if reg.status_code != 200:
         # CI has no .env.test Stripe key — seed provider row so access control is testable.
         now = time.time()

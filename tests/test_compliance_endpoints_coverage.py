@@ -9,6 +9,8 @@ os.environ.setdefault("XCELSIOR_RATE_LIMIT_REQUESTS", "5000")
 os.environ.setdefault("XCELSIOR_AUTH_RATE_LIMIT_REQUESTS", "5000")
 
 import pytest
+
+from tests._stripe_cleanup import account_id_from_registration, delete_connected_account
 from fastapi.testclient import TestClient
 
 from api import app
@@ -38,6 +40,11 @@ def provider_ctx():
             "province": "ON",
         },
         headers=headers,
+    )
+    # Same leak as the providers fixture: registration creates a real Connect
+    # account and nothing removed it.
+    stripe_account_id = account_id_from_registration(
+        reg.json() if reg.status_code == 200 else {}
     )
     if reg.status_code != 200:
         from db import UserStore
@@ -73,7 +80,8 @@ def provider_ctx():
         "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
     )
     headers = {"Authorization": f"Bearer {login2.json()['access_token']}"}
-    return {"provider_id": provider_id, "headers": headers}
+    yield {"provider_id": provider_id, "headers": headers}
+    delete_connected_account(stripe_account_id)
 
 
 

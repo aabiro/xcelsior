@@ -9,6 +9,8 @@ os.environ.setdefault("XCELSIOR_RATE_LIMIT_REQUESTS", "5000")
 os.environ.setdefault("XCELSIOR_AUTH_RATE_LIMIT_REQUESTS", "5000")
 
 import pytest
+
+from tests._stripe_cleanup import account_id_from_registration, delete_connected_account
 from fastapi.testclient import TestClient
 
 from api import app
@@ -40,6 +42,12 @@ def provider_user():
             "province": "ON",
         },
         headers=headers,
+    )
+    # Registration creates a real Connect account in the Stripe test account.
+    # Captured here so teardown can remove it: without this the suite left one
+    # behind per module per run, and the test dashboard had passed a hundred.
+    stripe_account_id = account_id_from_registration(
+        reg_resp.json() if reg_resp.status_code == 200 else {}
     )
     if reg_resp.status_code != 200:
         from db import UserStore
@@ -77,11 +85,12 @@ def provider_user():
         "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
     )
     headers = {"Authorization": f"Bearer {login2.json()['access_token']}"}
-    return {
+    yield {
         "email": email,
         "provider_id": provider_id,
         "headers": headers,
     }
+    delete_connected_account(stripe_account_id)
 
 
 def test_providers_list(provider_user):
