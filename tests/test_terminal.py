@@ -16,6 +16,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from starlette.websockets import WebSocketDisconnect
 
 # -- Environment setup (before any project imports) ----------------------------
 
@@ -992,28 +993,40 @@ class TestWsAuth:
         import routes._deps as _deps_mod
 
         monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
-        with pytest.raises(Exception):
+        with pytest.raises(WebSocketDisconnect) as closed:
             with client.websocket_connect("/ws/terminal/fake-id"):
                 pass
+        assert closed.value.code == 4001, (
+            "closed, but not with the rejection code — a missing route "
+            "closes 1000 and would satisfy a bare raises(Exception)"
+        )
 
     def test_rejects_invalid_token(self, monkeypatch):
         """WS with garbage token gets closed."""
         import routes._deps as _deps_mod
 
         monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
-        with pytest.raises(Exception):
+        with pytest.raises(WebSocketDisconnect) as closed:
             with client.websocket_connect("/ws/terminal/fake-id?token=garbage"):
                 pass
+        assert closed.value.code == 4001, (
+            "closed, but not with the rejection code — a missing route "
+            "closes 1000 and would satisfy a bare raises(Exception)"
+        )
 
 
 class TestWsHardeningPreAccept:
     def test_rejects_disallowed_origin(self):
-        with pytest.raises(Exception):
+        with pytest.raises(WebSocketDisconnect) as closed:
             with client.websocket_connect(
                 "/ws/terminal/fake-id",
                 headers={"origin": "https://evil.example"},
             ):
                 pass
+        assert closed.value.code == 1008, (
+            "closed, but not with the policy-violation code — a missing route "
+            "closes 1000 and would satisfy a bare raises(Exception)"
+        )
 
     def test_rejects_rate_limited_ip(self, monkeypatch):
         monkeypatch.setattr("routes.terminal._check_ws_connect_rate_limit", lambda *a, **kw: False)
