@@ -49,6 +49,31 @@ CAD_USD_RATE = float(os.environ.get("XCELSIOR_CAD_USD_RATE", "0.73"))
 # disable top-up for the rest of the day.
 _TOPUP_INFLIGHT_SECONDS = 900
 
+
+def is_plausible_payment_method_id(value: str | None) -> bool:
+    """Could this string be a Stripe payment method id at all?
+
+    A shape check, not a validity check — only Stripe can say whether a
+    well-formed id actually exists. The point is to catch values that could
+    never exist, such as the `pm_x` placeholder that test fixtures leave on
+    production wallets, before they are sent to the live API and counted as
+    payment failures.
+
+    The rule is that the id needs a meaningful body after its prefix. Stripe's
+    own are 24 characters (`pm_1MqLiJLkdIwHu7ixUEgbFdYF`), but requiring
+    anything close to that would reject the readable stand-ins that tests use
+    with a mocked Stripe, and a guard that forces test doubles to be edited is
+    a guard that will be loosened later by someone in a hurry. Eight is well
+    below anything real and well above the degenerate placeholders this exists
+    to catch.
+    """
+    pm = str(value or "")
+    for prefix in ("pm_", "card_", "src_"):
+        if pm.startswith(prefix):
+            return len(pm) - len(prefix) >= 8
+    return False
+
+
 GST_RATE = 0.05  # Federal GST: 5%
 
 PROVINCE_TAX_RATES = {
@@ -3760,6 +3785,29 @@ class BillingEngine:
         if amount_cents <= 0:
             raise ValueError("amount must be greater than zero")
 
+        # Refuse a stored payment method that cannot possibly be a Stripe id
+        # before spending a network round trip on it.
+        #
+        # Test fixtures reach production wallets — `pm_x` on `topup-test-*`
+        # customers is in the live database right now — and every auto-top-up
+        # sweep was sending them to the *live* Stripe API, once per wallet per
+        # cycle, forever. Each one comes back `No such PaymentMethod` and is
+        # counted as a genuine payment failure, so the sweep walks the wallet
+        # through its 3-strike budget and disables auto-top-up on it. A wallet
+        # that never had a chargeable card ends up indistinguishable from one
+        # whose card was declined, and the real failures are buried in the
+        # noise.
+        #
+        # Checked here rather than in the sweep so the manual top-up route
+        # gets it too, and checked on shape rather than on a `topup-test`
+        # prefix: the defect is "this is not a payment method", not "this is a
+        # fixture". Anything Stripe would recognise passes.
+        if not is_plausible_payment_method_id(payment_method_id):
+            raise ValueError(
+                f"stored payment method {payment_method_id!r} is not a valid "
+                "Stripe payment method id — not attempting a charge"
+            )
+
         # Off-session saved PM: do not hardcode payment_method_types.
         #
         # The idempotency key is the last line of defence against
@@ -3873,6 +3921,7 @@ class BillingEngine:
         topped_up = 0
         warnings = 0
         errors = 0
+        skipped = 0
 
         pool = _get_pg_pool()
         with pool.connection() as conn:
@@ -3913,6 +3962,27 @@ class BillingEngine:
                 required_wait = TOPUP_BACKOFF_SCHEDULE[failures - 1]
                 if now - last_attempt < required_wait:
                     continue
+
+            # A wallet whose stored payment method could never be a Stripe id
+            # is skipped outright rather than charged and counted as a failure.
+            #
+            # Counting it would spend the wallet's 3-strike budget and then set
+            # `auto_topup_enabled = false`, which is the same end state as a
+            # card that was genuinely declined three times. That conflates bad
+            # data with a bad card: the operator sees top-up disabled and goes
+            # looking for a payment problem that does not exist, while the
+            # actual problem — a fixture row in a production table — leaves no
+            # distinguishable trace. Skipping keeps the wallet's real failure
+            # history intact and leaves the data fault visible as itself.
+            if not is_plausible_payment_method_id(w.get("stripe_payment_method_id")):
+                log.warning(
+                    "Auto-topup skipped for %s: stored payment method %r cannot "
+                    "be a Stripe id (data fault, not a payment failure)",
+                    customer_id,
+                    w.get("stripe_payment_method_id"),
+                )
+                skipped += 1
+                continue
 
             try:
                 from stripe_connect import STRIPE_ENABLED
@@ -4021,7 +4091,12 @@ class BillingEngine:
                         )
 
         if topped_up or errors:
-            log.info("AUTO-TOPUP: %d topped up, %d errors", topped_up, errors)
+            log.info(
+                "AUTO-TOPUP: %d topped up, %d errors, %d skipped (invalid stored card)",
+                topped_up,
+                errors,
+                skipped,
+            )
 
         return {"topped_up": topped_up, "warnings": warnings, "errors": errors}
 
