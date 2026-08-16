@@ -225,7 +225,7 @@ def test_providers_webhook_no_signature():
     assert r.status_code != 500
 
 
-def test_providers_register_idempotent_shape(provider_user):
+def test_providers_register_idempotent_shape(provider_user, request):
     """Register path is exercised at fixture setup; assert route still handles repeat."""
     email = provider_user["email"]
     pid = f"prov-{uuid.uuid4().hex[:8]}"
@@ -240,5 +240,11 @@ def test_providers_register_idempotent_shape(provider_user):
         },
         headers=provider_user["headers"],
     )
+    # A **second** registration, which leaked its own Connect account after the
+    # fixture's was fixed. Found by counting accounts before and after a run,
+    # not by reading the file — which is how it was missed the first time.
+    _account = account_id_from_registration(r.json() if r.status_code == 200 else {})
+    if _account:
+        request.addfinalizer(lambda: delete_connected_account(_account))
     assert r.status_code in OK_OR_HANDLED
     assert r.status_code != 500

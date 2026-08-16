@@ -135,6 +135,8 @@ def test_the_declined_intent_is_registered_so_the_credit_can_land(monkeypatch):
     before re-raising, because that row is the only thing connecting the later
     `payment_intent.succeeded` webhook to the wallet it should credit.
     """
+    import stripe
+
     from billing import get_billing_engine
 
     engine = get_billing_engine()
@@ -157,12 +159,19 @@ def test_the_declined_intent_is_registered_so_the_credit_can_land(monkeypatch):
         lambda **kw: registered.append(kw),
     )
 
-    with pytest.raises(Exception):
+    # `pm_scadeclineprobe`, not `pm_probe`: `is_plausible_payment_method_id`
+    # requires eight characters after the prefix, and a five-character
+    # stand-in is refused before the charge is attempted — so this test
+    # exercised the refusal rather than the SCA path it exists for, and
+    # `pytest.raises(Exception)` swallowed the difference. The validator's own
+    # docstring says readable stand-ins must pass and names two of them; this
+    # was a third it did not know about.
+    with pytest.raises(stripe.CardError):
         engine.charge_saved_card(
             "cust_probe",
             25_000_000,
             stripe_customer_id="cus_probe",
-            payment_method_id="pm_probe",
+            payment_method_id="pm_scadeclineprobe",
             idempotency_key="probe-key",
             description="Wallet top-up",
         )
@@ -221,12 +230,12 @@ def test_an_ordinary_decline_registers_nothing(monkeypatch):
         engine, "_register_payment_intent", lambda **kw: registered.append(kw)
     )
 
-    with pytest.raises(Exception):
+    with pytest.raises(stripe.CardError):
         engine.charge_saved_card(
             "cust_probe",
             25_000_000,
             stripe_customer_id="cus_probe",
-            payment_method_id="pm_probe",
+            payment_method_id="pm_scadeclineprobe",
             idempotency_key="probe-key-2",
             description="Wallet top-up",
         )

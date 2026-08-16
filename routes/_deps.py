@@ -1431,12 +1431,22 @@ def _require_scope(user: dict, *required: str) -> None:
         # like a client-credentials token's. Enforcing that is the whole point
         # of showing them the list.
         #
-        # Default mode is `shadow`, which records what *would* be refused and
-        # changes nothing. That is not timidity: routes currently demand 36
-        # distinct scopes and a Quick Connect token carries 14, so flipping to
-        # `enforce` without evidence would reproduce the `instances:connect`
-        # 403 — a scope enforced on routes and absent from the set the token
-        # holds — across every connector in production at once.
+        # **The default is `enforce`.** This comment said `shadow` long after
+        # the cutover, which is the dangerous direction to be stale in: a
+        # reader here would conclude connector scopes are recorded and not
+        # applied, and go looking for a production 403 somewhere else entirely.
+        # The constant is a hundred lines above and says so correctly; this did
+        # not, and `tests/test_connector_tokens_are_scope_restricted.py` pins
+        # `enforce` besides.
+        #
+        # The caution it recorded was real and was resolved rather than
+        # abandoned: routes demanded scopes a Quick Connect token did not hold,
+        # so enforcing would have 403'd every connector at once. The sets were
+        # reconciled instead — `test_quick_connect_carries_every_scope_the_
+        # connection_routes_demand` derives the requirement from the routes, so
+        # a scope added to one is carried by the token or that test fails.
+        # `shadow` remains available for a deployment that wants evidence
+        # first.
         #
         # The shadow log is what turns this into a decision someone can make:
         # it names the client and the missing scope, so the real required set
