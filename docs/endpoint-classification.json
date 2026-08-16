@@ -96,8 +96,8 @@
     "notes": "per-endpoint API keys. Issuing a credential that calls the endpoint is the same escalation shape as minting an agent key: a tool that could do it could widen its own reach"
   },
   "DELETE /api/v2/volumes/{volume_id}": {
-    "class": "gap",
-    "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+    "class": "covered",
+    "notes": "delete_volume. Was labelled gap while the tool called it."
   },
   "DELETE /api/v2/volumes/{volume_id}/snapshots/{snapshot_id}": {
     "class": "gap",
@@ -272,8 +272,8 @@
     "notes": "P3 needs artifact read and promotion; no tool exposes them"
   },
   "GET /api/artifacts/{job_id}/expiry": {
-    "class": "gap",
-    "notes": "P3 needs artifact read and promotion; no tool exposes them"
+    "class": "covered",
+    "notes": "get_artifact_expiry. Was labelled gap while the tool called it."
   },
   "GET /api/audit/instance/{job_id}": {
     "class": "gap",
@@ -880,24 +880,24 @@
     "notes": "serverless worker callback \u2014 claim, heartbeat, ready, complete, exit. Authenticated by _require_worker_callback as the fleet; an agent is never the caller"
   },
   "GET /api/v2/volumes": {
-    "class": "gap",
-    "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+    "class": "covered",
+    "notes": "list_volumes. Was labelled gap while the tool called it."
   },
   "GET /api/v2/volumes/available": {
     "class": "gap",
     "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
   },
   "GET /api/v2/volumes/{volume_id}": {
-    "class": "gap",
-    "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+    "class": "covered",
+    "notes": "get_volume. Was labelled gap while the tool called it."
   },
   "GET /api/v2/volumes/{volume_id}/promotions/preview": {
     "class": "gap",
     "notes": "A0 of docs/artifact-promotion-plan.md: what promoting a job's artifacts onto this volume would copy. Copies nothing, holds nothing, writes nothing. No tool calls it yet \u2014 promote_artifact_to_volume does not exist, and this is the manifest it will show a user before a large copy starts rather than after. Volume authorised via _require_volume_read; artifacts scoped by tenant inside the query, since a manifest is a list of file names and sizes."
   },
   "GET /api/v2/volumes/{volume_id}/promotions/{promotion_id}": {
-    "class": "gap",
-    "notes": "Promotion state for its owner. A foreign or unknown id is 404 rather than 403, so promotion ids cannot be enumerated. The companion read for the tool that lands in A4."
+    "class": "covered",
+    "notes": "get_promotion_status. Was labelled gap while the tool called it."
   },
   "GET /api/v2/volumes/{volume_id}/snapshots": {
     "class": "gap",
@@ -1076,8 +1076,8 @@
     "notes": "an OpenAI-protocol shim over the same capability run_serverless_job already reaches. It exists so an OpenAI SDK can be pointed at the endpoint, which is a client-compatibility surface rather than a tool one. The `{endpoint_slug}` form is the same handler under a second decorator \u2014 a vanity path, not a second endpoint \u2014 so it carries its twin's classification by construction."
   },
   "GET /v1/serverless/{endpoint_id}/{endpoint_slug}/status/{job_id}": {
-    "class": "covered",
-    "notes": "get_serverless_job_status calls this path. The `{endpoint_slug}` form is the same handler under a second decorator \u2014 a vanity path, not a second endpoint \u2014 so it carries its twin's classification by construction."
+    "class": "redundant",
+    "notes": "Slug alias of the non-slug route the tool calls."
   },
   "GET /v1/serverless/{endpoint_id}/{endpoint_slug}/stream/{job_id}": {
     "class": "gap",
@@ -1648,8 +1648,8 @@
     "notes": "team and member administration, an account-console surface; no P0-P7 journey creates a team or changes a membership"
   },
   "POST /api/terminal/ticket": {
-    "class": "gap",
-    "notes": "P2's terminal ticket. Scoped for instances:connect in 9c9bb5a; still no tool mints one, so connecting remains a browser or raw-HTTP act"
+    "class": "covered",
+    "notes": "open_instance_access. Was labelled gap while the tool called it."
   },
   "POST /api/transparency/legal-request": {
     "class": "internal",
@@ -1732,8 +1732,8 @@
     "notes": "P4: run an approved pipeline. Gate P4's 'the approved graph is server-bound' is enforced here by rehashing the stored canonical args \u2014 a caller names a plan and cannot supply stages. No tool calls it yet: run_pipeline quotes, and execution follows approval, which is a human step by design."
   },
   "POST /api/v1/placements/evaluate": {
-    "class": "gap",
-    "notes": "P5 C2: evaluate a stated placement preference over the current fleet and return the host it would pick or a typed refusal carrying the number that failed. Read-only apart from the append to placement_decisions (Gate P5 clause 3), which records refusals as well as placements. Separate from /placements/simulate because that route answers 'is there an eligible host' and its feasible flag has one meaning; a constrained request has a second, independent answer, and overloading one boolean with both is how a refusal comes to read as an outage. No MCP tool calls it yet \u2014 the tool surface is a later step."
+    "class": "covered",
+    "notes": "evaluate_placement_preference. Was labelled gap while the tool called it."
   },
   "POST /api/v1/placements/simulate": {
     "class": "covered",
@@ -1816,8 +1816,8 @@
     "notes": "operator action on the scheduler or a stuck instance; admin-guarded and outside every tenant journey"
   },
   "POST /api/v2/serverless/endpoints": {
-    "class": "covered",
-    "notes": "MCP server calls this path"
+    "class": "redundant",
+    "notes": "Superseded on the tool surface by the plan flow: create_serverless_endpoint posts to /api/v1/serverless/endpoint-plans and its execute route, so approval cannot be skipped. Was labelled covered with no tool calling it."
   },
   "POST /api/v2/serverless/endpoints/{endpoint_id}/batches": {
     "class": "gap",
@@ -1880,28 +1880,28 @@
     "notes": "serverless worker callback \u2014 claim, heartbeat, ready, complete, exit. Authenticated by _require_worker_callback as the fleet; an agent is never the caller"
   },
   "POST /api/v2/volumes": {
-    "class": "gap",
-    "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+    "class": "covered",
+    "notes": "create_volume. Was labelled gap while the tool called it."
   },
   "POST /api/v2/volumes/{volume_id}/attach": {
-    "class": "gap",
-    "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+    "class": "covered",
+    "notes": "attach_volume. Was labelled gap while the tool called it."
   },
   "POST /api/v2/volumes/{volume_id}/detach": {
-    "class": "gap",
-    "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+    "class": "covered",
+    "notes": "detach_volume. Was labelled gap while the tool called it."
   },
   "POST /api/v2/volumes/{volume_id}/promotions": {
-    "class": "gap",
-    "notes": "A1 of docs/artifact-promotion-plan.md: create a promotion and enqueue the copy. Idempotent on (tenant, job, key) with the manifest digest as the default key, so a retried timeout converges rather than copying twice. No tool calls it yet \u2014 promote_artifact_to_volume is A4."
+    "class": "covered",
+    "notes": "promote_artifact_to_volume. Was labelled gap while the tool called it."
   },
   "POST /api/v2/volumes/{volume_id}/retry": {
     "class": "gap",
     "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
   },
   "POST /api/v2/volumes/{volume_id}/snapshots": {
-    "class": "gap",
-    "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+    "class": "covered",
+    "notes": "snapshot_volume. Was labelled gap while the tool called it."
   },
   "POST /api/v2/volumes/{volume_id}/snapshots/{snapshot_id}/restore": {
     "class": "gap",
@@ -2112,8 +2112,8 @@
     "notes": "an OpenAI-protocol shim over the same capability run_serverless_job already reaches. It exists so an OpenAI SDK can be pointed at the endpoint, which is a client-compatibility surface rather than a tool one. The `{endpoint_slug}` form is the same handler under a second decorator \u2014 a vanity path, not a second endpoint \u2014 so it carries its twin's classification by construction."
   },
   "POST /v1/serverless/{endpoint_id}/{endpoint_slug}/run": {
-    "class": "covered",
-    "notes": "run_serverless_job calls this path. The `{endpoint_slug}` form is the same handler under a second decorator \u2014 a vanity path, not a second endpoint \u2014 so it carries its twin's classification by construction."
+    "class": "redundant",
+    "notes": "Slug alias of the non-slug route run_serverless_job calls."
   },
   "POST /v1/serverless/{endpoint_id}/{endpoint_slug}/runsync": {
     "class": "gap",
