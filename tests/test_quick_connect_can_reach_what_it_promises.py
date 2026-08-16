@@ -172,6 +172,50 @@ def test_the_typescript_copy_matches_the_backend_list():
         )
 
 
+#: Granted at the consent screen but required by no tool. A ratchet: it may
+#: only shrink, and the terminal state is empty.
+#:
+#: `events:read` is enforced on `/api/events`, `/api/events/{entity}/{id}`,
+#: `/api/events/leases/{job_id}` and `/api/stream` — all four classified `gap`,
+#: none reachable from any tool. `watch_instance` reads
+#: `/api/v1/instances/{job_id}/events`, which is a different route and does not
+#: demand it. So a user connecting an agent consents to reading events and
+#: nothing their agent can do uses that permission.
+#:
+#: Left in place rather than removed here, because narrowing a live grant is a
+#: user-facing decision: tokens already issued hold it, and a person may be
+#: calling `/api/events` with one directly even though no tool does. Removing it
+#: breaks no test — that was checked. The choice is whether to build the events
+#: tools or stop asking for the scope.
+GRANTED_BUT_UNUSED_BY_ANY_TOOL = {"events:read"}
+
+
+def test_no_new_scope_is_granted_without_a_tool_that_needs_it():
+    """Asking for a permission nothing uses is asking for more than you need.
+
+    `ssh:read` sat declared and unwired for weeks before a tool finally needed
+    it. This catches the next one at the point it is added to the grant, rather
+    than whenever somebody happens to audit the consent screen.
+    """
+    import re
+
+    from oauth_service import MCP_QUICK_CONNECT_SCOPES
+
+    import pathlib
+
+    repo = pathlib.Path(__file__).resolve().parent.parent
+    registry = (repo / "mcp" / "src" / "auth" / "scopes.ts").read_text(encoding="utf-8")
+    block = registry.split("const TOOL_SCOPE_REGISTRY = {", 1)[1].split("\n} satisfies", 1)[0]
+    required_by_a_tool = set(re.findall(r'"([a-z_]+:[a-z_]+)"', block))
+
+    unused = set(MCP_QUICK_CONNECT_SCOPES) - required_by_a_tool - GRANTED_BUT_UNUSED_BY_ANY_TOOL
+    assert not unused, (
+        f"Quick Connect grants {sorted(unused)}, which no tool requires. Either "
+        "a tool that needs it is missing, or the consent screen is asking for "
+        "more than the connector can use."
+    )
+
+
 def test_every_quick_connect_scope_is_one_the_platform_defines():
     """A typo here mints a credential holding a scope nothing enforces."""
     from oauth_delegation import known_scopes
