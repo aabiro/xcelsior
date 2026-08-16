@@ -57,16 +57,30 @@ def iter_source_files(
     suffix: str = "*.py",
     *,
     exclude_prefixes: tuple[str, ...] = (),
+    include_prefixes: tuple[str, ...] = (),
     include_tests: bool = False,
 ) -> Iterator[tuple[pathlib.Path, str]]:
-    """Yield `(path, repo_relative_posix)` for every source file to be scanned."""
+    """Yield `(path, repo_relative_posix)` for every source file to be scanned.
+
+    `include_prefixes` re-admits a subtree the defaults exclude. `mcp/` is
+    excluded because the Python gates have no business there — not because
+    nothing may scan it, and a gate that reads the TypeScript surface needs the
+    same AppleDouble protection as every other one. Without this, such a gate
+    has to call `rglob` itself, which is the exact divergence this module
+    exists to end.
+
+    Order matters: an explicit include beats the default exclude, so
+    `include_prefixes=("mcp/src/",)` reaches the tool sources while `mcp/`
+    stays out of the ordinary Python sweep.
+    """
     excluded = DEFAULT_EXCLUDED_PREFIXES + tuple(exclude_prefixes)
     if not include_tests:
         excluded += ("tests/",)
     for path in REPO.rglob(suffix):
         rel = path.relative_to(REPO).as_posix()
-        if rel.startswith(excluded):
-            continue
+        if not (include_prefixes and rel.startswith(include_prefixes)):
+            if rel.startswith(excluded):
+                continue
         if not is_source_file(path):
             continue
         yield path, rel
