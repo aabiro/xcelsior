@@ -48,6 +48,13 @@ export function registerDiagnosticTools(server: McpServer, client: XcelsiorApiCl
     }),
   }), a => client.post("/api/v1/placements/evaluate", { spec: a.spec, preference: a.preference }));
   registerRead(server, client, user, "get_instance_timeline", z.object({ job_id: id }), a => client.get(`/api/v1/instances/${encodeURIComponent(String(a.job_id))}/timeline`));
+  registerRead(server, client, user, "get_event_history",
+    z.object({
+      entity_type: z.enum(["job", "host"]).describe("Which kind of thing to read events for"),
+      entity_id: id.describe("A job_id from list_instances, or a host_id"),
+      limit: z.number().int().min(1).max(200).default(50),
+    }),
+    a => client.get(`/api/events/${encodeURIComponent(String(a.entity_type))}/${encodeURIComponent(String(a.entity_id))}`, { limit: Number(a.limit ?? 50) }));
   registerRead(server, client, user, "get_active_lease", z.object({ job_id: id }), a => client.get(`/api/v1/instances/${encodeURIComponent(String(a.job_id))}/active-lease`));
   registerRead(server, client, user, "get_scheduler_health", z.object({}), () => client.get("/api/v1/control-plane/health"));
   registerRead(server, client, user, "get_host_capacity", z.object({ host_id: id }), a => client.get(`/api/v1/hosts/${encodeURIComponent(String(a.host_id))}/capacity`));

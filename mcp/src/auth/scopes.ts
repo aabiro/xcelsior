@@ -124,6 +124,14 @@ const TOOL_SCOPE_REGISTRY = {
   simulate_instance_placement: { allOf: ["instances:read", "gpu:read"] },
   evaluate_placement_preference: { allOf: ["instances:read", "gpu:read"] },
   get_instance_timeline: { allOf: ["instances:read"] },
+  // `events:read` finally has a user. It was granted at consent and required by
+  // nothing, which is a permission asked of users that authorised nothing they
+  // could reach. The account-wide `/api/events` is admin-only and never was an
+  // agent capability; what this scope actually gates is the per-entity event
+  // history — and that is **not** the attempt timeline above. §20.3's timeline
+  // explains placement (reserve → command → lease); this is the state-change log,
+  // and it covers hosts as well as jobs.
+  get_event_history: { allOf: ["events:read"] },
   get_active_lease: { allOf: ["instances:read"] },
   get_scheduler_health: { allOf: ["control_plane:read"] },
   get_host_capacity: { allOf: ["hosts:read"] },

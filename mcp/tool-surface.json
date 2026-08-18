@@ -685,6 +685,41 @@
       "hasOutputSchema": true
     },
     {
+      "name": "get_event_history",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "events:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "entity_type": {
+          "type": "enum",
+          "optional": false,
+          "values": [
+            "host",
+            "job"
+          ]
+        },
+        "entity_id": {
+          "type": "string",
+          "optional": false
+        },
+        "limit": {
+          "type": "number",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
       "name": "get_image_sweep",
       "version": "2.0.0",
       "tenantClass": "tenant",

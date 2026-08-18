@@ -197,7 +197,15 @@ def _registered_tool_names() -> set[str]:
 #: spend. Revoking is the opposite direction — it can only ever remove the
 #: ability to spend — which is also why it is the one write on this surface with
 #: no confirm gate.
-EXPECTED_TOOL_TOTAL = 70
+#: **71 with `get_event_history`.** `events:read` was granted at consent and
+#: required by no tool — a permission asked of every connecting user that
+#: authorised nothing they could reach. The check that settled it: the
+#: account-wide `/api/events` is `_require_admin`, so it never was an agent
+#: capability; what the scope actually gates is the per-entity event history,
+#: and that is a different question from `get_instance_timeline`. §20.3's
+#: timeline explains *placement*; this is the record of what happened after, and
+#: it covers hosts as well as jobs.
+EXPECTED_TOOL_TOTAL = 71
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition
