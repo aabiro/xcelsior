@@ -368,6 +368,21 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "goes there and a behaviour question comes here. The entity_id is a job_id from " +
     "list_instances, or a host_id from get_host_capacity. Read-only and free.",
 
+  get_provider_account:
+    "Show a GPU provider's account: whether onboarding is finished, what payouts are enabled, " +
+    "and what is still outstanding before earnings can be paid out. Use when someone renting " +
+    "out hardware asks why they have not been paid, what is left to complete, or whether their " +
+    "account is live. This is the provider side of the marketplace — the person supplying GPUs, " +
+    "not renting them — so it needs a credential carrying providers:read, which the default " +
+    "connector does not hold. Read-only and free; the provider_id comes from list_providers.",
+
+  get_provider_earnings:
+    "Get a provider's aggregate earnings and payout history: what has been earned, what has " +
+    "already been paid out, and what is pending. Use when someone supplying GPUs asks how much " +
+    "they have made, when they were last paid, or why a figure differs from what they expected " +
+    "— earned is not the same as paid, and this separates them. Read-only and free, and it " +
+    "moves no money: requesting a payout is a separate action. Needs providers:read.",
+
   get_active_lease:
     "Get the current attempt and lease health for an instance — which host holds it and whether " +
     "the lease is being renewed. Use when an instance appears running but unresponsive, to tell " +

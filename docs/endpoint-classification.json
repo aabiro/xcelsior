@@ -548,12 +548,12 @@
     "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "GET /api/providers/{provider_id}": {
-    "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "class": "covered",
+    "notes": "get_provider_account. Onboarding state and payout readiness for the provider persona."
   },
   "GET /api/providers/{provider_id}/earnings": {
-    "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "class": "covered",
+    "notes": "get_provider_earnings. Earned vs paid vs pending; moves no money."
   },
   "GET /api/providers/{provider_id}/paypal": {
     "class": "gap",
