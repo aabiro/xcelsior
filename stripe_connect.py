@@ -614,6 +614,32 @@ class StripeConnectManager:
 
             provider = dict(row)
 
+            # What is outstanding, not merely that something is. `status` alone
+            # collapses "we need your bank account" and "we need a photo of your
+            # ID" into `restricted`, which tells a provider nothing they can act
+            # on — and the data to say more is already in the response below, it
+            # was just being dropped after deriving the status from it.
+            #
+            # `checked_live` is the load-bearing field. Stripe is not consulted
+            # when it is unconfigured or the account has no id, and the retrieve
+            # can fail; without this flag an empty `currently_due` reads as
+            # "nothing outstanding — you are done" in exactly the case where
+            # nothing was asked. Absent information must not present as good
+            # news on the surface that tells someone why they are unpaid.
+            #
+            # Requirement entries are Stripe's field *names* — `external_account`,
+            # `individual.id_number`, `business_profile.url`. Names, never values:
+            # no identity document, bank number or date of birth passes through
+            # here, which is what makes this safe to hand a model.
+            provider["payouts"] = {
+                "charges_enabled": False,
+                "payouts_enabled": False,
+                "currently_due": [],
+                "past_due": [],
+                "disabled_reason": "",
+                "checked_live": False,
+            }
+
             # Best-effort status sync in case webhook delivery is delayed or missed.
             stripe_account_id = provider.get("stripe_account_id")
             if STRIPE_ENABLED and stripe and stripe_account_id:
@@ -622,7 +648,16 @@ class StripeConnectManager:
                     acct_dict = json.loads(str(acct))
                     charges_enabled = bool(acct_dict.get("charges_enabled", False))
                     payouts_enabled = bool(acct_dict.get("payouts_enabled", False))
-                    disabled_reason = (acct_dict.get("requirements") or {}).get("disabled_reason")
+                    requirements = acct_dict.get("requirements") or {}
+                    disabled_reason = requirements.get("disabled_reason")
+                    provider["payouts"] = {
+                        "charges_enabled": charges_enabled,
+                        "payouts_enabled": payouts_enabled,
+                        "currently_due": list(requirements.get("currently_due") or []),
+                        "past_due": list(requirements.get("past_due") or []),
+                        "disabled_reason": disabled_reason or "",
+                        "checked_live": True,
+                    }
 
                     if charges_enabled and payouts_enabled:
                         new_status = "active"
@@ -699,7 +734,26 @@ class StripeConnectManager:
                 rows = conn.execute(
                     "SELECT * FROM provider_accounts ORDER BY created_at DESC"
                 ).fetchall()
-            return [dict(r) for r in rows]
+            # Same `payouts` shape `get_provider` returns, always unchecked.
+            # This is the admin listing and can hold every provider on the
+            # platform; a live `Account.retrieve` per row would turn one page
+            # into hundreds of Stripe calls. `checked_live: False` is therefore
+            # the truth here and not a placeholder — the caller who needs the
+            # requirements asks for the one provider.
+            return [
+                dict(
+                    r,
+                    payouts={
+                        "charges_enabled": False,
+                        "payouts_enabled": False,
+                        "currently_due": [],
+                        "past_due": [],
+                        "disabled_reason": "",
+                        "checked_live": False,
+                    },
+                )
+                for r in rows
+            ]
 
     def mark_abandoned(self, provider_id: str) -> dict:
         """Mark a provider's onboarding as abandoned (user left Stripe mid-flow)."""

@@ -224,6 +224,27 @@ reflected here and version-bumped fails the build.
 
 ### Changed
 
+- **`get_provider_account` now returns what is blocking payouts, not just that
+  something is.** A new `payouts` block carries `charges_enabled`,
+  `payouts_enabled`, `disabled_reason`, and Stripe's `currently_due` and
+  `past_due` — the field names the provider still has to supply, such as
+  `external_account` or `individual.id_number`.
+
+  The tool's description already claimed this. It was false: `provider_accounts`
+  has no such columns, and the code fetched those exact fields from Stripe, used
+  them to derive a one-word `status`, and discarded them. So a provider asking
+  why they had not been paid got `restricted` — which collapses "we need your
+  bank account" and "we need a photo of your ID" into a word they cannot act on.
+
+  **Read `checked_live` before trusting an empty list.** Stripe is not consulted
+  when it is unconfigured or the account has no id, and the call can fail; the
+  flag is what separates "nothing outstanding" from "nothing was asked".
+
+  Requirement entries are field *names*, never values — no document, bank number
+  or date of birth crosses the surface. The onboarding link is still not a tool:
+  an AccountLink can change the payout destination, so it remains a browser
+  action behind `providers:write`.
+
 - **Trust-surface split.** The public connector serves the customer profile
   only. `drain_host`, `undrain_host`, `evict_host_workloads`,
   `retry_agent_command`, `get_scheduler_health`, `get_host_capacity`, and
