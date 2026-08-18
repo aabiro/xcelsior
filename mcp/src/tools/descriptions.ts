@@ -376,12 +376,17 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "itself the answer. Read-only and free.",
 
   get_provider_account:
-    "Show a GPU provider's account: whether onboarding is finished, what payouts are enabled, " +
-    "and what is still outstanding before earnings can be paid out. Use when someone renting " +
-    "out hardware asks why they have not been paid, what is left to complete, or whether their " +
-    "account is live. This is the provider side of the marketplace — the person supplying GPUs, " +
-    "not renting them. Read-only and free; the provider_id comes from list_providers, which " +
-    "returns nothing for an account that supplies no hardware.",
+    "Show a GPU provider's account and exactly what is blocking their payouts. Returns a " +
+    "`payouts` block: charges_enabled, payouts_enabled, a disabled_reason, and currently_due " +
+    "and past_due — Stripe's list of what the provider still has to supply, such as " +
+    "external_account for a bank account or individual.id_number for identity. Use when " +
+    "someone renting out hardware asks why they have not been paid, what is left to complete, " +
+    "or whether their account is live: name the outstanding items and send them to the " +
+    "earnings page in the browser to finish. Check `checked_live` first — when it is false " +
+    "Stripe was not reachable and the empty lists mean nothing was asked, not that nothing is " +
+    "outstanding. This is the provider side of the marketplace, the person supplying GPUs " +
+    "rather than renting them. Read-only and free; the provider_id comes from list_providers, " +
+    "which returns nothing for an account that supplies no hardware.",
 
   get_provider_earnings:
     "Get a provider's aggregate earnings and payout history: what has been earned, what has " +
