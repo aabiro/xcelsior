@@ -1054,19 +1054,27 @@ class TestWsHardeningPreAccept:
 
 class TestInstanceStreamHardening:
     def test_instance_stream_rejects_disallowed_origin(self):
-        with pytest.raises(Exception):
+        with pytest.raises(WebSocketDisconnect) as closed:
             with client.websocket_connect(
                 "/ws/instances/fake-id",
                 headers={"origin": "https://evil.example"},
             ):
                 pass
+        assert closed.value.code == 1008, (
+            "closed, but not with the policy-violation code — a missing route "
+            "closes 1000 and would satisfy a bare raises(Exception)"
+        )
 
     def test_instance_stream_rejects_legacy_query_token_auth(self, monkeypatch):
         monkeypatch.setattr(deps_mod, "AUTH_REQUIRED", True)
         monkeypatch.setenv("XCELSIOR_API_TOKEN", "master-token")
-        with pytest.raises(Exception):
+        with pytest.raises(WebSocketDisconnect) as closed:
             with client.websocket_connect("/ws/instances/fake-id?token=master-token"):
                 pass
+        assert closed.value.code == 4001, (
+            "a query-string token must be refused as unauthorized, not merely "
+            "closed; 1000 would mean the route is absent"
+        )
 
 
 class TestInstanceStreamTicketApi:

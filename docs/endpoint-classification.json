@@ -432,16 +432,16 @@
     "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "GET /api/events": {
-    "class": "gap",
-    "notes": "the account's activity stream. `events:read` is advertised in scopes_supported and no tool reads events, so a user grants it on first connection and nothing can use it"
+    "class": "internal",
+    "notes": "_require_admin \u2014 the account-wide feed is a platform-operator view, never an agent capability."
   },
   "GET /api/events/leases/{job_id}": {
     "class": "gap",
     "notes": "the account's activity stream. `events:read` is advertised in scopes_supported and no tool reads events, so a user grants it on first connection and nothing can use it"
   },
   "GET /api/events/{entity_type}/{entity_id}": {
-    "class": "gap",
-    "notes": "the account's activity stream. `events:read` is advertised in scopes_supported and no tool reads events, so a user grants it on first connection and nothing can use it"
+    "class": "covered",
+    "notes": "get_event_history. The state-change log for a job or host; distinct from the \u00a720.3 attempt timeline."
   },
   "GET /api/hosts/{host_id}/admission": {
     "class": "internal",

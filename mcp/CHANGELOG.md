@@ -67,6 +67,19 @@ reflected here and version-bumped fails the build.
 
 ### Added
 
+- **`get_event_history`** — the recorded event history for one instance or host.
+
+  `events:read` was granted at the consent screen and required by no tool: a
+  permission asked of every connecting user that authorised nothing they could
+  reach. The check that settled whether to build or drop it — the account-wide
+  `/api/events` is `_require_admin`, so it was never an agent capability, while
+  the per-entity history is a different question from `get_instance_timeline`.
+  §20.3's timeline explains how a job was *placed*; this is the record of what
+  happened afterwards, and it covers **hosts**, which no tool could read at all.
+
+  Dropping the scope instead would have forced every existing connector to
+  re-consent when the tools were eventually wanted.
+
 - **`revoke_launch_plan`** — withdraw a quoted plan so it can no longer be
   approved or executed.
 

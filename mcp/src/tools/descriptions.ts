@@ -359,6 +359,15 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "failure, in order. Use when a job is stuck or failed and the current status alone does not " +
     "explain it. Read-only and free.",
 
+  get_event_history:
+    "Get the recorded event history for one instance or host — what actually happened to it and " +
+    "when, from the platform's event log. Use when the user asks why something stopped, what " +
+    "changed overnight, or what a host has been doing; it also covers hosts, which no other tool " +
+    "reads. This is not get_instance_timeline: that explains how a job was *placed* (reserve, " +
+    "command, lease) and this is the record of what happened afterwards, so a placement question " +
+    "goes there and a behaviour question comes here. The entity_id is a job_id from " +
+    "list_instances, or a host_id from get_host_capacity. Read-only and free.",
+
   get_active_lease:
     "Get the current attempt and lease health for an instance — which host holds it and whether " +
     "the lease is being renewed. Use when an instance appears running but unresponsive, to tell " +
