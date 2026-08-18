@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describeToolSurface } from "../../src/tools/surface.js";
 import { TOOL_DESCRIPTIONS } from "../../src/tools/descriptions.js";
+import { TOOL_CONTRACTS } from "../../src/tools/contracts.js";
 
 /**
  * A tool that requires an id nobody can obtain is a tool that cannot be called.
@@ -78,6 +79,32 @@ describe("every required id can be obtained from the surface", () => {
       orphans,
       "these ids are required and no description says where to get one, so a " +
         "model must guess a value it cannot invent",
+    ).toEqual([]);
+  });
+
+  it("never points at a tool that does not exist", () => {
+    // The gap the id check above cannot see. It asks whether *some* description
+    // mentions the field, not whether the tool it names is real — so
+    // `create_image_sweep` shipped saying "a ready image_id from
+    // list_user_images" when no such tool existed, and the same mistake was
+    // repeated weeks later with `list_providers`. Both passed every guard.
+    //
+    // Verb-prefixed snake_case only. A bare word like `low_balance` or
+    // `num_gpus` is a field or a state, not a tool, and matching those would
+    // make this cry wolf.
+    const VERBS =
+      /\b((?:list|get|create|delete|run|cancel|terminate|attach|detach|promote|snapshot|register|revoke|configure|estimate|schedule|search|simulate|explain|evaluate|watch|open|should|retry|reconcile|drain|undrain|evict|top_up)_[a-z0-9_]+)\b/g;
+    const real = new Set(Object.keys(TOOL_CONTRACTS));
+    const dangling: string[] = [];
+    for (const [name, text] of Object.entries(TOOL_DESCRIPTIONS)) {
+      for (const [, mentioned] of text.matchAll(VERBS)) {
+        if (!real.has(mentioned)) dangling.push(`${name} points at ${mentioned}`);
+      }
+    }
+    expect(
+      [...new Set(dangling)],
+      "a description names a tool that is not registered, so the model is told " +
+        "to call something that does not exist",
     ).toEqual([]);
   });
 

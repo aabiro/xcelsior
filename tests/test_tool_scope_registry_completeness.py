@@ -211,11 +211,23 @@ def _registered_tool_names() -> set[str]:
 #: "no tool reaches any of it". The **read** half needs nothing that is blocked;
 #: only the money-moving half waits on webhook delivery into staging.
 #:
-#: Neither is reachable with a Quick Connect token, deliberately: `providers:read`
-#: is not in that grant, because the default connector is issued to customers and
-#: a provider is a different persona. Recorded in
-#: `test_connector_tokens_are_scope_restricted` rather than widening the grant.
-EXPECTED_TOOL_TOTAL = 73
+#: Both **are** reachable with a Quick Connect token. They were not at first, on
+#: the argument that the default connector is issued to customers and a provider
+#: is a different persona — reasoning reached by analogy to `ssh:read`, where it
+#: holds, and not checked against these routes, where it does not. All four are
+#: owner-scoped and redact the Stripe and PayPal identifiers, so the grant hands
+#: a capability only to someone who already has one. `providers:write` stays out.
+#: **74 with `list_providers`.** Added because the two provider reads shipped
+#: requiring a `provider_id` whose only stated source was `list_providers` —
+#: which did not exist. That is the same defect `create_image_sweep` shipped
+#: with (`list_user_images`), repeated within the day, and every guard passed
+#: both times: `ids-are-obtainable` asks whether a description *mentions* the
+#: field, not whether the tool it names is real.
+#:
+#: It does now. `test never points at a tool that does not exist` closes that
+#: gap, matching verb-prefixed names only so a field like `low_balance` cannot
+#: make it cry wolf.
+EXPECTED_TOOL_TOTAL = 74
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition

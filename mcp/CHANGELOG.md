@@ -67,8 +67,9 @@ reflected here and version-bumped fails the build.
 
 ### Added
 
-- **`get_provider_account` and `get_provider_earnings`** — the first tools for the
-  provider persona: the person supplying GPUs, not renting them.
+- **`list_providers`, `get_provider_account` and `get_provider_earnings`** — the
+  first tools for the provider persona: the person supplying GPUs, not renting
+  them.
 
   P6's clause is "a provider journey — register → admit → publish → earn →
   payout — completes through tools plus the browser handoffs", and thirty-five
@@ -77,11 +78,23 @@ reflected here and version-bumped fails the build.
   the latter separating **earned, paid and pending**, because a figure differing
   from expectation is usually that distinction.
 
-  **Neither is reachable with a Quick Connect token.** `providers:read` is not in
-  that grant, deliberately: Quick Connect is issued to customers, and adding the
-  scope would put provider visibility on every customer's consent screen for a
-  capability almost none of them wants. A provider running an agent issues a
-  credential carrying it.
+  `list_providers` exists because the other two shipped requiring a `provider_id`
+  and named it as the source — while it did not exist. Ids are not guessable, so
+  both tools were uncallable by the agent they were written for.
+
+  **All three are reachable with a Quick Connect token.** They were not at first:
+  `providers:read` was withheld on the argument that Quick Connect is issued to
+  customers and a provider is a different persona. That was reasoned by analogy
+  to `ssh:read` and is wrong here. All four routes behind the scope are
+  owner-scoped — the listing filters to the caller's own account and returns
+  nothing for someone who supplies no hardware, the per-provider routes refuse a
+  caller who is not the owner, and every one redacts the Stripe and PayPal
+  identifiers. Granting it to a customer discloses nothing; it hands a capability
+  only to someone who already has one. `ssh:read` differs precisely there — it
+  discloses key material.
+
+  `providers:write` is **not** granted. Register, disconnect and
+  resume-onboarding move a payout destination.
 
   Reads only. Requesting a payout moves money and waits on webhook delivery into
   staging.

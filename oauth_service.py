@@ -1364,6 +1364,12 @@ MCP_QUICK_CONNECT_SCOPES = [
     "inference:read",
     "inference:write",
     "events:read",
+    # Four owner-scoped reads with the Stripe and PayPal identifiers redacted.
+    # For a caller who is not a provider the listing is empty and the
+    # per-provider routes refuse, so this grants a capability only to
+    # someone who already has one. `providers:write` is deliberately not
+    # here: register, disconnect and resume-onboarding are mutations.
+    "providers:read",
 ]
 MCP_QUICK_CONNECT_CLIENT_NAME = "mcp-quick-connect"
 
