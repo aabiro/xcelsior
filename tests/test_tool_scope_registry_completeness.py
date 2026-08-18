@@ -205,7 +205,17 @@ def _registered_tool_names() -> set[str]:
 #: and that is a different question from `get_instance_timeline`. §20.3's
 #: timeline explains *placement*; this is the record of what happened after, and
 #: it covers hosts as well as jobs.
-EXPECTED_TOOL_TOTAL = 71
+#: **73 with the first two provider tools.** The plan's P6 clause is "a provider
+#: journey — register → admit → publish → earn → payout — completes through
+#: tools plus the browser handoffs", and GT0's note on those endpoints read
+#: "no tool reaches any of it". The **read** half needs nothing that is blocked;
+#: only the money-moving half waits on webhook delivery into staging.
+#:
+#: Neither is reachable with a Quick Connect token, deliberately: `providers:read`
+#: is not in that grant, because the default connector is issued to customers and
+#: a provider is a different persona. Recorded in
+#: `test_connector_tokens_are_scope_restricted` rather than widening the grant.
+EXPECTED_TOOL_TOTAL = 73
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition
