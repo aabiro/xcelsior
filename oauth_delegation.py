@@ -123,6 +123,20 @@ SYSTEM_ALLOWED_SCOPES = frozenset(
         "volumes:read",
         "volumes:write",
         "artifacts:read",
+        # P6 provider reads, added the same way and for the same reason. Four
+        # owner-scoped routes: the listing filters to the caller's own
+        # `provider_id` and returns `[]` for a customer who supplies no
+        # hardware, the per-provider routes sit behind `_require_provider_
+        # access`, and all four redact the Stripe and PayPal identifiers. So
+        # this hands a capability only to someone who already has one, which is
+        # what separates it from `ssh:read` — that one discloses key material to
+        # a connector the user did not think they were arming.
+        #
+        # `providers:write` is deliberately absent: register, disconnect and
+        # resume-onboarding are mutations of a payout destination. It is not
+        # operator authority either, so it is withheld here rather than in
+        # OPERATOR_SCOPES — a distinction this list exists to make.
+        "providers:read",
         "openid",
         "profile",
         "email",
