@@ -179,11 +179,23 @@ const TOOL_SCOPE_REGISTRY = {
   // any of it". The read half needs nothing that is currently blocked; only the
   // money-moving half waits on webhook delivery.
   //
-  // `providers:read` is **not** in the Quick Connect grant, deliberately. A
-  // provider is a different persona from a customer, and the default connector
-  // is issued to customers — handing it provider visibility by default would
-  // widen every consent screen for a capability almost no holder wants. A
-  // provider running an agent issues a credential carrying this scope.
+  // `providers:read` **is** in the Quick Connect grant. It was withheld first,
+  // on the argument that a provider is a different persona from a customer and
+  // the default connector is issued to customers. That reasoning was reached by
+  // analogy to `ssh:read` and the cases differ, so it was reversed: all four
+  // routes behind this scope are owner-scoped — the listing filters to the
+  // caller's own provider_id and returns `[]` for someone who supplies no
+  // hardware, the per-provider routes sit behind `_require_provider_access`,
+  // and every one redacts the Stripe and PayPal identifiers. Granting it to a
+  // customer therefore discloses nothing; it hands a capability only to someone
+  // who already has one. `ssh:read` is genuinely different — it discloses key
+  // material to a connector the user did not think they were arming.
+  //
+  // `providers:write` stays out: register, disconnect and resume-onboarding
+  // move a payout destination. Held in three places that must agree —
+  // MCP_QUICK_CONNECT_SCOPES (what a token carries) and SYSTEM_ALLOWED_SCOPES
+  // (what the system principal may grant) in the API, and this registry.
+  list_providers: { allOf: ["providers:read"] },
   get_provider_account: { allOf: ["providers:read"] },
   get_provider_earnings: { allOf: ["providers:read"] },
   // Company knowledge (optional, off by default). These read published

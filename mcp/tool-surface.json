@@ -1183,6 +1183,29 @@
       "hasOutputSchema": true
     },
     {
+      "name": "list_providers",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "providers:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "status": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
       "name": "list_serverless_endpoints",
       "version": "2.0.0",
       "tenantClass": "tenant",

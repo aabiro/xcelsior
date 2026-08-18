@@ -544,8 +544,8 @@
     "notes": "retention configuration and reporting \u2014 the policy, its current state, and the expiry sweep. Operator and compliance surface"
   },
   "GET /api/providers": {
-    "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "class": "covered",
+    "notes": "list_providers. The only source of provider_id, which the other provider tools require."
   },
   "GET /api/providers/{provider_id}": {
     "class": "covered",

@@ -44,6 +44,13 @@ const MCP_SCOPES = [
   "events:read",
   "inference:read",
   "inference:write",
+  // P6 provider reads. Four owner-scoped routes with the Stripe and PayPal
+  // identifiers redacted: for a customer who supplies no hardware the
+  // listing is empty and the per-provider routes refuse, so this grants a
+  // capability only to someone who already has one. `providers:write` is
+  // deliberately absent — register, disconnect and resume-onboarding are
+  // mutations. Reasoning on MCP_QUICK_CONNECT_SCOPES in oauth_service.py.
+  "providers:read",
 ] as const;
 
 const STEPS = ["create", "copy", "token", "paste"] as const;

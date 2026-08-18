@@ -55,6 +55,9 @@ export function registerDiagnosticTools(server: McpServer, client: XcelsiorApiCl
       limit: z.number().int().min(1).max(200).default(50),
     }),
     a => client.get(`/api/events/${encodeURIComponent(String(a.entity_type))}/${encodeURIComponent(String(a.entity_id))}`, { limit: Number(a.limit ?? 50) }));
+  registerRead(server, client, user, "list_providers",
+    z.object({ status: z.string().max(40).default("") }),
+    a => client.get("/api/providers", { status: String(a.status ?? "") }));
   registerRead(server, client, user, "get_provider_account",
     z.object({ provider_id: id.describe("From list_providers, or the caller's own") }),
     a => client.get(`/api/providers/${encodeURIComponent(String(a.provider_id))}`));

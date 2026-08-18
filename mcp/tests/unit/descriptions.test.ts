@@ -82,6 +82,40 @@ describe("tool descriptions", () => {
     expect(doubled, "double space from a fragment joined twice").toEqual([]);
   });
 
+  it("opens the guidance clause once, at a sentence boundary", () => {
+    // The third shape of the same defect, and the two above cannot see it.
+    // Writing `list_providers` I left "...the caller's own. Use it Use when
+    // helping someone who supplies GPUs" — a fragment kept and its replacement
+    // appended. There is no missing space and no double space; the spacing is
+    // perfect and the sentence is nonsense.
+    //
+    // "Use when" is the surface's convention for the clause that tells a model
+    // *when to reach for the tool*, so it is load-bearing text and it always
+    // opens a sentence: 57 descriptions carry exactly one, 17 carry none, and
+    // none has ever carried it mid-sentence. Both halves matter — a duplicated
+    // clause is caught by the count even when the seam happens to land after a
+    // period, which is the same edit going one word further.
+    const misplaced: string[] = [];
+    const repeated: string[] = [];
+    for (const [name, text] of Object.entries(TOOL_DESCRIPTIONS)) {
+      const hits = [...text.matchAll(/Use when/g)];
+      if (hits.length > 1) repeated.push(`${name} (${hits.length}×)`);
+      for (const hit of hits) {
+        const at = hit.index ?? 0;
+        // Start of the description, or immediately after `. ` / `— `.
+        if (at !== 0 && !/[.!?—]\s$/.test(text.slice(Math.max(0, at - 2), at))) {
+          misplaced.push(`${name}: ...${text.slice(Math.max(0, at - 45), at + 18)}...`);
+        }
+      }
+    }
+    expect(
+      misplaced,
+      "`Use when` appears mid-sentence, which means a fragment was joined to " +
+        "text that already ran on — the model reads the result",
+    ).toEqual([]);
+    expect(repeated, "two `Use when` clauses in one description").toEqual([]);
+  });
+
   it("says that a non-idempotent tool must not be blindly retried", () => {
     for (const name of NAMES) {
       const contract = TOOL_CONTRACTS[name];
