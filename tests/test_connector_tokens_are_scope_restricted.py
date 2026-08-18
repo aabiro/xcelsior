@@ -281,6 +281,13 @@ def test_the_tools_quick_connect_cannot_satisfy_are_the_expected_ones():
         "configure_auto_topup",
         "list_ssh_keys",
         "delete_ssh_key",
+        # P6's provider reads, added 2026-08-17. Same reasoning as the SSH pair:
+        # the default connector belongs to a customer, and a provider — the
+        # person supplying GPUs — issues their own credential with
+        # `providers:read`. Widening the grant would put provider visibility on
+        # every customer's consent screen.
+        "get_provider_account",
+        "get_provider_earnings",
     }, (
         f"the set of published tools a Quick Connect token cannot use is "
         f"{sorted(unsatisfiable)}. Adding to it widens what a connector agent "

@@ -20,7 +20,8 @@ export type McpScope =
   | "mcp_actions:approve"
   | "events:read"
   | "inference:read"
-  | "inference:write";
+  | "inference:write"
+  | "providers:read";
 
 /**
  * A tool's authorization requirement.
@@ -172,6 +173,19 @@ const TOOL_SCOPE_REGISTRY = {
   // approved.
   create_image_sweep: { allOf: ["instances:write"] },
   get_image_sweep: { allOf: ["instances:read"] },
+  // P6's provider surface. The plan's clause is "a provider journey — register
+  // → admit → publish → earn → payout — completes through tools plus the
+  // browser handoffs", and GT0's note on these endpoints read "no tool reaches
+  // any of it". The read half needs nothing that is currently blocked; only the
+  // money-moving half waits on webhook delivery.
+  //
+  // `providers:read` is **not** in the Quick Connect grant, deliberately. A
+  // provider is a different persona from a customer, and the default connector
+  // is issued to customers — handing it provider visibility by default would
+  // widen every consent screen for a capability almost no holder wants. A
+  // provider running an agent issues a credential carrying this scope.
+  get_provider_account: { allOf: ["providers:read"] },
+  get_provider_earnings: { allOf: ["providers:read"] },
   // Company knowledge (optional, off by default). These read published
   // documentation and public pricing — no tenant data — so they take the
   // broad read set rather than a scope of their own. A dedicated scope would

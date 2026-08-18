@@ -67,6 +67,25 @@ reflected here and version-bumped fails the build.
 
 ### Added
 
+- **`get_provider_account` and `get_provider_earnings`** — the first tools for the
+  provider persona: the person supplying GPUs, not renting them.
+
+  P6's clause is "a provider journey — register → admit → publish → earn →
+  payout — completes through tools plus the browser handoffs", and thirty-five
+  provider endpoints had no tool between them. These two answer the questions a
+  provider actually asks: *am I set up to be paid?* and *what have I earned?* —
+  the latter separating **earned, paid and pending**, because a figure differing
+  from expectation is usually that distinction.
+
+  **Neither is reachable with a Quick Connect token.** `providers:read` is not in
+  that grant, deliberately: Quick Connect is issued to customers, and adding the
+  scope would put provider visibility on every customer's consent screen for a
+  capability almost none of them wants. A provider running an agent issues a
+  credential carrying it.
+
+  Reads only. Requesting a payout moves money and waits on webhook delivery into
+  staging.
+
 - **`get_event_history`** — the recorded event history for one instance or host.
 
   `events:read` was granted at the consent screen and required by no tool: a
