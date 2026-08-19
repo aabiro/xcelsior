@@ -841,6 +841,24 @@
       "hasOutputSchema": true
     },
     {
+      "name": "get_my_reputation",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "reputation:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {},
+      "hasOutputSchema": true
+    },
+    {
       "name": "get_pipeline_status",
       "version": "2.0.0",
       "tenantClass": "tenant",
@@ -955,6 +973,47 @@
       "hasOutputSchema": true
     },
     {
+      "name": "get_reputation_breakdown",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "reputation:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "entity_id": {
+          "type": "string",
+          "optional": false
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "get_reputation_journey",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "reputation:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {},
+      "hasOutputSchema": true
+    },
+    {
       "name": "get_serverless_job_status",
       "version": "2.0.0",
       "tenantClass": "tenant",
@@ -1019,6 +1078,24 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": true
+      },
+      "input": {},
+      "hasOutputSchema": true
+    },
+    {
+      "name": "get_trust_tiers",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "reputation:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       },
       "input": {},
       "hasOutputSchema": true

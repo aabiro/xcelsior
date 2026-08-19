@@ -51,6 +51,11 @@ const MCP_SCOPES = [
   // deliberately absent — register, disconnect and resume-onboarding are
   // mutations. Reasoning on MCP_QUICK_CONNECT_SCOPES in oauth_service.py.
   "providers:read",
+  // P6 yield axis. Owner-scoped or public: /api/reputation/me and /me/journey
+  // resolve the caller from their own credential, trust-tiers is the same
+  // ladder for everyone, and breakdown/history are owner-or-admin server-side.
+  // `reputation:write` is absent — it claims milestones.
+  "reputation:read",
 ] as const;
 
 const STEPS = ["create", "copy", "token", "paste"] as const;
