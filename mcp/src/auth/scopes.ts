@@ -21,7 +21,8 @@ export type McpScope =
   | "events:read"
   | "inference:read"
   | "inference:write"
-  | "providers:read";
+  | "providers:read"
+  | "reputation:read";
 
 /**
  * A tool's authorization requirement.
@@ -198,6 +199,27 @@ const TOOL_SCOPE_REGISTRY = {
   list_providers: { allOf: ["providers:read"] },
   get_provider_account: { allOf: ["providers:read"] },
   get_provider_earnings: { allOf: ["providers:read"] },
+  // P6's yield axis. Reputation is what a tier — and therefore the commission
+  // rate, the search boost and the pricing premium — is computed from, so this
+  // is the half of "why am I not earning more" that `get_provider_earnings`
+  // cannot answer.
+  //
+  // Reachable by Quick Connect, decided on the routes rather than by analogy to
+  // the pair above. `/api/reputation/me` and `/me/journey` resolve the subject
+  // from the caller's own credential; `/api/trust-tiers` is the same public
+  // ladder for everyone and holds no personal data; `breakdown` is behind
+  // `_require_reputation_entity_access`, which admits the owner or an admin and
+  // 403s anyone else — so passing someone else's id is refused by the API, not
+  // by the absence of a scope. A customer who hosts nothing gets `new_user` and
+  // an empty journey, which is the same "empty is the answer" shape as
+  // `list_providers`.
+  //
+  // `reputation:write` is not granted: it claims milestones, which grant points
+  // and verification badges. Recorded as non-operator in oauth_delegation.py.
+  get_my_reputation: { allOf: ["reputation:read"] },
+  get_reputation_journey: { allOf: ["reputation:read"] },
+  get_trust_tiers: { allOf: ["reputation:read"] },
+  get_reputation_breakdown: { allOf: ["reputation:read"] },
   // Company knowledge (optional, off by default). These read published
   // documentation and public pricing — no tenant data — so they take the
   // broad read set rather than a scope of their own. A dedicated scope would

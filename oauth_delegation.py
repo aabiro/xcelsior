@@ -137,6 +137,11 @@ SYSTEM_ALLOWED_SCOPES = frozenset(
         # operator authority either, so it is withheld here rather than in
         # OPERATOR_SCOPES — a distinction this list exists to make.
         "providers:read",
+        # Same pairing as the line above, and the reason it is here: granting a
+        # scope in MCP_QUICK_CONNECT_SCOPES without adding it to this list makes
+        # every Quick Connect mint 403 at client creation. That is exactly what
+        # happened when `providers:read` was added to one and not the other.
+        "reputation:read",
         "openid",
         "profile",
         "email",

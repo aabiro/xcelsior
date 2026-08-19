@@ -395,6 +395,36 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "— earned is not the same as paid, and this separates them. Read-only and free, and it " +
     "moves no money: requesting a payout is a separate action.",
 
+  get_my_reputation:
+    "Get the caller's own reputation score and trust tier. Use when a provider asks how they " +
+    "are rated, why their tier changed, or what their standing is — tier drives the platform " +
+    "commission they pay, their ranking in search, and the pricing premium they can charge, so " +
+    "it is the lever behind earnings rather than a vanity number. Someone who hosts no hardware " +
+    "comes back as a new user with no score, which is itself the answer. Read-only and free.",
+
+  get_reputation_journey:
+    "List the caller's reputation milestones with live progress and how many are ready to " +
+    "claim. Use when a provider asks what to do next to earn more or reach the next tier: this " +
+    "returns concrete steps with real progress against each, so the answer is specific rather " +
+    "than general advice. Progress is computed from actual account and activity state, so a " +
+    "milestone shown as complete is genuinely earned. Read-only and free — claiming a reward is " +
+    "a separate action needing reputation:write, which agent credentials do not carry.",
+
+  get_trust_tiers:
+    "List every trust tier with its score threshold and what it unlocks — platform commission, " +
+    "search boost and pricing premium. Use when a provider asks what a higher tier is worth or " +
+    "what it takes to reach one, and pair it with get_my_reputation to say how far away they " +
+    "are. The numbers come from the live scoring engine rather than documentation, so quote " +
+    "what this returns instead of any figure you remember. Read-only and free.",
+
+  get_reputation_breakdown:
+    "Explain how a reputation score was arrived at: points from completed jobs, uptime bonus, " +
+    "penalties and decay, derived from the event history. Use when a provider disputes a score " +
+    "or asks why it fell — this separates a penalty from ordinary decay, which are different " +
+    "problems with different fixes. The entity_id is the caller's own provider_id from " +
+    "list_providers or a host_id from get_host_capacity; asking about anyone else is refused. " +
+    "Read-only and free.",
+
   get_active_lease:
     "Get the current attempt and lease health for an instance — which host holds it and whether " +
     "the lease is being renewed. Use when an instance appears running but unresponsive, to tell " +

@@ -61,6 +61,18 @@ export function registerDiagnosticTools(server: McpServer, client: XcelsiorApiCl
   registerRead(server, client, user, "get_provider_account",
     z.object({ provider_id: id.describe("From list_providers, or the caller's own") }),
     a => client.get(`/api/providers/${encodeURIComponent(String(a.provider_id))}`));
+  registerRead(server, client, user, "get_my_reputation",
+    z.object({}),
+    () => client.get("/api/reputation/me"));
+  registerRead(server, client, user, "get_reputation_journey",
+    z.object({}),
+    () => client.get("/api/reputation/me/journey"));
+  registerRead(server, client, user, "get_trust_tiers",
+    z.object({}),
+    () => client.get("/api/trust-tiers"));
+  registerRead(server, client, user, "get_reputation_breakdown",
+    z.object({ entity_id: id.describe("The caller's own provider_id from list_providers, or a host_id from get_host_capacity") }),
+    a => client.get(`/api/reputation/${encodeURIComponent(String(a.entity_id))}/breakdown`));
   registerRead(server, client, user, "get_provider_earnings",
     z.object({ provider_id: id.describe("From list_providers, or the caller's own") }),
     a => client.get(`/api/providers/${encodeURIComponent(String(a.provider_id))}/earnings`));

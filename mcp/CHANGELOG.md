@@ -67,6 +67,30 @@ reflected here and version-bumped fails the build.
 
 ### Added
 
+- **`get_my_reputation`, `get_reputation_journey`, `get_trust_tiers` and
+  `get_reputation_breakdown`** — P6's yield axis.
+
+  Reputation decides a provider's tier, and tier decides the platform commission
+  they pay, their ranking in search, and the pricing premium they can charge. So
+  it is the half of *"why am I not earning more"* that earnings figures cannot
+  answer. `get_reputation_journey` is the actionable one: milestones with live
+  progress computed from real account and activity state, so the reply is a list
+  of specific next steps rather than general advice.
+
+  `get_trust_tiers` returns thresholds and rewards from the live scoring engine,
+  not from documentation — quote what it returns rather than any number you
+  remember. Every figure the platform tells providers is derived from
+  `reputation.py` through `provider_expectations.py`, and a test fails when the
+  messaging and the engine disagree.
+
+  All four are reachable by Quick Connect, decided on the routes: `/me` and
+  `/me/journey` resolve the subject from the caller's own credential,
+  `/api/trust-tiers` is one public ladder with no personal data, and `breakdown`
+  is behind an owner-or-admin check. The plain score stays open by design — a
+  buyer comparing hosts needs it — while the history it is derived from does
+  not. `reputation:write` is not granted: it claims milestones, awarding points
+  and verification badges.
+
 - **`list_providers`, `get_provider_account` and `get_provider_earnings`** — the
   first tools for the provider persona: the person supplying GPUs, not renting
   them.

@@ -564,20 +564,20 @@
     "notes": "P5 reputation-aware placement needs these as tools"
   },
   "GET /api/reputation/me": {
-    "class": "gap",
-    "notes": "P5 reputation-aware placement needs these as tools"
+    "class": "covered",
+    "notes": "get_my_reputation. The caller's own score and tier."
   },
   "GET /api/reputation/me/journey": {
-    "class": "gap",
-    "notes": "P5 reputation-aware placement needs these as tools"
+    "class": "covered",
+    "notes": "get_reputation_journey. Milestones with live progress \u2014 the actionable 'what do I do next'."
   },
   "GET /api/reputation/{entity_id}": {
     "class": "gap",
     "notes": "P5 reputation-aware placement needs these as tools"
   },
   "GET /api/reputation/{entity_id}/breakdown": {
-    "class": "gap",
-    "notes": "P5 reputation-aware placement needs these as tools"
+    "class": "covered",
+    "notes": "get_reputation_breakdown. Owner-or-admin, via _require_reputation_entity_access."
   },
   "GET /api/reputation/{entity_id}/history": {
     "class": "gap",
@@ -652,8 +652,8 @@
     "notes": "legal-request handling and the published transparency report. `transparency:read`/`write` are operator scopes and only a platform admin may be granted them"
   },
   "GET /api/trust-tiers": {
-    "class": "gap",
-    "notes": "P5 reputation-aware placement needs these as tools"
+    "class": "covered",
+    "notes": "get_trust_tiers. The reward ladder, live from the scoring engine rather than from docs."
   },
   "GET /api/users/me/preferences": {
     "class": "internal",
@@ -1584,8 +1584,8 @@
     "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "POST /api/providers/{provider_id}/account-session": {
-    "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "class": "internal",
+    "notes": "Deliberately not a tool. Returns a Stripe AccountSession client_secret, which mounts the embedded onboarding/payouts components \u2014 a bearer credential for the provider's Connect account. A tool response goes into a model's context and into audit records. The browser holds it; the agent reads get_provider_account's payouts block instead."
   },
   "POST /api/providers/{provider_id}/incorporation": {
     "class": "gap",
@@ -1600,16 +1600,16 @@
     "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "POST /api/providers/{provider_id}/paypal/onboard": {
-    "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "class": "internal",
+    "notes": "Deliberately not a tool. Returns a PayPal partner referral link \u2014 same class as the Stripe AccountLink above: a URL that carries onboarding authority for a payout destination."
   },
   "POST /api/providers/{provider_id}/paypal/refresh": {
     "class": "gap",
     "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "POST /api/providers/{provider_id}/resume-onboarding": {
-    "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "class": "internal",
+    "notes": "Deliberately not a tool. Mints a Stripe AccountLink, which can set the external bank account \u2014 a payout-destination-change capability, and Stripe's own guidance is not to distribute the URL. The agent names what is outstanding via get_provider_account and sends the provider to the dashboard to finish."
   },
   "POST /api/providers/{provider_id}/stripe/disconnect": {
     "class": "gap",
