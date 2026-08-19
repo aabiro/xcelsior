@@ -202,6 +202,8 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   get_reputation_journey: { readOnly: true, destructive: false, audience: "customer" },
   get_trust_tiers: { readOnly: true, destructive: false, audience: "customer" },
   get_reputation_breakdown: { readOnly: true, destructive: false, audience: "customer" },
+  get_reputation_leaderboard: { readOnly: true, destructive: false, audience: "customer" },
+  get_reputation_history: { readOnly: true, destructive: false, audience: "customer" },
   // `keyed` in the sense the type documents: repeating genuinely has no further
   // effect, because the engine skips already-claimed milestones.
   claim_reputation_milestones: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
