@@ -22,7 +22,8 @@ export type McpScope =
   | "inference:read"
   | "inference:write"
   | "providers:read"
-  | "reputation:read";
+  | "reputation:read"
+  | "reputation:write";
 
 /**
  * A tool's authorization requirement.
@@ -220,6 +221,19 @@ const TOOL_SCOPE_REGISTRY = {
   get_reputation_journey: { allOf: ["reputation:read"] },
   get_trust_tiers: { allOf: ["reputation:read"] },
   get_reputation_breakdown: { allOf: ["reputation:read"] },
+  // The exit for the journey above. `get_reputation_journey` reports how many
+  // milestones are ready to claim, and nothing could claim them — the
+  // read-without-an-act shape that left `list_ssh_keys` and the serverless
+  // cancels missing. The route grants only what is already earned: progress is
+  // recomputed from real account and activity state, so this cannot fabricate a
+  // milestone, and it is idempotent because the engine skips ones already held.
+  //
+  // **Not** reachable by Quick Connect, and unlike the reads above that is not a
+  // disclosure judgement — `reputation:write` awards points and verification
+  // badges, which move a provider's tier and therefore the commission they pay.
+  // A provider whose agent should do this issues a credential carrying it.
+  claim_reputation_milestones: { allOf: ["reputation:write"] },
+  get_paypal_status: { allOf: ["providers:read"] },
   // Company knowledge (optional, off by default). These read published
   // documentation and public pricing — no tenant data — so they take the
   // broad read set rather than a scope of their own. A dedicated scope would

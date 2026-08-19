@@ -35,6 +35,36 @@ function registerRead(
   });
 }
 
+/** The write counterpart of `registerRead`. Same scope refusal and error
+ *  shaping; POSTs, and does not claim to be read-only. Annotations are set
+ *  from the contract by `installToolAudit` regardless, so these are the
+ *  honest values rather than the authoritative ones. */
+function registerWrite(
+  server: McpServer,
+  client: XcelsiorApiClient,
+  user: AuthUser | undefined,
+  name: keyof typeof TOOL_SCOPES,
+  inputSchema: z.ZodObject<Record<string, z.ZodTypeAny>>,
+  request: (args: Record<string, unknown>) => Promise<unknown>,
+): void {
+  server.registerTool(name, {
+    inputSchema,
+    outputSchema: output,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async (args) => {
+    const required = TOOL_SCOPES[name];
+    if (!userHasScope(user?.scopes, required)) {
+      return structuredResult({ ok: false, code: "insufficient_scope", required }, `Access denied: requires ${describeScopeRequirement(required)}.`);
+    }
+    try {
+      const value = await request(args) as Record<string, unknown>;
+      return structuredResult(value, `${name} completed.`);
+    } catch (error) {
+      return structuredResult(apiProblem(error), `${name} failed.`);
+    }
+  });
+}
+
 export function registerDiagnosticTools(server: McpServer, client: XcelsiorApiClient, user?: AuthUser): void {
   registerRead(server, client, user, "explain_instance_placement", z.object({ job_id: id }), a => client.get(`/api/v1/instances/${encodeURIComponent(String(a.job_id))}/placement-explanation`));
   registerRead(server, client, user, "simulate_instance_placement", z.object({ spec: z.record(z.unknown()) }), a => client.post("/api/v1/placements/simulate", a.spec));
@@ -61,6 +91,12 @@ export function registerDiagnosticTools(server: McpServer, client: XcelsiorApiCl
   registerRead(server, client, user, "get_provider_account",
     z.object({ provider_id: id.describe("From list_providers, or the caller's own") }),
     a => client.get(`/api/providers/${encodeURIComponent(String(a.provider_id))}`));
+  registerWrite(server, client, user, "claim_reputation_milestones",
+    z.object({}),
+    () => client.post("/api/reputation/me/claim", {}));
+  registerRead(server, client, user, "get_paypal_status",
+    z.object({ provider_id: id.describe("From list_providers, or the caller's own") }),
+    a => client.get(`/api/providers/${encodeURIComponent(String(a.provider_id))}/paypal`));
   registerRead(server, client, user, "get_my_reputation",
     z.object({}),
     () => client.get("/api/reputation/me"));

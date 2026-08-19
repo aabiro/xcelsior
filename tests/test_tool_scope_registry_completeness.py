@@ -232,7 +232,12 @@ def _registered_tool_names() -> set[str]:
 #: half of "why am I not earning more" that earnings alone cannot answer.
 #: `get_reputation_journey` is the actionable one — milestones with live
 #: progress, rather than advice.
-EXPECTED_TOOL_TOTAL = 78
+#: **80** with `claim_reputation_milestones` and `get_paypal_status`. The first
+#: is the exit for the journey — it reported claimable milestones and nothing
+#: could claim them. The second completes the payout-destination picture: Stripe
+#: and PayPal onboard separately, so "payouts blocked" has two possible causes
+#: and only one was readable.
+EXPECTED_TOOL_TOTAL = 80
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition

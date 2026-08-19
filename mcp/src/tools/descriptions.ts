@@ -408,7 +408,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "returns concrete steps with real progress against each, so the answer is specific rather " +
     "than general advice. Progress is computed from actual account and activity state, so a " +
     "milestone shown as complete is genuinely earned. Read-only and free — claiming a reward is " +
-    "a separate action needing reputation:write, which agent credentials do not carry.",
+    "a separate action — that is claim_reputation_milestones, which needs reputation:write and " +
+    "is deliberately outside the default connector's grant.",
 
   get_trust_tiers:
     "List every trust tier with its score threshold and what it unlocks — platform commission, " +
@@ -424,6 +425,25 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "problems with different fixes. The entity_id is the caller's own provider_id from " +
     "list_providers or a host_id from get_host_capacity; asking about anyone else is refused. " +
     "Read-only and free.",
+
+  claim_reputation_milestones:
+    "Claim every reputation milestone the caller has already earned but not yet collected: it " +
+    "creates a one-time grant per milestone and returns what was awarded with the refreshed " +
+    "score and tier. Use when get_reputation_journey shows milestones ready to claim — each " +
+    "grant adds points and, for the security milestones, a verification badge, which can move " +
+    "the provider into a higher tier and lower the commission they pay. It cannot invent " +
+    "progress: every milestone is re-checked against real account and activity state, so " +
+    "anything not genuinely earned is skipped. Free, and it moves no money. Safe to repeat — " +
+    "already-claimed milestones are skipped rather than granted twice. Touches only the " +
+    "caller\'s own account, and needs reputation:write.",
+
+  get_paypal_status:
+    "Get a provider's PayPal payout onboarding state: whether PayPal is enabled on the platform, " +
+    "how far the provider got, and when they finished. Use when a provider asks about PayPal " +
+    "specifically, or when get_provider_account shows payouts blocked and you need to know " +
+    "whether their PayPal side is the reason — Stripe and PayPal are separate destinations with " +
+    "separate onboarding. The merchant and payer identifiers are deliberately not returned. " +
+    "Read-only and free; the provider_id comes from list_providers.",
 
   get_active_lease:
     "Get the current attempt and lease health for an instance — which host holds it and whether " +

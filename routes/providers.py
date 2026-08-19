@@ -334,6 +334,15 @@ def api_provider_paypal_status(provider_id: str, request: Request):
     profile = mgr.get_paypal_profile(provider_id)
     if not profile:
         raise HTTPException(404, f"Provider {provider_id} not found")
+    # Same redaction as the four sibling provider reads, which this route was
+    # missing. `merchant_id`, `payer_id` and `tracking_id` identify the payout
+    # destination at PayPal; the onboarding *state* is what a caller needs and
+    # the identifiers are what an integration would need to act on the account.
+    # The dashboard never rendered any of them — its own response type does not
+    # even declare two of the three — and this route now sits behind a tool, so
+    # they would otherwise land in model context and audit records.
+    for identifier in ("merchant_id", "payer_id", "tracking_id"):
+        profile.pop(identifier, None)
     return {"ok": True, "paypal_enabled": paypal_enabled(), "paypal": profile}
 
 

@@ -281,6 +281,10 @@ def test_the_tools_quick_connect_cannot_satisfy_are_the_expected_ones():
         "configure_auto_topup",
         "list_ssh_keys",
         "delete_ssh_key",
+        # `reputation:write` grants points and verification badges — it moves a
+        # provider's tier, and tier sets the commission they pay. The reputation
+        # reads are reachable; changing standing is not.
+        "claim_reputation_milestones",
     }, (
         f"the set of published tools a Quick Connect token cannot use is "
         f"{sorted(unsatisfiable)}. Adding to it widens what a connector agent "

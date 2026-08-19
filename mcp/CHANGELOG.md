@@ -67,6 +67,29 @@ reflected here and version-bumped fails the build.
 
 ### Added
 
+- **`claim_reputation_milestones`** — the exit for the journey.
+
+  `get_reputation_journey` reports how many milestones are ready to claim, and
+  nothing could claim them: the read-without-an-act shape that left `list_ssh_keys`
+  and the serverless cancels missing. It grants only what is already earned —
+  progress is recomputed from real account and activity state, so it cannot
+  fabricate a milestone — and repeats are skipped rather than granted twice.
+
+  **Not reachable by Quick Connect.** Unlike the four reputation reads, this is
+  not a disclosure judgement: `reputation:write` awards points and verification
+  badges, which move a provider's tier and therefore the commission they pay.
+
+- **`get_paypal_status`** — the other payout destination. Stripe and PayPal
+  onboard separately, so "payouts are blocked" has two possible causes and only
+  one was readable.
+
+  The route was returning `merchant_id`, `payer_id` and `tracking_id` — the same
+  identifiers its four sibling provider reads redact, under shorter names. The
+  redaction boundary had a hole shaped exactly like the fields it was drawn
+  around. Nothing rendered them and the dashboard's own response type does not
+  declare two of the three, but a tool response lands in model context and audit
+  records, so the route now redacts them like its siblings.
+
 - **`get_my_reputation`, `get_reputation_journey`, `get_trust_tiers` and
   `get_reputation_breakdown`** — P6's yield axis.
 

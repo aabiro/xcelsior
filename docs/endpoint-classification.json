@@ -556,8 +556,8 @@
     "notes": "get_provider_earnings. Earned vs paid vs pending; moves no money."
   },
   "GET /api/providers/{provider_id}/paypal": {
-    "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "class": "covered",
+    "notes": "get_paypal_status. Identifiers redacted to match the sibling provider reads."
   },
   "GET /api/reputation/leaderboard": {
     "class": "gap",
@@ -1616,8 +1616,8 @@
     "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
   "POST /api/reputation/me/claim": {
-    "class": "gap",
-    "notes": "P5 reputation-aware placement needs these as tools"
+    "class": "covered",
+    "notes": "claim_reputation_milestones. Own account, earned-only, idempotent."
   },
   "POST /api/reputation/verify": {
     "class": "gap",
