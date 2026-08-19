@@ -215,3 +215,42 @@ def test_the_tool_description_promises_only_fields_that_exist(provider_row):
         f"{sorted(unmentioned)} is returned and the description never mentions "
         "it, so no model reading tools/list knows to look at it"
     )
+
+
+# ── The other payout destination ──────────────────────────────────────
+
+
+def test_the_paypal_route_redacts_what_its_siblings_redact(provider_row):
+    """`GET /api/providers/{id}/paypal` returned the identifiers, alone among
+    the provider reads.
+
+    The other four `pop()` `stripe_account_id`, `paypal_merchant_id`,
+    `paypal_payer_id` and `paypal_tracking_id`. This one returned the PayPal
+    three under shorter names — `merchant_id`, `payer_id`, `tracking_id` — so the
+    redaction boundary had a hole shaped exactly like the fields it was drawn
+    around. Nothing rendered them: the dashboard's own response type does not
+    declare two of the three, and no component reads any. It mattered once the
+    route went behind `get_paypal_status`, because a tool response lands in model
+    context and in audit records.
+
+    The onboarding *state* is what a caller needs. The identifiers are what an
+    integration would need to act on the account.
+    """
+    from paypal_connect import get_paypal_manager
+
+    profile = get_paypal_manager().get_paypal_profile(provider_row)
+    assert profile is not None
+    # The manager still returns them — redaction is the route's job, so this
+    # documents that the sensitive data exists and the boundary is where it
+    # stops, rather than implying the store was changed.
+    assert "merchant_id" in profile
+
+    import routes.providers as providers_routes
+
+    source = pathlib.Path(providers_routes.__file__).read_text(encoding="utf-8")
+    block = source.split("def api_provider_paypal_status", 1)[1].split("\n@router", 1)[0]
+    for identifier in ("merchant_id", "payer_id", "tracking_id"):
+        assert f'"{identifier}"' in block, (
+            f"api_provider_paypal_status no longer redacts {identifier}, so the "
+            "PayPal payout destination is readable through get_paypal_status"
+        )

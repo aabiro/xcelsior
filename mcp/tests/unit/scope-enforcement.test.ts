@@ -114,6 +114,11 @@ describe("scope enforcement", () => {
     // sessions.
     "list_ssh_keys",
     "delete_ssh_key",
+    // `reputation:write` awards points and verification badges, which move a
+    // provider's tier and so the commission they pay. The four reputation
+    // *reads* are in the grant; this is not, and the difference is that one
+    // discloses and the other changes standing.
+    "claim_reputation_milestones",
   ]);
 
   it("still admits the Quick Connect scope set for every customer tool", () => {
