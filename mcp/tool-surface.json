@@ -105,6 +105,24 @@
       "hasOutputSchema": true
     },
     {
+      "name": "claim_reputation_milestones",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "reputation:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {},
+      "hasOutputSchema": true
+    },
+    {
       "name": "configure_auto_topup",
       "version": "2.0.0",
       "tenantClass": "tenant",
@@ -856,6 +874,29 @@
         "openWorldHint": false
       },
       "input": {},
+      "hasOutputSchema": true
+    },
+    {
+      "name": "get_paypal_status",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "providers:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "provider_id": {
+          "type": "string",
+          "optional": false
+        }
+      },
       "hasOutputSchema": true
     },
     {
