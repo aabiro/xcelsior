@@ -560,8 +560,8 @@
     "notes": "get_paypal_status. Identifiers redacted to match the sibling provider reads."
   },
   "GET /api/reputation/leaderboard": {
-    "class": "gap",
-    "notes": "P5 reputation-aware placement needs these as tools"
+    "class": "covered",
+    "notes": "get_reputation_leaderboard. Gives a provider's own score a scale."
   },
   "GET /api/reputation/me": {
     "class": "covered",
@@ -572,16 +572,16 @@
     "notes": "get_reputation_journey. Milestones with live progress \u2014 the actionable 'what do I do next'."
   },
   "GET /api/reputation/{entity_id}": {
-    "class": "gap",
-    "notes": "P5 reputation-aware placement needs these as tools"
+    "class": "internal",
+    "notes": "Deliberately not a tool. search_marketplace already returns reputation_score on every listing and filters and sorts by it, which is the journey that needs a host's score \u2014 and a provider's own is get_my_reputation. A third path to the same number would add surface without adding an answer."
   },
   "GET /api/reputation/{entity_id}/breakdown": {
     "class": "covered",
     "notes": "get_reputation_breakdown. Owner-or-admin, via _require_reputation_entity_access."
   },
   "GET /api/reputation/{entity_id}/history": {
-    "class": "gap",
-    "notes": "P5 reputation-aware placement needs these as tools"
+    "class": "covered",
+    "notes": "get_reputation_history. Owner-or-admin, via _require_reputation_entity_access."
   },
   "GET /api/sla/downtimes": {
     "class": "gap",
@@ -1573,55 +1573,55 @@
   },
   "POST /api/providers/register": {
     "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "notes": "P6's journey starts here, but NOT YET A TOOL and the reason is a precondition, not effort: `provider_id` is taken from the request body and never pinned to the caller, so a caller sending a fresh one mints a new Stripe Connect account each time and orphans the previous one. The dashboard is safe only by convention (it sends providerId || customerId). A register tool would retry on timeout and create a second real account. Constrain the id server-side as `email` already is, then build it. See tests/test_provider_registration_id_is_caller_controlled.py."
   },
   "POST /api/providers/webhook": {
     "class": "internal",
     "notes": "processor webhook; machine-to-machine and signature-verified, and P1's only completion signal \u2014 the caller is Stripe, never an agent"
   },
   "POST /api/providers/{provider_id}/abandon-onboarding": {
-    "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "class": "internal",
+    "notes": "Deliberately not a tool. A UI signal \u2014 the dashboard marks onboarding abandoned when the user leaves the Stripe modal, so a distinct 'Resume Setup' CTA can render. It records what the browser observed and there is nothing for an agent to observe."
   },
   "POST /api/providers/{provider_id}/account-session": {
     "class": "internal",
     "notes": "Deliberately not a tool. Returns a Stripe AccountSession client_secret, which mounts the embedded onboarding/payouts components \u2014 a bearer credential for the provider's Connect account. A tool response goes into a model's context and into audit records. The browser holds it; the agent reads get_provider_account's payouts block instead."
   },
   "POST /api/providers/{provider_id}/incorporation": {
-    "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "class": "internal",
+    "notes": "Deliberately not a tool. Links an already-uploaded file_id, and the upload itself is POST /api/artifacts/upload with the document bytes \u2014 which an agent does not hold. It also grants an INCORPORATION verification badge, so a tool taking an unvalidated file_id would let a caller award itself one."
   },
   "POST /api/providers/{provider_id}/payout": {
     "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "notes": "P6's last step and the one that moves money. Blocked, not skipped: completion is decided by `account.updated` webhook delivery, and there is no webhook endpoint in Stripe test mode \u2014 a `stripe listen --forward-to` session is the instrument, since an endpoint cannot reach loopback. It also needs the launch-plan approval shape rather than a bare write, because 'replay produces one payout' is Gate P6's wording."
   },
   "POST /api/providers/{provider_id}/paypal/disconnect": {
-    "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "class": "internal",
+    "notes": "Deliberately not a tool. Same as the Stripe disconnect above: the agent never connects the PayPal destination, so it does not remove it."
   },
   "POST /api/providers/{provider_id}/paypal/onboard": {
     "class": "internal",
     "notes": "Deliberately not a tool. Returns a PayPal partner referral link \u2014 same class as the Stripe AccountLink above: a URL that carries onboarding authority for a payout destination."
   },
   "POST /api/providers/{provider_id}/paypal/refresh": {
-    "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "class": "internal",
+    "notes": "Deliberately not a tool. Re-queries PayPal and writes back the onboarding status; the dashboard refreshes it. get_paypal_status serves what an agent needs to answer 'is PayPal the reason payouts are blocked', and a `providers:write` tool to refresh a read is a poor trade."
   },
   "POST /api/providers/{provider_id}/resume-onboarding": {
     "class": "internal",
     "notes": "Deliberately not a tool. Mints a Stripe AccountLink, which can set the external bank account \u2014 a payout-destination-change capability, and Stripe's own guidance is not to distribute the URL. The agent names what is outstanding via get_provider_account and sends the provider to the dashboard to finish."
   },
   "POST /api/providers/{provider_id}/stripe/disconnect": {
-    "class": "gap",
-    "notes": "P6's provider surface \u2014 register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
+    "class": "internal",
+    "notes": "Deliberately not a tool. Unlinks the payout destination so the connect flow can be re-run. The agent cannot connect one \u2014 onboarding is a browser handoff because the AccountLink is a bearer credential \u2014 so it has no business disconnecting one. The exit belongs to whoever holds the entrance."
   },
   "POST /api/reputation/me/claim": {
     "class": "covered",
     "notes": "claim_reputation_milestones. Own account, earned-only, idempotent."
   },
   "POST /api/reputation/verify": {
-    "class": "gap",
-    "notes": "P5 reputation-aware placement needs these as tools"
+    "class": "internal",
+    "notes": "Deliberately not a tool. `_require_admin`: granting a verification badge is the platform asserting it checked something, and an agent tool for it would let a caller vouch for itself. The provider-side counterpart is claim_reputation_milestones, which grants only what real account state already proves."
   },
   "POST /api/sla/enforce": {
     "class": "gap",
