@@ -1370,6 +1370,14 @@ MCP_QUICK_CONNECT_SCOPES = [
     # someone who already has one. `providers:write` is deliberately not
     # here: register, disconnect and resume-onboarding are mutations.
     "providers:read",
+    # P6's yield axis, same owner-scoped test as providers:read above.
+    # `/api/reputation/me` and `/me/journey` resolve the subject from the
+    # caller's own credential, `/api/trust-tiers` is one public ladder with no
+    # personal data, and the breakdown and history routes enforce
+    # `_require_reputation_entity_access` — owner or admin, 403 otherwise.
+    # `reputation:write` is excluded: it claims milestones, granting points
+    # and verification badges.
+    "reputation:read",
 ]
 MCP_QUICK_CONNECT_CLIENT_NAME = "mcp-quick-connect"
 

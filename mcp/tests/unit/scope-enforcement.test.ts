@@ -126,7 +126,7 @@ describe("scope enforcement", () => {
       "instances:read", "instances:write", "instances:operate", "instances:connect",
       "ssh:write", "volumes:read", "volumes:write", "artifacts:read",
       "billing:read", "gpu:read", "marketplace:read", "inference:read",
-      "inference:write", "events:read", "providers:read",
+      "inference:write", "events:read", "providers:read", "reputation:read",
     ];
     for (const [name, contract] of Object.entries(TOOL_CONTRACTS)) {
       if (contract.tenantClass === "operator") continue;
@@ -147,7 +147,7 @@ describe("scope enforcement", () => {
       "instances:read", "instances:write", "instances:operate", "instances:connect",
       "ssh:write", "volumes:read", "volumes:write", "artifacts:read",
       "billing:read", "gpu:read", "marketplace:read", "inference:read",
-      "inference:write", "events:read", "providers:read",
+      "inference:write", "events:read", "providers:read", "reputation:read",
     ];
     for (const name of NOT_REACHABLE_BY_QUICK_CONNECT) {
       expect(satisfiesScope(quickConnect, TOOL_SCOPES[name]), name).toBe(false);

@@ -227,7 +227,12 @@ def _registered_tool_names() -> set[str]:
 #: It does now. `test never points at a tool that does not exist` closes that
 #: gap, matching verb-prefixed names only so a field like `low_balance` cannot
 #: make it cry wolf.
-EXPECTED_TOOL_TOTAL = 74
+#: **78 with the reputation reads.** P6's yield axis: tier drives the platform
+#: commission, the search boost and the pricing premium, so reputation is the
+#: half of "why am I not earning more" that earnings alone cannot answer.
+#: `get_reputation_journey` is the actionable one — milestones with live
+#: progress, rather than advice.
+EXPECTED_TOOL_TOTAL = 78
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition
