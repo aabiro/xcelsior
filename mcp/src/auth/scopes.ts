@@ -221,6 +221,8 @@ const TOOL_SCOPE_REGISTRY = {
   get_reputation_journey: { allOf: ["reputation:read"] },
   get_trust_tiers: { allOf: ["reputation:read"] },
   get_reputation_breakdown: { allOf: ["reputation:read"] },
+  get_reputation_leaderboard: { allOf: ["reputation:read"] },
+  get_reputation_history: { allOf: ["reputation:read"] },
   // The exit for the journey above. `get_reputation_journey` reports how many
   // milestones are ready to claim, and nothing could claim them — the
   // read-without-an-act shape that left `list_ssh_keys` and the serverless

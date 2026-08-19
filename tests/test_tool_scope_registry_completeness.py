@@ -237,7 +237,10 @@ def _registered_tool_names() -> set[str]:
 #: could claim them. The second completes the payout-destination picture: Stripe
 #: and PayPal onboard separately, so "payouts blocked" has two possible causes
 #: and only one was readable.
-EXPECTED_TOOL_TOTAL = 80
+#: **82** completes the reputation surface: `get_reputation_leaderboard` gives a
+#: provider's number a scale, `get_reputation_history` the itemised events behind
+#: a disputed score that `get_reputation_breakdown`'s four totals cannot explain.
+EXPECTED_TOOL_TOTAL = 82
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition

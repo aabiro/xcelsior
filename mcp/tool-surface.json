@@ -1037,6 +1037,33 @@
       "hasOutputSchema": true
     },
     {
+      "name": "get_reputation_history",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "reputation:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "entity_id": {
+          "type": "string",
+          "optional": false
+        },
+        "limit": {
+          "type": "number",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
       "name": "get_reputation_journey",
       "version": "2.0.0",
       "tenantClass": "tenant",
@@ -1052,6 +1079,37 @@
         "openWorldHint": false
       },
       "input": {},
+      "hasOutputSchema": true
+    },
+    {
+      "name": "get_reputation_leaderboard",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "reputation:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "entity_type": {
+          "type": "enum",
+          "optional": true,
+          "values": [
+            "host",
+            "user"
+          ]
+        },
+        "limit": {
+          "type": "number",
+          "optional": true
+        }
+      },
       "hasOutputSchema": true
     },
     {

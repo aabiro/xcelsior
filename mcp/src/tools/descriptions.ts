@@ -426,6 +426,21 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "list_providers or a host_id from get_host_capacity; asking about anyone else is refused. " +
     "Read-only and free.",
 
+  get_reputation_leaderboard:
+    "List the highest-scoring hosts or users on the platform, with their reputation scores. " +
+    "Use when a provider asks where they stand relative to others, or what a competitive score " +
+    "looks like — get_my_reputation gives their number and this gives it a scale. For choosing " +
+    "a host to rent, prefer search_marketplace, which ranks only hardware actually available " +
+    "and can sort and filter by reputation directly. Read-only and free.",
+
+  get_reputation_history:
+    "List the individual reputation events for an entity: what happened, when, and how many " +
+    "points each moved. Use when a provider disputes a score and the four totals from " +
+    "get_reputation_breakdown are not enough to explain it — this is the itemised log those " +
+    "totals are computed from, so it names the specific job or penalty behind a drop. The " +
+    "entity_id is the caller's own provider_id from list_providers or a host_id from " +
+    "get_host_capacity; asking about anyone else is refused. Read-only and free.",
+
   claim_reputation_milestones:
     "Claim every reputation milestone the caller has already earned but not yet collected: it " +
     "creates a one-time grant per milestone and returns what was awarded with the refreshed " +

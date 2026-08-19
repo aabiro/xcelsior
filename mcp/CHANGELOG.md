@@ -67,6 +67,17 @@ reflected here and version-bumped fails the build.
 
 ### Added
 
+- **`get_reputation_leaderboard` and `get_reputation_history`** — the rest of the
+  reputation surface. The leaderboard gives a provider's own score a scale;
+  the history is the itemised event log behind a disputed score, which
+  `get_reputation_breakdown`'s four totals cannot explain on their own.
+
+  Two sibling routes are deliberately **not** tools. `GET /api/reputation/{id}`
+  duplicates what `search_marketplace` already returns on every listing, and
+  `POST /api/reputation/verify` is admin-only — granting a verification badge is
+  the platform asserting it checked something, and a tool for it would let a
+  caller vouch for itself.
+
 - **`claim_reputation_milestones`** — the exit for the journey.
 
   `get_reputation_journey` reports how many milestones are ready to claim, and

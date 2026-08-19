@@ -94,6 +94,12 @@ export function registerDiagnosticTools(server: McpServer, client: XcelsiorApiCl
   registerWrite(server, client, user, "claim_reputation_milestones",
     z.object({}),
     () => client.post("/api/reputation/me/claim", {}));
+  registerRead(server, client, user, "get_reputation_leaderboard",
+    z.object({ entity_type: z.enum(["host", "user"]).default("host"), limit: z.number().int().min(1).max(100).default(20) }),
+    a => client.get("/api/reputation/leaderboard", { entity_type: String(a.entity_type ?? "host"), limit: Number(a.limit ?? 20) }));
+  registerRead(server, client, user, "get_reputation_history",
+    z.object({ entity_id: id.describe("The caller's own provider_id from list_providers, or a host_id from get_host_capacity"), limit: z.number().int().min(1).max(200).default(50) }),
+    a => client.get(`/api/reputation/${encodeURIComponent(String(a.entity_id))}/history`, { limit: Number(a.limit ?? 50) }));
   registerRead(server, client, user, "get_paypal_status",
     z.object({ provider_id: id.describe("From list_providers, or the caller's own") }),
     a => client.get(`/api/providers/${encodeURIComponent(String(a.provider_id))}/paypal`));
