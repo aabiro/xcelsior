@@ -452,6 +452,29 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "already-claimed milestones are skipped rather than granted twice. Touches only the " +
     "caller\'s own account, and needs reputation:write.",
 
+  register_provider:
+    "Enrol the caller as a GPU provider so they can be paid for hosting: creates their provider " +
+    "account and starts Stripe Connect onboarding. Use when someone wants to supply hardware " +
+    "and list_providers comes back empty, which means they are not enrolled yet. Free, and it " +
+    "moves no money. Safe to repeat — the provider identity is derived from the credential, so " +
+    "calling again returns the same account rather than a second one. Collect legal_name and " +
+    "province first, and corporation_name for a company. It does not finish onboarding: " +
+    "identity and bank details are entered in the browser, so send them to the earnings page " +
+    "afterwards and use get_provider_account to see what is still outstanding. Needs " +
+    "providers:write, which the default connector does not carry.",
+
+  request_provider_payout:
+    "Settle one completed job and pay the provider their share, creating a Stripe transfer or a " +
+    "PayPal order. Use when a provider asks to be paid for finished work and get_provider_account " +
+    "shows payouts enabled — if it does not, name what is outstanding instead, because this will " +
+    "refuse. Calling it costs nothing: the amount, the platform cut and the tax are computed from " +
+    "the job in the database, not supplied by you, and the destination is the provider's own " +
+    "account. Safe to repeat: settlement is keyed per job, so a retry after a timeout returns the " +
+    "existing settlement rather than paying twice. **Amounts on the stripe rail are integer " +
+    "micros — divide by 1,000,000 for CAD — while the paypal rail returns fields already named " +
+    "_cad.** Reporting a micros figure as dollars overstates it a millionfold. Needs " +
+    "providers:write.",
+
   get_paypal_status:
     "Get a provider's PayPal payout onboarding state: whether PayPal is enabled on the platform, " +
     "how far the provider got, and when they finished. Use when a provider asks about PayPal " +

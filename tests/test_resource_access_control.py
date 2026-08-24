@@ -225,11 +225,22 @@ def test_provider_earnings_forbidden_cross_account(two_users, request):
             )
             conn.commit()
         UserStore.update_user(user_a["email"], {"provider_id": provider_id, "role": "provider"})
+    else:
+        # The server resolves provider_id from the caller, so the id user_a
+        # actually owns is the one in the response — not the one sent. Probing
+        # the invented id would 404 for not existing, and this test would then
+        # be asserting "unknown provider" rather than "not yours", which is a
+        # different property and a much weaker one.
+        provider_id = str(reg.json().get("provider_id") or provider_id)
     r = client.get(
         f"/api/providers/{provider_id}/earnings",
         headers=user_b["headers"],
     )
-    assert r.status_code == 403
+    assert r.status_code == 403, (
+        f"user_b got {r.status_code} reading user_a's earnings. A 404 here means "
+        "the probe is hitting a provider that does not exist, so cross-account "
+        "isolation is no longer being tested"
+    )
 
 
 def test_events_entity_forbidden_cross_account(two_users):

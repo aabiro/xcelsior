@@ -240,7 +240,13 @@ def _registered_tool_names() -> set[str]:
 #: **82** completes the reputation surface: `get_reputation_leaderboard` gives a
 #: provider's number a scale, `get_reputation_history` the itemised events behind
 #: a disputed score that `get_reputation_breakdown`'s four totals cannot explain.
-EXPECTED_TOOL_TOTAL = 82
+#: **84** closes P6's two remaining gaps. `register_provider` became safe to
+#: build only once the API stopped letting the caller name `provider_id` — until
+#: then a retry on a timeout minted a second Stripe Connect account.
+#: `request_provider_payout` was never blocked on code: the settlement lock and
+#: `ON CONFLICT (settlement_key)` already gave the gate its "replay produces one
+#: payout", which webhook delivery was never needed for.
+EXPECTED_TOOL_TOTAL = 84
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition

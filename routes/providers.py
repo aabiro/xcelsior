@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from routes._deps import (
+    _canonical_owner_id,
     _get_current_user,
     _is_platform_admin,
     _require_auth,
@@ -83,13 +84,46 @@ def api_register_provider(req: ProviderRegisterRequest, request: Request):
     if req.email.strip().lower() != caller_email and not _is_platform_admin(user):
         raise HTTPException(403, "You can only register a provider for your own email")
     register_email = caller_email if not _is_platform_admin(user) else req.email.strip()
+
+    # `provider_id` is the same question as `email` directly above, and it was
+    # left open. The caller named it, so a caller sending a fresh one each time
+    # minted a **new Stripe Connect account each time**: create_provider_account
+    # looks for an existing row by provider_id, finds none, and creates one. The
+    # re-registration then ran `update_user(..., {"provider_id": ...})`, so the
+    # previous account was orphaned — live at Stripe, linked to nobody.
+    #
+    # That is not hypothetical. The 1,389 test-mode Connect accounts purged on
+    # 2026-08-16 were fixtures registering as `prov-{uuid4}`. The dashboard was
+    # safe only by convention: it sends `providerId || customerId`, deterministic
+    # per user. The rule lived in the frontend and the server had none, so every
+    # other caller — a script, an agent tool — arrived without it.
+    #
+    # The server now resolves what the UI already did. Re-registering is
+    # idempotent: the same caller resolves to the same id, so
+    # create_provider_account finds the existing row and regenerates a link
+    # instead of creating an account.
+    #
+    # Admins keep the explicit argument, the same exemption the email check
+    # grants them, because they register on another party's behalf.
+    # An admin may still name one explicitly — they register on another party's
+    # behalf, the same exemption the email check grants them. Omitting it
+    # resolves to their own identity rather than failing: `register_provider`
+    # sends no id at all, and an admin calling it should enrol themselves, not
+    # get "No provider identity for this account".
+    if _is_platform_admin(user) and req.provider_id.strip():
+        provider_id = req.provider_id.strip()
+    else:
+        provider_id = str(user.get("provider_id") or "").strip() or _canonical_owner_id(user)
+    if not provider_id:
+        raise HTTPException(400, "No provider identity for this account")
+
     if req.provider_type == "company" and not req.corporation_name:
         raise HTTPException(400, "corporation_name required for company providers")
 
     mgr = get_stripe_manager()
     try:
         result = mgr.create_provider_account(
-            provider_id=req.provider_id,
+            provider_id=provider_id,
             email=register_email,
             provider_type=req.provider_type,
             corporation_name=req.corporation_name,
@@ -107,21 +141,21 @@ def api_register_provider(req: ProviderRegisterRequest, request: Request):
     # Link provider_id to user account and promote role
     from db import UserStore
 
-    UserStore.update_user(register_email, {"provider_id": req.provider_id, "role": "provider"})
+    UserStore.update_user(register_email, {"provider_id": provider_id, "role": "provider"})
 
     # Create initial reputation record so the provider starts with a score
     try:
         rep_engine = get_reputation_engine()
-        rep_engine._ensure_entity(req.provider_id, entity_type="host")
-        rep_engine.add_verification(req.provider_id, VerificationType.EMAIL)
-        log.info("Initial reputation record created for provider %s", req.provider_id)
+        rep_engine._ensure_entity(provider_id, entity_type="host")
+        rep_engine.add_verification(provider_id, VerificationType.EMAIL)
+        log.info("Initial reputation record created for provider %s", provider_id)
     except Exception as e:
-        log.warning("Failed to create initial reputation for %s: %s", req.provider_id, e)
+        log.warning("Failed to create initial reputation for %s: %s", provider_id, e)
 
     broadcast_sse(
         "provider_registered",
         {
-            "provider_id": req.provider_id,
+            "provider_id": provider_id,
             "type": req.provider_type,
             "corporation_name": req.corporation_name,
         },

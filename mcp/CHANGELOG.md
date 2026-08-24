@@ -67,6 +67,33 @@ reflected here and version-bumped fails the build.
 
 ### Added
 
+- **`register_provider` and `request_provider_payout`** — P6's journey now runs
+  end to end: register → admit → publish → earn → payout, through tools plus the
+  browser handoffs.
+
+  `register_provider` enrols the caller and starts Stripe Connect onboarding. It
+  became safe to build only when the API stopped letting the caller name
+  `provider_id`: until then a retry on a timeout minted a **second** Connect
+  account and orphaned the first. The identity now resolves from the credential,
+  so a repeat returns the same account. It does **not** return the onboarding
+  URL — an AccountLink can set the external bank account — so finish in the
+  browser and read what is outstanding with `get_provider_account`.
+
+  `request_provider_payout` settles one completed job. The caller names a job and
+  a rail and nothing else: amount, ownership, currency and terminal state are
+  derived from PostgreSQL under `FOR UPDATE`, and settlement inserts
+  `ON CONFLICT (settlement_key) DO NOTHING` with a per-job idempotency key handed
+  to the rail — so replay produces one payout. It is deliberately not
+  launch-plan gated: plans bound spend the caller chooses, and here the caller
+  chooses no amount at all.
+
+  **Amounts on the stripe rail are integer micros**; the paypal rail returns
+  `_cad` fields. The description says so, because reporting one as the other
+  overstates by a millionfold.
+
+  Neither is reachable by Quick Connect: `providers:write` enrols a payout
+  destination and moves money out of it.
+
 - **`get_reputation_leaderboard` and `get_reputation_history`** — the rest of the
   reputation surface. The leaderboard gives a provider's own score a scale;
   the history is the itemised event log behind a disputed score, which

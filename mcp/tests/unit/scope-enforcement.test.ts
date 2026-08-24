@@ -119,6 +119,10 @@ describe("scope enforcement", () => {
     // *reads* are in the grant; this is not, and the difference is that one
     // discloses and the other changes standing.
     "claim_reputation_milestones",
+    // `providers:write` creates and settles a payout destination. The provider
+    // reads are in the grant; enrolling an account and moving money are not.
+    "register_provider",
+    "request_provider_payout",
   ]);
 
   it("still admits the Quick Connect scope set for every customer tool", () => {

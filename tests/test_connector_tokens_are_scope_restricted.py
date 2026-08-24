@@ -285,6 +285,10 @@ def test_the_tools_quick_connect_cannot_satisfy_are_the_expected_ones():
         # provider's tier, and tier sets the commission they pay. The reputation
         # reads are reachable; changing standing is not.
         "claim_reputation_milestones",
+        # `providers:write`: enrolling a payout destination and settling money
+        # out of it. The provider reads are reachable; these are not.
+        "register_provider",
+        "request_provider_payout",
     }, (
         f"the set of published tools a Quick Connect token cannot use is "
         f"{sorted(unsatisfiable)}. Adding to it widens what a connector agent "
