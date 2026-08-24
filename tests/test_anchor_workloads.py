@@ -94,9 +94,14 @@ class TestAnchorWorkloadsHTTP:
         # assertion is exactly as strict as it was.
         if not _mac_projects_reachable():
             pytest.skip(
-                "the Mac is not reachable over the tailnet, so remote-builder "
-                "execution cannot be measured — this is the Headscale outage, "
-                "not a regression. Check `sudo headscale-failover status --json`"
+                "the Mac is not reachable at XCELSIOR_MAC_HOST, so "
+                "remote-builder execution cannot be measured. This is the "
+                "Headscale outage rather than a regression — check "
+                "`sudo headscale-failover status --json`, and see "
+                "runbooks/headscale-failover.md for restoring 100.64.0.3. To "
+                "run it now over the LAN instead: "
+                "XCELSIOR_MAC_HOST=aaryn@192.168.1.87 pytest "
+                "tests/test_anchor_workloads.py"
             )
         mac_ssh_builders: list[dict] = []
         for workload in ("pt-signal", "ara-agent", "pel-chat"):
