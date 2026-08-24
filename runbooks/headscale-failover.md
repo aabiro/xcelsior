@@ -61,6 +61,94 @@ DNS is pointed at the VPS again.
    after 3 failed health checks **only** when the replica is promotable. It
    will **not** fail back automatically — that is a split-brain risk.
 
+## Rebuilding identity by hand (no replica was ever captured)
+
+The case this runbook did not cover, and the one we are in. `replicate` never
+succeeded before `45.76.3.128` went dark on 2026-08-19 —
+`headscale-failover status --json` shows `promotable: false`, "no replicated
+sqlite database", `last_replicate_ok_at: ""`, and thousands of `refuse_promote`
+decisions. The watchdog is correct to refuse: there is nothing to restore.
+
+So the addresses have to be reassigned by hand, and **the old assignments are
+the specification**, recovered from what the code already depends on:
+
+| Address | Node | Where it is written down |
+|---|---|---|
+| `100.64.0.1` | **the VPS** | `XCELSIOR_NFS_SERVER`, worker `~/.xcelsior/worker.env` |
+| `100.64.0.3` | the Mac | `XCELSIOR_MAC_HOST=aaryn@100.64.0.3` |
+| `100.64.0.6` | ASUS RTX 2060 (this box) | `XCELSIOR_MAC_INFERENCE_API_HOST`, `--worker-host` |
+
+A freshly promoted Headscale allocates sequentially from `100.64.0.0/10`, so the
+first node to register takes **`.1` — the VPS's address**. That is what happened:
+`asus-pc` holds `.1` today. Left alone it collides the moment the VPS returns.
+
+Headscale v0.28 has no `nodes set-ip`; `backfillips` only fills empties. The
+assignment lives in `nodes.ipv4` / `nodes.ipv6`, and Headscale caches node state,
+so the edit must happen while it is stopped.
+
+```bash
+# 1. Back up first, always.
+sudo cp -a /var/lib/headscale/db.sqlite \
+           /var/lib/headscale/db.sqlite.bak-$(date +%Y%m%d-%H%M%S)
+sudo systemctl stop headscale
+
+# 2. Put this box back on .6 and leave .1 free for the VPS.
+sudo sqlite3 /var/lib/headscale/db.sqlite \
+  "UPDATE nodes SET ipv4='100.64.0.6', ipv6='fd7a:115c:a1e0::6' WHERE hostname='asus-pc';"
+
+sudo systemctl start headscale
+sudo systemctl restart tailscaled-xcelsior   # or the unit running the custom socket
+tailscale --socket=/var/run/tailscale-xcelsior.sock status
+```
+
+Then bring the Mac on. It runs the **App Store** build
+(`~/Library/Containers/io.tailscale.ipn.macos`), whose CLI lives inside the
+bundle, and it is currently in `NoState` — logged out, still trying to fetch the
+control key from the dead VPS.
+
+```bash
+# On this box: mint a key.
+sudo headscale preauthkeys create --user 1 --expiration 1h
+
+# On the Mac (ssh aaryn@192.168.1.87):
+TS=/Applications/Tailscale.app/Contents/MacOS/Tailscale
+"$TS" logout
+"$TS" up --login-server=http://192.168.1.127:8080 --authkey=<key> --accept-routes
+
+# Back here: pin it to .3, the address the code expects.
+sudo systemctl stop headscale
+sudo sqlite3 /var/lib/headscale/db.sqlite \
+  "UPDATE nodes SET ipv4='100.64.0.3', ipv6='fd7a:115c:a1e0::3' WHERE hostname LIKE '%acbook%';"
+sudo systemctl start headscale
+```
+
+Verify with the thing that actually depends on it:
+
+```bash
+.venv/bin/python -m pytest tests/test_anchor_workloads.py -q
+```
+
+That test skips when the Mac is unreachable and runs when it is not, so a pass
+means the tailnet genuinely carries the address. It has been confirmed to pass
+over the LAN today with `XCELSIOR_MAC_HOST=aaryn@192.168.1.87` — the Mac, the
+SSH path and the remote builders are all fine, and the address is the only thing
+missing.
+
+**`server_url` is the one thing to think about before doing this.** The live
+config uses `http://192.168.1.127:8080`, which works only while both boxes are
+on the same LAN. `infra/headscale/config.yaml` in this repo uses
+`https://hs.xcelsior.ca` behind the standby nginx, which is what a real promotion
+should use — and needs the DNS move that `headscale-failover promote` performs.
+The LAN URL is fine for restoring local reachability; it is not a promotion.
+
+**Capture a replica as soon as the VPS is reachable again.** The whole reason
+this section exists is that no replica existed when it was needed:
+
+```bash
+sudo systemctl start headscale-replicate.timer
+sudo headscale-failover replicate
+```
+
 ## When the VPS returns
 
 ```bash
