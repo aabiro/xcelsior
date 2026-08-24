@@ -5,9 +5,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 ACL_SRC="$PROJECT_DIR/infra/headscale/acl.hujson"
-REMOTE_USER="${XCELSIOR_DEPLOY_USER:-linuxuser}"
-REMOTE_HOST="${XCELSIOR_DEPLOY_HOST:-100.64.0.1}"
-SSH_KEY="${XCELSIOR_SSH_KEY:-$HOME/.ssh/xcelsior}"
+REMOTE_USER="${XCELSIOR_HEADSCALE_USER:-root}"
+REMOTE_HOST="${XCELSIOR_HEADSCALE_HOST:-45.76.3.128}"
+SSH_KEY="${XCELSIOR_HEADSCALE_SSH_KEY:-${XCELSIOR_SSH_KEY:-$HOME/.ssh/id_ed25519}}"
 
 log() { echo "[headscale-acl] $*"; }
 

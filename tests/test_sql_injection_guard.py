@@ -23,6 +23,13 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 
 # Files audited and verified safe. Each entry is (relative_path, variable_names_allowlist_source).
 KNOWN_SAFE = {
+    # f"SELECT COUNT(*) FROM {table}" — `table` iterates the module-level literal
+    # `_NODE_TABLES = ("nodes", "machines")` and is then filtered against the
+    # names actually present in `sqlite_master`, so it can only ever be one of
+    # two hardcoded strings. Headscale renamed `machines` to `nodes`, which is
+    # why both are tried. A table name cannot be a bound parameter, and the
+    # allowlist is a tuple of literals two lines from the query.
+    "scripts/headscale_failover.py",
     # f"ORDER BY {order}" — order is mapped through _SORT_MAP allowlist.
     "marketplace.py",
     # f"... SET {set_clause} ..." — keys come from ALLOWED_FIELDS set.
