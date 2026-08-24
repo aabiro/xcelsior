@@ -318,9 +318,30 @@ class TestOutboxDispatch:
             seen.append(event.event_id)
 
         dispatcher = OutboxDispatcher("d-test", {"isolated-outbox": handler}, batch_size=500)
-        stats = dispatcher.run_once()
+        # `run_once` claims a batch across **every** destination class and then
+        # routes what it can, leaving the rest for their claim TTL to release —
+        # deliberate, so a replica without a handler does not delete work it
+        # cannot do. The consequence here is that other tests' pending `default`
+        # rows fill the batch first, and in a full run this test's own two rows
+        # fell outside it: `assert eid_ok in seen` failed against an empty list
+        # while passing in isolation every time.
+        #
+        # Iterating is what makes it order-independent rather than raising
+        # `batch_size` to a number that merely has not been exceeded yet.
+        # Already-claimed rows are not re-claimed while their claim is live, so
+        # each pass reaches further down the queue.
+        stats = {"claimed": 0}
+        for _ in range(20):
+            pass_stats = dispatcher.run_once()
+            stats["claimed"] += pass_stats["claimed"]
+            if eid_ok in seen:
+                break
         assert stats["claimed"] >= 2
-        assert eid_ok in seen
+        assert eid_ok in seen, (
+            "the dispatcher never reached this test's events. If unrelated "
+            "outbox rows now exceed 20 batches of 500, this needs scoping by "
+            "destination_class rather than a larger bound"
+        )
         with _pool.connection() as conn:
             ok_row = conn.execute(
                 "SELECT published_at IS NOT NULL FROM outbox_events "

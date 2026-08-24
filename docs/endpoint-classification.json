@@ -1572,8 +1572,8 @@
     "notes": "retention configuration and reporting \u2014 the policy, its current state, and the expiry sweep. Operator and compliance surface"
   },
   "POST /api/providers/register": {
-    "class": "gap",
-    "notes": "P6's journey starts here, but NOT YET A TOOL and the reason is a precondition, not effort: `provider_id` is taken from the request body and never pinned to the caller, so a caller sending a fresh one mints a new Stripe Connect account each time and orphans the previous one. The dashboard is safe only by convention (it sends providerId || customerId). A register tool would retry on timeout and create a second real account. Constrain the id server-side as `email` already is, then build it. See tests/test_provider_registration_id_is_caller_controlled.py."
+    "class": "covered",
+    "notes": "register_provider. Safe since the API resolves provider_id from the caller \u2014 a retry returns the same account instead of minting one."
   },
   "POST /api/providers/webhook": {
     "class": "internal",
@@ -1592,8 +1592,8 @@
     "notes": "Deliberately not a tool. Links an already-uploaded file_id, and the upload itself is POST /api/artifacts/upload with the document bytes \u2014 which an agent does not hold. It also grants an INCORPORATION verification badge, so a tool taking an unvalidated file_id would let a caller award itself one."
   },
   "POST /api/providers/{provider_id}/payout": {
-    "class": "gap",
-    "notes": "P6's last step and the one that moves money. Blocked, not skipped: completion is decided by `account.updated` webhook delivery, and there is no webhook endpoint in Stripe test mode \u2014 a `stripe listen --forward-to` session is the instrument, since an endpoint cannot reach loopback. It also needs the launch-plan approval shape rather than a bare write, because 'replay produces one payout' is Gate P6's wording."
+    "class": "covered",
+    "notes": "request_provider_payout. Amount/ownership/currency derived under FOR UPDATE; settlement_key makes replay produce one payout."
   },
   "POST /api/providers/{provider_id}/paypal/disconnect": {
     "class": "internal",

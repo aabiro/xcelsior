@@ -208,6 +208,13 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   // effect, because the engine skips already-claimed milestones.
   claim_reputation_milestones: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
   get_paypal_status: { readOnly: true, destructive: false, audience: "customer" },
+  // `keyed` in the sense the type documents: the provider identity resolves
+  // from the caller, so a repeat regenerates a link rather than creating a
+  // second account.
+  register_provider: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
+  // `keyed` and genuinely so: `settlement_key` is `provider-job:{job_id}` with
+  // ON CONFLICT DO NOTHING, and the rail gets `provider-settlement:{job_id}`.
+  request_provider_payout: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
   get_active_lease: { readOnly: true, destructive: false, audience: "customer" },
   get_scheduler_health: { readOnly: true, destructive: false, audience: "operator" },
   get_host_capacity: { readOnly: true, destructive: false, audience: "operator" },

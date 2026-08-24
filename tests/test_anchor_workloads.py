@@ -81,12 +81,28 @@ class TestAnchorWorkloadsHTTP:
         evidence["local_builders"] = [
             e for e in executed if e.get("executed_on") == "local_import"
         ]
+        # Reachability gated the *collection* and not the assertion below, so an
+        # unreachable Mac reported as "expected ≥2 Mac SSH builders, got []" —
+        # a code failure for what is a network outage. The distinction matters
+        # right now: the Headscale control plane at 45.76.3.128 has been down
+        # since 2026-08-19, the replica was never captured before it went (see
+        # `headscale-failover status`: "no replicated sqlite database"), and the
+        # tailnet standing in for it is a freshly minted one holding a single
+        # node. `aaryn@100.64.0.3` is an address on the tailnet that was lost.
+        #
+        # Skipped rather than deleted or softened: when the Mac is reachable the
+        # assertion is exactly as strict as it was.
+        if not _mac_projects_reachable():
+            pytest.skip(
+                "the Mac is not reachable over the tailnet, so remote-builder "
+                "execution cannot be measured — this is the Headscale outage, "
+                "not a regression. Check `sudo headscale-failover status --json`"
+            )
         mac_ssh_builders: list[dict] = []
-        if _mac_projects_reachable():
-            for workload in ("pt-signal", "ara-agent", "pel-chat"):
-                mac = execute_anchor_on_mac(workload)
-                if mac:
-                    mac_ssh_builders.append(mac)
+        for workload in ("pt-signal", "ara-agent", "pel-chat"):
+            mac = execute_anchor_on_mac(workload)
+            if mac:
+                mac_ssh_builders.append(mac)
         evidence["mac_ssh_builders"] = mac_ssh_builders
         assert len(mac_ssh_builders) >= 2, f"expected ≥2 Mac SSH builders, got {mac_ssh_builders}"
 

@@ -494,3 +494,36 @@ def test_payout_api_signature_has_no_caller_amount():
         amount_cad=9_999_999,
     )
     assert "amount_cad" not in request.model_dump()
+
+
+def test_the_payout_tool_publishes_the_idempotency_this_file_proves():
+    """`request_provider_payout` advertises `idempotency: "keyed"`.
+
+    Gate P6's wording is *"a payout is bound to job, amount, currency,
+    destination state, and idempotency key. Replay produces one payout"*, and
+    the evidence for the tool's claim is the rest of this file — the settlement
+    lock, `ON CONFLICT (settlement_key) DO NOTHING`, the per-job
+    `provider-settlement:{job_id}` handed to the rail, and the two concurrency
+    tests above.
+
+    The claim and its evidence live in different languages and different
+    directories, so nothing otherwise stops the contract being relaxed to
+    `"none"`, or tightened elsewhere, without anyone revisiting these tests. If
+    this fails, decide which side is wrong before changing either — a write that
+    advertises "retrying is free" when it is not is the defect that put seven
+    tools in the Unreleased changelog's Breaking section.
+    """
+    import json
+    import pathlib
+
+    surface = json.loads(
+        (pathlib.Path(__file__).resolve().parent.parent / "mcp" / "tool-surface.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    tool = next(t for t in surface["tools"] if t["name"] == "request_provider_payout")
+    assert tool["idempotency"] == "keyed", (
+        f"the payout tool now publishes idempotency {tool['idempotency']!r}, "
+        "which disagrees with the settlement guarantees this file asserts"
+    )
+    assert tool["requiredScopes"] == ["providers:write"], tool["requiredScopes"]

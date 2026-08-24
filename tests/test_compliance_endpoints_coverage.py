@@ -46,6 +46,11 @@ def provider_ctx():
     stripe_account_id = account_id_from_registration(
         reg.json() if reg.status_code == 200 else {}
     )
+    # The server resolves provider_id from the caller — see the same note in
+    # tests/test_providers_endpoints_coverage.py. Keeping the invented id would
+    # point every assertion below at a provider that was never created.
+    if reg.status_code == 200:
+        provider_id = str(reg.json().get("provider_id") or provider_id)
     if reg.status_code != 200:
         from db import UserStore
         from stripe_connect import get_stripe_manager

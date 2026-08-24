@@ -136,6 +136,29 @@ def _pin_test_auth_env(monkeypatch):
     monkeypatch.setattr(auth_mod, "XCELSIOR_ENV", "test")
     monkeypatch.setattr(oauth_mod, "AUTH_CACHE_BACKEND", "memory")
     monkeypatch.setattr(deps, "AUTH_REQUIRED", False)
+
+    # The auth rate limiter is 10 requests per 5 minutes **per client IP**, and
+    # every test shares one TestClient IP. A full run performs far more than ten
+    # registers and logins in five minutes, so past that point `/auth/register`
+    # and `/auth/login` answer 429 and every fixture doing `reg["user"]` or
+    # `login.json()["access_token"]` raises KeyError — nowhere near the code
+    # under test, and only in a *full* run, never in isolation.
+    #
+    # `tests/test_api.py` already set `XCELSIOR_AUTH_RATE_LIMIT_REQUESTS=5000`
+    # at import for this reason, and it could not be relied on:
+    # `routes/_deps.py` reads that variable **at import time**, so the override
+    # worked only when test_api.py happened to be imported before `routes._deps`
+    # — a property of collection order, not of configuration. That is why the
+    # failures moved around: `test_unlist_rig` answering 404, a billing accrual
+    # off by a round number, `KeyError: 'user'`, `KeyError: 'access_token'`.
+    #
+    # Patched on the module attribute instead, which is what the limiter
+    # actually reads at call time, so it holds regardless of import order. The
+    # limiter itself is untouched in production; a test that wants to exercise
+    # it can monkeypatch this back down, as `auth_enforced` does for
+    # AUTH_REQUIRED in test_compliance_surfaces_require_auth.py.
+    monkeypatch.setattr(deps, "_AUTH_RATE_LIMIT_REQUESTS", 100_000)
+
     # test_bitcoin.py sets sqlite at import; CI must stay on migrated Postgres.
     if os.environ.get("CI"):
         monkeypatch.setenv("XCELSIOR_DB_BACKEND", "postgres")

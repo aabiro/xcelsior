@@ -1586,6 +1586,57 @@
       "hasOutputSchema": true
     },
     {
+      "name": "register_provider",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "providers:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "provider_type": {
+          "type": "enum",
+          "optional": true,
+          "values": [
+            "company",
+            "individual"
+          ]
+        },
+        "legal_name": {
+          "type": "string",
+          "optional": true
+        },
+        "province": {
+          "type": "string",
+          "optional": true
+        },
+        "country": {
+          "type": "string",
+          "optional": true
+        },
+        "corporation_name": {
+          "type": "string",
+          "optional": true
+        },
+        "business_number": {
+          "type": "string",
+          "optional": true
+        },
+        "gst_hst_number": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
       "name": "register_ssh_key",
       "version": "2.0.0",
       "tenantClass": "tenant",
@@ -1608,6 +1659,41 @@
         "name": {
           "type": "string",
           "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "request_provider_payout",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "providers:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "provider_id": {
+          "type": "string",
+          "optional": false
+        },
+        "job_id": {
+          "type": "string",
+          "optional": false
+        },
+        "payment_rail": {
+          "type": "enum",
+          "optional": true,
+          "values": [
+            "paypal",
+            "stripe"
+          ]
         }
       },
       "hasOutputSchema": true
