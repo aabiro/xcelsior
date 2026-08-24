@@ -204,6 +204,40 @@ were failures of *evidence*, not of intent.
   the platform must accept) and `open_instance_access` (the way in once it
   does). Both are inside the default profile, so both counts move by two.*
 
+  *Restated on 2026-08-24: **`TOOL_SCOPES` holds 84 and `tool-surface.json`
+  publishes 75**, and **P6's tool surface is complete** — every step of the
+  provider journey (register → admit → publish → earn → payout) is now reachable
+  through tools plus the browser handoffs.
+
+  Gate P6 is **not** signed off, and the distinction is the point. Clause 2
+  (a payout bound to job, amount, currency, destination state and idempotency
+  key; replay produces one payout) holds — settlement derives all of it under
+  `FOR UPDATE` and inserts `ON CONFLICT (settlement_key) DO NOTHING`, proven in
+  `tests/test_provider_settlement.py`. Clause 3 (returning from `return_url`
+  proves nothing) holds, in
+  `tests/test_returning_from_onboarding_proves_nothing.py`. Clause 1 says **on a
+  live staging tenant**, and that run has not happened: staging binds
+  `127.0.0.1:9600` and the tailnet that would reach it is down. Tools existing is
+  not the same as the journey having been walked, and recording it as met would
+  be the overclaim this plan's §2 exists to catch. The axis went from 22 gaps to zero: eleven tools built, eleven
+  routes recorded `internal` as deliberately-not-a-tool with the reason on each.
+  Classification now reads **88 covered / 114 gap / 307 internal / 26
+  redundant** across 535 operations, and unlike the 2026-08-17 line below it is
+  machine-checked in both directions by
+  `tests/test_classification_matches_the_tools.py`.*
+
+  *Three of those `internal` decisions share one rule worth restating, because
+  it is the rule for the whole payout surface: **the exit belongs to whoever
+  holds the entrance.** An agent cannot connect a payout destination —
+  onboarding is a browser handoff, because the Stripe AccountLink and the
+  AccountSession `client_secret` are bearer credentials that can move where
+  money lands — so it does not disconnect one either.*
+
+  *`register_provider` was the last gap to close and it needed an API change
+  first: the caller named `provider_id`, so a retry on a timeout minted a second
+  Stripe Connect account and orphaned the first. That is what put 1,389 accounts
+  in the test dashboard. The id now resolves from the credential.*
+
   *Restated on 2026-08-17: **`TOOL_SCOPES` holds 73 and `tool-surface.json`
   publishes 64** — the first two P6 provider tools; the persona had thirty-five
   endpoints and no tool. The 71/62 step — `get_event_history` gives `events:read` its first user; it
