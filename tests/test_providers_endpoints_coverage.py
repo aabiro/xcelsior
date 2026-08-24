@@ -49,6 +49,15 @@ def provider_user():
     stripe_account_id = account_id_from_registration(
         reg_resp.json() if reg_resp.status_code == 200 else {}
     )
+    # The **server** decides the provider_id, so take it from the response
+    # rather than assuming the one sent above was honoured. A non-admin caller
+    # resolves to their existing provider_id or their canonical owner id — the
+    # constraint that stops one account minting an unbounded number of Stripe
+    # Connect accounts by varying this field, which is what filled the test
+    # dashboard with 1,389 of them. A fixture that keeps using the id it
+    # invented is asserting against an account that does not exist.
+    if reg_resp.status_code == 200:
+        provider_id = str(reg_resp.json().get("provider_id") or provider_id)
     if reg_resp.status_code != 200:
         from db import UserStore
         from stripe_connect import get_stripe_manager

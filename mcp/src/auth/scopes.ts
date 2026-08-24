@@ -23,7 +23,8 @@ export type McpScope =
   | "inference:write"
   | "providers:read"
   | "reputation:read"
-  | "reputation:write";
+  | "reputation:write"
+  | "providers:write";
 
 /**
  * A tool's authorization requirement.
@@ -236,6 +237,29 @@ const TOOL_SCOPE_REGISTRY = {
   // A provider whose agent should do this issues a credential carrying it.
   claim_reputation_milestones: { allOf: ["reputation:write"] },
   get_paypal_status: { allOf: ["providers:read"] },
+  // P6's first step: register → admit → publish → earn → payout. Safe to build
+  // only since the API stopped letting the caller name `provider_id` — before
+  // that a retry on a timeout minted a **second** Stripe Connect account and
+  // orphaned the first, which is what filled the test dashboard with 1,389 of
+  // them. The id now resolves from the credential, so a repeat finds the
+  // existing row and regenerates a link.
+  //
+  // Outside Quick Connect: `providers:write` creates a payout destination.
+  register_provider: { allOf: ["providers:write"] },
+  // P6's last step. The gate's wording is "a payout is bound to job, amount,
+  // currency, destination state, and idempotency key. Replay produces one
+  // payout" — and the API already holds every clause: the caller names a job
+  // and a rail and nothing else, amount, ownership, currency and terminal state
+  // are derived from PostgreSQL under `FOR UPDATE`, and settlement is inserted
+  // `ON CONFLICT (settlement_key) DO NOTHING` with a per-job idempotency key
+  // handed to the rail. Two calls settle one job once.
+  //
+  // Not launch-plan gated, unlike `create_instance`. Plans exist to bound
+  // *spend* the caller chooses; here the caller chooses no amount at all — the
+  // figure comes from a job that already completed, and the destination is the
+  // provider's own account. There is nothing for an approval to constrain that
+  // the settlement lock does not already fix.
+  request_provider_payout: { allOf: ["providers:write"] },
   // Company knowledge (optional, off by default). These read published
   // documentation and public pricing — no tenant data — so they take the
   // broad read set rather than a scope of their own. A dedicated scope would
