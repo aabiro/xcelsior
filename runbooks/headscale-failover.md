@@ -63,6 +63,29 @@ DNS is pointed at the VPS again.
 
 ## Rebuilding identity by hand (no replica was ever captured)
 
+> **Done on 2026-08-24.** `asus-pc` is back on `100.64.0.6`,
+> `aaryns-macbook-pro` on `100.64.0.3`, and `100.64.0.1` is left free for the
+> VPS. Both peers hold a direct LAN session and
+> `tests/test_anchor_workloads.py` passes against the hardcoded
+> `aaryn@100.64.0.3` with no override. The corrected database is copied to
+> `/var/lib/headscale/db.sqlite.restored-20260824-163220` — **that copy is the
+> only record of this addressing**, so keep it until a real replica exists.
+>
+> **Read this before the VPS comes back.** Both nodes are now pointed at
+> `--login-server=http://192.168.1.127:8080` — the LAN control plane, not
+> `hs.xcelsior.ca`. This is a *different tailnet* from the VPS's, sharing only
+> the addressing. When `45.76.3.128` returns it will still hold its own
+> authoritative database, and these two nodes will **not** move back on their
+> own: each needs `tailscale up --login-server=https://hs.xcelsior.ca --reset`.
+> Decide deliberately which database wins before doing that — the VPS's is the
+> older, larger one; this one is two nodes rebuilt by hand.
+>
+> It also means the mesh is LAN-only until then. That is fine for the anchor
+> workloads, which run between two boxes on the same switch, and not fine for
+> anything expecting to reach these nodes from outside.
+
+
+
 The case this runbook did not cover, and the one we are in. `replicate` never
 succeeded before `45.76.3.128` went dark on 2026-08-19 —
 `headscale-failover status --json` shows `promotable: false`, "no replicated
