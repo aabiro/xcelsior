@@ -1,0 +1,15 @@
+[Unit]
+Description=Refresh the off-box Headscale sqlite + Noise-key replica
+Documentation=file:/mnt/storage/projects/xcelsior/runbooks/headscale-failover.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=-/etc/default/headscale-failover
+ExecStart=/usr/local/sbin/headscale-failover replicate
+Nice=10
+PrivateTmp=true
+NoNewPrivileges=true

@@ -32,6 +32,14 @@ SQLITE_ALLOWED = {
     "scripts/migrate_sqlite_to_pg.py": "one-time migration staging (§10.2 item 4)",
     # Test/dev-only path, gated on XCELSIOR_DB_BACKEND != postgres.
     "bitcoin.py": "dev/test backend branch; production refuses a non-postgres backend",
+    # Reads **Headscale's own** database, not Xcelsior state. Headscale stores
+    # its tailnet — users, nodes, the Noise key — in sqlite by design; this is a
+    # third-party product's storage opened `mode=ro` to count users and nodes,
+    # which is how the failover decides whether a replica is promotable. No
+    # Xcelsior control-plane or money state is involved, and nothing is written.
+    # Operator CLI installed at /usr/local/sbin/headscale-failover, run on the
+    # standby host and never in a deployed image (§10.2 items 2 and 3).
+    "scripts/headscale_failover.py": "reads Headscale's own sqlite tailnet DB read-only; operator CLI",
 }
 
 # Developer tooling that runs on a workstation, never in a deployed image

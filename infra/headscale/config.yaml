@@ -1,0 +1,79 @@
+# Production Headscale config for hs.xcelsior.ca.
+# Deploy to /etc/headscale/config.yaml on the primary VPS and any promoted standby.
+#
+# Embedded DERP is deliberately off. Relays come from Tailscale's public DERP
+# map so NAT traversal still works when the VPS that hosts Headscale is down.
+# server_url must stay https://hs.xcelsior.ca on every host that is promoted —
+# that is the identity clients already have.
+
+server_url: https://hs.xcelsior.ca
+listen_addr: 127.0.0.1:8080
+metrics_listen_addr: 127.0.0.1:9090
+grpc_listen_addr: 127.0.0.1:50443
+grpc_allow_insecure: false
+
+noise:
+  private_key_path: /var/lib/headscale/noise_private.key
+
+prefixes:
+  v4: 100.64.0.0/10
+  v6: fd7a:115c:a1e0::/48
+  allocation: sequential
+
+derp:
+  server:
+    enabled: false
+    region_id: 999
+    region_code: "headscale"
+    region_name: "Headscale Embedded DERP"
+    verify_clients: true
+    stun_listen_addr: "0.0.0.0:3478"
+    private_key_path: /var/lib/headscale/derp_server_private.key
+    automatically_add_embedded_derp_region: true
+  urls:
+    - https://controlplane.tailscale.com/derpmap/default
+  paths: []
+  auto_update_enabled: true
+  update_frequency: 3h
+
+disable_check_updates: false
+ephemeral_node_inactivity_timeout: 30m
+
+database:
+  type: sqlite
+  debug: false
+  gorm:
+    prepare_stmt: true
+    parameterized_queries: true
+    skip_err_record_not_found: true
+    slow_threshold: 1000
+  sqlite:
+    path: /var/lib/headscale/db.sqlite
+    write_ahead_log: true
+    wal_autocheckpoint: 1000
+
+tls_letsencrypt_cache_dir: /var/lib/headscale/cache
+tls_letsencrypt_challenge_type: HTTP-01
+tls_letsencrypt_listen: ":http"
+
+log:
+  level: info
+  format: text
+
+policy:
+  mode: file
+  path: /etc/headscale/acl.json
+
+dns:
+  magic_dns: true
+  # Must differ from server_url's hostname.
+  base_domain: mesh.xcelsior.ca
+  override_local_dns: false
+  nameservers:
+    global: []
+    split: {}
+  extra_records: []
+  search_domains: []
+
+unix_socket: /var/run/headscale/headscale.sock
+unix_socket_permission: "0770"
