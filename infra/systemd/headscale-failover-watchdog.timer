@@ -1,0 +1,11 @@
+[Unit]
+Description=Check Headscale health and promote a replica if the VPS stays down
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=2min
+Persistent=true
+Unit=headscale-failover-watchdog.service
+
+[Install]
+WantedBy=timers.target
