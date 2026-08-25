@@ -158,6 +158,12 @@ const TOOL_SCOPE_REGISTRY = {
   // could give was "go to the dashboard". Reads capability flags and a rate;
   // creates nothing and moves nothing.
   list_funding_options: { allOf: ["billing:read"] },
+  // The rail itself, once `list_funding_options` says it is available. Creating
+  // a deposit request is the safe direction — it produces an address for the
+  // user to send funds *to*, and spends nothing — but it is `billing:write`
+  // because it commits a rate-locked quote and Quick Connect must not reach it.
+  create_crypto_deposit: { allOf: ["billing:write"] },
+  get_crypto_deposit: { allOf: ["billing:read"] },
   // Reads the wallet *and* the running instances burning it down, so it needs
   // both. `instances:read` is not incidental here: the runway is meaningless
   // without knowing what is consuming it, and the per-instance breakdown names

@@ -252,7 +252,10 @@ def _registered_tool_names() -> set[str]:
 #: **86** with `list_funding_options`. P1's promise is that a declined card is
 #: not a dead end, and the three rails that need no browser — Bitcoin, Lightning,
 #: PayPal — had no tool between them.
-EXPECTED_TOOL_TOTAL = 86
+#: **88** with the Bitcoin deposit pair. `list_funding_options` could say the
+#: rail was available and nothing could use it, which is the read-without-an-act
+#: shape this file keeps recording.
+EXPECTED_TOOL_TOTAL = 88
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition
