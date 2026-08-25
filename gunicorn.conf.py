@@ -18,8 +18,18 @@ _port = os.getenv("XCELSIOR_API_PORT", "9500")
 # production's posture is untouched and staging opts into loopback. The
 # alternative — flipping staging's agent ingress to `allow` — would have made
 # the exposure worse, not better.
-_host = os.getenv("XCELSIOR_API_BIND", "0.0.0.0")
-bind = f"{_host}:{_port}"
+# **A list, not a wildcard.** Reaching a staging stack from another host used to
+# mean widening this to `0.0.0.0`, which is precisely the exposure above — the
+# choice was "loopback only" or "every interface", and wanting one peer meant
+# accepting all of them. A comma-separated allowlist removes that trade:
+# `XCELSIOR_API_BIND=127.0.0.1,100.64.0.6` serves loopback (so the compose
+# healthcheck's `curl localhost` still works) and the tailnet address (so a
+# named peer can reach it), while the LAN interface stays unbound.
+#
+# The default is unchanged and single-valued, so production — where nginx
+# terminates TLS and proxies to this socket — is untouched.
+_hosts = [h.strip() for h in os.getenv("XCELSIOR_API_BIND", "0.0.0.0").split(",") if h.strip()]
+bind = [f"{_host}:{_port}" for _host in _hosts]
 
 # ---------- Worker processes ----------
 workers = int(os.getenv("GUNICORN_WORKERS", "2"))
