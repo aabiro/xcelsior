@@ -558,6 +558,23 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "Get the account's wallet balance and available credits in CAD. Use before committing to " +
     "spend, or when the user asks what they have left. Read-only and free.",
 
+  create_crypto_deposit:
+    "Create a Bitcoin deposit and return the address to send to, the exact BTC amount, and when " +
+    "the quoted rate expires. Use after list_funding_options shows crypto available and the user " +
+    "wants to fund without a card or a browser — this is the whole rail, no dashboard step. It " +
+    "creates a request, it does not move money: nothing is added until the user sends the coins " +
+    "and the network confirms, which get_crypto_deposit reports. Safe to retry with the same " +
+    "idempotency_key; retrying with a different amount under a key already used is refused " +
+    "rather than quietly creating a second deposit. The rate is locked only until it expires, so " +
+    "state the amount and the deadline back to the user. Needs billing:write.",
+
+  get_crypto_deposit:
+    "Check a Bitcoin deposit: whether the coins arrived, how many confirmations, and whether the " +
+    "wallet has been credited. Use after create_crypto_deposit to tell the user where their " +
+    "funding is, and prefer it to guessing from get_wallet_balance — an unconfirmed deposit is " +
+    "not a balance yet, and the difference is why the number has not moved. The deposit_id comes " +
+    "from create_crypto_deposit. Read-only and free.",
+
   list_funding_options:
     "List the ways this account can add funds, and which are working right now: card, Bitcoin, " +
     "Lightning and PayPal, with the current BTC rate when crypto is available. Use when a card " +

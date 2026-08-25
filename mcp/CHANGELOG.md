@@ -67,6 +67,25 @@ reflected here and version-bumped fails the build.
 
 ### Added
 
+- **`create_crypto_deposit` and `get_crypto_deposit`** — the rail, not just the
+  sign that it exists.
+
+  `list_funding_options` could report Bitcoin available and nothing could use it,
+  which is the read-without-an-act shape that left `ssh:read` with no tool and
+  the serverless surface with entrances and no exits. This is the whole flow with
+  no browser in it: an address, the exact BTC amount, a rate that expires, then
+  confirmations.
+
+  **It creates a request; it moves nothing.** Funds arrive when the user sends
+  coins and the network confirms, which is why `get_crypto_deposit` exists and
+  why its description says an unconfirmed deposit is not a balance — that
+  difference is the reason `get_wallet_balance` has not moved.
+
+  The route reads an `Idempotency-Key` header and answers **409** when a reused
+  key carries a different amount, so the tool always sends one: without it a
+  retried call is a second deposit at a second rate. `billing:write`, and
+  therefore outside Quick Connect's reach — the same lever as `top_up_wallet`.
+
 - **`list_funding_options`** — what to do when the card is refused.
 
   P1's promise is that a declined charge is not a dead end, and three rails that

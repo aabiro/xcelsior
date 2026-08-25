@@ -324,8 +324,8 @@
     "notes": "operator, testing and compliance surface \u2014 refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
   },
   "GET /api/billing/crypto/deposit/{deposit_id}": {
-    "class": "gap",
-    "notes": "P1 names crypto, Lightning and PayPal deposits as needing no browser and already scoped; no tool reaches any of them, so funding is tool-driven only on the card rail"
+    "class": "covered",
+    "notes": "get_crypto_deposit. Confirmations and credit state \u2014 an unconfirmed deposit is not a balance."
   },
   "GET /api/billing/crypto/enabled": {
     "class": "covered",
@@ -1416,8 +1416,8 @@
     "notes": "first-party account and session management \u2014 login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "POST /api/billing/crypto/deposit": {
-    "class": "gap",
-    "notes": "P1 names crypto, Lightning and PayPal deposits as needing no browser and already scoped; no tool reaches any of them, so funding is tool-driven only on the card rail"
+    "class": "covered",
+    "notes": "create_crypto_deposit. Idempotency-Key sent; a reused key with a new amount is refused 409."
   },
   "POST /api/billing/crypto/refresh/{deposit_id}": {
     "class": "gap",

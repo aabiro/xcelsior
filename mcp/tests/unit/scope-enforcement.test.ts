@@ -101,6 +101,10 @@ describe("scope enforcement", () => {
    */
   const NOT_REACHABLE_BY_QUICK_CONNECT = new Set([
     "top_up_wallet",
+    // Same rail, same scope: `billing:write`. Creating a deposit spends nothing
+    // — it returns an address to send *to* — but it commits a rate-locked quote,
+    // and the connector this product tells people to paste must not be able to.
+    "create_crypto_deposit",
     // Changes what gets charged *unattended*. Same reasoning: the default
     // connector token holds `billing:read`, and widening automatic spending is
     // not something it should be able to do.
