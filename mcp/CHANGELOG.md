@@ -67,6 +67,19 @@ reflected here and version-bumped fails the build.
 
 ### Added
 
+- **`create_lightning_deposit` and `get_lightning_deposit`** — the same rail over
+  Lightning: a BOLT11 invoice instead of an address, settling in seconds rather
+  than block confirmations.
+
+  **Not exercised against a live node.** Lightning here reads
+  `enabled: true, available: false` — configured, waiting on its Bitcoin node —
+  so the invoice path could not be run end to end. The guards were read on the
+  route (`billing:write`, owner access, amount validation, `Idempotency-Key`,
+  503 when the rail is down) and the wiring is unit-tested, which is exactly the
+  evidence the Bitcoin pair has too: neither created a real deposit. The
+  description tells a model to check `list_funding_options` first, because this
+  rail can be configured and still refuse.
+
 - **`create_crypto_deposit` and `get_crypto_deposit`** — the rail, not just the
   sign that it exists.
 

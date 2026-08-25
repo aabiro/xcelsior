@@ -360,8 +360,8 @@
     "notes": "MCP server calls this path"
   },
   "GET /api/billing/lightning/deposit/{deposit_id}": {
-    "class": "gap",
-    "notes": "P1 names crypto, Lightning and PayPal deposits as needing no browser and already scoped; no tool reaches any of them, so funding is tool-driven only on the card rail"
+    "class": "covered",
+    "notes": "get_lightning_deposit. Paid/credited state for one invoice."
   },
   "GET /api/billing/lightning/enabled": {
     "class": "covered",
@@ -1428,8 +1428,8 @@
     "notes": "one-time signup bonus, claimed once per customer from the dashboard; not a funding rail an agent drives"
   },
   "POST /api/billing/lightning/deposit": {
-    "class": "gap",
-    "notes": "P1 names crypto, Lightning and PayPal deposits as needing no browser and already scoped; no tool reaches any of them, so funding is tool-driven only on the card rail"
+    "class": "covered",
+    "notes": "create_lightning_deposit. Idempotency-Key sent; 503 while the node is unavailable."
   },
   "POST /api/billing/payment-intent": {
     "class": "internal",

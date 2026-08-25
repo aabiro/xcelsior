@@ -248,6 +248,8 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   // become a second deposit.
   create_crypto_deposit: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
   get_crypto_deposit: { readOnly: true, destructive: false, audience: "customer" },
+  create_lightning_deposit: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
+  get_lightning_deposit: { readOnly: true, destructive: false, audience: "customer" },
   get_spend_envelope: { readOnly: true, destructive: false, audience: "customer" },
   estimate_job_cost: { readOnly: true, destructive: false, audience: "customer" },
   list_invoices: { readOnly: true, destructive: false, audience: "customer" },
