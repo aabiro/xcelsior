@@ -589,7 +589,12 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "and get their agreement before calling. Lowering them or disabling needs no such care — it " +
     "only ever reduces what can happen. " +
     "Every change is recorded on the account, and the response includes the previous settings so " +
-    "you can tell the user exactly what changed.",
+    "you can tell the user exactly what changed. " +
+    "Raising a cap is two calls, lowering one is a single call. When a widening needs approval " +
+    "the response comes back with preview:true, a plan_id and an approval_url instead of a " +
+    "change: send the user to that URL, then call this again passing plan_id and nothing else. " +
+    "The settings are taken from the approved plan rather than the second call, so an approval " +
+    "cannot be spent on different numbers.",
 
   get_auto_topup:
     "Show the current automatic top-up settings: whether it is on, the balance that triggers a " +

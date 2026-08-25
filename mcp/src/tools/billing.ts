@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { XcelsiorApiClient } from "../client/api.js";
-import { formatApiError } from "../client/errors.js";
+import { apiProblem, formatApiError } from "../client/errors.js";
 import { jsonText } from "../lib/format.js";
 import { TOOL_SCOPES, userHasScope, scopeUnion, describeScopeRequirement } from "../auth/scopes.js";
 import type { AuthUser } from "../auth/bearer.js";
@@ -151,9 +151,13 @@ export function registerBillingTools(
           .string()
           .optional()
           .describe("Card to charge; omit to keep the one already configured"),
+        plan_id: z
+          .string()
+          .optional()
+          .describe("An approved plan from a previous widening call; omit on the first call"),
       }),
     },
-    async ({ enabled, amount_cad, threshold_cad, payment_method_id }) => {
+    async ({ enabled, amount_cad, threshold_cad, payment_method_id, plan_id }) => {
       const denied = scopeDenied("configure_auto_topup", user);
       if (denied) return denied;
       try {
@@ -161,13 +165,42 @@ export function registerBillingTools(
         // actually changed rather than echoing back what it just sent — the
         // difference between "auto top-up is $50" and "I raised it from $20 to
         // $50", which is the sentence that lets someone catch a mistake.
-        const data = await client.post("/api/v2/billing/auto-topup", {
+        // Second phase: an approval already exists. The settings come from the
+        // **plan**, not from this call, so an approval cannot be spent on
+        // different values — which is the whole point of approving one.
+        if (plan_id) {
+          return jsonText(
+            await client.post(
+              `/api/v2/billing/auto-topup-plans/${encodeURIComponent(plan_id)}/execute`,
+              {},
+            ),
+          );
+        }
+        const body = {
           enabled,
           amount_cad,
           threshold_cad,
           stripe_payment_method_id: payment_method_id ?? "",
-        });
-        return jsonText(data);
+        };
+        try {
+          return jsonText(await client.post("/api/v2/billing/auto-topup", body));
+        } catch (inner) {
+          // Gate P1 clause 6: raising a spend cap needs approval, lowering does
+          // not. The API answers a widening with 409 naming the plan route. A
+          // bare 409 is a dead end for an agent — the caller is told what it
+          // may not do and left holding nothing — so prepare the plan and hand
+          // back something approvable. Narrowing never reaches here.
+          const problem = apiProblem(inner) as { status?: number };
+          if (problem?.status !== 409) throw inner;
+          const plan = await client.post("/api/v2/billing/auto-topup-plans", body);
+          return jsonText({
+            ...(plan as Record<string, unknown>),
+            next_step:
+              "This widens unattended spending, so it needs approval. Send the " +
+              "user to approval_url, then call configure_auto_topup again with " +
+              "plan_id and nothing else changed.",
+          });
+        }
       } catch (e) {
         return jsonText({ error: formatApiError(e) });
       }
