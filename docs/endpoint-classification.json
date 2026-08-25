@@ -1764,12 +1764,12 @@
     "notes": "configure_auto_topup calls this path"
   },
   "POST /api/v2/billing/auto-topup-plans": {
-    "class": "gap",
-    "notes": "Creates the approval plan a widening of auto-top-up now requires (Gate P1 clause 6). No tool calls it yet: configure_auto_topup still posts straight to /api/v2/billing/auto-topup and will receive the 409 that names this path. Wiring the tool to the two-phase flow is the follow-up, and until then an agent can narrow auto-top-up but not widen it \u2014 which is the safe direction to be incomplete in."
+    "class": "covered",
+    "notes": "configure_auto_topup. Called without plan_id, a widening the API refuses 409 is turned into an approvable plan rather than returned as an error \u2014 Gate P1 clause 6's follow-up."
   },
   "POST /api/v2/billing/auto-topup-plans/{plan_id}/execute": {
-    "class": "gap",
-    "notes": "Applies one approved auto-top-up plan, taking the settings from the plan rather than the request so an approval cannot be spent on different values. Same follow-up as the plan-creation route above."
+    "class": "covered",
+    "notes": "configure_auto_topup with plan_id. Settings come from the plan, so an approval cannot be spent on different numbers; the tool posts an empty body deliberately."
   },
   "POST /api/v2/billing/pending-verification/{stripe_intent_id}/resume": {
     "class": "internal",
