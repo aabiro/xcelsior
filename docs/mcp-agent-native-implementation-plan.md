@@ -26,10 +26,29 @@ the reason this plan is not just a feature list.
 
 | Clause | What it requires | State today |
 |---|---|---|
-| *"SSH'd into the GPU"* | launch → running → **connected**, without a dashboard | endpoints exist, unreachable as tools (§0.1) |
-| *"talking to the platform at the same time"* | the same session drives instances, spend, and state | the tool surface's whole job |
-| *"driving the controllers"* | approval, drain, retry, reconcile — governed, not raw | approval machinery exists; operator split done |
-| *"never have to leave"* | **every dead end has a lever inside the terminal** | closer than it looked — spending already works off-session (§0.2); the gap is a *declined* charge (§0.3) |
+| *"SSH'd into the GPU"* | launch → running → **connected**, without a dashboard | **done.** `create_instance`, `watch_instance`, `open_instance_access`, `register_ssh_key`, `list_ssh_keys`, `delete_ssh_key` all published; §0.1 resolved |
+| *"talking to the platform at the same time"* | the same session drives instances, spend, and state | **done.** 84 tools registered, 75 published, verified against a live tenant |
+| *"driving the controllers"* | approval, drain, retry, reconcile — governed, not raw | **done.** `retry_instance`, `reconcile_instance`, `revoke_launch_plan`, `get_mcp_action_status`; operator split confirmed live — the customer profile serves none of the seven operator tools |
+| *"never have to leave"* | **every dead end has a lever inside the terminal** | **done.** §0.3 handled; `list_pending_verifications` is the lever for a declined charge |
+
+**Re-verified 2026-08-25, against the code rather than from memory**, because a
+"state today" column is exactly the kind of claim that goes stale and then argues
+against re-checking.
+
+*§0.1 is resolved, and not uniformly — each of the four endpoints is authorized
+by the mechanism that fits it, which is why grepping for `_require_scope` alone
+reports a false gap. `expose` and `stream-ticket` carry `_require_scope`;
+`ssh/keygen` was hardened past it to `_require_admin`, and its own comment
+records that it used to be `_require_auth` so "any signed-in user could call it";
+`auto-launch` is not on the tool surface at all — it is a worker agent reporting
+in, behind `_require_agent_auth(host_id=…)`. Two of those four look like the
+original defect until you read them.*
+
+*§0.3 is resolved: `authentication_required` has a real branch in `billing.py`,
+the decline-code set is enumerated in `routes/billing.py`, `requires_action` is
+tracked as in-flight, and `GET /api/v2/billing/pending-verification` is the
+route `list_pending_verifications` reads. The tool deliberately returns the
+**list** and not the resume path, because that one hands back a `client_secret`.*
 
 ### 0.1 The access endpoints are authenticated but not authorized
 
