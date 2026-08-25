@@ -204,6 +204,36 @@ were failures of *evidence*, not of intent.
   the platform must accept) and `open_instance_access` (the way in once it
   does). Both are inside the default profile, so both counts move by two.*
 
+  *Verified against a live tenant on 2026-08-25, which had never been done — the
+  surface had only ever been exercised by unit tests and a stubbed API. Staging
+  was made reachable on the tailnet (allowlist bind, agent ingress still denied),
+  the MCP server was pointed at it, and a **Quick Connect token minted by staging
+  itself** was used as the client:*
+
+  * *`tools/list` returned **75** — the customer profile. `drain_host`,
+    `undrain_host`, `evict_host_workloads`, `retry_agent_command`,
+    `get_scheduler_health`, `get_host_capacity` and
+    `list_reconciliation_findings` were all absent, so §"trust-surface split" is
+    true in practice and not only in the snapshot.*
+  * *The minted token carried exactly the curated grant, `providers:read` and
+    `reputation:read` among it — the two widenings, confirmed end to end rather
+    than by reading a constant.*
+  * *`register_provider`, `request_provider_payout` and
+    `claim_reputation_milestones` refused with `Access denied: requires all of:
+    providers:write` / `reputation:write`. **Listing is not reach**: all 84 are
+    catalogued to the profile, and authority is enforced at call time. A first
+    reading of the listing looked like a leak and was not.*
+  * *`list_providers`, `get_trust_tiers` and `get_my_reputation` executed against
+    the live API and returned.*
+
+  *And a real provider journey ran on that tenant: register (the server resolved
+  the `provider_id`, ignoring the one sent), the hosted Stripe onboarding
+  completed in a browser, `account.updated` delivered through
+  `stripe listen` and **signature-verified** — forged and unsigned variants
+  answered 400 — after which `charges_enabled` went true and `currently_due` fell
+  from eighteen items to one. `get_provider_account` reported it with
+  `checked_live: true` and the identifiers redacted.*
+
   *Restated on 2026-08-24: **`TOOL_SCOPES` holds 84 and `tool-surface.json`
   publishes 75**, and **P6's tool surface is complete** — every step of the
   provider journey (register → admit → publish → earn → payout) is now reachable
