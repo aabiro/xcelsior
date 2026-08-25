@@ -392,8 +392,8 @@
     "notes": "get_spend_envelope calls this path"
   },
   "GET /api/billing/wallet/{customer_id}/history": {
-    "class": "gap",
-    "notes": "get_wallet_balance returns the balance only. 'Where did my balance go' has no answer on the surface, which is the first question after an unexpected number."
+    "class": "covered",
+    "notes": "get_wallet_history. The explanation behind get_wallet_balance's number."
   },
   "GET /api/chat/conversations": {
     "class": "internal",

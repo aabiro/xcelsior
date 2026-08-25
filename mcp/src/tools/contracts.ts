@@ -241,6 +241,7 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   evict_host_workloads: { readOnly: false, destructive: true, audience: "operator", idempotency: "keyed" },
   retry_agent_command: { readOnly: false, destructive: false, audience: "operator", idempotency: "keyed" },
   get_wallet_balance: { readOnly: true, destructive: false, audience: "customer" },
+  get_wallet_history: { readOnly: true, destructive: false, audience: "customer" },
   get_spend_envelope: { readOnly: true, destructive: false, audience: "customer" },
   estimate_job_cost: { readOnly: true, destructive: false, audience: "customer" },
   list_invoices: { readOnly: true, destructive: false, audience: "customer" },
