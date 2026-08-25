@@ -164,6 +164,10 @@ const TOOL_SCOPE_REGISTRY = {
   // because it commits a rate-locked quote and Quick Connect must not reach it.
   create_crypto_deposit: { allOf: ["billing:write"] },
   get_crypto_deposit: { allOf: ["billing:read"] },
+  // The same rail over Lightning: an invoice instead of an address, settled in
+  // seconds instead of confirmations. Identical guards on the route.
+  create_lightning_deposit: { allOf: ["billing:write"] },
+  get_lightning_deposit: { allOf: ["billing:read"] },
   // Reads the wallet *and* the running instances burning it down, so it needs
   // both. `instances:read` is not incidental here: the runway is meaningless
   // without knowing what is consuming it, and the per-instance breakdown names

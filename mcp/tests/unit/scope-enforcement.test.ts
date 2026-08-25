@@ -105,6 +105,7 @@ describe("scope enforcement", () => {
     // — it returns an address to send *to* — but it commits a rate-locked quote,
     // and the connector this product tells people to paste must not be able to.
     "create_crypto_deposit",
+    "create_lightning_deposit",
     // Changes what gets charged *unattended*. Same reasoning: the default
     // connector token holds `billing:read`, and widening automatic spending is
     // not something it should be able to do.

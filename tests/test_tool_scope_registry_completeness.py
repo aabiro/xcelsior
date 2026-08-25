@@ -255,7 +255,11 @@ def _registered_tool_names() -> set[str]:
 #: **88** with the Bitcoin deposit pair. `list_funding_options` could say the
 #: rail was available and nothing could use it, which is the read-without-an-act
 #: shape this file keeps recording.
-EXPECTED_TOOL_TOTAL = 88
+#: **90** with the Lightning pair, which mirrors the Bitcoin one exactly.
+#: Neither was exercised against its live rail — see the commit; the guards were
+#: read on the route and the wiring is unit-tested, which is the same level of
+#: evidence both rails have.
+EXPECTED_TOOL_TOTAL = 90
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition
