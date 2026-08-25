@@ -1300,6 +1300,24 @@
       "hasOutputSchema": true
     },
     {
+      "name": "list_funding_options",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "billing:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {},
+      "hasOutputSchema": true
+    },
+    {
       "name": "list_instances",
       "version": "2.0.0",
       "tenantClass": "tenant",
