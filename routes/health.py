@@ -377,7 +377,7 @@ def api_auth_verify_page():
 <div class="card">
   <div class="brand-line" style="margin-bottom:1.5rem"></div>
   <div class="logo-wrap">
-    <img src="https://xcelsior.ca/xcelsior-logo-wordmark-iconbg.svg" alt="Xcelsior" class="logo"
+    <img src="https://xcelsior.ca/site-assets/assets/png/lockup-light.png" alt="Xcelsior" class="logo"
          onerror="this.parentElement.style.display='none';document.getElementById('fallback-title').style.display='block'">
   </div>
   <h1 id="fallback-title" style="display:none;font-size:1.8rem;margin-bottom:1rem;
