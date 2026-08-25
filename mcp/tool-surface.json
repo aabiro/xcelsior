@@ -153,6 +153,10 @@
         "payment_method_id": {
           "type": "string",
           "optional": true
+        },
+        "plan_id": {
+          "type": "string",
+          "optional": true
         }
       },
       "hasOutputSchema": true

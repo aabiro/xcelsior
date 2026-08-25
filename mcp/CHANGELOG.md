@@ -309,6 +309,27 @@ reflected here and version-bumped fails the build.
 
 ### Changed
 
+- **`configure_auto_topup` can now raise a cap, not only lower one.** Gate P1
+  clause 6 requires approval to widen unattended spending, and the API enforces
+  it: a widening from a non-human caller is refused **409**, naming
+  `/api/v2/billing/auto-topup-plans`. The tool posted straight to
+  `/api/v2/billing/auto-topup` and returned that refusal, so an agent could
+  narrow auto-top-up and never widen it, while being told about a route it never
+  called.
+
+  It is two phases now, the same shape as `create_instance`. A refused widening
+  comes back with `preview: true`, a `plan_id` and an `approval_url`; send the
+  user there, then call again with `plan_id` and nothing else. **The settings are
+  taken from the approved plan, not from the second call**, so an approval cannot
+  be spent on different numbers — the tool posts an empty body on purpose.
+
+  Lowering a cap or disabling stays a single call. Putting friction on the safe
+  direction is how a control gets routed around.
+
+  Only a 409 becomes a plan. A 500 still surfaces as an error rather than
+  quietly turning into something the user is asked to approve.
+
+
 - **`get_provider_account` now returns what is blocking payouts, not just that
   something is.** A new `payouts` block carries `charges_enabled`,
   `payouts_enabled`, `disabled_reason`, and Stripe's `currently_due` and
