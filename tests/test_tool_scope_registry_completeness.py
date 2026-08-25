@@ -249,7 +249,10 @@ def _registered_tool_names() -> set[str]:
 #: **85** with `get_wallet_history`. `get_wallet_balance` returns a number, and
 #: "where did it go" — the first question after an unexpected balance — had no
 #: answer anywhere on the surface.
-EXPECTED_TOOL_TOTAL = 85
+#: **86** with `list_funding_options`. P1's promise is that a declined card is
+#: not a dead end, and the three rails that need no browser — Bitcoin, Lightning,
+#: PayPal — had no tool between them.
+EXPECTED_TOOL_TOTAL = 86
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition

@@ -67,6 +67,26 @@ reflected here and version-bumped fails the build.
 
 ### Added
 
+- **`list_funding_options`** — what to do when the card is refused.
+
+  P1's promise is that a declined charge is not a dead end, and three rails that
+  need **no browser at all** — Bitcoin, Lightning, PayPal — had no tool between
+  them. The only answer an agent could give was "go to the dashboard", on the
+  axis whose whole premise is not having to.
+
+  One tool, not four capability flags: `is_paypal_enabled` beside
+  `is_lightning_enabled` makes a model choose between things that are one answer
+  to one question. Each rail is probed independently, and one that errors is
+  reported unavailable rather than failing the call — the point is to find the
+  rail that works when another just failed.
+
+  **Report `available`, not `enabled`.** A rail can be configured and still be
+  down: Lightning currently reads `enabled: true, available: false` because its
+  node is waiting on Bitcoin. The description says so, because the difference is
+  the whole value of asking.
+
+  Creates no deposit and moves no money.
+
 - **`get_wallet_history`** — where the money went.
 
   `get_wallet_balance` returned a number and nothing on the surface could explain

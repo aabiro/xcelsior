@@ -328,12 +328,12 @@
     "notes": "P1 names crypto, Lightning and PayPal deposits as needing no browser and already scoped; no tool reaches any of them, so funding is tool-driven only on the card rail"
   },
   "GET /api/billing/crypto/enabled": {
-    "class": "gap",
-    "notes": "P1 names crypto, Lightning and PayPal deposits as needing no browser and already scoped; no tool reaches any of them, so funding is tool-driven only on the card rail"
+    "class": "covered",
+    "notes": "list_funding_options. Capability probe for the no-browser funding rails, so a declined card has somewhere to go."
   },
   "GET /api/billing/crypto/rate": {
-    "class": "gap",
-    "notes": "P1 names crypto, Lightning and PayPal deposits as needing no browser and already scoped; no tool reaches any of them, so funding is tool-driven only on the card rail"
+    "class": "covered",
+    "notes": "list_funding_options. Capability probe for the no-browser funding rails, so a declined card has somewhere to go."
   },
   "GET /api/billing/free-credits/{customer_id}/status": {
     "class": "internal",
@@ -364,8 +364,8 @@
     "notes": "P1 names crypto, Lightning and PayPal deposits as needing no browser and already scoped; no tool reaches any of them, so funding is tool-driven only on the card rail"
   },
   "GET /api/billing/lightning/enabled": {
-    "class": "gap",
-    "notes": "P1 names crypto, Lightning and PayPal deposits as needing no browser and already scoped; no tool reaches any of them, so funding is tool-driven only on the card rail"
+    "class": "covered",
+    "notes": "list_funding_options. Capability probe for the no-browser funding rails, so a declined card has somewhere to go."
   },
   "GET /api/billing/lightning/rate": {
     "class": "gap",
@@ -376,8 +376,8 @@
     "notes": "list_payment_methods calls this path"
   },
   "GET /api/billing/paypal/enabled": {
-    "class": "gap",
-    "notes": "P1 names crypto, Lightning and PayPal deposits as needing no browser and already scoped; no tool reaches any of them, so funding is tool-driven only on the card rail"
+    "class": "covered",
+    "notes": "list_funding_options. Capability probe for the no-browser funding rails, so a declined card has somewhere to go."
   },
   "GET /api/billing/usage/{customer_id}": {
     "class": "gap",
