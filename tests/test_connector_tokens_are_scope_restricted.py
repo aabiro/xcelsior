@@ -281,6 +281,7 @@ def test_the_tools_quick_connect_cannot_satisfy_are_the_expected_ones():
         # `billing:write` too. A deposit request moves no money, but it locks a
         # rate and belongs to the same lever as topping up.
         "create_crypto_deposit",
+        "create_lightning_deposit",
         "configure_auto_topup",
         "list_ssh_keys",
         "delete_ssh_key",

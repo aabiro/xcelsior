@@ -558,6 +558,21 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "Get the account's wallet balance and available credits in CAD. Use before committing to " +
     "spend, or when the user asks what they have left. Read-only and free.",
 
+  create_lightning_deposit:
+    "Create a Lightning invoice to add funds, returning the BOLT11 invoice to pay and when it " +
+    "expires. Use when the user wants to fund over Lightning rather than on-chain — it settles " +
+    "in seconds instead of waiting for block confirmations, which is the reason to prefer it. " +
+    "Check list_funding_options first: this rail can be configured and still be down, and it " +
+    "answers 503 when it is. It creates an invoice, it moves nothing until the invoice is paid. " +
+    "Safe to retry with the same idempotency_key; a different amount under a key already used is " +
+    "refused rather than creating a second invoice. Needs billing:write.",
+
+  get_lightning_deposit:
+    "Check a Lightning deposit: whether the invoice was paid and whether the wallet has been " +
+    "credited. Use after create_lightning_deposit rather than inferring from get_wallet_balance, " +
+    "which cannot tell an unpaid invoice from a paid one that has not settled. The deposit_id " +
+    "comes from create_lightning_deposit. Read-only and free.",
+
   create_crypto_deposit:
     "Create a Bitcoin deposit and return the address to send to, the exact BTC amount, and when " +
     "the quoted rate expires. Use after list_funding_options shows crypto available and the user " +
