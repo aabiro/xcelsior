@@ -558,6 +558,15 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "Get the account's wallet balance and available credits in CAD. Use before committing to " +
     "spend, or when the user asks what they have left. Read-only and free.",
 
+  list_funding_options:
+    "List the ways this account can add funds, and which are working right now: card, Bitcoin, " +
+    "Lightning and PayPal, with the current BTC rate when crypto is available. Use when a card " +
+    "is declined or the user has none on file, and before telling anyone they must visit the " +
+    "dashboard — the crypto and Lightning rails need no browser at all, so a refused charge is " +
+    "usually not a dead end. A rail can be configured and still be unavailable, so report what " +
+    "`available` says rather than what `enabled` says. Read-only and free; it creates no " +
+    "deposit and moves no money.",
+
   get_wallet_history:
     "List the wallet's transactions — deposits, charges and refunds, newest first, each with an " +
     "amount and what it was for. Use when a balance is lower than expected, or the user asks " +

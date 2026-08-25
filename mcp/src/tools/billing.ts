@@ -71,6 +71,51 @@ export function registerBillingTools(
   );
 
   server.registerTool(
+    "list_funding_options",
+    { inputSchema: z.object({}) },
+    async () => {
+      const denied = scopeDenied("list_funding_options", user);
+      if (denied) return denied;
+      // Four small probes rather than four tools. They are capability flags, and
+      // a surface with `is_paypal_enabled` next to `is_lightning_enabled` makes
+      // a model choose between things that are one answer to one question.
+      //
+      // Each is settled independently: a rail that errors is reported
+      // unavailable rather than failing the call, because the point of this tool
+      // is to find the rail that *does* work when one has just failed.
+      //
+      // Each path is written **at** its `client.get` rather than passed to the
+      // helper as a variable. `tests/test_classification_matches_the_tools.py`
+      // pairs a literal with the verb beside it, so `probe(path)` hides the
+      // route from the only check that keeps `covered` honest — and the fix for
+      // that is not another entry in its indirection allowlist.
+      const probe = async (call: () => Promise<unknown>) => {
+        try {
+          return await call() as Record<string, unknown>;
+        } catch (e) {
+          return { available: false, enabled: false, reason: formatApiError(e) };
+        }
+      };
+      const [crypto, lightning, paypal, rate] = await Promise.all([
+        probe(() => client.get("/api/billing/crypto/enabled")),
+        probe(() => client.get("/api/billing/lightning/enabled")),
+        probe(() => client.get("/api/billing/paypal/enabled")),
+        probe(() => client.get("/api/billing/crypto/rate")),
+      ]);
+      return jsonText({
+        ok: true,
+        card: {
+          available: true,
+          note: "Charges a card already on file with top_up_wallet. Adding a card is a dashboard action.",
+        },
+        crypto: { ...crypto, btc_cad: (rate as { btc_cad?: unknown }).btc_cad },
+        lightning,
+        paypal,
+      });
+    },
+  );
+
+  server.registerTool(
     "get_spend_envelope",
     {
       inputSchema: z.object({

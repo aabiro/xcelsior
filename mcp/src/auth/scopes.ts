@@ -152,6 +152,12 @@ const TOOL_SCOPE_REGISTRY = {
   // first question after an unexpected number is *where did it go* — which had
   // no answer on the surface at all.
   get_wallet_history: { allOf: ["billing:read"] },
+  // The other ways to put money in. P1's clause is that a declined card must not
+  // be a dead end, and three rails that need no browser at all — Bitcoin,
+  // Lightning, PayPal — had no tool between them, so the only answer an agent
+  // could give was "go to the dashboard". Reads capability flags and a rate;
+  // creates nothing and moves nothing.
+  list_funding_options: { allOf: ["billing:read"] },
   // Reads the wallet *and* the running instances burning it down, so it needs
   // both. `instances:read` is not incidental here: the runway is meaningless
   // without knowing what is consuming it, and the per-instance breakdown names

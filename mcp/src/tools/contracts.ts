@@ -242,6 +242,7 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   retry_agent_command: { readOnly: false, destructive: false, audience: "operator", idempotency: "keyed" },
   get_wallet_balance: { readOnly: true, destructive: false, audience: "customer" },
   get_wallet_history: { readOnly: true, destructive: false, audience: "customer" },
+  list_funding_options: { readOnly: true, destructive: false, audience: "customer" },
   get_spend_envelope: { readOnly: true, destructive: false, audience: "customer" },
   estimate_job_cost: { readOnly: true, destructive: false, audience: "customer" },
   list_invoices: { readOnly: true, destructive: false, audience: "customer" },
