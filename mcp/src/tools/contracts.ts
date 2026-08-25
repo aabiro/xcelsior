@@ -243,6 +243,11 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   get_wallet_balance: { readOnly: true, destructive: false, audience: "customer" },
   get_wallet_history: { readOnly: true, destructive: false, audience: "customer" },
   list_funding_options: { readOnly: true, destructive: false, audience: "customer" },
+  // `keyed` in the strict sense: the route reads an Idempotency-Key header and
+  // 409s a reused key carrying a different amount, so a retry cannot quietly
+  // become a second deposit.
+  create_crypto_deposit: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
+  get_crypto_deposit: { readOnly: true, destructive: false, audience: "customer" },
   get_spend_envelope: { readOnly: true, destructive: false, audience: "customer" },
   estimate_job_cost: { readOnly: true, destructive: false, audience: "customer" },
   list_invoices: { readOnly: true, destructive: false, audience: "customer" },

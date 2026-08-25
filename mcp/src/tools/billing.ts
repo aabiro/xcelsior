@@ -116,6 +116,60 @@ export function registerBillingTools(
   );
 
   server.registerTool(
+    "create_crypto_deposit",
+    {
+      inputSchema: z.object({
+        amount_cad: z.number().gt(0).max(10_000).describe("How much to add, in CAD"),
+        customer_id: z.string().optional().describe("Customer ID; omit to use your account"),
+        idempotency_key: z
+          .string()
+          .optional()
+          .describe("Reuse the same key to retry safely; a new amount under an old key is refused"),
+      }),
+    },
+    async ({ amount_cad, customer_id, idempotency_key }) => {
+      const denied = scopeDenied("create_crypto_deposit", user);
+      if (denied) return denied;
+      const cid = customer_id || user?.customer_id || user?.user_id;
+      if (!cid) return jsonText({ error: "customer_id required — authenticate or pass customer_id" });
+      try {
+        return jsonText(
+          await client.post(
+            "/api/billing/crypto/deposit",
+            { customer_id: cid, amount_cad },
+            // The route reads an Idempotency-Key header and answers 409 when a
+            // reused key carries a different amount. Without one, a retried call
+            // is a second deposit at a second rate.
+            { idempotencyKey: idempotency_key ?? `btc-deposit-${randomUUID()}` },
+          ),
+        );
+      } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_crypto_deposit",
+    {
+      inputSchema: z.object({
+        deposit_id: z.string().min(1).describe("From create_crypto_deposit"),
+      }),
+    },
+    async ({ deposit_id }) => {
+      const denied = scopeDenied("get_crypto_deposit", user);
+      if (denied) return denied;
+      try {
+        return jsonText(
+          await client.get(`/api/billing/crypto/deposit/${encodeURIComponent(String(deposit_id))}`),
+        );
+      } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
+
+  server.registerTool(
     "get_spend_envelope",
     {
       inputSchema: z.object({

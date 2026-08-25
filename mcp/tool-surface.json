@@ -162,6 +162,37 @@
       "hasOutputSchema": true
     },
     {
+      "name": "create_crypto_deposit",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "billing:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "amount_cad": {
+          "type": "number",
+          "optional": false
+        },
+        "customer_id": {
+          "type": "string",
+          "optional": true
+        },
+        "idempotency_key": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
       "name": "create_image_sweep",
       "version": "2.0.0",
       "tenantClass": "tenant",
@@ -704,6 +735,29 @@
         "openWorldHint": false
       },
       "input": {},
+      "hasOutputSchema": true
+    },
+    {
+      "name": "get_crypto_deposit",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "billing:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "deposit_id": {
+          "type": "string",
+          "optional": false
+        }
+      },
       "hasOutputSchema": true
     },
     {
