@@ -226,6 +226,15 @@ were failures of *evidence*, not of intent.
   * *`list_providers`, `get_trust_tiers` and `get_my_reputation` executed against
     the live API and returned.*
 
+  *The journey stops one requirement short of payout, and **that is a Stripe
+  limitation rather than ours**: the account settles at `charges_enabled: true`
+  with `currently_due: ["individual.verification.proof_of_liveness"]`, and
+  Stripe's own support channel states that requirement **cannot be resolved in
+  test mode** even with every documented test value. So Gate P6 clause 1 is
+  complete as far as a sandbox permits — register → onboard → webhook → charges
+  enabled — and the payout leg needs a live tenant, not more code. Recording it
+  here so the next person does not spend a day trying to satisfy it.*
+
   *And a real provider journey ran on that tenant: register (the server resolved
   the `provider_id`, ignoring the one sent), the hosted Stripe onboarding
   completed in a browser, `account.updated` delivered through
