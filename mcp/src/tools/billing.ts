@@ -46,6 +46,31 @@ export function registerBillingTools(
   );
 
   server.registerTool(
+    "get_wallet_history",
+    {
+      inputSchema: z.object({
+        customer_id: z.string().optional().describe("Customer ID; omit to use your account"),
+        limit: z.number().int().min(1).max(200).default(50),
+      }),
+    },
+    async ({ customer_id, limit }) => {
+      const denied = scopeDenied("get_wallet_history", user);
+      if (denied) return denied;
+      const cid = customer_id || user?.customer_id || user?.user_id;
+      if (!cid) return jsonText({ error: "customer_id required — authenticate or pass customer_id" });
+      try {
+        return jsonText(
+          await client.get(`/api/billing/wallet/${encodeURIComponent(cid)}/history`, {
+            limit: Number(limit ?? 50),
+          }),
+        );
+      } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
+
+  server.registerTool(
     "get_spend_envelope",
     {
       inputSchema: z.object({

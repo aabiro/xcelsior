@@ -67,6 +67,16 @@ reflected here and version-bumped fails the build.
 
 ### Added
 
+- **`get_wallet_history`** — where the money went.
+
+  `get_wallet_balance` returned a number and nothing on the surface could explain
+  it. "Why is my balance lower than I expected" is the first question after an
+  unexpected figure, and the only honest answer an agent could give was to send
+  the user to the dashboard. It lists deposits, charges and refunds, newest
+  first. `get_spend_envelope` remains the forward-looking one — burn rate and
+  runway — and the descriptions point at each other so a model picks the right
+  half.
+
 - **`register_provider` and `request_provider_payout`** — P6's journey now runs
   end to end: register → admit → publish → earn → payout, through tools plus the
   browser handoffs.
