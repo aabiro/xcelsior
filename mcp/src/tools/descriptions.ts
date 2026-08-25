@@ -558,6 +558,13 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "Get the account's wallet balance and available credits in CAD. Use before committing to " +
     "spend, or when the user asks what they have left. Read-only and free.",
 
+  get_wallet_history:
+    "List the wallet's transactions — deposits, charges and refunds, newest first, each with an " +
+    "amount and what it was for. Use when a balance is lower than expected, or the user asks " +
+    "where their money went or what they were billed for: get_wallet_balance returns the number " +
+    "and this is the only tool that explains it. For what the balance will do next rather than " +
+    "what it did, use get_spend_envelope, which answers burn rate and runway. Read-only and free.",
+
   get_spend_envelope:
     "How long the balance lasts at the current burn rate, and which instances are consuming it. " +
     "Returns balance, burn rate per hour, seconds until zero, and a per-instance breakdown. Use " +

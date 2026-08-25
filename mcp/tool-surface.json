@@ -1250,6 +1250,33 @@
       "hasOutputSchema": true
     },
     {
+      "name": "get_wallet_history",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "billing:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "customer_id": {
+          "type": "string",
+          "optional": true
+        },
+        "limit": {
+          "type": "number",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
       "name": "list_available_gpus",
       "version": "2.0.0",
       "tenantClass": "tenant",

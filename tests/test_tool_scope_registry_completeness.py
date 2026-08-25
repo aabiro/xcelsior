@@ -246,7 +246,10 @@ def _registered_tool_names() -> set[str]:
 #: `request_provider_payout` was never blocked on code: the settlement lock and
 #: `ON CONFLICT (settlement_key)` already gave the gate its "replay produces one
 #: payout", which webhook delivery was never needed for.
-EXPECTED_TOOL_TOTAL = 84
+#: **85** with `get_wallet_history`. `get_wallet_balance` returns a number, and
+#: "where did it go" — the first question after an unexpected balance — had no
+#: answer anywhere on the surface.
+EXPECTED_TOOL_TOTAL = 85
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition

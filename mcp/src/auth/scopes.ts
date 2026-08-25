@@ -148,6 +148,10 @@ const TOOL_SCOPE_REGISTRY = {
   evict_host_workloads: { allOf: ["hosts:evict"] },
   retry_agent_command: { allOf: ["control_plane:operate"] },
   get_wallet_balance: { allOf: ["billing:read"] },
+  // The other half of a balance. `get_wallet_balance` returns a number, and the
+  // first question after an unexpected number is *where did it go* — which had
+  // no answer on the surface at all.
+  get_wallet_history: { allOf: ["billing:read"] },
   // Reads the wallet *and* the running instances burning it down, so it needs
   // both. `instances:read` is not incidental here: the runway is meaningless
   // without knowing what is consuming it, and the per-instance breakdown names
