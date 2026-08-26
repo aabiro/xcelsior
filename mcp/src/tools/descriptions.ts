@@ -276,6 +276,22 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "per GB-month like the volume it came from." +
     " Not idempotent: each call creates another snapshot and snapshots are billed for storage. List the volume's snapshots before retrying.",
 
+  list_volume_snapshots:
+    "List a volume's snapshots, with when each was taken. Use before restoring, to choose which " +
+    "capture to go back to, or when the user asks what backups exist — snapshot_volume creates " +
+    "them and this is the only tool that shows them. The snapshot_id for restore_volume_snapshot " +
+    "comes from here and cannot be guessed. Read-only and free.",
+
+  restore_volume_snapshot:
+    "Roll a volume back to one of its snapshots. Use when the user wants to undo changes on a " +
+    "volume or recover work they have overwritten. Call it with confirm:false first: that " +
+    "returns a preview naming the snapshot and when it was taken, and changes nothing — the age " +
+    "matters, because putting back a week-old capture is a different decision from an hour-old " +
+    "one. Then call again with confirm:true. This REPLACES everything on the volume: anything " +
+    "written since that snapshot is destroyed and cannot be recovered. Detach the volume from a " +
+    "running instance first if it is attached, or the instance keeps writing to what you are " +
+    "replacing. Free to call, and irreversible once confirmed.",
+
   get_artifact_expiry:
     "Show when a job's artifacts will be deleted: each file with its creation time and the date " +
     "its retention window ends. Use when the user asks how long results are kept, and " +
