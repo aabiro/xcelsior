@@ -67,6 +67,21 @@ reflected here and version-bumped fails the build.
 
 ### Added
 
+- **`list_volume_snapshots` and `restore_volume_snapshot`** — a backup you can
+  now put back.
+
+  `snapshot_volume` could take a snapshot and nothing on the surface could list
+  them or restore one. A backup you cannot restore is not a backup, and the
+  `snapshot_id` restore needs came from nowhere — the same shape as
+  `create_image_sweep` needing an `image_id` no tool produced.
+
+  Restoring is **destructive** and annotated as such: it replaces everything on
+  the volume with the captured contents, so work written since is gone. It is
+  confirm-gated like `delete_volume` and `detach_volume`, and the preview names
+  the snapshot's **age** — putting back a week-old capture is a different
+  decision from an hour-old one, and "restore" alone does not say which you are
+  about to make.
+
 - **`get_serverless_endpoint`, `get_serverless_endpoint_health` and
   `list_serverless_endpoint_jobs`** — operating the endpoint you just created.
 

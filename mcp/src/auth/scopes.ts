@@ -108,6 +108,13 @@ const TOOL_SCOPE_REGISTRY = {
   detach_volume: { allOf: ["volumes:write"] },
   delete_volume: { allOf: ["volumes:write"] },
   snapshot_volume: { allOf: ["volumes:write"] },
+  // The rest of a snapshot. `snapshot_volume` could take one and nothing could
+  // list them or put one back — a backup you cannot restore is not a backup, and
+  // this is the same act-without-an-exit shape as the serverless cancels.
+  list_volume_snapshots: { allOf: ["volumes:read"] },
+  // Restoring overwrites the volume's current contents, so it carries the write
+  // scope and is confirm-gated in the handler like the other destructive ones.
+  restore_volume_snapshot: { allOf: ["volumes:write"] },
   // The retention clock. Read-only, and the one tool that tells a user their
   // work is about to be deleted.
   get_artifact_expiry: { allOf: ["artifacts:read"] },

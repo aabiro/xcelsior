@@ -249,6 +249,76 @@ export function registerVolumeTools(
   );
 
   server.registerTool(
+    "list_volume_snapshots",
+    { inputSchema: z.object({ volume_id: z.string().min(1).max(160) }) },
+    async ({ volume_id }) => {
+      const denied = scopeDenied("list_volume_snapshots", user);
+      if (denied) return denied;
+      try {
+        return jsonText(
+          await client.get(`/api/v2/volumes/${encodeURIComponent(volume_id)}/snapshots`),
+        );
+      } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
+
+  server.registerTool(
+    "restore_volume_snapshot",
+    {
+      inputSchema: z.object({
+        volume_id: z.string().min(1).max(160),
+        snapshot_id: z.string().min(1).max(160).describe("From list_volume_snapshots"),
+        confirm: z.boolean().default(false),
+      }),
+    },
+    async ({ volume_id, snapshot_id, confirm }) => {
+      const denied = scopeDenied("restore_volume_snapshot", user);
+      if (denied) return denied;
+      if (!confirm) {
+        // Preview before acting, like detach and delete. A restore **replaces**
+        // the volume's current contents, and the thing the user needs told is
+        // what they are about to lose, not that something will happen. Naming
+        // the snapshot's own age is what makes "restore" concrete: putting back
+        // a week-old capture is a different decision from an hour-old one.
+        let snapshot: unknown = null;
+        try {
+          const listed = (await client.get(
+            `/api/v2/volumes/${encodeURIComponent(volume_id)}/snapshots`,
+          )) as { snapshots?: Array<Record<string, unknown>> };
+          snapshot =
+            (listed?.snapshots ?? []).find(
+              (s) => String(s?.snapshot_id ?? s?.id ?? "") === String(snapshot_id),
+            ) ?? null;
+        } catch {
+          // A preview that cannot read the snapshot still refuses to act.
+        }
+        return jsonText({
+          preview: true,
+          volume_id,
+          snapshot_id,
+          snapshot,
+          message:
+            "Restoring replaces everything currently on this volume with the " +
+            "contents of this snapshot. Work written since it was taken is lost " +
+            "and cannot be recovered. Set confirm:true to proceed.",
+        });
+      }
+      try {
+        return jsonText(
+          await client.post(
+            `/api/v2/volumes/${encodeURIComponent(volume_id)}/snapshots/${encodeURIComponent(snapshot_id)}/restore`,
+            {},
+          ),
+        );
+      } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
+
+  server.registerTool(
     "get_artifact_expiry",
     { inputSchema: z.object({ job_id: z.string().min(1).max(160) }) },
     async ({ job_id }) => {

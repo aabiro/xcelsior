@@ -92,12 +92,34 @@ describe("every required id can be obtained from the surface", () => {
     // Verb-prefixed snake_case only. A bare word like `low_balance` or
     // `num_gpus` is a field or a state, not a tool, and matching those would
     // make this cry wolf.
-    const VERBS =
-      /\b((?:list|get|create|delete|run|cancel|terminate|attach|detach|promote|snapshot|register|revoke|configure|estimate|schedule|search|simulate|explain|evaluate|watch|open|should|retry|reconcile|drain|undrain|evict|top_up)_[a-z0-9_]+)\b/g;
+    // **The verb set is derived, never hand-listed.** It used to be a literal,
+    // and it went stale the moment the surface grew a verb it did not know:
+    // `restore_volume_snapshot` shipped, a description was made to point at a
+    // nonexistent `restore_volume_backup`, and this guard passed — because
+    // `restore` was not in the list. A hand-maintained allowlist of the very
+    // vocabulary a guard polices is the drift shape this repo keeps recording.
+    //
+    // Taking the prefixes from the registered tool names means any verb the
+    // surface actually uses is policed the day it appears.
+    const VERB_SET = new Set(
+      Object.keys(TOOL_CONTRACTS)
+        .map((name) => name.split("_")[0])
+        .filter((verb) => verb.length > 2),
+    );
+    const VERBS = new RegExp(
+      `\\b((?:${[...VERB_SET].join("|")})_[a-z0-9_]+)\\b`,
+      "g",
+    );
     const real = new Set(Object.keys(TOOL_CONTRACTS));
     const dangling: string[] = [];
     for (const [name, text] of Object.entries(TOOL_DESCRIPTIONS)) {
       for (const [, mentioned] of text.matchAll(VERBS)) {
+        // `snapshot_id` is a field, and `snapshot` is one of the verbs above, so
+        // the pattern claimed `list_volume_snapshots` pointed at a tool called
+        // `snapshot_id`. **No tool is named `*_id`** — ids are what tools take,
+        // not what they are called. Without this the guard cries wolf on exactly
+        // the identifier vocabulary it was built to police.
+        if (mentioned.endsWith("_id")) continue;
         if (!real.has(mentioned)) dangling.push(`${name} points at ${mentioned}`);
       }
     }

@@ -123,6 +123,10 @@ describe("annotation accuracy", () => {
     expect(destructive).toEqual([
       "cancel_instance", "cancel_serverless_job", "delete_serverless_endpoint",
       "delete_user_image", "delete_volume", "evict_host_workloads",
+      // `restore_volume_snapshot` joins them: it replaces the volume with an
+      // older capture, so anything written since is gone. Sorted, so it lands
+      // after `evict_host_workloads` — the list is `.sort()`ed above.
+      "restore_volume_snapshot",
       "terminate_instance",
     ]);
   });
