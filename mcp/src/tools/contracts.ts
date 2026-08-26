@@ -184,6 +184,9 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   // this; six others were relying on a default that claimed the opposite.
   run_serverless_job: { readOnly: false, destructive: false, audience: "customer", idempotency: "none" },
   get_serverless_job_status: { readOnly: true, destructive: false, audience: "customer" },
+  get_serverless_endpoint: { readOnly: true, destructive: false, audience: "customer" },
+  get_serverless_endpoint_health: { readOnly: true, destructive: false, audience: "customer" },
+  list_serverless_endpoint_jobs: { readOnly: true, destructive: false, audience: "customer" },
   // Ending an inference job is final — a new one must be submitted. Same shape
   // as cancel_instance.
   cancel_serverless_job: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed" },

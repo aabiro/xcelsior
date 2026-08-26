@@ -158,6 +158,61 @@ export function registerServerlessTools(
     },
   );
 
+  server.registerTool(
+    "get_serverless_endpoint",
+    { inputSchema: z.object({ endpoint_id: z.string().min(1) }) },
+    async ({ endpoint_id }) => {
+      const denied = scopeDenied("get_serverless_endpoint", user);
+      if (denied) return denied;
+      try {
+        return jsonText(
+          await client.get(`/api/v2/serverless/endpoints/${encodeURIComponent(endpoint_id)}`),
+        );
+      } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_serverless_endpoint_health",
+    { inputSchema: z.object({ endpoint_id: z.string().min(1) }) },
+    async ({ endpoint_id }) => {
+      const denied = scopeDenied("get_serverless_endpoint_health", user);
+      if (denied) return denied;
+      try {
+        return jsonText(
+          await client.get(`/api/v2/serverless/endpoints/${encodeURIComponent(endpoint_id)}/health`),
+        );
+      } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
+
+  server.registerTool(
+    "list_serverless_endpoint_jobs",
+    {
+      inputSchema: z.object({
+        endpoint_id: z.string().min(1),
+        limit: z.number().int().min(1).max(200).default(50),
+      }),
+    },
+    async ({ endpoint_id, limit }) => {
+      const denied = scopeDenied("list_serverless_endpoint_jobs", user);
+      if (denied) return denied;
+      try {
+        return jsonText(
+          await client.get(`/api/v2/serverless/endpoints/${encodeURIComponent(endpoint_id)}/jobs`, {
+            limit: Number(limit ?? 50),
+          }),
+        );
+      } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
+
   /**
    * The exits.
    *

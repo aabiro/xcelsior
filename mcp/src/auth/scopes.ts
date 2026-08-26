@@ -120,6 +120,13 @@ const TOOL_SCOPE_REGISTRY = {
   should_i_run_pel_job: { allOf: ["billing:read", "inference:read"] },
   run_serverless_job: { allOf: ["inference:write"] },
   get_serverless_job_status: { allOf: ["inference:read"] },
+  // Operating the endpoint you created. An agent could create one and run jobs
+  // on it and could not ask whether it was serving, read its configuration, or
+  // see what was running — `list_serverless_endpoints` returns all of them and
+  // `get_serverless_job_status` answers about a job_id already in hand.
+  get_serverless_endpoint: { allOf: ["inference:read"] },
+  get_serverless_endpoint_health: { allOf: ["inference:read"] },
+  list_serverless_endpoint_jobs: { allOf: ["inference:read"] },
   // The exits. GT0 found entrances everywhere and exits missing — an agent
   // could create an endpoint and run jobs on it with no tool to stop either.
   cancel_serverless_job: { allOf: ["inference:write"] },
