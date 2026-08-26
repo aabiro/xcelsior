@@ -174,6 +174,9 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   // Destroys the volume's contents; they cannot be recovered.
   delete_volume: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed" },
   snapshot_volume: { readOnly: false, destructive: false, audience: "customer", idempotency: "none", version: "2.1.0" },
+  list_volume_snapshots: { readOnly: true, destructive: false, audience: "customer" },
+  // Destructive: it replaces what is on the volume now with what was captured.
+  restore_volume_snapshot: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed" },
   get_artifact_expiry: { readOnly: true, destructive: false, audience: "customer" },
   open_instance_access: { readOnly: false, destructive: false, audience: "customer", idempotency: "none", version: "2.1.0" },
   list_serverless_endpoints: { readOnly: true, destructive: false, audience: "customer" },

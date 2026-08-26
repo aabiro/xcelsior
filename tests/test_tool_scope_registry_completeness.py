@@ -263,7 +263,10 @@ def _registered_tool_names() -> set[str]:
 #: and run jobs on it, and could not ask whether it was serving or what was
 #: running — `list_serverless_endpoints` returns all of them, and
 #: `get_serverless_job_status` needs a job_id nothing produced.
-EXPECTED_TOOL_TOTAL = 93
+#: **95** with the snapshot pair. `snapshot_volume` could take a snapshot and
+#: nothing could list them or put one back — a backup you cannot restore is not a
+#: backup, which is the act-without-an-exit shape recorded here twice already.
+EXPECTED_TOOL_TOTAL = 95
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition

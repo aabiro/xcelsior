@@ -1702,6 +1702,29 @@
       "hasOutputSchema": true
     },
     {
+      "name": "list_volume_snapshots",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "volumes:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "volume_id": {
+          "type": "string",
+          "optional": false
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
       "name": "list_volumes",
       "version": "2.0.0",
       "tenantClass": "tenant",
@@ -1924,6 +1947,37 @@
             "paypal",
             "stripe"
           ]
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "restore_volume_snapshot",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "volumes:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "volume_id": {
+          "type": "string",
+          "optional": false
+        },
+        "snapshot_id": {
+          "type": "string",
+          "optional": false
+        },
+        "confirm": {
+          "type": "boolean",
+          "optional": true
         }
       },
       "hasOutputSchema": true

@@ -900,8 +900,8 @@
     "notes": "get_promotion_status. Was labelled gap while the tool called it."
   },
   "GET /api/v2/volumes/{volume_id}/snapshots": {
-    "class": "gap",
-    "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+    "class": "covered",
+    "notes": "list_volume_snapshots. Where a snapshot_id comes from; snapshot_volume creates them blind otherwise."
   },
   "GET /api/verified-hosts": {
     "class": "gap",
@@ -1904,8 +1904,8 @@
     "notes": "snapshot_volume. Was labelled gap while the tool called it."
   },
   "POST /api/v2/volumes/{volume_id}/snapshots/{snapshot_id}/restore": {
-    "class": "gap",
-    "notes": "P3 promotes artifacts to volumes; none of it is reachable as a tool"
+    "class": "covered",
+    "notes": "restore_volume_snapshot. Confirm-gated: the preview names the snapshot's age, since restoring destroys newer work."
   },
   "POST /api/verify/{host_id}": {
     "class": "gap",
