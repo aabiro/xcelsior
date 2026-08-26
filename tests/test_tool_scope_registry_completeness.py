@@ -259,7 +259,11 @@ def _registered_tool_names() -> set[str]:
 #: Neither was exercised against its live rail — see the commit; the guards were
 #: read on the route and the wiring is unit-tested, which is the same level of
 #: evidence both rails have.
-EXPECTED_TOOL_TOTAL = 90
+#: **93** with the serverless endpoint reads. An agent could create an endpoint
+#: and run jobs on it, and could not ask whether it was serving or what was
+#: running — `list_serverless_endpoints` returns all of them, and
+#: `get_serverless_job_status` needs a job_id nothing produced.
+EXPECTED_TOOL_TOTAL = 93
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition

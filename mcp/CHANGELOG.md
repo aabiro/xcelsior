@@ -67,6 +67,20 @@ reflected here and version-bumped fails the build.
 
 ### Added
 
+- **`get_serverless_endpoint`, `get_serverless_endpoint_health` and
+  `list_serverless_endpoint_jobs`** — operating the endpoint you just created.
+
+  An agent could create a serverless endpoint and run jobs on it, and could not
+  ask whether it was serving, read its configuration, or see what was running.
+  `list_serverless_endpoints` returns every endpoint on the account — the wrong
+  tool once you know which one you mean — and `get_serverless_job_status` needs a
+  `job_id` nothing on the surface produced.
+
+  The health read is the one that matters most: **a configured endpoint is not a
+  ready one**, and that difference is the answer to "I made an endpoint and my
+  requests are failing". The endpoint record reports what was asked for; health
+  reports what is running.
+
 - **`create_lightning_deposit` and `get_lightning_deposit`** — the same rail over
   Lightning: a BOLT11 invoice instead of an address, settling in seconds rather
   than block confirmations.

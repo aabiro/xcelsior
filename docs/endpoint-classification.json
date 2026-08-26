@@ -824,16 +824,16 @@
     "notes": "MCP server calls this path"
   },
   "GET /api/v2/serverless/endpoints/{endpoint_id}": {
-    "class": "gap",
-    "notes": "No tool reads one endpoint. list_serverless_endpoints returns all, so an agent holding an endpoint_id must fetch every endpoint and filter \u2014 the asymmetry get_instance/list_instances does not have on the compute side."
+    "class": "covered",
+    "notes": "get_serverless_endpoint. The single read; the list tool is the wrong one once you hold an id."
   },
   "GET /api/v2/serverless/endpoints/{endpoint_id}/health": {
-    "class": "gap",
-    "notes": "No tool reads endpoint health. 'Is my endpoint actually serving?' has no answer on the tool surface."
+    "class": "covered",
+    "notes": "get_serverless_endpoint_health. Configured is not the same as serving."
   },
   "GET /api/v2/serverless/endpoints/{endpoint_id}/jobs": {
-    "class": "gap",
-    "notes": "No tool lists an endpoint's jobs. get_serverless_job_status answers about a job_id already known; nothing enumerates them."
+    "class": "covered",
+    "notes": "list_serverless_endpoint_jobs. Where a job_id comes from."
   },
   "GET /api/v2/serverless/endpoints/{endpoint_id}/jobs/{job_id}": {
     "class": "redundant",

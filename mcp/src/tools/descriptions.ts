@@ -323,6 +323,26 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "calling it twice enqueues two jobs and bills for both, so do not retry a call whose outcome " +
     "you did not see.",
 
+  get_serverless_endpoint:
+    "Get one serverless endpoint by id: its model, scaling settings, status and URL. Use when you " +
+    "already hold an endpoint_id and need its configuration — list_serverless_endpoints returns " +
+    "every endpoint on the account, which is the wrong tool once you know which one you mean. " +
+    "For whether it is actually serving traffic rather than how it is configured, use " +
+    "get_serverless_endpoint_health. Read-only and free.",
+
+  get_serverless_endpoint_health:
+    "Check whether a serverless endpoint is actually serving: readiness, workers, and recent " +
+    "error state. Use when inference is failing or slow, or before sending a job to an endpoint " +
+    "created a moment ago — a configured endpoint is not a ready one, and this is the difference " +
+    "between them. Prefer it to reading the endpoint record, which reports what was asked for " +
+    "rather than what is running. Read-only and free.",
+
+  list_serverless_endpoint_jobs:
+    "List the jobs on one serverless endpoint, newest first. Use when the user asks what is " +
+    "running or what has run on an endpoint, or to find a job_id — get_serverless_job_status " +
+    "answers about a job you can already name, and this is where that name comes from. " +
+    "Read-only and free.",
+
   get_serverless_job_status:
     "Get the status and, when finished, the result of a serverless inference job. Use to poll a " +
     "handle returned by run_serverless_job. Read-only and free.",
