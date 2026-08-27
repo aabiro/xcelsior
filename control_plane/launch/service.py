@@ -391,7 +391,12 @@ def _deterministic_job_id(plan_id: str) -> str:
 
 
 def _submit_from_spec(
-    spec: dict[str, Any], *, job_id: str, owner: str, trace_id: str | None = None
+    spec: dict[str, Any],
+    *,
+    job_id: str,
+    owner: str,
+    trace_id: str | None = None,
+    placement_preference: dict[str, Any] | None = None,
 ):
     """Create the job through the one job-creation authority (B0.2 rule 11).
 
@@ -407,6 +412,11 @@ def _submit_from_spec(
         float(spec.get("vram_needed_gb") or 0),
         int(spec.get("priority") or 0),
         tier=spec.get("tier") or None,
+        # Passed **beside** the spec, never folded into it: the spec feeds
+        # `canonicalize`/`spec_hash`, and a preference inside it would make two
+        # identical workloads asking for different reliability hash apart, so an
+        # approved plan would stop matching its rerun.
+        placement_preference=placement_preference,
         num_gpus=int(spec.get("num_gpus") or 1),
         gpu_model=spec.get("gpu_model") or None,
         nfs_server=spec.get("nfs_server") or None,

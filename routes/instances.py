@@ -312,6 +312,22 @@ def _require_worker_status_update(request: Request) -> dict:
     raise HTTPException(403, "Worker authentication required")
 
 
+class PlacementPreferenceBody(BaseModel):
+    """A stated placement preference on a launch — the same shape
+    `/api/v1/placements/evaluate` takes, so what a user previewed is what they
+    can submit.
+
+    Bounds mirror `routes.action_plans.PlacementPreferenceIn` deliberately: one
+    validator disagreeing with another is how a request that previewed fine gets
+    refused at launch. The database CHECKs (migration 115) sit beneath both.
+    """
+
+    min_uptime_pct: float | None = Field(default=None, ge=0, le=100)
+    min_tier: str | None = Field(default=None, max_length=32)
+    require_verified: bool = False
+    max_premium_pct: float | None = Field(default=None, ge=0, le=10_000)
+
+
 class JobIn(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     vram_needed_gb: float = Field(default=0, ge=0)
@@ -328,6 +344,9 @@ class JobIn(BaseModel):
     command: str | None = None
     ssh_port: int = Field(default=22, ge=1, le=65535)
     pricing_mode: Literal["on_demand", "spot"] = "on_demand"
+    #: P5. Which host may run this, as distinct from what to run. Kept off the
+    #: spec that feeds `spec_hash` — see PlacementPreferenceBody.
+    placement_preference: PlacementPreferenceBody | None = None
     volume_ids: list[str] | None = Field(default=None, max_length=16)
     encrypted_workspace: bool = False
     # P2.1 — optional provisioning hooks, all run inside the container with a
@@ -915,6 +934,9 @@ def api_submit_instance(j: JobIn, request: Request):
                 exposed_ports=j.exposed_ports,
                 source_template_id=source_template_id,
                 pricing_mode=j.pricing_mode,
+                placement_preference=(
+                    j.placement_preference.model_dump() if j.placement_preference else None
+                ),
             )
         except Exception:
             if hold_id:

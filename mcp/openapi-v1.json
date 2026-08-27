@@ -3798,6 +3798,16 @@
             "title": "Pricing Mode",
             "default": "on_demand"
           },
+          "placement_preference": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlacementPreferenceBody"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "volume_ids": {
             "anyOf": [
               {
@@ -4850,6 +4860,56 @@
           "preference"
         ],
         "title": "PlacementEvaluationIn"
+      },
+      "PlacementPreferenceBody": {
+        "properties": {
+          "min_uptime_pct": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Uptime Pct"
+          },
+          "min_tier": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Tier"
+          },
+          "require_verified": {
+            "type": "boolean",
+            "title": "Require Verified",
+            "default": false
+          },
+          "max_premium_pct": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 10000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Premium Pct"
+          }
+        },
+        "type": "object",
+        "title": "PlacementPreferenceBody",
+        "description": "A stated placement preference on a launch \u2014 the same shape\n`/api/v1/placements/evaluate` takes, so what a user previewed is what they\ncan submit.\n\nBounds mirror `routes.action_plans.PlacementPreferenceIn` deliberately: one\nvalidator disagreeing with another is how a request that previewed fine gets\nrefused at launch. The database CHECKs (migration 115) sit beneath both."
       },
       "PlacementPreferenceIn": {
         "properties": {
