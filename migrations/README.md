@@ -90,7 +90,16 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `115_placement_preference.py`.**
+**Repository head: `116_low_balance_warned_at.py`.**
+
+(`116` splits the low-balance warning watermark off `wallets.grace_until`.
+That column carried two incompatible meanings: `serverless/service.py` reads it
+as a grace deadline, and the warning rate-limiter wrote `now` into it. Safe only
+because nothing ever set a *future* value — and a trap for whoever did, because
+`now - last` would go negative, compare as "warned recently", and silence the
+low-balance notice for the whole window. Nullable, no backfill: the watermark is
+ephemeral and copying `grace_until` forward would import exactly the wrong
+values.)
 
 (`115` gives a launch somewhere to put a stated placement preference —
 min uptime and max premium in **integer basis points**, because that bound
