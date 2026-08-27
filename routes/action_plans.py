@@ -433,14 +433,14 @@ def api_create_pipeline(body: PipelineIn, request: Request):
 def api_get_pipeline(plan_id: str, request: Request):
     """Stage-by-stage state. A foreign plan is not-found, never forbidden."""
     from control_plane.db import control_plane_transaction
-    from control_plane.pipelines import pipeline_state
+    from control_plane.pipelines import pipeline_state, spent_so_far
 
     user, principal = _resolve_principal(request)
     _require_scope(user, "instances:read")
 
     with control_plane_transaction() as conn:
         owner = conn.execute(
-            "SELECT tenant_id, status FROM action_plans "
+            "SELECT tenant_id, status, estimate_micros, currency FROM action_plans "
             " WHERE plan_id = %s AND action_type = 'run_pipeline'",
             (plan_id,),
         ).fetchone()
@@ -457,6 +457,7 @@ def api_get_pipeline(plan_id: str, request: Request):
             (plan_id,),
         ).fetchall()
         summary = pipeline_state(conn, plan_id)
+        spent = spent_so_far(conn, plan_id)
 
     return {
         "ok": True,
@@ -464,6 +465,17 @@ def api_get_pipeline(plan_id: str, request: Request):
         "approval_state": owner[1],
         "finished": summary["finished"],
         "failed": summary["failed"],
+        # The ceiling and the spend against it, together. Returned by the same
+        # call because a viewer that fetches them separately can render a spend
+        # from one moment against a ceiling from another, and "over budget" is
+        # the wrong thing to be wrong about.
+        #
+        # §3.3 enforces the ceiling *before each stage*; this is the same number
+        # the user agreed to at approval, so a live view can state progress
+        # against it rather than only reporting the overrun afterwards.
+        "approved_max_micros": int(owner[2] or 0),
+        "spent_micros": spent,
+        "currency": owner[3] or "CAD",
         "stages": [
             {
                 "index": r[0], "name": r[1], "action_type": r[2], "state": r[3],

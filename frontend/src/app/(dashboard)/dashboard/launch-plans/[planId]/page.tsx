@@ -15,8 +15,11 @@ import { Button } from "@/components/ui/button";
 import {
   approveLaunchPlan,
   fetchLaunchPlan,
+  fetchPipeline,
   type LaunchPlanApprovalView,
+  type PipelineView,
 } from "@/lib/api";
+import { PipelineGraph } from "@/components/pipelines/pipeline-graph";
 
 const CAD = new Intl.NumberFormat("en-CA", {
   style: "currency",
@@ -37,6 +40,10 @@ export default function LaunchPlanApprovalPage() {
   const [loading, setLoading] = useState(true);
   const [approving, setApproving] = useState(false);
   const [error, setError] = useState("");
+  // Live stage state, once there is a run to have state. Kept separate from
+  // `data` because the plan and the run answer different questions: the plan is
+  // what was approved and never changes, the run is what is happening now.
+  const [pipeline, setPipeline] = useState<PipelineView | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -53,6 +60,40 @@ export default function LaunchPlanApprovalPage() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Poll stage state while a pipeline is actually running.
+  //
+  // Only for `run_pipeline`, and it stops the moment the run reaches a terminal
+  // state — a page left open on a finished pipeline should not keep a request
+  // every three seconds going forever. A 404 here is the normal pre-execution
+  // answer (the plan exists, the stages do not yet), so it clears rather than
+  // raising: an approval screen must not show "error" for a pipeline whose only
+  // fault is not having been started.
+  const isPipeline = data?.plan.action_type === "run_pipeline";
+  useEffect(() => {
+    if (!isPipeline || !planId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const tick = async () => {
+      try {
+        const next = await fetchPipeline(planId);
+        if (cancelled) return;
+        setPipeline(next);
+        if (next.finished) return;
+      } catch {
+        if (cancelled) return;
+        setPipeline(null);
+      }
+      if (!cancelled) timer = setTimeout(() => void tick(), 3000);
+    };
+
+    void tick();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [isPipeline, planId]);
 
   const approve = async () => {
     if (!data) return;
@@ -96,6 +137,28 @@ export default function LaunchPlanApprovalPage() {
 
   const { plan } = data;
   const isEviction = plan.action_type === "evict_host_workloads";
+  // The declared graph, straight off the plan the user is approving — not off
+  // the run. `canonical_spec` is the hash-bound copy, so what is rendered here
+  // is exactly what editing would invalidate.
+  const declaredStages = Array.isArray(
+    (plan.canonical_spec as { stages?: unknown }).stages,
+  )
+    ? ((plan.canonical_spec as { stages: Array<Record<string, unknown>> }).stages.map(
+        (stage, index) => ({
+          index,
+          name: String(stage.name ?? `stage ${index + 1}`),
+          action_type: String(stage.action_type ?? "—"),
+          on_failure: (stage.on_failure ?? "halt") as "halt" | "continue" | "retry",
+          max_attempts: Number(stage.max_attempts ?? 1),
+          estimate_micros: Number(stage.estimate_micros ?? 0),
+        }),
+      ))
+    : [];
+  // Stage rows once a run exists, otherwise the declared graph with no state.
+  // The declared graph is the fallback rather than an empty list, so a pipeline
+  // that has not started still shows what it will do.
+  const graphStages =
+    pipeline && pipeline.stages.length > 0 ? pipeline.stages : declaredStages;
   const approvable = ["quoted", "awaiting_approval"].includes(plan.status);
   const approved = plan.status === "approved" || plan.status === "succeeded";
 
@@ -115,7 +178,11 @@ export default function LaunchPlanApprovalPage() {
               <ShieldCheck className="h-4 w-4" /> Server-bound approval
             </div>
             <h1 className="text-2xl font-semibold">
-              {isEviction ? "Review destructive host eviction" : "Review compute launch"}
+              {isEviction
+                ? "Review destructive host eviction"
+                : isPipeline
+                  ? "Review pipeline"
+                  : "Review compute launch"}
             </h1>
             <p className="mt-2 text-sm text-text-secondary">
               Your agent prepared this plan but cannot approve it. Approval does not execute
@@ -129,12 +196,18 @@ export default function LaunchPlanApprovalPage() {
         </div>
 
         <div className="mt-6 grid gap-4 sm:grid-cols-3">
-          <div className="rounded-xl border border-border/60 p-4">
-            <p className="text-xs uppercase tracking-wide text-text-muted">Maximum authorized</p>
-            <p className="mt-1 text-xl font-semibold">
-              {CAD.format(Number(plan.estimate_micros || 0) / 1_000_000)}
-            </p>
-          </div>
+          {/* For a pipeline the ceiling belongs with the graph it covers —
+              showing it here as well would state the same number twice, in two
+              different framings, which invites the reader to wonder whether
+              they are two different numbers. */}
+          {!isPipeline && (
+            <div className="rounded-xl border border-border/60 p-4">
+              <p className="text-xs uppercase tracking-wide text-text-muted">Maximum authorized</p>
+              <p className="mt-1 text-xl font-semibold">
+                {CAD.format(Number(plan.estimate_micros || 0) / 1_000_000)}
+              </p>
+            </div>
+          )}
           <div className="rounded-xl border border-border/60 p-4">
             <p className="text-xs uppercase tracking-wide text-text-muted">Expires</p>
             <p className="mt-1 flex items-center gap-2 text-sm">
@@ -148,19 +221,36 @@ export default function LaunchPlanApprovalPage() {
           </div>
         </div>
 
-        <div className="mt-6 overflow-hidden rounded-xl border border-border/60">
-          <div className="border-b border-border/60 bg-background/30 px-4 py-3 text-sm font-medium">
-            Canonical launch specification
+        {isPipeline && graphStages.length > 0 ? (
+          <div className="mt-6">
+            {/* Gate P4: the graph, which stage is live, and one ceiling
+                covering all of it — instead of the stages serialised into a
+                single cell of the table below, where `on_failure` was present
+                and unreadable. */}
+            <PipelineGraph
+              stages={graphStages}
+              approvedMaxMicros={
+                pipeline?.approved_max_micros ?? Number(plan.estimate_micros || 0)
+              }
+              spentMicros={pipeline?.spent_micros}
+              approved={approved}
+            />
           </div>
-          <dl className="divide-y divide-border/50">
-            {Object.entries(plan.canonical_spec).map(([key, value]) => (
-              <div key={key} className="grid grid-cols-[minmax(9rem,1fr)_2fr] gap-4 px-4 py-3 text-sm">
-                <dt className="text-text-muted">{key.replaceAll("_", " ")}</dt>
-                <dd className="break-words font-mono text-xs">{displayValue(value)}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
+        ) : (
+          <div className="mt-6 overflow-hidden rounded-xl border border-border/60">
+            <div className="border-b border-border/60 bg-background/30 px-4 py-3 text-sm font-medium">
+              Canonical launch specification
+            </div>
+            <dl className="divide-y divide-border/50">
+              {Object.entries(plan.canonical_spec).map(([key, value]) => (
+                <div key={key} className="grid grid-cols-[minmax(9rem,1fr)_2fr] gap-4 px-4 py-3 text-sm">
+                  <dt className="text-text-muted">{key.replaceAll("_", " ")}</dt>
+                  <dd className="break-words font-mono text-xs">{displayValue(value)}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        )}
 
         {error && (
           <p className="mt-4 rounded-lg border border-red-500/30 bg-red-500/5 p-3 text-sm text-red-300">
