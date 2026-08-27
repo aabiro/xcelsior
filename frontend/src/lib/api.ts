@@ -2154,6 +2154,50 @@ export async function promoteArtifactsToVolume(volumeId: string, jobId: string) 
   );
 }
 
+export interface PlacementPreferenceInput {
+  min_uptime_pct?: number | null;
+  min_tier?: string | null;
+  require_verified?: boolean;
+  max_premium_pct?: number | null;
+}
+
+/** Either the host a preference would pick, or the number that made it refuse. */
+export interface PlacementDecision {
+  refused: boolean;
+  code?: string;
+  detail?: string;
+  asked?: unknown;
+  best_available?: unknown;
+  host_id?: string;
+  baseline_price?: number;
+  chosen_price?: number;
+  premium_pct?: number;
+}
+
+/** What a stated preference would place on, or why it refuses — read-only.
+ *
+ * P5's frontend clause asks for the price/reliability trade-off *before*
+ * launch, and its gate is explicit that an unsatisfiable preference must refuse
+ * clearly rather than fall back to the cheapest host. **A refusal is a 200
+ * here**: the caller asked what would happen and is being told, with the number
+ * that failed attached so the trade-off can be rendered rather than guessed.
+ */
+export async function evaluatePlacement(
+  spec: Record<string, unknown>,
+  preference: PlacementPreferenceInput,
+) {
+  return apiFetch<{
+    ok: boolean;
+    spec_hash: string;
+    availability: Record<string, unknown>;
+    preference: PlacementDecision;
+    decision_id?: string;
+  }>("/api/v1/placements/evaluate", {
+    method: "POST",
+    body: JSON.stringify({ spec, preference }),
+  });
+}
+
 // ── Admin ─────────────────────────────────────────────────────────────
 export async function fetchAdminStats() {
   return apiFetch<{ ok: boolean; total_users: number; active_hosts: number; running_jobs: number; revenue_mtd: number }>(
