@@ -1672,20 +1672,36 @@ class BillingEngine:
         return float(os.environ.get("XCELSIOR_LOW_BALANCE_WARN_CAD", "5.0"))
 
     def maybe_warn_low_balance(self, customer_id: str, balance_cad: float) -> dict:
-        """Emit a low-balance warning notification (rate-limited via grace_until stamp)."""
+        """Emit a low-balance warning notification, at most once per six hours.
+
+        The watermark is `wallets.low_balance_warned_at` (migration 116), not
+        `grace_until` — see the comment below for what sharing that column would
+        have cost the first time anyone granted a real grace window.
+        """
         threshold = self.low_balance_threshold_cad(customer_id)
         if balance_cad > threshold:
             return {"warned": False, "threshold_cad": threshold}
         now = time.time()
         wallet = self.get_wallet(customer_id)
-        # Reuse grace_until as last-warn watermark when still positive balance.
-        last = float(wallet.get("grace_until") or 0)
+        # `low_balance_warned_at`, not `grace_until` — migration 116.
+        #
+        # This used to reuse `grace_until` as the watermark, which was safe only
+        # because nothing ever set that column to a *future* time. The moment
+        # someone granted a real grace window, `now - last` would go negative,
+        # compare as "warned recently", and suppress the warning for the whole
+        # window — silencing the low-balance notice exactly while a deadline the
+        # customer did not ask for ran out.
+        #
+        # NULL means never warned. `0` is refused by the schema, so an unset
+        # watermark cannot be confused with an ancient one.
+        last = float(wallet.get("low_balance_warned_at") or 0)
         if last and now - last < 6 * 3600 and balance_cad > 0:
             return {"warned": False, "threshold_cad": threshold, "reason": "rate_limited"}
         try:
             with self._conn() as conn:
                 conn.execute(
-                    "UPDATE wallets SET grace_until = %s, updated_at = %s WHERE customer_id = %s",
+                    "UPDATE wallets SET low_balance_warned_at = %s, updated_at = %s "
+                    " WHERE customer_id = %s",
                     (now, now, customer_id),
                 )
             from db import NotificationStore
