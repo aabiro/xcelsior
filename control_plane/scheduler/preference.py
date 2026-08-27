@@ -29,6 +29,8 @@ something granted here by omission.
 
 from __future__ import annotations
 
+from decimal import ROUND_HALF_UP, Decimal
+
 from dataclasses import dataclass, field
 from typing import Any, Sequence
 
@@ -117,6 +119,36 @@ class PlacementPreference:
             and self.max_premium_pct is None
             and not self.require_verified
         )
+
+
+#: Basis points per percent. 1 bps = 0.01%, so 99.5% is 9950 and a 15% premium
+#: bound is 1500.
+BPS_PER_PCT = Decimal("100")
+
+
+def pct_to_bps(pct: float | str | Decimal | None) -> int | None:
+    """Percent -> integer basis points, without a binary-float round trip.
+
+    The same discipline `money.cad_to_micros` uses, and for the same reason on a
+    different unit. `max_premium_pct` gates a **price** comparison — "at most 15%
+    more than the cheapest eligible host" — and 15.0 as a binary float is
+    15.000000000000002, so a host sitting exactly on the bound falls either side
+    depending on a representation nobody typed. `Decimal(str(...))` reads the
+    number the caller wrote rather than the float it became.
+
+    `min_uptime_pct` earns it for a different reason: 99.95% and 99.9% are
+    different SLAs, and the distinction lives in the third decimal place.
+    """
+    if pct is None:
+        return None
+    return int((Decimal(str(pct)) * BPS_PER_PCT).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+def bps_to_pct(bps: int | None) -> float | None:
+    """Integer basis points -> percent, for the float-typed API boundary."""
+    if bps is None:
+        return None
+    return int(bps) / float(BPS_PER_PCT)
 
 
 @dataclass(frozen=True)
