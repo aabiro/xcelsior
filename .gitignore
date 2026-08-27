@@ -83,6 +83,23 @@ docs/*
 # silently is not in the repository is worth less than no write-up, because it
 # reads as done.
 !docs/review/
+# Cited by shipped source, so they cannot stay local-only. `docs/*` above had
+# swallowed all three: `scheduler.py`, `control_plane/scheduler/preference.py`,
+# `control_plane/scheduler/migration_gate.py` and **migration 105** all point a
+# reader at `placement-preference-plan.md` §-numbers, and a migration's comment
+# is permanent history. A clone follows those pointers to nothing.
+#
+# This is the failure the comment above predicts — a document that "silently is
+# not in the repository … reads as done" — reached through code references
+# rather than through someone forgetting an exemption.
+#
+# `docs/BUSINESS_STRATEGY.md` is deliberately **not** here. It is cited too, but
+# it is a business document and publishing it is not a call to make while
+# tidying references.
+!docs/3060-utilization-plan.md
+!docs/placement-preference-plan.md
+!docs/pipeline-plan.md
+!docs/xcelsior-production-control-plane-mcp-blueprint.md
 !docs/site-audit-prompt.md
 !docs/site-audit-report-2026-06-04.md
 !docs/site-audit-report-2026-06-04-reaudit.md
