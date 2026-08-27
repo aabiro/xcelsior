@@ -39,10 +39,18 @@ const TIERS = ["", "standard", "premium", "verified"] as const;
 export function PlacementPreferenceControl({
   spec,
   onChange,
+  notApplied = false,
 }: {
   spec: PlacementSpec;
   /** Reports the preference and whether it is currently satisfiable. */
   onChange?: (pref: PlacementPreferenceInput, decision: PlacementDecision | null) => void;
+  /** Say plainly that this preference is not carried into the launch yet.
+   *
+   *  A control that looks like it constrains a launch and does not is the
+   *  trust failure P5's gate is about, only worse for being in the UI that
+   *  warns about it. Until the preference is accepted at launch, stored, and
+   *  applied before ranking, this banner is the honest state. */
+  notApplied?: boolean;
 }) {
   const [minUptime, setMinUptime] = useState<string>("");
   const [minTier, setMinTier] = useState<string>("");
@@ -93,6 +101,13 @@ export function PlacementPreferenceControl({
         <h4 className="text-sm font-medium">Placement preference</h4>
         <span className="text-xs text-text-muted">optional</span>
       </div>
+
+      {notApplied && (
+        <p className="text-[11px] text-amber-400/90 bg-amber-500/5 border border-amber-500/30 rounded px-2 py-1.5">
+          Preview only — this preference is <strong>not applied</strong> to the launch yet. It
+          shows what the fleet could satisfy right now.
+        </p>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="text-xs text-text-secondary">

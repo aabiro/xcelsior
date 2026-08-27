@@ -90,7 +90,16 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `114_sweep_fingerprints.py`.**
+**Repository head: `115_placement_preference.py`.**
+
+(`115` gives a launch somewhere to put a stated placement preference —
+min uptime and max premium in **integer basis points**, because that bound
+gates a price comparison and a float boundary is not the same number on
+every machine. Its own columns rather than `jobs.spec`, since `spec` feeds
+`spec_hash` and two identical workloads asking for different reliability
+must not hash apart. `min_tier` is shape-checked, not enumerated: the tier
+vocabulary is derived from `ReputationTier` and a second hand-written copy
+in a CHECK is how it drifts.)
 
 (`114` stores what a sweep member's container reported about its own
 environment — both the hash and the raw manifest, with a check constraint

@@ -1070,8 +1070,18 @@ export function LaunchInstanceModal({
                 {/* P5: the price/reliability trade-off, stated *before* launch.
                     A refusal renders as a refusal here — the gate is explicit
                     that an unsatisfiable preference must not quietly fall back
-                    to the cheapest host. */}
+                    to the cheapest host.
+
+                    **Currently a preview, and it says so.** No route accepts a
+                    placement preference at launch, no column stores one, and
+                    `scheduler.py` ranks with `host_efficiency_score` without
+                    ever consulting one. Shipping this as a silent no-op would be
+                    the exact trust failure the gate names — a user states
+                    "verified only", sees "satisfiable", and lands on the
+                    cheapest host. `notApplied` makes that visible until the
+                    preference is carried end to end. */}
                 <PlacementPreferenceControl
+                  notApplied
                   spec={{
                     gpu_model: resolvedGpu || undefined,
                     num_gpus: Number(numGpus) || 1,
