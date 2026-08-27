@@ -199,3 +199,64 @@ def test_resubmitting_without_a_preference_clears_it():
         with pool.connection() as conn:
             conn.execute("DELETE FROM jobs WHERE job_id = %s", (job_id,))
             conn.commit()
+
+
+# ── The chain, end to end ─────────────────────────────────────────────
+
+
+def test_the_launch_path_carries_a_preference_all_the_way_down():
+    """Every hop between the request body and the column.
+
+    The defect this replaces was not a broken hop — it was a **missing** one:
+    the control evaluated a preference and nothing carried it, so a user could
+    state a constraint, see it satisfied, and launch without it. A test that
+    only checked the ends would have passed against that.
+    """
+    import inspect
+
+    from routes.instances import JobIn
+    from scheduler import submit_job
+    from control_plane.launch import service
+
+    assert "placement_preference" in JobIn.model_fields
+    assert "placement_preference" in inspect.signature(submit_job).parameters
+    assert "placement_preference" in inspect.signature(service._submit_from_spec).parameters
+
+
+def test_the_boundary_bounds_match_the_evaluate_route():
+    """One validator disagreeing with another is how a request that previewed
+    fine gets refused at launch — the user did nothing wrong and cannot tell."""
+    from routes.action_plans import PlacementPreferenceIn
+    from routes.instances import PlacementPreferenceBody
+
+    for field in ("min_uptime_pct", "min_tier", "require_verified", "max_premium_pct"):
+        assert field in PlacementPreferenceBody.model_fields, field
+        assert field in PlacementPreferenceIn.model_fields, field
+
+    def bounds(model, name):
+        meta = model.model_fields[name].metadata
+        return sorted((type(m).__name__, getattr(m, "ge", getattr(m, "le", None))) for m in meta)
+
+    for field in ("min_uptime_pct", "max_premium_pct"):
+        assert bounds(PlacementPreferenceBody, field) == bounds(PlacementPreferenceIn, field), (
+            f"{field} is bounded differently on the launch body than on the "
+            "evaluate route, so a preview can succeed where the launch refuses"
+        )
+
+
+def test_the_preference_never_enters_the_spec():
+    """`spec` feeds `canonicalize`/`spec_hash`.
+
+    If the preference were folded in, two identical workloads asking for
+    different reliability would hash apart and an approved plan would stop
+    matching its rerun — the reason `PlacementPreferenceIn` says it is
+    "deliberately not part of JobIn"'s spec in the first place.
+    """
+    import pathlib
+
+    service_src = pathlib.Path("control_plane/launch/service.py").read_text(encoding="utf-8")
+    body = service_src.split("def _submit_from_spec", 1)[1].split("\ndef ", 1)[0]
+    assert 'spec.get("placement_preference")' not in body, (
+        "the preference is being read out of the spec; it must travel beside it"
+    )
+    assert "placement_preference=placement_preference" in body

@@ -1835,6 +1835,7 @@ export interface components {
              * @enum {string}
              */
             pricing_mode: "on_demand" | "spot";
+            placement_preference?: components["schemas"]["PlacementPreferenceBody"] | null;
             /** Volume Ids */
             volume_ids?: string[] | null;
             /**
@@ -2249,6 +2250,29 @@ export interface components {
         PlacementEvaluationIn: {
             spec: components["schemas"]["JobIn"];
             preference: components["schemas"]["PlacementPreferenceIn"];
+        };
+        /**
+         * PlacementPreferenceBody
+         * @description A stated placement preference on a launch — the same shape
+         *     `/api/v1/placements/evaluate` takes, so what a user previewed is what they
+         *     can submit.
+         *
+         *     Bounds mirror `routes.action_plans.PlacementPreferenceIn` deliberately: one
+         *     validator disagreeing with another is how a request that previewed fine gets
+         *     refused at launch. The database CHECKs (migration 115) sit beneath both.
+         */
+        PlacementPreferenceBody: {
+            /** Min Uptime Pct */
+            min_uptime_pct?: number | null;
+            /** Min Tier */
+            min_tier?: string | null;
+            /**
+             * Require Verified
+             * @default false
+             */
+            require_verified: boolean;
+            /** Max Premium Pct */
+            max_premium_pct?: number | null;
         };
         /**
          * PlacementPreferenceIn
