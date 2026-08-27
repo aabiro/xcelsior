@@ -10,6 +10,8 @@ import {
   DollarSign, TrendingUp, RefreshCw, ArrowUpRight, ExternalLink,
   Percent, AlertTriangle, CheckCircle, Loader2, LinkIcon, Unlink, Gift,
 } from "lucide-react";
+import { PayoutRequirements } from "@/components/providers/payout-requirements";
+import type { ProviderAccount } from "@/lib/api";
 import { StripeLogo } from "@/components/ui/payment-logos";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useAuth } from "@/lib/auth";
@@ -23,17 +25,22 @@ import {
 import { PayPalConnectCard, type PayPalProviderState } from "@/components/providers/paypal-connect-card";
 import { StripeConnectEmbedded } from "@/components/providers/stripe-connect-embedded";
 
-interface ProviderInfo {
-  provider_id: string;
-  provider_type: string;
-  status: string;
-  corporation_name?: string;
-  email: string;
-  province?: string;
-  created_at: string;
-  onboarded_at?: string;
+/**
+ * The provider shape this page reads, minus the payout state it dropped.
+ *
+ * This local re-declaration is how the P6 parity gap survived: the route has
+ * returned `payouts` since the "tell a provider why they are unpaid" fix, and a
+ * hand-copied interface here quietly stopped at `paypal`. TypeScript then
+ * enforced the omission — `provider.payouts` was a compile error, so nobody
+ * could render it by accident.
+ *
+ * Extending the shared `ProviderAccount` rather than restating it means the
+ * next field the API adds is visible here without anyone remembering to copy
+ * it.
+ */
+type ProviderInfo = Omit<ProviderAccount, "paypal"> & {
   paypal?: PayPalProviderState;
-}
+};
 
 export default function EarningsPage() {
   const { user, refreshUser } = useAuth();
@@ -358,6 +365,17 @@ export default function EarningsPage() {
                 <CardDescription>{t("dash.earnings.stripe_desc")}</CardDescription>
               </CardHeader>
               <CardContent>
+                {/* Gate P6 parity: the payout state `get_provider_account`
+                    returns, on the surface a provider actually looks at.
+                    Outside the status branches on purpose — `active` means
+                    Stripe enabled charges and payouts at the last check, not
+                    that nothing is outstanding, and a requirement with a future
+                    deadline appears while the account is still active. That is
+                    the window in which telling someone early is worth
+                    something. */}
+                <div className="mb-3">
+                  <PayoutRequirements payouts={provider?.payouts} />
+                </div>
                 {provider?.status === "active" ? (
                   <div className="space-y-3">
                     {/* Always-visible connected banner */}
