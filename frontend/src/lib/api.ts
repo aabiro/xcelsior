@@ -131,6 +131,51 @@ export function fetchLaunchPlan(planId: string): Promise<LaunchPlanApprovalView>
   return apiFetch(`/api/v1/launch-plans/${encodeURIComponent(planId)}`);
 }
 
+/**
+ * One stage of an approved dependency graph, and what happened to it.
+ *
+ * `on_failure` is part of what the user approved — `docs/pipeline-plan.md` §3.2:
+ * *"A user approving a graph is approving its failure behaviour too — deciding
+ * it afterwards, at the moment something broke, is exactly when the decision is
+ * worst."* So it is carried through to the view rather than left in the plan's
+ * canonical args where only a JSON dump would show it.
+ */
+export interface PipelineStage {
+  index: number;
+  name: string;
+  action_type: string;
+  state: string;
+  on_failure: "halt" | "continue" | "retry";
+  attempt_count: number;
+  max_attempts: number;
+  failure_code?: string | null;
+  result_ref?: string | null;
+  spent_micros: number;
+}
+
+export interface PipelineView {
+  ok: boolean;
+  plan_id: string;
+  approval_state: string;
+  finished: boolean;
+  failed: boolean;
+  /** The ceiling the user agreed to. A promise, not an estimate. */
+  approved_max_micros: number;
+  spent_micros: number;
+  currency: string;
+  stages: PipelineStage[];
+}
+
+/**
+ * Stage-by-stage state for an approved pipeline.
+ *
+ * A foreign plan answers 404 rather than 403 — a 403 would confirm the id
+ * exists, which is a probe for other tenants' pipelines.
+ */
+export function fetchPipeline(planId: string): Promise<PipelineView> {
+  return apiFetch(`/api/v1/pipelines/${encodeURIComponent(planId)}`);
+}
+
 export function approveLaunchPlan(
   planId: string,
   expectedVersion: number,
