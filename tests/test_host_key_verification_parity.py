@@ -184,6 +184,40 @@ def test_both_languages_accept_exactly_the_same_fingerprint_shape():
     )
 
 
+def test_the_browser_never_stores_a_terminal_ticket():
+    """P2's *"same expiry"* holds by construction — keep it that way.
+
+    `open_instance_access` returns `expires_in_seconds` because the agent
+    receives a ticket it must carry to a websocket itself. The browser does not:
+    `WebTerminal` mints a ticket and opens the socket with it in the same
+    function, and mints a fresh one on every reconnect. It reads `expires_in`
+    and discards it. So there is no browser-side expiry that can disagree with
+    the tool's — the human never holds a ticket between mint and use.
+
+    That is a property, not an oversight, and the tempting "fix" would break it:
+    displaying a countdown to match the tool means holding the ticket to count
+    down *from*, which turns a credential consumed on arrival into one sitting
+    in storage with a clock on it. A ticket in `localStorage` also outlives the
+    tab, which is exactly what single-use was meant to prevent.
+
+    Checked as storage rather than as shape, because that is the part with a
+    blast radius.
+    """
+    frontend = ROOT / "frontend/src"
+    offenders: list[str] = []
+    for path in list(frontend.rglob("*.ts")) + list(frontend.rglob("*.tsx")):
+        text = _strip_comments(path.read_text(encoding="utf-8"))
+        for line in text.splitlines():
+            if "ticket" not in line.lower():
+                continue
+            if re.search(r"(localStorage|sessionStorage)\.(set|get)Item", line):
+                offenders.append(f"{path.relative_to(ROOT)}: {line.strip()[:90]}")
+    assert not offenders, (
+        "a terminal ticket is being written to or read from browser storage, "
+        "which outlives the tab and defeats single-use:\n  " + "\n  ".join(offenders)
+    )
+
+
 def test_neither_surface_tells_anyone_to_accept_an_unverifiable_key():
     """The null state is honest on both sides, or it is worse than silence.
 
