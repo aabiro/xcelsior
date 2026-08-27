@@ -1147,16 +1147,55 @@ export async function createProviderAccountSession(providerId: string) {
   }>(`/api/providers/${encodeURIComponent(providerId)}/account-session`, { method: "POST" });
 }
 
+/**
+ * What Stripe currently requires before this provider can be paid.
+ *
+ * `GET /api/providers/{id}` has returned this since the "a provider deserves to
+ * know why they are unpaid" fix, and `get_provider_account` hands the whole
+ * object to the agent. The dashboard type dropped it, so the browser rendered
+ * `status` alone — which the route's own comment calls out as insufficient:
+ * *"`status` alone collapses 'we need your bank account' and 'we need a photo of
+ * your ID' into `restricted`, which tells a provider nothing they can act on."*
+ *
+ * Entries in `currently_due` / `past_due` are Stripe's field **names** —
+ * `external_account`, `individual.id_number`. Names, never values; no identity
+ * document or bank number passes through here.
+ */
+export interface ProviderPayoutState {
+  charges_enabled: boolean;
+  payouts_enabled: boolean;
+  currently_due: string[];
+  past_due: string[];
+  disabled_reason: string;
+  /**
+   * Whether Stripe was actually consulted. **Load-bearing.**
+   *
+   * When Stripe is unconfigured, the account has no id, or the retrieve failed,
+   * every field above is its zero value — and an empty `currently_due` then
+   * reads as "nothing outstanding, you are done" in exactly the case where
+   * nothing was asked. Absent information must not present as good news on the
+   * surface that tells someone why they are unpaid.
+   */
+  checked_live: boolean;
+}
+
+export interface ProviderAccount {
+  provider_id: string;
+  provider_type: string;
+  status: string;
+  corporation_name?: string;
+  email: string;
+  province?: string;
+  created_at: string;
+  onboarded_at?: string;
+  paypal?: { enabled: boolean; status: string; onboarded_at?: number };
+  payouts?: ProviderPayoutState;
+}
+
 export async function fetchProvider(providerId: string) {
-  return apiFetch<{
-    ok: boolean;
-    provider: {
-      provider_id: string; provider_type: string; status: string;
-      corporation_name?: string; email: string; province?: string;
-      created_at: string; onboarded_at?: string;
-      paypal?: { enabled: boolean; status: string; onboarded_at?: number };
-    };
-  }>(`/api/providers/${encodeURIComponent(providerId)}`);
+  return apiFetch<{ ok: boolean; provider: ProviderAccount }>(
+    `/api/providers/${encodeURIComponent(providerId)}`,
+  );
 }
 
 export async function fetchPayPalProvider(providerId: string) {
