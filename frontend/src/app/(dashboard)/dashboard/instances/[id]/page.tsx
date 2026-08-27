@@ -18,6 +18,7 @@ import {
   stopInstance, startInstance, restartInstance, terminateInstance, renameInstance,
 } from "@/lib/api";
 import type { Instance } from "@/lib/api";
+import { ArtifactRetentionCard } from "@/components/instances/artifact-retention-card";
 import { toast } from "sonner";
 import { useLocale } from "@/lib/locale";
 import { useAuth } from "@/lib/auth";
@@ -1099,6 +1100,14 @@ export default function InstanceDetailPage() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* P3: the retention clock, beside the lever that stops it.
+          `isTerminal` was computed and unused until now. */}
+      {isTerminal && instance?.job_id && (
+        <div className="mt-6">
+          <ArtifactRetentionCard jobId={instance.job_id} />
         </div>
       )}
 

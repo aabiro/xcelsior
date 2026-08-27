@@ -2124,6 +2124,36 @@ export async function fetchArtifacts(jobId?: string) {
   return apiFetch<{ ok: boolean; job_id?: string; artifacts: ArtifactEntry[] }>(path);
 }
 
+export interface ArtifactExpiryEntry {
+  artifact_id: string;
+  artifact_type: string;
+  created_at: number;
+  ttl_days: number;
+  expires_at: number;
+  days_remaining: number;
+}
+
+/** The retention clock for one job's outputs.
+ *
+ * P3's frontend clause: a completed instance must say "this output expires in N
+ * days". The tool surface has had `get_artifact_expiry` for a while; the human
+ * looking at the same instance could not see it, which the plan names as how
+ * work gets lost.
+ */
+export async function fetchArtifactExpiry(jobId: string) {
+  return apiFetch<{ ok: boolean; job_id: string; artifacts: ArtifactExpiryEntry[] }>(
+    `/api/artifacts/${encodeURIComponent(jobId)}/expiry`,
+  );
+}
+
+/** Copy a job's artifacts onto a durable volume, so they stop expiring. */
+export async function promoteArtifactsToVolume(volumeId: string, jobId: string) {
+  return apiFetch<{ ok: boolean; promotion_id?: string; status?: string }>(
+    `/api/v2/volumes/${encodeURIComponent(volumeId)}/promotions`,
+    { method: "POST", body: JSON.stringify({ job_id: jobId }) },
+  );
+}
+
 // ── Admin ─────────────────────────────────────────────────────────────
 export async function fetchAdminStats() {
   return apiFetch<{ ok: boolean; total_users: number; active_hosts: number; running_jobs: number; revenue_mtd: number }>(
