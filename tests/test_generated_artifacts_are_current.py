@@ -25,8 +25,18 @@ history is the reason to compare *whole documents*: comparing only the operation
 set answered "are the right endpoints published?" and never "does the document
 still describe them correctly?", under which five schemas silently drifted.
 
-**Not covered here yet:** `mcp/tool-surface.json` and the TypeScript
-descriptions and annotations. They need the same treatment, and P0.3 is not
+**`mcp/tool-surface.json` now has the same treatment**, in
+`mcp/tests/unit/surface.test.ts` — "is byte-identical to a fresh generation".
+It lives in the TypeScript suite because that is where its generator lives.
+
+It was worth chasing: the checks already there did not catch a hand edit.
+`changes.every(c => !c.breaking)` is *true* for any non-breaking drift, so it
+passed while printing "run `npm run surface:update` to record these changes" —
+a guard that could not fail for the reason its own message gave. The only other
+currency check compared tool *counts*. Editing a description in the committed
+snapshot left all 13 tests green.
+
+Still not covered: the TypeScript descriptions and annotations. P0.3 is not
 finished until they have it.
 """
 
@@ -64,9 +74,7 @@ def _regenerate_to_string() -> str:
         if result.returncode != 0 or not target.exists():
             # Older generators take no --out; fall back to the default path by
             # copying the current file aside first.
-            raise RuntimeError(
-                f"generator failed (rc={result.returncode}): {result.stderr[-400:]}"
-            )
+            raise RuntimeError(f"generator failed (rc={result.returncode}): {result.stderr[-400:]}")
         return target.read_text(encoding="utf-8")
 
 
@@ -112,6 +120,5 @@ def test_the_checked_in_inventory_matches_a_fresh_generation():
         "docs/generated/endpoint-inventory.md differs from a fresh generation. "
         "Run `python scripts/generate_endpoint_inventory.py` and commit the "
         "result in the same commit as the route change.\n"
-        f"lines: checked-in {len(checked_lines)}, generated {len(fresh_lines)}\n"
-        + "\n".join(diffs)
+        f"lines: checked-in {len(checked_lines)}, generated {len(fresh_lines)}\n" + "\n".join(diffs)
     )
