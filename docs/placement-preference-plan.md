@@ -569,6 +569,33 @@ instances that can share a volume, and the available hosts are network-isolated
 from each other. The gate above is testable against the database and is; the
 resume proof is not, and is left FAIL rather than softened.
 
+**4. Nothing persists a migration outcome, so the timeline clause has no
+source.** Found 2026-08-27 while checking whether P5's frontend clause —
+*"migration history on the instance timeline: what moved, when, why, and what it
+saved"* — was buildable.
+
+`MigrationOutcome` is a frozen dataclass with an `as_dict()`, returned by
+`migrate_job` and **discarded by the caller**. There is no table, no column, and
+no audit row. Every field the clause asks for is computed and then thrown away:
+`source_host_id`/`target_host_id` is *what moved*, `refusal` and the preference
+that drove the choice is *why*, and the price delta is *what it saved*.
+
+So the frontend clause is blocked twice over, and the second block outlives the
+first. Wiring C3 a caller — the part that needs two live instances sharing a
+volume — would still leave the timeline with nothing to read. **A migration
+history table is C3's first commit, before the executor gets a caller**, for the
+same reason C2's verification sweep comes before C2's launch surface: the record
+has to exist at the moment the first migration happens, or the first migration
+is the one that goes unrecorded.
+
+Not built here. Storage whose only writer is also unwritten is a schema designed
+against a guess about what that writer will produce, and `MigrationOutcome`'s
+own shape is the thing most likely to move when C3 acquires a real caller.
+
+What is *not* a reason to defer it: "there is no data yet". An empty migration
+timeline is honest and harmless — unlike C2's constraint gate, which would have
+refused every request. The reason is the schema, not the emptiness.
+
 ### 5.3 What C3 owes
 
 The move re-runs **admission and attestation on the target**, and re-evaluates
