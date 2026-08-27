@@ -45,6 +45,8 @@ from __future__ import annotations
 import pathlib
 import re
 
+from tests._source_tree import iter_source_files, read_source
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 MCP_TOOL = ROOT / "mcp/src/tools/compute.ts"
@@ -203,10 +205,14 @@ def test_the_browser_never_stores_a_terminal_ticket():
     Checked as storage rather than as shape, because that is the part with a
     blast radius.
     """
-    frontend = ROOT / "frontend/src"
     offenders: list[str] = []
-    for path in list(frontend.rglob("*.ts")) + list(frontend.rglob("*.tsx")):
-        text = _strip_comments(path.read_text(encoding="utf-8"))
+    sources = [
+        *iter_source_files("*.ts", include_prefixes=("frontend/src/",)),
+        *iter_source_files("*.tsx", include_prefixes=("frontend/src/",)),
+    ]
+    assert sources, "no frontend sources found; the include prefix is wrong"
+    for path, _rel in sources:
+        text = _strip_comments(read_source(path))
         for line in text.splitlines():
             if "ticket" not in line.lower():
                 continue

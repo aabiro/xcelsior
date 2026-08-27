@@ -34,6 +34,8 @@ import pathlib
 import re
 import subprocess
 
+from tests._source_tree import iter_source_files, read_source
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 #: `docs/foo.md`, but only when it is not part of a longer path belonging to
@@ -61,22 +63,20 @@ def _tracked() -> set[str]:
 
 
 def _citations() -> dict[str, list[str]]:
-    """`docs/path.md -> [source files citing it]`, from shipped Python."""
+    """`docs/path.md -> [source files citing it]`, from shipped Python.
+
+    `include_tests=True` because two test modules cite documents for their
+    scoping rationale, and a citation from a test is a pointer a reader follows
+    exactly like any other.
+    """
     found: dict[str, list[str]] = {}
-    for path in ROOT.rglob("*.py"):
-        rel = path.relative_to(ROOT).as_posix()
-        if rel.startswith((".venv/", "venv/", "node_modules/")):
-            continue
+    for path, rel in iter_source_files("*.py", include_tests=True):
         # Not this file: its docstring and allowlist quote paths as examples,
         # and a guard that reports its own prose is noise the next reader has to
         # learn to ignore — which is how a real entry gets skimmed past.
         if path.resolve() == pathlib.Path(__file__).resolve():
             continue
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        for cited in CITATION.findall(text):
+        for cited in CITATION.findall(read_source(path)):
             found.setdefault(cited, []).append(rel)
     return found
 
