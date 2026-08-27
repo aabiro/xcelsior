@@ -30,6 +30,7 @@ import type {
   MarketplaceListing,
   Volume,
 } from "@/lib/api";
+import { PlacementPreferenceControl } from "@/components/instances/placement-preference-control";
 import { cn, generateFunName } from "@/lib/utils";
 import { getVramOptions } from "@/lib/gpu-models";
 import { markInstanceLaunched } from "@/components/InstallBanner";
@@ -1066,6 +1067,18 @@ export function LaunchInstanceModal({
             {/* ─── Step: Confirm ─── */}
             {step === "confirm" && (
               <>
+                {/* P5: the price/reliability trade-off, stated *before* launch.
+                    A refusal renders as a refusal here — the gate is explicit
+                    that an unsatisfiable preference must not quietly fall back
+                    to the cheapest host. */}
+                <PlacementPreferenceControl
+                  spec={{
+                    gpu_model: resolvedGpu || undefined,
+                    num_gpus: Number(numGpus) || 1,
+                    vram_gb: typeof vramGb === "number" ? vramGb : undefined,
+                    region: province || undefined,
+                  }}
+                />
                 <div className="rounded-lg border border-accent-gold/30 bg-accent-gold/5 p-4">
                   <p className="text-sm font-medium text-accent-gold mb-2">Confirm Launch</p>
                   <div className="space-y-1.5 text-xs">
