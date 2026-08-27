@@ -20,6 +20,7 @@ import {
 import type { Instance } from "@/lib/api";
 import { ArtifactRetentionCard } from "@/components/instances/artifact-retention-card";
 import { toast } from "sonner";
+import { HostKeyVerification } from "@/components/instances/host-key-verification";
 import { useLocale } from "@/lib/locale";
 import { useAuth } from "@/lib/auth";
 import { getTeamContext } from "@/lib/team-context";
@@ -897,6 +898,13 @@ export default function InstanceDetailPage() {
                   <Info className="h-3.5 w-3.5" />
                 </button>
               </div>
+              {/* Gate P2 parity: the same fingerprint `open_instance_access`
+                  hands the agent, against the same host and port shown above. */}
+              <HostKeyVerification
+                host={SSH_HOST}
+                port={sshPort || 22}
+                fingerprint={instance.host_key_fingerprint}
+              />
               {instance.ssh_status?.root_password ? (
                 <RootPasswordRow password={instance.ssh_status.root_password} />
               ) : null}
@@ -1056,6 +1064,11 @@ export default function InstanceDetailPage() {
                       <Copy className="h-3.5 w-3.5" />
                     </button>
                   </div>
+                  <HostKeyVerification
+                    host={SSH_HOST}
+                    port={instance.ssh_port || 22}
+                    fingerprint={instance.host_key_fingerprint}
+                  />
                   {instance.ssh_status?.root_password && (
                     <RootPasswordRow password={instance.ssh_status.root_password} />
                   )}

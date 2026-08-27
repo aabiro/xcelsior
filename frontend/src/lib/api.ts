@@ -2644,6 +2644,20 @@ export interface Instance {
   // Interactive instance fields
   interactive?: boolean;
   ssh_port?: number;
+  /**
+   * SHA256 host-key fingerprint of the instance's sshd, as the API observed it.
+   *
+   * `null` is a real, permanent state, not a loading state — non-interactive
+   * launches, proxy-terminated hosts whose container legitimately holds no
+   * keys, instances predating the rollout, and agents that have not reported
+   * yet all produce it. The UI must say "cannot be verified" for those rather
+   * than hiding the row, which is what invites a user to accept a key blind.
+   *
+   * The API returns it **only when a port and a host resolved** — a fingerprint
+   * beside the wrong port is a failed verification that reads to the user as an
+   * attack. See `routes/instances.py` `_enrich_instance`.
+   */
+  host_key_fingerprint?: string | null;
   command?: string;
   // SSH setup state reported by the worker after _inject_ssh_keys.
   // Surfaced as a customer-facing notice on the instance detail page
