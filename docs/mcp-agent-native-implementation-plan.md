@@ -27,7 +27,7 @@ the reason this plan is not just a feature list.
 | Clause | What it requires | State today |
 |---|---|---|
 | *"SSH'd into the GPU"* | launch → running → **connected**, without a dashboard | **done.** `create_instance`, `watch_instance`, `open_instance_access`, `register_ssh_key`, `list_ssh_keys`, `delete_ssh_key` all published; §0.1 resolved |
-| *"talking to the platform at the same time"* | the same session drives instances, spend, and state | **done.** 84 tools registered, 75 published, verified against a live tenant |
+| *"talking to the platform at the same time"* | the same session drives instances, spend, and state | **done.** 95 tools registered, 86 published (re-counted 2026-08-27; was 84/75 on 2026-08-25 — the provider and reputation axes landed between), verified against a live tenant |
 | *"driving the controllers"* | approval, drain, retry, reconcile — governed, not raw | **done.** `retry_instance`, `reconcile_instance`, `revoke_launch_plan`, `get_mcp_action_status`; operator split confirmed live — the customer profile serves none of the seven operator tools |
 | *"never have to leave"* | **every dead end has a lever inside the terminal** | **done.** §0.3 handled; `list_pending_verifications` is the lever for a declined charge |
 

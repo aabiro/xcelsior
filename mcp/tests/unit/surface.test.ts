@@ -17,6 +17,29 @@ const snapshot = JSON.parse(readFileSync(SNAPSHOT_PATH, "utf8")) as {
 };
 
 const current = describeToolSurface("customer");
+const SNAPSHOT_TEXT = readFileSync(SNAPSHOT_PATH, "utf8");
+
+/**
+ * The snapshot exactly as `scripts/update-tool-surface.ts` would write it.
+ *
+ * Duplicated from the generator on purpose, and it is the one duplication here
+ * worth having: a test that imported the generator would pass by construction —
+ * it would be comparing the generator to itself, which is the "generator that
+ * read its own output" failure `tests/test_generated_artifacts_are_current.py`
+ * names. The `$comment` and `generatedFor` values are part of the artifact, so
+ * a hand edit to either has to fail too.
+ */
+function regenerate(): string {
+  const fresh = {
+    $comment:
+      "Published MCP tool surface. Regenerate with `npm run surface:update` in the " +
+      "same commit as the change. A breaking change requires a toolVersion bump — " +
+      "see docs/mcp-tool-versioning.md.",
+    generatedFor: "customer",
+    tools: describeToolSurface("customer"),
+  };
+  return `${JSON.stringify(fresh, null, 2)}\n`;
+}
 
 /**
  * GX6: "a CI check that fails on an unversioned breaking tool change".
@@ -61,6 +84,35 @@ describe("published tool surface", () => {
       current.length,
       "snapshot is stale — run `npm run surface:update`",
     ).toBe(snapshot.tools.length);
+  });
+
+  it("is byte-identical to a fresh generation", () => {
+    /*
+     * P0's gate, in full: *"regenerating the registry produces byte-identical
+     * output; **a hand edit to a generated file fails the build**."*
+     *
+     * The checks above did not deliver the second half. `changes.every(c =>
+     * !c.breaking)` is *true* for any non-breaking drift, so it passes while
+     * printing "run `npm run surface:update` to record these changes" — a guard
+     * that cannot fail for the reason its own message gives. The only other
+     * currency check compared `current.length` to `snapshot.tools.length`,
+     * which sees a tool appear or vanish and nothing else.
+     *
+     * Verified by editing a description in the committed snapshot: 13 tests,
+     * all green.
+     *
+     * This is precisely the history `tests/test_public_openapi.py` records —
+     * comparing only the operation set answered "are the right endpoints
+     * published?" and never "does the document still describe them correctly?",
+     * and five schemas drifted underneath it. Same shape, same fix: compare the
+     * whole document.
+     */
+    expect(
+      SNAPSHOT_TEXT,
+      "tool-surface.json does not match a fresh generation. Either run " +
+        "`npm run surface:update` in this commit, or undo the hand edit — this " +
+        "file is generated and a hand edit to it is not a change anyone reviews.",
+    ).toBe(regenerate());
   });
 
   it("snapshots the customer profile only", () => {
