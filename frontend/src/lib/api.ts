@@ -3767,6 +3767,12 @@ export type UserImage = {
   source_job_id: string | null;
   host_id: string | null;
   image_ref: string;
+  /** P7's lineage: what this image was built *from*, and the manifest digest
+   *  that makes a sweep from it reproducible. Both are returned by
+   *  `GET /api/v2/user-images` and were simply absent from this type, so no
+   *  caller could see them. */
+  base_image_ref: string | null;
+  image_digest: string | null;
   size_bytes: number;
   status: "pending" | "ready" | "failed";
   created_at: number;
