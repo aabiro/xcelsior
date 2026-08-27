@@ -1781,6 +1781,11 @@ def submit_job(
     job_type=None,
     pricing_mode="on_demand",
     region="",
+    # P5. A dict shaped like `PlacementPreferenceIn`, or None. Kept out of the
+    # spec on purpose — `canonicalize`/`spec_hash` must not see it, or two
+    # identical workloads asking for different reliability hash apart and an
+    # approved plan stops matching a rerun.
+    placement_preference=None,
     job_id=None,
     trace_id=None,
 ):
@@ -1880,6 +1885,9 @@ def submit_job(
         "source_template_id": source_template_id or "",
         "job_type": (job_type or "").strip(),
         "pricing_mode": pricing_mode,
+        # `upsert_job` converts this to the integer basis points the schema
+        # stores. It stays a percent here because that is what the caller said.
+        "placement_preference": placement_preference or None,
         "region": normalized_region,
         "trace_id": trace_id,
     }
