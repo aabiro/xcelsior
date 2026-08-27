@@ -485,6 +485,37 @@ export default function TemplatesPage() {
                             <div className="text-[10px] font-mono text-text-muted/70 mt-0.5 truncate max-w-md">
                               {img.image_ref}
                             </div>
+                            {/* P7: "image library with provenance — what it was
+                                built from, when, by which run." The columns
+                                already carried *when*; these are the other two,
+                                plus the digest that makes a sweep from this
+                                image reproducible. */}
+                            {(img.base_image_ref || img.source_job_id || img.image_digest) && (
+                              <div className="text-[10px] text-text-muted/70 mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 max-w-md">
+                                {img.base_image_ref && (
+                                  <span className="truncate" title={`Built from ${img.base_image_ref}`}>
+                                    from <span className="font-mono">{img.base_image_ref}</span>
+                                  </span>
+                                )}
+                                {img.source_job_id && (
+                                  <NextLink
+                                    href={`/dashboard/instances/${encodeURIComponent(img.source_job_id)}`}
+                                    className="text-ice-blue/80 hover:underline whitespace-nowrap"
+                                    title={`Captured from run ${img.source_job_id}`}
+                                  >
+                                    run {img.source_job_id.slice(0, 12)}
+                                  </NextLink>
+                                )}
+                                {img.image_digest && (
+                                  <span
+                                    className="font-mono whitespace-nowrap"
+                                    title={`Manifest digest ${img.image_digest} — a sweep pins this, not the tag`}
+                                  >
+                                    {img.image_digest.replace(/^.*@/, "").slice(0, 14)}
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </td>
                           <td className="hidden 2xl:table-cell px-3 py-3 text-text-secondary max-w-xs">
                             <div className="line-clamp-2 text-xs">
