@@ -310,11 +310,17 @@ export default function AnalyticsPage() {
       setProvinceBreakdown(provinceRes.status === "fulfilled" ? (((provinceRes.value as any)?.analytics ?? []) as any[]) : []);
       setPreviousSummary(prevWindowRes.status === "fulfilled" ? ((prevWindowRes.value as any)?.summary ?? null) : null);
       if (mktRes.status === "fulfilled" && mktRes.value) {
-        const m = mktRes.value as { total_offers?: number; total_gpus?: number; avg_price?: number };
+        // `avg_cad_per_hour` is the key this route sends. Reading `avg_price`
+        // — which it has never sent — made `?? 0` produce exactly 0 every time.
+        const m = mktRes.value as {
+          total_offers?: number;
+          total_gpus?: number;
+          avg_cad_per_hour?: number;
+        };
         setMarketplaceStats({
           total_offers: Number(m.total_offers ?? 0),
           total_gpus: Number(m.total_gpus ?? 0),
-          avg_price: Number(m.avg_price ?? 0),
+          avg_price: Number(m.avg_cad_per_hour ?? 0),
         });
       }
       if (lbRes.status === "fulfilled" && lbRes.value) {

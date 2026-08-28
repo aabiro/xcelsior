@@ -540,7 +540,9 @@ function normalizeHost(host: Host & Record<string, unknown>): Host {
 }
 
 export async function fetchHosts() {
-  const res = await apiFetch<{ ok: boolean; hosts: Host[] }>("/hosts?active_only=false");
+  // No `ok` envelope on this legacy top-level route — it returns `hosts`
+  // directly, and nothing gates on `ok`.
+  const res = await apiFetch<{ hosts: Host[] }>("/hosts?active_only=false");
   return {
     ...res,
     hosts: (res.hosts || []).map((h) => normalizeHost(h as Host & Record<string, unknown>)),
@@ -757,9 +759,10 @@ export async function createInstanceStreamTicket(instanceId: string) {
 
 // ── Billing ───────────────────────────────────────────────────────────
 export async function fetchBilling() {
-  return apiFetch<{ ok: boolean; records: BillingRecord[]; total_revenue_cad: number }>(
-    "/billing",
-  );
+  // No `ok` envelope: this legacy top-level route returns its payload
+  // directly. Declaring one made `res.ok` `undefined` — harmless only
+  // because nothing gates on it, which is not a reason to keep it wrong.
+  return apiFetch<{ records: BillingRecord[]; total_revenue: number }>("/billing");
 }
 
 export async function fetchWallet(customerId: string) {
@@ -1348,7 +1351,10 @@ export async function fetchGstThreshold(providerId: string) {
 
 // ── Marketplace ───────────────────────────────────────────────────────
 export async function fetchMarketplace() {
-  return apiFetch<{ ok: boolean; listings: MarketplaceListing[] }>("/marketplace");
+  // No `ok` envelope: this legacy top-level route returns its payload
+  // directly. Declaring one made `res.ok` `undefined` — harmless only
+  // because nothing gates on it, which is not a reason to keep it wrong.
+  return apiFetch<{ listings: MarketplaceListing[] }>("/marketplace");
 }
 
 export async function searchMarketplace(params: Record<string, string>) {
@@ -1408,8 +1414,30 @@ export async function fetchPricingReference() {
   return { ok: res.ok, reference };
 }
 
+/**
+ * `/api/pricing/reserved-plans` sends `reserved_tiers`, a **dict** keyed by
+ * commitment length (`"1_month"`, …) — not a `plans` array.
+ *
+ * The old declaration was fictional in every part: wrong key, wrong container,
+ * and an element type (`plan_id`, `name`, `duration_months`, `gpu_model`,
+ * `price_per_hour_cad`) sharing exactly one field with the wire. Latent only
+ * because `RESERVED_PLANS_ENABLED` is `false` — and the flag's own comment says
+ * the feature "can be re-enabled by flipping this flag back to true", at which
+ * point it would have rendered nothing with no error.
+ */
+export interface ReservedTier {
+  commitment: string;
+  discount_pct: number;
+  description: string;
+  min_hours_per_day: number;
+  /** Per-GPU sample rates, keyed by model. */
+  sample_hourly_rates_cad: Record<string, number>;
+}
+
 export async function fetchReservedPlans() {
-  return apiFetch<{ ok: boolean; plans: ReservedPlan[] }>("/api/pricing/reserved-plans");
+  return apiFetch<{ ok: boolean; currency: string; reserved_tiers: Record<string, ReservedTier> }>(
+    "/api/pricing/reserved-plans",
+  );
 }
 
 // ── Spot ──────────────────────────────────────────────────────────────
@@ -2573,7 +2601,10 @@ export async function adminRemoveTeamMember(teamId: string, email: string) {
 
 // ── HPC / Slurm ──────────────────────────────────────────────────────
 export async function fetchSlurmProfiles() {
-  return apiFetch<{ ok: boolean; profiles: Record<string, { description: string; gpus: string[]; partitions: string[] }> }>(
+  // No `ok` envelope: this legacy top-level route returns its payload
+  // directly. Declaring one made `res.ok` `undefined` — harmless only
+  // because nothing gates on it, which is not a reason to keep it wrong.
+  return apiFetch<{ profiles: Record<string, { description: string; gpus: string[]; partitions: string[] }> }>(
     "/api/slurm/profiles",
   );
 }
@@ -2938,15 +2969,6 @@ export interface PricingReference {
   reserved_1mo_cad?: number;
   reserved_3mo_cad?: number;
   reserved_1yr_cad?: number;
-}
-
-export interface ReservedPlan {
-  plan_id: string;
-  name: string;
-  duration_months: number;
-  discount_pct: number;
-  gpu_model: string;
-  price_per_hour_cad: number;
 }
 
 export interface ReservedCommitment {
@@ -3338,7 +3360,17 @@ export async function fetchSpotHistory(gpuModel: string, hours = 24) {
 }
 
 export async function fetchMarketplaceStatsV2() {
-  return apiFetch<{ ok: boolean; total_offers: number; total_gpus: number; avg_price: number }>(
+  // `avg_cad_per_hour`, not `avg_price` — the latter is not a key this route
+  // has ever sent, so `Number(m.avg_price ?? 0)` on the analytics page was
+  // always exactly 0.
+  return apiFetch<{
+    ok: boolean;
+    total_offers: number;
+    total_gpus: number;
+    avg_cad_per_hour: number;
+    cheapest_cad_per_hour: number;
+    currency: string;
+  }>(
     "/api/v2/marketplace/stats",
   );
 }
