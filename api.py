@@ -1068,14 +1068,29 @@ class AgentIngressMiddleware:
             k.decode("latin-1").lower(): v.decode("latin-1")
             for k, v in scope.get("headers", [])
         }
+        # Only the identity check is guarded. `await self.app(...)` used to sit
+        # inside this `try`, so **any** exception raised downstream — a 403 from
+        # `_require_host_operator`, a database error, anything — was swallowed
+        # and answered `410 agent_ingress_retired`.
+        #
+        # That is worse than a wrong status code. It told an operator their
+        # worker protocol had moved and to enrol in SPIRE, when the real fault
+        # was authorization. A correctly-configured, freshly-migrated agent
+        # gateway reported the one error guaranteed to send someone rebuilding
+        # infrastructure that was already working.
+        #
+        # The `except` exists for `ImportError` on the line above it; that is
+        # all it should ever cover.
         try:
             from control_plane.identity import gateway_headers_authenticated
 
-            if gateway_headers_authenticated(headers):
-                await self.app(scope, receive, send)
-                return
+            authenticated = gateway_headers_authenticated(headers)
         except Exception:  # pragma: no cover - fail closed on import trouble
-            pass
+            authenticated = False
+
+        if authenticated:
+            await self.app(scope, receive, send)
+            return
 
         response = JSONResponse(
             status_code=410,
