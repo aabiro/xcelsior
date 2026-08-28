@@ -314,7 +314,10 @@ export default function ReputationPage() {
     if (opts?.refresh) setLoading(true);
     Promise.allSettled([
       api.fetchLeaderboard(),
-      fetch("/api/reputation/me", { credentials: "include" }).then((r) => r.ok ? r.json() : Promise.reject()),
+      // `apiFetch`, not a raw `fetch`: the raw call skipped the 401
+      // refresh-and-retry, so an expired token rendered "0 points" beside a
+      // leaderboard that had refreshed and loaded fine.
+      apiLib.fetchMyReputation(),
       userId ? apiLib.fetchReputationHistory(userId) : Promise.reject("no user"),
     ]).then(([lb, me, hist]) => {
       if (lb.status === "fulfilled") setLeaderboard(lb.value.leaderboard || []);
@@ -344,7 +347,10 @@ export default function ReputationPage() {
     let active = true;
     Promise.allSettled([
       api.fetchLeaderboard(),
-      fetch("/api/reputation/me", { credentials: "include" }).then((r) => r.ok ? r.json() : Promise.reject()),
+      // `apiFetch`, not a raw `fetch`: the raw call skipped the 401
+      // refresh-and-retry, so an expired token rendered "0 points" beside a
+      // leaderboard that had refreshed and loaded fine.
+      apiLib.fetchMyReputation(),
       userId ? apiLib.fetchReputationHistory(userId) : Promise.reject("no user"),
     ]).then(([lb, me, hist]) => {
       if (!active) return;

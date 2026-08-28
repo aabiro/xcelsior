@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import re
 
 os.environ.setdefault("XCELSIOR_ENV", "test")
 
@@ -119,6 +120,82 @@ def test_thresholds_are_ordered_so_a_ladder_reads_as_one():
         f"thresholds are not ascending: {thresholds}. A ladder rendered in "
         "response order would read out of sequence."
     )
+
+
+REPUTATION_PAGE = ROOT / "frontend/src/app/(dashboard)/dashboard/reputation/page.tsx"
+
+
+def _hardcoded_ladder() -> dict[str, dict[str, str]]:
+    """The `TIERS` array the reputation page renders from, parsed."""
+    text = REPUTATION_PAGE.read_text(encoding="utf-8")
+    start = text.index("const TIERS = [")
+    block = text[start : start + 6000]
+    found = {}
+    for m in re.finditer(
+        r'key: "(\w+)".*?threshold: (\d+).*?searchBoost: "([^"]+)"'
+        r'.*?pricingPremium: "([^"]+)".*?platformFee: "([^"]+)"',
+        block,
+        re.DOTALL,
+    ):
+        found[m.group(1)] = {
+            "threshold": m.group(2),
+            "search_boost": m.group(3),
+            "pricing_premium_pct": m.group(4),
+            "platform_commission": m.group(5),
+        }
+    return found
+
+
+def test_the_hardcoded_reputation_ladder_still_matches_the_server():
+    """A second copy of the ladder, and this one decides what providers earn.
+
+    `/dashboard/reputation` renders a local `TIERS` array carrying thresholds,
+    search boost, pricing premium and **platform fee**. Those numbers are the
+    ones a provider reads to decide whether chasing a tier is worth it, and the
+    server enforces its own copy in `reputation.py`.
+
+    They agree today. The reason to pin them is that the *other* copy of this
+    ladder — `TIER_ICONS` / `TIER_COLORS` / `TIER_LABELS` on the trust page —
+    was keyed on `sla.SLATier` entirely, a different ladder, and nobody noticed.
+    Two hand-maintained copies of a number that determines payouts is a drift
+    that costs money rather than a cosmetic one.
+
+    The deeper fix is for the page to read `/api/trust-tiers` and keep only its
+    presentation locally. This guard is the cheap half: it fails the day the
+    numbers part company, rather than the day a provider queries their invoice.
+    """
+    served = {str(entry["tier"]): entry for entry in _tiers()}
+    hardcoded = _hardcoded_ladder()
+
+    assert hardcoded, "could not parse `TIERS` from the reputation page; re-point this guard"
+    assert set(hardcoded) == set(served), (
+        f"the page's ladder lists {sorted(hardcoded)} and the server serves {sorted(served)}"
+    )
+
+    for tier, local in sorted(hardcoded.items()):
+        remote = served[tier]
+        assert int(local["threshold"]) == int(remote["threshold"]), (
+            f"{tier}: page says {local['threshold']} points, server says {remote['threshold']}"
+        )
+        # Fractions on the wire, formatted strings on the page: compare numbers.
+        assert float(local["pricing_premium_pct"].rstrip("%")) == round(
+            float(remote["pricing_premium_pct"]) * 100
+        ), (
+            f"{tier}: page advertises a {local['pricing_premium_pct']} price "
+            f"premium, server applies {float(remote['pricing_premium_pct']) * 100:.0f}%"
+        )
+        assert float(local["platform_commission"].rstrip("%")) == round(
+            float(remote["platform_commission"]) * 100
+        ), (
+            f"{tier}: page advertises a {local['platform_commission']} platform "
+            f"fee, server charges "
+            f"{float(remote['platform_commission']) * 100:.0f}%. A provider "
+            "decides whether to chase this tier on that number."
+        )
+        assert float(local["search_boost"].rstrip("\u00d7x")) == float(remote["search_boost"]), (
+            f"{tier}: page says {local['search_boost']} search boost, server "
+            f"applies {remote['search_boost']}"
+        )
 
 
 def test_the_dashboards_tier_maps_key_on_the_ladder_it_renders():

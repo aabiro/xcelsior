@@ -1523,6 +1523,38 @@ export interface ReputationJourney {
   total_count: number;
 }
 
+/**
+ * The caller's own reputation score and tier.
+ *
+ * Was a raw `fetch("/api/reputation/me")` on the reputation page. That skips
+ * `apiFetch`'s **401 refresh-and-retry**, so an expired access token made the
+ * promise reject, `myRep` stay null, and `finalScore = myRep?.final_score ?? 0`
+ * render **"0 points"** — while the leaderboard and history on the same page,
+ * which do go through `apiFetch`, refreshed and showed correct data.
+ *
+ * A user with a stale token saw a working page telling them they had no
+ * reputation.
+ */
+export interface MyReputation {
+  ok: boolean;
+  entity_id?: string;
+  entity_type?: string;
+  tier?: string;
+  final_score?: number;
+  score?: number;
+  activity_points?: number;
+  days_active?: number;
+  jobs_completed?: number;
+  jobs_failed_host?: number;
+  jobs_failed_user?: number;
+  uptime_pct?: number;
+  last_activity_at?: number;
+}
+
+export function fetchMyReputation() {
+  return apiFetch<MyReputation>("/api/reputation/me");
+}
+
 export async function fetchReputationJourney() {
   return apiFetch<ReputationJourney>("/api/reputation/me/journey");
 }
