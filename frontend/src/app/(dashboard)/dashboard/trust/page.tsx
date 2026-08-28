@@ -10,34 +10,61 @@ import {
 } from "lucide-react";
 import {
   fetchVerifiedHosts, fetchTrustTiers, fetchTransparencyReport,
+  type TrustTier,
   approveHost, rejectHost,
 } from "@/lib/api";
 import type { VerifiedHost } from "@/lib/api";
 import { toast } from "sonner";
 import { useLocale } from "@/lib/locale";
 
+/*
+ * These three maps key on `ReputationTier` — the vocabulary `/api/trust-tiers`
+ * returns and this page renders.
+ *
+ * They used to key on `community / secure / dedicated / regulated`, which is
+ * `sla.SLATier`: a **different** ladder, for host hardware class rather than
+ * provider standing. Nothing on this page ever supplied those keys, so every
+ * lookup missed — no colour, the same fallback icon on every card. The tier
+ * cards are the only consumer, so re-keying them costs nothing elsewhere.
+ *
+ * Presentation only, and every lookup falls back. A tier added to
+ * `ReputationTier` renders with the default icon and its own name rather than
+ * disappearing — the same annotate-don't-gate rule as the payout glossary.
+ */
 const TIER_ICONS: Record<string, LucideIcon> = {
-  community: Globe,
-  secure: Shield,
-  dedicated: Shield,
-  regulated: Lock,
+  new_user: Globe,
+  bronze: Shield,
+  silver: Shield,
+  gold: ShieldCheck,
+  platinum: Lock,
+  diamond: Lock,
 };
 
 const TIER_COLORS: Record<string, string> = {
-  community: "bg-ice-blue/10 border-ice-blue/20 text-ice-blue",
-  secure: "bg-emerald/10 border-emerald/20 text-emerald",
-  dedicated: "bg-accent-gold/10 border-accent-gold/20 text-accent-gold",
-  regulated: "bg-accent-red/10 border-accent-red/20 text-accent-red",
+  new_user: "bg-ice-blue/10 border-ice-blue/20 text-ice-blue",
+  bronze: "bg-accent-orange/10 border-accent-orange/20 text-accent-orange",
+  silver: "bg-text-secondary/10 border-text-secondary/20 text-text-secondary",
+  gold: "bg-accent-gold/10 border-accent-gold/20 text-accent-gold",
+  platinum: "bg-emerald/10 border-emerald/20 text-emerald",
+  diamond: "bg-accent-violet/10 border-accent-violet/20 text-accent-violet",
 };
 
 const TIER_LABELS: Record<string, string> = {
-  dedicated: "Dedicated",
+  new_user: "New",
+  bronze: "Bronze",
+  silver: "Silver",
+  gold: "Gold",
+  platinum: "Platinum",
+  diamond: "Diamond",
 };
 
 export default function TrustPage() {
   const { t } = useLocale();
   const [hosts, setHosts] = useState<VerifiedHost[]>([]);
-  const [tiers, setTiers] = useState<Record<string, { min_score: number; requirements: string[] }>>({});
+  // A list, in ascending-threshold order, exactly as the route sends it. This
+  // was a `Record` keyed by tier name, which made `Object.entries` walk an
+  // array and render each tier's array index as its name.
+  const [tiers, setTiers] = useState<TrustTier[]>([]);
   const [report, setReport] = useState<{
     period_months: number;
     summary: {
@@ -60,7 +87,7 @@ export default function TrustPage() {
       fetchTransparencyReport(),
     ]).then(([h, t, r]) => {
       if (h.status === "fulfilled") setHosts(h.value.hosts || []);
-      if (t.status === "fulfilled") setTiers(t.value.tiers || {});
+      if (t.status === "fulfilled") setTiers(t.value.tiers || []);
       if (r.status === "fulfilled") setReport(r.value);
       setLoading(false);
     });
@@ -75,7 +102,7 @@ export default function TrustPage() {
     ]).then(([h, t, r]) => {
       if (!active) return;
       if (h.status === "fulfilled") setHosts(h.value.hosts || []);
-      if (t.status === "fulfilled") setTiers(t.value.tiers || {});
+      if (t.status === "fulfilled") setTiers(t.value.tiers || []);
       if (r.status === "fulfilled") setReport(r.value);
       setLoading(false);
     });
@@ -120,32 +147,51 @@ export default function TrustPage() {
       </div>
 
       {/* Trust Tiers */}
-      {Object.keys(tiers).length > 0 && (
+      {tiers.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {Object.entries(tiers).map(([name, tier]) => (
-            <Card key={name} className={`border ${TIER_COLORS[name] || ""}`}>
-              {(() => {
-                const TierIcon = TIER_ICONS[name] || ShieldCheck;
-                return (
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-current/15 bg-black/10">
-                      <TierIcon className="h-5 w-5" />
-                    </span>
-                    <h3 className="font-semibold capitalize">{TIER_LABELS[name] || name}</h3>
-                  </div>
-                );
-              })()}
-              <p className="text-xs text-text-muted mb-2">Min Score: {tier.min_score ?? 0}</p>
-              <ul className="space-y-1">
-                {(tier.requirements || []).map((req, i) => (
-                  <li key={i} className="flex items-start gap-1.5 text-xs text-text-secondary">
+          {tiers.map((tier) => {
+            const name = tier.tier;
+            const TierIcon = TIER_ICONS[name] || ShieldCheck;
+            return (
+              <Card key={name} className={`border ${TIER_COLORS[name] || ""}`}>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-current/15 bg-black/10">
+                    <TierIcon className="h-5 w-5" />
+                  </span>
+                  <h3 className="font-semibold capitalize">{TIER_LABELS[name] || name}</h3>
+                </div>
+                <p className="text-xs text-text-muted mb-2">Min Score: {tier.threshold}</p>
+                {tier.description && (
+                  <p className="text-xs text-text-secondary mb-2">{tier.description}</p>
+                )}
+                {/* The economics a provider is actually deciding on. Both are
+                    on the wire and `get_trust_tiers` quotes them to an agent;
+                    only the browser could not see them. Fractions, not
+                    percents — 0.15 is 15%. */}
+                <dl className="mb-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+                  <dt className="text-text-muted">Commission</dt>
+                  <dd className="text-right font-medium">
+                    {(tier.platform_commission * 100).toFixed(1)}%
+                  </dd>
+                  {tier.pricing_premium_pct > 0 && (
+                    <>
+                      <dt className="text-text-muted">Price premium</dt>
+                      <dd className="text-right font-medium text-emerald">
+                        +{(tier.pricing_premium_pct * 100).toFixed(0)}%
+                      </dd>
+                    </>
+                  )}
+                </dl>
+                {/* A sentence, not a list — see `TrustTier.unlock_requirements`. */}
+                {tier.unlock_requirements && (
+                  <div className="flex items-start gap-1.5 text-xs text-text-secondary">
                     <CheckCircle className="h-3 w-3 mt-0.5 text-emerald shrink-0" />
-                    {req}
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          ))}
+                    <span>{tier.unlock_requirements}</span>
+                  </div>
+                )}
+              </Card>
+            );
+          })}
         </div>
       )}
 
