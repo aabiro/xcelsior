@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
 import { Calendar, RefreshCw, Radio, Download, Wifi, WifiOff, EyeOff } from "lucide-react";
-import { createEventSource, isEventStreamAvailable } from "@/lib/api";
+import { createEventSource, isEventStreamAvailable, apiFetch } from "@/lib/api";
 import { toast } from "sonner";
 import { useLocale } from "@/lib/locale";
 
@@ -47,8 +47,7 @@ export default function EventsPage() {
 
   // Load historical events
   const loadHistory = useCallback(() => {
-    fetch("/api/events", { credentials: "include" })
-      .then((r) => r.ok ? r.json() : Promise.reject())
+    apiFetch<{ events?: Event[] }>("/api/events")
       .then((d) => setEvents(Array.isArray(d.events) ? d.events : []))
       .catch(() => toast.error("Failed to load events"));
   }, []);

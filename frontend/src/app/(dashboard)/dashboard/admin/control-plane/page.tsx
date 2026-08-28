@@ -1,5 +1,7 @@
 "use client";
 
+import { apiFetch } from "@/lib/api";
+
 import React, { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import {
@@ -125,38 +127,32 @@ export default function ControlPlaneAdminPage() {
   const fetchAllData = async () => {
     setRefreshing(true);
     try {
-      const headers = {
-        "Authorization": `Bearer ${localStorage.getItem("token") || ""}`,
-        "Content-Type": "application/json",
-      };
-
-      // 1. Fetch Findings
-      const findingsRes = await fetch("/api/admin/reconciler/findings?status=open", { headers });
-      if (findingsRes.ok) {
-        const d = await findingsRes.json();
-        setFindings(d.findings || []);
-      }
-
-      // 2. Fetch Jobs
-      const jobsRes = await fetch("/api/admin/control-plane/jobs", { headers });
-      if (jobsRes.ok) {
-        const d = await jobsRes.json();
-        setJobs(d.jobs || []);
-      }
-
-      // 3. Fetch Hosts
-      const hostsRes = await fetch("/hosts?active_only=false", { headers });
-      if (hostsRes.ok) {
-        const d = await hostsRes.json();
-        setHosts(d.hosts || []);
-      }
-
-      // 4. Fetch Tasks
-      const tasksRes = await fetch("/api/admin/control-plane/scheduled-tasks", { headers });
-      if (tasksRes.ok) {
-        const d = await tasksRes.json();
-        setTasks(d.tasks || []);
-      }
+      // `apiFetch`, not a bare `fetch` with a hand-built Authorization header.
+      //
+      // That header read `localStorage.getItem("token")`, and **nothing in this
+      // codebase writes that key** — six read sites, zero writes. So it always
+      // sent `Bearer ` with an empty token. The page worked anyway, by two
+      // defaults lining up: `_get_current_user` extracts an empty token from
+      // the `Bearer ` prefix, falls through to the session cookie, and `fetch`
+      // sends that cookie because same-origin requests default to
+      // `credentials: "same-origin"`. Neither was stated anywhere.
+      //
+      // What it did cost is session recovery: a bare fetch skips `apiFetch`'s
+      // 401 refresh-and-retry, so an expired token emptied every panel on this
+      // page at once with no sign of why.
+      // Named `*Res` rather than reusing the state names: destructuring to
+      // `findings` here would shadow the `findings` state in this scope.
+      const [findingsRes, jobsRes, hostsRes, tasksRes] = await Promise.allSettled([
+        apiFetch<{ findings?: unknown[] }>("/api/admin/reconciler/findings?status=open"),
+        apiFetch<{ jobs?: unknown[] }>("/api/admin/control-plane/jobs"),
+        apiFetch<{ hosts?: unknown[] }>("/hosts?active_only=false"),
+        apiFetch<{ tasks?: unknown[] }>("/api/admin/control-plane/scheduled-tasks"),
+      ]);
+      // Settled individually: one failing panel must not blank the other three.
+      if (findingsRes.status === "fulfilled") setFindings(findingsRes.value.findings || []);
+      if (jobsRes.status === "fulfilled") setJobs(jobsRes.value.jobs || []);
+      if (hostsRes.status === "fulfilled") setHosts(hostsRes.value.hosts || []);
+      if (tasksRes.status === "fulfilled") setTasks(tasksRes.value.tasks || []);
     } catch (err) {
       console.error("Failed to fetch control plane data", err);
     } finally {
@@ -192,15 +188,11 @@ export default function ControlPlaneAdminPage() {
     const action = currentStatus === "draining" ? "undrain" : "drain";
     setActionPending(`host-${hostId}`);
     try {
-      const res = await fetch(`/host/${hostId}/${action}`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${localStorage.getItem("token") || ""}`,
-        },
-      });
-      if (res.ok) {
-        await fetchAllData();
-      }
+      // `apiFetch` throws on a non-ok response, so the 401 refresh runs
+      // and the outer catch reports a real failure — where `if (res.ok)`
+      // turned an expired session into a silent no-op button.
+      await apiFetch(`/host/${hostId}/${action}`, { method: "POST" });
+      await fetchAllData();
     } catch (err) {
       console.error(err);
     } finally {
@@ -211,15 +203,11 @@ export default function ControlPlaneAdminPage() {
   const handleReconcileHost = async (hostId: string) => {
     setActionPending(`reconcile-${hostId}`);
     try {
-      const res = await fetch(`/api/admin/reconciler/reconcile-host/${hostId}`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${localStorage.getItem("token") || ""}`,
-        },
-      });
-      if (res.ok) {
-        await fetchAllData();
-      }
+      // `apiFetch` throws on a non-ok response, so the 401 refresh runs
+      // and the outer catch reports a real failure — where `if (res.ok)`
+      // turned an expired session into a silent no-op button.
+      await apiFetch(`/api/admin/reconciler/reconcile-host/${hostId}`, { method: "POST" });
+      await fetchAllData();
     } catch (err) {
       console.error(err);
     } finally {
@@ -230,15 +218,11 @@ export default function ControlPlaneAdminPage() {
   const handleEnforceFinding = async (findingId: string) => {
     setActionPending(`enforce-${findingId}`);
     try {
-      const res = await fetch(`/api/admin/reconciler/findings/${findingId}/enforce`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${localStorage.getItem("token") || ""}`,
-        },
-      });
-      if (res.ok) {
-        await fetchAllData();
-      }
+      // `apiFetch` throws on a non-ok response, so the 401 refresh runs
+      // and the outer catch reports a real failure — where `if (res.ok)`
+      // turned an expired session into a silent no-op button.
+      await apiFetch(`/api/admin/reconciler/findings/${findingId}/enforce`, { method: "POST" });
+      await fetchAllData();
     } catch (err) {
       console.error(err);
     } finally {
@@ -249,15 +233,11 @@ export default function ControlPlaneAdminPage() {
   const handleDismissFinding = async (findingId: string) => {
     setActionPending(`dismiss-${findingId}`);
     try {
-      const res = await fetch(`/api/admin/reconciler/findings/${findingId}/dismiss`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${localStorage.getItem("token") || ""}`,
-        },
-      });
-      if (res.ok) {
-        await fetchAllData();
-      }
+      // `apiFetch` throws on a non-ok response, so the 401 refresh runs
+      // and the outer catch reports a real failure — where `if (res.ok)`
+      // turned an expired session into a silent no-op button.
+      await apiFetch(`/api/admin/reconciler/findings/${findingId}/dismiss`, { method: "POST" });
+      await fetchAllData();
     } catch (err) {
       console.error(err);
     } finally {
