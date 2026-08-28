@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input, NumberInput } from "@/components/ui/input";
 
 import { useLocale } from "@/lib/locale";
+import { apiFetch } from "@/lib/api";
 import type { GpuAvailability } from "@/lib/api";
 import { GPU_MODELS } from "@/lib/gpu-models";
 import { toast } from "sonner";
@@ -80,9 +81,10 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/v2/serverless/preset-token-pricing", { credentials: "include" });
-        if (!res.ok) return;
-        const data = await res.json();
+        // Optional data: `apiFetch` throws on a non-ok response and the
+        // surrounding catch swallows it, which is what `if (!res.ok) return`
+        // did — plus the 401 refresh it was missing.
+        const data = await apiFetch<{ quotes?: Record<string, TokenPricingQuote> }>("/api/v2/serverless/preset-token-pricing");
         if (!cancelled && data?.quotes) setTokenQuotes(data.quotes);
       } catch {
         // Token rates render once /preset-token-pricing succeeds.

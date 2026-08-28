@@ -71,8 +71,7 @@ export default function CompliancePage() {
 
   const loadChecks = useCallback((opts?: { refresh?: boolean }) => {
     if (opts?.refresh) setLoading(true);
-    fetch("/api/compliance/status", { credentials: "include" })
-      .then((r) => r.ok ? r.json() : Promise.reject())
+    api.apiFetch<{ checks?: ComplianceCheck[] }>("/api/compliance/status")
       .then((d) => setChecks(Array.isArray(d.checks) ? d.checks : []))
       .catch(() => toast.error("Failed to load compliance data"))
       .finally(() => setLoading(false));
@@ -80,8 +79,7 @@ export default function CompliancePage() {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/compliance/status", { credentials: "include" })
-      .then((r) => r.ok ? r.json() : Promise.reject())
+    api.apiFetch<{ checks?: ComplianceCheck[] }>("/api/compliance/status")
       .then((d) => { if (active) setChecks(Array.isArray(d.checks) ? d.checks : []); })
       .catch(() => { if (active) toast.error("Failed to load compliance data"); })
       .finally(() => { if (active) setLoading(false); });

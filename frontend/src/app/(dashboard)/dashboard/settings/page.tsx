@@ -288,8 +288,7 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    fetch("/api/users/me/preferences", { credentials: "include" })
-      .then((r) => r.ok ? r.json() : Promise.reject())
+    api.apiFetch<{ notifications?: boolean }>("/api/users/me/preferences")
       .then((prefs) => {
         setNotifications(prefs.notifications ?? true);
       })
@@ -334,9 +333,12 @@ export default function SettingsPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await fetch("/api/users/me/preferences", {
-        method: "PUT", credentials: "include",
-        headers: { "Content-Type": "application/json" },
+      // `apiFetch` throws on a non-ok response. The bare `fetch` here did not
+      // check `res.ok` at all, so a 401, a 500, or a validation refusal all
+      // fell through to "Settings saved" — the user was told their preference
+      // was stored when it was not.
+      await api.apiFetch("/api/users/me/preferences", {
+        method: "PUT",
         body: JSON.stringify({ notifications }),
       });
       toast.success("Settings saved");

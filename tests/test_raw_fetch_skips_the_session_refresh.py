@@ -37,14 +37,38 @@ from tests._source_tree import iter_source_files, read_source, strip_ts_comments
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-#: Files whose raw `fetch` calls are deliberate, and why.
-STREAMING_OR_SPECIAL = {
-    # Read `res.body` as a stream; `apiFetch` resolves `.json()` and cannot.
+#: Reads the response body incrementally; `apiFetch` resolves `.json()` and
+#: cannot return a stream. Checked below against the code, not taken on trust.
+STREAMING = {
     "frontend/src/hooks/useAiChat.ts",
     "frontend/src/hooks/useChatStream.ts",
-    "frontend/src/components/ChatWidget.tsx",
     "frontend/src/components/ai/xcel-ai-onboarding.tsx",
+    "frontend/src/app/(dashboard)/dashboard/analytics/analytics-ai-panel.tsx",
 }
+
+#: Branches on a specific HTTP status. `apiFetch` throws an `ApiError`, so the
+#: status is still reachable — but only in a catch, which turns a two-branch
+#: read into exception control flow for no gain.
+#:
+#: `ChatWidget` clears a stale conversation id from `localStorage` on a 404.
+#: It was in `STREAMING` until the check was tightened, and it does not stream —
+#: `useChatStream` is the file that does. It passed the old loose check because
+#: a `className="site-legal-body"` elsewhere matched a substring of "body".
+STATUS_BRANCHING = {
+    "frontend/src/components/ChatWidget.tsx",
+}
+
+#: Public pages. `apiFetch` redirects to login on a failed refresh, which would
+#: bounce a logged-out visitor off a status page — worse than the bug this file
+#: is about. A different reason from streaming, so a different list: the first
+#: draft put this in `STREAMING` and it **passed**, because `site-legal-body` in
+#: a className satisfied a substring check for "body". A guard that passes for
+#: the wrong reason is the thing this whole session kept finding.
+PUBLIC_UNAUTHENTICATED = {
+    "frontend/src/app/(marketing)/status/content.tsx",
+}
+
+EXEMPT = STREAMING | PUBLIC_UNAUTHENTICATED | STATUS_BRANCHING
 
 #: Raw API calls that are not streaming and have not been converted yet.
 #: Each one cannot recover an expired session. Shrink this; never extend it.
@@ -52,7 +76,7 @@ STREAMING_OR_SPECIAL = {
 #: Measured, not guessed. The first draft said 20 against an actual 17, and the
 #: control that adds a raw fetch passed — a ratchet with slack is not a ratchet,
 #: it is a number that happens to be true.
-KNOWN_UNCONVERTED = 9
+KNOWN_UNCONVERTED = 0
 
 
 def _raw_api_fetches() -> dict[str, list[str]]:
@@ -79,21 +103,49 @@ def test_the_scan_finds_raw_calls_at_all():
     assert found, "no raw API fetches found; the pattern is wrong"
 
 
-def test_the_streaming_exemptions_are_real():
-    """An exemption for a file that no longer streams is an exemption to drop."""
-    for rel in STREAMING_OR_SPECIAL:
+def test_the_streaming_exemptions_really_stream():
+    """An exemption for a file that no longer streams is an exemption to drop.
+
+    Matched on `res.body` / `getReader`, not a substring of "body" — a
+    `className="site-legal-body"` satisfied that and let a non-streaming file
+    sit in this list unnoticed.
+    """
+    for rel in sorted(STREAMING):
         path = ROOT / rel
         assert path.exists(), f"{rel} is gone; remove it from the exemption list"
         text = read_source(path)
-        assert "body" in text or "stream" in text.lower(), (
-            f"{rel} is exempted as streaming but reads no response body. If it "
-            "stopped streaming it should go through `apiFetch` and recover "
-            "sessions like everything else."
+        assert re.search(r"\.body\b|getReader\(", text), (
+            f"{rel} is exempted as streaming but never reads a response body. "
+            "If it stopped streaming it should go through `apiFetch` and "
+            "recover sessions like everything else."
+        )
+
+
+def test_the_status_branching_exemptions_really_branch_on_status():
+    """Otherwise it is an ordinary read that should recover its session."""
+    for rel in sorted(STATUS_BRANCHING):
+        path = ROOT / rel
+        assert path.exists(), f"{rel} is gone; remove it from the exemption list"
+        text = strip_ts_comments(read_source(path))
+        assert re.search(r"\.status\s*===", text), (
+            f"{rel} is exempted for branching on an HTTP status and does not. "
+            "It should go through `apiFetch`."
+        )
+
+
+def test_the_public_exemptions_are_actually_public():
+    """A dashboard page is behind auth and has no business on this list."""
+    for rel in sorted(PUBLIC_UNAUTHENTICATED):
+        path = ROOT / rel
+        assert path.exists(), f"{rel} is gone; remove it from the exemption list"
+        assert "(dashboard)" not in rel, (
+            f"{rel} is exempted as a public page but lives under (dashboard), "
+            "which is authenticated. It should use `apiFetch`."
         )
 
 
 def test_raw_api_fetches_do_not_grow():
-    found = {k: v for k, v in _raw_api_fetches().items() if k not in STREAMING_OR_SPECIAL}
+    found = {k: v for k, v in _raw_api_fetches().items() if k not in EXEMPT}
     total = sum(len(v) for v in found.values())
     assert total <= KNOWN_UNCONVERTED, (
         f"{total} non-streaming raw API fetches, up from {KNOWN_UNCONVERTED}. "

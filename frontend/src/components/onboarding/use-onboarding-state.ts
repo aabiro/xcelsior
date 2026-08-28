@@ -1,5 +1,7 @@
 "use client";
 
+import { apiFetch } from "@/lib/api";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { OnboardingStepKey } from "./onboarding-steps";
 
@@ -16,10 +18,11 @@ async function fetchJson<T>(url: string): Promise<T | null> {
 }
 
 function persistOnboarding(onboarding: Record<string, boolean>) {
-  return fetch("/api/users/me/preferences", {
+  // `apiFetch` throws on a non-ok response, which is the behaviour wanted here:
+  // the caller only stamps `lastPersistedRef` on success, so a failed save is
+  // simply retried on the next change rather than recorded as persisted.
+  return apiFetch("/api/users/me/preferences", {
     method: "PUT",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ preferences: { onboarding } }),
   });
 }
@@ -38,8 +41,9 @@ export function useOnboardingState(user: OnboardingUser, pathname: string) {
     if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
     persistTimerRef.current = setTimeout(() => {
       persistOnboarding(next)
-        .then((res) => {
-          if (res.ok) lastPersistedRef.current = serialized;
+        // Resolving at all means it succeeded — `apiFetch` throws otherwise.
+        .then(() => {
+          lastPersistedRef.current = serialized;
         })
         .catch(() => {});
     }, PERSIST_DEBOUNCE_MS);

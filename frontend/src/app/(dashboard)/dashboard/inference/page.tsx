@@ -66,9 +66,10 @@ export default function InferencePage() {
   useEffect(() => {
     void (async () => {
       try {
-        const res = await fetch("/api/v2/serverless/preset-token-pricing", { credentials: "include" });
-        if (!res.ok) return;
-        const data = (await res.json()) as { quotes?: Record<string, TokenPricingQuote> };
+        // Optional data: `apiFetch` throws on a non-ok response and the
+        // surrounding catch swallows it, which is what `if (!res.ok) return`
+        // did — plus the 401 refresh it was missing.
+        const data = await api.apiFetch<{ quotes?: Record<string, TokenPricingQuote> }>("/api/v2/serverless/preset-token-pricing");
         if (data.quotes) setTokenQuotes(data.quotes);
       } catch {
         /* token table is optional */
