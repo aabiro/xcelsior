@@ -16,11 +16,15 @@ import {
 import {
   fetchInstance, cancelInstance, requeueInstance,
   stopInstance, startInstance, restartInstance, terminateInstance, renameInstance,
+  fetchPlacementExplanation,
 } from "@/lib/api";
-import type { Instance } from "@/lib/api";
+// Aliased: the API response type and the component that renders it share a
+// name, and importing both unaliased shadows one silently.
+import type { Instance, PlacementExplanation as PlacementExplanationResult } from "@/lib/api";
 import { ArtifactRetentionCard } from "@/components/instances/artifact-retention-card";
 import { toast } from "sonner";
 import { HostKeyVerification } from "@/components/instances/host-key-verification";
+import { PlacementExplanation } from "@/components/instances/placement-explanation";
 import { useLocale } from "@/lib/locale";
 import { useAuth } from "@/lib/auth";
 import { getTeamContext } from "@/lib/team-context";
@@ -251,6 +255,27 @@ export default function InstanceDetailPage() {
   }, [id]);
 
   useEffect(() => { setJobError(null); setPreemptionNotice(false); load(); }, [id, load]);
+
+  // B6.5: why this instance is queued, in words.
+  //
+  // Fetched only while it is actually waiting — a placed instance has nothing
+  // to explain, and polling a terminal one forever is a request per interval
+  // for an answer that cannot change. Re-fetched on each `load()` tick so the
+  // reason tracks the attempt rather than freezing on the first one.
+  const [placement, setPlacement] = useState<PlacementExplanationResult | null>(null);
+  const explainNeeded =
+    instance?.status === "queued" || instance?.status === "assigned" || instance?.status === "leased";
+  useEffect(() => {
+    if (!explainNeeded || !id) { setPlacement(null); return; }
+    let cancelled = false;
+    fetchPlacementExplanation(String(id))
+      // A 404 is the ordinary answer for an attempt with nothing recorded, so
+      // it clears rather than surfacing an error on a screen whose job is to
+      // reduce confusion.
+      .then((r) => { if (!cancelled) setPlacement(r); })
+      .catch(() => { if (!cancelled) setPlacement(null); });
+    return () => { cancelled = true; };
+  }, [explainNeeded, id, instance?.status, instance?.updated_at]);
 
   const isLive = instance?.status === "queued" || instance?.status === "assigned"
     || instance?.status === "leased"
@@ -546,6 +571,16 @@ export default function InstanceDetailPage() {
       </div>
 
       {readOnly && <TeamContextBanner team={team} variant="instances" />}
+
+      {/* B6.5: the plain-language reason this is waiting, above the timeline —
+          the timeline says *that* it is queued, this says *why*. Rendered only
+          while queued, because a placed instance has nothing to explain. */}
+      {isQueued && placement && (
+        <PlacementExplanation
+          payload={placement.explanation}
+          explained={placement.explained}
+        />
+      )}
 
       {/* Status Timeline */}
       <Card>

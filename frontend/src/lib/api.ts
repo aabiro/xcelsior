@@ -2335,6 +2335,67 @@ export async function fetchArtifactExpiry(jobId: string) {
   );
 }
 
+/**
+ * Why the scheduler placed — or did not place — an instance.
+ *
+ * `build_explanation` stores this on the attempt and
+ * `/api/v1/instances/{job_id}/placement-explanation` serves it. The MCP tool
+ * `explain_instance_placement` has consumed it since it shipped; the browser
+ * never called it, so an agent could say *why* an instance was queued and the
+ * person looking at the same instance could not. B6.5.
+ *
+ * **Aggregates only on this type.** The stored payload also carries a
+ * per-host `rejections` map whose messages are infrastructure state — "host is
+ * drained", "heartbeat is stale", with host ids for hosts this job was *not*
+ * placed on. §20.3 says customers see redacted infrastructure detail, so the
+ * customer surface reads `rejection_summary` (counts by constraint code) and
+ * never the per-host detail.
+ */
+export interface PlacementExplanationPayload {
+  explain_version: string;
+  /** The constraints as the scheduler understood them. */
+  request: {
+    gpu_model?: string;
+    num_gpus?: number;
+    vram_needed_gb?: number;
+    region?: string;
+    max_price_per_hour?: number;
+    tier?: string;
+  };
+  hosts_considered: number;
+  hosts_eligible: number;
+  hosts_rejected: number;
+  rejection_summary: {
+    policy_version: string;
+    hosts_evaluated: number;
+    /** Constraint code -> how many hosts failed it. */
+    failed_constraints: Record<string, number>;
+  };
+  /** Present when a host was chosen; absent when the job is still queued. */
+  selected_host_id?: string;
+  /** Present only when nothing was selected. */
+  queue_reason_code?: string;
+}
+
+export interface PlacementExplanation {
+  ok: boolean;
+  job_id: string;
+  attempt_id: string | null;
+  placement_score: number | null;
+  explanation: PlacementExplanationPayload | null;
+  /**
+   * `false` when the scheduler stored nothing for this attempt — an older job,
+   * or one that never reached placement. A real state, not a loading state: the
+   * UI must say "no explanation recorded" rather than rendering an empty one.
+   */
+  explained: boolean;
+}
+
+/** Tenant-scoped: a foreign job answers 404, never 403. */
+export function fetchPlacementExplanation(jobId: string): Promise<PlacementExplanation> {
+  return apiFetch(`/api/v1/instances/${encodeURIComponent(jobId)}/placement-explanation`);
+}
+
 /** Copy a job's artifacts onto a durable volume, so they stop expiring. */
 export async function promoteArtifactsToVolume(volumeId: string, jobId: string) {
   return apiFetch<{ ok: boolean; promotion_id?: string; status?: string }>(
