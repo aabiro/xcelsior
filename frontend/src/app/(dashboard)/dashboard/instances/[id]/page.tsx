@@ -16,15 +16,21 @@ import {
 import {
   fetchInstance, cancelInstance, requeueInstance,
   stopInstance, startInstance, restartInstance, terminateInstance, renameInstance,
-  fetchPlacementExplanation,
+  fetchPlacementExplanation, fetchInstanceTimeline, fetchActiveLease,
 } from "@/lib/api";
 // Aliased: the API response type and the component that renders it share a
 // name, and importing both unaliased shadows one silently.
-import type { Instance, PlacementExplanation as PlacementExplanationResult } from "@/lib/api";
+import type {
+  Instance,
+  PlacementExplanation as PlacementExplanationResult,
+  InstanceAttempt,
+  ActiveLease,
+} from "@/lib/api";
 import { ArtifactRetentionCard } from "@/components/instances/artifact-retention-card";
 import { toast } from "sonner";
 import { HostKeyVerification } from "@/components/instances/host-key-verification";
 import { PlacementExplanation } from "@/components/instances/placement-explanation";
+import { AttemptTimeline } from "@/components/instances/attempt-timeline";
 import { useLocale } from "@/lib/locale";
 import { useAuth } from "@/lib/auth";
 import { getTeamContext } from "@/lib/team-context";
@@ -263,6 +269,10 @@ export default function InstanceDetailPage() {
   // for an answer that cannot change. Re-fetched on each `load()` tick so the
   // reason tracks the attempt rather than freezing on the first one.
   const [placement, setPlacement] = useState<PlacementExplanationResult | null>(null);
+  // B6.5's other half: the attempts behind this instance and its current lease.
+  // Both routes existed and were read only by MCP tools.
+  const [attempts, setAttempts] = useState<InstanceAttempt[]>([]);
+  const [lease, setLease] = useState<ActiveLease | null>(null);
   const explainNeeded =
     instance?.status === "queued" || instance?.status === "assigned" || instance?.status === "leased";
   useEffect(() => {
@@ -276,6 +286,21 @@ export default function InstanceDetailPage() {
       .catch(() => { if (!cancelled) setPlacement(null); });
     return () => { cancelled = true; };
   }, [explainNeeded, id, instance?.status, instance?.updated_at]);
+
+  // Attempts and lease, for any instance that has reached the scheduler. Unlike
+  // the explanation these stay useful after placement — a completed instance's
+  // failed first attempt is exactly what someone is looking for.
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    Promise.allSettled([fetchInstanceTimeline(String(id)), fetchActiveLease(String(id))])
+      .then(([t, l]) => {
+        if (cancelled) return;
+        setAttempts(t.status === "fulfilled" ? (t.value.attempts ?? []) : []);
+        setLease(l.status === "fulfilled" ? (l.value.lease ?? null) : null);
+      });
+    return () => { cancelled = true; };
+  }, [id, instance?.status, instance?.updated_at]);
 
   const isLive = instance?.status === "queued" || instance?.status === "assigned"
     || instance?.status === "leased"
@@ -653,6 +678,19 @@ export default function InstanceDetailPage() {
                     ? t("dash.instances.queue_waiting_gpu", { gpu: instance.gpu_model })
                     : t("dash.instances.queue_waiting_any"))}
             </span>
+          </div>
+        )}
+
+        {/* B6.5: the attempts behind the five pills above, and the current
+            lease. The pills say which phase; this says how many tries it took
+            and what failed. `placement_explanation` is deliberately absent —
+            see `attempt-timeline.tsx`. */}
+        {(attempts.length > 0 || lease) && (
+          <div className="mt-4 border-t border-border pt-4">
+            <h3 className="mb-3 text-xs font-semibold text-text-secondary">
+              Scheduling attempts
+            </h3>
+            <AttemptTimeline attempts={attempts} lease={lease} />
           </div>
         )}
       </Card>

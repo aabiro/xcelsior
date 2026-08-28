@@ -115,6 +115,63 @@ def test_the_browser_actually_calls_the_route():
     )
 
 
+def test_the_timeline_and_lease_routes_reach_the_browser_too():
+    """B6.5's other half, found by the same sweep.
+
+    `/api/v1/instances/{id}/timeline` and `/active-lease` were read only by
+    `get_instance_timeline` and `get_active_lease` — both MCP tools — while the
+    browser called neither. The dashboard's five status pills were the whole
+    story, so a first attempt that failed before the successful one was
+    invisible to the person and legible to their agent.
+    """
+    api = API_TS.read_text(encoding="utf-8")
+    for route in ("/timeline", "/active-lease"):
+        assert route in api, f"frontend/src/lib/api.ts no longer declares {route}"
+
+    page = strip_ts_comments(PAGE.read_text(encoding="utf-8"))
+    assert "fetchInstanceTimeline(" in page and "fetchActiveLease(" in page, (
+        "the instance page does not fetch the attempts or the lease"
+    )
+    assert "<AttemptTimeline" in page, "fetched but never rendered"
+
+
+def test_the_attempt_type_does_not_carry_the_explanation_blob():
+    """The timeline route includes it; typing it invites a row to render it.
+
+    `_attempts_for_job` selects `placement_explanation` per attempt, and that
+    payload holds the per-host rejections map — the same fleet state
+    `PlacementExplanation` refuses to show. Leaving it off `InstanceAttempt`
+    means a timeline row cannot reach it without a cast, which is a deliberate
+    act rather than an accident.
+    """
+    api = strip_ts_comments(API_TS.read_text(encoding="utf-8"))
+    match = re.search(r"export interface InstanceAttempt \{(.*?)\n\}", api, re.DOTALL)
+    assert match, "InstanceAttempt is gone; re-point this guard"
+    assert "placement_explanation" not in match.group(1), (
+        "`InstanceAttempt` now types `placement_explanation`, which carries the "
+        "per-host rejections map. The customer surface renders the redacted "
+        "aggregate from the dedicated endpoint instead."
+    )
+
+
+def test_the_lease_route_aliases_the_host_rather_than_naming_it():
+    """The component renders `host_alias` as-is, so the route must redact it."""
+    source = (ROOT / "routes/control_plane_v1.py").read_text(encoding="utf-8")
+    # The whole function, not up to the first `return` — the handler returns
+    # early for "no lease", and matching that stops before the aliasing code.
+    # The first draft did exactly that and failed against a correct route.
+    match = re.search(
+        r"def api_v1_instance_active_lease\(.*?(?=\n@router\.|\ndef )", source, re.DOTALL
+    )
+    assert match, "the active-lease handler moved; re-point this guard"
+    body = match.group(0)
+    assert "host_alias" in body, "the lease no longer carries an alias"
+    assert 'lease.pop("host_id")' in body, (
+        "the raw `host_id` is no longer popped from the lease payload, so the "
+        "component — which renders what it is given — would print it"
+    )
+
+
 def test_the_agent_and_the_browser_read_the_same_route():
     """Parity: one route, so the two surfaces cannot describe different attempts."""
     tool = MCP_TOOL.read_text(encoding="utf-8")

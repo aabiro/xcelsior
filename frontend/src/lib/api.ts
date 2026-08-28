@@ -2391,6 +2391,58 @@ export interface PlacementExplanation {
   explained: boolean;
 }
 
+/**
+ * One scheduling attempt: reserve → command → lease → start → end.
+ *
+ * `placement_explanation` is deliberately **not** on this type. The route
+ * includes it per attempt, and it carries the per-host rejections map — other
+ * tenants' fleet state. `PlacementExplanation` renders the redacted aggregate
+ * from the dedicated endpoint instead; typing it here would invite a timeline
+ * row to dump the blob and quietly undo that.
+ */
+export interface InstanceAttempt {
+  attempt_id: string;
+  attempt_number: number;
+  status: string;
+  host_id: string | null;
+  placement_score: number | null;
+  failure_code: string | null;
+  reserved_at: string | null;
+  command_created_at: string | null;
+  lease_claimed_at: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  trace_id: string | null;
+}
+
+export function fetchInstanceTimeline(jobId: string) {
+  return apiFetch<{ ok: boolean; job_id: string; attempts: InstanceAttempt[] }>(
+    `/api/v1/instances/${encodeURIComponent(jobId)}/timeline`,
+  );
+}
+
+/**
+ * Current lease health. The route already redacts: `host_alias` is a SHA-derived
+ * stand-in and no credential is included, so this is safe to render as-is.
+ */
+export interface ActiveLease {
+  lease_id: string;
+  attempt_id: string;
+  status: string;
+  host_alias: string;
+  offered_at: string | null;
+  claim_deadline: string | null;
+  claimed_at: string | null;
+  last_renewed_at: string | null;
+  expires_at: string | null;
+}
+
+export function fetchActiveLease(jobId: string) {
+  return apiFetch<{ ok: boolean; job_id: string; lease: ActiveLease | null }>(
+    `/api/v1/instances/${encodeURIComponent(jobId)}/active-lease`,
+  );
+}
+
 /** Tenant-scoped: a foreign job answers 404, never 403. */
 export function fetchPlacementExplanation(jobId: string): Promise<PlacementExplanation> {
   return apiFetch(`/api/v1/instances/${encodeURIComponent(jobId)}/placement-explanation`);
