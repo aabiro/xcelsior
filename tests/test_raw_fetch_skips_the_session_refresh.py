@@ -52,7 +52,7 @@ STREAMING_OR_SPECIAL = {
 #: Measured, not guessed. The first draft said 20 against an actual 17, and the
 #: control that adds a raw fetch passed — a ratchet with slack is not a ratchet,
 #: it is a number that happens to be true.
-KNOWN_UNCONVERTED = 17
+KNOWN_UNCONVERTED = 9
 
 
 def _raw_api_fetches() -> dict[str, list[str]]:
