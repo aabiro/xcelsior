@@ -1413,8 +1413,38 @@ export async function fetchReservedPlans() {
 }
 
 // ── Spot ──────────────────────────────────────────────────────────────
+
+/** One row of `/spot-prices`'s `spot_prices` list. */
+export interface SpotPriceRow {
+  gpu_model: string;
+  rate_cad: number;
+  spot_cents: number;
+  on_demand_cad: number;
+  savings_pct: number;
+  supply: number;
+  demand: number;
+  provider_floor_cents: number;
+  recorded_at: number;
+}
+
+/**
+ * `/spot-prices` sends **both** shapes, and they are not interchangeable.
+ *
+ * `prices` is the lookup — `{"A10": 0.42}`. `spot_prices` is a **list** of rows
+ * carrying supply, demand and the on-demand comparison.
+ *
+ * This was typed as `spot_prices: Record<string, number>` with `prices` as an
+ * optional fallback, which inverted both. Callers wrote
+ * `res.spot_prices || res.prices` — and a non-empty array is truthy, so the
+ * correctly-shaped fallback could never be reached, and indexing the array by
+ * GPU model returned `undefined` every time.
+ *
+ * Pinned by `tests/test_spot_prices_shape_is_not_two_shapes.py`.
+ */
 export async function fetchSpotPrices() {
-  return apiFetch<{ ok: boolean; spot_prices: Record<string, number>; prices?: Record<string, number> }>("/spot-prices");
+  return apiFetch<{ ok: boolean; prices: Record<string, number>; spot_prices: SpotPriceRow[] }>(
+    "/spot-prices",
+  );
 }
 
 // ── Reputation ────────────────────────────────────────────────────────
@@ -2130,10 +2160,31 @@ export async function fetchTaxRates() {
 }
 
 
+/** One SLA tier's targets, as `sla.SLATarget` defines them. */
+export interface SlaTargets {
+  tier: string;
+  availability_pct: number;
+  latency_ttft_ms: number;
+  throughput_floor_pct: number;
+  response_time_hours: number;
+  heartbeat_grace_sec: number;
+  max_thermal_c: number;
+}
+
+/**
+ * `/api/sla/targets` answers `{ok, targets}` — keyed by tier name.
+ *
+ * This declared `tiers`, so `d.tiers` was `undefined` and the compliance page's
+ * `|| {}` rendered "No SLA tier data available" permanently. The inner fields
+ * were wrong too: it expected `uptime_pct` and `credit_pct_10/25/100`, none of
+ * which any endpoint has ever sent. Credit is computed from *measured* uptime
+ * by `sla.compute_credit_pct`, not carried as a per-tier constant, so
+ * `penalty_rate` had no source at all.
+ *
+ * Pinned by `tests/test_sla_targets_reach_the_compliance_page.py`.
+ */
 export async function fetchSlaTargets() {
-  return apiFetch<{ ok: boolean; tiers: Record<string, { uptime_pct: number; credit_pct_10: number; credit_pct_25: number; credit_pct_100: number }> }>(
-    "/api/sla/targets",
-  );
+  return apiFetch<{ ok: boolean; targets: Record<string, SlaTargets> }>("/api/sla/targets");
 }
 
 export async function fetchSlaHostsSummary() {
