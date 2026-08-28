@@ -58,7 +58,28 @@ describe("LaunchInstanceModal spot flow", () => {
     });
     apiMocks.fetchProvinces.mockResolvedValue({ provinces: { ON: { name: "Ontario", tax_rate: 0.13, tax_description: "HST" } } });
     apiMocks.fetchImageTemplates.mockResolvedValue({ templates: [] });
-    apiMocks.fetchSpotPrices.mockResolvedValue({ spot_prices: { "RTX 4090": 0.22 } });
+    // The real shape of `/spot-prices`: `prices` is the lookup, `spot_prices`
+    // is a **list**. This mock previously sent `spot_prices` as a Record — a
+    // shape the route has never returned — so the suite validated the inverted
+    // type instead of catching it, and the modal's `spot_prices || prices`
+    // chain looked correct here while returning `undefined` in the browser.
+    apiMocks.fetchSpotPrices.mockResolvedValue({
+      ok: true,
+      prices: { "RTX 4090": 0.22 },
+      spot_prices: [
+        {
+          gpu_model: "RTX 4090",
+          rate_cad: 0.22,
+          spot_cents: 22,
+          on_demand_cad: 0.55,
+          savings_pct: 60,
+          supply: 0,
+          demand: 0,
+          provider_floor_cents: 0,
+          recorded_at: 0,
+        },
+      ],
+    });
     apiMocks.fetchSpotFeatureStatus.mockResolvedValue({ enabled: true, message: null });
     apiMocks.listAvailableVolumes.mockResolvedValue({ volumes: [] });
     apiMocks.detectProvince.mockResolvedValue({ province: "ON" });
@@ -109,6 +130,7 @@ describe("LaunchInstanceModal spot flow", () => {
       await waitFor(() => {
         expect(screen.getByText(/Spot rate of/i)).toBeInTheDocument();
       });
+
 
       fireEvent.click(screen.getByRole("button", { name: /launch instance/i }));
 
