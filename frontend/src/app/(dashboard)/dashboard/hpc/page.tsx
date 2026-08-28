@@ -1,5 +1,7 @@
 "use client";
 
+import { apiFetch } from "@/lib/api";
+
 import { useEffect, useState, useCallback } from "react";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -78,7 +80,7 @@ function HpcContent() {
     setLoading(true);
     Promise.allSettled([
       api.fetchSlurmProfiles(),
-      fetch("/api/slurm/instances", { credentials: "include" }).then((r) => r.ok ? r.json() : Promise.reject()),
+      apiFetch<{ jobs?: SlurmJob[] }>("/api/slurm/instances"),
     ]).then(([p, j]) => {
       if (p.status === "fulfilled") {
         const raw = p.value.profiles || {};
