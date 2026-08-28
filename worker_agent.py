@@ -128,9 +128,19 @@ POLL_INTERVAL = int(os.environ.get("XCELSIOR_POLL_INTERVAL", "5"))
 MINING_CHECK_INTERVAL = int(os.environ.get("XCELSIOR_MINING_CHECK_INTERVAL", "60"))
 MAX_CONSECUTIVE_FAILURES = int(os.environ.get("XCELSIOR_MAX_FAILURES", "30"))
 CONTAINER_START_TIMEOUT = int(os.environ.get("XCELSIOR_CONTAINER_START_TIMEOUT", "180"))
-IMAGE_PREPULL_ENABLED = os.environ.get("XCELSIOR_IMAGE_PREPULL_ENABLED", "true").lower() in ("1", "true", "yes", "on")
+IMAGE_PREPULL_ENABLED = os.environ.get("XCELSIOR_IMAGE_PREPULL_ENABLED", "true").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 IMAGE_PREPULL_INTERVAL = int(os.environ.get("XCELSIOR_IMAGE_PREPULL_INTERVAL", "60"))
-IMAGE_WARMER_ENABLED = os.environ.get("XCELSIOR_IMAGE_WARMER_ENABLED", "true").lower() in ("1", "true", "yes", "on")
+IMAGE_WARMER_ENABLED = os.environ.get("XCELSIOR_IMAGE_WARMER_ENABLED", "true").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 
 # Tailscale / Headscale
 TAILSCALE_ENABLED = os.environ.get("XCELSIOR_TAILSCALE_ENABLED", "").lower() in ("1", "true", "yes")
@@ -298,6 +308,7 @@ def _register_counter_once(name: str, doc: str, labels: list[str]):
             raise
         return existing
 
+
 _motd_reinjection_total = _register_counter_once(
     "xcelsior_worker_motd_reinjection_total",
     "Shell/MOTD re-injection attempts by outcome",
@@ -411,10 +422,10 @@ _NVIDIA_SMI_NAME_MAP: dict[str, str] = {
     # ── AMD Data Center ──
     "AMD Instinct MI300X": "MI300X",
     "AMD Instinct MI250X": "MI250X",
-    "AMD Instinct MI210":  "MI210",
+    "AMD Instinct MI210": "MI210",
     # ── AMD Consumer ──
     "AMD Radeon RX 7900 XTX": "RX 7900 XTX",
-    "AMD Radeon RX 7900 XT":  "RX 7900 XT",
+    "AMD Radeon RX 7900 XT": "RX 7900 XT",
 }
 
 
@@ -480,6 +491,7 @@ def get_gpu_info():
     Returns dict with gpu_model, total_vram_gb, free_vram_gb.
     Raises RuntimeError on failure.
     """
+
     def _finish(info: dict | None) -> dict:
         if info and info.get("gpu_model"):
             return info
@@ -938,7 +950,8 @@ def _request_oauth_access_token():
     if OAUTH_SCOPE:
         data["scope"] = OAUTH_SCOPE
 
-    resp = requests.post(
+    resp = _api_request(
+        "post",
         _oauth_token_endpoint(),
         data=data,
         timeout=OAUTH_TOKEN_TIMEOUT_SEC,
@@ -1122,7 +1135,8 @@ def maybe_rotate_host_token() -> bool:
 
     _last_token_rotation_attempt = now
     try:
-        resp = requests.post(
+        resp = _api_request(
+            "post",
             _api_url("/agent/v2/tokens/rotate"),
             headers={
                 "Content-Type": "application/json",
@@ -1134,9 +1148,7 @@ def maybe_rotate_host_token() -> bool:
         log.warning("agent token rotation request failed: %s", exc)
         return False
     if resp.status_code != 200:
-        log.warning(
-            "agent token rotation rejected (%s): %s", resp.status_code, resp.text[:200]
-        )
+        log.warning("agent token rotation rejected (%s): %s", resp.status_code, resp.text[:200])
         return False
     try:
         body = resp.json()
@@ -1213,6 +1225,50 @@ def _api_headers():
     return headers
 
 
+#: Client certificate for the private agent gateway (mTLS).
+#:
+#: `agent.xcelsior.ca` verifies a client certificate and derives this worker's
+#: `host_id` from its CN — see `nginx/agent-xcelsior.conf`. Without one the
+#: gateway answers 400 before the request reaches the API at all, which reads
+#: as a network fault rather than a missing credential.
+#:
+#: Both halves are required together. One alone is a misconfiguration, not a
+#: partial credential, and quietly sending none would produce exactly that
+#: unexplained 400.
+_AGENT_CLIENT_CERT = os.environ.get("XCELSIOR_AGENT_CLIENT_CERT", "").strip()
+_AGENT_CLIENT_KEY = os.environ.get("XCELSIOR_AGENT_CLIENT_KEY", "").strip()
+
+
+def _api_client_cert():
+    """`(cert, key)` for mTLS, or `None` when this host has no certificate."""
+    if _AGENT_CLIENT_CERT and _AGENT_CLIENT_KEY:
+        return (_AGENT_CLIENT_CERT, _AGENT_CLIENT_KEY)
+    return None
+
+
+def _api_request(method, url, **kwargs):
+    """The single seam every worker→API call goes through.
+
+    Transport concerns belong in one place. Adding `cert=` to each call site
+    instead was the first attempt: 31 edits, nothing to stop the 32nd forgetting
+    it, and it broke 52 tests at once because their fakes are declared
+    `(url, json=None, headers=None, timeout=None)` — an unexpected keyword
+    raises `TypeError`, which the worker's `except` swallows into a silent
+    no-op. A credential that fails by doing nothing is the worst shape available.
+
+    **`cert` is passed only when one is configured**, so a worker still on the
+    public ingress calls `requests` with exactly the arguments it always did.
+    `getattr(requests, method)` rather than a `Session` keeps
+    `mock.patch.object(worker_agent.requests, "post", ...)` working — a session
+    hides the call from anything patching `requests`, which is how the second
+    attempt broke the same tests a different way.
+    """
+    cert = _api_client_cert()
+    if cert is not None:
+        kwargs["cert"] = cert
+    return getattr(requests, method)(url, **kwargs)
+
+
 def _api_url(path):
     """Build absolute API URL."""
     if not SCHEDULER_URL:
@@ -1257,7 +1313,8 @@ def heartbeat(gpu_info, host_ip, compute_score=None):
         log.debug("checkpoint probe skipped on heartbeat: %s", exc)
 
     try:
-        resp = requests.put(
+        resp = _api_request(
+            "put",
             _api_url("/host"),
             json=data,
             headers=_api_headers(),
@@ -1277,7 +1334,8 @@ def report_versions(versions):
     """
     data = {"host_id": HOST_ID, "versions": versions}
     try:
-        resp = requests.post(
+        resp = _api_request(
+            "post",
             _api_url("/agent/versions"),
             json=data,
             headers=_api_headers(),
@@ -1302,7 +1360,8 @@ def _report_agent_degraded(reason: str, *, context: str = "", level: str = "warn
     else:
         log.warning(msg)
     try:
-        requests.post(
+        _api_request(
+            "post",
             _api_url("/agent/degraded"),
             json={"host_id": HOST_ID, "reason": reason, "context": context},
             headers=_api_headers(),
@@ -1319,7 +1378,8 @@ def poll_for_work():
     Returns list of job dicts, or empty list.
     """
     try:
-        resp = requests.get(
+        resp = _api_request(
+            "get",
             _api_url(f"/agent/work/{HOST_ID}"),
             headers=_api_headers(),
             timeout=10,
@@ -1344,7 +1404,8 @@ def check_preemption():
     Returns list of job_ids to preempt.
     """
     try:
-        resp = requests.get(
+        resp = _api_request(
+            "get",
             _api_url(f"/agent/preempt/{HOST_ID}"),
             headers=_api_headers(),
             timeout=10,
@@ -1391,7 +1452,9 @@ def _sibling_module_dir(name: str) -> Path:
         return Path(__file__).resolve().parent
 
 
-def _download_and_verify(url: str, expected_sha: str, max_bytes: int = 10 * 1024 * 1024) -> bytes | None:
+def _download_and_verify(
+    url: str, expected_sha: str, max_bytes: int = 10 * 1024 * 1024
+) -> bytes | None:
     """Download ``url``, verify its sha256, and return the bytes (or None on failure)."""
     import hashlib
 
@@ -1596,14 +1659,20 @@ def _handle_upgrade_agent(args: dict, cmd_id: str = "", by: str = "?") -> bool:
                     try:
                         sib_bak.write_bytes(dest_path.read_bytes())
                     except OSError as e:
-                        log.warning("upgrade_agent sibling backup failed for %s (continuing): %s", dest_path, e)
+                        log.warning(
+                            "upgrade_agent sibling backup failed for %s (continuing): %s",
+                            dest_path,
+                            e,
+                        )
                 os.replace(sib_new, dest_path)
                 log.info("upgrade_agent cmd=%s updated sibling module %s", cmd_id, dest_path)
             except OSError as e:
                 # Sibling swap failures are logged but not fatal to the main
                 # upgrade — the new worker_agent.py may still import fine if
                 # this particular sibling module's contents are unchanged.
-                log.error("upgrade_agent cmd=%s failed to install sibling %s: %s", cmd_id, dest_path, e)
+                log.error(
+                    "upgrade_agent cmd=%s failed to install sibling %s: %s", cmd_id, dest_path, e
+                )
 
         # B12 — mark post-upgrade boot so heartbeat_loop can auto-rollback on failure.
         try:
@@ -1673,7 +1742,8 @@ def drain_agent_commands() -> int:
     Returns the number of commands successfully dispatched.
     """
     try:
-        resp = requests.get(
+        resp = _api_request(
+            "get",
             _api_url(f"/agent/commands/{HOST_ID}"),
             headers=_api_headers(),
             timeout=10,
@@ -1802,7 +1872,9 @@ def drain_agent_commands() -> int:
                             )
                         dispatched += 1
                         continue
-                    log.info("Executing stop_container cmd=%s container=%s by=%s", cmd_id, cname, by)
+                    log.info(
+                        "Executing stop_container cmd=%s container=%s by=%s", cmd_id, cname, by
+                    )
                     subprocess.run(
                         ["docker", "stop", "-t", "30", cname],
                         capture_output=True,
@@ -1891,7 +1963,7 @@ def drain_agent_commands() -> int:
                                 )
                             except Exception as cb_err:
                                 log.warning(
-                                    "start_container failure-callback cmd=%s " "job=%s failed: %s",
+                                    "start_container failure-callback cmd=%s job=%s failed: %s",
                                     cmd_id,
                                     start_job_id,
                                     cb_err,
@@ -1907,7 +1979,7 @@ def drain_agent_commands() -> int:
                             )
                         except Exception as cb_err:
                             log.warning(
-                                "start_container timeout-callback cmd=%s " "job=%s failed: %s",
+                                "start_container timeout-callback cmd=%s job=%s failed: %s",
                                 cmd_id,
                                 start_job_id,
                                 cb_err,
@@ -2073,8 +2145,7 @@ def drain_agent_commands() -> int:
                             # same env), but fail loudly rather than silently
                             # keeping an unpushable tag.
                             err_msg = (
-                                f"image_ref {image_ref!r} does not match "
-                                f"registry {registry_url!r}"
+                                f"image_ref {image_ref!r} does not match registry {registry_url!r}"
                             )
                             try:
                                 subprocess.run(
@@ -2094,7 +2165,8 @@ def drain_agent_commands() -> int:
                 # 'pending'. Best-effort — a lost callback is recoverable
                 # by a reconcile sweep that inspects docker images directly.
                 try:
-                    resp = requests.post(
+                    resp = _api_request(
+                        "post",
                         _api_url(f"/user-images/{image_id}/complete"),
                         headers=_api_headers(),
                         json={
@@ -2221,9 +2293,7 @@ def report_job_status(
     # be skipped by a v1 transport failure.
     mirror_outcome = "not_v2"
     try:
-        mirror_outcome = _v2_on_job_status(
-            job_id, status, error_message=error_message
-        )
+        mirror_outcome = _v2_on_job_status(job_id, status, error_message=error_message)
     except Exception as _v2_exc:
         log.warning("v2 status mirror failed for job %s: %s", job_id, _v2_exc)
         mirror_outcome = "error"
@@ -2260,7 +2330,8 @@ def report_job_status(
         data["resume_from"] = resume_from
         data["resumable"] = bool(resume_from.get("success"))
     try:
-        resp = requests.patch(
+        resp = _api_request(
+            "patch",
             _api_url(f"/instance/{job_id}"),
             json=data,
             headers=_api_headers(),
@@ -2285,7 +2356,8 @@ def _push_log_lines(job_id, lines):
     """Push log lines directly to the API (used during pull phase before LogForwarder starts)."""
     body = json.dumps({"lines": lines}).encode()
     try:
-        requests.post(
+        _api_request(
+            "post",
             _api_url(f"/agent/logs/{job_id}"),
             data=body,
             headers=_api_headers(),
@@ -2307,7 +2379,8 @@ def _report_http_ports(job_id, port_map):
     if not port_map:
         return False
     try:
-        resp = requests.post(
+        resp = _api_request(
+            "post",
             _api_url(f"/instances/{job_id}/http-ports/report"),
             json={"host_id": HOST_ID, "ports": {str(k): int(v) for k, v in port_map.items()}},
             headers=_api_headers(),
@@ -2341,7 +2414,8 @@ def claim_lease(job_id):
     """
     data = {"host_id": HOST_ID, "job_id": job_id}
     try:
-        resp = requests.post(
+        resp = _api_request(
+            "post",
             _api_url("/agent/lease/claim"),
             json=data,
             headers=_api_headers(),
@@ -2372,7 +2446,8 @@ def renew_lease(job_id):
     """
     data = {"host_id": HOST_ID, "job_id": job_id}
     try:
-        resp = requests.post(
+        resp = _api_request(
+            "post",
             _api_url("/agent/lease/renew"),
             json=data,
             headers=_api_headers(),
@@ -2395,14 +2470,17 @@ def release_lease(job_id, reason="completed"):
     """
     data = {"job_id": job_id, "reason": reason}
     try:
-        resp = requests.post(
+        resp = _api_request(
+            "post",
             _api_url("/agent/lease/release"),
             json=data,
             headers=_api_headers(),
             timeout=10,
         )
         if resp.status_code not in (200, 204):
-            _report_agent_degraded("lease_release_non_200", context=f"job={job_id} status={resp.status_code}")
+            _report_agent_degraded(
+                "lease_release_non_200", context=f"job={job_id} status={resp.status_code}"
+            )
     except requests.RequestException as e:
         _report_agent_degraded("lease_release_error", context=f"job={job_id} err={e}")
 
@@ -2426,7 +2504,8 @@ def negotiate_protocol_v2() -> bool:
     """Ask the API which protocol this host should speak (canary rollout)."""
     global _v2_enabled
     try:
-        resp = requests.get(
+        resp = _api_request(
+            "get",
             _api_url(f"/agent/v2/negotiate/{HOST_ID}"),
             headers=_api_headers(),
             timeout=10,
@@ -2449,8 +2528,8 @@ def negotiate_protocol_v2() -> bool:
 def _v2_post(path: str, payload: dict, timeout: int = 10):
     """POST helper: returns (status_code, parsed_json_or_empty_dict)."""
     try:
-        resp = requests.post(
-            _api_url(path), json=payload, headers=_api_headers(), timeout=timeout
+        resp = _api_request(
+            "post", _api_url(path), json=payload, headers=_api_headers(), timeout=timeout
         )
         try:
             body = resp.json()
@@ -2526,7 +2605,10 @@ def v2_claim_lease_fenced(auth: dict) -> dict | None:
         return None
     log.error(
         "v2 lease claim REJECTED job=%s attempt=%s fence=%s: HTTP %s %s",
-        auth["job_id"], auth["attempt_id"][:8], auth["fencing_token"], code,
+        auth["job_id"],
+        auth["attempt_id"][:8],
+        auth["fencing_token"],
+        code,
         (body.get("detail") or body) if body else "",
     )
     return None
@@ -2569,28 +2651,25 @@ def _v2_stop_container(
     """Definitive fence-loss behavior (§11.5): authority gone → stop now."""
     container_name = container_name or f"xcl-{job_id}"
     if expected_attempt_id:
-        state, _exit_code, observed_attempt_id = _v2_container_state(
-            job_id, container_name
-        )
+        state, _exit_code, observed_attempt_id = _v2_container_state(job_id, container_name)
         if state == "missing":
             return
         if observed_attempt_id != expected_attempt_id:
             log.critical(
-                "FENCE STOP REFUSED job=%s container=%s expected_attempt=%s "
-                "observed_attempt=%s",
+                "FENCE STOP REFUSED job=%s container=%s expected_attempt=%s observed_attempt=%s",
                 job_id,
                 container_name,
                 expected_attempt_id,
                 observed_attempt_id or "(unlabeled)",
             )
             return
-    log.error(
-        "FENCE LOST job=%s (%s) — stopping container %s", job_id, why, container_name
-    )
+    log.error("FENCE LOST job=%s (%s) — stopping container %s", job_id, why, container_name)
     try:
         subprocess.run(
             ["docker", "kill", container_name],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
     except Exception as e:
         log.error("fence-loss docker kill failed for %s: %s", container_name, e)
@@ -2620,9 +2699,7 @@ def _v2_stop_container(
 # SQLite. §10.2 allows SQLite here; it does not require it, and a
 # single-writer snapshot rewritten via os.replace() has the durability
 # this needs without adding a database to the agent bundle.
-_V2_JOURNAL_PATH = os.environ.get(
-    "XCELSIOR_V2_JOURNAL_PATH", "/var/lib/xcelsior/v2_attempts.json"
-)
+_V2_JOURNAL_PATH = os.environ.get("XCELSIOR_V2_JOURNAL_PATH", "/var/lib/xcelsior/v2_attempts.json")
 _V2_COMPLETED_COMMANDS_KEY = "__completed_commands__"
 _V2_COMMAND_RESULT_RETENTION_SEC = 24 * 3600
 _v2_completed_commands: dict[str, dict] = {}
@@ -2658,8 +2735,7 @@ def _v2_journal_save() -> None:
             for job_id, a in _v2_attempts.items()
         }
         snapshot[_V2_COMPLETED_COMMANDS_KEY] = {
-            command_id: dict(record)
-            for command_id, record in _v2_completed_commands.items()
+            command_id: dict(record) for command_id, record in _v2_completed_commands.items()
         }
     try:
         os.makedirs(os.path.dirname(_V2_JOURNAL_PATH), exist_ok=True)
@@ -2721,9 +2797,7 @@ def _v2_forget_attempt(job_id: str) -> None:
         _v2_journal_save()
 
 
-def _v2_container_state(
-    job_id: str, container_name: str | None = None
-) -> tuple[str, int, str]:
+def _v2_container_state(job_id: str, container_name: str | None = None) -> tuple[str, int, str]:
     """Return state, exit code, and attempt label for one owned container.
 
     state is 'running', 'exited', or 'missing'.
@@ -2732,12 +2806,16 @@ def _v2_container_state(
     try:
         inspect = subprocess.run(
             [
-                "docker", "inspect", "-f",
-                '{{.State.Running}} {{.State.ExitCode}} '
+                "docker",
+                "inspect",
+                "-f",
+                "{{.State.Running}} {{.State.ExitCode}} "
                 '{{index .Config.Labels "ai.xcelsior.attempt_id"}}',
                 container_name,
             ],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
     except Exception:
         return ("missing", -1, "")
@@ -2825,14 +2903,14 @@ def v2_adopt_attempts() -> int:
                 auth["pending_command"] = dict(rec["pending_command"])
         except (KeyError, TypeError, ValueError):
             continue
-        state, exit_code, label = _v2_container_state(
-            job_id, auth["container_name"]
-        )
+        state, exit_code, label = _v2_container_state(job_id, auth["container_name"])
         if state != "missing" and label != auth["attempt_id"]:
             log.warning(
                 "adoption: container for job %s belongs to attempt %s "
                 "(journal has %s) — dropping record",
-                job_id, label[:8], auth["attempt_id"][:8],
+                job_id,
+                label[:8],
+                auth["attempt_id"][:8],
             )
             continue
         if state == "running":
@@ -2849,13 +2927,17 @@ def v2_adopt_attempts() -> int:
                 _v2_attempts[job_id] = auth
             if code == 200:
                 threading.Thread(
-                    target=_v2_renewal_loop, args=(auth,),
-                    name=f"v2-renew-{job_id[:8]}", daemon=True,
+                    target=_v2_renewal_loop,
+                    args=(auth,),
+                    name=f"v2-renew-{job_id[:8]}",
+                    daemon=True,
                 ).start()
                 adopted += 1
                 log.info(
                     "adopted running attempt %s for job %s (fence=%s)",
-                    auth["attempt_id"][:8], job_id, auth["fencing_token"],
+                    auth["attempt_id"][:8],
+                    job_id,
+                    auth["fencing_token"],
                 )
             else:
                 # Transport/server uncertainty is not confirmation. Keep the
@@ -2872,7 +2954,9 @@ def v2_adopt_attempts() -> int:
             outcome = (
                 str(pending.get("terminal_status"))
                 if isinstance(pending, dict) and pending.get("terminal_status")
-                else "succeeded" if exit_code == 0 else "failed"
+                else "succeeded"
+                if exit_code == 0
+                else "failed"
             )
             report_outcome = v2_report_attempt_status(
                 auth,
@@ -2894,11 +2978,15 @@ def v2_adopt_attempts() -> int:
                     _v2_attempts[job_id] = auth
             log.info(
                 "adoption: job %s container exited (%d) — reported %s",
-                job_id, exit_code, outcome,
+                job_id,
+                exit_code,
+                outcome,
             )
         else:
             report_outcome = v2_report_attempt_status(
-                auth, "failed", "container_missing",
+                auth,
+                "failed",
+                "container_missing",
                 {"note": "agent restarted; container not found"},
             )
             if report_outcome == "error":
@@ -2958,9 +3046,7 @@ _V2_STATUS_MAP = {
 }
 
 
-def _v2_on_job_status(
-    job_id: str, status: str, error_message: str | None = None
-) -> str:
+def _v2_on_job_status(job_id: str, status: str, error_message: str | None = None) -> str:
     """v1 report funnel hook: mirror lifecycle onto the fenced attempt.
 
     report_job_status() is the single funnel every v1 code path uses, so
@@ -2981,9 +3067,7 @@ def _v2_on_job_status(
     if outcome == "fenced":
         container_name = auth.get("container_name")
         _v2_forget_attempt(job_id)
-        _v2_stop_container(
-            job_id, "status report fenced", container_name, auth["attempt_id"]
-        )
+        _v2_stop_container(job_id, "status report fenced", container_name, auth["attempt_id"])
         return outcome
     if outcome == "ok" and v2_status in ("succeeded", "failed", "stopped"):
         _v2_forget_attempt(job_id)
@@ -3024,7 +3108,9 @@ def handle_start_attempt(cmd: dict) -> None:
         "stop": threading.Event(),
     }
     if not (job_id and auth["lease_id"] and auth["attempt_id"] and auth["fencing_token"]):
-        v2_nack_command(command_id, "malformed_start_attempt", {"args_keys": sorted(args)}, retryable=False)
+        v2_nack_command(
+            command_id, "malformed_start_attempt", {"args_keys": sorted(args)}, retryable=False
+        )
         return
 
     spec = args.get("spec")
@@ -3062,17 +3148,17 @@ def handle_start_attempt(cmd: dict) -> None:
     lease_report = v2_report_attempt_status(auth, "lease_claimed")
     if lease_report == "fenced":
         _v2_forget_attempt(job_id)
-        v2_nack_command(
-            command_id, "lease_authority_lost_before_start", retryable=False
-        )
+        v2_nack_command(command_id, "lease_authority_lost_before_start", retryable=False)
         return
     start_result = {"lease_claimed": True, "session": WORKER_SESSION_ID}
     _v2_mark_command_complete(command_id, start_result)
     v2_ack_command(command_id, start_result)
 
     threading.Thread(
-        target=_v2_renewal_loop, args=(auth,),
-        name=f"v2-renew-{job_id[:8]}", daemon=True,
+        target=_v2_renewal_loop,
+        args=(auth,),
+        name=f"v2-renew-{job_id[:8]}",
+        daemon=True,
     ).start()
 
     job = dict(spec)
@@ -3142,9 +3228,7 @@ def handle_stop_attempt(cmd: dict) -> None:
             )
         return
 
-    container_name = str(
-        auth.get("container_name") or _v2_container_name(job_id, attempt_id)
-    )
+    container_name = str(auth.get("container_name") or _v2_container_name(job_id, attempt_id))
     state, _exit_code, label = _v2_container_state(job_id, container_name)
     if label != attempt_id:
         v2_nack_command(
@@ -3169,9 +3253,7 @@ def handle_stop_attempt(cmd: dict) -> None:
                 "result": result,
             }
     if authority_changed:
-        v2_nack_command(
-            command_id, "authority_changed_before_stop", retryable=False
-        )
+        v2_nack_command(command_id, "authority_changed_before_stop", retryable=False)
         return
     _v2_journal_save()
     if state == "running":
@@ -3194,9 +3276,7 @@ def handle_stop_attempt(cmd: dict) -> None:
             )
             return
     elif state not in ("exited", "missing"):
-        v2_nack_command(
-            command_id, "container_state_unknown", {"state": state}, retryable=True
-        )
+        v2_nack_command(command_id, "container_state_unknown", {"state": state}, retryable=True)
         return
 
     # Terminate/cancel controllers enqueue preserve=False so the attempt
@@ -3229,8 +3309,10 @@ def handle_stop_attempt(cmd: dict) -> None:
     # Refresh pending terminal result after preserve/remove decision.
     with _v2_attempts_lock:
         current = _v2_attempts.get(job_id)
-        if current is not None and current is auth and isinstance(
-            current.get("pending_command"), dict
+        if (
+            current is not None
+            and current is auth
+            and isinstance(current.get("pending_command"), dict)
         ):
             current["pending_command"]["result"] = result
             current["pending_command"]["terminal_status"] = "stopped"
@@ -3260,9 +3342,13 @@ def _collect_local_workloads() -> list[dict]:
     try:
         ps = subprocess.run(
             [
-                "docker", "ps", "-a", "--filter", "name=xcl-",
+                "docker",
+                "ps",
+                "-a",
+                "--filter",
+                "name=xcl-",
                 "--format",
-                '{{.ID}}\t{{.Names}}\t{{.State}}\t'
+                "{{.ID}}\t{{.Names}}\t{{.State}}\t"
                 '{{.Label "ai.xcelsior.job_id"}}\t'
                 '{{.Label "ai.xcelsior.attempt_id"}}\t'
                 '{{.Label "ai.xcelsior.fencing_token"}}\t'
@@ -3272,7 +3358,9 @@ def _collect_local_workloads() -> list[dict]:
                 '{{.Label "xcelsior.fencing_token"}}\t'
                 '{{.Label "xcelsior.spec_hash"}}',
             ],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
     except Exception as e:
         log.warning("observation: docker ps failed: %s", e)
@@ -3280,9 +3368,13 @@ def _collect_local_workloads() -> list[dict]:
     if ps.returncode != 0:
         return []
     state_map = {
-        "running": "running", "paused": "paused", "exited": "exited",
-        "created": "preparing", "restarting": "preparing",
-        "removing": "removing", "dead": "exited",
+        "running": "running",
+        "paused": "paused",
+        "exited": "exited",
+        "created": "preparing",
+        "restarting": "preparing",
+        "removing": "removing",
+        "dead": "exited",
     }
     workloads = []
     for line in (ps.stdout or "").splitlines():
@@ -3290,29 +3382,23 @@ def _collect_local_workloads() -> list[dict]:
         if len(parts) < 3:
             continue
         cid, name, state = parts[0], parts[1], parts[2]
-        label_job = (parts[7] if len(parts) > 7 else "") or (
-            parts[3] if len(parts) > 3 else ""
-        )
-        attempt = (parts[8] if len(parts) > 8 else "") or (
-            parts[4] if len(parts) > 4 else ""
-        )
-        fence = (parts[9] if len(parts) > 9 else "") or (
-            parts[5] if len(parts) > 5 else ""
-        )
-        spec_hash = (parts[10] if len(parts) > 10 else "") or (
-            parts[6] if len(parts) > 6 else ""
-        )
+        label_job = (parts[7] if len(parts) > 7 else "") or (parts[3] if len(parts) > 3 else "")
+        attempt = (parts[8] if len(parts) > 8 else "") or (parts[4] if len(parts) > 4 else "")
+        fence = (parts[9] if len(parts) > 9 else "") or (parts[5] if len(parts) > 5 else "")
+        spec_hash = (parts[10] if len(parts) > 10 else "") or (parts[6] if len(parts) > 6 else "")
         # Container name is xcl-{job_id}; the label wins when present.
         job_id = label_job or (name[4:] if name.startswith("xcl-") else "")
-        workloads.append({
-            "job_id": job_id or None,
-            "attempt_id": attempt or None,
-            "fencing_token": int(fence) if fence.isdigit() else None,
-            "container_id": cid,
-            "container_name": name,
-            "spec_hash": spec_hash or None,
-            "state": state_map.get(state.strip().lower(), "unknown"),
-        })
+        workloads.append(
+            {
+                "job_id": job_id or None,
+                "attempt_id": attempt or None,
+                "fencing_token": int(fence) if fence.isdigit() else None,
+                "container_id": cid,
+                "container_name": name,
+                "spec_hash": spec_hash or None,
+                "state": state_map.get(state.strip().lower(), "unknown"),
+            }
+        )
     return workloads
 
 
@@ -3362,21 +3448,27 @@ def drain_v2_commands() -> int:
         if name == "start_attempt":
             job_ref = str(cmd.get("job_id") or "?")
             threading.Thread(
-                target=handle_start_attempt, args=(cmd,),
-                name=f"v2-start-{job_ref[:8]}", daemon=True,
+                target=handle_start_attempt,
+                args=(cmd,),
+                name=f"v2-start-{job_ref[:8]}",
+                daemon=True,
             ).start()
             dispatched += 1
         elif name == "stop_attempt":
             job_ref = str(cmd.get("job_id") or "?")
             threading.Thread(
-                target=handle_stop_attempt, args=(cmd,),
-                name=f"v2-stop-{job_ref[:8]}", daemon=True,
+                target=handle_stop_attempt,
+                args=(cmd,),
+                name=f"v2-stop-{job_ref[:8]}",
+                daemon=True,
             ).start()
             dispatched += 1
         else:
             v2_nack_command(
-                command_id, "unsupported_command",
-                {"command": str(name)}, retryable=False,
+                command_id,
+                "unsupported_command",
+                {"command": str(name)},
+                retryable=False,
             )
     return dispatched
 
@@ -3394,7 +3486,8 @@ def report_mining_alert(gpu_index, confidence, reason):
         "timestamp": time.time(),
     }
     try:
-        requests.post(
+        _api_request(
+            "post",
             _api_url("/agent/mining-alert"),
             json=data,
             headers=_api_headers(),
@@ -3417,7 +3510,8 @@ def report_benchmark(score_data, gpu_model):
         "details": score_data,
     }
     try:
-        requests.post(
+        _api_request(
+            "post",
             _api_url("/agent/benchmark"),
             json=data,
             headers=_api_headers(),
@@ -3437,7 +3531,8 @@ def report_verification(full_report):
         "report": full_report,
     }
     try:
-        r = requests.post(
+        r = _api_request(
+            "post",
             _api_url("/agent/verify"),
             json=payload,
             headers=_api_headers(),
@@ -3554,9 +3649,7 @@ def _start_reverification() -> bool:
         return False
 
     _reverify_running.set()
-    thread = threading.Thread(
-        target=_reverification_worker, name="reverification", daemon=True
-    )
+    thread = threading.Thread(target=_reverification_worker, name="reverification", daemon=True)
     thread.start()
     return True
 
@@ -3572,7 +3665,8 @@ def report_telemetry(metrics):
         "metrics": metrics,
     }
     try:
-        requests.post(
+        _api_request(
+            "post",
             _api_url("/agent/telemetry"),
             json=payload,
             headers=_api_headers(),
@@ -3799,7 +3893,9 @@ def _is_serverless_job(job: dict) -> bool:
     return str(job.get("job_type") or "").strip() == "serverless_worker"
 
 
-def _allocate_host_port_mappings(job_id: str, container_ports: list) -> tuple[dict[str, int], list[str]]:
+def _allocate_host_port_mappings(
+    job_id: str, container_ports: list
+) -> tuple[dict[str, int], list[str]]:
     """Map container ports to deterministic host ports (55000–59999)."""
     port_map: dict[str, int] = {}
     extra_args: list[str] = []
@@ -3853,7 +3949,8 @@ def _serverless_callback(worker_id: str, suffix: str, body: dict | None = None) 
     if not worker_id:
         return False
     try:
-        resp = requests.post(
+        resp = _api_request(
+            "post",
             _api_url(f"/api/v2/serverless/workers/{worker_id}/{suffix}"),
             json=body or {},
             headers=_api_headers(),
@@ -3899,7 +3996,9 @@ def _monitor_serverless_worker(
                     if not is_v2_attempt:
                         release_lease(job_id, "completed")
                 else:
-                    log.warning("Serverless worker %s failed exit=%d (job %s)", worker_id, exit_code, job_id)
+                    log.warning(
+                        "Serverless worker %s failed exit=%d (job %s)", worker_id, exit_code, job_id
+                    )
                     report_job_status(job_id, "failed", error_message=err_msg)
                     if not is_v2_attempt:
                         release_lease(job_id, "failed")
@@ -3982,11 +4081,7 @@ def run_job(job):
     is_v2_attempt = bool(v2_attempt_id)
     container_name = str(
         job.get("_v2_container_name")
-        or (
-            _v2_container_name(job_id, v2_attempt_id)
-            if is_v2_attempt
-            else f"xcl-{job_id}"
-        )
+        or (_v2_container_name(job_id, v2_attempt_id) if is_v2_attempt else f"xcl-{job_id}")
     )
 
     # ── Requeue guard: stop old container if this job was already running ──
@@ -4100,9 +4195,7 @@ def run_job(job):
         # Also skip interactive instances (30s mount timeout blocks SSH startup).
         has_managed_volumes = bool(job.get("volume_ids"))
         job_requires_nfs = bool(
-            job.get("require_nfs")
-            or job.get("nfs_server")
-            or job.get("nfs_path")
+            job.get("require_nfs") or job.get("nfs_server") or job.get("nfs_path")
         )
         if job_requires_nfs and not has_managed_volumes and not (nfs_server and nfs_path):
             err = "required NFS configuration incomplete"
@@ -4146,10 +4239,7 @@ def run_job(job):
                     failed_encrypted_vol_ids.append(str(vol_id))
 
         if failed_encrypted_vol_ids:
-            err = (
-                "required encrypted volume attach failed: "
-                + ", ".join(failed_encrypted_vol_ids)
-            )
+            err = "required encrypted volume attach failed: " + ", ".join(failed_encrypted_vol_ids)
             log.error("Job %s aborting — %s", job_id, err)
             report_job_status(job_id, "failed", error_message=err)
             _release_execution_lease("failed")
@@ -4221,7 +4311,9 @@ def run_job(job):
                 )
             else:
                 log.error("Encrypted workspace provisioning failed for job %s — aborting", job_id)
-                report_job_status(job_id, "failed", error_message="encrypted workspace provisioning failed")
+                report_job_status(
+                    job_id, "failed", error_message="encrypted workspace provisioning failed"
+                )
                 _release_execution_lease("failed")
                 return
 
@@ -4231,8 +4323,7 @@ def run_job(job):
         if job.get("require_image_signature"):
             cosign = shutil.which("cosign")
             public_key = str(
-                job.get("image_signature_key")
-                or os.environ.get("XCELSIOR_COSIGN_PUBLIC_KEY", "")
+                job.get("image_signature_key") or os.environ.get("XCELSIOR_COSIGN_PUBLIC_KEY", "")
             ).strip()
             if not cosign or not public_key:
                 err = "required image signature verifier/key is unavailable"
@@ -4954,7 +5045,8 @@ class LogForwarder:
             headers["Content-Encoding"] = "gzip"
 
         try:
-            resp = requests.post(
+            resp = _api_request(
+                "post",
                 _api_url(f"/agent/logs/{self.job_id}"),
                 data=body,
                 headers=headers,
@@ -4989,9 +5081,7 @@ class LogForwarder:
             pass
 
 
-def _monitor_container(
-    job_id, container_name, log_forwarder=None, is_v2_attempt=False
-):
+def _monitor_container(job_id, container_name, log_forwarder=None, is_v2_attempt=False):
     """Monitor a running container until it exits or is preempted."""
     check_interval = 5  # seconds
 
@@ -5065,9 +5155,7 @@ def _monitor_container(
             time.sleep(1)
 
 
-def _monitor_interactive(
-    job_id, container_name, log_forwarder=None, is_v2_attempt=False
-):
+def _monitor_interactive(job_id, container_name, log_forwarder=None, is_v2_attempt=False):
     """Monitor an interactive container — stays running until cancelled or shutdown.
 
     Unlike batch containers, interactive containers run indefinitely.
@@ -5553,7 +5641,8 @@ def _run_auto_launch(job_id: str, container_name: str, job: dict) -> None:
                     "token": token,
                 }
                 try:
-                    requests.post(
+                    _api_request(
+                        "post",
                         f"{api_url}/instances/{job_id}/auto-launch/report",
                         json=payload,
                         timeout=5,
@@ -5610,7 +5699,7 @@ def read_container_host_key_fingerprint(container_name: str) -> str:
                 # fingerprint instead of an unnecessary "unknown".
                 "for t in ed25519 ecdsa rsa; do "
                 "  f=/etc/ssh/ssh_host_${t}_key.pub; "
-                "  [ -f \"$f\" ] && ssh-keygen -lf \"$f\" 2>/dev/null && break; "
+                '  [ -f "$f" ] && ssh-keygen -lf "$f" 2>/dev/null && break; '
                 "done",
             ],
             capture_output=True,
@@ -5671,9 +5760,7 @@ def _log_container_host_key_fingerprint(container_name: str, job_id: str) -> Non
         previous = _host_key_seen.get(container_name)
         _host_key_seen[container_name] = value
         if previous == value:
-            log.debug(
-                "host_key.unchanged job=%s container=%s", job_id, container_name
-            )
+            log.debug("host_key.unchanged job=%s container=%s", job_id, container_name)
             return
         if value:
             log.info(
@@ -5765,7 +5852,8 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
     try:
         # --- Fetch authorized keys from API (10s budget clamped to remaining) ---
         try:
-            resp = requests.get(
+            resp = _api_request(
+                "get",
                 _api_url(f"/agent/ssh-keys/{job_id}"),
                 headers=_api_headers(),
                 timeout=_remaining(10),
@@ -5961,9 +6049,9 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
                 tools_script = (
                     "need=''; "
                     "for b in rsync git curl jq; do "
-                    "  command -v \"$b\" >/dev/null 2>&1 || need=\"$need $b\"; "
+                    '  command -v "$b" >/dev/null 2>&1 || need="$need $b"; '
                     "done; "
-                    "[ -z \"$need\" ] && exit 0; "
+                    '[ -z "$need" ] && exit 0; '
                     "if command -v apt-get >/dev/null 2>&1; then "
                     "  export DEBIAN_FRONTEND=noninteractive; "
                     "  apt-get update -qq && "
@@ -6070,7 +6158,8 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
                     + set_root_shell
                     + " ; "
                     # Silence default debian/ubuntu motd noise so ours is the only banner shown
-                    "rm -f /etc/update-motd.d/* 2>/dev/null; " ": > /etc/motd 2>/dev/null || true",
+                    "rm -f /etc/update-motd.d/* 2>/dev/null; "
+                    ": > /etc/motd 2>/dev/null || true",
                 ],
                 capture_output=True,
                 timeout=_remaining(15),
@@ -6152,7 +6241,8 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
             # "ok" means the user can connect via at least one auth method
             # (key OR password). Without sshd_started neither works.
             ssh_ok = bool(sshd_started) and (len(keys) > 0 or bool(root_password))
-            requests.post(
+            _api_request(
+                "post",
                 _api_url(f"/agent/ssh-status/{job_id}"),
                 headers=_api_headers(),
                 json={
@@ -6171,9 +6261,7 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
                     # non-interactive launch, or a host where the provider's
                     # proxy terminates SSH and the container holds no keys — and
                     # the API stores that as null rather than inventing one.
-                    "host_key_fingerprint": read_container_host_key_fingerprint(
-                        container_name
-                    ),
+                    "host_key_fingerprint": read_container_host_key_fingerprint(container_name),
                 },
                 timeout=5,
             )
@@ -6662,7 +6750,8 @@ def graceful_shutdown():
 
     # Deregister from scheduler
     try:
-        requests.delete(
+        _api_request(
+            "delete",
             _api_url(f"/host/{HOST_ID}"),
             headers=_api_headers(),
             timeout=10,
@@ -7336,6 +7425,7 @@ if __name__ == "__main__":
 # path, built before holds and idempotency because if a host cannot stream from
 # object storage to a mount at a usable rate, everything after it is rework.
 
+
 def _report_environment_fingerprint(
     sweep_id: str, member_index: int, container_name: str, image_digest: str
 ) -> bool:
@@ -7353,20 +7443,33 @@ def _report_environment_fingerprint(
     comparison written the obvious way, and the sweep would show a perfect pass
     on an environment nobody measured.
     """
-    collector = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                             "environment_fingerprint.py")
+    collector = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "environment_fingerprint.py"
+    )
     if not os.path.exists(collector):
         log.warning("fingerprint: collector missing at %s", collector)
         return False
     try:
         subprocess.run(
             ["docker", "cp", collector, f"{container_name}:/tmp/_xcl_fingerprint.py"],
-            capture_output=True, text=True, timeout=60, check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
         )
         result = subprocess.run(
-            ["docker", "exec", "-e", f"XCELSIOR_IMAGE_DIGEST={image_digest}",
-             container_name, "python3", "/tmp/_xcl_fingerprint.py"],
-            capture_output=True, text=True, timeout=180,
+            [
+                "docker",
+                "exec",
+                "-e",
+                f"XCELSIOR_IMAGE_DIGEST={image_digest}",
+                container_name,
+                "python3",
+                "/tmp/_xcl_fingerprint.py",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=180,
         )
     except Exception as exc:
         log.warning("fingerprint: could not run the collector in %s: %s", container_name, exc)
@@ -7391,7 +7494,8 @@ def _report_environment_fingerprint(
         return False
 
     try:
-        response = requests.post(
+        response = _api_request(
+            "post",
             _api_url(f"/api/v1/image-sweeps/{sweep_id}/members/{member_index}/fingerprint"),
             headers=_api_headers(),
             json={"hash": digest, "manifest": manifest},
@@ -7475,7 +7579,8 @@ def _promote_artifacts(args: dict) -> bool:
 
     def _report(state: str, failure_code: str = "", written: int = 0) -> None:
         try:
-            requests.post(
+            _api_request(
+                "post",
                 _api_url(f"/api/v1/promotions/{promotion_id}/result"),
                 json={"state": state, "failure_code": failure_code, "bytes_written": written},
                 headers=_api_headers(),
@@ -7488,7 +7593,8 @@ def _promote_artifacts(args: dict) -> bool:
             log.error("promote_artifacts: could not report %s for %s: %s", state, promotion_id, exc)
 
     try:
-        resp = requests.get(
+        resp = _api_request(
+            "get",
             _api_url(f"/api/v1/promotions/{promotion_id}/manifest"),
             headers=_api_headers(),
             timeout=60,
@@ -7499,7 +7605,9 @@ def _promote_artifacts(args: dict) -> bool:
     if resp.status_code != 200:
         log.warning(
             "promote_artifacts: manifest %s for %s: %s",
-            resp.status_code, promotion_id, (resp.text or "")[:200],
+            resp.status_code,
+            promotion_id,
+            (resp.text or "")[:200],
         )
         _report("failed", f"manifest_{resp.status_code}")
         return False
@@ -7522,12 +7630,16 @@ def _promote_artifacts(args: dict) -> bool:
     def _report_file(artifact_id, name, size, verified, state, failure_code=""):
         """Record one file's outcome so a retry can skip it (§3.5)."""
         try:
-            requests.post(
+            _api_request(
+                "post",
                 _api_url(f"/api/v1/promotions/{promotion_id}/files"),
                 json={
-                    "artifact_id": str(artifact_id), "logical_name": name,
-                    "size_bytes": int(size), "sha256_verified": bool(verified),
-                    "state": state, "failure_code": failure_code,
+                    "artifact_id": str(artifact_id),
+                    "logical_name": name,
+                    "size_bytes": int(size),
+                    "sha256_verified": bool(verified),
+                    "state": state,
+                    "failure_code": failure_code,
                 },
                 headers=_api_headers(),
                 timeout=30,
@@ -7590,7 +7702,9 @@ def _promote_artifacts(args: dict) -> bool:
         if digest.hexdigest() != expected:
             log.error(
                 "promote_artifacts: digest mismatch for %s (got %s, expected %s)",
-                name, digest.hexdigest()[:16], expected[:16],
+                name,
+                digest.hexdigest()[:16],
+                expected[:16],
             )
             _cleanup_part(part_path)
             _report_file(f.get("artifact_id"), name, 0, False, "failed", "digest_mismatch")
@@ -7611,7 +7725,10 @@ def _promote_artifacts(args: dict) -> bool:
     _report("succeeded", "", written_total)
     log.info(
         "promote_artifacts: promotion %s complete — %d copied, %d skipped, %d bytes",
-        promotion_id, len(files) - skipped, skipped, written_total,
+        promotion_id,
+        len(files) - skipped,
+        skipped,
+        written_total,
     )
     return True
 
