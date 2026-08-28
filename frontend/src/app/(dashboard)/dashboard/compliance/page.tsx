@@ -41,8 +41,11 @@ interface Province {
 interface SlaTier {
   tier: string;
   uptime_target: number;
-  response_time_ms: number;
-  penalty_rate: number;
+  /** Time-to-first-token ceiling. */
+  latency_ttft_ms: number;
+  throughput_floor_pct: number;
+  /** Support response SLA, in hours — a different clock from TTFT. */
+  response_time_hours: number;
 }
 
 interface SlaHostSummary {
@@ -97,14 +100,20 @@ export default function CompliancePage() {
       setProvinces(provinceList);
     }).catch((e) => console.error("Failed to load tax rates", e));
 
-    // SLA data, transform Record to array
+    // SLA data, transform Record to array.
+    //
+    // The key is `targets`, not `tiers` — reading `d.tiers` gave `undefined`,
+    // and the `|| {}` turned that into "No SLA tier data available" for good.
+    // The inner names were wrong too: `uptime_pct` and `credit_pct_100` are not
+    // fields any endpoint sends.
     api.fetchSlaTargets().then((d) => {
-      const tiers = d.tiers || {};
-      const tierList: SlaTier[] = Object.entries(tiers).map(([name, t]) => ({
+      const targets = d.targets || {};
+      const tierList: SlaTier[] = Object.entries(targets).map(([name, t]) => ({
         tier: name,
-        uptime_target: t.uptime_pct,
-        response_time_ms: 0,
-        penalty_rate: t.credit_pct_100 / 100,
+        uptime_target: t.availability_pct,
+        latency_ttft_ms: t.latency_ttft_ms,
+        throughput_floor_pct: t.throughput_floor_pct,
+        response_time_hours: t.response_time_hours,
       }));
       setSlaTiers(tierList);
     }).catch((e) => console.error("Failed to load SLA tiers", e));
@@ -308,12 +317,16 @@ export default function CompliancePage() {
                           <span className="font-mono font-medium">{tier.uptime_target}%</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-text-muted">Response time</span>
-                          <span className="font-mono font-medium">{tier.response_time_ms}ms</span>
+                          <span className="text-text-muted">First token</span>
+                          <span className="font-mono font-medium">&lt;{tier.latency_ttft_ms}ms</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-text-muted">Penalty rate</span>
-                          <span className="font-mono font-medium text-accent-red">{(tier.penalty_rate * 100).toFixed(0)}%</span>
+                          <span className="text-text-muted">Throughput floor</span>
+                          <span className="font-mono font-medium">{tier.throughput_floor_pct}%</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-text-muted">Support response</span>
+                          <span className="font-mono font-medium">{tier.response_time_hours}h</span>
                         </div>
                       </div>
                     </div>

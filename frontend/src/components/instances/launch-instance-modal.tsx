@@ -341,7 +341,21 @@ export function LaunchInstanceModal({
       })
       .catch(() => {});
     fetchSpotPrices()
-      .then((res) => setSpotPrices(res.spot_prices || res.prices || {}))
+      // `prices` is the lookup this component wants — `{"A10": 0.42}`.
+      // `spot_prices` is a **list** of rows. This read `res.spot_prices ||
+      // res.prices`, and a non-empty array is truthy, so the correctly-shaped
+      // fallback was unreachable and every `spotPrices[gpuModel]` was
+      // `undefined` — the per-listing spot price simply never rendered.
+      //
+      // The list is still the fallback rather than being dropped: it carries
+      // the same rates, so deriving the lookup from it keeps this working if
+      // `prices` is ever retired.
+      .then((res) =>
+        setSpotPrices(
+          res.prices ??
+            Object.fromEntries((res.spot_prices ?? []).map((row) => [row.gpu_model, row.rate_cad])),
+        ),
+      )
       .catch(() => {});
     fetchSpotFeatureStatus()
       .then((res) => setSpotFeature({ enabled: res.enabled, message: res.message }))
