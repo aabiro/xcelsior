@@ -1482,10 +1482,36 @@ export async function claimReputationMilestones() {
   }>("/api/reputation/me/claim", { method: "POST" });
 }
 
+/**
+ * One rung of the trust ladder, as `GET /api/trust-tiers` actually sends it.
+ *
+ * The previous declaration was a `Record<string, {min_score, requirements}>`.
+ * The route returns a **list**, and has never sent either of those fields — it
+ * sends `threshold` and `unlock_requirements`. The dashboard's
+ * `Object.entries()` therefore walked an array, rendered the **index** as each
+ * tier's name, and printed "Min Score: 0" with no requirements on every card.
+ * `?? 0` and `|| []` kept it silent.
+ *
+ * `unlock_requirements` is a **string**, not a list — renaming the dead
+ * `requirements` field without noticing that would have turned a quiet blank
+ * into a `.map is not a function` crash.
+ *
+ * Pinned by `tests/test_trust_tiers_shape_matches_the_browser.py`.
+ */
+export interface TrustTier {
+  tier: string;
+  threshold: number;
+  search_boost: number;
+  /** Fraction, not percent: 0.05 is a 5% premium. */
+  pricing_premium_pct: number;
+  /** Fraction, not percent: 0.15 is a 15% commission. */
+  platform_commission: number;
+  description: string;
+  unlock_requirements: string;
+}
+
 export async function fetchTrustTiers() {
-  return apiFetch<{ ok: boolean; tiers: Record<string, { min_score: number; requirements: string[] }> }>(
-    "/api/trust-tiers",
-  );
+  return apiFetch<{ ok: boolean; tiers: TrustTier[] }>("/api/trust-tiers");
 }
 
 // ── Analytics ─────────────────────────────────────────────────────────
