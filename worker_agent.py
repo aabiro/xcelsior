@@ -1269,10 +1269,90 @@ def _api_request(method, url, **kwargs):
     return getattr(requests, method)(url, **kwargs)
 
 
+#: v1 path -> `/agent/v2` path, for every call this worker makes.
+#:
+#: Blueprint §22.3 requires the agent gateway to serve `/agent/v2/*` and nothing
+#: else, and `infra/envoy/agent-gateway.yaml` answers 404 to the rest. So after
+#: the Envoy cutover a worker still calling `/host` has no heartbeat and the
+#: fleet goes dark.
+#:
+#: The server mounts these as **aliases onto the same handler**
+#: (`routes/agent_v2_aliases.ALIASES`), so a v2 path is not a different
+#: endpoint — it is the same one, reachable through the private gateway.
+#:
+#: This table is a second copy of that mapping, and it exists only because the
+#: worker ships as a single file to GPU hosts and cannot import the server's.
+#: `tests/test_worker_v2_paths_match_the_server.py` pins the two together; a
+#: copy without that guard is how the two come to disagree in the direction of
+#: the worker silently calling something that no longer exists.
+#:
+#: Ordered as `ALIASES` is. Keys are the literal prefixes `_api_url` receives —
+#: matched longest-first so `/host/{id}` cannot be shadowed by `/host`.
+_AGENT_V2_PATH_MAP: dict[str, str] = {
+    "/host": "/agent/v2/hosts/heartbeat",
+    "/agent/work/": "/agent/v2/work/",
+    "/agent/telemetry": "/agent/v2/telemetry",
+    "/agent/preempt/": "/agent/v2/preempt/",
+    "/agent/logs/": "/agent/v2/logs/",
+    "/agent/benchmark": "/agent/v2/benchmark",
+    "/agent/degraded": "/agent/v2/degraded",
+    "/agent/mining-alert": "/agent/v2/mining-alert",
+    "/agent/ssh-keys/": "/agent/v2/ssh-keys/",
+    "/agent/ssh-status/": "/agent/v2/ssh-status/",
+    "/agent/verify": "/agent/v2/verify",
+    "/agent/versions": "/agent/v2/versions",
+    "/host/": "/agent/v2/hosts/",
+    "/instance/": "/agent/v2/instances/",
+    "/instances/": "/agent/v2/instances/",
+    "/user-images/": "/agent/v2/user-images/",
+    "/api/v1/promotions/": "/agent/v2/promotions/",
+    "/api/v1/image-sweeps/": "/agent/v2/image-sweeps/",
+    "/api/v2/serverless/workers/": "/agent/v2/serverless/workers/",
+}
+
+#: Longest prefix first: `/host/` must win over `/host`, and `/instances/` over
+#: `/instance/`. Sorting once here keeps the lookup honest without the caller
+#: having to know the ordering matters.
+_AGENT_V2_PREFIXES: tuple[tuple[str, str], ...] = tuple(
+    sorted(_AGENT_V2_PATH_MAP.items(), key=lambda kv: -len(kv[0]))
+)
+
+#: Off by default. The v2 aliases must be live on the API before a worker may
+#: rely on them, and a worker that switches early loses its heartbeat with no
+#: way back other than an operator editing this host. `1` opts in; the interim
+#: Nginx gateway proxies both spellings, so this can be verified against the
+#: running fleet *before* Envoy makes v2 the only option.
+_AGENT_V2_PATHS = (os.environ.get("XCELSIOR_AGENT_V2_PATHS", "") or "").strip() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+
+
+def _to_agent_v2_path(path):
+    """Translate one v1 path to its `/agent/v2` equivalent.
+
+    Returns `path` unchanged when nothing matches. That is deliberate: an
+    unmapped path is a call this migration has not covered, and rewriting it by
+    guesswork would produce a 404 that looks like a server fault. It keeps
+    working on v1, and `tests/test_worker_surface_is_reachable_under_agent_v2.py`
+    is what makes the omission visible.
+    """
+    for v1, v2 in _AGENT_V2_PREFIXES:
+        if path == v1:
+            return v2
+        if v1.endswith("/") and path.startswith(v1):
+            return v2 + path[len(v1) :]
+    return path
+
+
 def _api_url(path):
-    """Build absolute API URL."""
+    """Build absolute API URL, in the spelling this deployment speaks."""
     if not SCHEDULER_URL:
         raise RuntimeError("XCELSIOR_SCHEDULER_URL is not set")
+    if _AGENT_V2_PATHS:
+        path = _to_agent_v2_path(path)
     return f"{SCHEDULER_URL.rstrip('/')}{path}"
 
 
