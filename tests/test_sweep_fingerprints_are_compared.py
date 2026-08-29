@@ -310,5 +310,10 @@ def test_a_failed_collection_is_not_reported_as_an_empty_fingerprint():
         "the reporter has fewer failure paths than it has ways to fail; a "
         "silent partial read would reach the comparison"
     )
-    posts = _re.findall(r"requests\.post\(", body)
+    # Counts the transport call in either spelling. Worker API calls moved
+    # behind `_api_request` so the mTLS client certificate could not be
+    # forgotten at a call site; this guard is about *how many* report paths
+    # exist, not which function issues them, and matching only the old literal
+    # made it silently count zero — a guard that passes by finding nothing.
+    posts = _re.findall(r'requests\.post\(|_api_request\(\s*"post"', body)
     assert len(posts) == 1, "more than one report path; only one may carry a reading"
