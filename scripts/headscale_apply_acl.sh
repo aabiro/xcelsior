@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 ACL_SRC="$PROJECT_DIR/infra/headscale/acl.hujson"
 REMOTE_USER="${XCELSIOR_HEADSCALE_USER:-root}"
-REMOTE_HOST="${XCELSIOR_HEADSCALE_HOST:-45.76.3.128}"
+REMOTE_HOST="${XCELSIOR_HEADSCALE_HOST:-149.28.121.61}"
 SSH_KEY="${XCELSIOR_HEADSCALE_SSH_KEY:-${XCELSIOR_SSH_KEY:-$HOME/.ssh/id_ed25519}}"
 
 log() { echo "[headscale-acl] $*"; }
