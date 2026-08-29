@@ -36,13 +36,17 @@ and again in the API.
 
 ## Bring-up
 
+> **Read the four notes below first.** The steps as originally written do not
+> work on the current control-plane host, and one of them takes the live fleet
+> down. Verified against production 2026-08-29.
+
 ```bash
 # 1. datastore + secret
 export SPIRE_DATASTORE_DSN='postgresql://spire:...@127.0.0.1:5432/spire'
-export XCELSIOR_AGENT_GATEWAY_SECRET="$(openssl rand -hex 32)"
+export XCELSIOR_AGENT_GATEWAY_SECRET="$(openssl rand -hex 32)"   # ← SEE NOTE 1
 
 # 2. mesh
-docker compose -f infra/spire/docker-compose.spire.yml up -d
+docker compose -f infra/spire/docker-compose.spire.yml up -d      # ← SEE NOTE 2
 
 # 3. one registration entry per admitted host
 XCELSIOR_POSTGRES_DSN=... infra/spire/register-host.sh --all
@@ -55,9 +59,67 @@ XCELSIOR_SPIFFE_TRUST_DOMAIN=xcelsior.ca
 XCELSIOR_SPIFFE_STRICT=1
 ```
 
-`/readyz` refuses to report ready if `XCELSIOR_TRUSTED_AGENT_GATEWAY=1`
-without a gateway secret, so a half-configured cutover fails the deploy
-gate instead of silently accepting forgeable headers.
+### Note 1 — do NOT generate a new gateway secret
+
+`XCELSIOR_AGENT_GATEWAY_SECRET` is **already set in production** and the live
+Nginx gateway authenticates with it. Generating a fresh one and putting it in
+the compose environment means Envoy presents a secret the API does not hold:
+`gateway_headers_authenticated()` fails, every identity header is stripped, and
+the whole fleet is refused. Reuse the value already in `/opt/xcelsior/.env`.
+`openssl rand` is only correct on a first-ever install.
+
+### Note 2 — `bootstrap.crt` does not exist yet, and the compose mounts it
+
+`agent.conf` sets `trust_bundle_path = /opt/spire/conf/agent/bootstrap.crt` and
+the compose bind-mounts `./bootstrap.crt`, but no such file is in this
+directory. `spire-agent validate` fails outright:
+
+```
+could not parse trust bundle: open .../bootstrap.crt: no such file or directory
+```
+
+It is the server's own trust bundle, so it cannot exist before the server does.
+Start the server alone, export the bundle, then start the agent:
+
+```bash
+docker compose -f infra/spire/docker-compose.spire.yml up -d spire-server
+docker compose -f infra/spire/docker-compose.spire.yml exec -T spire-server \
+    /opt/spire/bin/spire-server bundle show > infra/spire/bootstrap.crt
+docker compose -f infra/spire/docker-compose.spire.yml up -d
+```
+
+### Note 3 — remote GPU hosts cannot reach the server as configured
+
+The compose publishes the server as `127.0.0.1:8081:8081` — loopback on the
+control-plane host only. A GPU host elsewhere has nothing to attest against.
+Decide deliberately how agents reach `:8081` (tailnet address, or published with
+its own TLS) before registering hosts that are not the control plane itself.
+
+### Note 4 — the listener moved to 9443, and 443 does not reach it yet
+
+The Envoy listener was `0.0.0.0:8443`. **Headscale already holds
+`127.0.0.1:8443` on this host**, and the listener binds `0.0.0.0` under
+`network_mode: host`, so that was a direct collision with the tailnet control
+plane. It is now `9443`.
+
+Nothing routes 443 → 9443 yet. That last hop must be **SNI passthrough** for
+`agent.xcelsior.ca` — if Nginx terminates TLS first it strips the client
+certificate, which is the entire point of SPIFFE mTLS. Nginx currently owns 443
+for eight vhosts on this box, so this is a real ingress decision and not a
+config tweak.
+
+Also fixed while verifying: the `xcelsior_api` cluster pointed at `127.0.0.1:9500`
+alone. Production runs blue/green and **9501 is the live slot** — 9500 has
+nothing bound. That is the same fault that already cost a session in
+`nginx/agent-xcelsior.conf`: every worker request 502s while Envoy, mTLS, SPIRE
+and the API are each individually healthy. Both slots are now listed, and
+`tests/test_agent_gateway_points_at_a_live_backend.py` holds it there.
+
+### What is verified
+
+`server.conf` and the Envoy config both validate against the real binaries
+(`spire-server validate`, `envoy --mode validate`). `agent.conf` validates once
+`bootstrap.crt` exists.
 
 ## Migrating from Nginx mTLS
 

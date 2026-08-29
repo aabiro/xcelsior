@@ -35,7 +35,17 @@ static_resources:
   listeners:
     - name: agent_ingress
       address:
-        socket_address: { address: 0.0.0.0, port_value: 8443 }
+        # NOT 8443 — Headscale already listens on 127.0.0.1:8443 on the
+        # control-plane host, and this listener binds 0.0.0.0 under
+        # `network_mode: host`, so it would collide with the tailnet control
+        # plane. 9443 is free there (verified 2026-08-29: only 8443 headscale
+        # and 9501 gunicorn were bound).
+        #
+        # This is the *internal* mTLS port. Reaching it from outside on 443
+        # needs SNI passthrough for `agent.xcelsior.ca` — terminating TLS at
+        # nginx first would strip the client certificate and defeat the whole
+        # point of SPIFFE mTLS.
+        socket_address: { address: 0.0.0.0, port_value: 9443 }
       filter_chains:
         - transport_socket:
             name: envoy.transport_sockets.tls
@@ -195,6 +205,16 @@ static_resources:
         cluster_name: xcelsior_api
         endpoints:
           - lb_endpoints:
+              # Mirror the public site's blue/green pair. 9501 is the live
+              # slot, 9500 the backup; pinning 9500 alone points this at the
+              # *down* slot, so every worker request 502s while Envoy, mTLS,
+              # SPIRE and the API are each individually healthy. That exact
+              # mistake already cost a session in nginx/agent-xcelsior.conf.
+              # The active health check below drops whichever slot is down,
+              # so listing both is correct in either colour.
+              - endpoint:
+                  address:
+                    socket_address: { address: 127.0.0.1, port_value: 9501 }
               - endpoint:
                   address:
                     socket_address: { address: 127.0.0.1, port_value: 9500 }
