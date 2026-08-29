@@ -44,7 +44,12 @@ def project_root() -> Path:
 PROJECT = project_root()
 DEFAULT_ENV_FILE = PROJECT / ".env"
 
-DEFAULT_PRIMARY_HOST = "45.76.3.128"
+# Headscale runs on the API VPS (`pixelenhance-labs`), not on 45.76.3.128 —
+# that address is `aarynfans`, which has never had Headscale installed. The old
+# default made every replication attempt fail against a healthy fleet and page
+# about it. `headscale nodes list` on this host shows the original tailnet:
+# .1 vps-linuxuser, .3 the Mac, .6 asus-pc.
+DEFAULT_PRIMARY_HOST = "149.28.121.61"
 DEFAULT_DNS_NAME = "hs.xcelsior.ca"
 DEFAULT_LOGIN_SERVER = "https://hs.xcelsior.ca"
 DEFAULT_REPLICA_DIR = Path("/var/backups/headscale")
@@ -113,6 +118,19 @@ class FailoverState:
     last_action: str = "none"
     last_alert: str = ""
     last_alert_at: str = ""
+    # Which alerting condition is *currently* open, per channel. These are the
+    # dedupe keys; `last_alert` above is the historical record and must not be
+    # reused for dedupe (it persists after the condition clears, which silently
+    # suppresses the next occurrence — `refuse_promote` sat in it from
+    # 2026-08-19 onward, so a genuine refusal to promote would never have paged).
+    #
+    # The two channels reset on different events — a watchdog decision clears
+    # when the decision stops alerting, a replication failure clears when
+    # replication succeeds — so they cannot share one key: the watchdog's reset
+    # runs every tick and would wipe an open replication episode, restoring the
+    # every-two-minutes alert storm this was written to stop.
+    alert_episode: str = ""
+    replicate_alert_active: bool = False
     last_replicate_ok_at: str = ""
     promoted_at: str = ""
     original_a_record: str = DEFAULT_PRIMARY_HOST
@@ -470,6 +488,8 @@ def replicate(
         "-i",
         settings.ssh_key,
         "-o",
+        "IdentitiesOnly=yes",
+        "-o",
         "BatchMode=yes",
         "-o",
         "ConnectTimeout=8",
@@ -477,15 +497,45 @@ def replicate(
         "StrictHostKeyChecking=accept-new",
         remote,
     ]
-    # .backup is a consistent snapshot even while Headscale has the DB open.
-    run_cmd(
-        ssh
-        + [
-            'sqlite3 /var/lib/headscale/db.sqlite ".timeout 5000" ".backup /tmp/headscale-replica.sqlite"'
-        ],
-        timeout=90,
+    # Confirm this host actually runs Headscale before blaming its database.
+    #
+    # The replication target was pointed at 45.76.3.128 for weeks. That box is
+    # healthy and reachable, and has never had Headscale on it — so every run
+    # failed on the *database* path and paged `unable to open database file`,
+    # which reads as corruption or permissions on the control plane. It sent the
+    # investigation to a server that was fine. A missing database and a wrong
+    # host are different faults and must not share an error message.
+    probe = run_cmd(
+        ssh + ["test -f /var/lib/headscale/db.sqlite && echo present || echo absent"],
+        timeout=30,
         runner=runner,
+        check=False,
     )
+    if "absent" in (probe.stdout or ""):
+        raise FailoverError(
+            f"{settings.primary_host} has no /var/lib/headscale/db.sqlite — "
+            "it is reachable but is not the Headscale control plane. Check "
+            "XCELSIOR_HEADSCALE_HOST in /etc/default/headscale-failover; this is "
+            "a configuration error, not a database fault."
+        )
+
+    # A consistent snapshot even while Headscale has the DB open, via SQLite's
+    # backup API.
+    #
+    # Python's stdlib rather than the `sqlite3` CLI: that binary is not
+    # installed on the Headscale host, and the failure it produced —
+    # `unable to open database file` — reads as a missing or unreadable
+    # *database* rather than a missing *tool*, which is what sent this chasing
+    # permissions and paths on a healthy server. `python3` is present on every
+    # host in this fleet and `Connection.backup()` has the same guarantee.
+    remote_backup = (
+        "python3 -c "
+        "'import sqlite3,sys; "
+        'src=sqlite3.connect("file:/var/lib/headscale/db.sqlite?mode=ro",uri=True,timeout=5); '
+        'dst=sqlite3.connect("/tmp/headscale-replica.sqlite"); '
+        "src.backup(dst); dst.close(); src.close()'"
+    )
+    run_cmd(ssh + [remote_backup], timeout=90, runner=runner)
     scp_base = [
         "scp",
         "-i",
@@ -670,13 +720,16 @@ def install_replica_into_live(settings: Settings, replica: ReplicaStatus) -> Non
 
 def maybe_alert(settings: Settings, state: FailoverState, decision: Decision) -> FailoverState:
     if not decision.alert:
+        # Condition cleared: the next occurrence is a new episode and pages.
+        state.alert_episode = ""
         return state
-    if state.last_alert == decision.action:
+    if state.alert_episode == decision.action:
         return state
     telegram_send(
         settings,
         f"Headscale failover: {decision.action}\n{decision.reason}",
     )
+    state.alert_episode = decision.action
     state.last_alert = decision.action
     state.last_alert_at = utc_now()
     return state
@@ -720,16 +773,47 @@ def watchdog_tick(
             try:
                 replicate(settings, runner=runner)
                 state.last_replicate_ok_at = utc_now()
+                if state.replicate_alert_active:
+                    # Say so once, then go quiet. A page that heals silently
+                    # leaves you believing it is still broken.
+                    telegram_send(settings, "Headscale replica refresh recovered")
+                    state.replicate_alert_active = False
+                    state.last_alert_at = utc_now()
             except PrimaryUnreachable:
                 state.last_action = "replicate_skipped_unreachable"
             except FailoverError as exc:
                 state.last_action = "replicate_failed"
-                telegram_send(settings, f"Headscale replica refresh failed: {exc}")
+                # Alert once per episode, the way `maybe_alert` does for every
+                # other decision. This call site used to send unconditionally,
+                # and the watchdog timer runs every two minutes — so a single
+                # persistent fault (a misconfigured host, for weeks) delivered
+                # the identical message ~700 times a day until someone noticed.
+                if not state.replicate_alert_active:
+                    telegram_send(settings, f"Headscale replica refresh failed: {exc}")
+                    state.replicate_alert_active = True
+                    state.last_alert = "replicate_failed"
+                    state.last_alert_at = utc_now()
         elif decision.action == "promote":
+            # Record what the A record *actually* held before we take the name,
+            # rather than assuming it equals the primary host.
+            #
+            # Those two coincided until 2026-08-28 and the assumption was
+            # invisible. They no longer do: `hs.xcelsior.ca` points at
+            # 45.76.3.128, which reverse-proxies to the real Headscale on
+            # 149.28.121.61 (= primary_host). Assuming them equal would file the
+            # wrong address as the thing to restore, and this value's only reader
+            # is a human running failback under pressure.
+            #
+            # Best-effort: an emergency promotion must not be blocked because
+            # Cloudflare was unreachable for a bookkeeping read.
+            try:
+                state.original_a_record = dns_a_record(settings)["content"]
+            except (FailoverError, KeyError, OSError):
+                state.original_a_record = settings.primary_host
+
             promote(settings, replica=replica, state=state, runner=runner)
             state.role = "promoted"
             state.promoted_at = utc_now()
-            state.original_a_record = settings.primary_host
 
     save_state(paths["state"], state)
     return decision, state

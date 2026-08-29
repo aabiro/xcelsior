@@ -25,10 +25,26 @@ DNS is pointed at the VPS again.
 
 ## Topology
 
+> **Corrected 2026-08-28. This table used to name `45.76.3.128` as the Headscale
+> primary, and that was wrong.** That box is `aarynfans`; it has never had
+> Headscale installed. It only *fronts* `hs.xcelsior.ca` and proxies to
+> `149.28.121.61`, which is where Headscale actually runs.
+>
+> The error was expensive twice over. Replication was configured against
+> `45.76.3.128`, so it failed on every run for weeks with
+> `unable to open database "/var/lib/headscale/db.sqlite"` — a message that reads
+> like a corrupt or unreadable *database* and sent the investigation to a healthy
+> server, while the real control plane sat unreplicated. And because the proxy is
+> a hard dependency of `hs.xcelsior.ca`, the tailnet died on 2026-08-19 when
+> `45.76.3.128` went dark **even though Headscale itself was fine** — the outage
+> was in the front, not the control plane.
+
+
 | Role | Address | Notes |
 |---|---|---|
-| Headscale primary | `45.76.3.128` (`hs.xcelsior.ca`, DNS-only, TTL 60–120) | Vultr, SSH as `root` |
-| API VPS | `149.28.121.61` | Must be reachable **without** ProxyJump through the Headscale VPS. Use `ssh xcelsior-api`. |
+| Headscale primary | `149.28.121.61` (`pixelenhance-labs`) | **Headscale runs here**, with the API. SSH as `root` with `~/.ssh/xcelsior` (*not* `id_ed25519`). |
+| `hs.xcelsior.ca` front | `45.76.3.128` (`aarynfans`, DNS-only, TTL 60–120) | Reverse proxy **only** — `/etc/nginx/sites-available/hs.xcelsior.ca` → `proxy_pass https://149.28.121.61`. No Headscale binary, no `/var/lib/headscale`. |
+| API VPS | `149.28.121.61` | Same box as the Headscale primary. Must be reachable **without** ProxyJump through `45.76.3.128`. Use `ssh xcelsior-api`. |
 | Standby | the host running `headscale-failover` (this laptop unless moved) | Replica lives in `/var/backups/headscale` |
 | Public DERP | Tailscale's published map | NAT relay must not depend on the VPS |
 
@@ -74,9 +90,10 @@ DNS is pointed at the VPS again.
 > **Read this before the VPS comes back.** Both nodes are now pointed at
 > `--login-server=http://192.168.1.127:8080` — the LAN control plane, not
 > `hs.xcelsior.ca`. This is a *different tailnet* from the VPS's, sharing only
-> the addressing. When `45.76.3.128` returns it will still hold its own
-> authoritative database, and these two nodes will **not** move back on their
-> own: each needs `tailscale up --login-server=https://hs.xcelsior.ca --reset`.
+> the addressing. The authoritative database is on **`149.28.121.61`** (not on
+> `45.76.3.128`, which only proxies the name), it survived the outage intact, and
+> these two nodes will **not** move back on their own: each needs
+> `tailscale up --login-server=https://hs.xcelsior.ca --reset`.
 > Decide deliberately which database wins before doing that — the VPS's is the
 > older, larger one; this one is two nodes rebuilt by hand.
 >
@@ -86,11 +103,21 @@ DNS is pointed at the VPS again.
 
 
 
-The case this runbook did not cover, and the one we are in. `replicate` never
-succeeded before `45.76.3.128` went dark on 2026-08-19 —
-`headscale-failover status --json` shows `promotable: false`, "no replicated
-sqlite database", `last_replicate_ok_at: ""`, and thousands of `refuse_promote`
-decisions. The watchdog is correct to refuse: there is nothing to restore.
+**Resolved 2026-08-28 — a replica now exists.** Left here because the cause is
+worth keeping.
+
+`replicate` had never once succeeded, and the reason was not the outage: it was
+aimed at `45.76.3.128`, which has no Headscale to copy. Every run failed on the
+database step, so `headscale-failover status --json` showed `promotable: false`,
+"no replicated sqlite database", `last_replicate_ok_at: ""`, and thousands of
+`refuse_promote` decisions. The watchdog was right to refuse — there genuinely
+was nothing to restore — but the fault was a wrong hostname wearing a database
+error's clothes.
+
+Retargeted at `149.28.121.61`, the first run captured 1 user and 6 nodes plus
+both private keys. `replicate` now refuses outright when the configured host has
+no `/var/lib/headscale/db.sqlite`, and says so as a configuration error
+(`tests/test_headscale_replication_names_the_real_fault.py`).
 
 So the addresses have to be reassigned by hand, and **the old assignments are
 the specification**, recovered from what the code already depends on:
@@ -209,7 +236,7 @@ sudo headscale-failover replicate   # requires the VPS to be up
 sudo headscale-failover status --json
 ```
 
-SSH to the Headscale VPS uses `root@45.76.3.128` and `~/.ssh/id_ed25519`
+SSH to the Headscale VPS uses `root@149.28.121.61` and `~/.ssh/xcelsior`
 (`XCELSIOR_HEADSCALE_HOST` / `XCELSIOR_HEADSCALE_SSH_KEY` override).
 
 Cloudflare and Telegram credentials are read as **data** from the project
