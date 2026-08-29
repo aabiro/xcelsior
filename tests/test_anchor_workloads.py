@@ -84,11 +84,11 @@ class TestAnchorWorkloadsHTTP:
         # Reachability gated the *collection* and not the assertion below, so an
         # unreachable Mac reported as "expected ≥2 Mac SSH builders, got []" —
         # a code failure for what is a network outage. The distinction matters
-        # right now: the Headscale control plane at 45.76.3.128 has been down
-        # since 2026-08-19, the replica was never captured before it went (see
-        # `headscale-failover status`: "no replicated sqlite database"), and the
-        # tailnet standing in for it is a freshly minted one holding a single
-        # node. `aaryn@100.64.0.3` is an address on the tailnet that was lost.
+        # right now: `hs.xcelsior.ca` was unreachable from 2026-08-19 because
+        # its reverse proxy (45.76.3.128) went dark — Headscale itself, on
+        # 149.28.121.61, was fine the whole time and its database survived. The
+        # tailnet standing in for it is a freshly minted LAN one, so
+        # `aaryn@100.64.0.3` may resolve to a different node than it used to.
         #
         # Skipped rather than deleted or softened: when the Mac is reachable the
         # assertion is exactly as strict as it was.
