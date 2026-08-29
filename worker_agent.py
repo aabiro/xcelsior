@@ -1329,6 +1329,18 @@ _AGENT_V2_PATHS = (os.environ.get("XCELSIOR_AGENT_V2_PATHS", "") or "").strip() 
     "on",
 )
 
+#: Opt-in decommission. Default OFF — see the shutdown path for why: this used
+#: to fire on every restart and cascade-deleted the host's admission decision
+#: and evidence. Set it only when the host is genuinely being retired.
+_DEREGISTER_ON_EXIT = (
+    os.environ.get("XCELSIOR_WORKER_DEREGISTER_ON_EXIT", "") or ""
+).strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+
 
 def _to_agent_v2_path(path):
     """Translate one v1 path to its `/agent/v2` equivalent.
@@ -2599,6 +2611,19 @@ def negotiate_protocol_v2() -> bool:
             )
         else:
             _v2_enabled = False
+            # Say why. This branch used to be silent, so a worker sitting on v1
+            # looked identical to one that had never tried — and the actual
+            # reason (a 403 for a host that was not admitted) was only findable
+            # in the API's access log on the server.
+            try:
+                detail = resp.json()
+            except ValueError:
+                detail = (resp.text or "")[:200]
+            log.warning(
+                "Protocol v2 declined (HTTP %s) — staying on v1: %s",
+                resp.status_code,
+                detail,
+            )
     except requests.RequestException as e:
         _v2_enabled = False
         log.info("Protocol negotiation unavailable (%s) — staying on v1", e)
@@ -6828,17 +6853,39 @@ def graceful_shutdown():
     except Exception as e:
         log.warning("Volume cleanup during shutdown failed: %s", e)
 
-    # Deregister from scheduler
-    try:
-        _api_request(
-            "delete",
-            _api_url(f"/host/{HOST_ID}"),
-            headers=_api_headers(),
-            timeout=10,
-        )
-        log.info("Deregistered from scheduler")
-    except requests.RequestException:
-        log.warning("Failed to deregister from scheduler")
+    # Deregister from the scheduler — only when this host is genuinely being
+    # decommissioned, never on an ordinary restart.
+    #
+    # This used to run on every graceful shutdown, and it destroyed the host's
+    # admission. `DELETE /host/{id}` removes the `hosts` row, and both
+    # `host_admission_decisions` and `host_admission_evidence` are ON DELETE
+    # CASCADE, so a `systemctl restart` deleted the operator-signed decision and
+    # every evidence record with it, then re-registered as a fresh `pending`
+    # host. Measured on production 2026-08-29: work polls returned 204 up to
+    # 09:53:21 and 403 from 09:53:27, the moment of a restart, with
+    # `admission_version` back to 0 and zero decision rows.
+    #
+    # That is a privilege inversion — the host revoking an operator's trust
+    # decision about itself, by restarting. Admission is deliberately versioned
+    # with `expected_version` and idempotency keys precisely because it is meant
+    # to be durable and auditable.
+    #
+    # Absence needs no announcement: `check_hosts()` marks a host dead after a
+    # grace period, which is how the four existing dead hosts got there. So the
+    # default is now to say nothing and let staleness speak.
+    if _DEREGISTER_ON_EXIT:
+        try:
+            _api_request(
+                "delete",
+                _api_url(f"/host/{HOST_ID}"),
+                headers=_api_headers(),
+                timeout=10,
+            )
+            log.info("Deregistered from scheduler (decommission requested)")
+        except requests.RequestException:
+            log.warning("Failed to deregister from scheduler")
+    else:
+        log.info("Shutdown without deregistering — admission and evidence preserved")
 
 
 # ── Main Loop ─────────────────────────────────────────────────────────
