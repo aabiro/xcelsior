@@ -40,8 +40,24 @@ WORKER = ROOT / "worker_agent.py"
 #: Paths the worker calls that are deliberately not being relocated, with the
 #: reason. Anything here is a decision someone made, not an oversight.
 NOT_RELOCATED = {
-    # The credential exchange itself. Under SVID identity this is expected to
-    # become unnecessary; relocating it would entrench a step the mesh removes.
+    # The credential exchange itself, and the one worker path that stays public
+    # on purpose.
+    #
+    # It is not gated by `AgentIngressMiddleware` (whose prefixes are `/agent/`
+    # and `/host/`) and that is correct rather than an oversight: this endpoint
+    # is authenticated by the client secret it is being handed, so it cannot sit
+    # behind a credential the caller does not have yet. Standard OAuth shape.
+    #
+    # It *could* be relocated now — the worker holds a client certificate
+    # provisioned out of band, so it can reach the gateway before it holds any
+    # token. It is deliberately not, because SVID identity removes the exchange
+    # rather than moving it: a `/agent/v2/oauth/token` would be built to be
+    # deleted.
+    #
+    # The decision therefore has a trigger, so it cannot sit here unexamined:
+    # when SPIRE lands and `XCELSIOR_SPIFFE_STRICT` goes back to `1`, delete
+    # this endpoint from the worker's path. If SPIRE is abandoned instead,
+    # relocate it like the other 22.
     "/oauth/token",
 }
 
