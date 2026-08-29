@@ -32,7 +32,12 @@ die() { echo "error: $*" >&2; exit 1; }
 # a different sanitisation on either side means the API rejects a
 # legitimately attested host.
 sanitize_host_component() {
-    printf '%s' "$1" | sed 's/[^A-Za-z0-9_-]/-/g'
+    # LC_ALL=C is load-bearing: without it `A-Za-z` is collation-dependent, so
+    # this same line yields `café-gpu` under en_US.UTF-8 and `caf---gpu` under
+    # C. The same host registered from two different shells would then get two
+    # different SPIFFE IDs. Must stay byte-identical to
+    # `control_plane.identity.spiffe_host_component`.
+    printf '%s' "$1" | LC_ALL=C sed 's/[^A-Za-z0-9_-]/-/g'
 }
 
 spiffe_id_for_host() {

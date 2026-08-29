@@ -112,8 +112,32 @@ def spiffe_host_component(host_id: str) -> str:
 
     Deliberately lossy in the same way on both sides (issuer and
     verifier) so the comparison is exact rather than fuzzy.
+
+    **Per UTF-8 byte, deliberately** — this walks `host_id.encode("utf-8")`,
+    not its characters.
+
+    The issuer is `infra/spire/register-host.sh`, which runs
+    `LC_ALL=C sed 's/[^A-Za-z0-9_-]/-/g'`, and `sed` in the C locale
+    substitutes *bytes*. So `é` (two bytes) becomes `--` there while a
+    character-wise pass makes it `-`. `str.isalnum()` is also Unicode-aware,
+    which kept characters `sed` replaces outright. Both gaps produce the same
+    class of failure: a host registered under one SPIFFE ID and verified
+    against another, refused an identity it genuinely holds — surfacing at
+    cutover as an authentication fault with every individual piece looking
+    correct.
+
+    Byte-wise is the definition that both sides can honour exactly, and a
+    SPIFFE ID is a URI where non-ASCII does not belong anyway. Held to it by
+    `tests/test_spiffe_host_component_agrees_with_the_issuer.py`, which runs
+    both implementations rather than reasoning about them.
     """
-    return "".join(c if c.isalnum() or c in "-_" else "-" for c in host_id)
+    # `b < 128` is required, not decoration: `chr(0xC3)` is `Ã`, which
+    # `str.isalnum()` accepts, so a byte-wise pass without it still keeps the
+    # lead bytes of multi-byte characters.
+    return "".join(
+        chr(b) if (b < 128 and chr(b).isalnum()) or chr(b) in "-_" else "-"
+        for b in host_id.encode("utf-8")
+    )
 
 
 def spiffe_id_for_host(host_id: str, *, trust_domain: str | None = None) -> str:
