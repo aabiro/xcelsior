@@ -1112,16 +1112,68 @@ def api_undrain_host(host_id: str, request: Request):
     return {"ok": True, "host": updated}
 
 
+def machine_credential_may_not_delete(user: dict, entry: dict | None) -> bool:
+    """True when a machine credential is trying to delete an *admitted* host.
+
+    Deleting a host cascades to `host_admission_decisions` and
+    `host_admission_evidence`, so this endpoint erases the operator's signed
+    decision and the evidence behind it. `worker_agent.py` called it on every
+    graceful shutdown, so a `systemctl restart` silently revoked the host's own
+    admission and it came back `pending` — mistaken twice for a database losing
+    writes before the cause was found.
+
+    The agent is fixed, but a client-side fix cannot bind a client and old
+    binaries are still in the field, so the invariant lives here as well:
+    revoking admission is an operator act and a host may not perform it on
+    itself. Humans are deliberately unaffected — an admin or the host's owner
+    may still remove it, admitted or not.
+    """
+    if entry is None:
+        return False
+    grant = str(user.get("grant_type") or user.get("auth_type") or "")
+    if grant != "client_credentials":
+        return False
+    if _is_platform_admin(user):
+        return False
+    return str(entry.get("admission_state") or "").strip().lower() == "admitted"
+
+
 @router.delete("/host/{host_id}", tags=["Hosts"])
 def api_remove_host(host_id: str, request: Request):
     """Remove a host."""
     user = _require_auth(request)
     _require_scope(user, "hosts:write")
     _require_host_operator(user, host_id)
-    resolved, _hosts = _resolve_host_id(host_id)
+    resolved, hosts = _resolve_host_id(host_id)
     if not resolved:
         raise HTTPException(status_code=404, detail=f"Host {host_id} not found")
     host_id = resolved
+
+    # A machine credential may not delete an *admitted* host.
+    #
+    # `host_admission_decisions` and `host_admission_evidence` are ON DELETE
+    # CASCADE, so this endpoint erases the operator's signed decision and the
+    # evidence behind it. `worker_agent.py` called it on every graceful
+    # shutdown, which meant a `systemctl restart` silently revoked the host's
+    # own admission and it came back `pending` — twice mistaken for a database
+    # losing writes.
+    #
+    # The agent side is fixed, but old binaries in the field still have that
+    # behaviour, and a client-side fix cannot bind a client. So the invariant
+    # lives here too: revoking admission is an operator act, and a host may not
+    # perform it on itself. Humans are unaffected — an admin or the host's owner
+    # can still remove it, admitted or not.
+    entry = next((h for h in hosts if h.get("host_id") == host_id), None)
+    if machine_credential_may_not_delete(user, entry):
+        raise HTTPException(
+            409,
+            "This host is admitted; a worker credential cannot delete it. "
+            "Deleting would cascade away the operator's admission decision and "
+            "evidence. Revoke admission first "
+            "(POST /api/admin/hosts/{host_id}/admission-decisions, action=revoke), "
+            "or remove the host as an operator.",
+        )
+
     remove_host(host_id)
     broadcast_sse("host_removed", {"host_id": host_id})
     return {"ok": True, "removed": host_id}
