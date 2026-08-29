@@ -1236,3 +1236,11 @@ for router in ALL_ROUTERS:
 from routes.problem import register_problem_handlers
 
 register_problem_handlers(app)
+
+# Blueprint §22.3: the agent gateway proxies `/agent/v2/*` and nothing else.
+# The worker still speaks mostly v1, so these aliases mount the *same* endpoint
+# functions under `/agent/v2/` — one implementation, two paths — and the Envoy
+# cutover stops being a rewrite of the worker protocol.
+from routes.agent_v2_aliases import mount_agent_v2_aliases
+
+mount_agent_v2_aliases(app)
