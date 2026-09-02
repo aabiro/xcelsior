@@ -354,6 +354,16 @@ export async function completeBrowserOAuthLogin(
 export interface LaunchErrorInfo {
   message: string;
   action?: { label: string; href: string };
+  /** HTTP status when the error came from the API, else undefined. */
+  status?: number;
+  /**
+   * True when the error is a recognized user-state rejection (empty or
+   * suspended wallet, concurrency limit, invalid config, missing template,
+   * no hosts) that the UI already surfaces as a friendly, actionable message.
+   * The launch modal skips error-tracking capture for these, so a normal
+   * empty-wallet state does not open an error issue.
+   */
+  handled: boolean;
 }
 
 /**
@@ -372,23 +382,37 @@ export function classifyLaunchError(err: unknown): LaunchErrorInfo {
         return {
           message: "Your wallet has been suspended.",
           action: { label: "Manage Wallet", href: "/dashboard/billing" },
+          status: err.status,
+          handled: true,
         };
       }
       return {
         message: "Insufficient balance, add funds to launch instances.",
         action: { label: "Add Funds", href: "/dashboard/billing?topup=true" },
+        status: err.status,
+        handled: true,
       };
     }
     if (err.status === 503) {
-      return { message: "No GPU hosts available right now. Try again shortly." };
+      return {
+        message: "No GPU hosts available right now. Try again shortly.",
+        status: err.status,
+        handled: true,
+      };
     }
     if (err.status === 422) {
-      return { message: "Invalid configuration, check your instance settings." };
+      return {
+        message: "Invalid configuration, check your instance settings.",
+        status: err.status,
+        handled: true,
+      };
     }
     if (err.status === 404 && /template image/i.test(detail)) {
       return {
         message: "That template image isn't ready yet, pick another image or wait for it to finish building.",
         action: { label: "Manage Templates", href: "/dashboard/templates" },
+        status: err.status,
+        handled: true,
       };
     }
     if (err.status === 429 && /concurrent instance limit/i.test(detail)) {
@@ -396,22 +420,30 @@ export function classifyLaunchError(err: unknown): LaunchErrorInfo {
         message:
           "Concurrent instance limit reached for your team. Stop an existing instance or ask a team admin to upgrade the plan.",
         action: { label: "View Instances", href: "/dashboard/instances" },
+        status: err.status,
+        handled: true,
       };
     }
     if (err.status === 403) {
       if (/team viewers cannot/i.test(detail)) {
-        return { message: "Viewer access is read-only, ask a team admin or member to make changes." };
+        return {
+          message: "Viewer access is read-only, ask a team admin or member to make changes.",
+          status: err.status,
+          handled: true,
+        };
       }
       if (/only team admins can manage team billing/i.test(detail)) {
         return {
           message: "Only team admins can add credits or change billing settings.",
           action: { label: "Team Settings", href: "/dashboard/settings#team" },
+          status: err.status,
+          handled: true,
         };
       }
     }
-    return { message: detail || `Request failed (${err.status})` };
+    return { message: detail || `Request failed (${err.status})`, status: err.status, handled: false };
   }
-  return { message: err instanceof Error ? err.message : "Failed to launch instance" };
+  return { message: err instanceof Error ? err.message : "Failed to launch instance", handled: false };
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────
