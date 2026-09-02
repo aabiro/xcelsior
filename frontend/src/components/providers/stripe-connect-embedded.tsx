@@ -24,6 +24,17 @@ type Props = {
 
 type ConnectInstance = ReturnType<typeof loadConnectAndInitialize>;
 
+/**
+ * Read the promise a Connect instance resolves from. loadConnectAndInitialize
+ * returns synchronously and loads connect.js out of band; the instance exposes
+ * that readiness promise through debugInstance(), which rejects when the script
+ * fails to load (for example, blocked by a Content-Security-Policy). Optional so
+ * that a future SDK without it degrades to the previous behavior.
+ */
+function connectReadiness(instance: ConnectInstance): Promise<unknown> | undefined {
+  return (instance as ConnectInstance & { debugInstance?: () => Promise<unknown> }).debugInstance?.();
+}
+
 export function StripeConnectEmbedded({
   providerId,
   active = true,
@@ -60,6 +71,14 @@ export function StripeConnectEmbedded({
         appearance: STRIPE_CONNECT_APPEARANCE,
       });
       instanceRef.current = instance;
+
+      // Await the connect.js load before creating components so a blocked or
+      // failed script reaches the catch below and renders the error box instead
+      // of leaving the panel blank (see connectReadiness).
+      const readiness = connectReadiness(instance);
+      if (readiness) await readiness;
+      if (!containerRef.current) return;
+
       containerRef.current.innerHTML = "";
 
       // Always mount requirements banner so restricted accounts surface actions.
