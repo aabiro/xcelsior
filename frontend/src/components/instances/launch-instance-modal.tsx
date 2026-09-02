@@ -544,8 +544,24 @@ export function LaunchInstanceModal({
         router.push(`/dashboard/instances/${encodeURIComponent(jobId)}`);
       }
     } catch (err) {
-      posthog.captureException(err instanceof Error ? err : new Error(String(err)));
       const info = classifyLaunchError(err);
+      // Report only genuinely unexpected failures. Recognized user-state
+      // rejections (empty or suspended wallet, concurrency limit, invalid
+      // config, no hosts) already reach the user as a friendly, actionable
+      // message, so capturing them just opens a fresh error issue. Server
+      // errors (5xx) still get captured.
+      const isServerError = info.status !== undefined && info.status >= 500;
+      if (!info.handled || isServerError) {
+        // Use a status-stable message so captures group under one fingerprint
+        // instead of splitting on interpolated amounts in the API detail.
+        const captured =
+          info.status !== undefined
+            ? new Error(`Instance launch failed (HTTP ${info.status})`)
+            : err instanceof Error
+              ? err
+              : new Error(String(err));
+        posthog.captureException(captured);
+      }
       if (info.action) {
         setLaunchError(info);
       } else {
