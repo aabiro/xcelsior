@@ -36,8 +36,15 @@ a guard that could not fail for the reason its own message gave. The only other
 currency check compared tool *counts*. Editing a description in the committed
 snapshot left all 13 tests green.
 
-Still not covered: the TypeScript descriptions and annotations. P0.3 is not
-finished until they have it.
+Now covered on both sides: `mcp/tests/unit/surface.test.ts` gained
+*"is byte-identical to a fresh generation"*, verified by editing a description
+in the committed snapshot.
+
+Keep this paragraph honest. The previous version still said the TypeScript
+descriptions were uncovered and that "P0.3 is not finished", long after both
+had stopped being true — a document about drift, carrying drift. A stale
+docstring on a gate is worse than none: it describes a hole someone may go and
+re-plug, or discourages relying on coverage that exists.
 """
 
 from __future__ import annotations
@@ -98,12 +105,24 @@ def test_the_checked_in_inventory_matches_a_fresh_generation():
     while rows differ is precisely how this drifted — 516 operations before and
     after, with 14 rows changed underneath.
     """
+    # A generator that cannot run is a FAILURE of this gate, never a skip.
+    #
+    # This used to catch the error and `pytest.skip`, so any import error,
+    # missing environment variable or timeout turned the drift gate into a
+    # green skip — with drift sitting underneath it, unreported. That is
+    # precisely the failure shape this file was written to replace, reproduced
+    # inside the thing doing the replacing: it gated on the *absence of a
+    # failure* rather than on a positive result.
+    #
+    # Verified by pointing the generator at a stub that exits non-zero: the old
+    # code reported "2 passed, 1 skipped"; this reports a failure.
     try:
         generated = _regenerate_to_string()
-    except RuntimeError as exc:  # pragma: no cover - surfaced as a skip below
-        import pytest
-
-        pytest.skip(f"generator could not run: {exc}")
+    except RuntimeError as exc:
+        raise AssertionError(
+            f"the drift gate could not run its generator, so nothing is checking "
+            f"{INVENTORY.relative_to(ROOT)} for staleness: {exc}"
+        ) from exc
 
     checked_in = INVENTORY.read_text(encoding="utf-8")
     if checked_in == generated:
