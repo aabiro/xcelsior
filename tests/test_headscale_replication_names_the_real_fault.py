@@ -301,3 +301,223 @@ def test_promotion_proceeds_when_the_standby_does_serve_the_name(
         runner=lambda *a, **k: subprocess.CompletedProcess(a[0] if a else [], 0, "", ""),
     )
     assert moved == ["66.222.170.140"], f"a ready standby did not take the record: {moved}"
+
+
+def _failback_fixture(tmp_path: Path):
+    """A promoted standby with a replica, ready to fail back."""
+    replica = tmp_path / "replica"
+    replica.mkdir()
+    (replica / "noise_private.key").write_text("privkey:deadbeef\n")
+    (replica / "db.sqlite").write_bytes(b"")
+    live = tmp_path / "live"
+    live.mkdir()
+    settings = hf.Settings(
+        primary_host="149.28.121.61",
+        primary_user="root",
+        ssh_key=str(tmp_path / "key"),
+        replica_dir=replica,
+        live_data_dir=live,
+        cloudflare_zone_id="zone",
+        cloudflare_token="tok",
+    )
+    status = hf.ReplicaStatus(
+        sqlite_path=replica / "db.sqlite",
+        noise_key_path=replica / "noise_private.key",
+        user_count=1,
+        node_count=6,
+        replicated_at="2026-08-31T02:37:25+00:00",
+        promotable=True,
+        reason="",
+    )
+    health = hf.Health(dns_ok=False, primary_ip_ok=True, dns_error="", primary_ip_error="")
+    return settings, status, health
+
+
+def test_failback_restores_the_address_dns_actually_held(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    """`original_a_record`, not `primary_host` — they are not the same machine.
+
+    `promote()` records what Cloudflare actually held. `failback()` ignored it
+    and used `primary_host`, which only coincides while the Headscale host and
+    the A record are one box. They are not: the record pointed at 45.76.3.128, a
+    reverse proxy terminating TLS for the name, while Headscale runs on
+    149.28.121.61. Failing back to `primary_host` moves the name somewhere it
+    has never been, and calls that a recovery.
+    """
+    settings, status, health = _failback_fixture(tmp_path)
+    moved: list[str] = []
+    monkeypatch.setattr(hf, "set_dns_a", lambda _s, ip, **k: moved.append(ip))
+    monkeypatch.setattr(hf, "telegram_send", lambda _s, _m: None)
+    monkeypatch.setattr(hf, "sqlite_counts", lambda _p: (1, 6))
+    monkeypatch.setattr(hf, "serves_dns_name", lambda _s, _a: (True, ""))
+
+    state = hf.FailoverState(role="promoted", original_a_record="45.76.3.128")
+    hf.failback(
+        settings,
+        replica=status,
+        state=state,
+        health=health,
+        runner=lambda *a, **k: subprocess.CompletedProcess(a[0] if a else [], 0, "", ""),
+    )
+    assert moved == ["45.76.3.128"], (
+        f"failback pointed {settings.dns_name} at {moved}; DNS held 45.76.3.128"
+    )
+
+
+def test_failback_holds_dns_when_the_target_cannot_serve_the_name(
+    tmp_path: Path, monkeypatch
+) -> None:  # noqa: ANN001
+    """Restoring a name onto an address nothing answers on is not a recovery."""
+    settings, status, health = _failback_fixture(tmp_path)
+    moved: list[str] = []
+    sent: list[str] = []
+    monkeypatch.setattr(hf, "set_dns_a", lambda _s, ip, **k: moved.append(ip))
+    monkeypatch.setattr(hf, "telegram_send", lambda _s, m: sent.append(m))
+    monkeypatch.setattr(hf, "sqlite_counts", lambda _p: (1, 6))
+    monkeypatch.setattr(hf, "serves_dns_name", lambda _s, _a: (False, "connection refused"))
+
+    state = hf.FailoverState(role="promoted", original_a_record="45.76.3.128")
+    with pytest.raises(hf.FailoverError) as excinfo:
+        hf.failback(
+            settings,
+            replica=status,
+            state=state,
+            health=health,
+            runner=lambda *a, **k: subprocess.CompletedProcess(a[0] if a else [], 0, "", ""),
+        )
+    assert "does not serve the name" in str(excinfo.value)
+    assert not moved, f"DNS was moved to an address that cannot serve it: {moved}"
+    assert any("HELD" in m for m in sent), f"operator not told the move was held: {sent}"
+
+
+def test_failback_refuses_to_push_a_database_that_lost_registrations(tmp_path: Path) -> None:
+    """The pushed database is the standby's LIVE one, not the replica.
+
+    So "the replica is non-empty" says nothing about what is about to overwrite
+    the VPS. Measured 2026-09-19: live held 2 nodes while the replica held 6 —
+    the same two plus vps-linuxuser .1, localhost .2, tower-server .4 and
+    aarynfans-prod .5. Not a divergent rebuild: identical Noise keys, and the two
+    live nodes carry the same machine keys and addresses as their replica
+    records, so live is a strict subset.
+
+    `failback` would have pushed that subset over the VPS *and* overwritten the
+    replica with it first — destroying the only copy of the other four. The
+    documented recovery command, run exactly when intended.
+    """
+    decision = hf.failback_ready(
+        health=hf.Health(dns_ok=False, primary_ip_ok=True, dns_error="", primary_ip_error=""),
+        replica=hf.ReplicaStatus(
+            sqlite_path=tmp_path / "db.sqlite",
+            noise_key_path=tmp_path / "noise_private.key",
+            user_count=1,
+            node_count=6,
+            replicated_at="2026-08-31T02:37:25+00:00",
+            promotable=True,
+            reason="",
+        ),
+        state=hf.FailoverState(role="promoted"),
+        live_nodes=2,
+    )
+    assert decision.action == "refuse_failback", (
+        f"failback would proceed with 2 live nodes against a 6-node replica: {decision}"
+    )
+    assert "destroying the only copy" in decision.reason
+    assert decision.alert is True, "an operator is not told the recovery was refused"
+
+
+def test_failback_proceeds_when_nothing_would_be_lost(tmp_path: Path) -> None:
+    """The guard must not block a legitimate recovery."""
+    for live, repl in ((6, 6), (7, 6)):
+        decision = hf.failback_ready(
+            health=hf.Health(dns_ok=False, primary_ip_ok=True, dns_error="", primary_ip_error=""),
+            replica=hf.ReplicaStatus(
+                sqlite_path=tmp_path / "db.sqlite",
+                noise_key_path=tmp_path / "noise_private.key",
+                user_count=1,
+                node_count=repl,
+                replicated_at="2026-08-31T02:37:25+00:00",
+                promotable=True,
+                reason="",
+            ),
+            state=hf.FailoverState(role="promoted"),
+            live_nodes=live,
+        )
+        assert decision.action == "failback", f"blocked a safe failback ({live} vs {repl})"
+
+
+def test_force_is_required_to_accept_the_loss(tmp_path: Path) -> None:
+    """Losing registrations must be an explicit choice, never a default."""
+    kwargs = dict(
+        health=hf.Health(dns_ok=False, primary_ip_ok=True, dns_error="", primary_ip_error=""),
+        replica=hf.ReplicaStatus(
+            sqlite_path=tmp_path / "db.sqlite",
+            noise_key_path=tmp_path / "noise_private.key",
+            user_count=1,
+            node_count=6,
+            replicated_at="2026-08-31T02:37:25+00:00",
+            promotable=True,
+            reason="",
+        ),
+        state=hf.FailoverState(role="promoted"),
+        live_nodes=2,
+    )
+    assert hf.failback_ready(**kwargs).action == "refuse_failback"
+    assert hf.failback_ready(**kwargs, force=True).action == "failback"
+
+
+def test_failback_never_writes_over_the_replica(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    """The backup must survive the push, so a failed push can be retried."""
+    replica_dir = tmp_path / "headscale"
+    replica_dir.mkdir()
+    (replica_dir / "db.sqlite").write_bytes(b"REPLICA-6-NODES")
+    (replica_dir / "noise_private.key").write_text("privkey:replica\n")
+    live = tmp_path / "live"
+    live.mkdir()
+    (live / "db.sqlite").write_bytes(b"LIVE-2-NODES")
+    (live / "noise_private.key").write_text("privkey:replica\n")
+
+    settings = hf.Settings(
+        primary_host="45.76.3.128",
+        primary_user="root",
+        ssh_key=str(tmp_path / "key"),
+        replica_dir=replica_dir,
+        live_data_dir=live,
+        cloudflare_zone_id="zone",
+        cloudflare_token="tok",
+    )
+    status = hf.ReplicaStatus(
+        sqlite_path=replica_dir / "db.sqlite",
+        noise_key_path=replica_dir / "noise_private.key",
+        user_count=1,
+        node_count=6,
+        replicated_at="2026-08-31T02:37:25+00:00",
+        promotable=True,
+        reason="",
+    )
+    pushed: list[str] = []
+
+    def fake_run(argv, **kwargs):  # noqa: ANN001, ANN003
+        if argv and argv[0] == "scp":
+            pushed.append(argv[-2])
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(hf, "sqlite_counts", lambda p: (1, 2 if b"LIVE" in p.read_bytes() else 6))
+    monkeypatch.setattr(hf, "set_dns_a", lambda *a, **k: None)
+    monkeypatch.setattr(hf, "telegram_send", lambda _s, _m: None)
+    monkeypatch.setattr(hf, "serves_dns_name", lambda _s, _a: (True, ""))
+
+    hf.failback(
+        settings,
+        replica=status,
+        state=hf.FailoverState(role="promoted", original_a_record="45.76.3.128"),
+        health=hf.Health(dns_ok=False, primary_ip_ok=True, dns_error="", primary_ip_error=""),
+        runner=fake_run,
+        force=True,   # the point here is the file handling, not the gate
+    )
+
+    assert (replica_dir / "db.sqlite").read_bytes() == b"REPLICA-6-NODES", (
+        "failback overwrote the replica; a failed push would leave no backup and "
+        "the registrations only the replica held are gone"
+    )
+    assert pushed and "headscale-failback-" in pushed[0], (
+        f"failback pushed {pushed} rather than a timestamped snapshot"
+    )
