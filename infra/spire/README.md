@@ -51,8 +51,8 @@ export SPIRE_DATASTORE_DSN="$(sudo grep -h '^SPIRE_DATASTORE_DSN=' /opt/xcelsior
 export XCELSIOR_AGENT_GATEWAY_SECRET="$(sudo grep -h '^XCELSIOR_AGENT_GATEWAY_SECRET=' /opt/xcelsior/.env | cut -d= -f2-)"
 test -n "$XCELSIOR_AGENT_GATEWAY_SECRET" || { echo 'refusing: no gateway secret in /opt/xcelsior/.env'; exit 1; }
 
-# 2. mesh
-docker compose -f infra/spire/docker-compose.spire.yml up -d      # ← SEE NOTE 2
+# 2. mesh — NOT `docker compose up`; see Note 2
+sudo -E bash infra/spire/bring-up.sh
 
 # 3. one registration entry per admitted host
 XCELSIOR_POSTGRES_DSN=... infra/spire/register-host.sh --all
@@ -80,73 +80,108 @@ worst moment to be debugging an authentication change.
 holds a secret yet. If you are reading this on an existing deployment, you are
 not in that case.
 
-### Note 2 — `bootstrap.crt` does not exist yet, and the compose mounts it
+### Note 2 — use `bring-up.sh`; the compose file alone cannot start
 
 `agent.conf` sets `trust_bundle_path = /opt/spire/conf/agent/bootstrap.crt` and
-the compose bind-mounts `./bootstrap.crt`, but no such file is in this
-directory. `spire-agent validate` fails outright:
+the compose file bind-mounts `./bootstrap.crt`, but that file is the **server's
+own trust bundle** — it cannot exist before the server does. A plain
+`docker compose up` fails with:
 
 ```
 could not parse trust bundle: open .../bootstrap.crt: no such file or directory
 ```
 
-It is the server's own trust bundle, so it cannot exist before the server does.
-Start the server alone, export the bundle, then start the agent:
+`infra/spire/bring-up.sh` does the only ordering that works — server → export
+bundle → everything else — and refuses to start at all on a half-configured
+environment rather than leaving a mesh that looks up but cannot issue
+identities. It checks, before touching anything:
 
-```bash
-docker compose -f infra/spire/docker-compose.spire.yml up -d spire-server
-docker compose -f infra/spire/docker-compose.spire.yml exec -T spire-server \
-    /opt/spire/bin/spire-server bundle show > infra/spire/bootstrap.crt
-docker compose -f infra/spire/docker-compose.spire.yml up -d
-```
+* `XCELSIOR_AGENT_GATEWAY_SECRET` is set (see Note 1 — a generated one is an
+  outage, not a typo)
+* `SPIRE_DATASTORE_DSN` is set
+* the bind address actually exists on this host, so the server is not published
+  where nothing can reach it
 
-### Note 3 — remote GPU hosts cannot reach the server as configured
+and it refuses to write a bundle that contains no certificate, because handing
+every agent an unparseable trust bundle fails later and further away.
 
-The compose publishes the server as `127.0.0.1:8081:8081` — loopback on the
-control-plane host only. A GPU host elsewhere has nothing to attest against.
-Decide deliberately how agents reach `:8081` (tailnet address, or published with
-its own TLS) before registering hosts that are not the control plane itself.
+### Note 3 — the server binds the tailnet, not loopback
 
-### Note 4 — the listener moved to 9443, and 443 does not reach it yet
+**Decided.** The compose file published `127.0.0.1:8081`, so no GPU host
+anywhere else could attest — and the agents that need this server are on other
+machines by definition.
 
-The Envoy listener was `0.0.0.0:8443`. **Headscale already holds
-`127.0.0.1:8443` on this host**, and the listener binds `0.0.0.0` under
-`network_mode: host`, so that was a direct collision with the tailnet control
-plane. It is now `9443`.
+It now binds `100.64.0.1` (override with `SPIRE_BIND_ADDRESS`), and agents point
+at `SPIRE_SERVER_ADDRESS=100.64.0.1` — a **bare address**, because `agent.conf`
+carries `server_port = "8081"` separately and a host:port value there produces
+`100.64.0.1:8081:8081`.
 
-Nothing routes 443 → 9443 yet. That last hop must be **SNI passthrough** for
-`agent.xcelsior.ca` — if Nginx terminates TLS first it strips the client
-certificate, which is the entire point of SPIFFE mTLS. Nginx currently owns 443
-for eight vhosts on this box, so this is a real ingress decision and not a
-config tweak.
+Publishing it with its own public TLS certificate was the alternative and it is
+the wrong shape: a second trust boundary wrapped around the service whose entire
+job is being the trust boundary. Xcelsior already runs the private network this
+needs — Headscale WireGuard, this host at 100.64.0.1, GPU workers already
+joined for other traffic. No new certificate, no new public surface, and it
+matches how every other host↔control-plane channel here already works.
 
-Also fixed while verifying: the `xcelsior_api` cluster pointed at `127.0.0.1:9500`
-alone. Production runs blue/green and **9501 is the live slot** — 9500 has
-nothing bound. That is the same fault that already cost a session in
-`nginx/agent-xcelsior.conf`: every worker request 502s while Envoy, mTLS, SPIRE
-and the API are each individually healthy. Both slots are now listed, and
-`tests/test_agent_gateway_points_at_a_live_backend.py` holds it there.
+Binding a specific address means Docker refuses to start the container when the
+tailnet interface is down. That is the correct failure: a SPIRE server reachable
+from nowhere serves no one, and failing loudly at start beats agents timing out
+later.
+
+### Note 4 — 443 reaches 9443 by SNI passthrough
+
+**Decided, built, and validated — see `runbooks/tls-ingress-cutover.md`.**
+
+The listener was `0.0.0.0:8443`, which collides with Headscale's
+`127.0.0.1:8443` on this host under `network_mode: host`. It is now 9443.
+
+`nginx/stream-tls-router.conf` becomes the only thing binding 443: a `stream`
+block that reads SNI with `ssl_preread` and terminates nothing. `agent.xcelsior.ca`
+gets raw TCP passthrough to Envoy on 9443 so the worker's client certificate
+survives; everything else goes to nginx's http block on **8444** (not 8443 —
+Headscale) where the existing vhosts terminate exactly as before.
+
+Two things this arrangement gets right and a naive version does not:
+
+* **PROXY protocol on every hop.** After passthrough the backend's peer is
+  127.0.0.1, so six services would silently begin logging, rate-limiting and
+  geolocating against localhost. Each vhost carries `proxy_protocol` on its
+  listen line plus `set_real_ip_from` / `real_ip_header`, and Envoy carries the
+  `proxy_protocol` listener filter — without which it reads the PROXY line as a
+  ClientHello and every worker connection fails as malformed TLS.
+* **The cutover is one map entry.** Phase A moves the vhosts with *no* behaviour
+  change (agent traffic still terminates in nginx). Phase B changes one line to
+  9443, and changing it back is the rollback. `agent-xcelsior.conf` stays alive
+  through both, which is why `XCELSIOR_SPIFFE_STRICT=0` remains correct until a
+  real GPU host is proven through Envoy.
+
+Also fixed here: the `xcelsior_api` cluster pointed at `127.0.0.1:9500` alone.
+Production runs blue/green and 9501 is the live slot — the same fault that
+already cost a session in `nginx/agent-xcelsior.conf`, where every worker
+request 502s while every component looks healthy. Both slots are now listed.
 
 ### What is verified
 
-`server.conf` and the Envoy config both validate against the real binaries
-(`spire-server validate`, `envoy --mode validate`). `agent.conf` validates once
-`bootstrap.crt` exists.
+Against the real binaries, locally, with no production access:
 
-## Migrating from Nginx mTLS
+* `spire-server validate` — server.conf OK
+* `envoy --mode validate` — gateway config OK, including the proxy_protocol
+  listener filter
+* `nginx -t` on the complete restructured arrangement (stream router + all seven
+  vhosts on 8444) — **successful**, and with the *same 14 warnings* the original
+  configs produce, so nothing was introduced
+* `agent.conf` validates once `bootstrap.crt` exists (Note 2)
 
-`nginx/agent-xcelsior.conf` is the interim gateway: it validates client
-certificates but has a certificate DN, not a SPIFFE ID. Run it with
-`XCELSIOR_SPIFFE_STRICT=0` and cut over to Envoy before setting strict
-mode. Strict mode is the live-mesh posture and the default in code.
+Held by `tests/test_tls_ingress_router_is_coherent.py` and
+`tests/test_agent_gateway_points_at_a_live_backend.py`.
 
-## Fail-closed posture without SPIRE
+### Still open
 
-With no gateway configured at all, production still:
-
-1. requires authentication on `/agent/*` (`XCELSIOR_ENV=production`);
-2. maps the caller to a **registered + admitted** `host_id`;
-3. returns **503** on host-admission lookup errors (never fail-open);
-4. strips untrusted public `X-Worker-*` headers on public/MCP ingress;
-5. accepts per-host bearer tokens (§19.2) that are scoped and rotated —
-   see `control_plane/agent_tokens.py`.
+* The datastore: run `scripts/provision_spire_datastore.sh`. Dedicated role and
+  dedicated database on the shared instance, deliberately outside
+  `control_plane/db_roles.py` — SPIRE is not a domain of the app's data, it
+  manages its own schema, and it must keep working while the app is broken.
+  Database-level isolation is the property you want between the application and
+  the thing issuing the application's identities.
+* **`nginx -V` must show `--with-stream_ssl_preread_module` on the target
+  host.** Never confirmed on the VPS — the box went dark mid-check.
