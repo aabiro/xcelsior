@@ -46,6 +46,20 @@ static_resources:
         # nginx first would strip the client certificate and defeat the whole
         # point of SPIFFE mTLS.
         socket_address: { address: 0.0.0.0, port_value: 9443 }
+      # The stream router in front of this sends PROXY protocol (its
+      # `proxy_protocol on` applies to every backend it routes to), so this
+      # listener must consume that header before the TLS handshake. Without
+      # it Envoy reads the PROXY line as the first bytes of a ClientHello and
+      # every worker connection fails as malformed TLS — while nginx, Envoy,
+      # SPIRE and the certificates are each individually fine.
+      #
+      # It is also what makes the real worker address visible here at all:
+      # after passthrough the peer is 127.0.0.1, so access logs and any
+      # address-based decision would otherwise see localhost.
+      listener_filters:
+        - name: envoy.filters.listener.proxy_protocol
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.listener.proxy_protocol.v3.ProxyProtocol
       filter_chains:
         - transport_socket:
             name: envoy.transport_sockets.tls
