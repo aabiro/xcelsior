@@ -42,8 +42,14 @@ and again in the API.
 
 ```bash
 # 1. datastore + secret
-export SPIRE_DATASTORE_DSN='postgresql://spire:...@127.0.0.1:5432/spire'
-export XCELSIOR_AGENT_GATEWAY_SECRET="$(openssl rand -hex 32)"   # ← SEE NOTE 1
+#
+# The gateway secret is REUSED from the API's own environment, never generated.
+# Production already holds one and the live Nginx gateway authenticates with it;
+# a fresh value means Envoy presents a secret the API does not hold, every
+# identity header is stripped, and the whole fleet is refused mid-cutover.
+export SPIRE_DATASTORE_DSN="$(sudo grep -h '^SPIRE_DATASTORE_DSN=' /opt/xcelsior/.env | cut -d= -f2-)"
+export XCELSIOR_AGENT_GATEWAY_SECRET="$(sudo grep -h '^XCELSIOR_AGENT_GATEWAY_SECRET=' /opt/xcelsior/.env | cut -d= -f2-)"
+test -n "$XCELSIOR_AGENT_GATEWAY_SECRET" || { echo 'refusing: no gateway secret in /opt/xcelsior/.env'; exit 1; }
 
 # 2. mesh
 docker compose -f infra/spire/docker-compose.spire.yml up -d      # ← SEE NOTE 2
@@ -59,14 +65,20 @@ XCELSIOR_SPIFFE_TRUST_DOMAIN=xcelsior.ca
 XCELSIOR_SPIFFE_STRICT=1
 ```
 
-### Note 1 — do NOT generate a new gateway secret
+### Note 1 — the gateway secret is reused, never generated
 
-`XCELSIOR_AGENT_GATEWAY_SECRET` is **already set in production** and the live
-Nginx gateway authenticates with it. Generating a fresh one and putting it in
-the compose environment means Envoy presents a secret the API does not hold:
-`gateway_headers_authenticated()` fails, every identity header is stripped, and
-the whole fleet is refused. Reuse the value already in `/opt/xcelsior/.env`.
-`openssl rand` is only correct on a first-ever install.
+Step 1 above now reads both values out of `/opt/xcelsior/.env` and refuses to
+continue if the gateway secret is missing, because the earlier version of this
+file said `openssl rand -hex 32` and that is a live-fleet outage:
+`XCELSIOR_AGENT_GATEWAY_SECRET` is already set in production and the Nginx
+gateway authenticates with it. A fresh value means
+`gateway_headers_authenticated()` fails on every request, all identity headers
+are stripped, and the fleet is refused — during its own cutover, which is the
+worst moment to be debugging an authentication change.
+
+`openssl rand -hex 32` is correct **only** on a first-ever install where nothing
+holds a secret yet. If you are reading this on an existing deployment, you are
+not in that case.
 
 ### Note 2 — `bootstrap.crt` does not exist yet, and the compose mounts it
 
