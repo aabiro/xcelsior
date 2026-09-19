@@ -387,6 +387,42 @@ def probe_http(url: str, timeout: float) -> tuple[bool, str]:
         return False, str(exc)
 
 
+def standby_serves_dns_name(
+    settings: Settings, *, opener: Callable[..., object] | None = None
+) -> tuple[bool, str]:
+    """Can *this* host answer for `settings.dns_name` on 443, right now?
+
+    Asked against the loopback interface with the public name as SNI, which is
+    the question a promoted standby must be able to answer: a Headscale bound
+    to `127.0.0.1:8443` with no TLS front in front of it cannot, and moving the
+    record to it only removes the name from somewhere reachable.
+
+    Certificate validity is deliberately *not* required — a standby may be
+    carrying a self-signed cert, and that is still infinitely better than
+    nothing listening. What matters is that something terminates TLS on 443 and
+    serves the name.
+    """
+    import socket
+    import ssl
+
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    try:
+        with socket.create_connection(("127.0.0.1", 443), timeout=5) as raw:
+            with ctx.wrap_socket(raw, server_hostname=settings.dns_name) as tls:
+                tls.sendall(
+                    f"GET /health HTTP/1.1\r\nHost: {settings.dns_name}\r\n"
+                    "Connection: close\r\n\r\n".encode()
+                )
+                head = tls.recv(64).decode("utf-8", "replace")
+    except OSError as exc:
+        return False, f"nothing serves {settings.dns_name} on 443 here: {exc}"
+    if " 200" not in head and " 30" not in head:
+        return False, f"unexpected response on 443: {head.splitlines()[0][:60]!r}"
+    return True, ""
+
+
 def collect_health(settings: Settings) -> Health:
     dns_ok, dns_error = probe_http(
         f"{settings.login_server.rstrip('/')}/health", settings.health_timeout_sec
@@ -833,9 +869,40 @@ def promote(
         raise FailoverError(f"refusing to promote: {replica.reason}")
     install_replica_into_live(settings, replica)
     ip = public_ip or settings.standby_public_ip or detect_public_ip()
+
+    # Restart Headscale *before* touching DNS, then prove this box actually
+    # answers for the name — and refuse to move the record if it does not.
+    #
+    # On 2026-09-17 this promoted correctly and still left the control plane
+    # unreachable. The standby's Headscale binds `127.0.0.1:8443` with no public
+    # TLS front, so moving `hs.xcelsior.ca` here pointed the name at a host that
+    # cannot serve it. Both boxes were down either way, but the record had been
+    # moved off its origin for nothing, and the alert said "promoted" — which
+    # reads as recovered.
+    #
+    # A promotion whose DNS change cannot be served is not a promotion. Same
+    # rule as `scripts/flip_headscale_dns.py`: never point a name at a host that
+    # cannot answer for it.
+    run_cmd(["systemctl", "restart", "headscale"], timeout=30, runner=runner)
+
+    serving, why = standby_serves_dns_name(settings)
+    if not serving:
+        telegram_send(
+            settings,
+            f"Headscale promotion ABORTED on {ip}: this standby cannot serve "
+            f"{settings.dns_name} ({why}). DNS was left pointing at "
+            f"{settings.primary_host}. The replica is intact "
+            f"({replica.user_count} users, {node_label(replica.node_count)}); "
+            "give this host a public TLS front for the name, then re-run promote.",
+        )
+        raise FailoverError(
+            f"refusing to move {settings.dns_name} to {ip}: this host does not "
+            f"serve it ({why}). Promotion would take the name off a reachable "
+            "origin and give nothing back."
+        )
+
     if settings.cloudflare_token and settings.cloudflare_zone_id:
         set_dns_a(settings, ip, opener=opener)
-    run_cmd(["systemctl", "restart", "headscale"], timeout=30, runner=runner)
     telegram_send(
         settings,
         f"Headscale standby promoted on {ip}. DNS {settings.dns_name} now points here. "
