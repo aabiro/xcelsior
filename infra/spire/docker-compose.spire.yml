@@ -14,7 +14,9 @@
 #
 # Required environment (compose reads .env in this directory or the shell):
 #   SPIRE_DATASTORE_DSN            postgres DSN for the SPIRE datastore
-#   SPIRE_SERVER_ADDRESS           reachable address of spire-server
+#   SPIRE_SERVER_ADDRESS           tailnet address of spire-server, NO port
+#                                 (default 100.64.0.1; agent.conf holds the port)
+#   SPIRE_BIND_ADDRESS             address the server publishes on (default 100.64.0.1)
 #   XCELSIOR_AGENT_GATEWAY_SECRET  shared secret the API also holds
 #
 # Then, on the API:
@@ -36,7 +38,20 @@ services:
       - spire-server-data:/opt/spire/data/server
       - spire-server-socket:/tmp/spire-server/private
     ports:
-      - "127.0.0.1:8081:8081"
+      # The tailnet address, not loopback.
+      #
+      # Loopback meant no GPU host anywhere else could attest — the agents that
+      # need this server are on other machines by definition. Publishing it with
+      # its own public TLS cert instead would build a second trust boundary
+      # around the service whose whole job is being the trust boundary.
+      # Xcelsior already runs the private network this needs: Headscale
+      # WireGuard, this host at 100.64.0.1, GPU workers already joined.
+      #
+      # Binding a specific address means Docker refuses to start this container
+      # if the tailnet interface is down. That is the correct failure: a SPIRE
+      # server reachable from nowhere serves no one, and failing loudly at start
+      # beats agents timing out later.
+      - "${SPIRE_BIND_ADDRESS:-100.64.0.1}:8081:8081"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "/opt/spire/bin/spire-server", "healthcheck",
@@ -50,7 +65,9 @@ services:
     image: ghcr.io/spiffe/spire-agent:1.11.2
     command: ["-config", "/opt/spire/conf/agent/agent.conf"]
     environment:
-      SPIRE_SERVER_ADDRESS: ${SPIRE_SERVER_ADDRESS:-spire-server}
+      # Bare address — agent.conf carries `server_port = "8081"` separately,
+      # so a host:port value here becomes 100.64.0.1:8081:8081 and fails.
+      SPIRE_SERVER_ADDRESS: ${SPIRE_SERVER_ADDRESS:-100.64.0.1}
     depends_on:
       spire-server:
         condition: service_healthy
