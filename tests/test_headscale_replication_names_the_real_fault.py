@@ -211,3 +211,93 @@ def test_failback_records_the_address_dns_actually_held(tmp_path: Path, monkeypa
     assert state.original_a_record == "45.76.3.128", (
         f"filed {state.original_a_record!r} as the address to restore; DNS held 45.76.3.128"
     )
+
+
+def test_promotion_refuses_when_the_standby_cannot_serve_the_name(
+    tmp_path: Path, monkeypatch
+) -> None:  # noqa: ANN001
+    """A promotion whose DNS change cannot be served is not a promotion.
+
+    Measured 2026-09-17: the watchdog promoted this standby correctly — the
+    replica was present and promotable — and the control plane stayed
+    unreachable, because the standby's Headscale binds `127.0.0.1:8443` with no
+    public TLS front. `hs.xcelsior.ca` was moved onto a host that cannot answer
+    for it, and the alert said "promoted", which reads as recovered.
+
+    Both boxes were down either way; the damage is that the record left its
+    origin for nothing and the operator was told the opposite.
+    """
+    replica = tmp_path / "replica"
+    replica.mkdir()
+    (replica / "noise_private.key").write_text("privkey:deadbeef\n")
+
+    moved: list[str] = []
+    sent: list[str] = []
+    monkeypatch.setattr(hf, "install_replica_into_live", lambda *a, **k: None)
+    monkeypatch.setattr(hf, "set_dns_a", lambda *a, **k: moved.append(a[1] if len(a) > 1 else "?"))
+    monkeypatch.setattr(hf, "telegram_send", lambda _s, m: sent.append(m))
+    monkeypatch.setattr(hf, "standby_serves_dns_name", lambda *a, **k: (False, "nothing on 443"))
+
+    status = hf.ReplicaStatus(
+        sqlite_path=replica / "db.sqlite",
+        noise_key_path=replica / "noise_private.key",
+        user_count=1,
+        node_count=6,
+        replicated_at="2026-08-31T02:37:25+00:00",
+        promotable=True,
+        reason="",
+    )
+
+    with pytest.raises(hf.FailoverError) as excinfo:
+        hf.promote(
+            _settings(tmp_path, "45.76.3.128"),
+            replica=status,
+            public_ip="66.222.170.140",
+            runner=lambda *a, **k: subprocess.CompletedProcess(a[0] if a else [], 0, "", ""),
+        )
+
+    assert "does not serve it" in str(excinfo.value)
+    assert not moved, f"DNS was moved to a host that cannot serve the name: {moved}"
+    assert any("ABORTED" in m for m in sent), (
+        f"the operator was not told the promotion failed; messages: {sent}"
+    )
+
+
+def test_promotion_proceeds_when_the_standby_does_serve_the_name(
+    tmp_path: Path, monkeypatch
+) -> None:  # noqa: ANN001
+    """The guard must not block a standby that is genuinely ready."""
+    replica = tmp_path / "replica"
+    replica.mkdir()
+    (replica / "noise_private.key").write_text("privkey:deadbeef\n")
+
+    moved: list[str] = []
+    monkeypatch.setattr(hf, "install_replica_into_live", lambda *a, **k: None)
+    monkeypatch.setattr(hf, "set_dns_a", lambda *a, **k: moved.append(a[1]))
+    monkeypatch.setattr(hf, "telegram_send", lambda _s, _m: None)
+    monkeypatch.setattr(hf, "standby_serves_dns_name", lambda *a, **k: (True, ""))
+
+    settings = hf.Settings(
+        primary_host="45.76.3.128",
+        primary_user="root",
+        ssh_key=str(tmp_path / "key"),
+        replica_dir=replica,
+        cloudflare_zone_id="zone",
+        cloudflare_token="tok",
+    )
+    status = hf.ReplicaStatus(
+        sqlite_path=replica / "db.sqlite",
+        noise_key_path=replica / "noise_private.key",
+        user_count=1,
+        node_count=6,
+        replicated_at="2026-08-31T02:37:25+00:00",
+        promotable=True,
+        reason="",
+    )
+    hf.promote(
+        settings,
+        replica=status,
+        public_ip="66.222.170.140",
+        runner=lambda *a, **k: subprocess.CompletedProcess(a[0] if a else [], 0, "", ""),
+    )
+    assert moved == ["66.222.170.140"], f"a ready standby did not take the record: {moved}"
