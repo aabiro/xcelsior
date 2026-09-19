@@ -107,10 +107,25 @@ fi
 if [[ "$mode" == "all" ]]; then
     [[ -n "${XCELSIOR_POSTGRES_DSN:-}" ]] || die "--all requires XCELSIOR_POSTGRES_DSN"
     command -v psql >/dev/null || die "--all requires psql"
-    # Only admitted hosts get an identity — admission is the control
-    # plane's decision and SPIRE must not widen it.
+    # Only admitted hosts get an identity — admission is the control plane's
+    # decision and SPIRE must not widen it.
+    #
+    # Selected on `admission_state`, the column the admission API writes under
+    # optimistic concurrency, not on `payload->>'admitted'`. That payload field
+    # is a *projection* maintained by the `control_plane_project_host()`
+    # trigger; the two agree today, but this query decides who is handed a mesh
+    # identity and it should read the fact rather than a copy of it. If the
+    # projection ever lags — a trigger dropped, rows written by a path that does
+    # not fire it — reading the copy either misses a genuinely admitted host or,
+    # worse, keeps issuing to one whose admission was revoked.
+    #
+    # Note the asymmetry, which is why diverging here is safe: the API's own
+    # gate (`require_admitted_host`) reads the projection. If the two ever
+    # disagreed, SPIRE would issue an identity the API then refuses — closed,
+    # and visible as a 403. The reverse cannot happen, because the projection is
+    # derived from this column and is never written independently.
     mapfile -t hosts < <(psql "$XCELSIOR_POSTGRES_DSN" -tAc \
-        "SELECT host_id FROM hosts WHERE COALESCE(payload->>'admitted','false') = 'true'")
+        "SELECT host_id FROM hosts WHERE admission_state = 'admitted'")
     [[ ${#hosts[@]} -gt 0 ]] || die "no admitted hosts found"
     for h in "${hosts[@]}"; do
         [[ -n "$h" ]] && register_one "$h" "$parent_id" "${selectors[@]}"

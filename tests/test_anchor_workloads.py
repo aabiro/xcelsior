@@ -100,7 +100,7 @@ class TestAnchorWorkloadsHTTP:
                 "`sudo headscale-failover status --json`, and see "
                 "runbooks/headscale-failover.md for restoring 100.64.0.3. To "
                 "run it now over the LAN instead: "
-                "XCELSIOR_MAC_HOST=aaryn@192.168.1.87 pytest "
+                "XCELSIOR_MAC_HOST=aaryn@192.168.1.125 pytest "
                 "tests/test_anchor_workloads.py"
             )
         mac_ssh_builders: list[dict] = []

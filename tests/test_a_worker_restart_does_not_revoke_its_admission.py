@@ -77,9 +77,21 @@ def test_the_reason_is_recorded_where_someone_would_reintroduce_it() -> None:
 # call DELETE /host/{id} on shutdown, so the invariant is enforced by the API
 # as well: a machine credential may not delete an *admitted* host.
 
+# Importing the application from a test module is not free, and the preamble
+# below is the established way to do it safely — copied from
+# `tests/test_hosts_endpoints_coverage.py`, which imports `api` and coexists
+# with the full suite.
+#
+# Without it, importing `routes.hosts` here broke
+# `tests/test_token_billing_closure.py` with `invalid_client / Unknown OAuth
+# client` — three tests that pass perfectly on their own. The env has to be
+# pinned *before* the import, because the app freezes auth configuration at
+# import time in three separate places (`routes._deps`, `routes.auth`, `api`).
 import os  # noqa: E402
 
 os.environ.setdefault("XCELSIOR_ENV", "test")
+os.environ.setdefault("XCELSIOR_RATE_LIMIT_REQUESTS", "5000")
+os.environ.setdefault("XCELSIOR_AUTH_RATE_LIMIT_REQUESTS", "5000")
 
 from routes.hosts import machine_credential_may_not_delete as _blocked  # noqa: E402
 

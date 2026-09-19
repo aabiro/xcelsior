@@ -90,3 +90,32 @@ def test_the_issuer_does_not_depend_on_the_operators_locale(host_id: str) -> Non
     assert len(set(results.values())) == 1, (
         f"{host_id!r} encodes differently per locale: {results}"
     )
+
+
+# ── Who gets an identity ───────────────────────────────────────────────
+
+SCRIPT_TEXT = SCRIPT.read_text(encoding="utf-8")
+
+
+def test_registration_selects_admitted_hosts_on_the_authoritative_column() -> None:
+    """`--all` decides who is handed a mesh identity. It must read the fact.
+
+    `hosts.admission_state` is what the admission API writes, under optimistic
+    concurrency with `expected_version`. `payload->>'admitted'` is a projection
+    maintained by the `control_plane_project_host()` trigger. They agree while
+    the trigger does, and a stale projection either skips a genuinely admitted
+    host or keeps issuing identities to one whose admission was revoked —
+    the second being the direction that matters.
+    """
+    assert "admission_state = 'admitted'" in SCRIPT_TEXT, (
+        "--all does not select on hosts.admission_state"
+    )
+    # The projection must not be what gates issuance.
+    gating = [
+        ln
+        for ln in SCRIPT_TEXT.splitlines()
+        if "payload->>'admitted'" in ln and not ln.lstrip().startswith("#")
+    ]
+    assert not gating, (
+        f"identity issuance still gates on the projected payload field: {gating}"
+    )

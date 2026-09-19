@@ -13,12 +13,31 @@ terminating in nginx exactly as they do today.
 
 **8444, not 8443** — Headscale holds `127.0.0.1:8443` on the control-plane host.
 
-## Before you start
+## Phase 0 — pre-flight (read-only, changes nothing)
 
-`nginx -V 2>&1 | grep -o with-stream_ssl_preread_module` must print something.
-Without that module the router cannot read SNI and nothing below works. Verify
-this on the target host; it was never confirmed on the VPS because the box went
-dark mid-check.
+```bash
+sudo bash scripts/preflight_tls_ingress.sh
+```
+
+Exits non-zero and says what to fix. It checks the module situation, that 8444
+and 9443 are free, that 8443 is still Headscale's, that the router include (if
+present) is a top-level sibling of `http` rather than inside it, and that
+`nginx -t` passes *before* you change anything.
+
+**The one that is not obvious:** Ubuntu and Debian build nginx with
+`--with-stream=dynamic` and ship the module in a *separate package*. Stock
+`nginx-core` does not include it — `/usr/lib/nginx/modules/ngx_stream_module.so`
+is simply absent. A `stream { }` block then fails `nginx -t` with **"unknown
+directive"**, which reads like a typo in the config rather than a missing
+module, and sends you looking in the wrong place.
+
+```bash
+sudo apt-get install libnginx-mod-stream    # drops the .so and loads it
+```
+
+Confirmed absent on the ASUS (same nginx 1.24 Ubuntu packaging as the VPS), so
+assume the VPS needs it too. `ssl_preread` itself is compiled in on this
+packaging — it is the *stream* module underneath it that is missing.
 
 ## Phase A — move the six vhosts behind the router (no behaviour change)
 

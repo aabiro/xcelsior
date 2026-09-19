@@ -352,7 +352,14 @@ def decide(
     )
 
 
-def failback_ready(*, health: Health, replica: ReplicaStatus, state: FailoverState) -> Decision:
+def failback_ready(
+    *,
+    health: Health,
+    replica: ReplicaStatus,
+    state: FailoverState,
+    live_nodes: int | None = None,
+    force: bool = False,
+) -> Decision:
     if state.role != "promoted":
         return Decision("none", "standby is not promoted; nothing to fail back")
     if not health.primary_ip_ok:
@@ -369,6 +376,33 @@ def failback_ready(*, health: Health, replica: ReplicaStatus, state: FailoverSta
             "wipe the tailnet identity on the VPS",
             alert=True,
         )
+    # The database that gets pushed is the *standby's live* one, not the
+    # replica — so "the replica is non-empty" says nothing about what is about
+    # to overwrite the VPS.
+    #
+    # Measured 2026-09-19: live held 2 nodes (asus-pc, the MacBook) while the
+    # replica held 6 — the same two plus vps-linuxuser .1, localhost .2,
+    # tower-server .4 and aarynfans-prod .5. Those are not a divergent rebuild:
+    # the Noise keys are byte-identical and the two live nodes carry the same
+    # machine keys and addresses as their replica records, so live is a strict
+    # subset. Failing back would have pushed the subset over the VPS and, because
+    # the replica is overwritten first, taken the only copy of the other four
+    # with it. `100.64.0.1` alone has ~20 references in this repo, and Headscale
+    # reallocates addresses sequentially from whatever survives.
+    #
+    # A failback that loses registrations is not a recovery.
+    if live_nodes is not None and not force:
+        if live_nodes < replica.node_count:
+            return Decision(
+                "refuse_failback",
+                f"the standby's live database has {node_label(live_nodes)} but the "
+                f"replica has {node_label(replica.node_count)}; failing back would "
+                "push the smaller database over the VPS and overwrite the replica "
+                "with it, destroying the only copy of the difference. Reconcile "
+                "first, or pass --force if the loss is intended.",
+                alert=True,
+            )
+
     return Decision(
         "failback",
         "VPS is reachable and the replica still has users/nodes; copy sqlite+Noise "
@@ -390,7 +424,12 @@ def probe_http(url: str, timeout: float) -> tuple[bool, str]:
 def standby_serves_dns_name(
     settings: Settings, *, opener: Callable[..., object] | None = None
 ) -> tuple[bool, str]:
-    """Can *this* host answer for `settings.dns_name` on 443, right now?
+    """Can *this* host answer for `settings.dns_name` on 443, right now?"""
+    return serves_dns_name(settings, "127.0.0.1")
+
+
+def serves_dns_name(settings: Settings, address: str) -> tuple[bool, str]:
+    """Does `address` answer for `settings.dns_name` on 443?
 
     Asked against the loopback interface with the public name as SNI, which is
     the question a promoted standby must be able to answer: a Headscale bound
@@ -409,7 +448,7 @@ def standby_serves_dns_name(
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     try:
-        with socket.create_connection(("127.0.0.1", 443), timeout=5) as raw:
+        with socket.create_connection((address, 443), timeout=5) as raw:
             with ctx.wrap_socket(raw, server_hostname=settings.dns_name) as tls:
                 tls.sendall(
                     f"GET /health HTTP/1.1\r\nHost: {settings.dns_name}\r\n"
@@ -417,9 +456,9 @@ def standby_serves_dns_name(
                 )
                 head = tls.recv(64).decode("utf-8", "replace")
     except OSError as exc:
-        return False, f"nothing serves {settings.dns_name} on 443 here: {exc}"
+        return False, f"nothing serves {settings.dns_name} on 443 at {address}: {exc}"
     if " 200" not in head and " 30" not in head:
-        return False, f"unexpected response on 443: {head.splitlines()[0][:60]!r}"
+        return False, f"unexpected response on 443 at {address}: {head.splitlines()[0][:60]!r}"
     return True, ""
 
 
@@ -919,26 +958,55 @@ def failback(
     runner: Callable[..., subprocess.CompletedProcess] | None = None,
     opener: Callable[..., object] | None = None,
     health: Health | None = None,
+    force: bool = False,
 ) -> None:
     paths = replica_paths(settings.replica_dir)
     state = state or load_state(paths["state"])
     replica = replica or inspect_replica(settings.replica_dir)
     health = health or collect_health(settings)
-    decision = failback_ready(health=health, replica=replica, state=state)
+
+    live_sqlite = settings.live_data_dir / "db.sqlite"
+    live_noise = settings.live_data_dir / "noise_private.key"
+    live_nodes = sqlite_counts(live_sqlite)[1] if live_sqlite.is_file() else None
+
+    decision = failback_ready(
+        health=health,
+        replica=replica,
+        state=state,
+        live_nodes=live_nodes,
+        force=force,
+    )
     if decision.action != "failback":
         raise FailoverError(decision.reason)
 
-    # Snapshot whatever the standby served during the outage, then push that
-    # identity to the VPS *before* DNS moves. Flipping DNS first would send
-    # clients at a stale (or empty) VPS database.
-    live_sqlite = settings.live_data_dir / "db.sqlite"
-    if live_sqlite.is_file():
-        copy_file(live_sqlite, replica.sqlite_path)
-    live_noise = settings.live_data_dir / "noise_private.key"
-    if live_noise.is_file():
-        copy_file(live_noise, replica.noise_key_path)
-    users, nodes = sqlite_counts(replica.sqlite_path)
-    write_replica_meta(settings.replica_dir, users, nodes, source="standby-failback")
+    # Snapshot whatever the standby served during the outage into a NEW,
+    # timestamped directory — never over the replica.
+    #
+    # This used to `copy_file(live_sqlite, replica.sqlite_path)`: the live
+    # database was written straight over the replica before being pushed. So the
+    # backup was destroyed *first*, and if the push then failed there was
+    # nothing left to retry from. Worse, the replica is the only copy of any
+    # registration the standby never saw — overwriting it with a subset deletes
+    # exactly the records that make the recovery worth doing.
+    #
+    # The snapshot is what gets pushed; `/var/backups/headscale` is left alone.
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    snapshot_dir = settings.replica_dir.parent / f"headscale-failback-{stamp}"
+    snapshot_dir.mkdir(parents=True, exist_ok=True)
+    os.chmod(snapshot_dir, 0o700)
+    push_sqlite = snapshot_dir / "db.sqlite"
+    push_noise = snapshot_dir / "noise_private.key"
+
+    copy_file(live_sqlite if live_sqlite.is_file() else replica.sqlite_path, push_sqlite)
+    copy_file(live_noise if live_noise.is_file() else replica.noise_key_path, push_noise)
+
+    users, nodes = sqlite_counts(push_sqlite)
+    if nodes == 0:
+        raise FailoverError(
+            f"refusing to push an empty database to {settings.primary_host}; "
+            f"snapshot at {snapshot_dir} has no nodes"
+        )
+    print(f"failback snapshot {snapshot_dir}: {users} users, {node_label(nodes)}")
 
     remote = f"{settings.primary_user}@{settings.primary_host}"
     scp_base = [
@@ -964,17 +1032,47 @@ def failback(
     ]
     run_cmd(ssh + ["systemctl stop headscale"], timeout=30, runner=runner)
     run_cmd(
-        scp_base + [str(replica.sqlite_path), f"{remote}:/var/lib/headscale/db.sqlite"],
+        scp_base + [str(push_sqlite), f"{remote}:/var/lib/headscale/db.sqlite"],
         timeout=90,
         runner=runner,
     )
     run_cmd(
-        scp_base + [str(replica.noise_key_path), f"{remote}:/var/lib/headscale/noise_private.key"],
+        scp_base + [str(push_noise), f"{remote}:/var/lib/headscale/noise_private.key"],
         timeout=60,
         runner=runner,
     )
     run_cmd(ssh + ["systemctl start headscale"], timeout=30, runner=runner)
-    set_dns_a(settings, settings.primary_host, opener=opener)
+
+    # Restore the address DNS actually held, not `primary_host`.
+    #
+    # `promote()` records `original_a_record` for exactly this, reading it from
+    # Cloudflare rather than assuming. Failback ignored it and used
+    # `primary_host`, which is only the same value while the Headscale host and
+    # the A record are one machine. They are not: the record pointed at
+    # 45.76.3.128, a reverse proxy that terminates TLS for this name, while
+    # Headscale runs on 149.28.121.61. Failing back to `primary_host` would have
+    # quietly moved the name somewhere it had never been.
+    target = (state.original_a_record or "").strip() or settings.primary_host
+
+    # And prove that address serves the name before sending clients at it —
+    # the same rule promote() follows. A failback that restores an address
+    # nothing answers on is not a recovery, and it reports success.
+    serving, why = serves_dns_name(settings, target)
+    if not serving:
+        telegram_send(
+            settings,
+            f"Headscale failback HELD: the database and Noise key are restored on "
+            f"{settings.primary_host}, but {target} does not serve "
+            f"{settings.dns_name} ({why}). DNS was left pointing here. Fix the "
+            "front for that name, then re-run failback.",
+        )
+        raise FailoverError(
+            f"refusing to point {settings.dns_name} back at {target}: it does not "
+            f"serve the name ({why}). The identity has been pushed to "
+            f"{settings.primary_host}; only the DNS move is held."
+        )
+
+    set_dns_a(settings, target, opener=opener)
     state.role = "standby"
     state.promoted_at = ""
     state.consecutive_failures = 0
@@ -982,7 +1080,7 @@ def failback(
     save_state(paths["state"], state)
     telegram_send(
         settings,
-        f"Headscale failed back to {settings.primary_host}. "
+        f"Headscale failed back to {settings.primary_host} (DNS -> {target}). "
         f"Pushed {users} users / {node_label(nodes)}. DNS restored. "
         "Node IPs unchanged.",
     )
@@ -1028,6 +1126,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="watchdog only: perform replicate/promote instead of printing the decision",
     )
     parser.add_argument(
+        "--force",
+        action="store_true",
+        help=(
+            "failback only: push the standby's database even though it holds "
+            "fewer nodes than the replica. This DESTROYS the registrations only "
+            "the replica has. Use when the loss is intended."
+        ),
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         dest="as_json",
@@ -1067,7 +1174,7 @@ def main(argv: list[str] | None = None) -> int:
             print("promoted")
             return 0
         if args.command == "failback":
-            failback(settings)
+            failback(settings, force=args.force)
             print("failed back")
             return 0
     except FailoverError as exc:
