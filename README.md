@@ -1,11 +1,11 @@
 <div align="center">
 
-# 🍁 Xcelsior
+# Xcelsior
 
-### Canada-Grounded AI Compute — Cheapest Compliant Compute in Canada
+### GPU compute your agent can run end to end
 
-**Route AI workloads to admission-gated GPU hosts over a private mesh —
-with 4-layer container security and CAD-native billing.**
+**Launch it, connect to it, spend on it and tear it down — through 86 MCP tools,
+without ever opening a browser. Every host admission-gated before it takes work.**
 
 [![CI](https://github.com/aabiro/xcelsior/actions/workflows/ci.yml/badge.svg)](https://github.com/aabiro/xcelsior/actions/workflows/ci.yml)
 [![Frontend CI](https://github.com/aabiro/xcelsior/actions/workflows/frontend.yml/badge.svg)](https://github.com/aabiro/xcelsior/actions/workflows/frontend.yml)
@@ -34,7 +34,7 @@ graph TB
         api["FastAPI Gateway · public API + dashboard"]
         scheduler["Scheduler · Job matching & compliance"]
         db[("PostgreSQL 16 + SQLite auxiliaries")]
-        billing["Billing · CAD · Stripe Connect · BTC"]
+        billing["Billing · metering · holds · payouts"]
         reputation["Reputation · 6-tier trust scoring"]
     end
 
@@ -62,7 +62,8 @@ graph TB
 |---|---|
 | **Global supply** | Capacity from independent hosts worldwide, ranked on price, availability, hardware, and host reputation. |
 | **4-Layer Security** | Version gating → least-privilege Docker → egress firewall → gVisor / Kata sandbox. |
-| **CAD-Native Billing** | 13-province GST/HST, Stripe Connect payouts, AI Compute Fund (CAF) rebate export. |
+| **Agent-Native Surface** | 86 MCP tools with per-tool scopes — launch, connect, spend, snapshot, terminate. No dashboard step in any of it. |
+| **Metered Billing** | Per-second metering against wallet holds that expire; Stripe and PayPal payout rails; spending widened only through an approvable plan. |
 | **Reputation Engine** | Multi-factor scoring with 7-day grace decay. Bronze → Silver → Gold → Platinum → Diamond tiers. |
 | **Private Mesh** | Headscale overlay network — GPU workers never exposed to the public internet. |
 | **Admission Gating** | Hosts must pass version checks + GPU fingerprinting before receiving any work. |
@@ -72,7 +73,7 @@ graph TB
 
 ## Spot Instances
 
-Spot workloads use **`pricing_mode: "spot"`** — not an auction. Customers accept the **published spot rate** (CAD/hr) at launch; the rate is **locked for billing** when the job is assigned. Preemption is **capacity-driven** (on-demand contention or host drain), not bid-based.
+Spot workloads use **`pricing_mode: "spot"`** — not an auction. Customers accept the **published spot rate** at launch; the rate is **locked for billing** when the job is assigned. Preemption is **capacity-driven** (on-demand contention or host drain), not bid-based.
 
 ```bash
 # Launch an interruptible spot instance
@@ -155,7 +156,7 @@ api.py            FastAPI gateway (public API, SSE, dashboard)
 scheduler.py      Job queue, host allocation, spot pricing, preemption
 worker_agent.py   Pull-based GPU agent, telemetry, Docker execution
 security.py       4-layer defense: version gating → gVisor/Kata
-billing.py        CAD pricing, 13-province tax, escrow, CAF export
+billing.py        metering, wallet holds, escrow, tax, payout rails
 events.py         Append-only event store, tamper-evident hashing
 reputation.py     Multi-factor scoring, Bronze→Diamond tiers
 privacy.py        data retention, consent, export and erasure
