@@ -59,7 +59,9 @@ def _test_sources() -> list[tuple[Path, str]]:
 #: Generators whose output has no currency check yet. Each entry is debt.
 #: Adding to this list is not allowed — see the count assertion below.
 UNGATED_BACKLOG = {
-    "generate_ai_onboarding_svgs.py": "writes checked-in SVGs under frontend/public",
+    "generate_ai_onboarding_svgs.py": (
+        "output has diverged from the committed assets (1 file differs, measured\n        2026-09-19); like the dashboard set these are hand-evolved, so a currency\n        gate would demand regenerating over them"
+    ),
     "generate_dashboard_svgs.py": (
         "NOT currency-gateable, and this is the interesting one. Its output "
         "diverges from the committed assets, but the committed assets are what "
@@ -71,9 +73,10 @@ UNGATED_BACKLOG = {
         "Treat these as design scaffolds whose output has been hand-evolved, not "
         "as generated artifacts. Checked 2026-09-19."
     ),
-    "generate_features_svgs.py": "writes checked-in SVGs under frontend/public",
-    "generate_gpu_page_svgs.py": "writes checked-in SVGs under frontend/public",
-    "generate_mcp_page_svgs.py": "writes checked-in SVGs under frontend/public",
+    "generate_mcp_page_svgs.py": (
+        "output has diverged (1 modified, 1 uncommitted, measured 2026-09-19); "
+        "hand-evolved, same as the dashboard and onboarding sets"
+    ),
     "gen_alaska_path.py": (
         "one-shot SVG path derivation that fetches over the network; its output "
         "is pasted by hand rather than written to a tracked path, so a currency "
@@ -81,15 +84,19 @@ UNGATED_BACKLOG = {
     ),
 }
 
-#: Pinned to the measured count. Was 7; `regenerate_untested_endpoints.py`
-#: gained a gate, so it is 6. (It was first counted as 5, because the
-#: original glob missed two generators entirely.)
+#: Pinned to the measured count. 7 -> 6 when `regenerate_untested_endpoints.py`
+#: gained a gate, 6 -> 4 when `generate_features_svgs` and
+#: `generate_gpu_page_svgs` turned out to match their committed assets exactly
+#: and were gated by `tests/test_svg_generators_that_can_be_gated_are.py`.
+#: (It was first counted as 5, because the original glob missed two
+#: generators entirely.) Each of the four that remain is now listed with a
+#: *measured* reason rather than a description of what it writes.
 #:
 #: Pinned to the measured count. It may go DOWN as gates are added; it must
 #: never go up. A ratchet with slack is not a ratchet — an earlier version of
 #: this pattern in this repo was written with headroom and passed its own
 #: control.
-MAX_UNGATED = 6
+MAX_UNGATED = 4
 
 
 #: Generator name shapes. `generate_*` alone missed
