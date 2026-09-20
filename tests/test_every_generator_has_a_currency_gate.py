@@ -61,18 +61,19 @@ def _test_sources() -> list[tuple[Path, str]]:
 UNGATED_BACKLOG = {
     "generate_ai_onboarding_svgs.py": "writes checked-in SVGs under frontend/public",
     "generate_dashboard_svgs.py": (
-        "writes checked-in SVGs under frontend/public; VERIFIED STALE 2026-09-19 "
-        "(gpu.svg and gpu-light.svg differ from a fresh run; four more outputs "
-        "are not committed at all)"
+        "NOT currency-gateable, and this is the interesting one. Its output "
+        "diverges from the committed assets, but the committed assets are what "
+        "is live: /gpu.svg is referenced twice in the marketplace page, carries "
+        "no 'generated' header, and was last touched in the same feature commit "
+        "as the generator (5f65cac) — the two were edited together and drifted. "
+        "A fresh run produces a structurally different illustration, so "
+        "regenerating would overwrite live artwork with a superseded design. "
+        "Treat these as design scaffolds whose output has been hand-evolved, not "
+        "as generated artifacts. Checked 2026-09-19."
     ),
     "generate_features_svgs.py": "writes checked-in SVGs under frontend/public",
     "generate_gpu_page_svgs.py": "writes checked-in SVGs under frontend/public",
     "generate_mcp_page_svgs.py": "writes checked-in SVGs under frontend/public",
-    "regenerate_untested_endpoints.py": (
-        "writes the checked-in UNTESTED_ENDPOINTS.md; found only after fixing "
-        "this file's own glob, which looked for generate_* and so could not see "
-        "a generator named regenerate_*"
-    ),
     "gen_alaska_path.py": (
         "one-shot SVG path derivation that fetches over the network; its output "
         "is pasted by hand rather than written to a tracked path, so a currency "
@@ -80,14 +81,15 @@ UNGATED_BACKLOG = {
     ),
 }
 
-#: Pinned to the measured count — 7, not the 5 first counted: the original
-#: glob missed two generators entirely.
+#: Pinned to the measured count. Was 7; `regenerate_untested_endpoints.py`
+#: gained a gate, so it is 6. (It was first counted as 5, because the
+#: original glob missed two generators entirely.)
 #:
 #: Pinned to the measured count. It may go DOWN as gates are added; it must
 #: never go up. A ratchet with slack is not a ratchet — an earlier version of
 #: this pattern in this repo was written with headroom and passed its own
 #: control.
-MAX_UNGATED = 7
+MAX_UNGATED = 6
 
 
 #: Generator name shapes. `generate_*` alone missed
