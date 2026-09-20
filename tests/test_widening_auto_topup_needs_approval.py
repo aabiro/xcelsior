@@ -1,118 +1,309 @@
-"""Raising an unattended spend cap needs approval; lowering one does not.
+"""Raising a spend cap requires approval; lowering one does not.
 
-Gate P1, clause 6. It was the one clause of that gate with no assertion at all
-— the behaviour is implemented in `routes/billing.py` and was simply never
-exercised, so nothing would have noticed it regressing.
+Gate P1 clause 6, and the one clause the implementation had decided against.
+`configure_auto_topup` gated on `billing:write` alone, and
+`tests/test_auto_topup_change_is_recorded.py` argued in its docstring that this
+was right: the caller already holds a deliberately granted scope, so asking again
+"re-decides their decision".
 
-`_auto_topup_widens` is the decision, and the case worth naming is the third:
-raising the *threshold* does not raise any single charge, but it fires the
-charge sooner and therefore more often. A check that only compared `amount_cad`
-would pass its own review and leave the lever open.
+That argument was ruled against in `docs/gate-truth-table.md`. The short version:
+`top_up_wallet` charges **a stated amount, once, while the user is watching**;
+`configure_auto_topup` installs **standing unattended authority that fires
+repeatedly with nobody present**. The smaller lever being ungated is not a reason
+to leave the larger one ungated.
 
-This asserts the predicate directly rather than over HTTP. The route also
-requires a wallet, a Stripe customer and a saved payment method, none of which
-exist without a live processor — and gate P1's headline ("a top-up completes
-with no browser, against a live server") is explicitly the thing that cannot be
-asserted here. Pretending otherwise by mocking the processor would produce a
-green test for the one claim this phase is not entitled to make yet. What is
-asserted here is exactly the raise-vs-lower decision, which needs none of that.
+## What "approval" means, and what it does not
+
+Approval is the `action_plans` substrate — the same one Gate P1 clause 7 depends
+on when it asks for a charge "traceable to its approving plan". It is stronger
+than a two-step call: `confirm:true` is accepted for symmetry and deliberately
+ignored, execute refuses any plan not `approved`, the plan is bound to its
+canonical argument hash, and `approval_mode: "human"` refuses a machine principal.
+
+`approval_mode` here is hard-coded `"human"` rather than taken from the spend
+policy, and that is deliberate. A standing policy lets a client pre-authorise
+spending *inside ceilings*; letting it approve a change *to those ceilings* would
+be circular.
+
+## Who is exempt, and why that is not a loophole
+
+A human at the dashboard is not asked to approve their own click — the click is
+the approval. `_is_interactive_human` draws that line, and it is deliberately not
+`routes.action_plans._is_human`, which tests only `auth_type !=
+"client_credentials"` and therefore counts a third-party connector token as a
+person. Using the weaker predicate here would have left the gate open to exactly
+the caller it exists to stop.
 """
 
 from __future__ import annotations
 
 import os
-import sys
-from pathlib import Path
+
+import pytest
 
 os.environ.setdefault("XCELSIOR_ENV", "test")
-os.environ.setdefault("XCELSIOR_RATE_LIMIT_REQUESTS", "5000")
-os.environ.setdefault("XCELSIOR_AUTH_RATE_LIMIT_REQUESTS", "5000")
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-import pytest  # noqa: E402
-
-from routes._deps import _MACHINE_AUTH_TYPES, _is_interactive_human  # noqa: E402
-from routes.billing import AutoTopupConfig, _auto_topup_widens  # noqa: E402
-
-BASE = {"enabled": True, "amount_cad": 50.0, "threshold_cad": 10.0}
+PREVIOUS = {"enabled": True, "amount_cad": 20.0, "threshold_cad": 5.0}
 
 
-def _cfg(**over) -> AutoTopupConfig:
-    merged = {**BASE, "stripe_payment_method_id": "pm_test", **over}
-    return AutoTopupConfig(**merged)
+def _config(**kw):
+    from routes.billing import AutoTopupConfig
+
+    base = {
+        "enabled": True,
+        "amount_cad": 20.0,
+        "threshold_cad": 5.0,
+        "stripe_payment_method_id": "pm_test",
+    }
+    base.update(kw)
+    return AutoTopupConfig(**base)
 
 
-# ── widening: must require approval ──────────────────────────────────
-
-@pytest.mark.parametrize(
-    "change, why",
-    [
-        ({"amount_cad": 75.0}, "a larger single charge"),
-        ({"threshold_cad": 25.0}, "fires sooner, so charges more often"),
-        ({"amount_cad": 75.0, "threshold_cad": 25.0}, "both at once"),
-    ],
-)
-def test_raising_a_cap_is_a_widening(change, why) -> None:
-    assert _auto_topup_widens(BASE, _cfg(**change)) is True, (
-        f"{change} was not treated as widening ({why}); an agent could raise "
-        "unattended spending with no approval"
-    )
+def _agent(scopes=("billing:write",)) -> dict:
+    """A client-credentials principal — no human present."""
+    return {
+        "email": "demo@xcelsior.ca",
+        "user_id": "demo-user",
+        "auth_type": "client_credentials",
+        "grant_type": "client_credentials",
+        "client_id": "agent-client",
+        "scopes": list(scopes),
+    }
 
 
-def test_enabling_from_off_is_a_widening_whatever_the_amounts() -> None:
-    """Off to on widens even when the numbers shrink: 0 unattended becomes some."""
-    previous = {**BASE, "enabled": False, "amount_cad": 500.0, "threshold_cad": 400.0}
-    assert _auto_topup_widens(previous, _cfg(amount_cad=1.0, threshold_cad=1.0)) is True
+def _dashboard_human() -> dict:
+    return {
+        "email": "demo@xcelsior.ca",
+        "user_id": "demo-user",
+        "auth_type": "oauth_access_token",
+        "session_type": "browser",
+        "client_id": "xcelsior-web",
+        "scopes": ["profile", "email"],
+    }
 
 
-# ── narrowing: must not ──────────────────────────────────────────────
-
-@pytest.mark.parametrize(
-    "change",
-    [
-        {"amount_cad": 25.0},
-        {"threshold_cad": 5.0},
-        {"amount_cad": 25.0, "threshold_cad": 5.0},
-        {},  # unchanged is not a widening either
-    ],
-)
-def test_lowering_or_holding_a_cap_is_not_a_widening(change) -> None:
-    assert _auto_topup_widens(BASE, _cfg(**change)) is False, (
-        f"{change} was treated as widening; lowering a cap would demand an "
-        "approval the gate says it must not"
-    )
+def _connector() -> dict:
+    """A third-party token. Relays a human's intent; is not a human."""
+    return {
+        "email": "demo@xcelsior.ca",
+        "user_id": "demo-user",
+        "auth_type": "oauth_access_token",
+        "session_type": "browser",
+        "client_id": "third-party-agent",
+        "scopes": ["billing:write"],
+    }
 
 
-def test_disabling_never_widens_however_large_the_numbers() -> None:
-    """`enabled` is tested first for a reason: off charges nothing."""
-    assert _auto_topup_widens(BASE, _cfg(enabled=False, amount_cad=10_000.0)) is False
+# --------------------------------------------------------------------------
+# Which changes widen
+# --------------------------------------------------------------------------
 
 
-# ── who the approval requirement applies to ──────────────────────────
+def test_raising_the_amount_widens():
+    from routes.billing import _auto_topup_widens
 
-def test_a_machine_caller_is_not_treated_as_its_own_approval() -> None:
-    """The 409 only fires for non-humans; if every caller looked human it never would.
+    assert _auto_topup_widens(PREVIOUS, _config(amount_cad=50.0)) is True
 
-    Iterates `_MACHINE_AUTH_TYPES` rather than listing values, so a machine auth
-    type added later is covered here without anyone remembering to. Writing the
-    literals out is how this test would quietly stop covering the newest way in
-    — the first draft did exactly that and used `agent_key`, which is not a
-    value this system produces.
+
+def test_raising_the_threshold_widens():
+    """The one that gets missed.
+
+    A higher threshold does not raise any single charge — it makes the charge
+    fire sooner, and therefore more often. That is more unattended spending.
     """
-    assert _MACHINE_AUTH_TYPES, "the machine auth-type set is empty; nothing is covered"
+    from routes.billing import _auto_topup_widens
 
-    assert _is_interactive_human({"grant_type": "client_credentials"}) is False, (
-        "an OAuth client-credentials token counts as a person at the keyboard, "
-        "so widening would skip approval entirely"
+    assert _auto_topup_widens(PREVIOUS, _config(threshold_cad=500.0)) is True
+
+
+def test_enabling_a_disabled_lever_widens():
+    from routes.billing import _auto_topup_widens
+
+    off = {"enabled": False, "amount_cad": 0.0, "threshold_cad": 0.0}
+    assert _auto_topup_widens(off, _config()) is True
+
+
+def test_lowering_the_amount_does_not_widen():
+    from routes.billing import _auto_topup_widens
+
+    assert _auto_topup_widens(PREVIOUS, _config(amount_cad=5.0)) is False
+
+
+def test_disabling_never_widens_whatever_the_amounts_say():
+    """`enabled: false` with a huge amount must not read as a widening."""
+    from routes.billing import _auto_topup_widens
+
+    assert _auto_topup_widens(PREVIOUS, _config(enabled=False, amount_cad=9999.0)) is False
+
+
+def test_an_unchanged_setting_does_not_widen():
+    from routes.billing import _auto_topup_widens
+
+    assert _auto_topup_widens(PREVIOUS, _config()) is False
+
+
+# --------------------------------------------------------------------------
+# Who must have a plan
+# --------------------------------------------------------------------------
+
+
+def test_a_dashboard_human_is_the_approval():
+    from routes._deps import _is_interactive_human
+
+    assert _is_interactive_human(_dashboard_human()) is True
+
+
+def test_an_agent_is_not_a_human_approver():
+    from routes._deps import _is_interactive_human
+
+    assert _is_interactive_human(_agent()) is False
+
+
+def test_a_connector_token_is_not_a_human_approver():
+    """The loophole this gate would have had if it used the weaker predicate.
+
+    `routes.action_plans._is_human` returns True here, because it only asks
+    whether the grant was `client_credentials`. Asserting the two disagree is
+    the point: if `_is_interactive_human` ever starts agreeing with it, an agent
+    holding a connector token can approve its own spend-cap increase.
+    """
+    from routes._deps import _is_interactive_human
+    from routes.action_plans import _is_human
+
+    connector = _connector()
+    assert _is_interactive_human(connector) is False
+    assert _is_human(connector) is True, (
+        "the weaker predicate no longer counts a connector token as human — if "
+        "that was fixed, say so here; if it drifted, this gate depended on it"
     )
-    for auth_type in sorted(_MACHINE_AUTH_TYPES):
-        assert _is_interactive_human({"auth_type": auth_type}) is False, (
-            f"auth_type={auth_type!r} counts as a person present at the "
-            "keyboard, so widening would skip approval entirely"
-        )
 
 
-def test_a_dashboard_session_is_its_own_approval() -> None:
-    """A human clicking save IS the approval — demanding another is ceremony."""
-    assert _is_interactive_human({"auth_type": "session"}) is True
+# --------------------------------------------------------------------------
+# The refusal
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def client():
+    from fastapi.testclient import TestClient
+
+    import api as api_mod
+
+    return TestClient(api_mod.app)
+
+
+def _as(monkeypatch, principal: dict) -> None:
+    from routes import _deps
+
+    monkeypatch.setattr(_deps, "_get_current_user", lambda request: dict(principal))
+    import routes.billing as billing_mod
+
+    monkeypatch.setattr(billing_mod, "_get_current_user", lambda request: dict(principal))
+
+
+def _wallet(monkeypatch, enabled=True, amount_cad=20.0, threshold_cad=5.0):
+    """Pin the stored setting so `previous` is known."""
+    import routes.billing as billing_mod
+    from money import cad_to_micros
+
+    class _Engine:
+        def get_wallet(self, customer_id):
+            return {
+                "auto_topup_enabled": enabled,
+                "auto_topup_amount_micros": cad_to_micros(amount_cad),
+                "auto_topup_threshold_micros": cad_to_micros(threshold_cad),
+            }
+
+        def configure_auto_topup(self, **kw):
+            self.configured = kw
+
+    engine = _Engine()
+    monkeypatch.setattr(billing_mod, "get_billing_engine", lambda: engine)
+    return engine
+
+
+def test_an_agent_widening_directly_is_refused(client, monkeypatch):
+    """The headline behaviour."""
+    _as(monkeypatch, _agent())
+    _wallet(monkeypatch)
+    r = client.post(
+        "/api/v2/billing/auto-topup",
+        json={"enabled": True, "amount_cad": 500.0, "threshold_cad": 5.0},
+    )
+    assert r.status_code == 409, (
+        f"an agent raised the unattended charge amount and got {r.status_code}"
+    )
+    assert "auto-topup-plans" in r.text, "the refusal does not say how to proceed"
+
+
+def test_an_agent_narrowing_directly_is_allowed(client, monkeypatch):
+    """The other half of the asymmetry.
+
+    Safety must never be harder to reach than the risk it undoes. If lowering
+    needed a plan too, this would be a blanket gate rather than the asymmetry
+    the clause asks for.
+    """
+    _as(monkeypatch, _agent())
+    engine = _wallet(monkeypatch)
+    r = client.post(
+        "/api/v2/billing/auto-topup",
+        json={"enabled": True, "amount_cad": 5.0, "threshold_cad": 5.0},
+    )
+    assert r.status_code == 200, f"lowering the amount was refused: {r.text}"
+    assert engine.configured["amount_cad"] == 5.0
+
+
+def test_an_agent_disabling_directly_is_allowed(client, monkeypatch):
+    """Turning it off is the safest thing a caller can do; never gate it."""
+    _as(monkeypatch, _agent())
+    engine = _wallet(monkeypatch)
+    r = client.post(
+        "/api/v2/billing/auto-topup",
+        json={"enabled": False, "amount_cad": 20.0, "threshold_cad": 5.0},
+    )
+    assert r.status_code == 200, f"disabling auto-top-up was refused: {r.text}"
+    assert engine.configured["enabled"] is False
+
+
+def test_a_dashboard_human_widening_directly_is_allowed(client, monkeypatch):
+    """No ceremony in front of a person who is already there."""
+    _as(monkeypatch, _dashboard_human())
+    engine = _wallet(monkeypatch)
+    r = client.post(
+        "/api/v2/billing/auto-topup",
+        json={"enabled": True, "amount_cad": 500.0, "threshold_cad": 5.0},
+    )
+    assert r.status_code == 200, f"the dashboard was refused its own click: {r.text}"
+    assert engine.configured["amount_cad"] == 500.0
+
+
+def test_a_connector_token_widening_directly_is_refused(client, monkeypatch):
+    """The case the weaker predicate would have admitted."""
+    _as(monkeypatch, _connector())
+    _wallet(monkeypatch)
+    r = client.post(
+        "/api/v2/billing/auto-topup",
+        json={"enabled": True, "amount_cad": 500.0, "threshold_cad": 5.0},
+    )
+    assert r.status_code == 409, (
+        f"a third-party connector token widened the spend cap and got {r.status_code}"
+    )
+
+
+def test_a_plan_is_refused_for_a_change_that_does_not_widen(client, monkeypatch):
+    """A plan for a narrowing would sit in the trail looking like an approval."""
+    _as(monkeypatch, _agent())
+    _wallet(monkeypatch)
+    r = client.post(
+        "/api/v2/billing/auto-topup-plans",
+        json={"enabled": True, "amount_cad": 5.0, "threshold_cad": 5.0},
+    )
+    assert r.status_code == 409
+    assert "does not widen" in r.text
+
+
+def test_the_action_type_demands_billing_write():
+    """The plan may add approval; it must never add authority."""
+    from control_plane.launch.service import ACTION_REQUIRED_SCOPES
+
+    assert ACTION_REQUIRED_SCOPES["configure_auto_topup"] == ["billing:write"]
