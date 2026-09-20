@@ -1037,6 +1037,39 @@ def _merge_auth_user(base: dict, full_user: dict | None = None) -> dict:
     return merged
 
 
+def _auth_cookie_domain(base_url: str) -> str | None:
+    """The `Domain` attribute for auth cookies, or None for a host-only cookie.
+
+    This was the literal `".xcelsior.ca"` whenever `XCELSIOR_BASE_URL` began
+    with `https`, which is a scheme test standing in for an identity test. Any
+    other HTTPS origin — a staging deploy, a preview URL, a tunnel — was sent a
+    cookie scoped to a domain it is not on, and browsers drop those silently:
+    login returns 200, sets a cookie, and the next request has no session.
+
+    Locally the same rule bit differently. `http://127.0.0.1` skipped the domain
+    and worked, but any dev pointed at an https base could not hold a session at
+    all, and neither could curl: the observed `Set-Cookie:
+    xcelsior_session=…; Domain=.xcelsior.ca` is discarded by a client talking to
+    127.0.0.1, so the Quick Connect page — which needs an interactive session —
+    was unreachable outside production.
+
+    Production behaviour is unchanged: an `xcelsior.ca` origin still gets the
+    shared parent domain, which is what lets the dashboard and API subdomains
+    see one session. Anything else gets a host-only cookie, which is correct
+    everywhere and requires no configuration. `XCELSIOR_COOKIE_DOMAIN` overrides
+    both for a deployment that genuinely needs cross-subdomain on its own name.
+    """
+    explicit = os.environ.get("XCELSIOR_COOKIE_DOMAIN", "").strip()
+    if explicit:
+        return explicit
+    from urllib.parse import urlparse
+
+    host = (urlparse(base_url).hostname or "").strip().lower()
+    if host == "xcelsior.ca" or host.endswith(".xcelsior.ca"):
+        return ".xcelsior.ca"
+    return None
+
+
 def _set_auth_cookie(response, token: str, *, max_age: int = SESSION_EXPIRY):
     _base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
     is_prod = _base.startswith("https")
@@ -1049,8 +1082,9 @@ def _set_auth_cookie(response, token: str, *, max_age: int = SESSION_EXPIRY):
         samesite="lax",
         path="/",
     )
-    if is_prod:
-        kwargs["domain"] = ".xcelsior.ca"
+    _domain = _auth_cookie_domain(_base)
+    if _domain:
+        kwargs["domain"] = _domain
     response.set_cookie(**kwargs)
     return response
 
@@ -1067,8 +1101,9 @@ def _set_refresh_cookie(response, token: str, *, max_age: int = REFRESH_TOKEN_TT
         samesite="lax",
         path="/",
     )
-    if is_prod:
-        kwargs["domain"] = ".xcelsior.ca"
+    _domain = _auth_cookie_domain(_base)
+    if _domain:
+        kwargs["domain"] = _domain
     response.set_cookie(**kwargs)
     return response
 
@@ -1094,13 +1129,17 @@ def _set_session_cookies(response, token_bundle: dict):
 
 def _clear_auth_cookie(response):
     _base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
+    # Must mirror the setter exactly: a delete_cookie whose Domain differs from
+    # the one it was set with does not clear anything, so logout would appear to
+    # work and leave the session live.
+    _domain = _auth_cookie_domain(_base)
     kwargs: dict = dict(key=_AUTH_COOKIE_NAME, path="/")
-    if _base.startswith("https"):
-        kwargs["domain"] = ".xcelsior.ca"
+    if _domain:
+        kwargs["domain"] = _domain
     response.delete_cookie(**kwargs)
     refresh_kwargs: dict = dict(key=REFRESH_COOKIE_NAME, path="/")
-    if _base.startswith("https"):
-        refresh_kwargs["domain"] = ".xcelsior.ca"
+    if _domain:
+        refresh_kwargs["domain"] = _domain
     response.delete_cookie(**refresh_kwargs)
     return response
 
