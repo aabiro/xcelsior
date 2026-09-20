@@ -12,7 +12,7 @@ const kpis = [
 ] as const;
 
 const values = [
-  ["01", "home.val_compliance_title", "home.val_compliance_desc"],
+  ["01", "home.val_agents_title", "home.val_agents_desc"],
   ["02", "home.val_pricing_title", "home.val_pricing_desc"],
 ] as const;
 
@@ -27,8 +27,9 @@ const features = [
 
 const comparisonRows = [
   ["home.cmp_agents", "home.cmp_agents_x", "home.cmp_agents_aws", "home.cmp_agents_vast", "home.cmp_agents_rp"],
+  ["home.cmp_quote", "home.cmp_quote_x", "home.cmp_quote_aws", "home.cmp_quote_vast", "home.cmp_quote_rp"],
   ["home.cmp_price", "home.cmp_price_x", "home.cmp_price_aws", "home.cmp_price_vast", "home.cmp_price_rp"],
-  ["home.cmp_cad", "home.cmp_cad_x", "home.cmp_cad_aws", "home.cmp_cad_vast", "home.cmp_cad_rp"],
+  ["home.cmp_spot", "home.cmp_spot_x", "home.cmp_spot_aws", "home.cmp_spot_vast", "home.cmp_spot_rp"],
   ["home.cmp_verification", "home.cmp_verification_x", "home.cmp_verification_aws", "home.cmp_verification_vast", "home.cmp_verification_rp"],
   ["home.cmp_ai", "home.cmp_ai_x", "home.cmp_ai_aws", "home.cmp_ai_vast", "home.cmp_ai_rp"],
 ] as const;
