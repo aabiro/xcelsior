@@ -2,11 +2,11 @@
 
 _Regenerated 2026-09-19 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
 
-**32 of 529 routes (6%)** and **0 of 48 CLI commands** (0%) have no test signal.
+**31 of 529 routes (5%)** and **0 of 48 CLI commands** (0%) have no test signal.
 
 Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the box; if it 500s/throws, fix-or-delete then tick. Caveat: a few may be exercised transitively; confirm with the test.
 
-## Routes (32 untested)
+## Routes (31 untested)
 
 ### `routes/action_plans.py` (0 untested)
 - [x] `POST /api/v1/launch-plans` — `api_create_launch_plan`
@@ -332,14 +332,14 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /v1/inference/async` — `api_v1_inference_async`
 - [x] `GET /v1/inference/{job_id}` — `api_v1_inference_poll`
 
-### `routes/instances.py` (1 untested)
+### `routes/instances.py` (0 untested)
 - [x] `POST /admin/instances/{job_id}/reinject-shell` — `api_admin_reinject_shell`  ✓ test_instances_endpoints_coverage.py
 - [x] `GET /api/images/templates` — `api_image_templates`  ✓ test_instances_endpoints_coverage.py
 - [x] `POST /api/instances/{job_id}/stream-ticket` — `api_instance_stream_ticket`
 - [x] `GET /api/instances/{job_id}/telemetry` — `api_instance_telemetry`
 - [x] `POST /api/v1/image-sweep-plans/{plan_id}/execute` — `api_execute_image_sweep_plan`
 - [x] `POST /api/v1/image-sweeps` — `api_create_image_sweep`
-- [ ] `GET /api/v1/image-sweeps/{sweep_id}` — `api_get_image_sweep`
+- [x] `GET /api/v1/image-sweeps/{sweep_id}` — `api_get_image_sweep`
 - [x] `POST /api/v2/scheduler/process-binpack` — `api_process_queue_binpack`
 - [x] `POST /failover` — `api_failover`
 - [x] `POST /instance` — `api_submit_instance`  ✓ test_health_endpoints_coverage.py
