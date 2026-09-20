@@ -33,6 +33,36 @@ bind = [f"{_host}:{_port}" for _host in _hosts]
 
 # ---------- Worker processes ----------
 workers = int(os.getenv("GUNICORN_WORKERS", "2"))
+
+# In-memory auth and more than one worker are silently incompatible, and the
+# symptom is the worst kind: authentication that works about half the time.
+#
+# `XCELSIOR_PERSISTENT_AUTH=false` makes `routes._deps._users_db` — a plain dict
+# in the worker's own memory — the *user store*, not a cache. Registration lands
+# on whichever worker served that request; the next login round-robins, and a
+# worker that never saw the registration answers 401. Measured on this repo's
+# test stack with the default two workers:
+#
+#     401 401 401 401 200 200 401 200 401 401
+#
+# Nothing reported an error. Each worker was behaving correctly, the user row
+# existed in no database because it had never been written to one, and the
+# register response carried a complete user object because the worker that
+# served it genuinely had created one. It reads as a flaky password.
+#
+# Refusing to boot rather than quietly setting `workers = 1`: a developer who
+# asked for four workers and got one would debug the wrong thing later, and the
+# combination is never what anyone means.
+_persistent_auth = os.getenv("XCELSIOR_PERSISTENT_AUTH", "true").strip().lower() != "false"
+if not _persistent_auth and workers > 1:
+    raise RuntimeError(
+        f"XCELSIOR_PERSISTENT_AUTH=false with GUNICORN_WORKERS={workers}: "
+        "in-memory auth is per-process, so logins would fail on every worker "
+        "that did not serve the registration — roughly "
+        f"{100 - int(100 / workers)}% of the time, with no error logged. "
+        "Set XCELSIOR_PERSISTENT_AUTH=true to use the database (what production "
+        "does), or GUNICORN_WORKERS=1 if you genuinely want the in-memory store."
+    )
 worker_class = "uvicorn.workers.UvicornWorker"
 worker_tmp_dir = "/dev/shm"  # faster heartbeat on Linux
 

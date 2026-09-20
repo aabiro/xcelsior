@@ -329,6 +329,40 @@ x-api-hardening: &api-hardening
     - /home/xcelsior/.ssh:rw,nosuid,nodev,mode=0700,uid=10001,gid=10001,size=1m
 
 services:
+  # The auth cache the API already expects. `XCELSIOR_AUTH_CACHE_BACKEND`
+  # defaults to `redis` and `XCELSIOR_AUTH_REDIS_URL` to `localhost:6379`, and
+  # until now nothing in this file provided one — so a plain `docker compose up`
+  # produced an API whose every auth call answered
+  # `auth_cache_unavailable` (503) while `/healthz` cheerfully returned
+  # `{"ok": true}`. Health that does not include the dependency auth cannot work
+  # without is health that reports the wrong thing.
+  #
+  # `network_mode: host` because the API is host-networked and reaches this at
+  # `localhost:6379`; a bridged service name is not resolvable from there.
+  # Bound to loopback for the same reason `gunicorn.conf.py` defends its own
+  # bind: with host networking, `0.0.0.0` would publish the auth cache to the
+  # LAN and the tailnet.
+  #
+  # If the host already runs a redis on 6379 — as a production box may — this
+  # container will fail to bind and say so, rather than the API silently
+  # degrading. That is the intended direction of failure.
+  redis:
+    image: redis:7-alpine
+    command: >-
+      redis-server
+      --bind ${XCELSIOR_REDIS_BIND:-127.0.0.1}
+      --port ${XCELSIOR_REDIS_PORT:-6379}
+      --save ""
+      --appendonly no
+    network_mode: host
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "127.0.0.1", "-p", "${XCELSIOR_REDIS_PORT:-6379}", "ping"]
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+
   api:
     build: .
     <<: *api-hardening
@@ -345,6 +379,11 @@ services:
       XCELSIOR_BG_TASKS: "false"
     network_mode: host
     volumes: *api-volumes
+    # Auth answers 503 until the cache is up; waiting for healthy turns a
+    # confusing first-minute failure into an ordinary startup order.
+    depends_on:
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     stop_grace_period: 120s
     healthcheck:
