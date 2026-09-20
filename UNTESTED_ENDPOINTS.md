@@ -1,33 +1,57 @@
 # Untested endpoints — coverage-gap worklist
 
-_Regenerated 2026-06-05 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
+_Regenerated 2026-09-19 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
 
-**0 of 373 routes (0%)** and **0 of 51 CLI commands** (0%) have no test signal.
+**32 of 529 routes (6%)** and **0 of 48 CLI commands** (0%) have no test signal.
 
 Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the box; if it 500s/throws, fix-or-delete then tick. Caveat: a few may be exercised transitively; confirm with the test.
 
-## Routes (0 untested)
+## Routes (32 untested)
 
-### `routes/admin.py` (0 untested)
+### `routes/action_plans.py` (0 untested)
+- [x] `POST /api/v1/launch-plans` — `api_create_launch_plan`
+- [x] `GET /api/v1/launch-plans/{plan_id}` — `api_get_launch_plan`
+- [x] `POST /api/v1/launch-plans/{plan_id}/approve` — `api_approve_launch_plan`
+- [x] `POST /api/v1/launch-plans/{plan_id}/execute` — `api_execute_launch_plan`
+- [x] `POST /api/v1/launch-plans/{plan_id}/revoke` — `api_revoke_launch_plan`
+- [x] `POST /api/v1/pipelines` — `api_create_pipeline`
+- [x] `GET /api/v1/pipelines/{plan_id}` — `api_get_pipeline`
+- [x] `POST /api/v1/pipelines/{plan_id}/execute` — `api_execute_pipeline`
+- [x] `POST /api/v1/placements/evaluate` — `api_evaluate_placement`
+- [x] `POST /api/v1/placements/simulate` — `api_simulate_placement`
+
+### `routes/admin.py` (2 untested)
 - [x] `GET /api/admin/activity` — `api_admin_activity`  ✓ test_admin_endpoints_coverage.py
+- [x] `GET /api/admin/agent-tokens/coverage` — `api_admin_agent_token_coverage`
 - [x] `POST /api/admin/agent/rollout` — `api_admin_agent_rollout`  ✓ test_admin_endpoints_coverage.py
 - [x] `GET /api/admin/ai-conversations` — `api_admin_ai_conversations`  ✓ test_admin_endpoints_coverage.py
 - [x] `GET /api/admin/ai-stats` — `api_admin_ai_stats`  ✓ test_admin_endpoints_coverage.py
+- [x] `GET /api/admin/control-plane/jobs` — `api_admin_control_plane_jobs`  ✓ test_admin_endpoints_coverage.py
+- [x] `GET /api/admin/control-plane/scheduled-tasks` — `api_admin_control_plane_scheduled_tasks`  ✓ test_admin_endpoints_coverage.py
+- [x] `GET /api/admin/hosts/{host_id}/agent-tokens` — `api_admin_list_host_agent_tokens`
+- [x] `POST /api/admin/hosts/{host_id}/agent-tokens` — `api_admin_issue_host_agent_token`
+- [x] `POST /api/admin/hosts/{host_id}/agent-tokens/revoke` — `api_admin_revoke_host_agent_tokens`
 - [x] `GET /api/admin/infrastructure` — `api_admin_infrastructure`  ✓ test_admin_endpoints_coverage.py
 - [x] `GET /api/admin/overview` — `api_admin_overview`  ✓ test_admin_endpoints_coverage.py
+- [x] `GET /api/admin/reconciler/findings` — `api_admin_reconciler_findings`  ✓ test_admin_endpoints_coverage.py
+- [ ] `POST /api/admin/reconciler/findings/{finding_id}/dismiss` — `api_admin_reconciler_dismiss`
+- [ ] `POST /api/admin/reconciler/findings/{finding_id}/enforce` — `api_admin_reconciler_enforce`
+- [x] `POST /api/admin/reconciler/reconcile-host/{host_id}` — `api_admin_reconcile_host`  ✓ test_admin_endpoints_coverage.py
 - [x] `GET /api/admin/revenue` — `api_admin_revenue`  ✓ test_admin_endpoints_coverage.py
 - [x] `GET /api/admin/stats` — `api_admin_stats`
 - [x] `GET /api/admin/teams` — `api_admin_teams`  ✓ test_admin_endpoints_coverage.py
 - [x] `DELETE /api/admin/teams/{team_id}/members/{email}` — `api_admin_remove_team_member`  ✓ test_admin_endpoints_coverage.py
+- [x] `GET /api/admin/unit-economics` — `api_admin_unit_economics`  ✓ test_admin_endpoints_coverage.py
 - [x] `GET /api/admin/users` — `api_admin_users`  ✓ test_admin_endpoints_coverage.py
 - [x] `POST /api/admin/users/{email}/role` — `api_admin_set_user_role`  ✓ test_admin_endpoints_coverage.py
 - [x] `POST /api/admin/users/{email}/toggle-admin` — `api_admin_toggle_admin`  ✓ test_admin_endpoints_coverage.py
 - [x] `GET /api/admin/verification-queue` — `api_admin_verification_queue`  ✓ test_admin_endpoints_coverage.py
 - [x] `POST /api/admin/web-push/test-notification` — `api_admin_web_push_test_notification`
 
-### `routes/agent.py` (0 untested)
+### `routes/agent.py` (1 untested)
 - [x] `POST /agent/benchmark` — `api_agent_benchmark`
 - [x] `GET /agent/commands/{host_id}` — `api_agent_commands_drain`
+- [ ] `POST /agent/degraded` — `api_agent_degraded`
 - [x] `POST /agent/lease/claim` — `api_agent_lease_claim`
 - [x] `POST /agent/lease/release` — `api_agent_lease_release`
 - [x] `POST /agent/lease/renew` — `api_agent_lease_renew`
@@ -44,29 +68,56 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /agent/work/{host_id}` — `api_agent_work`
 - [x] `GET /api/telemetry/all` — `api_all_telemetry`
 
-### `routes/artifacts.py` (0 untested)
+### `routes/agent_v2.py` (0 untested)
+- [x] `POST /agent/v2/attempts/status` — `api_v2_attempt_status`
+- [x] `POST /agent/v2/commands/claim` — `api_v2_commands_claim`
+- [x] `POST /agent/v2/commands/{command_id}/ack` — `api_v2_command_ack`
+- [x] `POST /agent/v2/commands/{command_id}/nack` — `api_v2_command_nack`
+- [x] `POST /agent/v2/leases/claim` — `api_v2_lease_claim`
+- [x] `POST /agent/v2/leases/release` — `api_v2_lease_release`
+- [x] `POST /agent/v2/leases/renew` — `api_v2_lease_renew`
+- [x] `GET /agent/v2/negotiate/{host_id}` — `api_v2_negotiate`
+- [x] `POST /agent/v2/observations` — `api_v2_observations`
+- [x] `POST /agent/v2/tokens/rotate` — `api_v2_token_rotate`
+
+### `routes/artifacts.py` (1 untested)
 - [x] `GET /api/artifacts` — `api_list_all_artifacts`  ✓ test_artifacts_endpoints_coverage.py
 - [x] `POST /api/artifacts/download` — `api_request_download`  ✓ test_artifacts_endpoints_coverage.py
+- [ ] `POST /api/artifacts/finalize` — `api_finalize_upload`
 - [x] `POST /api/artifacts/upload` — `api_request_upload`
 - [x] `GET /api/artifacts/{job_id}` — `api_list_artifacts`  ✓ test_artifacts_endpoints_coverage.py
 - [x] `GET /api/artifacts/{job_id}/expiry` — `api_artifact_expiry`  ✓ test_artifacts_endpoints_coverage.py
 
-### `routes/auth.py` (0 untested)
+### `routes/auth.py` (13 untested)
+- [ ] `GET /.well-known/jwks.json` — `oauth_jwks_document`
 - [x] `GET /.well-known/oauth-authorization-server` — `oauth_authorization_server_metadata`
+- [ ] `GET /api/agent-keys` — `api_list_agent_keys`
+- [ ] `DELETE /api/agent-keys/{key_id}` — `api_revoke_agent_key`
+- [ ] `PATCH /api/agent-keys/{key_id}` — `api_rename_agent_key`
 - [x] `POST /api/auth/change-password` — `api_auth_change_password`
+- [ ] `GET /api/auth/demo-credentials` — `api_auth_demo_credentials`
 - [x] `POST /api/auth/device` — `oauth_device_authorize_compat`
-- [x] `POST /api/auth/login` — `api_auth_login`  ✓ test_teams_endpoints_coverage.py
+- [x] `GET /api/auth/introspect` — `api_auth_introspect`
+- [x] `POST /api/auth/login` — `api_auth_login`  ✓ test_sla_endpoints_coverage.py
 - [x] `POST /api/auth/logout` — `api_auth_logout`  ✓ test_auth_endpoints_coverage.py
 - [x] `GET /api/auth/me` — `api_auth_me`  ✓ test_chat_endpoints_coverage.py
 - [x] `PATCH /api/auth/me` — `api_auth_update_profile`  ✓ test_chat_endpoints_coverage.py
 - [x] `DELETE /api/auth/me` — `api_auth_delete_account`  ✓ test_chat_endpoints_coverage.py
+- [ ] `POST /api/auth/me/avatar` — `api_auth_upload_avatar`
+- [ ] `GET /api/auth/me/avatar` — `api_auth_get_avatar`
+- [ ] `DELETE /api/auth/me/avatar` — `api_auth_delete_avatar`
 - [x] `GET /api/auth/me/data-export` — `api_data_export`
+- [ ] `POST /api/auth/me/email-change` — `api_auth_email_change`
+- [ ] `POST /api/auth/me/email-change/confirm` — `api_auth_email_change_confirm`
+- [ ] `PUT /api/auth/me/profile` — `api_auth_update_profile`
+- [ ] `POST /api/auth/oauth/facebook/deauthorize` — `facebook_deauthorize`
+- [ ] `POST /api/auth/oauth/facebook/delete-data` — `facebook_delete_data`
 - [x] `POST /api/auth/oauth/{provider}` — `api_auth_oauth_initiate`  ✓ test_auth_endpoints_coverage.py
 - [x] `GET /api/auth/oauth/{provider}/callback` — `api_auth_oauth_callback`  ✓ test_auth_endpoints_coverage.py
 - [x] `POST /api/auth/password-reset` — `api_auth_password_reset`
 - [x] `POST /api/auth/password-reset/confirm` — `api_auth_password_reset_confirm`
 - [x] `POST /api/auth/refresh` — `api_auth_refresh`
-- [x] `POST /api/auth/register` — `api_auth_register`  ✓ test_teams_endpoints_coverage.py
+- [x] `POST /api/auth/register` — `api_auth_register`  ✓ test_sla_endpoints_coverage.py
 - [x] `POST /api/auth/resend-verification` — `api_auth_resend_verification`  ✓ test_auth_endpoints_coverage.py
 - [x] `GET /api/auth/sessions` — `api_auth_list_sessions`  ✓ test_auth_endpoints_coverage.py
 - [x] `DELETE /api/auth/sessions/{token_prefix}` — `api_auth_revoke_session`  ✓ test_auth_endpoints_coverage.py
@@ -77,6 +128,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /api/keys` — `api_list_keys`
 - [x] `POST /api/keys/generate` — `api_generate_api_key`
 - [x] `DELETE /api/keys/{key_preview}` — `api_revoke_key`
+- [x] `GET /api/mcp/quick-connect` — `api_mcp_quick_connect`
 - [x] `POST /api/oauth/clients` — `api_create_oauth_client`  ✓ test_auth_endpoints_coverage.py
 - [x] `GET /api/oauth/clients` — `api_list_oauth_clients`  ✓ test_auth_endpoints_coverage.py
 - [x] `DELETE /api/oauth/clients/{client_id}` — `api_delete_oauth_client`  ✓ test_auth_endpoints_coverage.py
@@ -85,8 +137,10 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /api/users/me/preferences` — `api_get_user_preferences`  ✓ test_auth_endpoints_coverage.py
 - [x] `PUT /api/users/me/preferences` — `api_set_user_preferences`  ✓ test_auth_endpoints_coverage.py
 - [x] `GET /oauth/authorize` — `oauth_authorize`
+- [x] `POST /oauth/authorize` — `oauth_authorize_decision`
 - [x] `POST /oauth/device/authorize` — `oauth_device_authorize`  ✓ test_auth_endpoints_coverage.py
-- [x] `POST /oauth/token` — `oauth_token`
+- [x] `POST /oauth/register` — `oauth_dynamic_client_registration`
+- [x] `POST /oauth/token` — `oauth_token`  ✓ test_hosts_endpoints_coverage.py
 
 ### `routes/autoscale.py` (0 untested)
 - [x] `POST /autoscale/cycle` — `api_autoscale_cycle`  ✓ test_autoscale_endpoints_coverage.py
@@ -96,7 +150,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `DELETE /autoscale/pool/{host_id}` — `api_remove_from_pool`
 - [x] `POST /autoscale/up` — `api_autoscale_up`  ✓ test_autoscale_endpoints_coverage.py
 
-### `routes/billing.py` (0 untested)
+### `routes/billing.py` (1 untested)
 - [x] `GET /api/analytics/enhanced` — `api_analytics_enhanced`
 - [x] `GET /api/analytics/usage` — `api_usage_analytics`
 - [x] `GET /api/billing/attestation` — `api_provider_attestation`
@@ -120,9 +174,10 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /api/billing/paypal/capture-order` — `api_paypal_capture_order`
 - [x] `POST /api/billing/paypal/create-order` — `api_paypal_create_order`
 - [x] `GET /api/billing/paypal/enabled` — `api_paypal_enabled`  ✓ test_billing_endpoints_coverage.py
-- [x] `POST /api/billing/paypal/marketplace/capture-order` — `api_paypal_marketplace_capture_order`  ✓ test_billing_security_sweep.py
-- [x] `POST /api/billing/paypal/marketplace/create-order` — `api_paypal_marketplace_create_order`  ✓ test_billing_security_sweep.py
-- [x] `POST /api/billing/paypal/webhook` — PayPal webhook handler  ✓ test_paypal_webhook.py, test_paypal_marketplace_webhook.py
+- [x] `POST /api/billing/paypal/marketplace/capture-order` — `api_paypal_marketplace_capture_order`
+- [x] `POST /api/billing/paypal/marketplace/create-order` — `api_paypal_marketplace_create_order`
+- [x] `POST /api/billing/paypal/webhook` — `api_paypal_webhook`
+- [x] `POST /api/billing/portal-session` — `api_billing_portal_session`
 - [x] `POST /api/billing/refund` — `api_process_refund`
 - [x] `POST /api/billing/setup-intent` — `api_billing_setup_intent`  ✓ test_billing_endpoints_coverage.py
 - [x] `GET /api/billing/usage/{customer_id}` — `api_usage_summary`  ✓ test_billing_endpoints_coverage.py
@@ -138,8 +193,13 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /api/pricing/reservations` — `api_list_reservations`  ✓ test_billing_endpoints_coverage.py
 - [x] `POST /api/pricing/reserve` — `api_reserve_commitment`
 - [x] `GET /api/pricing/reserved-plans` — `api_reserved_plans`
+- [ ] `GET /api/pricing/spot-quote` — `api_spot_quote`
 - [x] `POST /api/v2/billing/auto-topup` — `api_billing_configure_topup`  ✓ test_billing_endpoints_coverage.py
 - [x] `GET /api/v2/billing/auto-topup` — `api_billing_get_topup`  ✓ test_billing_endpoints_coverage.py
+- [x] `POST /api/v2/billing/auto-topup-plans` — `api_billing_auto_topup_plan`
+- [x] `POST /api/v2/billing/auto-topup-plans/{plan_id}/execute` — `api_billing_execute_auto_topup_plan`
+- [x] `GET /api/v2/billing/pending-verification` — `api_billing_pending_verification`
+- [x] `POST /api/v2/billing/top-up` — `api_billing_manual_topup`
 - [x] `GET /billing` — `api_billing`  ✓ test_billing_endpoints_coverage.py
 - [x] `POST /billing/bill-all` — `api_bill_all`
 - [x] `POST /billing/bill/{job_id}` — `api_bill_instance`
@@ -164,11 +224,34 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 ### `routes/compliance.py` (0 untested)
 - [x] `GET /api/billing/gst-threshold` — `api_gst_threshold_status`  ✓ test_compliance_endpoints_coverage.py
 - [x] `GET /api/billing/gst-threshold/{provider_id}` — `api_provider_gst_threshold`  ✓ test_compliance_endpoints_coverage.py
-- [x] `GET /api/compliance/detect-province` — `api_detect_province`  ✓ test_compliance_endpoints_coverage.py
-- [x] `GET /api/compliance/provinces` — `api_compliance_provinces`  ✓ test_compliance_endpoints_coverage.py
 - [x] `GET /api/compliance/status` — `api_compliance_status`
 - [x] `GET /api/compliance/tax-rates` — `api_tax_rates`  ✓ test_compliance_endpoints_coverage.py
-- [x] `GET /api/compliance/trust-tier-requirements` — `api_trust_tier_requirements`  ✓ test_compliance_endpoints_coverage.py
+
+### `routes/control_plane_v1.py` (0 untested)
+- [x] `POST /api/v1/control-plane/commands/{command_id}/retry` — `api_v1_retry_agent_command`
+- [x] `GET /api/v1/control-plane/health` — `api_v1_control_plane_health`
+- [x] `GET /api/v1/control-plane/queue` — `api_v1_control_plane_queue`
+- [x] `GET /api/v1/control-plane/reconciliation-findings` — `api_v1_reconciliation_findings`
+- [x] `GET /api/v1/hosts/{host_id}/capacity` — `api_v1_host_capacity`
+- [x] `POST /api/v1/hosts/{host_id}/drain` — `api_v1_drain_host`
+- [x] `POST /api/v1/hosts/{host_id}/eviction-plans` — `api_v1_create_eviction_plan`
+- [x] `POST /api/v1/hosts/{host_id}/eviction-plans/{plan_id}/execute` — `api_v1_execute_eviction_plan`
+- [x] `POST /api/v1/hosts/{host_id}/evictions` — `api_v1_evict_host_workloads`
+- [x] `GET /api/v1/hosts/{host_id}/observations` — `api_v1_host_observations`
+- [x] `POST /api/v1/hosts/{host_id}/undrain` — `api_v1_undrain_host`
+- [x] `GET /api/v1/instances/{job_id}` — `api_v1_instance`
+- [x] `GET /api/v1/instances/{job_id}/active-lease` — `api_v1_instance_active_lease`
+- [x] `GET /api/v1/instances/{job_id}/attempts` — `api_v1_instance_attempts`
+- [x] `GET /api/v1/instances/{job_id}/control-plane` — `api_v1_instance_control_plane`
+- [x] `GET /api/v1/instances/{job_id}/events` — `api_v1_instance_events`
+- [x] `GET /api/v1/instances/{job_id}/placement-explanation` — `api_v1_instance_placement_explanation`
+- [x] `POST /api/v1/instances/{job_id}/reconcile` — `api_v1_instance_reconcile`
+- [x] `POST /api/v1/instances/{job_id}/retry` — `api_v1_instance_retry`
+- [x] `GET /api/v1/instances/{job_id}/timeline` — `api_v1_instance_timeline`
+- [x] `GET /api/v1/mcp/activation-funnel` — `api_v1_mcp_activation_funnel`
+- [x] `POST /api/v1/mcp/tool-audit` — `api_v1_mcp_tool_audit`
+- [x] `GET /api/v1/mcp/tool-audit` — `api_v1_mcp_tool_audit_export`
+- [x] `GET /api/v1/openapi.json` — `api_v1_openapi`
 
 ### `routes/events.py` (0 untested)
 - [x] `GET /api/audit/instance/{job_id}` — `api_instance_audit_trail`  ✓ test_events_endpoints_coverage.py
@@ -197,25 +280,38 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /api/slurm/submit` — `api_slurm_status`
 - [x] `DELETE /api/slurm/{slurm_job_id}` — `api_slurm_profiles`  ✓ test_health_endpoints_coverage.py
 - [x] `GET /api/ssh/pubkey` — `api_auth_device_code`  ✓ test_health_endpoints_coverage.py
+- [x] `GET /api/status` — `service_status`
 - [x] `GET /api/stream` — `sse_stream`
 - [x] `POST /build` — `api_list_builds`  ✓ test_health_endpoints_coverage.py
 - [x] `POST /build/{model}/dockerfile` — `_sse_generator`  ✓ test_health_endpoints_coverage.py
 - [x] `GET /builds` — `api_generate_dockerfile`  ✓ test_health_endpoints_coverage.py
 - [x] `GET /dashboard` — `dashboard`  ✓ test_stripe_connect_v2_endpoints_coverage.py
 - [x] `GET /healthz` — `healthz`  ✓ test_health_endpoints_coverage.py
-- [x] `GET /healthz` — `healthz`  ✓ test_health_endpoints_coverage.py
 - [x] `GET /legacy` — `legacy_dashboard`  ✓ test_health_endpoints_coverage.py
 - [x] `GET /legacy/{path:path}` — `api_get_alert_config`  ✓ test_health_endpoints_coverage.py
+- [x] `GET /livez` — `livez`
 - [x] `GET /llms.txt` — `api_llms_txt`  ✓ test_health_endpoints_coverage.py
-- [x] `GET /metrics` — `metrics`
-- [x] `GET /metrics/prometheus` — `metrics_prometheus`
+- [x] `GET /metrics` — `metrics`  ✓ test_health_endpoints_coverage.py
+- [x] `GET /metrics/prometheus` — `metrics_prometheus`  ✓ test_health_endpoints_coverage.py
 - [x] `GET /readyz` — `readyz`
 - [x] `POST /ssh/keygen` — `api_get_pubkey`  ✓ test_health_endpoints_coverage.py
 - [x] `GET /ssh/pubkey` — `api_generate_token`  ✓ test_health_endpoints_coverage.py
+- [x] `GET /startupz` — `startupz`
 - [x] `POST /token/generate` — `api_auth_device_token`
+
+### `routes/host_admission.py` (2 untested)
+- [ ] `GET /api/admin/admission-queue` — `api_admission_queue`
+- [x] `POST /api/admin/hosts/{host_id}/admission-decisions` — `api_decide_admission`
+- [x] `POST /api/admin/hosts/{host_id}/authoritative-evidence` — `api_record_authoritative_evidence`
+- [ ] `POST /api/hosts/compatibility-sessions/{session_id}/evidence` — `api_submit_compatibility_evidence`
+- [x] `GET /api/hosts/{host_id}/admission` — `api_admission_status`  ✓ test_hosts_endpoints_coverage.py
+- [x] `POST /api/hosts/{host_id}/compatibility-sessions` — `api_create_compatibility_session`  ✓ test_hosts_endpoints_coverage.py
+- [x] `POST /api/hosts/{host_id}/provider-evidence` — `api_record_provider_evidence`  ✓ test_hosts_endpoints_coverage.py
 
 ### `routes/hosts.py` (0 untested)
 - [x] `POST /api/hosts/register` — `api_register_host_web`  ✓ test_hosts_endpoints_coverage.py
+- [x] `GET /api/hosts/{host_id}/spot-preview` — `api_host_spot_preview`  ✓ test_hosts_endpoints_coverage.py
+- [x] `PATCH /api/hosts/{host_id}/spot-settings` — `api_update_host_spot_settings`  ✓ test_hosts_endpoints_coverage.py
 - [x] `GET /compute-score/{host_id}` — `api_get_compute_score`
 - [x] `GET /compute-scores` — `api_list_compute_scores`  ✓ test_hosts_endpoints_coverage.py
 - [x] `PUT /host` — `api_register_host`  ✓ test_hosts_endpoints_coverage.py
@@ -232,22 +328,18 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /api/inference/models/available` — `api_inference_models`
 - [x] `GET /api/inference/{job_id}` — `api_inference_result`
 - [x] `POST /api/inference/{job_id}/result` — `api_inference_post_result`
-- [x] `POST /api/v2/inference/complete/{request_id}` — `api_inference_complete`
-- [x] `POST /api/v2/inference/endpoints` — `api_inference_create_endpoint`  ✓ test_inference_endpoints_coverage.py
-- [x] `GET /api/v2/inference/endpoints` — `api_inference_list_endpoints`  ✓ test_inference_endpoints_coverage.py
-- [x] `GET /api/v2/inference/endpoints/{endpoint_id}` — `api_inference_get_endpoint`  ✓ test_inference_endpoints_coverage.py
-- [x] `DELETE /api/v2/inference/endpoints/{endpoint_id}` — `api_inference_delete_endpoint`  ✓ test_inference_endpoints_coverage.py
-- [x] `GET /api/v2/inference/endpoints/{endpoint_id}/health` — `api_inference_endpoint_health`  ✓ test_inference_endpoints_coverage.py
-- [x] `GET /api/v2/inference/endpoints/{endpoint_id}/usage` — `api_inference_endpoint_usage`  ✓ test_inference_endpoints_coverage.py
-- [x] `POST /v1/chat/completions` — `api_openai_chat_completions`  ✓ test_inference_endpoints_coverage.py
 - [x] `POST /v1/inference` — `api_v1_inference_sync`
 - [x] `POST /v1/inference/async` — `api_v1_inference_async`
 - [x] `GET /v1/inference/{job_id}` — `api_v1_inference_poll`
 
-### `routes/instances.py` (0 untested)
+### `routes/instances.py` (1 untested)
 - [x] `POST /admin/instances/{job_id}/reinject-shell` — `api_admin_reinject_shell`  ✓ test_instances_endpoints_coverage.py
 - [x] `GET /api/images/templates` — `api_image_templates`  ✓ test_instances_endpoints_coverage.py
 - [x] `POST /api/instances/{job_id}/stream-ticket` — `api_instance_stream_ticket`
+- [x] `GET /api/instances/{job_id}/telemetry` — `api_instance_telemetry`
+- [x] `POST /api/v1/image-sweep-plans/{plan_id}/execute` — `api_execute_image_sweep_plan`
+- [x] `POST /api/v1/image-sweeps` — `api_create_image_sweep`
+- [ ] `GET /api/v1/image-sweeps/{sweep_id}` — `api_get_image_sweep`
 - [x] `POST /api/v2/scheduler/process-binpack` — `api_process_queue_binpack`
 - [x] `POST /failover` — `api_failover`
 - [x] `POST /instance` — `api_submit_instance`  ✓ test_health_endpoints_coverage.py
@@ -273,13 +365,12 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /instances/{job_id}/terminate` — `api_terminate_instance`  ✓ test_instances_endpoints_coverage.py
 - [x] `POST /instances/{job_id}/unlock` — `api_unlock_instance`  ✓ test_instances_endpoints_coverage.py
 - [x] `GET /internal/route/{slug}/{port}` — `api_internal_route`
-- [x] `POST /queue/process` — `api_process_queue`  ✓ test_hosts_endpoints_coverage.py
+- [x] `POST /queue/process` — `api_process_queue`
 - [x] `GET /tiers` — `api_list_tiers`
 - [x] `GET /user-images` — `api_list_user_images`
 - [x] `PATCH /user-images/{image_id}` — `api_patch_user_image`
 - [x] `DELETE /user-images/{image_id}` — `api_delete_user_image`
 - [x] `POST /user-images/{image_id}/complete` — `api_user_image_complete`
-
 
 ### `routes/marketplace.py` (0 untested)
 - [x] `POST /api/v2/marketplace/allocate` — `api_marketplace_allocate`
@@ -326,7 +417,16 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `DELETE /api/notifications/{notification_id}` — `api_delete_notification`  ✓ test_notifications_endpoints_coverage.py
 - [x] `POST /api/notifications/{notification_id}/read` — `api_mark_notification_read`  ✓ test_notifications_endpoints_coverage.py
 
-### `routes/privacy.py` (0 untested)
+### `routes/platform.py` (1 untested)
+- [x] `GET /api/v2/platform/attestation-schema` — `api_attestation_schema`
+- [ ] `GET /api/v2/platform/capacity-forecast/{endpoint_id}` — `api_capacity_forecast`
+- [x] `GET /api/v2/platform/h100-partner` — `api_h100_partner`
+- [x] `GET /api/v2/platform/ops-plan` — `api_platform_ops_plan`
+- [x] `GET /api/v2/platform/scip-alignment` — `api_scip_alignment`
+- [x] `GET /api/v2/platform/scip-loi` — `api_scip_partner_loi`
+- [x] `POST /api/v2/serverless/should-i-run-this` — `api_should_i_run_pel_job`
+
+### `routes/privacy.py` (1 untested)
 - [x] `POST /api/privacy/config` — `api_save_privacy_config`  ✓ test_privacy_endpoints_coverage.py
 - [x] `GET /api/privacy/config/{org_id}` — `api_get_privacy_config`  ✓ test_privacy_endpoints_coverage.py
 - [x] `POST /api/privacy/consent` — `api_record_consent`  ✓ test_privacy_endpoints_coverage.py
@@ -339,6 +439,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `DELETE /api/v2/privacy/consent/{purpose}` — `api_privacy_withdraw_consent`  ✓ test_privacy_endpoints_coverage.py
 - [x] `GET /api/v2/privacy/consents` — `api_privacy_list_consents`  ✓ test_privacy_endpoints_coverage.py
 - [x] `POST /api/v2/privacy/erase` — `api_privacy_right_to_erasure`  ✓ test_privacy_endpoints_coverage.py
+- [ ] `GET /api/v2/privacy/erase/{request_id}` — `api_privacy_erasure_status`
 
 ### `routes/providers.py` (0 untested)
 - [x] `GET /api/providers` — `api_list_providers`  ✓ test_compliance_endpoints_coverage.py
@@ -346,22 +447,84 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /api/providers/webhook` — `api_stripe_webhook`  ✓ test_providers_endpoints_coverage.py
 - [x] `GET /api/providers/{provider_id}` — `api_get_provider`  ✓ test_compliance_endpoints_coverage.py
 - [x] `POST /api/providers/{provider_id}/abandon-onboarding` — `api_abandon_onboarding`  ✓ test_compliance_endpoints_coverage.py
+- [x] `POST /api/providers/{provider_id}/account-session` — `api_provider_account_session`  ✓ test_compliance_endpoints_coverage.py
 - [x] `GET /api/providers/{provider_id}/earnings` — `api_provider_earnings`  ✓ test_compliance_endpoints_coverage.py
 - [x] `POST /api/providers/{provider_id}/incorporation` — `api_upload_incorporation`  ✓ test_compliance_endpoints_coverage.py
-- [x] `POST /api/providers/{provider_id}/payout` — `api_provider_payout`  ✓ test_providers_endpoints_coverage.py
-- [x] `GET /api/providers/{provider_id}/paypal` — `api_provider_paypal_status`  ✓ test_providers_endpoints_coverage.py
-- [x] `POST /api/providers/{provider_id}/paypal/onboard` — `api_provider_paypal_onboard`  ✓ test_providers_endpoints_coverage.py
-- [x] `POST /api/providers/{provider_id}/paypal/refresh` — `api_provider_paypal_refresh`  ✓ test_providers_endpoints_coverage.py
+- [x] `POST /api/providers/{provider_id}/payout` — `api_provider_payout`  ✓ test_compliance_endpoints_coverage.py
+- [x] `GET /api/providers/{provider_id}/paypal` — `api_provider_paypal_status`  ✓ test_compliance_endpoints_coverage.py
+- [x] `POST /api/providers/{provider_id}/paypal/disconnect` — `api_provider_paypal_disconnect`  ✓ test_compliance_endpoints_coverage.py
+- [x] `POST /api/providers/{provider_id}/paypal/onboard` — `api_provider_paypal_onboard`  ✓ test_compliance_endpoints_coverage.py
+- [x] `POST /api/providers/{provider_id}/paypal/refresh` — `api_provider_paypal_refresh`  ✓ test_compliance_endpoints_coverage.py
 - [x] `POST /api/providers/{provider_id}/resume-onboarding` — `api_resume_onboarding`  ✓ test_compliance_endpoints_coverage.py
+- [x] `POST /api/providers/{provider_id}/stripe/disconnect` — `api_provider_stripe_disconnect`  ✓ test_compliance_endpoints_coverage.py
 
-### `routes/reputation.py` (0 untested)
+### `routes/reputation.py` (1 untested)
 - [x] `GET /api/reputation/leaderboard` — `api_reputation_leaderboard`
 - [x] `GET /api/reputation/me` — `api_reputation_me`  ✓ test_reputation_endpoints_coverage.py
+- [x] `POST /api/reputation/me/claim` — `api_reputation_claim`
+- [ ] `GET /api/reputation/me/journey` — `api_reputation_journey`
 - [x] `POST /api/reputation/verify` — `api_grant_verification`
 - [x] `GET /api/reputation/{entity_id}` — `api_get_reputation`  ✓ test_reputation_endpoints_coverage.py
 - [x] `GET /api/reputation/{entity_id}/breakdown` — `api_reputation_breakdown`  ✓ test_reputation_endpoints_coverage.py
 - [x] `GET /api/reputation/{entity_id}/history` — `api_reputation_history`  ✓ test_reputation_endpoints_coverage.py
 - [x] `GET /api/trust-tiers` — `api_trust_tiers`
+
+### `routes/serverless.py` (5 untested)
+- [x] `POST /api/v1/serverless/endpoint-plans` — `api_v1_serverless_endpoint_plan`
+- [x] `POST /api/v1/serverless/endpoint-plans/{plan_id}/execute` — `api_v1_execute_serverless_endpoint_plan`
+- [ ] `GET /api/v2/inference/endpoints` — `api_inference_compat_endpoint_health`
+- [ ] `POST /api/v2/inference/endpoints` — `api_inference_compat_endpoint_usage`
+- [ ] `GET /api/v2/serverless/batches/{batch_id}` — `api_serverless_get_batch`
+- [x] `GET /api/v2/serverless/enabled` — `api_serverless_enabled`
+- [x] `POST /api/v2/serverless/endpoints` — `api_serverless_create_endpoint`
+- [x] `GET /api/v2/serverless/endpoints` — `api_serverless_list_endpoints`
+- [x] `GET /api/v2/serverless/endpoints/{endpoint_id}` — `api_serverless_get_endpoint`
+- [x] `PATCH /api/v2/serverless/endpoints/{endpoint_id}` — `api_serverless_patch_endpoint`
+- [x] `DELETE /api/v2/serverless/endpoints/{endpoint_id}` — `api_serverless_delete_endpoint`
+- [x] `POST /api/v2/serverless/endpoints/{endpoint_id}/batches` — `api_serverless_create_batch`
+- [x] `GET /api/v2/serverless/endpoints/{endpoint_id}/health` — `api_serverless_endpoint_health`
+- [x] `GET /api/v2/serverless/endpoints/{endpoint_id}/jobs` — `api_serverless_list_jobs`
+- [x] `GET /api/v2/serverless/endpoints/{endpoint_id}/jobs/{job_id}` — `api_serverless_dashboard_job_status`
+- [x] `POST /api/v2/serverless/endpoints/{endpoint_id}/jobs/{job_id}/cancel` — `api_serverless_dashboard_cancel_job`
+- [x] `GET /api/v2/serverless/endpoints/{endpoint_id}/jobs/{job_id}/stream` — `api_serverless_dashboard_job_stream`
+- [x] `POST /api/v2/serverless/endpoints/{endpoint_id}/keys` — `api_serverless_create_key`
+- [x] `GET /api/v2/serverless/endpoints/{endpoint_id}/keys` — `api_serverless_list_keys`
+- [x] `DELETE /api/v2/serverless/endpoints/{endpoint_id}/keys/{key_id}` — `api_serverless_revoke_key`
+- [x] `GET /api/v2/serverless/endpoints/{endpoint_id}/metrics` — `api_serverless_endpoint_metrics`
+- [x] `POST /api/v2/serverless/endpoints/{endpoint_id}/test/openai/v1/chat/completions` — `api_serverless_test_openai_chat`
+- [x] `POST /api/v2/serverless/endpoints/{endpoint_id}/test/run` — `api_serverless_test_run`
+- [x] `POST /api/v2/serverless/endpoints/{endpoint_id}/test/runsync` — `api_serverless_test_runsync`
+- [x] `GET /api/v2/serverless/endpoints/{endpoint_id}/usage` — `api_serverless_endpoint_usage`
+- [x] `POST /api/v2/serverless/endpoints/{endpoint_id}/warm` — `api_serverless_warm_endpoint`
+- [x] `GET /api/v2/serverless/endpoints/{endpoint_id}/workers` — `api_serverless_list_workers`
+- [x] `GET /api/v2/serverless/endpoints/{endpoint_id}/workers/{worker_id}/logs` — `api_serverless_worker_logs`
+- [x] `GET /api/v2/serverless/endpoints/{endpoint_id}/workers/{worker_id}/logs/stream` — `api_serverless_worker_logs_stream`
+- [x] `GET /api/v2/serverless/endpoints/{endpoint_id}/workers/{worker_id}/telemetry` — `api_serverless_worker_telemetry`
+- [ ] `POST /api/v2/serverless/github/resolve` — `api_serverless_github_resolve`
+- [ ] `GET /api/v2/serverless/preset-token-pricing` — `api_preset_token_pricing`
+- [x] `POST /api/v2/serverless/workers/{worker_id}/exited` — `api_serverless_worker_job_event`
+- [x] `POST /api/v2/serverless/workers/{worker_id}/heartbeat` — `api_serverless_worker_complete_job`
+- [x] `POST /api/v2/serverless/workers/{worker_id}/jobs/claim` — `api_inference_compat_list_endpoints`
+- [x] `GET /api/v2/serverless/workers/{worker_id}/jobs/{job_id}` — `api_inference_compat_create_endpoint`
+- [x] `POST /api/v2/serverless/workers/{worker_id}/jobs/{job_id}/complete` — `api_inference_compat_get_endpoint`
+- [x] `POST /api/v2/serverless/workers/{worker_id}/jobs/{job_id}/events` — `api_inference_compat_delete_endpoint`
+- [x] `POST /api/v2/serverless/workers/{worker_id}/ready` — `api_serverless_worker_get_job`
+- [x] `POST /v1/serverless/{endpoint_id}/cancel/{job_id}` — `_stream`  ✓ test_chat_endpoints_coverage.py
+- [x] `POST /v1/serverless/{endpoint_id}/openai/v1/chat/completions` — `api_serverless_openai_models`
+- [x] `POST /v1/serverless/{endpoint_id}/openai/v1/embeddings` — `api_serverless_worker_ready`
+- [x] `GET /v1/serverless/{endpoint_id}/openai/v1/models` — `api_serverless_worker_exited`
+- [x] `POST /v1/serverless/{endpoint_id}/run` — `api_serverless_run`
+- [x] `POST /v1/serverless/{endpoint_id}/runsync` — `api_serverless_job_status`
+- [x] `GET /v1/serverless/{endpoint_id}/status/{job_id}` — `_on_disconnect`
+- [x] `GET /v1/serverless/{endpoint_id}/stream/{job_id}` — `api_serverless_cancel_job`
+- [x] `POST /v1/serverless/{endpoint_id}/{endpoint_slug}/cancel/{job_id}` — `api_serverless_openai_embeddings`
+- [x] `POST /v1/serverless/{endpoint_id}/{endpoint_slug}/openai/v1/chat/completions` — `_require_worker_callback`
+- [x] `POST /v1/serverless/{endpoint_id}/{endpoint_slug}/openai/v1/embeddings` — `api_serverless_worker_heartbeat`
+- [x] `GET /v1/serverless/{endpoint_id}/{endpoint_slug}/openai/v1/models` — `api_serverless_worker_claim_job`
+- [x] `POST /v1/serverless/{endpoint_id}/{endpoint_slug}/run` — `api_serverless_runsync`
+- [x] `POST /v1/serverless/{endpoint_id}/{endpoint_slug}/runsync` — `api_serverless_job_stream`
+- [x] `GET /v1/serverless/{endpoint_id}/{endpoint_slug}/status/{job_id}` — `_gen`  ✓ test_health_endpoints_coverage.py
+- [x] `GET /v1/serverless/{endpoint_id}/{endpoint_slug}/stream/{job_id}` — `api_serverless_openai_chat`
 
 ### `routes/sla.py` (0 untested)
 - [x] `GET /api/sla/downtimes` — `api_sla_active_downtimes`
@@ -371,10 +534,11 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /api/sla/violations/{host_id}` — `api_sla_violations`  ✓ test_sla_endpoints_coverage.py
 - [x] `GET /api/sla/{host_id}` — `api_sla_status`  ✓ test_sla_endpoints_coverage.py
 
-### `routes/spot.py` (0 untested)
+### `routes/spot.py` (1 untested)
+- [x] `GET /api/pricing/spot-enabled` — `api_spot_enabled`
+- [ ] `GET /api/pricing/spot-floor-suggestion` — `api_spot_floor_suggestion`
 - [x] `GET /spot-prices` — `api_spot_prices`  ✓ test_marketplace_endpoints_coverage.py
 - [x] `POST /spot-prices/update` — `api_update_spot_prices`
-- [x] `POST /spot/instance` — `api_submit_spot_instance`
 - [x] `POST /spot/preemption-cycle` — `api_preemption_cycle`
 
 ### `routes/ssh.py` (0 untested)
@@ -397,9 +561,10 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 
 ### `routes/teams.py` (0 untested)
 - [x] `POST /api/teams` — `api_create_team`  ✓ test_teams_endpoints_coverage.py
+- [x] `PATCH /api/teams/active` — `api_set_active_team`  ✓ test_teams_endpoints_coverage.py
 - [x] `GET /api/teams/invite/{token}` — `api_accept_team_invite`  ✓ test_teams_endpoints_coverage.py
 - [x] `POST /api/teams/invite/{token}/accept` — `api_accept_invite_authenticated`  ✓ test_teams_endpoints_coverage.py
-- [x] `GET /api/teams/me` — `api_my_teams`
+- [x] `GET /api/teams/me` — `api_my_teams`  ✓ test_teams_endpoints_coverage.py
 - [x] `GET /api/teams/{team_id}` — `api_get_team`  ✓ test_teams_endpoints_coverage.py
 - [x] `DELETE /api/teams/{team_id}` — `api_delete_team`  ✓ test_teams_endpoints_coverage.py
 - [x] `POST /api/teams/{team_id}/members` — `api_add_team_member`  ✓ test_teams_endpoints_coverage.py
@@ -422,7 +587,10 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /api/verify/{host_id}/reject` — `api_admin_reject_host`  ✓ test_verification_endpoints_coverage.py
 - [x] `GET /api/verify/{host_id}/status` — `api_verification_status`  ✓ test_verification_endpoints_coverage.py
 
-### `routes/volumes.py` (0 untested)
+### `routes/volumes.py` (2 untested)
+- [ ] `POST /api/v1/promotions/{promotion_id}/files` — `api_promotion_file_result`
+- [x] `GET /api/v1/promotions/{promotion_id}/manifest` — `api_promotion_manifest_for_agent`
+- [ ] `POST /api/v1/promotions/{promotion_id}/result` — `api_promotion_result_from_agent`
 - [x] `POST /api/v2/admin/volumes/reopen-encrypted` — `api_admin_reopen_encrypted_volumes`
 - [x] `POST /api/v2/volumes` — `api_volume_create`  ✓ test_volumes_endpoints_coverage.py
 - [x] `GET /api/v2/volumes` — `api_volume_list`  ✓ test_volumes_endpoints_coverage.py
@@ -432,6 +600,9 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `DELETE /api/v2/volumes/{volume_id}` — `api_volume_delete`  ✓ test_volumes_endpoints_coverage.py
 - [x] `POST /api/v2/volumes/{volume_id}/attach` — `api_volume_attach`  ✓ test_volumes_endpoints_coverage.py
 - [x] `POST /api/v2/volumes/{volume_id}/detach` — `api_volume_detach`  ✓ test_volumes_endpoints_coverage.py
+- [x] `POST /api/v2/volumes/{volume_id}/promotions` — `api_volume_promotion_create`  ✓ test_volumes_endpoints_coverage.py
+- [x] `GET /api/v2/volumes/{volume_id}/promotions/preview` — `api_volume_promotion_preview`  ✓ test_volumes_endpoints_coverage.py
+- [x] `GET /api/v2/volumes/{volume_id}/promotions/{promotion_id}` — `api_volume_promotion_get`  ✓ test_volumes_endpoints_coverage.py
 - [x] `POST /api/v2/volumes/{volume_id}/retry` — `api_volume_retry_provision`  ✓ test_volumes_endpoints_coverage.py
 - [x] `POST /api/v2/volumes/{volume_id}/snapshots` — `api_volume_snapshot_create`  ✓ test_volumes_endpoints_coverage.py
 - [x] `GET /api/v2/volumes/{volume_id}/snapshots` — `api_volume_snapshot_list`  ✓ test_volumes_endpoints_coverage.py
@@ -444,20 +615,17 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `bill` — `cmd_bill`
 - [x] `build` — `cmd_build`
 - [x] `builds` — `cmd_builds`
-- [x] `canada` — `cmd_canada`
 - [x] `cancel` — `cmd_cancel`
-- [x] `compliance` — `cmd_compliance`
 - [x] `config` — `cmd_config`
 - [x] `deposit` — `cmd_deposit`
 - [x] `failover` — `cmd_failover`
 - [x] `health-start` — `cmd_health_start`
 - [x] `host-accept` — `cmd_host_accept`
 - [x] `host-add` — `cmd_host_add`
-- [x] `host-add-ca` — `cmd_host_add_ca`
+- [x] `host-add-located` — `cmd_host_add_located`
 - [x] `host-profile` — `cmd_host_profile`
 - [x] `host-rm` — `cmd_host_rm`
 - [x] `hosts` — `cmd_hosts`
-- [x] `hosts-ca` — `cmd_hosts_ca`
 - [x] `invoice` — `cmd_invoice`
 - [x] `job` — `cmd_job`
 - [x] `jobs` — `cmd_jobs`
