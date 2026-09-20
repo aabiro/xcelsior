@@ -58,7 +58,7 @@ export function HomeBelowFold() {
             whileInView="visible"
             viewport={{ once: true }}
           >
-            <ValueCard i={0} icon={Scale} title={t("home.val_compliance_title")} description={t("home.val_compliance_desc")} glowColor="rgba(245,158,11,0.12)" accent="accent-gold" />
+            <ValueCard i={0} icon={Scale} title={t("home.val_agents_title")} description={t("home.val_agents_desc")} glowColor="rgba(245,158,11,0.12)" accent="accent-gold" />
             <ValueCard i={1} icon={Zap} title={t("home.val_pricing_title")} description={t("home.val_pricing_desc")} glowColor="rgba(16,185,129,0.12)" accent="emerald" />
           </m.div>
         </div>
@@ -152,8 +152,9 @@ export function HomeBelowFold() {
               </thead>
               <tbody className="text-text-secondary">
                 <CompRow feature={t("home.cmp_agents")} xcelsior={t("home.cmp_agents_x")} aws={t("home.cmp_agents_aws")} vast={t("home.cmp_agents_vast")} runpod={t("home.cmp_agents_rp")} />
+                <CompRow feature={t("home.cmp_quote")} xcelsior={t("home.cmp_quote_x")} aws={t("home.cmp_quote_aws")} vast={t("home.cmp_quote_vast")} runpod={t("home.cmp_quote_rp")} />
                 <CompRow feature={t("home.cmp_price")} xcelsior={t("home.cmp_price_x")} aws={t("home.cmp_price_aws")} vast={t("home.cmp_price_vast")} runpod={t("home.cmp_price_rp")} />
-                <CompRow feature={t("home.cmp_cad")} xcelsior={t("home.cmp_cad_x")} aws={t("home.cmp_cad_aws")} vast={t("home.cmp_cad_vast")} runpod={t("home.cmp_cad_rp")} />
+                <CompRow feature={t("home.cmp_spot")} xcelsior={t("home.cmp_spot_x")} aws={t("home.cmp_spot_aws")} vast={t("home.cmp_spot_vast")} runpod={t("home.cmp_spot_rp")} />
                 <CompRow feature={t("home.cmp_verification")} xcelsior={t("home.cmp_verification_x")} aws={t("home.cmp_verification_aws")} vast={t("home.cmp_verification_vast")} runpod={t("home.cmp_verification_rp")} />
                 <CompRow feature={t("home.cmp_ai")} xcelsior={t("home.cmp_ai_x")} aws={t("home.cmp_ai_aws")} vast={t("home.cmp_ai_vast")} runpod={t("home.cmp_ai_rp")} />
               </tbody>
