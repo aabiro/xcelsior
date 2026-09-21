@@ -150,7 +150,11 @@ def test_the_400_body_does_not_echo_the_database_error() -> None:
     from fastapi import APIRouter
     import psycopg
 
-    secret = "sk-live-do-not-echo-this"
+    # Not shaped like a real credential — see the note in
+    # tests/test_control_plane_v1_instance_routes.py. A secret scanner cannot
+    # tell a fake key from a real one, and this file's point is that the
+    # *value* must not be echoed, whatever it looks like.
+    secret = "ECHO-CANARY-must-not-be-reflected"
     probe = APIRouter()
 
     @probe.get("/__test__/data-error-secret")
