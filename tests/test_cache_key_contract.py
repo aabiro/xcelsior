@@ -153,6 +153,39 @@ def test_retired_prefix_env_var_is_gone():
     )
 
 
+def test_the_retired_prefix_is_not_still_advertised_by_config():
+    """Deleting the read is only half of retiring a variable.
+
+    The attribute above was removed while `docker-compose.yml` went on passing
+    `XCELSIOR_AUTH_CACHE_PREFIX` into the API container and `.env.example` went
+    on listing it with a plausible default. A knob that is documented, plumbed,
+    and ignored is worse than one that never existed: an operator setting it to
+    isolate two deployments sharing a Redis would believe they were namespaced
+    and get no error saying otherwise.
+
+    Tracked files only — an operator's own `.env` is theirs, and the variable
+    is inert wherever it is set.
+    """
+    root = Path(__file__).resolve().parents[1]
+    offenders = []
+    for rel in ("docker-compose.yml", "docker-compose.staging.yml", ".env.example"):
+        path = root / rel
+        if not path.exists():
+            continue
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            stripped = line.strip()
+            # Comments may name it precisely to explain that it is gone.
+            if stripped.startswith("#"):
+                continue
+            if "XCELSIOR_AUTH_CACHE_PREFIX" in stripped:
+                offenders.append(f"{rel}:{lineno}: {stripped}")
+
+    assert not offenders, (
+        "these still advertise the retired XCELSIOR_AUTH_CACHE_PREFIX as though "
+        "setting it did something:\n  " + "\n  ".join(offenders)
+    )
+
+
 # ───────────────── TTL is set with the key ─────────────────
 
 
