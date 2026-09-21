@@ -75,9 +75,17 @@ jobs:
     # would have to be noticed. Skipped rather than deleted — set the repo
     # variable HOSTED_ACTIONS=enabled to bring every one of these back at
     # once, with no diff to review.
-    if: ${{ vars.HOSTED_ACTIONS == 'enabled' }}
+    #
+    # One `if:`, not two. The HOSTED_ACTIONS guard was inserted above a job
+    # that already had a condition, and YAML does not merge duplicate keys —
+    # GitHub rejects the whole workflow at startup, so every job in this file
+    # stopped running rather than skipping cleanly. That is precisely the
+    # outcome the comment above says it is avoiding.
+    if: >-
+      ${{ vars.HOSTED_ACTIONS == 'enabled'
+          && github.event_name == 'push'
+          && github.ref == 'refs/heads/main' }}
     needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t xcelsior-mcp:ci ./mcp
