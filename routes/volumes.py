@@ -630,6 +630,17 @@ def api_volume_promotion_create(volume_id: str, body: PromotionCreate, request: 
             (tenant_id, body.job_id, idem),
         ).fetchone()
 
+    if row is None:
+        # The SELECT reads back the row the INSERT above either created or
+        # conflicted with, on the same three columns, so this is unreachable
+        # short of the row being removed underneath the transaction. Saying so
+        # beats `TypeError: 'NoneType' object is not subscriptable` four lines
+        # down, which names neither the promotion nor the query.
+        raise HTTPException(
+            500,
+            f"promotion row for job {body.job_id} vanished between insert and read-back",
+        )
+
     existing_id = str(row[0])
     if not created:
         return {
