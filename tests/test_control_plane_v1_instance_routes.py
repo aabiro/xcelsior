@@ -44,7 +44,15 @@ REDACTED_FIELDS = (
     "nfs_path",
 )
 
-SECRET = "sk-live-this-must-not-be-returned"
+#: A marker planted in the credential fields so a leak is visible in the body.
+#:
+#: Deliberately *not* shaped like a real credential. The first version carried
+#: a Stripe live secret-key prefix, and GitGuardian failed the pull request on
+#: it — correctly: a scanner cannot tell a fake key in a test from a real one in
+#: a commit, and a repository that trains people to wave those through is worse
+#: off than one with a noisy scanner. The test only needs a value it can search
+#: for, so it uses one that could never be mistaken for a credential.
+SECRET = "REDACTION-CANARY-must-not-appear-in-any-response"
 
 
 def _admin_headers() -> dict:
