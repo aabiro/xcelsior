@@ -53,15 +53,40 @@ workers = int(os.getenv("GUNICORN_WORKERS", "2"))
 # Refusing to boot rather than quietly setting `workers = 1`: a developer who
 # asked for four workers and got one would debug the wrong thing later, and the
 # combination is never what anyone means.
-_persistent_auth = os.getenv("XCELSIOR_PERSISTENT_AUTH", "true").strip().lower() != "false"
-if not _persistent_auth and workers > 1:
+#: Flags whose "off" position replaces a shared store with a per-process one.
+#: Each is fine on a single worker and silently broken on several, in the same
+#: way and for the same reason.
+_PER_PROCESS_WHEN_OFF = {
+    "XCELSIOR_PERSISTENT_AUTH": (
+        "users live in `routes._deps._users_db`, a dict in the worker's own "
+        "memory, so a login served by a worker that did not handle the "
+        "registration answers 401"
+    ),
+    # `_shared_state_update` returns False without logging when this is off, and
+    # WebSocket tickets then fall back to `routes._deps._WS_TICKETS` — also
+    # per-process. A terminal ticket issued by one worker cannot be redeemed by
+    # another, which is the same intermittent failure one layer along, in the
+    # connection path rather than the login path.
+    "XCELSIOR_SHARED_RUNTIME_LIMITS": (
+        "WebSocket tickets and rate-limit buckets live in per-process dicts, so "
+        "a ticket issued by one worker cannot be redeemed by another and rate "
+        "limits are effectively multiplied by the worker count"
+    ),
+}
+
+_off = {
+    name: why
+    for name, why in _PER_PROCESS_WHEN_OFF.items()
+    if os.getenv(name, "true").strip().lower() in {"0", "false", "no", "off"}
+}
+if _off and workers > 1:
+    _detail = "; ".join(f"{name}=false — {why}" for name, why in sorted(_off.items()))
     raise RuntimeError(
-        f"XCELSIOR_PERSISTENT_AUTH=false with GUNICORN_WORKERS={workers}: "
-        "in-memory auth is per-process, so logins would fail on every worker "
-        "that did not serve the registration — roughly "
-        f"{100 - int(100 / workers)}% of the time, with no error logged. "
-        "Set XCELSIOR_PERSISTENT_AUTH=true to use the database (what production "
-        "does), or GUNICORN_WORKERS=1 if you genuinely want the in-memory store."
+        f"{', '.join(sorted(_off))} disabled with GUNICORN_WORKERS={workers}: "
+        f"{_detail}. Requests round-robin, so this fails roughly "
+        f"{100 - int(100 / workers)}% of the time with nothing logged. Re-enable "
+        "the shared store (what production does), or set GUNICORN_WORKERS=1 if "
+        "the per-process behaviour is genuinely what you want."
     )
 worker_class = "uvicorn.workers.UvicornWorker"
 worker_tmp_dir = "/dev/shm"  # faster heartbeat on Linux

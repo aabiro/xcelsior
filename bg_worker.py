@@ -386,9 +386,14 @@ def main():
         from control_plane.scheduler.placement_record import prune_observations
 
         with control_plane_transaction() as conn:
-            unrecorded = conn.execute(
-                "SELECT count(*) FROM placement_decision_observations  WHERE decision_id IS NULL"
-            ).fetchone()[0]
+            _row = conn.execute(
+                "SELECT count(*) FROM placement_decision_observations WHERE decision_id IS NULL"
+            ).fetchone()
+            # A `count(*)` always returns a row, so the fallback is unreachable
+            # in practice — but subscripting the Optional directly is how a
+            # driver-level surprise becomes a TypeError in a maintenance loop
+            # that nothing is watching.
+            unrecorded = int(_row[0]) if _row else 0
             pruned = prune_observations(conn)
 
         if unrecorded:

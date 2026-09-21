@@ -189,12 +189,16 @@ def _resolve_host_id(host_id: str) -> tuple[str | None, list[dict]]:
     sometimes copy the truncated form into URLs/CLIs.
     """
     hosts = list_hosts(active_only=False)
-    # Exact match first
-    if any(h["host_id"] == host_id for h in hosts):
+    # `.get`, not `[...]`: this is the funnel every host route resolves
+    # through, so one malformed row here is a 500 for *every* host lookup in
+    # the process, not just that row's. `db.load_hosts` now fills `host_id`
+    # from the column so the key should always be present — this is the second
+    # layer, because the cost of being wrong is disproportionate.
+    if any(h.get("host_id") == host_id for h in hosts):
         return host_id, hosts
     # Prefix match fallback (must be unambiguous and at least 8 chars)
     if len(host_id) >= 8:
-        matches = [h for h in hosts if h["host_id"].startswith(host_id)]
+        matches = [h for h in hosts if str(h.get("host_id") or "").startswith(host_id)]
         if len(matches) == 1:
             return matches[0]["host_id"], hosts
     return None, hosts

@@ -12,17 +12,35 @@ on:
       - "migrations/**"
       - "scripts/mcp_e2e_fixture.py"
       - ".github/workflows/mcp.yml"
-  pull_request:
-    paths:
-      - "mcp/**"
-      - "control_plane/**"
-      - "routes/**"
-      - "oauth_service.py"
-      - "scheduler.py"
-      - "db.py"
-      - "migrations/**"
-      - "scripts/mcp_e2e_fixture.py"
-      - ".github/workflows/mcp.yml"
+
+# ── Why there is no `pull_request` trigger ────────────────────────────────────
+# There was one, and it stopped every gate in this repository for weeks.
+#
+# The `test` job below moved from `ubuntu-latest` to the sandboxed self-hosted
+# runner when hosted Actions stayed blocked, and the `pull_request` trigger came
+# along with it. This repository is **public**, so that combination lets an
+# outside contributor's fork run code on that machine — the exact threat model
+# `gates-sandboxed.yml` documents at length and the reason it has no such
+# trigger.
+#
+# `scripts/ci-runner/run-runner.sh` refuses to start while any workflow on the
+# runner can be triggered from a fork, and it did its job: the runner exited on
+# startup 1,865 times. But a runner that refuses to start is indistinguishable
+# from one that is merely offline, and a job waiting for it reads as "queued",
+# not "never going to run" — the sandboxed gates run for the last merge to main
+# sat queued for 21 hours. So those gates went dark and nothing said so.
+#
+# Scope, precisely: this took down ruff and the pure-parse gates, which is all
+# `gates-sandboxed.yml` runs. pyright, the DB-backed suite, the compose check
+# and the frontend/MCP suites live in `ci.yml` and are dark for an unrelated
+# reason — hosted Actions is blocked at the account level, and every job there
+# is deliberately skipped behind `vars.HOSTED_ACTIONS`. Restoring this runner
+# does not bring those back.
+#
+# `push` needs write access to this repository and a fork cannot push a branch
+# here, so it covers every PR raised from a branch on this repo. A fork PR gets
+# no MCP check, which is the deliberate trade: the alternative is arbitrary code
+# execution on the runner.
 
 jobs:
   test:

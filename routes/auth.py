@@ -9,6 +9,7 @@ import env_config
 import secrets
 import time
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
@@ -2015,22 +2016,101 @@ def api_auth_oauth_callback(provider: str, request: Request):
         samesite="lax",
         path="/",
     )
-    if _base.startswith("https"):
-        _oauth_kw["domain"] = ".xcelsior.ca"
+    # Same rule as the session cookies in `routes/_deps.py`: the domain follows
+    # the configured origin, not the scheme. Hardcoding `.xcelsior.ca` for any
+    # https base meant a staging or preview deployment set a cookie for a domain
+    # it is not on, which the browser discards — here that silently loses the
+    # "which provider did you last use" hint rather than a session, so it would
+    # have gone unnoticed indefinitely.
+    from routes._deps import _auth_cookie_domain
+
+    _oauth_domain = _auth_cookie_domain(_base)
+    if _oauth_domain:
+        _oauth_kw["domain"] = _oauth_domain
     resp.set_cookie(**_oauth_kw)
     return resp
 
 
-@router.post("/api/auth/oauth/facebook/deauthorize", tags=["Auth"])
-async def facebook_deauthorize(request: Request):
-    """Facebook Deauthorize Callback.
-    Called when a user removes the Xcelsior app from Facebook.
+# ── Facebook signed_request ───────────────────────────────────────────────
+#
+# Facebook signs the deauthorize and data-deletion callbacks with the app
+# secret. Both callbacks had their own copy of the verification, and both
+# copies had the same defect: the `HTTPException` raised on a signature
+# mismatch was thrown *inside* a `try` whose `except Exception` sat two lines
+# below it. `HTTPException` is an `Exception`, so the refusal was caught by the
+# handler's own error path, logged as a parse failure, and the request went on
+# to return `{"status": "success"}`. A forged signature was accepted exactly
+# like a valid one, in production, with the secret correctly configured.
+#
+# Someone had already found and fixed the *other* bug in this block — the env
+# check that only refused on a literal "production" — and that fix could never
+# have taken effect. A test that forges a signature is the only thing that
+# distinguishes the two states, and there was none.
+#
+# One copy now, because two copies is how one of them stays broken.
+
+
+def _facebook_signed_request(signed_request: str, *, purpose: str) -> dict[str, Any]:
+    """Verify Facebook's `signed_request` and return its payload.
+
+    Raises `HTTPException(400)` on anything that does not verify. Callers must
+    not wrap this in a bare `except Exception` — that is the original bug.
+
+    Relaxed environments keep the permissive behaviour: local development has
+    no app secret and needs to be able to exercise the route.
     """
     import base64
-    import hmac
     import hashlib
+    import hmac
     import json as _json
 
+    relaxed = env_config.is_relaxed_env()
+
+    def _refuse(reason: str) -> None:
+        log.warning("Facebook %s signed_request rejected: %s", purpose, reason)
+        if not relaxed:
+            raise HTTPException(400, "Invalid signed request")
+
+    if not signed_request or "." not in signed_request:
+        _refuse("missing or malformed")
+        return {}
+
+    client_secret = _OAUTH_PROVIDERS.get("facebook", {}).get("client_secret")
+    if not client_secret:
+        # Fail closed. Without the secret there is nothing to verify against,
+        # so accepting the payload means accepting anyone's — and this callback
+        # names a user whose data is to be deleted.
+        _refuse("FACEBOOK_CLIENT_SECRET is not configured, so nothing can be verified")
+        return {}
+
+    def _b64url(value: str) -> bytes:
+        return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+
+    encoded_sig, payload = signed_request.split(".", 1)
+    try:
+        sig = _b64url(encoded_sig)
+        data = _json.loads(_b64url(payload).decode("utf-8"))
+    except (ValueError, TypeError) as exc:
+        # Deliberately not `except Exception`: that is the construct that made
+        # the refusal below unreachable. `binascii.Error`, `JSONDecodeError`
+        # and `UnicodeDecodeError` are all `ValueError`, so this covers every
+        # way the two decodes can fail without also covering `HTTPException`.
+        _refuse(f"undecodable: {exc}")
+        return {}
+
+    expected = hmac.new(client_secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).digest()
+    if not hmac.compare_digest(sig, expected):
+        _refuse("signature mismatch")
+        return {}
+
+    if not isinstance(data, dict):
+        _refuse("payload is not an object")
+        return {}
+    return data
+
+
+async def _facebook_signed_request_from(request: Request, *, purpose: str) -> dict[str, Any]:
+    """Pull `signed_request` from the form body, falling back to the query."""
     signed_request = ""
     try:
         form = await request.form()
@@ -2039,42 +2119,20 @@ async def facebook_deauthorize(request: Request):
         signed_request = raw_signed if isinstance(raw_signed, str) else ""
     except Exception:
         pass
-
     if not signed_request:
         signed_request = request.query_params.get("signed_request", "")
+    return _facebook_signed_request(signed_request, purpose=purpose)
 
+
+@router.post("/api/auth/oauth/facebook/deauthorize", tags=["Auth"])
+async def facebook_deauthorize(request: Request):
+    """Facebook Deauthorize Callback.
+    Called when a user removes the Xcelsior app from Facebook.
+    """
     log.info("Facebook Deauthorize request received")
-
-    data = None
-    if signed_request and "." in signed_request:
-        try:
-            encoded_sig, payload = signed_request.split(".", 1)
-            def b64url_decode(s: str) -> bytes:
-                padding = "=" * (4 - (len(s) % 4))
-                return base64.urlsafe_b64decode(s + padding)
-            sig = b64url_decode(encoded_sig)
-            data = _json.loads(b64url_decode(payload).decode("utf-8"))
-
-            client_secret = _OAUTH_PROVIDERS.get("facebook", {}).get("client_secret")
-            if client_secret:
-                expected_sig = hmac.new(
-                    client_secret.encode("utf-8"),
-                    payload.encode("utf-8"),
-                    hashlib.sha256
-                ).digest()
-                if not hmac.compare_digest(sig, expected_sig):
-                    log.warning("Facebook deauthorize signature verification failed")
-                    # An exact match on "production" meant a failed signature
-                    # was merely logged on staging, on `prod`, or with the
-                    # variable unset.
-                    if not env_config.is_relaxed_env():
-                        raise HTTPException(400, "Invalid signed request signature")
-        except Exception as e:
-            log.error("Error parsing Facebook deauthorize signed request: %s", e)
-
-    fb_user_id = data.get("user_id") if data else "unknown"
-    log.info("Successfully processed Facebook deauthorization for Facebook User ID: %s", fb_user_id)
-
+    data = await _facebook_signed_request_from(request, purpose="deauthorize")
+    fb_user_id = data.get("user_id") or "unknown"
+    log.info("Processed Facebook deauthorization for Facebook User ID: %s", fb_user_id)
     return {"status": "success", "action": "deauthorized", "facebook_user_id": fb_user_id}
 
 
@@ -2083,61 +2141,18 @@ async def facebook_delete_data(request: Request):
     """Facebook Data Deletion Callback.
     Called when a user requests deletion of their data from Facebook settings.
     """
-    import base64
-    import hmac
-    import hashlib
-    import json as _json
-    import uuid
-
-    signed_request = ""
-    try:
-        form = await request.form()
-        raw_signed = form.get("signed_request", "")
-        # form.get() may hand back an UploadFile; a signed request is text.
-        signed_request = raw_signed if isinstance(raw_signed, str) else ""
-    except Exception:
-        pass
-
-    if not signed_request:
-        signed_request = request.query_params.get("signed_request", "")
-
     log.info("Facebook Data Deletion request received")
-
-    data = None
-    if signed_request and "." in signed_request:
-        try:
-            encoded_sig, payload = signed_request.split(".", 1)
-            def b64url_decode(s: str) -> bytes:
-                padding = "=" * (4 - (len(s) % 4))
-                return base64.urlsafe_b64decode(s + padding)
-            sig = b64url_decode(encoded_sig)
-            data = _json.loads(b64url_decode(payload).decode("utf-8"))
-
-            client_secret = _OAUTH_PROVIDERS.get("facebook", {}).get("client_secret")
-            if client_secret:
-                expected_sig = hmac.new(
-                    client_secret.encode("utf-8"),
-                    payload.encode("utf-8"),
-                    hashlib.sha256
-                ).digest()
-                if not hmac.compare_digest(sig, expected_sig):
-                    log.warning("Facebook delete-data signature verification failed")
-                    # An exact match on "production" meant a failed signature
-                    # was merely logged on staging, on `prod`, or with the
-                    # variable unset.
-                    if not env_config.is_relaxed_env():
-                        raise HTTPException(400, "Invalid signed request signature")
-        except Exception as e:
-            log.error("Error parsing Facebook delete-data signed request: %s", e)
-
-    fb_user_id = data.get("user_id") if data else "unknown"
+    data = await _facebook_signed_request_from(request, purpose="delete-data")
+    fb_user_id = data.get("user_id") or "unknown"
     confirmation_code = f"del-{uuid.uuid4().hex[:12]}"
-
-    log.info("Scheduled data deletion for Facebook User ID: %s. Confirmation Code: %s", fb_user_id, confirmation_code)
-
+    log.info(
+        "Scheduled data deletion for Facebook User ID: %s. Confirmation Code: %s",
+        fb_user_id,
+        confirmation_code,
+    )
     return {
         "url": f"https://xcelsior.ca/deactivate?code={confirmation_code}",
-        "confirmation_code": confirmation_code
+        "confirmation_code": confirmation_code,
     }
 
 
@@ -2893,13 +2908,30 @@ class EmailChangeConfirmRequest(BaseModel):
 
 
 @router.put("/api/auth/me/profile", tags=["Auth"])
-def api_auth_update_profile(body: ProfileUpdateRequest, request: Request):
+def api_auth_put_profile(body: ProfileUpdateRequest, request: Request):
     """Update the signed-in user's display name (and optional locale fields).
 
     Email is NOT changed here — that goes through the verified email-change flow.
+    Neither is `role`; see the refusal below.
+
+    Named distinctly from `api_auth_update_profile` (`PATCH /api/auth/me`),
+    which it shadowed at module scope — two `def`s, one name, two different
+    routes. Both routes worked, because the decorator had already captured each
+    function object, but `routes.auth.api_auth_update_profile` resolved to
+    whichever came last in the file, and the two behave differently on `role`.
     """
     user = _require_user_grant(request)
     email = str(user.get("email") or "")
+    # `ProfileUpdateRequest` carries `role`, and this route quietly dropped it:
+    # a client sending {"role": "provider"} got `{"ok": true}` and an unchanged
+    # role. Refusing points at the route that does honour it — and keeps role
+    # assignment, which `PATCH /api/auth/me` guards against self-granted admin,
+    # from acquiring a second and less careful entrance.
+    if body.role is not None:
+        raise HTTPException(
+            400,
+            "Role cannot be changed here; use PATCH /api/auth/me",
+        )
     updates: dict = {}
     if body.name is not None:
         updates["name"] = body.name.strip()[:64]

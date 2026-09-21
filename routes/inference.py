@@ -71,13 +71,23 @@ def api_inference_submit(req: InferenceRequest, request: Request):
 
     wallet = get_billing_engine().get_wallet(customer_id)
     if wallet.get("status") == "suspended":
-        raise HTTPException(402, detail="Wallet suspended 2 please add funds to resume service")
+        raise HTTPException(402, detail="Wallet suspended — please add funds to resume service")
     if wallet["balance_cad"] <= 0 and (wallet.get("grace_until") or 0) < time.time():
-        raise HTTPException(402, detail="Insufficient wallet balance 2 please deposit credits")
+        raise HTTPException(402, detail="Insufficient wallet balance — please deposit credits")
 
+    # `gpu_model` is advertised in the request model as "Preferred GPU model or
+    # 'any'" and was never passed to the scheduler, so every request ran on
+    # whatever host won the ordinary scoring. `_gpu_model_candidates` exists to
+    # make an explicit model request an exact match — its docstring says callers
+    # that will take any card "must omit `gpu_model` instead of silently
+    # substituting hardware" — and this route silently substituted hardware for
+    # every caller that named one. "any" is the documented way to express no
+    # preference and maps to omitting it.
+    requested_gpu = (req.gpu_model or "").strip()
     job = submit_job(
         name=f"inference:{req.model.replace('/', '--')}",
         vram_needed_gb=2,
+        gpu_model=None if requested_gpu.lower() in ("", "any") else requested_gpu,
         image=f"xcelsior/inference:{req.model.replace('/', '--')}",
         owner=customer_id,
     )

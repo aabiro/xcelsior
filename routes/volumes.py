@@ -299,12 +299,22 @@ def api_admin_reopen_encrypted_volumes(request: Request):
 
     Iterates encrypted volumes in 'available' or 'attached' status,
     reopens their LUKS devices, and re-mounts them. Admin-only.
-    """
-    from routes._deps import _require_scope
 
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    "Admin-only" was enforced with `_require_scope(user, "admin")` alone, which
+    is not an admin check: `_require_scope` is documented to **no-op for
+    interactive user sessions**, because a browser session carries OIDC
+    identity scopes that say nothing about API authority. So it constrained
+    machine credentials and let any signed-in user through — on a route that
+    reopens every encrypted volume on the platform. Verified by the first test
+    to call it: an ordinary registered account got 200.
+
+    `_require_admin` is the check that means what the docstring says. The scope
+    requirement stays on top of it so a machine principal still needs the
+    scope as well.
+    """
+    from routes._deps import _require_admin, _require_scope
+
+    user = _require_admin(request)
     _require_scope(user, "admin")
     ve = get_volume_engine()
     with ve._conn() as conn:
@@ -629,6 +639,17 @@ def api_volume_promotion_create(volume_id: str, body: PromotionCreate, request: 
             "WHERE tenant_id = %s AND job_id = %s AND idempotency_key = %s",
             (tenant_id, body.job_id, idem),
         ).fetchone()
+
+    if row is None:
+        # The SELECT reads back the row the INSERT above either created or
+        # conflicted with, on the same three columns, so this is unreachable
+        # short of the row being removed underneath the transaction. Saying so
+        # beats `TypeError: 'NoneType' object is not subscriptable` four lines
+        # down, which names neither the promotion nor the query.
+        raise HTTPException(
+            500,
+            f"promotion row for job {body.job_id} vanished between insert and read-back",
+        )
 
     existing_id = str(row[0])
     if not created:

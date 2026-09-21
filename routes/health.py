@@ -746,6 +746,35 @@ def readyz():
     except Exception:
         identity = None  # never let an unrelated import error mask readiness
 
+    # Auth cache readiness. Without it every authenticated request answers
+    # `auth_cache_unavailable` (503), so a replica that passes every other gate
+    # here is ready only in the sense that it can reliably reject its users.
+    # This gate was missing while the schema, rate-limit, identity, storage and
+    # NFS gates were all present — the dependency with the widest blast radius
+    # was the one nothing checked.
+    #
+    # Toggle mirrors XCELSIOR_READYZ_SCHEMA_CHECK above, for the same reason:
+    # an operator mid-incident may need to serve the unauthenticated surface
+    # while the cache is being repaired.
+    auth_cache: dict[str, Any] | None = None
+    if os.environ.get("XCELSIOR_READYZ_AUTH_CACHE_CHECK", "true").lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    ):
+        from oauth_service import auth_cache_healthcheck
+
+        auth_cache = auth_cache_healthcheck()
+        if not auth_cache.get("ok"):
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    f"Auth cache not ready ({auth_cache.get('backend')}): "
+                    f"{auth_cache.get('error', 'unknown')}"
+                ),
+            )
+
     storage = storage_healthcheck()
     if not storage.get("ok"):
         raise HTTPException(
@@ -763,6 +792,8 @@ def readyz():
         )
 
     resp = {"ok": True, "status": "ready", "storage": storage, "nfs_volumes": nfs}
+    if auth_cache is not None:
+        resp["auth_cache"] = auth_cache
     if identity is not None:
         resp["identity"] = identity
     if schema is not None:
@@ -809,6 +840,23 @@ def service_status():
         )
     except Exception as exc:
         add("Database", "down", f"unreachable: {exc}", True)
+
+    # Auth cache — required. The wizard's preflight gate reported "operational"
+    # while sign-in was answering 503 on every attempt, because nothing here
+    # probed the cache auth depends on. A gate that cannot see the failure the
+    # user is about to hit is worse than no gate: it tells them to proceed.
+    try:
+        from oauth_service import auth_cache_healthcheck
+
+        probe = auth_cache_healthcheck()
+        add(
+            "Auth cache",
+            "operational" if probe.get("ok") else "down",
+            str(probe.get("error") or f"{probe.get('backend')} ready"),
+            True,
+        )
+    except Exception as exc:
+        add("Auth cache", "down", f"probe failed: {exc}", True)
 
     # Scheduler / job queue
     try:
