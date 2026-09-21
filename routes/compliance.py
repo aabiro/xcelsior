@@ -72,7 +72,7 @@ def api_gst_threshold_status(request: Request):
         "quarters_assessed": quarters,
         "must_register": exceeded,
         "message": (
-            "GST/HST registration REQUIRED  revenue exceeds $30,000 threshold."
+            "GST/HST registration REQUIRED — revenue exceeds $30,000 threshold."
             if exceeded
             else f"Below threshold (${total_rev:,.2f} / $30,000). "
             "Registration not yet required but recommended."
