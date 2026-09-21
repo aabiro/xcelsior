@@ -383,6 +383,75 @@ class MemoryAuthCache:
             return value
 
 
+#: Redis rejects a mismatched password with a message that describes the
+#: protocol exchange rather than the thing an operator has to change. The three
+#: variables involved live in three different places — the password inside
+#: `XCELSIOR_AUTH_REDIS_URL`, `XCELSIOR_REDIS_REQUIREPASS` on the server's
+#: command line, and `XCELSIOR_REDIS_CLI_AUTH` in its healthcheck — so "set them
+#: to the same secret" is the entire fix and is worth saying outright. Without
+#: this the operator sees `auth_cache_unavailable` in the response, a protocol
+#: sentence in the log, and no indication that a second variable exists.
+_REDIS_AUTH_HINTS = (
+    (
+        "but no password is set",
+        "the URL in XCELSIOR_AUTH_REDIS_URL carries a password but the server "
+        "has none — set XCELSIOR_REDIS_REQUIREPASS='--requirepass <secret>' and "
+        "XCELSIOR_REDIS_CLI_AUTH='-a <secret>' to the same secret, or drop the "
+        "password from the URL",
+    ),
+    (
+        "noauth",
+        "the server requires a password and XCELSIOR_AUTH_REDIS_URL has none — "
+        "use redis://:<secret>@host:port/0 with the secret from "
+        "XCELSIOR_REDIS_REQUIREPASS",
+    ),
+    (
+        "wrongpass",
+        "the password in XCELSIOR_AUTH_REDIS_URL does not match "
+        "XCELSIOR_REDIS_REQUIREPASS",
+    ),
+)
+
+
+def _explain_redis_error(exc: Exception) -> str:
+    """Append the remediation for the auth-cache misconfigurations we know.
+
+    A password mismatch is the failure mode this deployment is most likely to
+    hit, because the secret has to be written identically in three places and
+    nothing checks that they agree until a request needs the cache.
+    """
+    text = str(exc)
+    lowered = text.lower()
+    for needle, hint in _REDIS_AUTH_HINTS:
+        if needle in lowered:
+            return f"{text} — {hint}"
+    return text
+
+
+def auth_cache_timeout_sec() -> float:
+    """Socket timeout bound for the auth cache.
+
+    Every other Redis client in this codebase bounds its sockets —
+    `serverless/rate_limit_store.py`, `privacy_sinks.py`, and
+    `control_plane/launch/spend_counters.py` all pass
+    `socket_connect_timeout`/`socket_timeout`. The auth cache, which sits on
+    the hot path of *every* authenticated request, was the one that did not.
+
+    Unbounded means `socket_timeout=None`, i.e. block until the OS gives up —
+    on Linux roughly two minutes for a connect to a host that is up but not
+    listening, and forever for a connection that is established and then goes
+    silent (a killed container, a dropped route). The failure that produces is
+    worse than the 503 it replaces: requests pile up in the threadpool holding
+    `_cache_lock`, `/readyz` cannot answer because it is queued behind them, and
+    the orchestrator sees a hang rather than an unready replica, so nothing
+    restarts. Fail fast instead, well inside the request deadline.
+    """
+    try:
+        return max(0.1, float(os.environ.get("XCELSIOR_AUTH_REDIS_TIMEOUT_SEC", "2")))
+    except (TypeError, ValueError):
+        return 2.0
+
+
 class RedisAuthCache:
     """Redis-backed cache for ephemeral OAuth state."""
 
@@ -391,11 +460,22 @@ class RedisAuthCache:
             import redis
         except ImportError as exc:
             raise AuthCacheUnavailableError("redis package is not installed") from exc
+        timeout = auth_cache_timeout_sec()
         try:
-            self._client = redis.from_url(url, decode_responses=True)
+            self._client = redis.from_url(
+                url,
+                decode_responses=True,
+                socket_connect_timeout=timeout,
+                socket_timeout=timeout,
+                # A pooled connection to a Redis that restarted is dead but
+                # looks fine until it is used, which turns one restart into a
+                # scattering of 503s as each stale connection is drawn. A
+                # periodic PING retires them before a request does.
+                health_check_interval=30,
+            )
             self._client.ping()
         except Exception as exc:
-            raise AuthCacheUnavailableError(f"redis unavailable: {exc}") from exc
+            raise AuthCacheUnavailableError(f"redis unavailable: {_explain_redis_error(exc)}") from exc
 
     def get(self, key: str) -> str | None:
         try:
@@ -486,20 +566,111 @@ def _json_loads(value: str | None) -> Any:
     return json.loads(value)
 
 
+#: When the last connection attempt failed, and with what. See below.
+_cache_failure_until = 0.0
+_cache_failure_error = ""
+
+
+def auth_cache_retry_backoff_sec() -> float:
+    """How long a failed connection suppresses the next attempt.
+
+    Short on purpose. This is not a circuit breaker with a recovery policy —
+    it only needs to be long enough that a burst of concurrent requests makes
+    *one* attempt between them instead of one each.
+    """
+    try:
+        return max(0.0, float(os.environ.get("XCELSIOR_AUTH_REDIS_RETRY_BACKOFF_SEC", "1")))
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def reset_auth_cache() -> None:
+    """Drop the cached client and any remembered failure.
+
+    Exists so a caller that changes `AUTH_CACHE_BACKEND` at runtime — which in
+    practice means a test — is not held to a decision made under the previous
+    configuration.
+    """
+    global _cache_instance, _cache_failure_until, _cache_failure_error
+    with _cache_lock:
+        _cache_instance = None
+        _cache_failure_until = 0.0
+        _cache_failure_error = ""
+
+
 def get_auth_cache():
-    global _cache_instance
+    """The process-wide auth cache, connecting on first use.
+
+    A failed connection is remembered for `auth_cache_retry_backoff_sec()`.
+    Without that, every request that arrives while Redis is down queues on
+    `_cache_lock` and pays a full connect timeout *in turn*: ten concurrent
+    requests against a dead cache take two seconds each, serially, and the
+    tenth waits twenty. `/readyz` is one of those requests, so the readiness
+    gate that exists to notice this outage is itself queued behind it and times
+    out instead of answering 503 — the orchestrator sees a hang rather than an
+    unready replica, and nothing restarts.
+
+    Remembering the failure turns that into one attempt per backoff window for
+    the whole process; everyone else is refused immediately, with the same
+    error the attempt produced.
+    """
+    global _cache_instance, _cache_failure_until, _cache_failure_error
     if _cache_instance is not None:
         return _cache_instance
+    # Checked before taking the lock, so a refusal costs nothing.
+    if time.monotonic() < _cache_failure_until:
+        raise AuthCacheUnavailableError(_cache_failure_error)
     with _cache_lock:
         if _cache_instance is not None:
             return _cache_instance
-        if AUTH_CACHE_BACKEND == "memory":
-            _cache_instance = MemoryAuthCache()
-        elif AUTH_CACHE_BACKEND == "redis":
-            _cache_instance = RedisAuthCache(AUTH_REDIS_URL)
-        else:
-            raise AuthCacheUnavailableError(f"unsupported auth cache backend: {AUTH_CACHE_BACKEND}")
+        # Re-checked under the lock: the holder may have just recorded a
+        # failure that the waiters sampled before it was written.
+        if time.monotonic() < _cache_failure_until:
+            raise AuthCacheUnavailableError(_cache_failure_error)
+        try:
+            if AUTH_CACHE_BACKEND == "memory":
+                _cache_instance = MemoryAuthCache()
+            elif AUTH_CACHE_BACKEND == "redis":
+                _cache_instance = RedisAuthCache(AUTH_REDIS_URL)
+            else:
+                raise AuthCacheUnavailableError(
+                    f"unsupported auth cache backend: {AUTH_CACHE_BACKEND}"
+                )
+        except AuthCacheUnavailableError as exc:
+            _cache_failure_until = time.monotonic() + auth_cache_retry_backoff_sec()
+            _cache_failure_error = str(exc)
+            raise
     return _cache_instance
+
+
+def auth_cache_healthcheck() -> dict[str, Any]:
+    """Probe the auth cache the way a request would. Never raises.
+
+    `/readyz` gated on the database schema, the rate-limit policy, worker
+    identity, storage, and NFS — but not on this, even though a missing auth
+    cache answers 503 to *every* authenticated request. A replica in that state
+    reported itself ready, the orchestrator sent it traffic, and the only
+    symptom was that nobody could log in. Readiness that excludes the
+    dependency auth cannot work without is readiness that reports the wrong
+    thing, which is the same defect as the `/healthz` that returned `{"ok":
+    true}` beside a completely absent cache (see
+    `tests/test_compose_provides_the_auth_cache.py`).
+
+    A `get` of a key that does not exist, rather than a bespoke `ping`: it is
+    the exact call path an auth request takes, it needs no method the cache
+    backends do not already have, and it cannot be satisfied by a client that
+    is connected but unable to run commands — which is what a password
+    mismatch produces.
+    """
+    backend = AUTH_CACHE_BACKEND
+    try:
+        cache = get_auth_cache()
+        cache.get(_cache_key("healthcheck", "readyz"))
+        return {"ok": True, "backend": backend}
+    except AuthCacheUnavailableError as exc:
+        return {"ok": False, "backend": backend, "error": str(exc)}
+    except Exception as exc:  # never let the probe itself be the outage
+        return {"ok": False, "backend": backend, "error": f"{type(exc).__name__}: {exc}"}
 
 
 def _cache_set_json(
