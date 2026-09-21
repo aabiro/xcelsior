@@ -1607,10 +1607,29 @@ def api_admin_reconciler_findings(request: Request, status: str = "open"):
         return {"ok": True, "findings": findings}
 
 
+def _reconciler_finding_uuid(finding_id: str) -> str:
+    """404 for an id Postgres cannot even parse.
+
+    `reconciliation_findings.finding_id` is a `uuid` column and these routes
+    take the path parameter as a plain `str`, so a typo or a truncated
+    copy-paste reached the database verbatim and came back as
+    `InvalidTextRepresentation` — a 500, for a bad URL. From the caller's side
+    there is no difference worth reporting between "that is not a finding id"
+    and "there is no such finding", and the latter is what the valid-but-absent
+    case already answers.
+    """
+    try:
+        uuid.UUID(str(finding_id))
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=404, detail="Finding not found") from None
+    return finding_id
+
+
 @router.post("/api/admin/reconciler/findings/{finding_id}/enforce", tags=["Admin"])
 def api_admin_reconciler_enforce(finding_id: str, request: Request):
     """Manually enforce remediation for a specific finding."""
     _require_admin(request)
+    _reconciler_finding_uuid(finding_id)
     from db import _get_pg_pool
     from psycopg.types.json import Jsonb
     from psycopg.rows import dict_row
@@ -1699,20 +1718,39 @@ def api_admin_reconciler_enforce(finding_id: str, request: Request):
 def api_admin_reconciler_dismiss(finding_id: str, request: Request):
     """Manually dismiss/resolve a finding without enforcing remediation."""
     _require_admin(request)
+    _reconciler_finding_uuid(finding_id)
     from db import _get_pg_pool
-    from psycopg.rows import dict_row
     pool = _get_pg_pool()
     with pool.connection() as conn:
-        conn.row_factory = dict_row
-        conn.execute(
+        # `RETURNING` rather than a bare UPDATE: the previous version answered
+        # `{"ok": true}` whatever happened, so dismissing a mistyped id, or one
+        # already resolved, looked exactly like dismissing a live finding. An
+        # operator clearing a queue would have been told the work was done.
+        row = conn.execute(
             """
             UPDATE reconciliation_findings
                SET resolved_at = clock_timestamp()
              WHERE finding_id = %s AND resolved_at IS NULL
+         RETURNING resolved_at
             """,
             (finding_id,),
-        )
-        return {"ok": True, "finding_id": finding_id}
+        ).fetchone()
+        if row is None:
+            # Distinguishing the two costs one cheap read and is the difference
+            # between "you already did this" and "you are looking at the wrong
+            # finding".
+            exists = conn.execute(
+                "SELECT 1 FROM reconciliation_findings WHERE finding_id = %s",
+                (finding_id,),
+            ).fetchone()
+            if exists is None:
+                raise HTTPException(status_code=404, detail="Finding not found")
+            raise HTTPException(status_code=400, detail="Finding is already resolved")
+        return {
+            "ok": True,
+            "finding_id": finding_id,
+            "resolved_at": row[0].isoformat() if row[0] else None,
+        }
 
 
 @router.post("/api/admin/reconciler/reconcile-host/{host_id}", tags=["Admin"])

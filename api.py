@@ -1185,6 +1185,8 @@ async def request_validation_exception_handler(_: Request, exc: RequestValidatio
     )
 
 
+import psycopg
+
 from oauth_delegation import ScopeDelegationError
 from oauth_service import OAuthGrantError, AuthCacheUnavailableError
 
@@ -1207,6 +1209,46 @@ async def scope_delegation_error_handler(_: Request, exc: ScopeDelegationError):
 @app.exception_handler(OAuthGrantError)
 async def oauth_grant_error_handler(_: Request, exc: OAuthGrantError):
     return JSONResponse(status_code=exc.status_code, content=exc.payload())
+
+
+@app.exception_handler(psycopg.DataError)
+async def malformed_identifier_handler(request: Request, exc: psycopg.DataError):
+    """400, not 500: the client sent a value the column cannot represent.
+
+    Most identifier columns here are `uuid`, and most routes accept their path
+    parameter as a plain `str`, so Postgres is the first thing to look at the
+    value. When it cannot parse it, psycopg raises `InvalidTextRepresentation`
+    from inside the handler and the caller gets a 500 — which says the server
+    is broken, pages whoever is on call, and shows up in the error budget, for
+    what is a typo in a URL. Anything a crawler or a truncated copy-paste can
+    trigger from outside must not be a 5xx.
+
+    A `DataError` is by definition "the value supplied does not fit the type",
+    which for a request-scoped query means the request was malformed. Route
+    handlers that want a specific answer (a 404 that is indistinguishable from
+    an unauthorised read, say) still catch it themselves; this is the floor for
+    every route that has not thought about it, including ones written later.
+
+    The exception text is logged, never returned: it quotes the offending value
+    and names the column, and the value may be a credential someone pasted into
+    the wrong URL.
+    """
+    log.warning(
+        "Malformed value rejected for %s %s: %s",
+        request.method,
+        request.url.path,
+        exc,
+    )
+    return JSONResponse(
+        status_code=400,
+        content={
+            "ok": False,
+            "error": {
+                "code": "invalid_identifier",
+                "message": "A value in the request is not a valid identifier.",
+            },
+        },
+    )
 
 
 @app.exception_handler(AuthCacheUnavailableError)
