@@ -2254,8 +2254,13 @@ def api_billing_resume_verification(stripe_intent_id: str, request: Request):
         log.error("Could not retrieve intent for resume: %s", exc)
         raise HTTPException(502, "Could not reach the payment processor") from exc
 
+    # Stripe's object is dict-like at runtime and a typed model to the checker,
+    # which is why the `hasattr` was here. Bound through `getattr` instead so
+    # the same two shapes are handled without asserting an attribute the stub
+    # says does not exist.
+    _mapping_get = getattr(intent, "get", None)
     secret = str(
-        (intent.get("client_secret") if hasattr(intent, "get") else getattr(intent, "client_secret", ""))
+        (_mapping_get("client_secret") if callable(_mapping_get) else getattr(intent, "client_secret", ""))
         or ""
     )
     if not secret:

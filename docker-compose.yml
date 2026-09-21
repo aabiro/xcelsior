@@ -68,7 +68,15 @@ x-api-environment: &api-env
   XCELSIOR_OAUTH_AUDIENCE: ${XCELSIOR_OAUTH_AUDIENCE:-xcelsior-api}
   XCELSIOR_AUTH_CACHE_BACKEND: ${XCELSIOR_AUTH_CACHE_BACKEND:-redis}
   XCELSIOR_AUTH_REDIS_URL: ${XCELSIOR_AUTH_REDIS_URL:-redis://localhost:6379/0}
-  XCELSIOR_AUTH_CACHE_PREFIX: ${XCELSIOR_AUTH_CACHE_PREFIX:-xcelsior:oauth}
+  # Bound on the auth-cache socket. Unset means 2s; see `auth_cache_timeout_sec`
+  # in oauth_service.py for why an unbounded one hangs the request thread.
+  XCELSIOR_AUTH_REDIS_TIMEOUT_SEC: ${XCELSIOR_AUTH_REDIS_TIMEOUT_SEC:-2}
+  # XCELSIOR_AUTH_CACHE_PREFIX was removed, not renamed. `cache_keys.cache_key`
+  # owns the namespace so environment, version and hashing apply uniformly
+  # (companion §5.4), and this variable had not been read for some time — it sat
+  # here looking like a live knob that a deployment could set for isolation and
+  # silently get nothing from. Asserted gone by
+  # tests/test_cache_key_contract.py.
   XCELSIOR_API_KEY_SUNSET_DATE: ${XCELSIOR_API_KEY_SUNSET_DATE:-2026-07-07}
   # OAuth providers (third-party)
   GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
@@ -348,16 +356,30 @@ services:
   # degrading. That is the intended direction of failure.
   redis:
     image: redis:7-alpine
+    # `--requirepass` is driven by the same secret the API's
+    # `XCELSIOR_AUTH_REDIS_URL` carries. Shipping this service without it was a
+    # half-fix: a deployment whose URL is `redis://:<secret>@localhost:6379/0`
+    # authenticates against a server with no password set, and redis answers
+    # "Client sent AUTH, but no password is set" — the cache is unusable in
+    # exactly the deployments that configured it most carefully.
+    #
+    # Empty is a legitimate value and the documented default
+    # (`redis://localhost:6379/0`), so an unset password must mean "no
+    # requirepass" rather than an empty one, which redis would reject.
     command: >-
       redis-server
       --bind ${XCELSIOR_REDIS_BIND:-127.0.0.1}
       --port ${XCELSIOR_REDIS_PORT:-6379}
       --save ""
       --appendonly no
+      ${XCELSIOR_REDIS_REQUIREPASS:-}
     network_mode: host
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "redis-cli", "-h", "127.0.0.1", "-p", "${XCELSIOR_REDIS_PORT:-6379}", "ping"]
+      # `redis-cli` must authenticate when a password is set, or the check
+      # fails, redis never reports healthy, and `depends_on: service_healthy`
+      # holds the API down forever — a worse outcome than the missing cache.
+      test: ["CMD-SHELL", "redis-cli -h 127.0.0.1 -p ${XCELSIOR_REDIS_PORT:-6379} ${XCELSIOR_REDIS_CLI_AUTH:-} ping | grep -q PONG"]
       interval: 10s
       timeout: 3s
       start_period: 5s

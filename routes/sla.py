@@ -32,9 +32,9 @@ def api_sla_enforce(req: SLAEnforceRequest, request: Request):
 
     Calculates uptime percentage, downtime incidents, and credits owed
     based on the SLA tier. Credits follow the Google Cloud / Azure model:
-    - 9599% uptime 2 10% credit
-    - 9095% uptime 2 25% credit
-    - <90% uptime   2 100% credit
+    - 95–99% uptime → 10% credit
+    - 90–95% uptime → 25% credit
+    - <90% uptime   → 100% credit
     """
     from routes._deps import _require_scope
 

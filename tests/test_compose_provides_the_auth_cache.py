@@ -85,3 +85,35 @@ def test_the_api_waits_for_the_cache() -> None:
         f"api waits on redis with condition {dep['redis'].get('condition')!r}; "
         "started-but-not-ready still 503s"
     )
+
+
+def test_redis_can_honour_a_configured_password() -> None:
+    """A cache that ignores the password its clients send is not a working cache.
+
+    The first version of this service shipped without `--requirepass`. A
+    deployment whose `XCELSIOR_AUTH_REDIS_URL` is
+    `redis://:<secret>@localhost:6379/0` then authenticates against a server
+    with no password set, and redis answers *"Client sent AUTH, but no password
+    is set"* — so the cache fails in precisely the deployments that configured
+    it most carefully, while working in the ones that did not.
+    """
+    cmd = " ".join(_services().get("redis", {}).get("command", "").split())
+    assert "${XCELSIOR_REDIS_REQUIREPASS:-}" in cmd, (
+        f"redis takes no password from the environment: {cmd!r}. It will reject "
+        "the AUTH that a password-carrying client sends."
+    )
+
+
+def test_the_healthcheck_can_authenticate() -> None:
+    """Otherwise a password-protected redis never reports healthy.
+
+    `api` waits on `service_healthy`, so an unauthenticated probe against a
+    password-protected server holds the API down permanently — a worse failure
+    than the missing cache this service was added to fix.
+    """
+    test = _services().get("redis", {}).get("healthcheck", {}).get("test", [])
+    joined = " ".join(test) if isinstance(test, list) else str(test)
+    assert "XCELSIOR_REDIS_CLI_AUTH" in joined, (
+        f"the redis healthcheck cannot authenticate: {joined!r}. With a password "
+        "set it would never pass, and depends_on would never release the API."
+    )

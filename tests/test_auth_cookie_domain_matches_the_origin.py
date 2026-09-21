@@ -94,3 +94,55 @@ def test_the_clearer_uses_the_same_domain_as_the_setter() -> None:
             f"{name} does not derive its domain from _auth_cookie_domain; if the "
             "two disagree, logout appears to work and leaves the session live"
         )
+
+
+def test_no_cookie_site_hardcodes_the_production_domain() -> None:
+    """Every cookie must take its domain from the helper, not a literal.
+
+    The first fix converted the four sites in `routes/_deps.py` and missed a
+    fifth in `routes/auth.py` — the `xcelsior_last_oauth` cookie, same literal,
+    same scheme test. That one loses only the "which provider did you last use"
+    hint rather than a session, so nothing would ever have reported it.
+
+    Walks the AST rather than the text, and the two earlier attempts are why.
+    A regex written as a character class that was actually a *sequence* matched
+    nothing and passed against the literal it was written to catch; the
+    substring version then flagged this very docstring, because prose describing
+    a bug looks exactly like the bug to a text scan.
+    """
+    import ast
+
+    root = Path(__file__).resolve().parents[1]
+    offenders: list[str] = []
+    for rel in ("routes/_deps.py", "routes/auth.py"):
+        path = root / rel
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            value = None
+            where = ""
+            # kwargs["domain"] = ".xcelsior.ca"
+            if isinstance(node, ast.Assign) and len(node.targets) == 1:
+                target = node.targets[0]
+                if (
+                    isinstance(target, ast.Subscript)
+                    and isinstance(target.slice, ast.Constant)
+                    and target.slice.value == "domain"
+                ):
+                    value, where = node.value, "assignment"
+            # set_cookie(domain=".xcelsior.ca")
+            elif isinstance(node, ast.Call):
+                for kw in node.keywords:
+                    if kw.arg == "domain":
+                        value, where = kw.value, "keyword"
+            if (
+                isinstance(value, ast.Constant)
+                and isinstance(value.value, str)
+                and value.value.startswith(".")
+            ):
+                offenders.append(f"{rel}:{value.lineno}: {where} domain={value.value!r}")
+
+    assert not offenders, (
+        "these set a cookie domain from a literal instead of "
+        "_auth_cookie_domain(); a deployment on another origin gets a cookie the "
+        "browser silently drops:\n  " + "\n  ".join(offenders)
+    )
