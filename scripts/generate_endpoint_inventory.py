@@ -22,6 +22,7 @@ argument checkable by someone who did not write it.
 from __future__ import annotations
 
 import argparse
+import ast
 import inspect
 import json
 import os
@@ -61,6 +62,54 @@ _AUTH_CALLS = (
 )
 
 
+#: Handler source, parsed once per module, so an indirect guard can be resolved.
+_MODULE_FUNCTIONS: dict[str, dict[str, ast.FunctionDef | ast.AsyncFunctionDef]] = {}
+
+
+def _module_functions(module_name: str) -> dict:
+    """Every module-level function in a route module, by name.
+
+    Cached because `collect` asks once per operation and there are 557 of them
+    across 36 modules.
+    """
+    if module_name in _MODULE_FUNCTIONS:
+        return _MODULE_FUNCTIONS[module_name]
+
+    table: dict = {}
+    module = sys.modules.get(module_name)
+    path = getattr(module, "__file__", None)
+    if path:
+        try:
+            tree = ast.parse(pathlib.Path(path).read_text(encoding="utf-8"))
+        except (OSError, SyntaxError):
+            tree = None
+        if tree is not None:
+            for node in tree.body:
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    table[node.name] = node
+    _MODULE_FUNCTIONS[module_name] = table
+    return table
+
+
+def _called_names(node) -> list[str]:
+    """Names this function calls, in source order, duplicates removed.
+
+    AST rather than a substring scan: `# _require_admin(...)` in a comment is
+    not a call, and the old scan could not tell the difference.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for sub in ast.walk(node):
+        if not isinstance(sub, ast.Call):
+            continue
+        target = sub.func
+        name = getattr(target, "id", None) or getattr(target, "attr", None)
+        if name and name not in seen:
+            seen.add(name)
+            out.append(name)
+    return out
+
+
 def _auth_dependencies(route, endpoint) -> str:
     """The guards that run for this route, from both places they can live.
 
@@ -88,13 +137,53 @@ def _auth_dependencies(route, endpoint) -> str:
 
     walk(getattr(route, "dependant", None) or object())
 
-    try:
-        source = inspect.getsource(endpoint)
-    except (OSError, TypeError):
-        source = ""
-    for call in _AUTH_CALLS:
-        if f"{call}(" in source:
+    # Resolve the guard through one level of indirection.
+    #
+    # This used to substring-scan the handler's own source for a hand-kept list
+    # of eleven names. Several route modules authenticate through a local
+    # helper instead — `routes/instances.py` calls
+    # `_authorize_instance_mutation`, which is what actually reaches
+    # `_require_auth` — so seven guarded instance routes, and many others,
+    # reported "none found". That is the most dangerous direction for this
+    # column to be wrong in: a reader takes it to mean "public". 192 of 557
+    # rows said it.
+    #
+    # A handler's own calls are reported plainly; a guard reached through a
+    # module-level helper is reported as `helper → guard`, so the distinction
+    # between "this handler checks" and "something it calls checks" survives
+    # into the table rather than being flattened away.
+    module_name = getattr(endpoint, "__module__", "") or ""
+    functions = _module_functions(module_name)
+    handler = functions.get(getattr(endpoint, "__name__", ""))
+
+    if handler is None:
+        # Not a module-level def (a closure, or a decorated wrapper). Fall back
+        # to the original text scan rather than reporting nothing.
+        try:
+            source = inspect.getsource(endpoint)
+        except (OSError, TypeError):
+            source = ""
+        for call in _AUTH_CALLS:
+            if f"{call}(" in source:
+                add(call)
+        return ", ".join(names) or "none found — verify by hand"
+
+    direct = _called_names(handler)
+    for call in direct:
+        if call in _AUTH_CALLS:
             add(call)
+
+    for call in direct:
+        if call in _AUTH_CALLS:
+            continue
+        helper_node = functions.get(call)
+        if helper_node is None:
+            continue
+        # Grouped per helper — `helper → a, b` rather than `helper → a,
+        # helper → b`. This is one cell of a table a person reads across.
+        reached = [inner for inner in _called_names(helper_node) if inner in _AUTH_CALLS]
+        if reached:
+            add(f"{call} → {' + '.join(reached)}")
 
     return ", ".join(names) or "none found — verify by hand"
 
@@ -182,9 +271,14 @@ def render(rows: list[dict[str, str]]) -> str:
         "",
         "**Auth column:** this codebase authenticates inside handler bodies rather "
         "than via FastAPI `Depends`, so the guard is recovered from the handler "
-        "source. `_get_current_user` resolves an *optional* principal and is not "
-        "a guard. `none found` means exactly that — verify by hand before "
-        "concluding an endpoint is public.",
+        "source. A guard reached through a module-level helper is written "
+        "`helper → guard` — several modules authenticate that way, and reading "
+        "only the handler's own calls reported them as unguarded. "
+        "`_get_current_user` resolves an *optional* principal and is not a "
+        "guard. `none found` still means exactly that — verify by hand before "
+        "concluding an endpoint is public: resolution follows one level of "
+        "indirection within the same module, so a guard behind two hops, or in "
+        "another module, is not found here.",
         "",
         f"**{classified} of {len(rows)} operations classified.** `class` is "
         "`covered` / `gap` / `internal` / `redundant`, each with a reason, and "
