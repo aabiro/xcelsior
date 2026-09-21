@@ -293,3 +293,53 @@ def test_github_resolve_reaches_its_handler(funded) -> None:
     )
     assert r.status_code != 422, f"the body did not satisfy the model: {r.text[:300]}"
     assert r.status_code < 500, f"github resolve faulted: {r.status_code} {r.text[:300]}"
+
+
+# ── The last few, and why the streams are not among them ──────────────────
+
+
+def test_worker_logs_for_an_unknown_worker(endpoint) -> None:
+    ep, headers = endpoint
+    r = client.get(
+        f"/api/v2/serverless/endpoints/{ep['endpoint_id']}/workers/wrk-{uuid.uuid4().hex[:8]}/logs",
+        headers=headers,
+    )
+    assert r.status_code < 500, f"worker logs faulted: {r.status_code} {r.text[:300]}"
+    assert r.status_code in (403, 404), r.text[:200]
+
+
+def test_public_runsync_reaches_its_handler(endpoint) -> None:
+    """`/v1/serverless/{id}/runsync` — the SDK's synchronous invoke.
+
+    No worker is attached, so it refuses. 429 (the run rate limit) and 402
+    (wallet preflight) are the handler applying policy; a 5xx would be it
+    falling over.
+    """
+    ep, headers = endpoint
+    r = client.post(
+        f"/v1/serverless/{ep['endpoint_id']}/runsync",
+        json={"input": {"prompt": "hello"}},
+        headers=headers,
+    )
+    assert r.status_code != 422, f"the body did not satisfy the model: {r.text[:300]}"
+    assert r.status_code < 500, f"runsync faulted: {r.status_code} {r.text[:300]}"
+
+
+def test_the_vanity_slug_runsync_path_resolves_the_same_endpoint(endpoint) -> None:
+    """The same handler is mounted twice — bare id, and id + vanity slug.
+
+    Both decorators sit on one function, so the coverage measurement counts
+    them as one handler under two paths. Exercising only the bare form would
+    leave the slug route unverified while the number looked complete.
+    """
+    ep, headers = endpoint
+    slug = ep.get("vanity_slug") or ep["name"]
+    r = client.post(
+        f"/v1/serverless/{ep['endpoint_id']}/{slug}/runsync",
+        json={"input": {"prompt": "hello"}},
+        headers=headers,
+    )
+    assert r.status_code != 404, (
+        f"the vanity-slug invoke path did not resolve: {r.status_code} {r.text[:300]}"
+    )
+    assert r.status_code < 500, r.text[:300]

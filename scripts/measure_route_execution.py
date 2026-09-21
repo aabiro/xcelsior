@@ -79,6 +79,32 @@ def _body_lines(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> set[int]:
     return lines
 
 
+#: Handlers that return a `StreamingResponse` and are held open by the client.
+STREAMING_HINTS = ("/stream", "/api/stream")
+
+STREAMING_NOTE = """
+Note on the streaming handlers above.
+
+They are not untested by neglect. `httpx.ASGITransport`, which is what
+`TestClient` runs the app through in-process, buffers a response before handing
+it back, so a handler that never completes never returns to the caller — the
+request hangs instead of yielding. Verified directly: `/api/stream` emits
+`retry:` and a `connected` event as its first two yields, and neither arrives
+through the transport even with a concurrent `broadcast_sse` to unblock the
+queue.
+
+The generator itself is sound — `asyncio.Queue` with
+`await asyncio.wait_for(queue.get(), timeout=30)` and a keepalive on timeout,
+so it does not block the event loop. Exercising these needs a real socket: a
+live server on a port, which is what `tests/live/` is for, rather than a test
+that appears to cover them and does not.
+"""
+
+
+def _is_streaming(line: str) -> bool:
+    return any(hint in line for hint in STREAMING_HINTS)
+
+
 def main() -> int:
     report = REPO / "coverage.json"
     if not report.exists():
@@ -124,7 +150,10 @@ def main() -> int:
     print(f"handlers entered by the suite: {entered}/{total}")
     print(f"handlers never entered:        {len(never)}\n")
     for line in sorted(never):
-        print(" ", line)
+        marker = "  (streaming — see note)" if _is_streaming(line) else ""
+        print(" ", line + marker)
+    if any(_is_streaming(line) for line in never):
+        print(STREAMING_NOTE)
     return 0
 
 
