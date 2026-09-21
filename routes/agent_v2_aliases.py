@@ -37,6 +37,7 @@ not a different thing.
 """
 
 from __future__ import annotations
+from fastapi.routing import APIRoute
 
 import logging
 
@@ -138,8 +139,14 @@ def mount_agent_v2_aliases(app) -> list[str]:
     cutover, and the failure would surface as a worker malfunction in
     production rather than as a startup problem here.
     """
-    by_path_method: dict[tuple[str, str], object] = {}
+    # Typed as `APIRoute`, not `object`: the loop below reads `.endpoint` and
+    # `.name` off these, and `object` has neither — so the type checker could
+    # not tell a real route from a `Mount` or a `WebSocketRoute`, both of which
+    # also live in `app.routes` and would raise `AttributeError` here.
+    by_path_method: dict[tuple[str, str], APIRoute] = {}
     for route in app.routes:
+        if not isinstance(route, APIRoute):
+            continue
         path = getattr(route, "path", None)
         methods = getattr(route, "methods", None) or ()
         if not path:
