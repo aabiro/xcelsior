@@ -6,6 +6,12 @@ _Regenerated 2026-09-21 by `scripts/regenerate_untested_endpoints.py`: a route/C
 
 Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the box; if it 500s/throws, fix-or-delete then tick. Caveat: a few may be exercised transitively; confirm with the test.
 
+> **What the count above does and does not mean.** A route is scored covered when its path prefix *or* its handler function name appears anywhere under `tests/`. That is a worklist heuristic: it measures **mention**, not **execution**, and the two diverge. Measured against a coverage run of the whole suite, **450 of 525 handlers are actually entered — 78 are never reached**, every one of them scored covered here.
+
+> A test can name a route and only ever receive a 422, because the request body was rejected before the handler ran: that proves the route is mounted and its model validates, and nothing about the code inside. Five tests in `tests/test_untested_endpoints_coverage.py` were exactly that until it was measured. The same blindness let `GET /marketplace/search` be reported tested for as long as this file has existed, because the v2 POST handler shared its function name.
+
+> Reproduce with `scripts/measure_route_execution.py`, which lists the 78. Largest clusters: the whole MFA surface (9), serverless (~20), host admission (5).
+
 ## Routes (0 untested)
 
 ### `routes/action_plans.py` (0 untested)
