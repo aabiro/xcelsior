@@ -221,12 +221,18 @@ def test_admission_queue() -> None:
     assert r.status_code == 200, r.text[:200]
 
 
-def test_compatibility_evidence_requires_a_well_formed_body() -> None:
+def test_compatibility_evidence_reaches_its_handler() -> None:
+    """All three of submit_token, report and signature are required."""
     r = client.post(
         f"/api/hosts/compatibility-sessions/{uuid.uuid4()}/evidence",
-        json={},
+        json={
+            "submit_token": "not-a-valid-token",
+            "report": {"gpu_model": "RTX4090"},
+            "signature": "not-a-valid-signature",
+        },
         headers=_admin_headers(),
     )
+    assert r.status_code != 422, f"the body still does not satisfy the model: {r.text[:300]}"
     assert r.status_code < 500, r.text[:200]
 
 
@@ -255,16 +261,32 @@ def test_getting_an_unknown_serverless_batch(user_headers) -> None:
     assert r.status_code == 404, r.text[:200]
 
 
-def test_github_resolve_requires_its_fields(user_headers) -> None:
+def test_github_resolve_reaches_its_handler(user_headers) -> None:
+    """`source_ref`, not `repo` — the wrong field name never leaves Pydantic.
+
+    An earlier version of this test posted `{"repo": ...}` and asserted only
+    `< 500`. It passed against a 422, which means FastAPI rejected the body and
+    the handler never ran: the test proved the route was mounted and validated,
+    and nothing about the code it exists to cover. Coverage measurement is what
+    surfaced that — see scripts/measure_route_execution.py.
+    """
     r = client.post(
-        "/api/v2/serverless/github/resolve", json={"repo": "octocat/Hello-World"},
+        "/api/v2/serverless/github/resolve",
+        json={"source_ref": "octocat/Hello-World", "source_ref_branch": "main"},
         headers=user_headers,
     )
+    assert r.status_code != 422, f"the body still does not satisfy the model: {r.text[:300]}"
     assert r.status_code < 500, r.text[:200]
 
 
-def test_artifact_finalize_requires_its_fields(user_headers) -> None:
-    r = client.post("/api/artifacts/finalize", json={}, headers=user_headers)
+def test_artifact_finalize_reaches_its_handler(user_headers) -> None:
+    """`upload_session_id` is required; an empty body stops at validation."""
+    r = client.post(
+        "/api/artifacts/finalize",
+        json={"upload_session_id": f"upload-{uuid.uuid4().hex[:12]}"},
+        headers=user_headers,
+    )
+    assert r.status_code != 422, f"the body still does not satisfy the model: {r.text[:300]}"
     assert r.status_code < 500, r.text[:200]
 
 
@@ -278,9 +300,30 @@ def test_agent_degraded_report() -> None:
     assert r.status_code < 500, r.text[:200]
 
 
-@pytest.mark.parametrize("suffix", ("files", "result"))
-def test_promotion_agent_callbacks_reject_an_empty_body(suffix) -> None:
+@pytest.mark.parametrize(
+    "suffix, body",
+    [
+        ("result", {"state": "failed", "failure_code": "probe", "bytes_written": 0}),
+        (
+            "files",
+            {
+                "artifact_id": "probe-artifact",
+                "logical_name": "probe.bin",
+                "size_bytes": 1,
+                # True, because the handler refuses `done` without it — "the
+                # resume path skips done files, so this would leave an
+                # unverified copy nobody re-checks". Reaching that refusal is
+                # how we learned this test now gets past Pydantic at all.
+                "sha256_verified": True,
+                "state": "done",
+            },
+        ),
+    ],
+)
+def test_promotion_agent_callbacks_reach_their_handlers(suffix, body) -> None:
+    """`state` is a Literal on both, so an empty body stops at validation."""
     r = client.post(
-        f"/api/v1/promotions/{uuid.uuid4()}/{suffix}", json={}, headers=_admin_headers()
+        f"/api/v1/promotions/{uuid.uuid4()}/{suffix}", json=body, headers=_admin_headers()
     )
+    assert r.status_code != 422, f"the body still does not satisfy the model: {r.text[:300]}"
     assert r.status_code < 500, r.text[:200]
