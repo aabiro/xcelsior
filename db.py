@@ -743,22 +743,47 @@ class DatabaseOps:
 
     @staticmethod
     def load_hosts(conn, active_only=False, backend="sqlite"):
-        """Load hosts from DB, optionally filtered to active only."""
+        """Load hosts from DB, optionally filtered to active only.
+
+        `host_id` comes from the **column**, not from the payload.
+
+        The column is the primary key — it is what `delete_host`, every
+        `ON CONFLICT`, and every foreign key refer to. Registration happens to
+        duplicate it inside the payload JSON as well, and this used to read
+        only the payload, so the duplicate was load-bearing: a row written by
+        anything that did not copy it in (a migration, an ops repair, another
+        code path) produced a host dict with no `host_id` at all.
+
+        Callers index it directly — `routes/hosts.py` alone does
+        `h["host_id"]` in nine places, including `_resolve_host_id`, which
+        every admission route funnels through. So one such row turned every
+        host lookup in the process into `KeyError` -> 500, for every host, not
+        just the malformed one. Found by the first test ever to call those
+        routes.
+
+        Taking it from the column also repairs drift rather than propagating
+        it: where the two disagree, the key everything else resolves by wins.
+        """
         if active_only:
             rows = conn.execute(
-                "SELECT payload FROM hosts WHERE status = 'active' "
+                "SELECT host_id, payload FROM hosts WHERE status = 'active' "
                 "ORDER BY registered_at ASC, host_id ASC"
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT payload FROM hosts ORDER BY registered_at ASC, host_id ASC"
+                "SELECT host_id, payload FROM hosts ORDER BY registered_at ASC, host_id ASC"
             ).fetchall()
 
         hosts = []
         for row in rows:
-            payload = row["payload"] if isinstance(row, dict) else row[0]
+            if isinstance(row, dict):
+                host_id, payload = row["host_id"], row["payload"]
+            else:
+                host_id, payload = row[0], row[1]
             item = DatabaseOps.decode_payload(payload)
             if isinstance(item, dict):
+                if host_id is not None:
+                    item["host_id"] = host_id
                 hosts.append(item)
         return hosts
 
