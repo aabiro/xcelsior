@@ -371,6 +371,18 @@ def get_deletion_status(
     status_token: str | None = None,
     is_admin: bool = False,
 ) -> dict[str, Any]:
+    # `request_id` is a `uuid` column, and the route hands it straight through
+    # from the URL. A malformed one made Postgres raise
+    # `InvalidTextRepresentation` from inside this function, so the caller got a
+    # 500 — a third, distinguishable answer beside the 404s below, which exist
+    # precisely so that "no such request" and "not yours" cannot be told apart.
+    # Treating it as absent is both the correct status and the only one that
+    # keeps that property.
+    try:
+        uuid.UUID(str(request_id))
+    except (ValueError, AttributeError, TypeError):
+        raise PrivacyDeletionNotFound("deletion request not found") from None
+
     pool = _pool()
     with pool.connection() as conn:
         row = conn.execute(

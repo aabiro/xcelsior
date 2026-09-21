@@ -226,8 +226,16 @@ class MarketplaceSearchParams(BaseModel):
 
 
 @router.post("/api/v2/marketplace/search", tags=["Marketplace v2"])
-def api_marketplace_search(body: MarketplaceSearchParams):
-    """Search available GPU offers with filters."""
+def api_marketplace_search_v2(body: MarketplaceSearchParams):
+    """Search available GPU offers with filters.
+
+    Suffixed because the v1 handler above is also called
+    `api_marketplace_search`, and the second `def` shadowed the first at module
+    scope. Both routes worked — the decorator holds each function object — but
+    `UNTESTED_ENDPOINTS.md` scores coverage by whether a handler's *name*
+    appears under `tests/`, so a single test naming `api_marketplace_search`
+    marked both routes tested when only one was.
+    """
     me = get_marketplace_engine()
     offers = me.search_offers(
         gpu_model=body.gpu_model,
