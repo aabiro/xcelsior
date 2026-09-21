@@ -104,12 +104,29 @@ def test_reading_an_unknown_sweep(funded) -> None:
 
 
 def test_reporting_a_sweep_fingerprint_for_an_unknown_sweep() -> None:
+    """Agent-authenticated, so it is called *without* a user bearer token.
+
+    Written first with the admin header, which never reached the handler: a
+    platform bearer on an `/agent/`-authenticated route is treated as a retired
+    API key and refused with 410 by `_require_agent_auth` before the body is
+    ever seen. In the test environment an unauthenticated agent call is
+    accepted (conftest sets `XCELSIOR_ENV=test`), which is how the reporter is
+    simulated here.
+    """
     r = client.post(
         f"/api/v1/image-sweeps/{uuid.uuid4()}/members/0/fingerprint",
-        json={"fingerprint": {"driver": "550.54"}},
-        headers=_admin_headers(),
+        # `hash` is min_length=16 and `manifest` is required. Written first as
+        # {"fingerprint": {...}}, which is a 422 — FastAPI refusing before the
+        # handler ran, and a test that passed while covering nothing. The
+        # coverage measurement is what caught it, for the third time.
+        json={"hash": "a" * 64, "manifest": {"driver": "550.54", "cuda": "12.4"}},
     )
+    assert r.status_code != 410, (
+        "the request was refused as a retired API key, so the handler never ran"
+    )
+    assert r.status_code != 422, f"the body did not satisfy the model: {r.text[:300]}"
     assert r.status_code < 500, f"fingerprint report faulted: {r.status_code} {r.text[:300]}"
+    assert r.status_code in (400, 403, 404, 409), r.text[:200]
 
 
 # ── Instance termination ──────────────────────────────────────────────────

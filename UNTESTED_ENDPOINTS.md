@@ -6,11 +6,13 @@ _Regenerated 2026-09-21 by `scripts/regenerate_untested_endpoints.py`: a route/C
 
 Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the box; if it 500s/throws, fix-or-delete then tick. Caveat: a few may be exercised transitively; confirm with the test.
 
-> **What the count above does and does not mean.** A route is scored covered when its path prefix *or* its handler function name appears anywhere under `tests/`. That is a worklist heuristic: it measures **mention**, not **execution**, and the two diverge. Measured against a coverage run of the whole suite, **450 of 525 handlers are actually entered — 78 are never reached**, every one of them scored covered here.
+> **What the count above does and does not mean.** A route is scored covered when its path prefix *or* its handler function name appears anywhere under `tests/`. That is a worklist heuristic: it measures **mention**, not **execution**. When first measured the two diverged badly — 78 of 525 handlers were never entered, every one scored covered here. They have since been closed: **522 of 525 handlers are now actually entered by the suite.**
 
-> A test can name a route and only ever receive a 422, because the request body was rejected before the handler ran: that proves the route is mounted and its model validates, and nothing about the code inside. Five tests in `tests/test_untested_endpoints_coverage.py` were exactly that until it was measured. The same blindness let `GET /marketplace/search` be reported tested for as long as this file has existed, because the v2 POST handler shared its function name.
+> The three that remain are SSE streaming handlers, and they are not untested by neglect. `httpx.ASGITransport` — what `TestClient` runs the app through in-process — buffers a response before returning it, so a handler that never completes never returns to the caller. Exercising them needs a real socket; see the note printed by `scripts/measure_route_execution.py`.
 
-> Reproduce with `scripts/measure_route_execution.py`, which lists the 78. Largest clusters: the whole MFA surface (9), serverless (~20), host admission (5).
+> A test can name a route and only ever receive a 422, because the request body was rejected before the handler ran: that proves the route is mounted and its model validates, and nothing about the code inside. Six tests written *during* this exercise were exactly that, caught only by re-measuring. The same blindness let `GET /marketplace/search` be reported tested for as long as this file has existed, because the v2 POST handler shared its function name.
+
+> Re-measure with `scripts/measure_route_execution.py` after a coverage run. Prefer it to the count above whenever the two are used to decide whether something is covered.
 
 ## Routes (0 untested)
 
