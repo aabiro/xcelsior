@@ -1939,7 +1939,12 @@ def api_admin_reinject_shell(job_id: str, request: Request):
     worker agent.
     """
     user = _require_auth(request)
-    if not (user.get("role") == "admin" or user.get("is_admin")):
+    # `_is_platform_admin`, not a hand-rolled copy. The inline version read
+    # `user.get("is_admin")` for truthiness, so the *strings* "0" and "false" —
+    # which `_admin_flag` normalises to not-admin — passed it, because a
+    # non-empty string is truthy. One definition, two spellings, and the
+    # second one drifted.
+    if not _is_platform_admin(user):
         raise HTTPException(403, "Admin only")
 
     from scheduler import get_job
