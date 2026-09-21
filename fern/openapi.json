@@ -2835,9 +2835,9 @@
         "tags": [
           "Marketplace v2"
         ],
-        "summary": "Search",
-        "description": "Search available GPU offers with filters.",
-        "operationId": "api_marketplace_search_api_v2_marketplace_search_post",
+        "summary": "Search V2",
+        "description": "Search available GPU offers with filters.\n\nSuffixed because the v1 handler above is also called\n`api_marketplace_search`, and the second `def` shadowed the first at module\nscope. Both routes worked — the decorator holds each function object — but\n`UNTESTED_ENDPOINTS.md` scores coverage by whether a handler's *name*\nappears under `tests/`, so a single test naming `api_marketplace_search`\nmarked both routes tested when only one was.",
+        "operationId": "api_marketplace_search_v2_api_v2_marketplace_search_post",
         "requestBody": {
           "content": {
             "application/json": {
