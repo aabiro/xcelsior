@@ -313,16 +313,29 @@ def _load_hosts_from_conn(conn, active_only=False):
     backend = _active_backend()
     if backend == "sqlite":
         return DatabaseOps.load_hosts(conn, active_only=active_only, backend=backend)
+    # `host_id` from the column, not from the payload — see the same repair in
+    # `db.DatabaseOps.load_hosts`, which is the sqlite half of this. The column
+    # is the primary key; registration merely happens to duplicate it into the
+    # payload JSON, and reading only the payload made that duplicate
+    # load-bearing. A row written without it — by a migration, an ops repair,
+    # or any other code path — yields a host dict with no `host_id`, and
+    # `routes/hosts.py` indexes `h["host_id"]` in nine places including
+    # `_resolve_host_id`, which every admission route funnels through. One such
+    # row turns every host lookup in the process into a 500.
+    #
+    # This is the branch production takes. The sqlite copy above was fixed
+    # first and on its own would have left the postgres path broken, which is
+    # what having the query written twice buys.
     if active_only:
         rows = conn.execute("""
-            SELECT payload
+            SELECT host_id, payload
             FROM hosts
             WHERE status = 'active'
             ORDER BY registered_at ASC, host_id ASC
             """).fetchall()
     else:
         rows = conn.execute("""
-            SELECT payload
+            SELECT host_id, payload
             FROM hosts
             ORDER BY registered_at ASC, host_id ASC
             """).fetchall()
@@ -330,6 +343,8 @@ def _load_hosts_from_conn(conn, active_only=False):
     for row in rows:
         item = _decode_payload(row["payload"])
         if isinstance(item, dict):
+            if row["host_id"] is not None:
+                item["host_id"] = row["host_id"]
             hosts.append(item)
     return hosts
 
