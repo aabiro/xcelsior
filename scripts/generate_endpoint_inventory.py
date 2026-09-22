@@ -57,6 +57,12 @@ _AUTH_CALLS = (
     "_require_host_operator",
     "_require_worker_callback",
     "_require_worker_status_update",
+    # Its own docstring: "This should guard every endpoint that mutates
+    # user-owned state: MFA, password, profile, sessions, preferences,
+    # privacy/consent, and account deletion." Omitting it reported that entire
+    # cluster as unguarded.
+    "_require_user_grant",
+    "_require_write_access",
     "_get_current_user",
     "validate_key",
 )
@@ -66,8 +72,42 @@ _AUTH_CALLS = (
 _MODULE_FUNCTIONS: dict[str, dict[str, ast.FunctionDef | ast.AsyncFunctionDef]] = {}
 
 
+def _functions_in(path: pathlib.Path) -> dict:
+    table: dict = {}
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        return table
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            table[node.name] = node
+    return table
+
+
+#: Every module-level function in the `routes` package, by name. The guards
+#: themselves live in `routes/_deps.py` while the handlers are in sibling
+#: modules, so a same-module-only lookup resolves almost none of them.
+_PACKAGE_FUNCTIONS: dict = {}
+
+
+def _package_functions() -> dict:
+    if _PACKAGE_FUNCTIONS:
+        return _PACKAGE_FUNCTIONS
+    routes_dir = pathlib.Path(__file__).resolve().parent.parent / "routes"
+    for path in sorted(routes_dir.glob("*.py")):
+        for name, node in _functions_in(path).items():
+            # First definition wins; a handler's own module is layered on top
+            # in `_module_functions`, so a local override still takes priority.
+            _PACKAGE_FUNCTIONS.setdefault(name, node)
+    return _PACKAGE_FUNCTIONS
+
+
 def _module_functions(module_name: str) -> dict:
-    """Every module-level function in a route module, by name.
+    """Module-level functions visible to a handler in *module_name*.
+
+    The package-wide table underneath, the handler's own module on top — so a
+    name defined in both (`_require_auth` exists in `_deps.py` and in
+    `auth.py`) resolves to the one the handler actually calls.
 
     Cached because `collect` asks once per operation and there are 557 of them
     across 36 modules.
@@ -75,18 +115,11 @@ def _module_functions(module_name: str) -> dict:
     if module_name in _MODULE_FUNCTIONS:
         return _MODULE_FUNCTIONS[module_name]
 
-    table: dict = {}
+    table: dict = dict(_package_functions())
     module = sys.modules.get(module_name)
     path = getattr(module, "__file__", None)
     if path:
-        try:
-            tree = ast.parse(pathlib.Path(path).read_text(encoding="utf-8"))
-        except (OSError, SyntaxError):
-            tree = None
-        if tree is not None:
-            for node in tree.body:
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    table[node.name] = node
+        table.update(_functions_in(pathlib.Path(path)))
     _MODULE_FUNCTIONS[module_name] = table
     return table
 
