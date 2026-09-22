@@ -63,6 +63,27 @@ _AUTH_CALLS = (
     # cluster as unguarded.
     "_require_user_grant",
     "_require_write_access",
+    # Every remaining function in `routes/` that refuses with 401/403 itself.
+    # Derived rather than recalled — `tests/test_auth_guards_are_all_known.py`
+    # fails when a new one appears, because this list going stale is what made
+    # the column report 192 guarded routes as unguarded.
+    "_require_team_instance_write",
+    "_require_team_billing_write",
+    "_require_volume_write_role",
+    "_require_customer_access",
+    "_check_job_access",
+    "_require_platform_worker",
+    "_require_entity_event_access",
+    "_require_inference_job_access",
+    "_require_inference_endpoint_access",
+    "_resolve_serverless_endpoint_auth",
+    "_resolve_artifact_job_id",
+    "_prepare_authorization",
+    "_refuse_undelegatable_scopes",
+    "_authorize_instance_mutation",
+    "_require_human_to_weaken_mfa",
+    "_require_reputation_entity_access",
+    "_check_terminal_access",
     "_get_current_user",
     "validate_key",
 )
