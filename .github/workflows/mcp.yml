@@ -44,11 +44,27 @@ on:
 
 jobs:
   test:
-    # Moved off `ubuntu-latest`: hosted Actions is blocked at the account
-    # level and is not expected back soon, so this job would simply never
-    # run. It needs no secret and no docker, which is exactly the envelope
-    # the sandboxed runner is safe for — see scripts/ci-runner/README.md.
-    runs-on: [self-hosted, sandboxed]
+    # This job has nowhere to run at present, and says so rather than failing.
+    #
+    # It was moved off `ubuntu-latest` because hosted Actions is blocked at the
+    # account level — the reasoning was sound and the envelope is right: no
+    # secret, no docker. But the sandboxed runner cannot complete `npm ci`. The
+    # first run after the workflow was repaired failed in 20s with corrupted
+    # tarballs, `TAR_ENTRY_ERROR ENOENT` and `ENOTEMPTY` — a filesystem the
+    # extract cannot use, not a dependency problem. `gates-sandboxed.yml`
+    # succeeds on the same runner because `uv sync --frozen` does not need it.
+    #
+    # So the choice is a red check on every push or an honest skip, and this
+    # file already answers that two jobs below: "a job that fails on every push
+    # is worse than no job: it trains everyone to ignore the CI column, which is
+    # where a real failure would have to be noticed."
+    #
+    # Until hosted Actions returns, `cd mcp && npm ci && npm test` locally is
+    # what covers this — 298 tests, plus typecheck, check:api, audit and build.
+    # Dropping `runs-on` back to ubuntu-latest keeps it one variable away from
+    # running again, like every other gated job here.
+    runs-on: ubuntu-latest
+    if: ${{ vars.HOSTED_ACTIONS == 'enabled' }}
     defaults:
       run:
         working-directory: mcp
