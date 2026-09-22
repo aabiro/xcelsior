@@ -1,6 +1,6 @@
 # Untested endpoints — coverage-gap worklist
 
-_Regenerated 2026-09-21 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
+_Regenerated 2026-09-22 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
 
 **0 of 529 routes (0%)** and **0 of 48 CLI commands** (0%) have no test signal.
 
@@ -570,7 +570,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 ### `routes/teams.py` (0 untested)
 - [x] `POST /api/teams` — `api_create_team`  ✓ test_teams_endpoints_coverage.py
 - [x] `PATCH /api/teams/active` — `api_set_active_team`  ✓ test_teams_endpoints_coverage.py
-- [x] `GET /api/teams/invite/{token}` — `api_accept_team_invite`  ✓ test_teams_endpoints_coverage.py
+- [x] `GET /api/teams/invite/{token}` — `api_preview_team_invite`  ✓ test_teams_endpoints_coverage.py
 - [x] `POST /api/teams/invite/{token}/accept` — `api_accept_invite_authenticated`  ✓ test_teams_endpoints_coverage.py
 - [x] `GET /api/teams/me` — `api_my_teams`  ✓ test_teams_endpoints_coverage.py
 - [x] `GET /api/teams/{team_id}` — `api_get_team`  ✓ test_teams_endpoints_coverage.py
