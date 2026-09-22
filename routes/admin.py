@@ -1007,7 +1007,12 @@ def api_admin_infrastructure(request: Request):
         }
     except Exception as e:
         log.warning("admin_infrastructure: failed to fetch volume data", exc_info=True)
-        volume_stats = {"error": str(e)[:200]}
+        # Truncating a database error is not redacting it — the first 200
+        # characters are where psycopg puts the offending value and the column
+        # name. Admin-only, so the blast radius is small, but there is no
+        # reason to put it on the wire at all.
+        log.exception("volume stats query failed")
+        volume_stats = {"error": "Volume statistics are temporarily unavailable."}
 
     return {
         "ok": True,
