@@ -151,9 +151,12 @@ jobs:
     # would have to be noticed. Skipped rather than deleted — set the repo
     # variable HOSTED_ACTIONS=enabled to bring every one of these back at
     # once, with no diff to review.
-    if: ${{ vars.HOSTED_ACTIONS == 'enabled' }}
+    #
+    # One `if:`, not two — see the same repair in mcp.yml. Duplicate keys make
+    # GitHub reject the workflow at startup, which took down every job in this
+    # file including the ones the guard was not meant to touch.
+    if: ${{ vars.HOSTED_ACTIONS == 'enabled' && inputs.run_eval }}
     needs: preflight
-    if: inputs.run_eval
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4

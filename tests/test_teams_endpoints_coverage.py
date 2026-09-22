@@ -90,11 +90,26 @@ def test_teams_invite_accept_existing_user(team_ctx):
             "expires_at": time.time() + 86400,
         }
     )
+    # A GET must not join anyone. It used to: if the invited address already
+    # had an account, merely fetching this URL added them to the team and
+    # consumed the single-use token — so a link preview or a corporate mail
+    # scanner accepted the invitation before the invitee saw it, and they were
+    # then told "Invitation Not Found". This assertion encoded that behaviour;
+    # it now pins the opposite.
     r = client.get(f"/api/teams/invite/{token}")
     assert r.status_code == 200
     body = r.json()
     assert body.get("ok") is True
-    assert body.get("accepted") is True or body.get("pending") is not True
+    assert body.get("pending") is True, f"the preview accepted the invite: {body}"
+    assert body.get("accepted") is not True
+    assert body.get("account_exists") is True
+
+    # Still unaccepted, so the POST below is what actually joins.
+    r_again = client.get(f"/api/teams/invite/{token}")
+    assert r_again.status_code == 200, "the preview consumed the single-use token"
+
+    accept = client.post(f"/api/teams/invite/{token}/accept", headers=invitee_headers)
+    assert accept.status_code == 200, accept.text[:300]
 
     r3 = client.get(
         f"/api/teams/{team_ctx['team_id']}",

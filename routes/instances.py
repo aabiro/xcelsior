@@ -2,6 +2,7 @@
 
 import asyncio
 import hmac
+import ipaddress
 import json
 import os
 import re
@@ -3813,6 +3814,35 @@ _LOOPBACK_OK = {"127.0.0.1", "::1", "localhost", "testclient"}
 # Note: "testclient" is starlette's synthetic host for TestClient — it
 # is not a routable address and will never appear in production traffic.
 
+#: The tailnet. `100.64.0.0/10` is CGNAT space (100.64.0.0 – 100.127.255.255).
+_TAILNET = ipaddress.ip_network("100.64.0.0/10")
+
+
+def _is_internal_caller(client_host: str) -> bool:
+    """Loopback, or an address inside the tailnet.
+
+    This was `client_host.startswith("100.")`, which is `100.0.0.0/8` — four
+    times the intended range, and the extra three quarters are publicly
+    routable space allocated to real networks. A caller at 100.1.2.3 passed a
+    check meant to admit only the tailnet.
+
+    It was also wrong in the other direction: an IPv4-mapped IPv6 peer
+    (`::ffff:100.64.0.1`) is inside the tailnet and failed the string test
+    outright. `demo_account.is_ip_whitelisted` already handles both properly;
+    this follows it.
+    """
+    if client_host in _LOOPBACK_OK:
+        return True
+    cleaned = client_host.strip().strip("[]").split("%", 1)[0]
+    try:
+        addr = ipaddress.ip_address(cleaned)
+    except ValueError:
+        return False
+    mapped = getattr(addr, "ipv4_mapped", None)
+    if mapped is not None:
+        addr = mapped
+    return addr in _TAILNET
+
 
 @router.get("/internal/route/{slug}/{port}", tags=["Internal"])
 def api_internal_route(slug: str, port: int, request: Request):
@@ -3824,8 +3854,8 @@ def api_internal_route(slug: str, port: int, request: Request):
     listener). Also returns ``job_id`` in the JSON body for logging.
     """
     client_host = (request.client.host if request.client else "") or ""
-    # Allow Tailscale range too, in case the VPS is multi-homed.
-    if client_host not in _LOOPBACK_OK and not client_host.startswith("100."):
+    # Loopback, or the tailnet in case the VPS is multi-homed.
+    if not _is_internal_caller(client_host):
         raise HTTPException(404, "not found")  # Don't leak existence.
 
     if not re.fullmatch(r"[a-z0-9]{1,32}", slug or ""):

@@ -218,12 +218,42 @@ def api_set_active_team(body: SetActiveTeamRequest, request: Request):
 
 
 @router.get("/api/teams/invite/{token}", tags=["Teams"])
-def api_accept_team_invite(token: str, request: Request):
-    """Accept a team invitation. Adds the user to the team if their account exists."""
+def api_preview_team_invite(token: str, request: Request):
+    """Describe a pending invitation. Joins nobody.
+
+    This used to *accept* the invitation: if the invited address already had an
+    account, a bare GET added them to the team and deleted the single-use
+    token. Three things were wrong with that.
+
+    **A GET must be safe.** Anything that fetches a URL now joins a team and
+    burns the invite — a browser prefetch, a crawler, a Slack or iMessage link
+    preview, an Outlook Safe Links or Proofpoint scanner. An invitation emailed
+    to someone behind a corporate mail scanner was consumed before they ever
+    opened it, and the page they eventually reached said "Invitation Not
+    Found". That is the practical bug: invites failing for the people most
+    likely to have a scanner in front of them.
+
+    **It bypassed consent.** Nobody has to be signed in for this route, and the
+    address added is the invite's, not the caller's. So whoever holds the link
+    joins that person to the team without them acting at all.
+
+    **It defeated the frontend's own flow.** `accept-invite/page.tsx` calls this
+    on mount purely to render "You've been invited to <team> as <role>", shows
+    "This invitation is for X, you're signed in as Y" when they differ, and
+    accepts only when the user presses the button — which calls
+    `POST .../accept`. That POST requires an interactive session and checks the
+    invite belongs to the caller. The join had already happened on page load,
+    so all of that was decoration.
+
+    Acceptance lives on the POST, which was always the half that did it
+    properly. This one reads.
+    """
     invite = UserStore.get_team_invite(token)
     if not invite:
         raise HTTPException(404, "Invitation not found or expired")
     if time.time() > invite["expires_at"]:
+        # Deleting an *expired* invite is still safe in the HTTP sense: it
+        # cannot be accepted by anyone, so removing it changes no outcome.
         UserStore.delete_team_invite(token)
         raise HTTPException(410, "Invitation has expired")
 
@@ -231,24 +261,17 @@ def api_accept_team_invite(token: str, request: Request):
     if not team:
         raise HTTPException(404, "Team no longer exists")
 
-    target = UserStore.get_user(invite["email"])
-    if not target:
-        # User hasn't signed up yet — return info for the frontend to use
-        return {
-            "ok": True,
-            "pending": True,
-            "team_name": team["name"],
-            "email": invite["email"],
-            "role": invite["role"],
-            "token": token,
-        }
-
-    ok = UserStore.add_team_member(invite["team_id"], invite["email"], invite["role"])
-    UserStore.delete_team_invite(token)
-    if not ok:
-        raise HTTPException(400, "Team is at member capacity")
-    broadcast_sse("team_member_added", {"team_id": invite["team_id"], "email": invite["email"]})
-    return {"ok": True, "accepted": True, "team_name": team["name"], "role": invite["role"]}
+    return {
+        "ok": True,
+        "pending": True,
+        "team_name": team["name"],
+        "email": invite["email"],
+        "role": invite["role"],
+        "token": token,
+        # Lets the UI offer "Create Account & Join" rather than "Sign In"
+        # without a second round trip. Existence only — no user detail.
+        "account_exists": UserStore.get_user(invite["email"]) is not None,
+    }
 
 
 @router.post("/api/teams/invite/{token}/accept", tags=["Teams"])

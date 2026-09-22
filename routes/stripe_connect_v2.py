@@ -189,9 +189,37 @@ class CheckoutRequest(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════
 
 
+# ── Authorization ─────────────────────────────────────────────────────
+#
+# This module is headed "Sample Integration", but it is mounted in the live app
+# (`routes/__init__.py`) and every call below uses the platform's real Stripe
+# key. None of these routes had any authentication at all.
+#
+# The clearest harm was `GET /api/connect/accounts`, which reads
+# `display_name, contact_email, stripe_account_id` for *every* connected
+# account straight out of Postgres and returns it — no Stripe call involved, so
+# it leaked whether or not a key was configured. The write routes let anyone
+# create connected accounts and platform products on our Stripe, and
+# `onboarding-link` mints a URL that completes onboarding for an account the
+# caller names.
+#
+# Account and product *management* is a platform-operator action, so those are
+# admin-gated. Two routes stay public on purpose: a storefront has to list
+# products and start a checkout for a buyer who is not signed in. The webhook
+# stays open because it authenticates by signature, which is the only thing
+# Stripe can present.
+
+
+def _require_connect_admin(request: Request) -> dict:
+    """Admin gate for the platform-side Connect routes."""
+    from routes._deps import _require_admin
+
+    return _require_admin(request)
+
+
 @router.post("/api/connect/accounts")
-def create_connected_account(req: CreateAccountRequest):
-    """Create a new Stripe connected account using the V2 API.
+def create_connected_account(req: CreateAccountRequest, request: Request):
+    """Create a new Stripe connected account using the V2 API. Admin only.
 
     The platform is responsible for pricing and fee collection
     (fees_collector: 'application', losses_collector: 'application').
@@ -203,6 +231,7 @@ def create_connected_account(req: CreateAccountRequest):
       2. Store the mapping (display_name → stripe account ID) in Postgres.
       3. Return the new account ID.
     """
+    _require_connect_admin(request)
     client = _get_stripe_client()
 
     # Create the connected account via the V2 Core Accounts API.
@@ -265,8 +294,8 @@ def create_connected_account(req: CreateAccountRequest):
 
 
 @router.get("/api/connect/accounts/{account_id}/onboarding-link")
-def create_onboarding_link(account_id: str):
-    """Generate a Stripe Account Link for onboarding a connected account.
+def create_onboarding_link(account_id: str, request: Request):
+    """Generate a Stripe Account Link for onboarding a connected account. Admin only.
 
     Uses the V2 Account Links API with use_case='account_onboarding'.
     The user is redirected through Stripe-hosted onboarding and then back
@@ -275,6 +304,7 @@ def create_onboarding_link(account_id: str):
     refresh_url — where Stripe sends the user if the link expires.
     return_url  — where the user lands after completing onboarding.
     """
+    _require_connect_admin(request)
     client = _get_stripe_client()
 
     # Build the account link via the V2 Core AccountLinks API.
@@ -303,8 +333,8 @@ def create_onboarding_link(account_id: str):
 
 
 @router.get("/api/connect/accounts/{account_id}/status")
-def get_account_status(account_id: str):
-    """Retrieve the current onboarding / requirements status of an account.
+def get_account_status(account_id: str, request: Request):
+    """Retrieve the current onboarding / requirements status of an account. Admin only.
 
     Always fetches fresh data from the Stripe API (no caching).
     Returns:
@@ -312,6 +342,7 @@ def get_account_status(account_id: str):
       - onboarding_complete: whether there are no currently_due / past_due requirements
       - requirements_status: the raw status string from Stripe
     """
+    _require_connect_admin(request)
     client = _get_stripe_client()
 
     # Retrieve the account with expanded configuration and requirements.
@@ -355,8 +386,14 @@ def get_account_status(account_id: str):
 
 
 @router.get("/api/connect/accounts")
-def list_connected_accounts():
-    """List all connected accounts stored in our database."""
+def list_connected_accounts(request: Request):
+    """List all connected accounts stored in our database. Admin only.
+
+    Returns `contact_email` and `stripe_account_id` for every account, from
+    our own tables rather than Stripe — so with no gate this disclosed the
+    whole list regardless of whether a Stripe key was configured.
+    """
+    _require_connect_admin(request)
     pool = _get_pg_pool()
     with pool.connection() as conn:
         conn.row_factory = dict_row
@@ -373,8 +410,8 @@ def list_connected_accounts():
 
 
 @router.post("/api/connect/products")
-def create_product(req: CreateProductRequest):
-    """Create a Stripe Product at the *platform* level.
+def create_product(req: CreateProductRequest, request: Request):
+    """Create a Stripe Product at the *platform* level. Admin only.
 
     The product is created on the platform's own Stripe account (not on the
     connected account) using the standard Products API.  We store the mapping
@@ -385,6 +422,7 @@ def create_product(req: CreateProductRequest):
       1. Create the product with default_price_data via the Stripe Client.
       2. Store (product_id, price_id, account_id) in connect_products.
     """
+    _require_connect_admin(request)
     client = _get_stripe_client()
 
     # Create the product (and its default price) on the platform account.
