@@ -55,12 +55,27 @@ def api_verification_status(host_id: str):
 
 
 @router.get("/api/verified-hosts", tags=["Verification"])
-def api_verified_hosts():
-    """List all verified hosts with full verification details.
+def api_verified_hosts(request: Request):
+    """List hosts with their verification details. Requires a signed-in user.
 
-    Returns host_id, state, gpu_model, country, last_check, overall_score
-    for every host that has any verification record (not just 'verified').
+    Returns host_id, state, gpu_model, country, last_check, overall_score for
+    every host that has any verification record — not just 'verified'.
+
+    It was anonymous, and it returns two fields that should not be: each host's
+    `gpu_fingerprint`, and `deverify_reason` — the reason a provider's machine
+    *failed* verification. Anyone could enumerate which providers had been
+    deverified and why, which is commercially sensitive to them and was never
+    the point of the endpoint.
+
+    A signed-in user rather than an admin, because that is who consumes it:
+    `/dashboard/trust` is an ordinary dashboard page, and the legacy console
+    reaches it through a `window.fetch` wrapper that attaches the bearer token
+    to every API call. Requiring admin would break the first; requiring nothing
+    was the bug.
     """
+    from routes._deps import _require_auth
+
+    _require_auth(request)
     ve = get_verification_engine()
     store = ve.store
     # Return all hosts with verification records (any state)
