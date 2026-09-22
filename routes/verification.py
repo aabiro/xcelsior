@@ -55,12 +55,27 @@ def api_verification_status(host_id: str):
 
 
 @router.get("/api/verified-hosts", tags=["Verification"])
-def api_verified_hosts():
-    """List all verified hosts with full verification details.
+def api_verified_hosts(request: Request):
+    """List hosts with their verification details. Requires a signed-in user.
 
-    Returns host_id, state, gpu_model, country, last_check, overall_score
-    for every host that has any verification record (not just 'verified').
+    Returns host_id, state, gpu_model, country, last_check, overall_score for
+    every host that has any verification record — not just 'verified'.
+
+    It was anonymous, and it returns two fields that should not be: each host's
+    `gpu_fingerprint`, and `deverify_reason` — the reason a provider's machine
+    *failed* verification. Anyone could enumerate which providers had been
+    deverified and why, which is commercially sensitive to them and was never
+    the point of the endpoint.
+
+    A signed-in user rather than an admin, because that is who consumes it:
+    `/dashboard/trust` is an ordinary dashboard page, and the legacy console
+    reaches it through a `window.fetch` wrapper that attaches the bearer token
+    to every API call. Requiring admin would break the first; requiring nothing
+    was the bug.
     """
+    from routes._deps import _require_auth
+
+    _require_auth(request)
     ve = get_verification_engine()
     store = ve.store
     # Return all hosts with verification records (any state)
@@ -160,8 +175,34 @@ class VerificationReportPayload(BaseModel):
 
 
 @router.post("/agent/verify", tags=["Verification"])
-def api_agent_verify(payload: VerificationReportPayload):
-    """Receive comprehensive benchmark report and run verification checks."""
+def api_agent_verify(payload: VerificationReportPayload, request: Request):
+    """Receive comprehensive benchmark report and run verification checks.
+
+    Agent-authenticated, and bound to the host named in the body.
+
+    It had no `Request` parameter at all, so there was nothing to authenticate
+    *with*: any unauthenticated caller could POST a report naming any
+    `host_id`. That is not a read — `run_verification` writes the host's
+    verification state, and a passing result grants HARDWARE_AUDIT reputation
+    below. So the endpoint let anyone verify a host they do not own with a
+    forged benchmark, or push someone else's host toward deverification with a
+    failing one, and reputation feeds provider scoring and earnings.
+
+    Every other agent-reported endpoint already does this —
+    `_require_agent_auth(request, host_id=report.host_id)` is the shape used
+    throughout `routes/agent.py`, and binding to the body's host id is the part
+    that stops one provider reporting as another. The sibling user-facing route
+    `api_verify_host` above requires `verification:write`; this one is its
+    agent twin and was the half without a gate.
+
+    `/agent/v2/verify` is an alias onto this same function
+    (`routes/agent_v2_aliases.py`), so it was open too and is closed by the
+    same change.
+    """
+    from routes.agent import _require_agent_auth
+
+    _require_agent_auth(request, host_id=payload.host_id)
+
     ve = get_verification_engine()
     result = ve.run_verification(payload.host_id, payload.report)
 

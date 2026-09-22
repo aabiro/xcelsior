@@ -74,8 +74,12 @@ jobs:
         id: meta
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
+      # One step, not two. A stray `-` split the name from the action, leaving
+      # a step with neither `uses` nor `run` — which GitHub rejects at startup,
+      # so the whole workflow failed to start rather than this one step failing.
+      # The frontend step below has the shape this should have had all along.
       - name: Build and push API image
-      - uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true
