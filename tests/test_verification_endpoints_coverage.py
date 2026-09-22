@@ -43,7 +43,7 @@ def test_verification_verified_hosts():
 
 def test_verification_status_unverified():
     host_id = f"host-{uuid.uuid4().hex[:8]}"
-    r = client.get(f"/api/verify/{host_id}/status")
+    r = client.get(f"/api/verify/{host_id}/status", headers=_admin_headers())
     assert r.status_code == 200
     assert r.json().get("ok") is True
     assert r.json().get("status") == "unverified"
@@ -78,9 +78,17 @@ def test_verification_admin_approve_and_reject():
     assert r.json().get("ok") is True
     assert r.json().get("status") == "verified"
 
-    r2 = client.get(f"/api/verify/{host_id}/status")
+    # `status` at the top level, not a nested `verification` object.
+    #
+    # This asserted the nested shape, which only existed for hosts that HAD a
+    # record — a host without one got a top-level `status` instead. The host
+    # detail page reads `verification.status`, so the badge read `undefined`
+    # for exactly the verified hosts, and the frontend type described the empty
+    # branch, so TypeScript enforced the broken shape. The route now answers
+    # one shape, and this pins it.
+    r2 = client.get(f"/api/verify/{host_id}/status", headers=_admin_headers())
     assert r2.status_code == 200
-    assert r2.json().get("verification") is not None
+    assert r2.json().get("status") == "verified", r2.json()
 
     r3 = client.post(
         f"/api/verify/{host_id}/reject",
