@@ -45,13 +45,52 @@ def api_verify_host(host_id: str, req: VerifyHostRequest, request: Request):
 
 
 @router.get("/api/verify/{host_id}/status", tags=["Verification"])
-def api_verification_status(host_id: str):
-    """Get current verification status for a host."""
+def api_verification_status(host_id: str, request: Request):
+    """Current verification status for one host. Requires a signed-in user.
+
+    Three things were wrong here, and they compounded.
+
+    **It was anonymous, and returned more than the listing beside it.**
+    `v.__dict__` is the whole record: `deverify_reason`, `gpu_fingerprint`,
+    `failure_count`, and `checks` — each check's expected-versus-actual values
+    from the hardware report. `/api/verified-hosts` was gated for exposing a
+    curated subset of exactly that; leaving this open made the gate bypassable
+    one host at a time, and host ids come free from `/marketplace/search` and
+    `/compute-scores`, both public.
+
+    **`__dict__` is opt-out exposure.** Any field added to `HostVerification`
+    later would be published by this route without anyone deciding to. The
+    response is now an explicit shape, so publishing a new field takes an edit
+    here.
+
+    **The two branches returned different shapes.** A host with no record got
+    `status` at the top level; a host *with* one got `verification` and no
+    `status` at all. `dashboard/hosts/[id]/page.tsx` reads `verification.status`
+    to colour its badge, so the badge read `undefined` for precisely the hosts
+    that were verified — and `fetchVerificationStatus` in `lib/api.ts` types the
+    response as `{ok, host_id, status}`, which matches only the empty branch, so
+    TypeScript enforced the broken shape rather than catching it. `status` is
+    now always present.
+    """
+    from routes._deps import _require_auth
+
+    _require_auth(request)
+
     store = get_verification_engine().store
     v = store.get_verification(host_id)
     if not v:
         return {"ok": True, "host_id": host_id, "status": "unverified"}
-    return {"ok": True, "host_id": host_id, "verification": v.__dict__}
+
+    state = getattr(v.state, "value", None) or str(v.state)
+    return {
+        "ok": True,
+        "host_id": host_id,
+        "status": state,
+        "overall_score": v.overall_score,
+        "verified_at": v.verified_at,
+        "last_check_at": v.last_check_at,
+        "next_check_at": v.next_check_at,
+    }
 
 
 @router.get("/api/verified-hosts", tags=["Verification"])

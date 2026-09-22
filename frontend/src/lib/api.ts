@@ -1716,10 +1716,22 @@ export async function fetchSlaStatus(hostId: string) {
   );
 }
 
+// `status` is always present now. It used not to be: the route returned
+// `status` only when the host had *no* verification record, and `verification`
+// (with no `status`) when it did — so the badge on the host page read
+// `undefined` for exactly the hosts that were verified. This type described the
+// empty branch, which is why TypeScript enforced the broken shape instead of
+// catching it.
 export async function fetchVerificationStatus(hostId: string) {
-  return apiFetch<{ ok: boolean; host_id: string; status: string }>(
-    `/api/verify/${encodeURIComponent(hostId)}/status`,
-  );
+  return apiFetch<{
+    ok: boolean;
+    host_id: string;
+    status: string;
+    overall_score?: number;
+    verified_at?: number | null;
+    last_check_at?: number | null;
+    next_check_at?: number | null;
+  }>(`/api/verify/${encodeURIComponent(hostId)}/status`);
 }
 
 // ── Verification Admin ────────────────────────────────────────────────
