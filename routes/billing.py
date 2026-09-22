@@ -1590,9 +1590,14 @@ def api_list_reservations(request: Request, customer_id: str = ""):
     try:
         reservations = billing.list_reservations(customer_id)
     except Exception as e:
+        # `ok: True` with an empty list tells a customer they hold no reserved
+        # instances, which is a different statement from "we could not load
+        # them" and the more alarming one to be wrong about. The shape is kept
+        # so the dashboard still renders, with `degraded` so it can say so.
         log.warning("reservations: failed to load for %s: %s", customer_id, e)
         return {
             "ok": True,
+            "degraded": True,
             "customer_id": customer_id,
             "reservations": [],
             "summary": empty_summary,
@@ -1731,8 +1736,19 @@ def api_usage_analytics(
                 ),
                 params,
             ).fetchone()
-    except Exception as e:
-        return {"ok": False, "error": str(e), "analytics": [], "summary": {}}
+    except Exception:
+        # Logged, never returned. `str(e)` on a psycopg error quotes the
+        # offending value and names the column — the same reason the
+        # `psycopg.DataError` handler in `api.py` logs its message instead of
+        # sending it. This route is reachable by any signed-in user (non-admins
+        # are scoped to their own data), so the message went to them.
+        log.exception("usage analytics query failed")
+        return {
+            "ok": False,
+            "error": "Usage analytics are temporarily unavailable.",
+            "analytics": [],
+            "summary": {},
+        }
 
     return {
         "ok": True,

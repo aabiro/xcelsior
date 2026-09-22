@@ -59,13 +59,33 @@ def api_gst_threshold_status(request: Request):
                 (one_year_ago,),
             ).fetchone()
             quarters = qrow["q_count"] if qrow else 0
-    except Exception as e:
-        total_rev = 0.0
-        quarters = 0
+    except Exception:
+        # Do NOT fall through to the calculation with zero.
+        #
+        # This used to set `total_rev = 0.0` and carry on, so a failed query
+        # produced `must_register: false` and the message "Below threshold
+        # ($0.00 / $30,000). Registration not yet required" — a confident,
+        # specific, wrong answer about a statutory obligation, with a dollar
+        # figure that reads as authoritative. The exception was bound and
+        # discarded, so nothing was logged either.
+        #
+        # An unanswerable question has to be returned as unanswered.
+        log.exception("GST threshold: revenue query failed")
+        return {
+            "ok": False,
+            "determinable": False,
+            "threshold_cad": GST_SMALL_SUPPLIER_THRESHOLD_CAD,
+            "message": (
+                "Revenue could not be read, so GST/HST registration status "
+                "cannot be determined. This is not a statement that you are "
+                "below the threshold."
+            ),
+        }
 
     exceeded = total_rev >= GST_SMALL_SUPPLIER_THRESHOLD_CAD
     return {
         "ok": True,
+        "determinable": True,
         "exceeded": exceeded,
         "total_revenue_cad": round(total_rev, 2),
         "threshold_cad": GST_SMALL_SUPPLIER_THRESHOLD_CAD,
@@ -104,12 +124,27 @@ def api_provider_gst_threshold(provider_id: str, request: Request):
                 (provider_id, one_year_ago),
             ).fetchone()
             total_payouts = row["total"] if row else 0.0
-    except Exception as e:
-        total_payouts = 0.0
+    except Exception:
+        # Same reasoning as the platform threshold above: zero is an answer,
+        # and the wrong one. A provider told "Below threshold ($0.00)" may
+        # reasonably not register.
+        log.exception("GST threshold: payout query failed for %s", provider_id)
+        return {
+            "ok": False,
+            "determinable": False,
+            "provider_id": provider_id,
+            "threshold_cad": GST_SMALL_SUPPLIER_THRESHOLD_CAD,
+            "message": (
+                "Payouts could not be read, so GST/HST registration status "
+                "cannot be determined. This is not a statement that you are "
+                "below the threshold."
+            ),
+        }
 
     exceeded = total_payouts >= GST_SMALL_SUPPLIER_THRESHOLD_CAD
     return {
         "ok": True,
+        "determinable": True,
         "provider_id": provider_id,
         "exceeded": exceeded,
         "total_payouts_cad": round(total_payouts, 2),
