@@ -150,7 +150,10 @@ def test_auto_topup_configure(auth):
         json={"enabled": True, "threshold_cad": 5, "topup_cad": 20},
         headers=headers,
     )
-    assert r.status_code in (200, 400, 422)
+    # 422 would mean the body never reached the handler, so this endpoint would
+    # be "covered" without being exercised at all.
+    assert r.status_code != 422, f"auto-topup body was rejected by the model: {r.text[:300]}"
+    assert r.status_code in (200, 400), r.text[:300]
 
 
 def test_usage_summary(auth):
