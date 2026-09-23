@@ -2,7 +2,7 @@
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from routes._deps import (
@@ -87,7 +87,7 @@ def api_trust_tiers(request: Request):
 
 
 @router.get("/api/reputation/leaderboard", tags=["Reputation"])
-def api_reputation_leaderboard(request: Request, entity_type: str = "host", limit: int = 20):
+def api_reputation_leaderboard(request: Request, entity_type: str = "host", limit: int = Query(20, ge=1, le=1000)):
     """Top hosts/users by reputation score."""
     user = _require_auth(request)
     _require_scope(user, "reputation:read")
@@ -355,7 +355,7 @@ def api_get_reputation(entity_id: str, request: Request):
 
 
 @router.get("/api/reputation/{entity_id}/history", tags=["Reputation"])
-def api_reputation_history(entity_id: str, request: Request, limit: int = 50):
+def api_reputation_history(entity_id: str, request: Request, limit: int = Query(50, ge=1, le=1000)):
     """Get reputation event history."""
     user = _require_auth(request)
     _require_scope(user, "reputation:read")

@@ -15,7 +15,7 @@ operator request is refused rather than racing.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from uuid import UUID
 import hashlib
@@ -719,7 +719,7 @@ def api_v1_instance_timeline(job_id: str, request: Request):
 
 @router.get("/api/v1/instances/{job_id}/events")
 def api_v1_instance_events(
-    job_id: str, request: Request, cursor: str | None = None, limit: int = 100
+    job_id: str, request: Request, cursor: str | None = None, limit: int = Query(100, ge=1, le=1000)
 ):
     """Durable, opaque-cursor event page for resumable MCP watches."""
     from control_plane.event_stream import resume_aggregate_after
@@ -943,7 +943,7 @@ def api_v1_host_capacity(host_id: str, request: Request):
 
 
 @router.get("/api/v1/hosts/{host_id}/observations")
-def api_v1_host_observations(host_id: str, request: Request, limit: int = 20):
+def api_v1_host_observations(host_id: str, request: Request, limit: int = Query(20, ge=1, le=1000)):
     """§18/§20.4 — recent worker-reported observations for a host. Operator read."""
     from db import _get_pg_pool
 

@@ -295,17 +295,27 @@ def test_deciding_admission(host) -> None:
             headers=_admin_headers(),
         )
         assert rec.status_code == 200, f"recording {kind} failed: {rec.text[:300]}"
+    # `expected_version` is required, so omitting it made this a 422 —
+    # `admission_precondition_failed`, raised by the handler before it decided
+    # anything. The old assertion listed 422 as an accepted outcome, so the test
+    # passed for years without once exercising a successful decision.
+    status = client.get(f"/api/hosts/{host}/admission", headers=_admin_headers())
+    assert status.status_code == 200, status.text[:300]
+    version = status.json()["admission_version"]
+
     r = client.post(
         f"/api/admin/hosts/{host}/admission-decisions",
         json={
             "action": "admit",
             "reason": "evidence complete",
             "idempotency_key": f"idem-{uuid.uuid4().hex[:10]}",
+            "expected_version": version,
         },
         headers=_admin_headers(),
     )
-    assert r.status_code in (200, 409, 422), r.text[:400]
-    assert r.status_code != 500, f"deciding admission faulted: {r.text[:400]}"
+    assert r.status_code != 422, f"the decision was refused before it ran: {r.text[:400]}"
+    assert r.status_code == 200, r.text[:400]
+    assert r.json()["admission_state"] == "admitted", r.text[:400]
 
 
 def test_a_stale_expected_version_is_a_conflict(host) -> None:

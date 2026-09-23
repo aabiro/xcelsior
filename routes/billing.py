@@ -14,7 +14,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, cast
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -799,7 +799,7 @@ def api_free_credits_status(customer_id: str, request: Request):
 
 
 @router.get("/api/billing/wallet/{customer_id}/history", tags=["Billing"])
-def api_wallet_history(customer_id: str, request: Request, limit: int = 50):
+def api_wallet_history(customer_id: str, request: Request, limit: int = Query(50, ge=1, le=1000)):
     """Get transaction history for a wallet."""
     _require_customer_access(request, customer_id)
     be = get_billing_engine()
@@ -855,7 +855,7 @@ def api_generate_invoice(
 
 
 @router.get("/api/billing/invoices/{customer_id}", tags=["Billing"])
-def api_list_invoices(customer_id: str, request: Request, limit: int = 12):
+def api_list_invoices(customer_id: str, request: Request, limit: int = Query(12, ge=1, le=1000)):
     """List past invoices for a customer (monthly summaries).
 
     Generates monthly invoice stubs for the last N months showing
@@ -1241,14 +1241,45 @@ def api_reference_pricing():
     }
 
 
+def _estimate_province(request: Request, supplied: str) -> str:
+    """The province a tax *estimate* should use, matching what Stripe will charge.
+
+    Stripe Tax is the merchant-of-record calculation for real money, and it reads
+    the **account** country/province — `api_create_payment_intent` says so, and
+    `_account_tax_address` above is where it gets it. These two endpoints are
+    only estimates for the launch UI, but an estimate that disagrees with the
+    charge is worse than no estimate.
+
+    They defaulted to `province="ON"`, and the launch modal sent `province || "ON"`
+    because `/api/compliance/detect-province` — a route that does not exist —
+    404ed into a `.catch` that hard-coded Ontario. So every customer outside
+    Ontario was quoted 13% HST and then charged their own rate.
+
+    An explicit query value still wins, for callers that are pricing a location
+    rather than their own next launch. Otherwise this follows the account, and
+    falls back to empty — which `get_tax_rate_for_province` renders as
+    "GST 5% (province unknown)" rather than quietly picking a province.
+    """
+    if supplied.strip():
+        return supplied.strip()
+    try:
+        user = _get_current_user(request)
+    except Exception:
+        return ""
+    if not user:
+        return ""
+    return str(_account_tax_address(user).get("province") or "")
+
+
 @router.get("/api/pricing/rates", tags=["Billing"])
 def api_pricing_rates(
+    request: Request,
     gpu_model: str = "RTX 4090",
     tier: str = "standard",
     mode: str = "on_demand",
     priority: str = "normal",
     num_gpus: int = 1,
-    province: str = "ON",
+    province: str = "",
 ):
     """Compute effective GPU rate with all pricing variables.
 
@@ -1316,6 +1347,7 @@ def api_pricing_rates(
     total_per_hour = round(effective_rate * num_gpus, 4)
 
     # Tax
+    province = _estimate_province(request, province)
     tax_rate, tax_desc = get_tax_rate_for_province(province)
     tax_amount = round(total_per_hour * tax_rate, 4)
     total_with_tax = round(total_per_hour + tax_amount, 4)
@@ -1350,10 +1382,11 @@ def api_pricing_rates(
 
 @router.get("/api/pricing/spot-quote", tags=["Billing"])
 def api_spot_quote(
+    request: Request,
     gpu_model: str = "RTX 4090",
     tier: str = "standard",
     num_gpus: int = 1,
-    province: str = "ON",
+    province: str = "",
     priority: str = "normal",
 ):
     """Live spot quote with tax breakdown for launch UI."""
@@ -1366,6 +1399,7 @@ def api_spot_quote(
 
     effective_rate = round(quote.rate_cad * pri_mult, 4)
     total_per_hour = round(effective_rate * num_gpus, 4)
+    province = _estimate_province(request, province)
     tax_rate, tax_desc = get_tax_rate_for_province(province)
     tax_amount = round(total_per_hour * tax_rate, 4)
     total_with_tax = round(total_per_hour + tax_amount, 4)
