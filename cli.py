@@ -912,22 +912,60 @@ def get_api_token():
     return ""
 
 
+#: This CLI's OAuth client. `xcelsior-cli` is seeded first-party and *public*
+#: (no client secret — a CLI on a user's laptop cannot keep one), with the
+#: device_code and refresh_token grants. Both device-flow calls must carry it:
+#: `authenticate_client` looks the client up before anything else and answers
+#: 401 `invalid_client` when the id is absent, which is what `xcelsior login`
+#: was doing on every invocation.
+OAUTH_CLIENT_ID = "xcelsior-cli"
+OAUTH_SCOPES = ("profile", "email", "offline_access")
+
+
 def cmd_login(args):
     """Authenticate via OAuth2 device flow (RFC 8628).
 
     Opens browser to verification URL where user enters the displayed code.
     Polls for authorization and saves the bearer token to ~/.xcelsior/token.json.
+
+    Talks to `/oauth/device/authorize` and `/oauth/token` rather than the
+    `/api/auth/*` compatibility aliases: the aliases are marked deprecated and
+    serve `Sunset` headers, and there is no reason for the first-party client to
+    depend on a surface that exists for other people's older integrations.
     """
     import webbrowser
 
     api_url = getattr(args, "api_url", None) or get_api_url()
 
-    # Step 1: Request device code
-    try:
-        import requests as req
+    import requests as req
 
-        resp = req.post(f"{api_url}/api/auth/device", timeout=10)
+    # Step 1: Request device code.
+    #
+    # The two ways this fails need different answers, so they are caught
+    # separately. A transport error really is "we could not reach the API" —
+    # check DNS, the VPN, the URL. An HTTP status is the opposite: the API
+    # answered, and answered that it would not do this. Reporting both as
+    # unreachability is what hid this command being broken for so long, because
+    # `401 invalid_client` read as an outage and nobody looked at the body.
+    try:
+        resp = req.post(
+            f"{api_url}/oauth/device/authorize",
+            json={"client_id": OAUTH_CLIENT_ID, "scope": " ".join(OAUTH_SCOPES)},
+            timeout=10,
+        )
         resp.raise_for_status()
+    except req.exceptions.HTTPError as e:
+        refusal = e.response
+        try:
+            detail = f" — {refusal.json()}"
+        except Exception:
+            detail = f" — {refusal.text[:200]}" if refusal.text else ""
+        print(
+            f"Error: {api_url} refused the device authorization request "
+            f"(HTTP {refusal.status_code}){detail}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     except Exception as e:
         print(f"Error: Could not reach Xcelsior API at {api_url}: {e}", file=sys.stderr)
         sys.exit(1)
@@ -960,8 +998,12 @@ def cmd_login(args):
         time.sleep(interval)
         try:
             poll = req.post(
-                f"{api_url}/api/auth/token",
-                json={"device_code": device_code},
+                f"{api_url}/oauth/token",
+                json={
+                    "client_id": OAUTH_CLIENT_ID,
+                    "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                    "device_code": device_code,
+                },
                 timeout=10,
             )
             if poll.status_code == 200:
