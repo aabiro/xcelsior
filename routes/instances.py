@@ -10,7 +10,7 @@ import time
 import uuid
 from typing import Any, Literal, cast
 
-from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -3070,7 +3070,7 @@ def api_list_user_images(
     starred: bool = False,
     label: str = "",
     q: str = "",
-    limit: int = 500,
+    limit: int = Query(500, ge=1, le=1000),
     offset: int = 0,
 ):
     """List saved pod templates.
