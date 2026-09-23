@@ -32,6 +32,7 @@ PLATFORM_CUT = float(os.environ.get("XCELSIOR_PLATFORM_CUT", "0.15"))
 # diverged: they agreed at one and three months, then this one offered 6 months
 # at 40% while billing offered a year at 45%, so the quote depended on which
 # endpoint a customer reached.
+from money import micros_to_cad
 from reserved_pricing import RESERVED_TIERS as _RESERVED_TIERS
 
 RESERVED_DISCOUNTS = {
@@ -575,7 +576,10 @@ class MarketplaceEngine:
         ends_at = float(res["ends_at"])
         remaining_sec = max(0, ends_at - now)
         remaining_months = remaining_sec / (30 * 24 * 3600)
-        monthly_rate = float(res["monthly_rate_cad"])
+        # `monthly_rate_cad` is not a column — 097 left only `monthly_rate_micros`,
+        # and this row comes straight from `SELECT *` with no projection step, so
+        # the old key raised KeyError before any of the rest of this ran.
+        monthly_rate = micros_to_cad(res["monthly_rate_micros"] or 0)
 
         # Early termination fee: remaining_months * monthly_rate * 50%
         termination_fee = round(remaining_months * monthly_rate * 0.5, 2)
@@ -583,9 +587,9 @@ class MarketplaceEngine:
         with self._conn() as conn:
             conn.execute(
                 """UPDATE reservations
-                   SET status = 'cancelled', updated_at = %s
+                   SET status = 'cancelled'
                    WHERE reservation_id = %s""",
-                (now, reservation_id),
+                (reservation_id,),
             )
 
         log.info(
