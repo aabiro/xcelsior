@@ -329,7 +329,11 @@ class TestStagingChecklistApiSurface:
                     "max_bid": 0.99,
                 },
             )
-        assert r.status_code in (200, 422)
-        if r.status_code == 200:
-            job = scheduler.get_job(r.json()["instance"]["job_id"])
-            assert "max_bid" not in (job or {})
+        # The `if` below is the whole point of the test — that a spot request
+        # without a bid does not persist `max_bid`. Accepting 422 let the body
+        # be rejected by the model and the check be skipped, so the test passed
+        # either way.
+        assert r.status_code != 422, f"the body never reached the handler: {r.text[:300]}"
+        assert r.status_code == 200, r.text[:300]
+        job = scheduler.get_job(r.json()["instance"]["job_id"])
+        assert "max_bid" not in (job or {})

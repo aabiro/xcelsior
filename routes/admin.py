@@ -4,7 +4,7 @@ import time
 import uuid
 from typing import Any, cast
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from routes._deps import (
     _USE_PERSISTENT_AUTH,
@@ -1042,7 +1042,7 @@ def api_admin_infrastructure(request: Request):
 
 
 @router.get("/api/admin/activity", tags=["Admin"])
-def api_admin_activity(request: Request, days: int = 7, limit: int = 100):
+def api_admin_activity(request: Request, days: int = 7, limit: int = Query(100, ge=1, le=1000)):
     """Admin activity feed — recent events, job stats by day, events by type."""
     _require_admin(request)
     import datetime as _dt

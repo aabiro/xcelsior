@@ -3,7 +3,7 @@
 import { cn } from "@/lib/utils";
 import { Select } from "@/components/ui/input";
 
-const PROVINCES = [
+export const PROVINCES = [
   { code: "all", name: "All Provinces" },
   { code: "AB", name: "Alberta" },
   { code: "BC", name: "British Columbia" },

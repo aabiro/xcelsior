@@ -1775,18 +1775,6 @@ export async function fetchTransparencyReport(months = 12) {
 }
 
 // ── Compliance ────────────────────────────────────────────────────────
-export async function fetchProvinces() {
-  return apiFetch<{ ok: boolean; provinces: Record<string, { name: string; tax_rate: number; tax_description: string; description?: string }> }>(
-    "/api/compliance/provinces",
-  );
-}
-
-export async function detectProvince() {
-  return apiFetch<{ province: string; country: string; method: string }>(
-    "/api/compliance/detect-province",
-  );
-}
-
 export async function fetchPricingRates(params: {
   gpu_model: string;
   tier?: string;
@@ -1823,12 +1811,6 @@ export async function fetchPricingRates(params: {
     tax_amount: number;
     total_with_tax: number;
   }>(`/api/pricing/rates?${qs.toString()}`);
-}
-
-export async function fetchTrustTierRequirements() {
-  return apiFetch<{ ok: boolean; tiers: { tier: string; requirements: string[] }[] }>(
-    "/api/compliance/trust-tier-requirements",
-  );
 }
 
 // ── Password Reset ────────────────────────────────────────────────────
