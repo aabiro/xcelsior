@@ -614,6 +614,14 @@ def test_cmd_whoami_env_token(capsys):
 
 
 def test_cmd_login_success(capsys):
+    """Plumbing only: the two responses are canned and the requests unread.
+
+    This passed for the whole period `xcelsior login` could not log anyone in,
+    because it never looks at what the CLI sent. The protocol is covered by
+    tests/test_cli_login_speaks_the_protocol_the_server_serves.py, which
+    forwards the CLI's real calls into the real app; add protocol assertions
+    there, not here.
+    """
     device_resp = MagicMock()
     device_resp.raise_for_status = MagicMock()
     device_resp.json.return_value = {
