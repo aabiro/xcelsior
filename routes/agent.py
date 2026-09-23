@@ -1,5 +1,6 @@
 """Routes: agent."""
 
+import asyncio
 import gzip
 import os
 import re
@@ -1232,62 +1233,70 @@ async def api_agent_logs(job_id: str, request: Request):
             },
         )
 
-    # Persist to PG and broadcast to SSE in one pass
+    # Persist to PG, then broadcast to SSE.
+    #
+    # This is an `async def` handler — it has to be, it awaits `request.body()`
+    # — so everything in it runs on the event loop thread. It used to open a
+    # connection and run up to 500 INSERTs inline, which blocked the loop for
+    # the whole batch: no other request on this worker process made progress
+    # while any agent in the fleet was uploading logs, and every agent uploads
+    # logs continuously.
+    #
+    # The writes move to a worker thread. The SSE push deliberately does not:
+    # `push_job_log` calls `broadcast_sse`, which does `put_nowait` on
+    # `asyncio.Queue` objects, and those are not thread-safe. Keeping that half
+    # on the loop is what makes the offload safe rather than just faster.
     from routes.instances import push_job_log
 
-    try:
+    normalized: list[tuple[float, str, str]] = []
+    for entry in lines:
+        msg = entry.get("message", "")
+        # Cap individual line length to 8 KiB — protects the log viewer, SSE
+        # wire, and PG column from pathological lines.
+        if isinstance(msg, str) and len(msg) > 8192:
+            msg = msg[:8192] + "…[truncated]"
+        if not msg:
+            continue
+        level = entry.get("level", "info")
+        if level not in {
+            "debug",
+            "info",
+            "warn",
+            "warning",
+            "error",
+            "fatal",
+            "stdout",
+            "stderr",
+        }:
+            level = "info"
+        normalized.append((entry.get("timestamp") or now, level, msg))
+
+    def _persist(rows: list[tuple[float, str, str]]) -> None:
         pool = _get_pg_pool()
         with pool.connection() as conn:
-            for entry in lines:
-                msg = entry.get("message", "")
-                # Cap individual line length to 8 KiB — protects the log
-                # viewer, SSE wire, and PG column from pathological lines.
-                if isinstance(msg, str) and len(msg) > 8192:
-                    msg = msg[:8192] + "…[truncated]"
-                level = entry.get("level", "info")
-                if level not in {
-                    "debug",
-                    "info",
-                    "warn",
-                    "warning",
-                    "error",
-                    "fatal",
-                    "stdout",
-                    "stderr",
-                }:
-                    level = "info"
-                ts = entry.get("timestamp") or now
-                if not msg:
-                    continue
-
-                # Persist
+            for ts, level, msg in rows:
                 conn.execute(
                     "INSERT INTO job_logs (job_id, ts, level, line) VALUES (%s, %s, %s, %s)",
                     (job_id, ts, level, msg),
                 )
-
-                # Push to in-memory buffer + SSE (feeds LogViewer in real-time)
-                # persist=False because we already inserted to PG above
-                push_job_log(job_id, msg, level, ts, persist=False)
-                accepted += 1
-
             conn.commit()
-    except Exception as e:
-        log.error("Failed to persist logs for job %s: %s", job_id, e)
-        # PG failed — push to SSE only (persist=True to retry PG for these)
-        for entry in lines:
-            msg = entry.get("message", "")
-            if isinstance(msg, str) and len(msg) > 8192:
-                msg = msg[:8192] + "…[truncated]"
-            if msg:
-                push_job_log(
-                    job_id,
-                    msg,
-                    entry.get("level", "info"),
-                    entry.get("timestamp") or now,
-                    persist=True,
-                )
-                accepted += 1
+
+    persisted = True
+    if normalized:
+        try:
+            await asyncio.to_thread(_persist, normalized)
+        except Exception as e:
+            log.error("Failed to persist logs for job %s: %s", job_id, e)
+            persisted = False
+
+    # persist=False when the batch is already in PG; persist=True asks
+    # push_job_log to retry the write for lines whose INSERT did not land.
+    # The whole batch shares one transaction, so it either all committed or
+    # none did — which is why `accepted` is counted once, here, rather than
+    # incremented in the write loop and then again in a fallback.
+    for ts, level, msg in normalized:
+        push_job_log(job_id, msg, level, ts, persist=not persisted)
+        accepted += 1
 
     return {"ok": True, "accepted": accepted}
 
@@ -1404,7 +1413,10 @@ async def api_agent_ssh_status(job_id: str, request: Request):
     }
     import json as _json
 
-    try:
+    # Also an `async def` (it awaits `request.json()`), so this UPDATE ran on
+    # the event loop thread. One round trip rather than the log endpoint's 500,
+    # but the fix is the same and there is no SSE half to keep behind.
+    def _persist_status() -> None:
         pool = _get_pg_pool()
         with pool.connection() as conn, conn.cursor() as cur:
             cur.execute(
@@ -1444,6 +1456,9 @@ async def api_agent_ssh_status(job_id: str, request: Request):
                     job_id,
                 ),
             )
+
+    try:
+        await asyncio.to_thread(_persist_status)
     except Exception as e:
         log.warning("ssh-status persist failed for job %s: %s", job_id, e)
         raise HTTPException(500, "Failed to persist ssh status")
