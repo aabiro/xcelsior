@@ -90,7 +90,17 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `116_low_balance_warned_at.py`.**
+**Repository head: `117_drop_redundant_indexes.py`.**
+
+(`117` drops 17 indexes that another index already covers. A single-column btree
+index is redundant when a second has that column leading with the same
+predicate — Postgres uses the second for every lookup the first could serve, and
+the duplicate still costs a B-tree write on every insert. Five are exact
+duplicates of a UNIQUE constraint's own index, same column and same predicate.
+Index-only, so the compatibility floor in `control_plane/schema_compat.py` does
+not move. `tests/test_no_index_duplicates_another.py` keeps the count at zero,
+so the next composite index arrives together with the removal of the prefix it
+supersedes.)
 
 (`116` splits the low-balance warning watermark off `wallets.grace_until`.
 That column carried two incompatible meanings: `serverless/service.py` reads it
