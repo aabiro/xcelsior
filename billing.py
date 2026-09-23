@@ -3167,7 +3167,7 @@ class BillingEngine:
             """INSERT INTO billing_cycles
                (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
                 duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
-                amount_cad, status, pricing_mode, created_at)
+                amount_micros, status, pricing_mode, created_at)
                VALUES (%s, %s, %s, %s, 'gpu', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             (
                 cycle_id,
@@ -3181,7 +3181,7 @@ class BillingEngine:
                 gpu_model,
                 tier,
                 tier_multiplier,
-                amount_cad,
+                cad_to_micros(amount_cad),
                 status,
                 pricing_mode,
                 now,

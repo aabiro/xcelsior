@@ -1775,7 +1775,7 @@ def _tool_get_payout_history(args: dict, user: dict) -> dict:
                 (user_id, limit),
             ).fetchall()
             total_row = conn.execute(
-                "SELECT COALESCE(SUM(provider_payout_cad), 0) AS total_earned "
+                "SELECT COALESCE(SUM(provider_payout_micros), 0) / 1000000.0 AS total_earned "
                 "FROM payout_ledger WHERE provider_id = %s",
                 (user_id,),
             ).fetchone()
@@ -1921,7 +1921,7 @@ def _tool_get_sla_status(args: dict, user: dict) -> dict:
                 cast(
                     Any,
                     f"SELECT host_id, month, tier, total_seconds, downtime_seconds, incidents, "
-                    f"credit_pct, credit_cad, enforced FROM sla_monthly "
+                    f"credit_pct, credit_micros / 1000000.0 AS credit_cad, enforced FROM sla_monthly "
                     f"WHERE host_id IN ({placeholders}) ORDER BY month DESC LIMIT 30",
                 ),
                 user_host_ids,
@@ -2090,7 +2090,7 @@ def _tool_get_provider_info(_args: dict, user: dict) -> dict:
                 }
             # Total earned from payout_ledger
             total_row = conn.execute(
-                "SELECT COALESCE(SUM(provider_payout_cad), 0) AS total_earned, COUNT(*) AS jobs_count "
+                "SELECT COALESCE(SUM(provider_payout_micros), 0) / 1000000.0 AS total_earned, COUNT(*) AS jobs_count "
                 "FROM payout_ledger WHERE provider_id = %s",
                 (row["provider_id"],),
             ).fetchone()
@@ -2133,7 +2133,8 @@ def _tool_get_billing_cycles(args: dict, user: dict) -> dict:
             if job_id:
                 rows = conn.execute(
                     "SELECT cycle_id, job_id, period_start, period_end, duration_seconds, "
-                    "rate_per_hour, gpu_model, tier, tier_multiplier, amount_cad, status, created_at "
+                    "rate_per_hour, gpu_model, tier, tier_multiplier, "
+                    "amount_micros / 1000000.0 AS amount_cad, status, created_at "
                     "FROM billing_cycles WHERE customer_id = %s AND job_id = %s "
                     "ORDER BY created_at DESC LIMIT %s",
                     (user_id, job_id, limit),
@@ -2141,7 +2142,8 @@ def _tool_get_billing_cycles(args: dict, user: dict) -> dict:
             else:
                 rows = conn.execute(
                     "SELECT cycle_id, job_id, period_start, period_end, duration_seconds, "
-                    "rate_per_hour, gpu_model, tier, tier_multiplier, amount_cad, status, created_at "
+                    "rate_per_hour, gpu_model, tier, tier_multiplier, "
+                    "amount_micros / 1000000.0 AS amount_cad, status, created_at "
                     "FROM billing_cycles WHERE customer_id = %s ORDER BY created_at DESC LIMIT %s",
                     (user_id, limit),
                 ).fetchall()

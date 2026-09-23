@@ -7,6 +7,7 @@ from routes._deps import (
     _get_current_user,
     _require_admin,
     _require_scope,
+    log,
 )
 from scheduler import (
     list_hosts,
@@ -72,8 +73,14 @@ def api_sla_hosts_summary(request: Request):
     _require_scope(user, "sla:read")
     try:
         engine = get_sla_engine()
-    except Exception as e:
-        return {"ok": True, "hosts": [], "count": 0}
+    except Exception:
+        # Was `except Exception as e:` with `e` never used — the failure was
+        # discarded entirely, no log line anywhere. And `ok: True, hosts: []`
+        # tells the dashboard "no host has SLA data", which is what it would
+        # say if the engine were healthy and the fleet empty. A caller cannot
+        # tell the two apart, so an outage renders as a clean, wrong answer.
+        log.exception("SLA engine unavailable; reporting degraded rather than empty")
+        return {"ok": True, "degraded": True, "hosts": [], "count": 0}
     import scheduler as _sched
 
     hosts = _sched.list_hosts(active_only=False)
@@ -85,7 +92,11 @@ def api_sla_hosts_summary(request: Request):
         try:
             uptime = engine.get_host_uptime_pct(hid)
             violations = engine.get_violations(hid)
-        except Exception as e:
+        except Exception:
+            # Logged rather than discarded: this used to bind the exception and
+            # drop it, so a per-host SLA failure rendered as 0% uptime with no
+            # violations — which looks like data.
+            log.warning("SLA summary unavailable for host %s", hid, exc_info=True)
             uptime = 0.0
             violations = []
         tier = h.get("sla_tier", "community")

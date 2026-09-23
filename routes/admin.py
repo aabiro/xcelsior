@@ -290,8 +290,23 @@ def api_admin_overview(request: Request, days: int = 30):
     try:
         be = get_billing_engine()
         with be._conn() as conn:
+            # `usage_meters` has no `status` column, so this raised UndefinedColumn
+            # on every call and the handler below left the rate at 0.0 — the admin
+            # dashboard has always reported a 0% job failure rate. `usage_meters`
+            # is also the wrong table: it records metered runs, so a job that
+            # failed before it was metered never appears there at all.
+            #
+            # `jobs.phase` is the authoritative outcome — it carries a CHECK
+            # constraint over ('pending','scheduled','starting','running',
+            # 'succeeded','failed','stopped'), while `jobs.status` is the legacy
+            # free-text column. The denominator is terminal jobs only; counting
+            # jobs still running would dilute the rate by how busy the fleet is.
             row = conn.execute(
-                "SELECT COUNT(*) FILTER (WHERE status = 'failed') AS failed, COUNT(*) AS total FROM usage_meters WHERE created_at >= %s",
+                """SELECT COUNT(*) FILTER (WHERE phase = 'failed') AS failed,
+                          COUNT(*) AS total
+                     FROM jobs
+                    WHERE submitted_at >= %s
+                      AND phase IN ('succeeded', 'failed', 'stopped')""",
                 (thirty_days_ago,),
             ).fetchone()
             if row and row["total"] > 0:
@@ -1007,7 +1022,12 @@ def api_admin_infrastructure(request: Request):
         }
     except Exception as e:
         log.warning("admin_infrastructure: failed to fetch volume data", exc_info=True)
-        volume_stats = {"error": str(e)[:200]}
+        # Truncating a database error is not redacting it — the first 200
+        # characters are where psycopg puts the offending value and the column
+        # name. Admin-only, so the blast radius is small, but there is no
+        # reason to put it on the wire at all.
+        log.exception("volume stats query failed")
+        volume_stats = {"error": "Volume statistics are temporarily unavailable."}
 
     return {
         "ok": True,

@@ -514,7 +514,7 @@ def record_cold_start_line_item(
             INSERT INTO billing_cycles
                 (cycle_id, job_id, customer_id, host_id, resource_type,
                  period_start, period_end, duration_seconds, rate_per_hour,
-                 gpu_model, tier, tier_multiplier, amount_cad, status, created_at)
+                 gpu_model, tier, tier_multiplier, amount_micros, status, created_at)
             VALUES (%s, %s, %s, %s, 'serverless_gpu_cold_start', %s, %s, %s, %s, %s, %s, %s, 0, 'metadata', %s)
             """,
             (
