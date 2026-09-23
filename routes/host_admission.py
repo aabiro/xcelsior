@@ -15,7 +15,7 @@ through a path that quietly upgrades advisory evidence into an admission.
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 import host_admission
@@ -137,7 +137,7 @@ def api_admission_status(host_id: str, request: Request):
 
 
 @router.get("/api/admin/admission-queue", tags=["Hosts"])
-def api_admission_queue(request: Request, limit: int = 100):
+def api_admission_queue(request: Request, limit: int = Query(100, ge=1, le=1000)):
     """Hosts awaiting an operator decision, with evidence readiness."""
     _require_admin(request)
     return {"ok": True, "queue": host_admission.admission_queue(limit=limit)}
