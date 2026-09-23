@@ -12,12 +12,10 @@ import {
   launchInstance,
   fetchAvailableGPUs,
   fetchPricingReference,
-  fetchProvinces,
   fetchImageTemplates,
   fetchSpotPrices,
   classifyLaunchError,
   listAvailableVolumes,
-  detectProvince,
   fetchPricingRates,
   fetchSpotFeatureStatus,
 } from "@/lib/api";
@@ -150,7 +148,13 @@ export function LaunchInstanceModal({
   const [pricingMode, setPricingMode] = useState<"on_demand" | "spot">("on_demand");
   const [tier, setTier] = useState("standard");
   const [priority, setPriority] = useState<string>("normal");
-  const [province, setProvince] = useState("");
+  // No province state, deliberately. Stripe Tax is the merchant-of-record
+  // calculation and reads the *account* country/province — `api_create_payment_intent`
+  // says so in as many words. `/api/pricing/rates` now follows the same source,
+  // so the estimate shown here and the amount charged agree. Sending a province
+  // from the client is what made them disagree: the old `detectProvince()` call
+  // hit a route that does not exist and its `.catch` hard-coded "ON", quoting
+  // 13% HST to every customer outside Ontario.
 
   // Volume picker state
   const [availableVolumes, setAvailableVolumes] = useState<Volume[]>([]);
@@ -165,7 +169,6 @@ export function LaunchInstanceModal({
   // Fetched data
   const [pricing, setPricing] = useState<PricingReference[]>([]);
   const [availableGpus, setAvailableGpus] = useState<GpuAvailability[]>([]);
-  const [provinces, setProvinces] = useState<Record<string, { name: string; tax_rate: number; tax_description: string }>>({});
   const [templates, setTemplates] = useState(FALLBACK_TEMPLATES);
   const [spotPrices, setSpotPrices] = useState<Record<string, number>>({});
 
@@ -303,7 +306,10 @@ export function LaunchInstanceModal({
   const totalPerHour = dynamicRate
     ? dynamicRate.total_per_hour
     : effectiveRate != null ? effectiveRate * Number(numGpus) : null;
-  const taxRate = dynamicRate?.tax_rate ?? (province && provinces[province] ? provinces[province].tax_rate : 0);
+  // `/api/pricing/rates` is the only source of a tax rate now; the removed
+  // fallback read a map that the 404ing fetch always left empty, so it only
+  // ever yielded 0.
+  const taxRate = dynamicRate?.tax_rate ?? 0;
   const totalWithTax = dynamicRate
     ? dynamicRate.total_with_tax
     : totalPerHour != null ? totalPerHour * (1 + taxRate) : null;
@@ -322,9 +328,6 @@ export function LaunchInstanceModal({
       })
       .catch((err) => { console.error("[gpu] fetchAvailableGPUs failed:", err); })
       .finally(() => setGpuLoading(false));
-    fetchProvinces()
-      .then((r) => setProvinces(r.provinces || {}))
-      .catch(() => {});
     fetchImageTemplates()
       .then((r) => {
         if (r.templates?.length) {
@@ -365,13 +368,7 @@ export function LaunchInstanceModal({
       .catch(() => {});
     // Sync templateId prop into state on open
     setTemplateImageId(templateId ?? "");
-    // Auto-detect province
-    if (!province) {
-      detectProvince()
-        .then((r) => setProvince(r.province || "ON"))
-        .catch(() => setProvince("ON"));
-    }
-  }, [open, province, templateId]);
+  }, [open, templateId]);
 
   useEffect(() => {
     if (!open) return;
@@ -408,7 +405,6 @@ export function LaunchInstanceModal({
       mode: effectivePricingMode,
       priority,
       num_gpus: Number(numGpus),
-      province: province || "ON",
     })
       .then((r) => {
         if (controller.signal.aborted) return;
@@ -428,7 +424,7 @@ export function LaunchInstanceModal({
         }
       });
     return () => controller.abort();
-  }, [open, resolvedGpu, tier, effectivePricingMode, priority, numGpus, province]);
+  }, [open, resolvedGpu, tier, effectivePricingMode, priority, numGpus]);
 
   function reloadSpotQuote() {
     if (!resolvedGpu || effectivePricingMode !== "spot") return;
@@ -440,7 +436,6 @@ export function LaunchInstanceModal({
       mode: "spot",
       priority,
       num_gpus: Number(numGpus),
-      province: province || "ON",
     })
       .then((r) => {
         setDynamicRate(r);
@@ -533,7 +528,6 @@ export function LaunchInstanceModal({
         pricing_mode: effectivePricingMode,
         tier: params.tier,
         num_gpus: params.num_gpus,
-        province,
         has_volume: (params.volume_ids?.length ?? 0) > 0,
         from_marketplace: Boolean(listing?.host_id),
         encrypted_workspace: Boolean(params.encrypted_workspace),
@@ -891,24 +885,6 @@ export function LaunchInstanceModal({
                   </div>
                 </div>
 
-                {/* Province / Region */}
-                <div className="space-y-1.5">
-                  <Label className="text-xs flex items-center gap-1.5">
-                    <MapPin className="h-3.5 w-3.5" />
-                    Province / Region
-                  </Label>
-                  <Select
-                    value={province}
-                    onChange={(e) => setProvince(e.target.value)}
-                  >
-                    <option value="">Auto-detect</option>
-                    {Object.entries(provinces).map(([code, info]) => (
-                      <option key={code} value={code}>
-                        {code}, {info.name} ({info.tax_description})
-                      </option>
-                    ))}
-                  </Select>
-                </div>
 
                 {/* Attached Volumes */}
                 <div className="space-y-2">
@@ -1100,7 +1076,6 @@ export function LaunchInstanceModal({
                     gpu_model: resolvedGpu || undefined,
                     num_gpus: Number(numGpus) || 1,
                     vram_gb: typeof vramGb === "number" ? vramGb : undefined,
-                    region: province || undefined,
                   }}
                 />
                 <div className="rounded-lg border border-accent-gold/30 bg-accent-gold/5 p-4">
