@@ -1,6 +1,6 @@
 """Routes: marketplace."""
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from routes._deps import (
@@ -33,7 +33,7 @@ def api_marketplace_search(
     country: str | None = None,
     min_reputation: int | None = None,
     sort_by: str = "price",
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=1000),
 ):
     """Search marketplace listings with filters and sorting."""
     listings = get_marketplace(active_only=True)
