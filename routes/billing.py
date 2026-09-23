@@ -14,7 +14,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, cast
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -799,7 +799,7 @@ def api_free_credits_status(customer_id: str, request: Request):
 
 
 @router.get("/api/billing/wallet/{customer_id}/history", tags=["Billing"])
-def api_wallet_history(customer_id: str, request: Request, limit: int = 50):
+def api_wallet_history(customer_id: str, request: Request, limit: int = Query(50, ge=1, le=1000)):
     """Get transaction history for a wallet."""
     _require_customer_access(request, customer_id)
     be = get_billing_engine()
@@ -855,7 +855,7 @@ def api_generate_invoice(
 
 
 @router.get("/api/billing/invoices/{customer_id}", tags=["Billing"])
-def api_list_invoices(customer_id: str, request: Request, limit: int = 12):
+def api_list_invoices(customer_id: str, request: Request, limit: int = Query(12, ge=1, le=1000)):
     """List past invoices for a customer (monthly summaries).
 
     Generates monthly invoice stubs for the last N months showing
