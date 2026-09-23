@@ -78,7 +78,15 @@ def _stop_subject_workloads(conn: Any, customer_ids: list[str]) -> tuple[int, in
     result = conn.execute(
         """
         UPDATE jobs
-           SET desired_state = 'stopped',
+           -- `desired_state` is derived, not written: the BEFORE trigger
+           -- `control_plane_project_job` recomputes it from `status` on every
+           -- write. Setting it alone left `status = 'running'`, so the trigger
+           -- put it straight back to 'running' and nothing stopped — while
+           -- `reason_code` persisted, making the request look honoured.
+           -- `stopping` is the state that means it: the trigger maps it to
+           -- phase='running' (not stopped yet) and desired_state='stopped'.
+           SET status = 'stopping',
+               desired_state = 'stopped',
                generation = generation + 1,
                updated_at = clock_timestamp(),
                reason_code = 'privacy_deletion_requested',
