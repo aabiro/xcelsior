@@ -16,6 +16,7 @@ from db import UserStore
 from stripe_connect import get_stripe_manager
 from events import Event, get_event_store
 from billing import PROVINCE_TAX_RATES, get_billing_engine, get_tax_rate_for_province
+from money import micros_to_cad
 
 router = APIRouter()
 
@@ -118,12 +119,21 @@ def api_provider_gst_threshold(provider_id: str, request: Request):
 
     try:
         with billing._conn() as conn:
+            # `provider_payout_micros`, not `provider_payout_cad`.
+            #
+            # The column has been `_micros` since money moved to integer
+            # micro-CAD; this query was left behind on the old name, so it
+            # raised `UndefinedColumn` on every call. The handler caught that
+            # and reported $0.00 — meaning this endpoint has always told every
+            # provider they are below the GST/HST threshold, whatever their
+            # payouts. Nothing surfaced it because the failure was swallowed
+            # and the zero looked like an answer.
             row = conn.execute(
-                "SELECT COALESCE(SUM(provider_payout_cad), 0) AS total "
+                "SELECT COALESCE(SUM(provider_payout_micros), 0) AS total_micros "
                 "FROM payout_ledger WHERE provider_id = %s AND created_at >= %s",
                 (provider_id, one_year_ago),
             ).fetchone()
-            total_payouts = row["total"] if row else 0.0
+            total_payouts = micros_to_cad(row["total_micros"] if row else 0)
     except Exception:
         # Same reasoning as the platform threshold above: zero is an answer,
         # and the wrong one. A provider told "Below threshold ($0.00)" may
