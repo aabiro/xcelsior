@@ -1,6 +1,6 @@
 """Routes: events."""
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from routes._deps import (
     _require_admin,
@@ -29,7 +29,7 @@ def api_get_lease(job_id: str, request: Request):
 
 
 @router.get("/api/events/{entity_type}/{entity_id}", tags=["Events"])
-def api_get_events(entity_type: str, entity_id: str, request: Request, limit: int = 50):
+def api_get_events(entity_type: str, entity_id: str, request: Request, limit: int = Query(50, ge=1, le=1000)):
     """Get event history for a job or host."""
     user = _require_auth(request)
     _require_scope(user, "events:read")
@@ -72,7 +72,7 @@ def api_instance_audit_trail(job_id: str, request: Request):
 
 
 @router.get("/api/events", tags=["Events"])
-def api_get_all_events(request: Request, limit: int = 100):
+def api_get_all_events(request: Request, limit: int = Query(100, ge=1, le=1000)):
     """Get recent events across all entities (platform admin only)."""
     _require_admin(request)
     store = get_event_store()

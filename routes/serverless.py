@@ -9,7 +9,7 @@ import uuid
 import hashlib
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -863,7 +863,7 @@ def _get_worker_for_endpoint(endpoint_id: str, worker_id: str, user: dict) -> di
 
 
 @router.get("/api/v2/serverless/endpoints/{endpoint_id}/workers/{worker_id}/logs", tags=["Serverless"])
-def api_serverless_worker_logs(endpoint_id: str, worker_id: str, request: Request, limit: int = 100):
+def api_serverless_worker_logs(endpoint_id: str, worker_id: str, request: Request, limit: int = Query(100, ge=1, le=1000)):
     user = _require_auth(request)
     _require_scope(user, "inference:read")
     worker = _get_worker_for_endpoint(endpoint_id, worker_id, user)

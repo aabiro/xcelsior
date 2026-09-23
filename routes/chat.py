@@ -2,7 +2,7 @@
 
 import json
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -247,7 +247,7 @@ async def api_ai_chat(body: AiChatRequest, request: Request):
 
 
 @router.get("/api/ai/conversations", tags=["AI Assistant"])
-def api_ai_list_conversations(request: Request, limit: int = 30):
+def api_ai_list_conversations(request: Request, limit: int = Query(30, ge=1, le=1000)):
     """List the current user's AI assistant conversations."""
     _require_ai_enabled()
     user = _get_current_user(request)
