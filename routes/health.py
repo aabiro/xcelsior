@@ -1332,12 +1332,22 @@ def metrics_prometheus():
         pool4 = _pgp4()
         with pool4.connection() as conn4:
             conn4.row_factory = _dr4
+            # `jobs` has no `result` column — it holds `payload`, `spec` and
+            # `reason_details`. This raised UndefinedColumn on every scrape, and
+            # because `lines.extend` sits inside the same `try`, the metric was
+            # not emitted wrong, it was not emitted at all: any dashboard or alert
+            # on xcelsior_inference_tokens_per_second has always seen no series.
+            #
+            # `inference_results` is where completed inference lands
+            # (`inference_store.store_inference_result`, reached from
+            # `inference.py`), and it carries both halves of the ratio as typed
+            # columns rather than JSON.
             tps_row = conn4.execute(
-                """SELECT COALESCE(SUM((result->>'tokens_generated')::float), 0) /
-                          GREATEST(COALESCE(SUM((result->>'duration_sec')::float), 1), 1) as tps
-                   FROM jobs WHERE status = 'completed'
-                     AND result IS NOT NULL
-                     AND result->>'tokens_generated' IS NOT NULL"""
+                """SELECT COALESCE(SUM(output_tokens), 0) /
+                          GREATEST(COALESCE(SUM(latency_ms), 0) / 1000.0, 1) AS tps
+                     FROM inference_results
+                    WHERE output_tokens IS NOT NULL
+                      AND latency_ms IS NOT NULL"""
             ).fetchone()
             tps = round(tps_row["tps"], 2) if tps_row else 0
         lines.extend(
