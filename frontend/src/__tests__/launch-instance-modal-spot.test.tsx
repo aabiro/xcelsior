@@ -6,11 +6,9 @@ const apiMocks = vi.hoisted(() => ({
   launchInstance: vi.fn(),
   fetchAvailableGPUs: vi.fn(),
   fetchPricingReference: vi.fn(),
-  fetchProvinces: vi.fn(),
   fetchImageTemplates: vi.fn(),
   fetchSpotPrices: vi.fn(),
   listAvailableVolumes: vi.fn(),
-  detectProvince: vi.fn(),
   fetchPricingRates: vi.fn(),
   fetchSpotFeatureStatus: vi.fn(),
   classifyLaunchError: vi.fn(),
@@ -56,7 +54,6 @@ describe("LaunchInstanceModal spot flow", () => {
     apiMocks.fetchPricingReference.mockResolvedValue({
       reference: [{ gpu_model: "RTX 4090", on_demand_cad: 0.55, spot_cad: 0.22 }],
     });
-    apiMocks.fetchProvinces.mockResolvedValue({ provinces: { ON: { name: "Ontario", tax_rate: 0.13, tax_description: "HST" } } });
     apiMocks.fetchImageTemplates.mockResolvedValue({ templates: [] });
     // The real shape of `/spot-prices`: `prices` is the lookup, `spot_prices`
     // is a **list**. This mock previously sent `spot_prices` as a Record — a
@@ -82,7 +79,6 @@ describe("LaunchInstanceModal spot flow", () => {
     });
     apiMocks.fetchSpotFeatureStatus.mockResolvedValue({ enabled: true, message: null });
     apiMocks.listAvailableVolumes.mockResolvedValue({ volumes: [] });
-    apiMocks.detectProvince.mockResolvedValue({ province: "ON" });
     apiMocks.fetchPricingRates.mockResolvedValue({
       effective_rate_per_gpu: 0.22,
       total_per_hour: 0.22,
