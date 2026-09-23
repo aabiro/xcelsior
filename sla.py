@@ -15,6 +15,7 @@ from dataclasses import dataclass, field, asdict
 from enum import Enum
 from pathlib import Path
 from typing import Optional
+from money import micros_to_cad
 
 log = logging.getLogger("xcelsior.sla")
 
@@ -447,21 +448,28 @@ class SLAEngine:
     def auto_issue_credits(self, month: str) -> list[dict]:
         """Automatically issue SLA credits to customer wallets.
 
-        For each SLA record with credit_cad > 0 that hasn't been issued yet,
+        For each SLA record with a credit owing that hasn't been issued yet,
         credit the customer's wallet and mark it as issued.
+
+        The column is `credit_micros`. This filtered on `credit_cad`, which
+        `sla_monthly` has not had since money moved to integer micro-CAD — so
+        the query raised `UndefinedColumn` on every call and **no SLA credit
+        has ever been issued by this path**. Nothing surfaced it: the failure
+        happened before any row was read, so there was simply never anything to
+        issue.
         """
         issued = []
         with self._conn() as conn:
             rows = conn.execute(
                 """SELECT * FROM sla_monthly
-                   WHERE month = %s AND credit_cad > 0
+                   WHERE month = %s AND credit_micros > 0
                      AND (credit_issued_at = 0 OR credit_issued_at IS NULL)""",
                 (month,),
             ).fetchall()
 
         for row in rows:
             host_id = row["host_id"]
-            credit_cad = float(row["credit_cad"])
+            credit_cad = micros_to_cad(row["credit_micros"])
 
             # Find the customer who used this host
             with self._conn() as conn:

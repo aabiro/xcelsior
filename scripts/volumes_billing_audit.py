@@ -44,7 +44,7 @@ def _audit_volume_cycles(conn, volume: dict) -> dict:
     owner = volume["owner_id"]
     rows = conn.execute(
         """SELECT cycle_id, customer_id, resource_type, gpu_model, tier, status,
-                  amount_cad, period_start, period_end
+                  amount_micros / 1000000.0 AS amount_cad, period_start, period_end
            FROM billing_cycles
            WHERE job_id = %s AND resource_type = 'volume'
            ORDER BY period_end DESC
