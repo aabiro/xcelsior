@@ -591,29 +591,29 @@ Track A.
   (`mcp_client_policies` hourly/daily spend, which already exist) onto the
   serverless invocation path — the endpoint cap lands here; the per-client cap is
   enforced for MCP tool calls under B5.9's distributed spend counters.
-- [~] **B3.3 Billing controller** (2026-07-23, §12.4). `control_plane/
+- [x] **B3.3 Billing controller** (2026-07-23, updated 2026-09-24, §12.4). `control_plane/
   billing_controller.py` — a reconciler that reads the ledger and **surfaces**
   the meter invariants rather than concealing them: (1) an attempt that ran to a
   billable terminal state with **no** `usage_meter` (a billing leak), and (2) a
   `usage_meter` left **open** after its attempt is terminal. Findings land in
   `reconciliation_findings`, deduped one-per-(attempt,type). **Report-only by
-  default** (B0.3 rule 17); only `billing_missing_meter` is in `_ENFORCEABLE`
-  (its remediation is `billing.meter_job`, idempotent per attempt via the
-  `attempt_id` unique index, so it can never double-charge), opted in with
-  `XCELSIOR_RECONCILE_ACTION_BILLING_MISSING_METER=enforce`. Registered as the
-  `billing_meter_reconcile` scheduled task in `bg_worker`. Gate:
-  `tests/test_billing_controller.py` (4, real PostgreSQL) — a missing meter
+  default** (B0.3 rule 17). Remediations exist for both types:
+  - `billing_missing_meter` (remediation is `billing.meter_job`, idempotent per attempt via the
+    `attempt_id` unique index, so it can never double-charge), opted in with
+    `XCELSIOR_RECONCILE_ACTION_BILLING_MISSING_METER=enforce`.
+  - `billing_orphaned_meter` (remediation is `_close_orphaned_meter`, which idempotently
+    closes the meter using terminal attempt timestamps and recalculates micro-CAD duration and cost),
+    opted in with `XCELSIOR_RECONCILE_ACTION_BILLING_ORPHANED_METER=enforce`.
+  Registered as the `billing_meter_reconcile` scheduled task in `bg_worker`. Gate:
+  `tests/test_billing_controller.py` (5, real PostgreSQL) — a missing meter
   opens exactly one finding (report-only) and is idempotent across sweeps;
   **enforce converges to exactly one meter** and stays one on re-run; an
-  orphaned open meter is surfaced (never auto-mutated); a **duplicate delivery
+  orphaned open meter is surfaced (report-only); **enforce auto-closes orphaned open meters
+  idempotently** and resolves the finding; a **duplicate delivery
   (double `meter_job`) creates no second charge**. Found + fixed by executing:
   `usage_meters.attempt_id` is `text` vs `job_attempts.attempt_id` `uuid` (JOIN
   cast), `jobs.owner` lives in the payload, `severity ∈ info|warning|error|
-  critical`. Pyright clean; reconciler/billing suites 93 green + bg_worker green.
-  **Residual:** **auto-closing** orphaned meters (currently surfaced report-only
-  — closing recomputes cost, so it stays a human/settlement decision until a
-  safe close primitive is added) and **outbox-delivery repair** (a separate
-  mechanism from meters, tracked with B4.4's per-sink delivery).
+  critical`. Pyright clean; reconciler/billing suites green + bg_worker green. ✔
 - [~] **B3.4 Price-change reapproval — server enforcement done** (2026-07-23,
   §15.4). The tolerance bound recorded on the plan (B2.1) is enforced at execute
   (B2.5): a re-quote beyond tolerance returns `quote_changed` with a fresh
@@ -1725,44 +1725,18 @@ warehouse reconciles against a source that cannot be exactly summed.
   hold-expiry 8, lifecycle-domain 9, lightning 31, ln-reconcile 16,
   from-empty 3, production-snapshot 3, db-service-roles 48, api 157;
   pyright clean. ✔
-- [ ] **B9.5b+c Settlement chain — ONE coupled migration** (do not split).
-  **Coupling confirmed 2026-07-22 by reading `billing.py`:** an invoice is
-  not stored money that can be converted in isolation — it is *computed*
-  as `SUM(billing_cycles.amount_cad)` grouped into line items
-  (`billing.py` ~line 682), then accumulated into the invoice total with
-  `ca_total += cost` in Python floats (~line 714), and that total feeds
-  `payout_splits` and the `fintrac_reports` regulatory threshold.
-  Converting `billing_cycles` to integers only removes drift if the
-  invoice aggregation sums the **integer** column and the Python
-  accumulation is integer too; otherwise the exact per-row amounts are
-  re-summed through a float and the benefit is lost. So these tables move
-  together:
-  - line items: `billing_cycles` (`amount_cad`, `rate_per_hour`,
-    `token_cost_cad`), `usage_meters` (`total_cost_cad`,
-    `base_rate_per_hour`), `serverless_jobs.cost_cad`,
-    `serverless_token_ledger.cost_cad`;
-  - settlement: `invoices` (7 money columns), `payout_ledger`,
-    `payout_splits`, `fintrac_reports.trigger_amount_cad`.
-  Same expand-contract + bidirectional-trigger pattern as `068`, but the
-  work is in the **read path**: `_generate_invoice` must aggregate the
-  minor column and carry integers through to the stored invoice and the
-  payout split. Per-row storage as a float does not compound the way the
-  wallet balance did (each row is written once, not incremented in place),
-  which is why B9.5a — the accumulating wallet — was done first and this
-  is lower-severity. It is nonetheless **customer-facing and
-  FINTRAC-reported**, so it is deliberately *not* rushed: a half-conversion
-  that leaves the invoice float-summing an int-authoritative column is
-  worse than the status quo. Gate: an invoice generated from a set of
-  billing_cycles reconciles to the exact integer sum of those rows, and
-  `payout_split` shares sum to the invoice total with zero residual cent.
-- [ ] **B9.5d Rate cards** — `gpu_pricing.base_rate_cad`,
-  `spot_prices.price`, `storage_billing_rates.rate_cad_per_gb_hr`,
-  `reservations`/`reserved_commitments` rates. These are *rates*, not
-  amounts: `NUMERIC` rather than minor units, and lower urgency because
-  they are inputs recomputed each time rather than accumulated.
-- [ ] **B9.5e Contract** — drop the legacy float columns and their
-  projection triggers once every reader is on the minor columns
-  (folds into **B16.2**).
+- [x] **B9.5b+c Settlement chain — ONE coupled migration** (completed via migrations 087, 095, 097).
+  Line items (`billing_cycles`, `usage_meters`, `serverless_jobs`, `serverless_token_ledger`) and
+  settlement (`invoices`, `payout_ledger`, `payout_splits`, `fintrac_reports`) migrated to
+  integer micro-CAD (`*_micros BIGINT`). Invoice generation and settlement paths aggregate
+  integer micros with `cad_to_micros` / `micros_to_cad` conversions only at the external API boundary.
+  Gate: `tests/test_invoice_reads_match_billed_usage.py`, `tests/test_gpu_billing_writes_its_cycle_row.py`,
+  and `tests/test_wallet_micro_units.py` green. ✔
+- [x] **B9.5d Rate cards** (completed via migrations 095 & 097). `gpu_pricing`,
+  `spot_prices`, `reservations`, and `reserved_commitments` migrated to integer micros. ✔
+- [x] **B9.5e Contract** (completed via migration 097). All 26 legacy float columns and their
+  mirror projection triggers dropped. `MAX_LEGACY_FLOAT_CAD_COLUMNS = 0` enforced and verified
+  in `tests/test_companion_schema_discipline.py`. ✔
 
 ---
 

@@ -28,6 +28,9 @@ import {
   Check,
   ChevronRight,
   User,
+  BarChart3,
+  HardDrive,
+  Gauge,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -245,10 +248,75 @@ export default function ControlPlaneAdminPage() {
     }
   };
 
-  const filteredJobs = jobs.filter(j => 
-    j.job_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (j.status || "").toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const [jobStatusFilter, setJobStatusFilter] = useState<string>("all");
+
+  // Live Scheduler Queue Metrics
+  const queuedJobs = jobs.filter(j => j.status === "queued");
+  const runningJobs = jobs.filter(j => j.status === "running");
+  const failedJobs = jobs.filter(j => j.status === "failed");
+  const completedJobs = jobs.filter(j => j.status === "completed");
+
+  const oldestQueuedAgeSec = queuedJobs.reduce((oldest, j) => {
+    const age = j.submitted_at ? (Date.now() / 1000) - j.submitted_at : 0;
+    return Math.max(oldest, age);
+  }, 0);
+
+  const formatWaitTime = (sec: number) => {
+    if (sec <= 0) return "0s";
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    if (m === 0) return `${s}s`;
+    const h = Math.floor(m / 60);
+    const remM = m % 60;
+    if (h === 0) return `${m}m ${s}s`;
+    return `${h}h ${remM}m`;
+  };
+
+  const queueReasonsCount = queuedJobs.reduce<Record<string, number>>((acc, j) => {
+    const r = j.queue_reason || "RESOURCES_UNAVAILABLE";
+    acc[r] = (acc[r] || 0) + 1;
+    return acc;
+  }, {});
+
+  const demandedGpus = queuedJobs.reduce<Record<string, number>>((acc, j) => {
+    const model = j.gpu_model || j.payload?.gpu_model || "Unspecified";
+    acc[model] = (acc[model] || 0) + 1;
+    return acc;
+  }, {});
+
+  // Live Cluster GPU Capacity Metrics
+  const activeHosts = hosts.filter(h => h.status === "active");
+  const drainingHosts = hosts.filter(h => h.status === "draining");
+  const deadHosts = hosts.filter(h => h.status === "dead");
+
+  const totalFleetVram = hosts.reduce((sum, h) => sum + (h.vram_gb || 24), 0);
+  const totalAllocatedVram = hosts.reduce((sum, h) => sum + (h.allocated_vram_gb || 0), 0);
+  const fleetVramPercent = totalFleetVram > 0 ? Math.min(100, Math.round((totalAllocatedVram / totalFleetVram) * 100)) : 0;
+
+  const activeFleetVram = activeHosts.reduce((sum, h) => sum + (h.vram_gb || 24), 0);
+  const activeAllocatedVram = activeHosts.reduce((sum, h) => sum + (h.allocated_vram_gb || 0), 0);
+  const schedulableVram = Math.max(0, activeFleetVram - activeAllocatedVram);
+
+  const gpuModelsDistribution = hosts.reduce<Record<string, { count: number; totalVram: number; allocatedVram: number }>>((acc, h) => {
+    const model = h.gpu_model || "Unknown";
+    const vram = h.vram_gb || 24;
+    const alloc = h.allocated_vram_gb || 0;
+    if (!acc[model]) {
+      acc[model] = { count: 0, totalVram: 0, allocatedVram: 0 };
+    }
+    acc[model].count += 1;
+    acc[model].totalVram += vram;
+    acc[model].allocatedVram += alloc;
+    return acc;
+  }, {});
+
+  const filteredJobs = jobs.filter(j => {
+    const matchesSearch = j.job_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (j.status || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (j.queue_reason || "").toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = jobStatusFilter === "all" || j.status === jobStatusFilter;
+    return matchesSearch && matchesStatus;
+  });
 
   const filteredHosts = hosts.filter(h => 
     h.host_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -451,9 +519,118 @@ export default function ControlPlaneAdminPage() {
             {/* 1. Scheduler Timelines and Jobs Tab */}
             {activeTab === "scheduler" && (
               <div className="space-y-6 animate-fadeIn">
+                {/* Live Queue Metrics Panel */}
+                <Card className="border-accent-cyan/20 bg-gradient-to-br from-surface to-background/90 p-5">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between border-b border-border/40 pb-4">
+                    <div>
+                      <h3 className="text-base font-bold flex items-center gap-2 text-text-primary">
+                        <Gauge className="h-5 w-5 text-accent-cyan" />
+                        Live Scheduler Queue Telemetry & Demand
+                      </h3>
+                      <p className="text-xs text-text-muted mt-0.5">
+                        Real-time visibility into queue depth, placement constraints, and pending hardware demand.
+                      </p>
+                    </div>
+                    {/* Quick filter pills */}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {["all", "queued", "running", "completed", "failed"].map((st) => (
+                        <button
+                          key={st}
+                          onClick={() => setJobStatusFilter(st)}
+                          className={cn(
+                            "px-2.5 py-1 text-xs font-semibold rounded-md transition-all capitalize border",
+                            jobStatusFilter === st
+                              ? "bg-accent-cyan/20 border-accent-cyan text-accent-cyan shadow-[0_0_8px_rgba(0,212,255,0.2)]"
+                              : "bg-surface-hover border-border text-text-muted hover:text-text-primary"
+                          )}
+                        >
+                          {st} ({st === "all" ? jobs.length : jobs.filter(j => j.status === st).length})
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+                    <div className="p-3 rounded-lg bg-surface border border-border/60">
+                      <p className="text-[11px] font-semibold text-text-muted uppercase">Queue Depth</p>
+                      <div className="flex items-baseline gap-2 mt-1">
+                        <span className={cn("text-2xl font-bold font-mono", queuedJobs.length > 0 ? "text-accent-gold" : "text-emerald")}>
+                          {queuedJobs.length}
+                        </span>
+                        <span className="text-xs text-text-muted">pending jobs</span>
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-surface border border-border/60">
+                      <p className="text-[11px] font-semibold text-text-muted uppercase">Active Leases</p>
+                      <div className="flex items-baseline gap-2 mt-1">
+                        <span className="text-2xl font-bold font-mono text-emerald">
+                          {runningJobs.length}
+                        </span>
+                        <span className="text-xs text-text-muted">running instances</span>
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-surface border border-border/60">
+                      <p className="text-[11px] font-semibold text-text-muted uppercase">Oldest In Queue</p>
+                      <div className="flex items-baseline gap-2 mt-1">
+                        <span className={cn("text-2xl font-bold font-mono", oldestQueuedAgeSec > 60 ? "text-accent-red" : "text-text-primary")}>
+                          {formatWaitTime(oldestQueuedAgeSec)}
+                        </span>
+                        <span className="text-xs text-text-muted">wait time</span>
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-surface border border-border/60">
+                      <p className="text-[11px] font-semibold text-text-muted uppercase">Throughput Settled</p>
+                      <div className="flex items-baseline gap-2 mt-1">
+                        <span className="text-2xl font-bold font-mono text-text-primary">
+                          {completedJobs.length}
+                        </span>
+                        <span className="text-xs text-emerald font-semibold">/{failedJobs.length} fail</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Queued Demand & Bottlenecks breakdown */}
+                  {queuedJobs.length > 0 && (
+                    <div className="grid sm:grid-cols-2 gap-3 mt-4 pt-3 border-t border-border/40 text-xs">
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-1.5 flex items-center gap-1.5">
+                          <Cpu className="h-3.5 w-3.5 text-accent-cyan" />
+                          Hardware Demand in Queue
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {Object.entries(demandedGpus).map(([model, count]) => (
+                            <span key={model} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface-hover border border-border text-[11px] font-mono">
+                              <span className="text-text-primary font-semibold">{model}:</span>
+                              <strong className="text-accent-cyan">{count}</strong>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-1.5 flex items-center gap-1.5">
+                          <Clock className="h-3.5 w-3.5 text-accent-gold" />
+                          Placement Bottlenecks
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {Object.entries(queueReasonsCount).map(([reason, count]) => (
+                            <span key={reason} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-accent-gold/10 border border-accent-gold/20 text-[11px] text-accent-gold font-mono">
+                              <span>{reason}:</span>
+                              <strong>{count}</strong>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </Card>
+
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-bold">Active Instance Scheduling & Attempts</h2>
-                  <span className="text-xs text-text-muted">Showing last 100 job requests</span>
+                  <span className="text-xs text-text-muted">Showing {filteredJobs.length} of {jobs.length} jobs</span>
                 </div>
 
                 {filteredJobs.length === 0 ? (
@@ -569,6 +746,80 @@ export default function ControlPlaneAdminPage() {
             {/* 2. Host Drains & Capacity Tab */}
             {activeTab === "hosts" && (
               <div className="space-y-6 animate-fadeIn">
+                {/* Cluster GPU Capacity & Fleet Allocation Matrix */}
+                <Card className="border-ice-blue/20 bg-gradient-to-br from-surface to-background/90 p-5">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between border-b border-border/40 pb-4">
+                    <div>
+                      <h3 className="text-base font-bold flex items-center gap-2 text-text-primary">
+                        <HardDrive className="h-5 w-5 text-ice-blue" />
+                        Cluster GPU Capacity & Fleet Allocation Matrix
+                      </h3>
+                      <p className="text-xs text-text-muted mt-0.5">
+                        Aggregate fleet memory utilization, node availability postures, and schedulable headroom.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs">
+                      <span className="flex items-center gap-1.5">
+                        <span className="h-2 w-2 rounded-full bg-emerald" />
+                        <span>Active: <strong className="text-text-primary">{activeHosts.length}</strong></span>
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="h-2 w-2 rounded-full bg-accent-gold" />
+                        <span>Draining: <strong className="text-text-primary">{drainingHosts.length}</strong></span>
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="h-2 w-2 rounded-full bg-accent-red" />
+                        <span>Offline: <strong className="text-text-primary">{deadHosts.length}</strong></span>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                    {/* Aggregate Fleet VRAM Meter */}
+                    <div className="md:col-span-2 p-4 rounded-lg bg-surface border border-border/60 space-y-3">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-text-muted flex items-center gap-1.5">
+                          <BarChart3 className="h-4 w-4 text-accent-cyan" />
+                          Fleet GPU Memory Utilization
+                        </span>
+                        <span className="font-mono text-xs font-bold text-text-primary">
+                          {totalAllocatedVram} GB allocated / {totalFleetVram} GB total ({fleetVramPercent}%)
+                        </span>
+                      </div>
+                      <div className="h-3 rounded-full bg-background overflow-hidden border border-border/50 relative">
+                        <div
+                          className={cn(
+                            "h-full rounded-full transition-all duration-500",
+                            fleetVramPercent > 80 ? "bg-accent-red shadow-[0_0_12px_rgba(239,68,68,0.5)]" :
+                            fleetVramPercent > 50 ? "bg-accent-gold shadow-[0_0_12px_rgba(255,191,0,0.5)]" :
+                            "bg-accent-cyan shadow-[0_0_12px_rgba(0,212,255,0.5)]"
+                          )}
+                          style={{ width: `${fleetVramPercent}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between text-[11px] text-text-muted">
+                        <span>Schedulable Available: <strong className="text-emerald font-mono">{schedulableVram} GB</strong></span>
+                        <span>Active Node Headroom: <strong className="text-ice-blue font-mono">{Math.max(0, activeFleetVram - activeAllocatedVram)} GB</strong></span>
+                      </div>
+                    </div>
+
+                    {/* GPU Model Breakdown */}
+                    <div className="p-4 rounded-lg bg-surface border border-border/60 space-y-2">
+                      <p className="text-[11px] font-semibold text-text-muted uppercase">GPU Model Inventory</p>
+                      <div className="space-y-1.5 max-h-24 overflow-y-auto pr-1">
+                        {Object.entries(gpuModelsDistribution).map(([model, info]) => (
+                          <div key={model} className="flex items-center justify-between text-xs py-0.5 border-b border-border/20 last:border-0">
+                            <span className="font-medium text-text-primary truncate max-w-[120px]">{model}</span>
+                            <span className="font-mono text-[11px] text-text-muted">
+                              {info.count} node{info.count > 1 ? "s" : ""} ({info.totalVram} GB)
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-bold">Physical Host Status & Resource Capacity</h2>
                   <span className="text-xs text-text-muted">Total registered nodes: {hosts.length}</span>
