@@ -132,6 +132,10 @@ attrs==26.1.0 \
     --hash=sha256:c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309 \
     --hash=sha256:d03ceb89cb322a8fd706d4fb91940737b6642aa36998fe130a9bc96c985eff32
     # via aiohttp
+authlib==1.8.0 \
+    --hash=sha256:88aebbd9af6757e14e912d5dc007ae1dc1f3e27e3b2152ce7c552ee2c3b3c121 \
+    --hash=sha256:f3ecd5f1da737262fb53bf1a4d95c4ea1ad9dd509316587a255c99ab1838a4f0
+    # via xcelsior
 bcrypt==5.0.0 \
     --hash=sha256:0c418ca99fd47e9c59a301744d63328f17798b5947b0f791e9af3c1c499c2d0a \
     --hash=sha256:0c8e093ea2532601a6f686edbc2c6b2ec24131ff5c52f7610dd64fa4553b5464 \
@@ -403,8 +407,10 @@ cryptography==46.0.7 \
     --hash=sha256:fdd1736fed309b4300346f88f74cd120c27c56852c3838cab416e7a166f67298 \
     --hash=sha256:ffca7aa1d00cf7d6469b988c581598f2259e46215e0140af408966a24cf086ce
     # via
+    #   authlib
     #   fido2
     #   http-ece
+    #   joserfc
     #   paramiko
     #   py-vapid
     #   pywebpush
@@ -739,6 +745,10 @@ jmespath==1.1.0 \
     # via
     #   boto3
     #   botocore
+joserfc==1.7.5 \
+    --hash=sha256:add2c2c84e8373b084d526a8b53daba5d7a513a118cd2dcd9fc9f979d0922159 \
+    --hash=sha256:d5ff536e658e17664f8c1b1ab60dc4aa62aa973fcef1edd33cc44bda45d6f5ea
+    # via authlib
 mako==1.3.12 \
     --hash=sha256:8f61569480282dbf557145ce441e4ba888be453c30989f879f0d652e39f53ea9 \
     --hash=sha256:9f778e93289bd410bb35daadeb4fc66d95a746f0b75777b942088b7fd7af550a
@@ -917,7 +927,12 @@ opentelemetry-api==1.40.0 \
     #   opentelemetry-exporter-otlp-proto-http
     #   opentelemetry-instrumentation
     #   opentelemetry-instrumentation-asgi
+    #   opentelemetry-instrumentation-dbapi
     #   opentelemetry-instrumentation-fastapi
+    #   opentelemetry-instrumentation-httpx
+    #   opentelemetry-instrumentation-logging
+    #   opentelemetry-instrumentation-psycopg
+    #   opentelemetry-instrumentation-requests
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
     #   xcelsior
@@ -944,14 +959,39 @@ opentelemetry-instrumentation==0.61b0 \
     --hash=sha256:cb21b48db738c9de196eba6b805b4ff9de3b7f187e4bbf9a466fa170514f1fc7
     # via
     #   opentelemetry-instrumentation-asgi
+    #   opentelemetry-instrumentation-dbapi
     #   opentelemetry-instrumentation-fastapi
+    #   opentelemetry-instrumentation-httpx
+    #   opentelemetry-instrumentation-logging
+    #   opentelemetry-instrumentation-psycopg
+    #   opentelemetry-instrumentation-requests
 opentelemetry-instrumentation-asgi==0.61b0 \
     --hash=sha256:9d08e127244361dc33976d39dd4ca8f128b5aa5a7ae425208400a80a095019b5 \
     --hash=sha256:e4b3ce6b66074e525e717efff20745434e5efd5d9df6557710856fba356da7a4
     # via opentelemetry-instrumentation-fastapi
+opentelemetry-instrumentation-dbapi==0.61b0 \
+    --hash=sha256:02fa800682c1de87dcad0e59f2092b3b6fb8b8ea0636518f989e1166b418dcb9 \
+    --hash=sha256:8f762c39c8edd20c6aef3282550a2cfbfec76c3f431bf5c36327dcf9ece2e5a0
+    # via opentelemetry-instrumentation-psycopg
 opentelemetry-instrumentation-fastapi==0.61b0 \
     --hash=sha256:3a24f35b07c557ae1bbc483bf8412221f25d79a405f8b047de8b670722e2fa9f \
     --hash=sha256:a1a844d846540d687d377516b2ff698b51d87c781b59f47c214359c4a241047c
+    # via xcelsior
+opentelemetry-instrumentation-httpx==0.61b0 \
+    --hash=sha256:6569ec097946c5551c2a4252f74c98666addd1bf047c1dde6b4ef426719ff8dd \
+    --hash=sha256:dee05c93a6593a5dc3ae5d9d5c01df8b4e2c5d02e49275e5558534ee46343d5e
+    # via xcelsior
+opentelemetry-instrumentation-logging==0.61b0 \
+    --hash=sha256:6d87e5ded6a0128d775d41511f8380910a1b610671081d16efb05ac3711c0074 \
+    --hash=sha256:feaa30b700acd2a37cc81db5f562ab0c3a5b6cc2453595e98b72c01dcf649584
+    # via xcelsior
+opentelemetry-instrumentation-psycopg==0.61b0 \
+    --hash=sha256:74e9fed3802945f7ae335cffc30fd18cf58c34a4d0619315f799fa21eb5c74ff \
+    --hash=sha256:a3e242cad56c0ad4f4f872017c73ce7e6c7012081dda6bd0d776c127fedc358a
+    # via xcelsior
+opentelemetry-instrumentation-requests==0.61b0 \
+    --hash=sha256:15f879ce8fb206bd7e6fdc61663ea63481040a845218c0cf42902ce70bd7e9d9 \
+    --hash=sha256:cce19b379949fe637eb73ba39b02c57d2d0805447ca6d86534aa33fcb141f683
     # via xcelsior
 opentelemetry-proto==1.40.0 \
     --hash=sha256:03f639ca129ba513f5819810f5b1f42bcb371391405d99c168fe6937c62febcd \
@@ -973,7 +1013,10 @@ opentelemetry-semantic-conventions==0.61b0 \
     # via
     #   opentelemetry-instrumentation
     #   opentelemetry-instrumentation-asgi
+    #   opentelemetry-instrumentation-dbapi
     #   opentelemetry-instrumentation-fastapi
+    #   opentelemetry-instrumentation-httpx
+    #   opentelemetry-instrumentation-requests
     #   opentelemetry-sdk
 opentelemetry-util-http==0.61b0 \
     --hash=sha256:1039cb891334ad2731affdf034d8fb8b48c239af9b6dd295e5fabd07f1c95572 \
@@ -981,6 +1024,8 @@ opentelemetry-util-http==0.61b0 \
     # via
     #   opentelemetry-instrumentation-asgi
     #   opentelemetry-instrumentation-fastapi
+    #   opentelemetry-instrumentation-httpx
+    #   opentelemetry-instrumentation-requests
 packaging==26.2 \
     --hash=sha256:5fc45236b9446107ff2415ce77c807cee2862cb6fac22b8a73826d0693b0980e \
     --hash=sha256:ff452ff5a3e828ce110190feff1178bb1f2ea2281fa2075aadb987c2fb221661
@@ -1481,6 +1526,14 @@ stripe==15.3.1 \
     --hash=sha256:2f9a8d961e5c2ec19149fb4e0b47d9709d014a68592cdb1f4efd044abc8d2359 \
     --hash=sha256:f7c87a9a9072db7316e9ba497b4dbaa1dbae51f67ca201ba6155fe8b6487e5e3
     # via xcelsior
+structlog==26.1.0 \
+    --hash=sha256:e081a26d6c373e6d201eca24eede26d8ffab07f88f477822e679183428d3d91e \
+    --hash=sha256:f63a716cbd1b1291cf7661de7794b455acfa4c43c5bcf1630e6ad5ddc1adb3b7
+    # via xcelsior
+tenacity==9.1.4 \
+    --hash=sha256:6095a360c919085f28c6527de529e76a06ad89b23659fa881ae0649b867a9d55 \
+    --hash=sha256:adb31d4c263f2bd041081ab33b498309a57c77f9acf2db65aadf0898179cf93a
+    # via xcelsior
 twilio==9.10.9 \
     --hash=sha256:1c50bfb394b5dbc044bacab24b2e3b550bee0c08da51c4a1fa4816293303e66c \
     --hash=sha256:eb74fc026c85a89372836414f57e262119efaa160b9419cf4d05b59056b8e89d
@@ -1750,7 +1803,10 @@ wrapt==1.17.3 \
     --hash=sha256:f38e60678850c42461d4202739f9bf1e3a737c7ad283638251e79cc49effb6b6 \
     --hash=sha256:f66eb08feaa410fe4eebd17f2a2c8e2e46d3476e9f8c783daa8e09e0faa666d0 \
     --hash=sha256:fbd3c8319de8e1dc79d346929cd71d523622da527cca14e0c1d257e31c2b8b10
-    # via opentelemetry-instrumentation
+    # via
+    #   opentelemetry-instrumentation
+    #   opentelemetry-instrumentation-dbapi
+    #   opentelemetry-instrumentation-httpx
 yarl==1.24.2 \
     --hash=sha256:0063adad533e57171b79db3943b229d40dfafeeee579767f96541f106bac5f1b \
     --hash=sha256:044a09d8401fcf8681977faef6d286b8ade1e2d2e9dceda175d1cfa5ca496f30 \

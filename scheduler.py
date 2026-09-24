@@ -73,44 +73,12 @@ _scheduler_lock = threading.Lock()
 def setup_logging(log_file=None, level=logging.INFO):
     """
     Log everything. Every move. Every crash. Every win.
-    Console + file. No silent failures.
+    Console + file. No silent failures. Structured JSON with redaction (B7.2).
     """
+    from structured_logging import configure_structured_logging
+
     log_file = log_file or LOG_FILE
-    logger = logging.getLogger("xcelsior")
-
-    if logger.handlers:
-        return logger
-
-    logger.setLevel(level)
-    fmt = logging.Formatter(
-        "[%(asctime)s] %(levelname)-8s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-    )
-
-    # Console handler — see it live. Added first so that a container with
-    # a read-only root filesystem (blueprint §19.4/§21.1 hardened image)
-    # still logs: stdout is the log stream there, and refusing to start
-    # over an unwritable *auxiliary* file would be a self-inflicted outage.
-    ch = logging.StreamHandler()
-    ch.setLevel(level)
-    ch.setFormatter(fmt)
-    logger.addHandler(ch)
-
-    # File handler — the permanent record, when the path is writable.
-    try:
-        fh = logging.FileHandler(log_file)
-    except OSError as exc:
-        logger.warning(
-            "file logging disabled (%s): %s — console only. "
-            "Set XCELSIOR_LOG_FILE to a writable path (e.g. /data/xcelsior.log).",
-            log_file,
-            exc,
-        )
-    else:
-        fh.setLevel(level)
-        fh.setFormatter(fmt)
-        logger.addHandler(fh)
-
-    return logger
+    return configure_structured_logging(log_file=log_file, level=level)
 
 
 log = setup_logging()

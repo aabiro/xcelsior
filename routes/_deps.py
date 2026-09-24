@@ -37,7 +37,7 @@ try:
     _deprecated_api_key_requests = _PromCounter(
         "xcelsior_deprecated_api_key_requests_total",
         "Requests authenticated with deprecated API keys",
-        ["email"],
+        ["key_type"],
     )
 except Exception:
 
@@ -1385,7 +1385,7 @@ def _get_current_user(request: Request) -> dict | None:
             return merged
         api_key = UserStore.get_api_key(token)
         if api_key:
-            _deprecated_api_key_requests.labels(api_key["email"]).inc()
+            _deprecated_api_key_requests.labels("legacy_api_key").inc()
             log.warning(
                 "rejected.api_key.used email=%s key_name=%s — API keys are permanently disabled, use OAuth 2.0",
                 api_key["email"],
@@ -1407,7 +1407,7 @@ def _get_current_user(request: Request) -> dict | None:
         with _user_lock:
             api_key = _api_keys.get(token)
         if api_key:
-            _deprecated_api_key_requests.labels(api_key["email"]).inc()
+            _deprecated_api_key_requests.labels("legacy_api_key").inc()
             log.warning(
                 "rejected.api_key.used email=%s key_name=%s — API keys are permanently disabled, use OAuth 2.0",
                 api_key["email"],
