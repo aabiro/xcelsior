@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 import uuid
 from collections import defaultdict, deque
@@ -80,18 +81,44 @@ _verify_confirmation_token = verify_confirmation_token
 # ── Rate Limiter (per-user, not per-IP) ───────────────────────────────
 
 _ai_rate_buckets: dict[str, deque] = defaultdict(deque)
+_ai_rate_lock = threading.Lock()
+_AI_RATE_STATE_NAMESPACE = os.environ.get(
+    "XCELSIOR_AI_RATE_STATE_NAMESPACE", "runtime.ai_rate_limit"
+)
 
 
 def check_ai_rate_limit(user_id: str) -> bool:
-    """Return True if the request is within rate limits."""
-    now = time.monotonic()
-    bucket = _ai_rate_buckets[user_id]
-    while bucket and bucket[0] < now - RATE_LIMIT_WINDOW_SEC:
-        bucket.popleft()
-    if len(bucket) >= AI_RATE_LIMIT:
-        return False
-    bucket.append(now)
-    return True
+    """Count assistant requests per user across API workers."""
+    from routes._deps import _take_shared_rate_slot
+
+    return _take_shared_rate_slot(
+        _AI_RATE_STATE_NAMESPACE, user_id, time.time(),
+        limit=AI_RATE_LIMIT, window_sec=RATE_LIMIT_WINDOW_SEC,
+        buckets=_ai_rate_buckets, lock=_ai_rate_lock,
+    )
+
+
+def _refund_ai_rate_slot(user_id: str) -> None:
+    """Return a slot for an expired confirmation in the active limiter store."""
+    from routes._deps import _shared_state_update
+
+    now = time.time()
+
+    def refund(state):
+        buckets = state.get("buckets", {}) or {}
+        history = sorted(float(ts) for ts in buckets.get(user_id, []) if float(ts) > now - RATE_LIMIT_WINDOW_SEC)
+        if len(history) > 1:
+            buckets[user_id] = history[1:]
+        else:
+            buckets.pop(user_id, None)
+        return {"buckets": buckets, "updated_at": now}, None
+
+    shared_ok, _ = _shared_state_update(_AI_RATE_STATE_NAMESPACE, lambda: {"buckets": {}}, refund)
+    if not shared_ok:
+        with _ai_rate_lock:
+            bucket = _ai_rate_buckets.get(user_id)
+            if bucket:
+                bucket.popleft()
 
 
 def _parse_provider_list(raw: str) -> list[str]:
@@ -343,13 +370,14 @@ def create_confirmation(conversation_id: str, user_id: str, tool_name: str, tool
 
 
 def resolve_confirmation(confirmation_id: str, user_id: str, approved: bool) -> Optional[dict]:
-    """Resolve a pending confirmation. confirmation_id is a signed token. Returns the confirmation data or None."""
+    """Claim a signed confirmation once, across concurrent workers."""
     cid = _verify_confirmation_token(confirmation_id)
     if cid is None:
         return None  # Invalid/tampered token
     with _ai_db() as conn:
         row = conn.execute(
-            "SELECT * FROM ai_confirmations WHERE confirmation_id = %s AND user_id = %s AND status = 'pending'",
+            "SELECT * FROM ai_confirmations "
+            "WHERE confirmation_id = %s AND user_id = %s AND status = 'pending' FOR UPDATE",
             (cid, user_id),
         ).fetchone()
         if not row:
@@ -360,17 +388,17 @@ def resolve_confirmation(confirmation_id: str, user_id: str, approved: bool) -> 
                 "UPDATE ai_confirmations SET status = 'expired', resolved_at = %s WHERE confirmation_id = %s",
                 (time.time(), cid),
             )
-            # Refund one rate-limit slot so the user isn't penalised for the expired action
-            bucket = _ai_rate_buckets.get(user_id)
-            if bucket:
-                bucket.popleft()
-            return None
-        status = "approved" if approved else "rejected"
-        conn.execute(
-            "UPDATE ai_confirmations SET status = %s, resolved_at = %s WHERE confirmation_id = %s",
-            (status, time.time(), confirmation_id),
-        )
-        return dict(row)
+        else:
+            status = "approved" if approved else "rejected"
+            conn.execute(
+                "UPDATE ai_confirmations SET status = %s, resolved_at = %s WHERE confirmation_id = %s",
+                (status, time.time(), cid),
+            )
+            return dict(row)
+    # Commit expiry and release this connection before taking one for the
+    # shared quota. Nested checkouts can exhaust the pool under concurrency.
+    _refund_ai_rate_slot(user_id)
+    return None
 
 
 # ── RAG: BM25 Document Search ────────────────────────────────────────
@@ -4559,10 +4587,12 @@ async def stream_ai_response(
     user: dict,
     page_context: str = "",
     analytics_data: str = "",
+    *,
+    rate_limit_checked: bool = False,
 ) -> AsyncGenerator[str, None]:
     """Stream AI assistant response with provider fallbacks and safe dev mode."""
     user_id = user.get("user_id", user.get("email", ""))
-    if not check_ai_rate_limit(user_id):
+    if not rate_limit_checked and not check_ai_rate_limit(user_id):
         yield _sse(
             {
                 "type": "error",

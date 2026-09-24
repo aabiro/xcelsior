@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+import threading
 import time
 import uuid
 from collections import defaultdict, deque
@@ -49,6 +50,10 @@ CHAT_FALLBACK_MODEL = os.environ.get("CHAT_FALLBACK_MODEL", "")
 # ── Rate Limiter ──────────────────────────────────────────────────────
 
 _chat_rate_buckets: dict[str, deque] = defaultdict(deque)
+_chat_rate_lock = threading.Lock()
+_CHAT_RATE_STATE_NAMESPACE = os.environ.get(
+    "XCELSIOR_CHAT_RATE_STATE_NAMESPACE", "runtime.chat_rate_limit"
+)
 
 
 def _hash_ip(ip: str) -> str:
@@ -56,17 +61,14 @@ def _hash_ip(ip: str) -> str:
 
 
 def check_chat_rate_limit(ip: str) -> bool:
-    """Return True if the request is within rate limits."""
-    key = _hash_ip(ip)
-    now = time.monotonic()
-    bucket = _chat_rate_buckets[key]
-    # Purge entries older than 60 seconds
-    while bucket and bucket[0] < now - 60:
-        bucket.popleft()
-    if len(bucket) >= CHAT_RATE_LIMIT:
-        return False
-    bucket.append(now)
-    return True
+    """Count provider requests per client across API workers."""
+    from routes._deps import _take_shared_rate_slot
+
+    return _take_shared_rate_slot(
+        _CHAT_RATE_STATE_NAMESPACE, _hash_ip(ip), time.time(),
+        limit=CHAT_RATE_LIMIT, window_sec=60,
+        buckets=_chat_rate_buckets, lock=_chat_rate_lock,
+    )
 
 
 # ── System Prompt & RAG Context ───────────────────────────────────────
@@ -179,30 +181,34 @@ def _purge_expired():
 def get_or_create_conversation(
     conversation_id: Optional[str] = None,
     ip: Optional[str] = None,
-    user_email: Optional[str] = None,
+    *,
+    user_email: str,
 ) -> tuple[str, list[dict]]:
-    """Get existing conversation history or create a new one. Persisted to disk."""
+    """Resume an owned conversation or create one with a server-generated ID."""
+    if not user_email:
+        raise ValueError("A conversation owner is required")
     with _chat_db() as conn:
         if conversation_id:
             row = conn.execute(
-                "SELECT conversation_id FROM chat_conversations WHERE conversation_id = %s",
-                (conversation_id,),
+                "SELECT conversation_id FROM chat_conversations "
+                "WHERE conversation_id = %s AND user_email = %s AND updated_at >= %s",
+                (conversation_id, user_email, time.time() - CONVERSATION_TTL_SEC),
             ).fetchone()
-            if row:
-                conn.execute(
-                    "UPDATE chat_conversations SET updated_at = %s WHERE conversation_id = %s",
-                    (time.time(), conversation_id),
-                )
-                msgs = conn.execute(
-                    "SELECT role, content FROM chat_messages WHERE conversation_id = %s ORDER BY created_at ASC",
-                    (conversation_id,),
-                ).fetchall()
-                history = [{"role": m["role"], "content": m["content"]} for m in msgs]
-                # Keep only recent messages for context window
-                return conversation_id, history[-MAX_HISTORY_MESSAGES:]
+            if not row:
+                raise LookupError("Conversation not found")
+            conn.execute(
+                "UPDATE chat_conversations SET updated_at = %s WHERE conversation_id = %s",
+                (time.time(), conversation_id),
+            )
+            msgs = conn.execute(
+                "SELECT role, content FROM chat_messages WHERE conversation_id = %s ORDER BY created_at ASC",
+                (conversation_id,),
+            ).fetchall()
+            history = [{"role": m["role"], "content": m["content"]} for m in msgs]
+            return conversation_id, history[-MAX_HISTORY_MESSAGES:]
 
         # Create new conversation
-        cid = conversation_id or str(uuid.uuid4())
+        cid = str(uuid.uuid4())
         now = time.time()
         ip_hash = _hash_ip(ip) if ip else None
         conn.execute(
@@ -212,36 +218,39 @@ def get_or_create_conversation(
         return cid, []
 
 
-def append_message(conversation_id: str, role: str, content: str):
-    """Append a message to a conversation. Persisted to disk."""
+def append_message(conversation_id: str, role: str, content: str) -> str:
+    """Persist a message and return its ID for history and feedback."""
     with _chat_db() as conn:
-        conn.execute(
-            "INSERT INTO chat_messages (conversation_id, role, content, created_at) VALUES (%s, %s, %s, %s)",
+        row = conn.execute(
+            "INSERT INTO chat_messages (conversation_id, role, content, created_at) "
+            "VALUES (%s, %s, %s, %s) RETURNING id",
             (conversation_id, role, content, time.time()),
-        )
+        ).fetchone()
         conn.execute(
             "UPDATE chat_conversations SET updated_at = %s WHERE conversation_id = %s",
             (time.time(), conversation_id),
         )
+        return str(row["id"])
 
 
-def get_conversation_messages(conversation_id: str) -> Optional[list[dict]]:
-    """Return messages for a conversation, or None if not found."""
+def get_conversation_messages(conversation_id: str, *, user_email: str) -> Optional[list[dict]]:
+    """Return messages only for an owned conversation, or None if not found."""
     _purge_expired()
     with _chat_db() as conn:
         row = conn.execute(
-            "SELECT conversation_id FROM chat_conversations WHERE conversation_id = %s",
-            (conversation_id,),
+            "SELECT conversation_id FROM chat_conversations "
+            "WHERE conversation_id = %s AND user_email = %s",
+            (conversation_id, user_email),
         ).fetchone()
         if not row:
             return None
         msgs = conn.execute(
-            "SELECT role, content, created_at FROM chat_messages "
+            "SELECT id, role, content, created_at FROM chat_messages "
             "WHERE conversation_id = %s ORDER BY created_at ASC",
             (conversation_id,),
         ).fetchall()
         return [
-            {"role": m["role"], "content": m["content"], "timestamp": m["created_at"]}
+            {"message_id": str(m["id"]), "role": m["role"], "content": m["content"], "timestamp": m["created_at"]}
             for m in msgs[-MAX_HISTORY_MESSAGES:]
         ]
 
@@ -269,13 +278,20 @@ def get_user_conversations(user_email: str, limit: int = 20) -> list[dict]:
         return result
 
 
-def record_feedback(message_id: str, vote: str):
-    """Store thumbs-up / thumbs-down feedback. Fire-and-forget."""
+def record_feedback(message_id: str, vote: str, *, user_email: str) -> bool:
+    """Store feedback only for an assistant response owned by the caller."""
+    if vote not in ("up", "down"):
+        raise ValueError("Vote must be 'up' or 'down'")
     with _chat_db() as conn:
-        conn.execute(
-            "INSERT INTO chat_feedback (message_id, vote, created_at) VALUES (%s, %s, %s)",
-            (message_id, vote, time.time()),
+        result = conn.execute(
+            "INSERT INTO chat_feedback (message_id, vote, created_at) "
+            "SELECT m.id::text, %s, %s FROM chat_messages m "
+            "JOIN chat_conversations c ON c.conversation_id = m.conversation_id "
+            "WHERE m.id::text = %s AND m.role = 'assistant' AND c.user_email = %s "
+            "AND c.updated_at >= %s",
+            (vote, time.time(), message_id, user_email, time.time() - CONVERSATION_TTL_SEC),
         )
+        return result.rowcount == 1
 
 
 # ── LLM Streaming Client ─────────────────────────────────────────────

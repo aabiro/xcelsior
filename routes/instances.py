@@ -109,7 +109,7 @@ _SNAPSHOT_RATE_BUCKETS: dict[str, "_deque[float]"] = {}
 _SNAPSHOT_RATE_LOCK = threading.Lock()
 _SNAPSHOT_RATE_STATE_NAMESPACE = os.environ.get(
     "XCELSIOR_SNAPSHOT_RATE_STATE_NAMESPACE",
-    "snapshot_rate_buckets",
+    "runtime.snapshot_rate_limit",
 )
 
 
