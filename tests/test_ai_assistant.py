@@ -2068,11 +2068,11 @@ class TestProviderFallback:
         return fake_ai_db
 
     @pytest.mark.asyncio
-    async def test_primary_fails_fallback_succeeds(self):
+    async def test_primary_fails_fallback_succeeds(self, caplog):
         """When primary provider raises, fallback provider should serve the response."""
         from ai_assistant import stream_ai_response
 
-        async def fake_openai_stream(*a, **kw):
+        def fake_openai_stream(*a, **kw):
             raise ConnectionError("OpenAI down")
 
         async def fake_anthropic_stream(*a, **kw):
@@ -2094,14 +2094,15 @@ class TestProviderFallback:
             events = await self._collect_sse(stream_ai_response("hello", "conv-1", _user(), ""))
             tokens = [e for e in events if e.get("type") == "token"]
             assert any("fallback" in t.get("content", "") for t in tokens)
+            assert "OpenAI down" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_all_providers_fail_returns_error(self):
+    async def test_all_providers_fail_returns_error(self, caplog):
         """When all providers fail, user gets an error event."""
         from ai_assistant import stream_ai_response
 
-        async def always_fail(*a, **kw):
-            raise ConnectionError("down")
+        def always_fail(*a, **kw):
+            raise ConnectionError("provider unavailable during test")
 
         with (
             patch("ai_assistant._get_provider_order", return_value=["openai"]),
@@ -2116,6 +2117,7 @@ class TestProviderFallback:
         ):
             events = await self._collect_sse(stream_ai_response("hello", "conv-1", _user(), ""))
             assert any(e.get("type") == "error" for e in events)
+            assert "provider unavailable during test" in caplog.text
 
     @pytest.mark.asyncio
     async def test_missing_api_key_skips_provider(self):
@@ -2311,15 +2313,16 @@ class TestAIRouteAuth:
         # Cleanup
         _ai_rate_buckets[test_user].clear()
 
-    def test_rate_limit_recovers_after_window(self):
-        """Rate limiter should allow requests after the window expires."""
+    def test_rate_limit_recovers_after_window(self, monkeypatch):
+        """The local fallback should evict expired timestamps."""
         from ai_assistant import check_ai_rate_limit, _ai_rate_buckets
+        monkeypatch.setattr("routes._deps._shared_state_update", lambda *a, **k: (False, None))
 
         test_user = "rate-recovery-test"
         _ai_rate_buckets[test_user].clear()
 
         # Fill bucket with old timestamps
-        old_time = time.monotonic() - 120  # 2 min ago
+        old_time = time.time() - 120  # 2 min ago
         for _ in range(AI_RATE_LIMIT):
             _ai_rate_buckets[test_user].append(old_time)
 
@@ -2738,7 +2741,7 @@ class TestRateLimitRefund:
         def fake_db():
             yield mock_conn
 
-        with patch("ai_assistant._ai_db", fake_db):
+        with patch("ai_assistant._ai_db", fake_db), patch("routes._deps._shared_state_update", return_value=(False, None)):
             result = resolve_confirmation(signed, user_id, approved=True)
 
         assert result is None  # Expired → returns None
@@ -2776,7 +2779,7 @@ class TestRateLimitRefund:
         def fake_db():
             yield mock_conn
 
-        with patch("ai_assistant._ai_db", fake_db):
+        with patch("ai_assistant._ai_db", fake_db), patch("routes._deps._shared_state_update", return_value=(False, None)):
             result = resolve_confirmation(signed, user_id, approved=True)
 
         assert result is not None  # Valid → returns row

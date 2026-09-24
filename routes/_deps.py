@@ -61,11 +61,25 @@ XCELSIOR_ENV = env_config.resolve_env()
 AUTH_REQUIRED = not env_config.is_relaxed_env()
 RATE_LIMIT_REQUESTS = int(os.environ.get("XCELSIOR_RATE_LIMIT_REQUESTS", "300"))
 RATE_LIMIT_WINDOW_SEC = int(os.environ.get("XCELSIOR_RATE_LIMIT_WINDOW_SEC", "60"))
+#: Deliberately per-process, unlike every other limiter in this module. This one
+#: runs in the middleware on *every* request, and `_shared_state_update` is a
+#: database transaction taking a row lock — paying that per request to make a
+#: coarse 300/min/IP flood guard exact would cost far more than the precision is
+#: worth. The effective ceiling is `RATE_LIMIT_REQUESTS * GUNICORN_WORKERS`,
+#: which is the intended trade rather than an oversight. The limiters that are
+#: *enforcement* rather than flood control — auth, billing, snapshots, WS
+#: connects — are low-volume and go through shared state.
 _RATE_BUCKETS: dict[str, deque] = defaultdict(deque)
 
 _AUTH_RATE_LIMIT_REQUESTS = int(os.environ.get("XCELSIOR_AUTH_RATE_LIMIT_REQUESTS", "10"))
 _AUTH_RATE_LIMIT_WINDOW_SEC = 300
+#: Per-process fallback only; see `_check_auth_rate_limit`.
 _AUTH_RATE_BUCKETS: dict[str, deque] = defaultdict(deque)
+_AUTH_RATE_LOCK = _threading.Lock()
+_AUTH_RATE_STATE_NAMESPACE = os.environ.get(
+    "XCELSIOR_AUTH_RATE_STATE_NAMESPACE",
+    "runtime.auth_rate_limit",
+)
 
 _BILLING_PAYMENT_RATE_LIMIT_REQUESTS = int(
     os.environ.get("XCELSIOR_BILLING_PAYMENT_RATE_LIMIT_REQUESTS", "20")
@@ -73,7 +87,13 @@ _BILLING_PAYMENT_RATE_LIMIT_REQUESTS = int(
 _BILLING_PAYMENT_RATE_LIMIT_WINDOW_SEC = int(
     os.environ.get("XCELSIOR_BILLING_PAYMENT_RATE_LIMIT_WINDOW_SEC", "300")
 )
+#: Per-process fallback only; see `_check_billing_payment_rate_limit`.
 _BILLING_PAYMENT_RATE_BUCKETS: dict[str, deque] = defaultdict(deque)
+_BILLING_PAYMENT_RATE_LOCK = _threading.Lock()
+_BILLING_PAYMENT_RATE_STATE_NAMESPACE = os.environ.get(
+    "XCELSIOR_BILLING_PAYMENT_RATE_STATE_NAMESPACE",
+    "runtime.billing_payment_rate_limit",
+)
 
 _WS_CONNECT_RATE_LIMIT_REQUESTS = int(
     os.environ.get("XCELSIOR_WS_CONNECT_RATE_LIMIT_REQUESTS", "60")
@@ -361,27 +381,148 @@ def _get_real_client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+def _mutate_shared_rate_buckets(
+    state: dict, key: str, now: float, *, limit: int, window_sec: float
+) -> tuple[dict, bool]:
+    """Prune a rolling window of timestamps and take a slot if one is free.
+
+    Shared by every limiter that counts across workers, because four
+    hand-written copies of "drop the expired entries, compare, append" is four
+    places for the comparison to drift from the pruning.
+
+    Returns the new state and whether the caller is allowed through.
+    """
+    cutoff = now - window_sec
+    buckets = state.get("buckets", {}) or {}
+    keep = max(1, limit)
+    pruned: dict[str, list[float]] = {}
+    for bucket_key, entries in buckets.items():
+        cleaned = [float(ts) for ts in (entries or []) if float(ts) > cutoff]
+        if cleaned:
+            pruned[bucket_key] = cleaned[-keep:]
+
+    history = pruned.get(key, [])
+    if len(history) >= limit:
+        return {"buckets": pruned, "updated_at": now}, False
+
+    history.append(now)
+    pruned[key] = history[-keep:]
+    return {"buckets": pruned, "updated_at": now}, True
+
+
+def _take_local_rate_slot(
+    buckets: dict, lock, key: str, now: float, *, limit: int, window_sec: float
+) -> bool:
+    """The per-process fallback for when shared state is unavailable.
+
+    Correct for a single worker and approximate for several, which is the best
+    that can be done without the shared store — but it is only reached when
+    that store is down, not in normal operation.
+    """
+    with lock:
+        bucket = buckets[key]
+        while bucket and bucket[0] <= now - window_sec:
+            bucket.popleft()
+        if len(bucket) >= limit:
+            return False
+        bucket.append(now)
+    return True
+
+
+def _take_shared_rate_slot(
+    namespace: str, key: str, now: float, *, limit: int, window_sec: float,
+    buckets: dict, lock,
+) -> bool:
+    """Use the shared rolling window, with a locked local fallback on outage."""
+    shared_ok, allowed = _shared_state_update(
+        namespace,
+        lambda: {"buckets": {}},
+        lambda state: _mutate_shared_rate_buckets(
+            state, key, now, limit=limit, window_sec=window_sec
+        ),
+    )
+    if shared_ok:
+        return bool(allowed)
+    return _take_local_rate_slot(
+        buckets, lock, key, now, limit=limit, window_sec=window_sec
+    )
+
+
 def _check_auth_rate_limit(request: Request) -> None:
+    """Throttle authentication attempts per client IP.
+
+    Counted in shared state rather than in this worker's memory, because it is
+    the *only* brute-force control on `/api/auth/login` — there is no
+    account-level lockout anywhere in the codebase. Per-process, a client's
+    attempts round-robin and each worker counted only the ones it served, so the
+    real budget was the configured one times `GUNICORN_WORKERS`. Measured
+    against the two-worker stack with the limit set to 10, the fifteenth attempt
+    was still answered 401.
+
+    Affordable here in a way it is not for `_RATE_BUCKETS`: this runs on the
+    handful of auth endpoints rather than on every request, and the WS connect
+    limiter already pays the same cost on an equally unauthenticated path.
+    """
     now = time.time()
     client_ip = _get_real_client_ip(request)
-    bucket = _AUTH_RATE_BUCKETS[client_ip]
-    while bucket and bucket[0] <= now - _AUTH_RATE_LIMIT_WINDOW_SEC:
-        bucket.popleft()
-    if len(bucket) >= _AUTH_RATE_LIMIT_REQUESTS:
+
+    shared_ok, allowed = _shared_state_update(
+        _AUTH_RATE_STATE_NAMESPACE,
+        lambda: {"buckets": {}},
+        lambda state: _mutate_shared_rate_buckets(
+            state,
+            client_ip,
+            now,
+            limit=_AUTH_RATE_LIMIT_REQUESTS,
+            window_sec=_AUTH_RATE_LIMIT_WINDOW_SEC,
+        ),
+    )
+    if not shared_ok:
+        allowed = _take_local_rate_slot(
+            _AUTH_RATE_BUCKETS,
+            _AUTH_RATE_LOCK,
+            client_ip,
+            now,
+            limit=_AUTH_RATE_LIMIT_REQUESTS,
+            window_sec=_AUTH_RATE_LIMIT_WINDOW_SEC,
+        )
+    if not allowed:
         raise HTTPException(429, "Too many attempts. Please try again later.")
-    bucket.append(now)
 
 
 def _check_billing_payment_rate_limit(customer_id: str, action: str) -> None:
-    """Per-customer rate limit for deposit/payment intent endpoints."""
+    """Per-customer rate limit for deposit/payment intent endpoints.
+
+    Shared for the same reason as the auth limiter: each call that gets through
+    creates a real payment object at a payment provider, so a quota that is
+    silently multiplied by the worker count is a quota on nothing.
+    """
     if _BILLING_PAYMENT_RATE_LIMIT_REQUESTS <= 0:
         return
     now = time.time()
     key = f"{customer_id}:{action}"
-    bucket = _BILLING_PAYMENT_RATE_BUCKETS[key]
-    while bucket and bucket[0] <= now - _BILLING_PAYMENT_RATE_LIMIT_WINDOW_SEC:
-        bucket.popleft()
-    if len(bucket) >= _BILLING_PAYMENT_RATE_LIMIT_REQUESTS:
+
+    shared_ok, allowed = _shared_state_update(
+        _BILLING_PAYMENT_RATE_STATE_NAMESPACE,
+        lambda: {"buckets": {}},
+        lambda state: _mutate_shared_rate_buckets(
+            state,
+            key,
+            now,
+            limit=_BILLING_PAYMENT_RATE_LIMIT_REQUESTS,
+            window_sec=_BILLING_PAYMENT_RATE_LIMIT_WINDOW_SEC,
+        ),
+    )
+    if not shared_ok:
+        allowed = _take_local_rate_slot(
+            _BILLING_PAYMENT_RATE_BUCKETS,
+            _BILLING_PAYMENT_RATE_LOCK,
+            key,
+            now,
+            limit=_BILLING_PAYMENT_RATE_LIMIT_REQUESTS,
+            window_sec=_BILLING_PAYMENT_RATE_LIMIT_WINDOW_SEC,
+        )
+    if not allowed:
         log.warning(
             "billing.payment_rate_limited customer_id=%s action=%s window_sec=%s limit=%s",
             customer_id,
@@ -393,7 +534,6 @@ def _check_billing_payment_rate_limit(customer_id: str, action: str) -> None:
             429,
             "Too many payment attempts. Please wait a few minutes and try again.",
         )
-    bucket.append(now)
 
 
 def _hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
@@ -1796,35 +1936,25 @@ def _check_ws_connect_rate_limit(websocket: WebSocket, *, bucket: str = "default
     if shared_ok:
         return bool(shared_allowed)
 
-    with _WS_CONNECT_LOCK:
-        history = _WS_CONNECT_BUCKETS[key]
-        while history and history[0] <= now - _WS_CONNECT_RATE_LIMIT_WINDOW_SEC:
-            history.popleft()
-        if len(history) >= _WS_CONNECT_RATE_LIMIT_REQUESTS:
-            return False
-        history.append(now)
-    return True
+    return _take_local_rate_slot(
+        _WS_CONNECT_BUCKETS,
+        _WS_CONNECT_LOCK,
+        key,
+        now,
+        limit=_WS_CONNECT_RATE_LIMIT_REQUESTS,
+        window_sec=_WS_CONNECT_RATE_LIMIT_WINDOW_SEC,
+    )
 
 
 def _mutate_shared_ws_connect_buckets(state: dict, key: str, now: float) -> tuple[dict, bool]:
     """Prune + update shared per-IP connection buckets."""
-    cutoff = now - _WS_CONNECT_RATE_LIMIT_WINDOW_SEC
-    buckets = state.get("buckets", {}) or {}
-    pruned: dict[str, list[float]] = {}
-    limit = max(1, _WS_CONNECT_RATE_LIMIT_REQUESTS)
-
-    for bucket_key, entries in buckets.items():
-        cleaned = [float(ts) for ts in (entries or []) if float(ts) > cutoff]
-        if cleaned:
-            pruned[bucket_key] = cleaned[-limit:]
-
-    history = pruned.get(key, [])
-    if len(history) >= _WS_CONNECT_RATE_LIMIT_REQUESTS:
-        return {"buckets": pruned, "updated_at": now}, False
-
-    history.append(now)
-    pruned[key] = history[-limit:]
-    return {"buckets": pruned, "updated_at": now}, True
+    return _mutate_shared_rate_buckets(
+        state,
+        key,
+        now,
+        limit=_WS_CONNECT_RATE_LIMIT_REQUESTS,
+        window_sec=_WS_CONNECT_RATE_LIMIT_WINDOW_SEC,
+    )
 
 
 def _validate_ws_auth(

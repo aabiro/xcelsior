@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 
 export interface ChatMessage {
   id: string;
+  messageId?: string;
   role: "user" | "assistant";
   content: string;
   timestamp: number;
@@ -16,6 +17,7 @@ interface UseChatStreamReturn {
   conversationId: string | null;
   sendMessage: (message: string) => Promise<void>;
   clearChat: () => void;
+  restoreConversation: (conversationId: string, messages: ChatMessage[]) => void;
   setMessages: (msgs: ChatMessage[]) => void;
 }
 
@@ -79,9 +81,14 @@ export function useChatStream(): UseChatStreamReturn {
       });
 
       if (!res.ok) {
+        if (res.status === 404 && !controller.signal.aborted) {
+          conversationIdRef.current = null;
+          try { localStorage.removeItem(CONV_STORAGE_KEY); } catch { /* Storage unavailable */ }
+        }
         const body = await res.json().catch(() => ({}));
         throw new Error(body?.detail || body?.error?.message || `Error ${res.status}`);
       }
+      if (controller.signal.aborted) return;
 
       const reader = res.body?.getReader();
       if (!reader) throw new Error("No response stream");
@@ -91,6 +98,7 @@ export function useChatStream(): UseChatStreamReturn {
 
       while (true) {
         const { done, value } = await reader.read();
+        if (controller.signal.aborted) return;
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
@@ -116,6 +124,10 @@ export function useChatStream(): UseChatStreamReturn {
                     : m
                 )
               );
+            } else if (data.type === "done" && data.message_id) {
+              setMessages((prev) => prev.map((m) =>
+                m.id === assistantId ? { ...m, messageId: String(data.message_id) } : m
+              ));
             } else if (data.type === "error") {
               setError(data.message || "An error occurred");
             }
@@ -125,19 +137,22 @@ export function useChatStream(): UseChatStreamReturn {
         }
       }
     } catch (err) {
-      if ((err as Error).name === "AbortError") return;
+      if (controller.signal.aborted || (err as Error).name === "AbortError") return;
       const msg = (err as Error).message || "Failed to send message";
       setError(msg);
       // Remove empty assistant message on error
       setMessages((prev) => prev.filter((m) => m.id !== assistantId || m.content));
     } finally {
-      setIsStreaming(false);
-      abortRef.current = null;
+      if (abortRef.current === controller) {
+        setIsStreaming(false);
+        abortRef.current = null;
+      }
     }
   }, [isStreaming]);
 
   const clearChat = useCallback(() => {
     abortRef.current?.abort();
+    abortRef.current = null;
     setMessages([]);
     setError(null);
     setIsStreaming(false);
@@ -149,6 +164,13 @@ export function useChatStream(): UseChatStreamReturn {
     }
   }, []);
 
+  const restoreConversation = useCallback((conversationId: string, restored: ChatMessage[]) => {
+    clearChat();
+    conversationIdRef.current = conversationId;
+    setMessages(restored);
+    try { localStorage.setItem(CONV_STORAGE_KEY, conversationId); } catch { /* Storage unavailable */ }
+  }, [clearChat]);
+
   return {
     messages,
     isStreaming,
@@ -156,6 +178,7 @@ export function useChatStream(): UseChatStreamReturn {
     conversationId: conversationIdRef.current,
     sendMessage,
     clearChat,
+    restoreConversation,
     setMessages,
   };
 }

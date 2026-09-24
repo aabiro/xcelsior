@@ -108,18 +108,18 @@ class TestConversationPersistence:
             conn.execute("DELETE FROM chat_conversations")
 
     def test_create_new_conversation(self):
-        cid, history = get_or_create_conversation()
+        cid, history = get_or_create_conversation(user_email="test@xcelsior.ca")
         assert cid is not None
         assert len(cid) == 36  # UUID format
         assert history == []
 
     def test_resume_existing_conversation(self):
-        cid, _ = get_or_create_conversation()
+        cid, _ = get_or_create_conversation(user_email="test@xcelsior.ca")
         append_message(cid, "user", "Hello")
         append_message(cid, "assistant", "Hi there!")
 
         # Resume
-        cid2, history = get_or_create_conversation(cid)
+        cid2, history = get_or_create_conversation(cid, user_email="test@xcelsior.ca")
         assert cid2 == cid
         assert len(history) == 2
         assert history[0]["role"] == "user"
@@ -127,7 +127,7 @@ class TestConversationPersistence:
         assert history[1]["role"] == "assistant"
 
     def test_new_conversation_with_ip(self):
-        cid, _ = get_or_create_conversation(ip="10.0.0.1")
+        cid, _ = get_or_create_conversation(ip="10.0.0.1", user_email="test@xcelsior.ca")
         with _chat_db() as conn:
             row = conn.execute(
                 "SELECT ip_hash FROM chat_conversations WHERE conversation_id = %s",
@@ -146,7 +146,7 @@ class TestConversationPersistence:
         assert row["user_email"] == "test@xcelsior.ca"
 
     def test_append_message_persists(self):
-        cid, _ = get_or_create_conversation()
+        cid, _ = get_or_create_conversation(user_email="test@xcelsior.ca")
         append_message(cid, "user", "test message")
         with _chat_db() as conn:
             count = conn.execute(
@@ -156,19 +156,18 @@ class TestConversationPersistence:
         assert count == 1
 
     def test_history_trimmed_to_max(self):
-        cid, _ = get_or_create_conversation()
+        cid, _ = get_or_create_conversation(user_email="test@xcelsior.ca")
         from chat import MAX_HISTORY_MESSAGES
 
         for i in range(MAX_HISTORY_MESSAGES + 5):
             append_message(cid, "user", f"msg {i}")
 
-        _, history = get_or_create_conversation(cid)
+        _, history = get_or_create_conversation(cid, user_email="test@xcelsior.ca")
         assert len(history) == MAX_HISTORY_MESSAGES
 
-    def test_nonexistent_conversation_creates_new(self):
-        cid, history = get_or_create_conversation("nonexistent-id-12345")
-        assert cid == "nonexistent-id-12345"
-        assert history == []
+    def test_nonexistent_conversation_is_not_resumed(self):
+        with pytest.raises(LookupError, match="Conversation not found"):
+            get_or_create_conversation("nonexistent-id-12345", user_email="test@xcelsior.ca")
 
 
 # ── PII Redaction in Chat ─────────────────────────────────────────────
@@ -258,10 +257,10 @@ class TestConversationHistory:
             conn.execute("DELETE FROM chat_conversations")
 
     def test_get_conversation_messages(self):
-        cid, _ = get_or_create_conversation(ip="10.0.0.1")
+        cid, _ = get_or_create_conversation(ip="10.0.0.1", user_email="test@xcelsior.ca")
         append_message(cid, "user", "hello")
         append_message(cid, "assistant", "hi there")
-        msgs = get_conversation_messages(cid)
+        msgs = get_conversation_messages(cid, user_email="test@xcelsior.ca")
         assert msgs is not None
         assert len(msgs) == 2
         assert msgs[0]["role"] == "user"
@@ -270,14 +269,14 @@ class TestConversationHistory:
         assert "timestamp" in msgs[1]
 
     def test_get_conversation_messages_not_found(self):
-        msgs = get_conversation_messages("nonexistent-id")
+        msgs = get_conversation_messages("nonexistent-id", user_email="test@xcelsior.ca")
         assert msgs is None
 
     def test_history_endpoint_returns_messages(self):
         from fastapi.testclient import TestClient
         from api import app
 
-        cid, _ = get_or_create_conversation(ip="10.0.0.1")
+        cid, _ = get_or_create_conversation(ip="10.0.0.1", user_email="chat-history@xcelsior.ca")
         append_message(cid, "user", "what are trust tiers?")
         append_message(cid, "assistant", "Trust tiers are...")
 
@@ -312,7 +311,7 @@ class TestConversationHistory:
         from fastapi.testclient import TestClient
         from api import app
 
-        cid, _ = get_or_create_conversation(ip="10.0.0.1")
+        cid, _ = get_or_create_conversation(ip="10.0.0.1", user_email="chat-empty@xcelsior.ca")
         client = TestClient(app)
         token = client.post(
             "/api/auth/register",
