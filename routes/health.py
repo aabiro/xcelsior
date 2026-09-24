@@ -614,7 +614,9 @@ async def _sse_generator(request: Request, last_event_id: str | None = None):
                 msg = await asyncio.wait_for(queue.get(), timeout=30)
                 event_type = msg.get("event", "message")
                 data = json.dumps(msg.get("data", {}))
-                yield f"event: {event_type}\ndata: {data}\n\n"
+                cursor = msg.get("cursor")
+                id_prefix = f"id: {cursor}\n" if cursor else ""
+                yield f"{id_prefix}event: {event_type}\ndata: {data}\n\n"
             except asyncio.TimeoutError:
                 yield ": keepalive\n\n"
     finally:

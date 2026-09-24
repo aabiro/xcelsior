@@ -41,6 +41,7 @@ export function useEventStream(options: UseEventStreamOptions = {}): {
       return;
     }
 
+    let lastEventId: string | null = null;
     let es: EventSource | null = null;
     let retries = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -50,7 +51,10 @@ export function useEventStream(options: UseEventStreamOptions = {}): {
       if (unmounted) return;
       setStatus(retries > 0 ? "reconnecting" : "connecting");
 
-      es = createEventSource();
+      const url = lastEventId
+        ? `/api/stream?last_event_id=${encodeURIComponent(lastEventId)}`
+        : "/api/stream";
+      es = createEventSource(url);
 
       es.onopen = () => {
         if (unmounted) return;
@@ -60,6 +64,9 @@ export function useEventStream(options: UseEventStreamOptions = {}): {
 
       es.onmessage = (e) => {
         if (unmounted) return;
+        if (e.lastEventId) {
+          lastEventId = e.lastEventId;
+        }
         try {
           const msg = JSON.parse(e.data);
           const eventType: string = msg.event || msg.type || "message";
