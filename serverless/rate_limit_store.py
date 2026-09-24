@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
+import uuid
 
 from cache_keys import cache_key
 
@@ -14,6 +16,25 @@ log = logging.getLogger("xcelsior.serverless.rate_limit")
 
 _REDIS_CLIENT = None
 _REDIS_TRIED = False
+_REDIS_RETRY_AT = 0.0
+_REDIS_LOCK = threading.Lock()
+
+_TAKE_SLOT_LUA = """
+local now = tonumber(ARGV[1])
+local window = tonumber(ARGV[2])
+local limit = tonumber(ARGV[3])
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now - window)
+local count = redis.call('ZCARD', KEYS[1])
+local allowed = 0
+if count < limit then
+    redis.call('ZADD', KEYS[1], now, ARGV[4])
+    redis.call('EXPIRE', KEYS[1], 120)
+    count = count + 1
+    allowed = 1
+end
+local oldest = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
+return {allowed, count, oldest[2]}
+"""
 
 
 def _redis_url() -> str:
@@ -45,38 +66,54 @@ def _redis_timeout_sec() -> float:
 
 
 def _get_redis():
-    global _REDIS_CLIENT, _REDIS_TRIED
-    if _REDIS_TRIED:
-        return _REDIS_CLIENT
-    _REDIS_TRIED = True
+    global _REDIS_CLIENT, _REDIS_TRIED, _REDIS_RETRY_AT
     if not redis_rate_limits_enabled():
         return None
     url = _redis_url()
     if not url:
         return None
-    try:
-        import redis
-
-        timeout = _redis_timeout_sec()
-        # Bounded socket timeouts + a single (non-retrying) attempt so a
-        # Redis hang surfaces quickly instead of blocking the request.
-        _REDIS_CLIENT = redis.from_url(
-            url,
-            decode_responses=True,
-            socket_timeout=timeout,
-            socket_connect_timeout=timeout,
-            retry_on_timeout=False,
-        )
-        _REDIS_CLIENT.ping()
+    if _REDIS_CLIENT is not None:
         return _REDIS_CLIENT
-    except Exception as exc:
-        log.warning("Serverless Redis rate limits unavailable: %s", exc)
-        _REDIS_CLIENT = None
+    if _REDIS_TRIED and time.monotonic() < _REDIS_RETRY_AT:
         return None
+    with _REDIS_LOCK:
+        if _REDIS_CLIENT is not None:
+            return _REDIS_CLIENT
+        if _REDIS_TRIED and time.monotonic() < _REDIS_RETRY_AT:
+            return None
+        _REDIS_TRIED = True
+        client = None
+        try:
+            import redis
+            from redis.backoff import NoBackoff
+            from redis.retry import Retry
+
+            timeout = _redis_timeout_sec()
+            client = redis.from_url(
+                url,
+                decode_responses=True,
+                socket_timeout=timeout,
+                socket_connect_timeout=timeout,
+                retry_on_timeout=False,
+                retry=Retry(NoBackoff(), 0),
+            )
+            client.ping()
+            _REDIS_CLIENT = client
+            _REDIS_RETRY_AT = 0.0
+            return client
+        except Exception as exc:
+            log.warning("Serverless Redis rate limits unavailable: %s", type(exc).__name__)
+            _REDIS_RETRY_AT = time.monotonic() + 5.0
+            if client is not None:
+                try:
+                    client.close()
+                except Exception as close_error:
+                    log.debug("Redis client cleanup failed: %s", type(close_error).__name__)
+            return None
 
 
 def check_key_rate_limit_redis(key_id: str, rpm: int) -> RateLimitInfo | None:
-    """Sliding-window RPM in Redis. Returns None when Redis is not in use."""
+    """Atomic sliding-window admission; None delegates an outage to policy."""
     client = _get_redis()
     if client is None:
         return None
@@ -84,18 +121,20 @@ def check_key_rate_limit_redis(key_id: str, rpm: int) -> RateLimitInfo | None:
     now = time.time()
     # `key_id` is an API key id or a `dashboard-test:{owner_id}` composite,
     # and owner ids are frequently email addresses — companion §5.4 forbids
-    # those in key names, so it is hashed. The zadd/expire pair below runs
-    # in one MULTI, so the TTL is set with the key (§5.4 again).
+    # those in key names, so it is hashed. Lua checks the quota before adding
+    # a unique request member, and sets the TTL in the same atomic operation.
     bucket_key = cache_key("ratelimit", "serverless", secret=str(key_id))
-    window_start = now - 60.0
-    pipe = client.pipeline()
-    pipe.zremrangebyscore(bucket_key, 0, window_start)
-    pipe.zcard(bucket_key)
-    pipe.zadd(bucket_key, {str(now): now})
-    pipe.expire(bucket_key, 120)
-    _, count, _, _ = pipe.execute()
-    reset_at = now + 60.0
-    if int(count) >= limit:
+    from redis.exceptions import RedisError
+
+    try:
+        allowed, count, oldest = client.eval(
+            _TAKE_SLOT_LUA, 1, bucket_key, now, 60.0, limit, uuid.uuid4().hex
+        )
+    except RedisError as exc:
+        log.warning("Serverless Redis rate limit check failed: %s", type(exc).__name__)
+        return None
+    reset_at = float(oldest) + 60.0
+    if not int(allowed):
         raise RateLimitExceeded(RateLimitInfo(limit=limit, remaining=0, reset_at=reset_at))
-    remaining = max(0, limit - int(count) - 1)
+    remaining = max(0, limit - int(count))
     return RateLimitInfo(limit=limit, remaining=remaining, reset_at=reset_at)
