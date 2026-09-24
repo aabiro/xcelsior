@@ -84,7 +84,7 @@ function MessageBubble({
             {onFeedback && (
               <div className="flex items-center gap-1 mt-1.5">
                 <button
-                  onClick={() => onFeedback(msg.id, "up")}
+                  onClick={() => onFeedback(msg.messageId!, "up")}
                   className={`rounded p-0.5 transition-colors ${
                     feedbackGiven === "up"
                       ? "text-green-400"
@@ -95,7 +95,7 @@ function MessageBubble({
                   <ThumbsUp className="h-3 w-3" />
                 </button>
                 <button
-                  onClick={() => onFeedback(msg.id, "down")}
+                  onClick={() => onFeedback(msg.messageId!, "down")}
                   className={`rounded p-0.5 transition-colors ${
                     feedbackGiven === "down"
                       ? "text-red-400"
@@ -207,7 +207,7 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const { messages, isStreaming, error, sendMessage, clearChat, setMessages } = useChatStream();
+  const { messages, isStreaming, error, sendMessage, clearChat, restoreConversation } = useChatStream();
   const lastStreamingAssistantId = isStreaming
     ? [...messages].reverse().find((msg) => msg.role === "assistant")?.id ?? null
     : null;
@@ -285,17 +285,18 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
         const data = await res.json();
         if (data.ok && data.messages?.length) {
           const restored: ChatMessage[] = data.messages.map(
-            (m: { role: string; content: string; timestamp: number }, i: number) => ({
+            (m: { message_id: string; role: string; content: string; timestamp: number }, i: number) => ({
+              messageId: m.message_id,
               id: `hist-${i}`,
               role: m.role as "user" | "assistant",
               content: m.content,
               timestamp: m.timestamp * 1000,
             })
           );
-          setMessages(restored);
+          restoreConversation(convId, restored);
         }
       } else if (res.status === 404) {
-        localStorage.removeItem("xcelsior-chat-conv-id");
+        clearChat();
       }
     } catch {
       // Network error, no-op
@@ -303,7 +304,7 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
       setLoadingHistory(false);
       historyLoadedRef.current = true;
     }
-  }, [messages.length, setMessages]);
+  }, [messages.length, restoreConversation, clearChat]);
 
   useEffect(() => {
     if (open) void fetchHistory();
@@ -353,15 +354,19 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
     void sendMessage(text);
   };
 
-  const handleFeedback = useCallback((msgId: string, vote: "up" | "down") => {
-    setFeedback((prev) => ({ ...prev, [msgId]: vote }));
-    // Fire-and-forget feedback to server
-    fetch("/api/chat/feedback", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message_id: msgId, vote }),
-    }).catch((e) => console.error("Failed to send feedback", e));
+  const handleFeedback = useCallback(async (msgId: string, vote: "up" | "down") => {
+    try {
+      const response = await fetch("/api/chat/feedback", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message_id: msgId, vote }),
+      });
+      if (!response.ok) throw new Error(`Feedback failed (${response.status})`);
+      setFeedback((prev) => ({ ...prev, [msgId]: vote }));
+    } catch (e) {
+      console.error("Failed to send feedback", e);
+    }
   }, []);
 
   const handleTalkToHuman = () => {
@@ -379,20 +384,17 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
         });
         if (res.ok) {
           const data = await res.json();
-          if (data.ok && data.messages?.length) {
+          if (data.ok && Array.isArray(data.messages)) {
             const restored: ChatMessage[] = data.messages.map(
-              (m: { role: string; content: string; timestamp: number }, i: number) => ({
+              (m: { message_id: string; role: string; content: string; timestamp: number }, i: number) => ({
+                messageId: m.message_id,
                 id: `hist-sel-${i}`,
                 role: m.role as "user" | "assistant",
                 content: m.content,
                 timestamp: m.timestamp * 1000,
               })
             );
-            clearChat();
-            setMessages(restored);
-            try {
-              localStorage.setItem("xcelsior-chat-conv-id", conversationId);
-            } catch { /* noop */ }
+            restoreConversation(conversationId, restored);
           }
         }
       } catch {
@@ -401,7 +403,7 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
         setLoadingHistory(false);
       }
     },
-    [clearChat, setMessages]
+    [restoreConversation]
   );
 
   // Mobile swipe-to-dismiss handler
@@ -568,8 +570,8 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
                           key={msg.id}
                           msg={msg}
                           isLastStreaming={msg.id === lastStreamingAssistantId}
-                          onFeedback={msg.role === "assistant" ? handleFeedback : undefined}
-                          feedbackGiven={feedback[msg.id] ?? null}
+                          onFeedback={msg.role === "assistant" && msg.messageId ? handleFeedback : undefined}
+                          feedbackGiven={msg.messageId ? feedback[msg.messageId] ?? null : null}
                         />
                       ))}
                       <div ref={messagesEndRef} />
