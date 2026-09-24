@@ -245,6 +245,173 @@ def test_host_token_readiness_uses_the_real_coverage_query(clean_env):
     assert sv._check_host_token_rotation_readiness() is None
 
 
+# ── B18.1 extended production gates (blueprint §30, companion DA§14.3) ──
+
+
+@pytest.mark.parametrize("bad_backend", ["local", "file", "filesystem"])
+def test_rejects_local_artifact_backend_in_production(clean_env, bad_backend):
+    clean_env.setenv("XCELSIOR_ENV", "production")
+    clean_env.setenv("XCELSIOR_ARTIFACT_BACKEND", bad_backend)
+    findings = [f for f in sv.collect_findings() if f.code == "artifact_backend_local"]
+    assert len(findings) == 1
+    assert findings[0].severity == "error"
+    assert "cloud object storage" in findings[0].message
+
+    # Development allows local artifact storage.
+    clean_env.setenv("XCELSIOR_ENV", "dev")
+    assert "artifact_backend_local" not in _codes(sv.collect_findings())
+
+    # Cloud backends pass in production.
+    clean_env.setenv("XCELSIOR_ENV", "production")
+    for ok_backend in ("s3", "gcs"):
+        clean_env.setenv("XCELSIOR_ARTIFACT_BACKEND", ok_backend)
+        assert "artifact_backend_local" not in _codes(sv.collect_findings())
+
+
+def test_rejects_missing_or_invalid_artifact_backend_in_production(clean_env):
+    clean_env.setenv("XCELSIOR_ENV", "production")
+    clean_env.delenv("XCELSIOR_ARTIFACT_BACKEND", raising=False)
+    clean_env.delenv("XCELSIOR_STORAGE_BACKEND", raising=False)
+    assert "artifact_backend_missing" in _codes(sv.collect_findings())
+
+    clean_env.setenv("XCELSIOR_ARTIFACT_BACKEND", "ftp")
+    assert "artifact_backend_invalid" in _codes(sv.collect_findings())
+
+    clean_env.setenv("XCELSIOR_ARTIFACT_BACKEND", "s3")
+    assert "artifact_backend_missing" not in _codes(sv.collect_findings())
+    assert "artifact_backend_invalid" not in _codes(sv.collect_findings())
+
+
+def test_rejects_memory_auth_cache_in_production(clean_env):
+    clean_env.setenv("XCELSIOR_ENV", "production")
+    clean_env.setenv("XCELSIOR_AUTH_CACHE_BACKEND", "memory")
+    findings = [f for f in sv.collect_findings() if f.code == "auth_cache_memory"]
+    assert len(findings) == 1
+    assert findings[0].severity == "error"
+
+    # Development allows in-memory auth cache.
+    clean_env.setenv("XCELSIOR_ENV", "test")
+    assert "auth_cache_memory" not in _codes(sv.collect_findings())
+
+    # Redis backend passes in production.
+    clean_env.setenv("XCELSIOR_ENV", "production")
+    clean_env.setenv("XCELSIOR_AUTH_CACHE_BACKEND", "redis")
+    assert "auth_cache_memory" not in _codes(sv.collect_findings())
+
+
+def test_rejects_process_local_rate_limiting_in_production(clean_env):
+    clean_env.setenv("XCELSIOR_ENV", "production")
+    clean_env.setenv("XCELSIOR_SHARED_RUNTIME_LIMITS", "false")
+    findings = [f for f in sv.collect_findings() if f.code == "rate_limit_process_local"]
+    assert len(findings) == 1
+    assert findings[0].severity == "error"
+
+    # Re-enabling shared limits resolves the finding.
+    clean_env.setenv("XCELSIOR_SHARED_RUNTIME_LIMITS", "true")
+    assert "rate_limit_process_local" not in _codes(sv.collect_findings())
+
+    # Setting process/memory backend explicitly fails in production.
+    clean_env.setenv("XCELSIOR_RATE_LIMIT_BACKEND", "memory")
+    assert "rate_limit_process_local" in _codes(sv.collect_findings())
+
+    # Redis backend passes.
+    clean_env.setenv("XCELSIOR_RATE_LIMIT_BACKEND", "redis")
+    assert "rate_limit_process_local" not in _codes(sv.collect_findings())
+
+
+def test_rejects_analytics_export_with_incomplete_configuration(clean_env):
+    clean_env.setenv("XCELSIOR_ANALYTICS_EXPORT_ENABLED", "true")
+    findings = [f for f in sv.collect_findings() if f.code == "analytics_configuration_incomplete"]
+    assert len(findings) == 1
+    assert findings[0].severity == "error"
+
+    # Setting all required fields clears the finding.
+    clean_env.setenv("XCELSIOR_ANALYTICS_GCP_PROJECT", "xcelsior-analytics")
+    clean_env.setenv("XCELSIOR_ANALYTICS_BQ_LOCATION", "northamerica-northeast2")
+    clean_env.setenv("XCELSIOR_ANALYTICS_BQ_RAW_DATASET", "xc_raw")
+    clean_env.setenv("XCELSIOR_ANALYTICS_GCS_LANDING_BUCKET", "xcelsior-raw-landing")
+    clean_env.setenv("XCELSIOR_ANALYTICS_WORKLOAD_IDENTITY", "service-account@xcelsior.iam.gserviceaccount.com")
+    assert "analytics_configuration_incomplete" not in _codes(sv.collect_findings())
+
+    # Disabled analytics export produces no findings regardless of empty vars.
+    clean_env.setenv("XCELSIOR_ANALYTICS_EXPORT_ENABLED", "false")
+    clean_env.delenv("XCELSIOR_ANALYTICS_GCP_PROJECT", raising=False)
+    assert "analytics_configuration_incomplete" not in _codes(sv.collect_findings())
+
+
+def test_rejects_retrieval_service_with_incomplete_configuration(clean_env):
+    clean_env.setenv("XCELSIOR_RETRIEVAL_ENABLED", "true")
+    findings = [f for f in sv.collect_findings() if f.code == "retrieval_configuration_incomplete"]
+    assert len(findings) == 1
+    assert findings[0].severity == "error"
+
+    # Fully populated probes and revision clear the finding.
+    clean_env.setenv("XCELSIOR_RETRIEVAL_EMBED_MODEL_PATH", "/models/voyage-3")
+    clean_env.setenv("XCELSIOR_RETRIEVAL_CODE_MODEL_PATH", "/models/voyage-3-code")
+    clean_env.setenv("XCELSIOR_RETRIEVAL_RERANK_MODEL_PATH", "/models/cohere-rerank-v3.5")
+    clean_env.setenv("XCELSIOR_RETRIEVAL_EXPECTED_MODEL_SHA256", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+    clean_env.setenv("XCELSIOR_RETRIEVAL_EXPECTED_DIMENSION", "1024")
+    clean_env.setenv("XCELSIOR_RETRIEVAL_REVISION", "rev-2026h2-v1")
+    assert "retrieval_configuration_incomplete" not in _codes(sv.collect_findings())
+
+    # Disabled retrieval produces no findings.
+    clean_env.setenv("XCELSIOR_RETRIEVAL_ENABLED", "false")
+    clean_env.delenv("XCELSIOR_RETRIEVAL_EMBED_MODEL_PATH", raising=False)
+    assert "retrieval_configuration_incomplete" not in _codes(sv.collect_findings())
+
+
+def test_rejects_insecure_lightning_tls_and_missing_ca_cert(clean_env, tmp_path):
+    clean_env.setenv("XCELSIOR_LN_ENABLED", "true")
+    # Insecure plaintext HTTP URL is rejected.
+    clean_env.setenv("XCELSIOR_LN_CLNREST_URL", "http://127.0.0.1:3010")
+    assert "lightning_tls_insecure" in _codes(sv.collect_findings())
+
+    # Secure HTTPS URL passes the URL check.
+    clean_env.setenv("XCELSIOR_LN_CLNREST_URL", "https://127.0.0.1:3010")
+    assert "lightning_tls_insecure" not in _codes(sv.collect_findings())
+
+    # In production, CA cert is required.
+    clean_env.setenv("XCELSIOR_ENV", "production")
+    clean_env.delenv("XCELSIOR_LN_CA_CERT", raising=False)
+    assert "lightning_ca_cert_missing" in _codes(sv.collect_findings())
+
+    # Non-existent CA cert file is rejected.
+    clean_env.setenv("XCELSIOR_LN_CA_CERT", "/nonexistent/ca.crt")
+    assert "lightning_ca_cert_not_found" in _codes(sv.collect_findings())
+
+    # Valid existing CA cert file passes.
+    cert_file = tmp_path / "cln-ca.crt"
+    cert_file.write_text("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----")
+    clean_env.setenv("XCELSIOR_LN_CA_CERT", str(cert_file))
+    assert "lightning_ca_cert_missing" not in _codes(sv.collect_findings())
+    assert "lightning_ca_cert_not_found" not in _codes(sv.collect_findings())
+
+    # Disabled Lightning produces no findings.
+    clean_env.setenv("XCELSIOR_LN_ENABLED", "false")
+    clean_env.delenv("XCELSIOR_LN_CA_CERT", raising=False)
+    assert "lightning_ca_cert_missing" not in _codes(sv.collect_findings())
+
+
+def test_rejects_secrets_in_plain_env_file_when_secret_manager_is_active(clean_env, tmp_path):
+    clean_env.setenv("XCELSIOR_SECRET_MANAGER", "gcp")
+    env_file = tmp_path / ".env.test"
+    clean_env.setenv("XCELSIOR_ENV_FILE", str(env_file))
+
+    # Clean env file without plaintext secret tokens passes.
+    env_file.write_text("XCELSIOR_ENV=production\nXCELSIOR_BASE_URL=https://xcelsior.ca\n")
+    assert "secrets_in_plain_env_file" not in _codes(sv.collect_findings())
+
+    # Env file with plaintext secrets is rejected.
+    env_file.write_text("XCELSIOR_OAUTH_JWT_SECRET=super-secret-jwt\n")
+    findings = [f for f in sv.collect_findings() if f.code == "secrets_in_plain_env_file"]
+    assert len(findings) == 1
+    assert findings[0].severity == "error"
+
+    # When secret manager is unset/disabled, plain env file is allowed.
+    clean_env.delenv("XCELSIOR_SECRET_MANAGER", raising=False)
+    assert "secrets_in_plain_env_file" not in _codes(sv.collect_findings())
+
+
 # ── Enforcement semantics ─────────────────────────────────────────────
 
 

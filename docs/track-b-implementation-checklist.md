@@ -2214,15 +2214,17 @@ Variables Track B introduces, by group:
   `XCELSIOR_ANALYTICS_GCS_LANDING_BUCKET`,
   `XCELSIOR_ANALYTICS_OUTBOX_BATCH_SIZE`, `XCELSIOR_ANALYTICS_MAX_LAG_SEC`.
 
-- [ ] **B18.1 Extend the production validator** so it additionally rejects
-  (§30, `DA§14.3`): a local artifact backend in production; a memory auth
-  cache; process-local rate limiting; analytics enabled without project,
-  location, bucket, dataset, and workload identity; retrieval enabled
-  without every configured model probe and a registered revision; insecure
-  Lightning TLS; and secrets in plain environment files where the
-  deployment uses a secret manager. Gate: extend
-  `tests/test_startup_validation.py` — each condition driven **on and
-  off**, matching Track A's 26-test pattern.
+- [x] **B18.1 Extend the production validator** (completed 2026-09-24, §30, `DA§14.3`).
+  `control_plane/startup_validation.py` extended to enforce production invariants:
+  - rejects local artifact storage (`artifact_backend_local`, requiring `s3` or `gcs`);
+  - rejects in-memory auth caching (`auth_cache_memory`, requiring `redis`);
+  - rejects process-local rate limiting (`rate_limit_process_local`, requiring shared limits and `redis`);
+  - rejects analytics export without full GCP project, BQ location, dataset, GCS landing bucket, and workload identity (`analytics_configuration_incomplete`);
+  - rejects retrieval model service without all 3 model paths, SHA256, verified dimension, and registered revision (`retrieval_configuration_incomplete`);
+  - rejects insecure Lightning TLS (`lightning_tls_insecure` for HTTP, `lightning_ca_cert_missing` in production, `lightning_ca_cert_not_found`);
+  - rejects plaintext secrets in environment files when a secret manager is active (`secrets_in_plain_env_file`).
+  Every variable mapped in `docker-compose.yml` (`x-api-environment`) and documented in `.env.example`.
+  Gate: `tests/test_startup_validation.py` (41 tests, driving each condition on and off) and `tests/test_startup_env_is_wired.py` (6 tests) clean. ✔
 
 ---
 
@@ -2345,7 +2347,7 @@ production cannot start on SQLite or dual backends.
   (**B5.13, B8.4**).
 - [ ] Hard runtime, storage, identity, and capacity requirements never
   silently fall back (**§B0.3 rule 15**, proven per item).
-- [ ] Production cannot start on JSON-file state (**B9.3c, B18.1**).
+- [x] Production cannot start on JSON-file state (**B9.3c, B18.1**).
 - [ ] PostgreSQL and Redis backup, restore, failover, and capacity
   procedures are tested (**B8.8, B8.9, B14.5**).
 - [ ] Nginx public, MCP, and agent boundaries are explicit and tested
