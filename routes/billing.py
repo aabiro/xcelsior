@@ -12,7 +12,7 @@ import env_config
 from money import cad_to_micros, micros_to_cad
 import uuid
 from datetime import datetime, timezone
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
@@ -834,60 +834,61 @@ def api_usage_summary(
     return {"ok": True, **summary}
 
 
+def _invoice_period(period_start: float, period_end: float) -> tuple[float, float]:
+    period_end = period_end or time.time()
+    period_start = period_start or max(0, period_end - 30 * 86400)
+    if period_start >= period_end:
+        raise HTTPException(status_code=422, detail="period_start must be before period_end")
+    return period_start, period_end
+
+
 @router.get("/api/billing/invoice/{customer_id}", tags=["Billing"])
 def api_generate_invoice(
     customer_id: str,
     request: Request,
     customer_name: str = "",
-    period_start: float = 0,
-    period_end: float = 0,
-    tax_rate: float = 0.13,
+    period_start: float = Query(0, ge=0, le=253402300799, allow_inf_nan=False),
+    period_end: float = Query(0, ge=0, le=253402300799, allow_inf_nan=False),
+    tax_rate: float = Query(0.13, ge=0, le=1, allow_inf_nan=False),
 ):
-    """Generate an invoice for a billing period, itemised by job."""
+    """Preview an itemized draft invoice without persisting a billing record."""
     _require_customer_access(request, customer_id)
-    if period_end == 0:
-        period_end = time.time()
-    if period_start == 0:
-        period_start = period_end - 30 * 86400
+    period_start, period_end = _invoice_period(period_start, period_end)
     be = get_billing_engine()
-    invoice = be.generate_invoice(customer_id, customer_name, period_start, period_end, tax_rate)
+    invoice = be.generate_invoice(
+        customer_id, customer_name, period_start, period_end, tax_rate, persist=False
+    )
     return {"ok": True, "invoice": invoice.to_dict()}
 
 
 @router.get("/api/billing/invoices/{customer_id}", tags=["Billing"])
 def api_list_invoices(customer_id: str, request: Request, limit: int = Query(12, ge=1, le=1000)):
-    """List past invoices for a customer (monthly summaries).
-
-    Generates monthly invoice stubs for the last N months showing
-    total spend, tax, job count, and top GPUs used.
-    """
+    """Preview usage summaries for the current and preceding UTC calendar months."""
     _require_customer_access(request, customer_id)
     be = get_billing_engine()
-    now = time.time()
+    month = datetime.fromtimestamp(time.time(), timezone.utc).replace(
+        day=1, hour=0, minute=0, second=0, microsecond=0
+    )
     invoices = []
-    for i in range(limit):
-        period_end = now - (i * 30 * 86400)
-        period_start = period_end - 30 * 86400
-        try:
-            inv = be.generate_invoice(customer_id, "", period_start, period_end, 0.13)
-            inv_dict = inv.to_dict()
-            # Only include months with actual usage
-            if inv_dict.get("subtotal_cad", 0) > 0 or inv_dict.get("line_items"):
-                invoices.append(
-                    {
-                        "invoice_id": inv_dict.get("invoice_id") or f"INV-{customer_id[:8]}-{i+1:03d}",
-                        "period_start": period_start,
-                        "period_end": period_end,
-                        "total_cad": inv_dict.get("total_cad", 0),
-                        "subtotal_cad": inv_dict.get("subtotal_cad", 0),
-                        "tax_cad": inv_dict.get("tax_amount_cad", 0),
-                        "tax_rate": inv_dict.get("tax_rate", 0.13),
-                        "line_items": len(inv_dict.get("line_items", [])),
-                        "status": inv_dict.get("status", "paid"),
-                    }
-                )
-        except Exception as e:
-            log.debug("invoice formatting failed: %s", e)
+    for _ in range(limit):
+        next_month = month.replace(year=month.year + 1, month=1) if month.month == 12 else month.replace(month=month.month + 1)
+        period_start, period_end = month.timestamp(), next_month.timestamp()
+        inv = be.generate_invoice(customer_id, "", period_start, period_end, 0.13, persist=False)
+        if inv.line_items:
+            invoices.append(
+                {
+                    "invoice_id": inv.invoice_id,
+                    "period_start": period_start,
+                    "period_end": period_end,
+                    "total_cad": inv.total_cad,
+                    "subtotal_cad": inv.subtotal_cad,
+                    "tax_cad": inv.tax_amount_cad,
+                    "tax_rate": inv.tax_rate,
+                    "line_items": len(inv.line_items),
+                    "status": inv.status,
+                }
+            )
+        month = month.replace(year=month.year - 1, month=12) if month.month == 1 else month.replace(month=month.month - 1)
     return {"ok": True, "invoices": invoices, "count": len(invoices)}
 
 
@@ -895,59 +896,54 @@ def api_list_invoices(customer_id: str, request: Request, limit: int = Query(12,
 def api_download_invoice(
     customer_id: str,
     request: Request,
-    format: str = "csv",
-    period_start: float = 0,
-    period_end: float = 0,
-    tax_rate: float = 0.13,
+    format: Literal["csv", "txt"] = "csv",
+    period_start: float = Query(0, ge=0, le=253402300799, allow_inf_nan=False),
+    period_end: float = Query(0, ge=0, le=253402300799, allow_inf_nan=False),
+    tax_rate: float = Query(0.13, ge=0, le=1, allow_inf_nan=False),
     customer_name: str = "",
 ):
-    """Download an invoice as CSV or plain-text PDF-style document.
+    """Download a draft invoice as CSV or a plain-text receipt.
 
     Formats: csv (spreadsheet-ready), txt (printable receipt).
     """
     _require_customer_access(request, customer_id)
     import io
     import csv as csv_mod
-    from datetime import datetime
-
-    if period_end == 0:
-        period_end = time.time()
-    if period_start == 0:
-        period_start = period_end - 30 * 86400
+    period_start, period_end = _invoice_period(period_start, period_end)
 
     be = get_billing_engine()
-    inv = be.generate_invoice(customer_id, customer_name, period_start, period_end, tax_rate)
-    inv_dict = inv.to_dict()
-    date_str = datetime.utcfromtimestamp(period_end).strftime("%Y-%m-%d")
+    inv = be.generate_invoice(
+        customer_id, customer_name, period_start, period_end, tax_rate, persist=False
+    )
+    date_str = datetime.fromtimestamp(period_end, timezone.utc).strftime("%Y-%m-%d")
 
     if format == "csv":
         output = io.StringIO()
         writer = csv_mod.writer(output)
-        writer.writerow(["Xcelsior Invoice", f"INV-{customer_id[:8]}", date_str])
+        writer.writerow(["Xcelsior Invoice", inv.invoice_id, date_str])
         writer.writerow([])
-        writer.writerow(["Description", "GPU", "Duration (h)", "Rate (CAD/h)", "Amount (CAD)"])
-        for item in inv_dict.get("line_items", []):
+        writer.writerow(["Description", "GPU", "Quantity", "Unit", "Rate (CAD/unit)", "Amount (CAD)"])
+        for item in inv.line_items:
             writer.writerow(
                 [
-                    item.get("description", "Compute"),
-                    item.get("gpu_model", "—"),
-                    round(item.get("duration_hours", 0), 2),
-                    round(item.get("rate_cad_per_hour", 0), 2),
-                    round(item.get("amount_cad", 0), 2),
+                    item["description"],
+                    item["gpu_model"],
+                    f"{item['quantity']:.4f}",
+                    item["unit"],
+                    f"{item['unit_price_cad']:.6f}",
+                    f"{item['subtotal_cad']:.6f}",
                 ]
             )
         writer.writerow([])
-        writer.writerow(["Subtotal", "", "", "", round(inv_dict.get("total_compute_cad", 0), 2)])
-        writer.writerow(["Tax", "", "", "", round(inv_dict.get("tax_cad", 0), 2)])
-        writer.writerow(
-            ["Total (CAD)", "", "", "", round(inv_dict.get("total_with_tax_cad", 0), 2)]
-        )
+        writer.writerow(["Subtotal", "", "", "", "", f"{inv.subtotal_cad:.2f}"])
+        writer.writerow(["Tax", "", "", "", "", f"{inv.tax_amount_cad:.2f}"])
+        writer.writerow(["Total (CAD)", "", "", "", "", f"{inv.total_cad:.2f}"])
         csv_data = output.getvalue()
         return StreamingResponse(
             iter([csv_data]),
             media_type="text/csv",
             headers={
-                "Content-Disposition": f"attachment; filename=xcelsior-invoice-{customer_id[:8]}-{date_str}.csv"
+                "Content-Disposition": f"attachment; filename=xcelsior-invoice-{inv.invoice_id}.csv"
             },
         )
 
@@ -956,27 +952,24 @@ def api_download_invoice(
         "=" * 60,
         "XCELSIOR — GPU COMPUTE INVOICE",
         "=" * 60,
-        f"Invoice ID:  INV-{customer_id[:8]}",
+        f"Invoice ID:  {inv.invoice_id}",
+        f"Status:      {inv.status}",
         f"Customer:    {customer_name or customer_id}",
         f"Date:        {date_str}",
-        f"Period:      {datetime.utcfromtimestamp(period_start).strftime('%Y-%m-%d')} to {date_str}",
-        "-" * 60,
-        f"{'Description':<25} {'GPU':<12} {'Hours':>6} {'Rate':>8} {'Amount':>10}",
+        f"Period:      {datetime.fromtimestamp(period_start, timezone.utc).strftime('%Y-%m-%d')} to {date_str} (end exclusive)",
         "-" * 60,
     ]
-    for item in inv_dict.get("line_items", []):
-        lines.append(
-            f"{item.get('description', 'Compute')[:25]:<25} "
-            f"{item.get('gpu_model', '—')[:12]:<12} "
-            f"{item.get('duration_hours', 0):>6.2f} "
-            f"${item.get('rate_cad_per_hour', 0):>7.2f} "
-            f"${item.get('amount_cad', 0):>9.2f}"
-        )
+    for item in inv.line_items:
+        lines.extend([
+            item["description"],
+            f"  {item['quantity']:.4f} {item['unit']} at "
+            f"${item['unit_price_cad']:.6f}/unit: ${item['subtotal_cad']:.6f} CAD",
+        ])
     lines += [
         "-" * 60,
-        f"{'Subtotal':<55} ${inv_dict.get('total_compute_cad', 0):>8.2f}",
-        f"{'Tax (' + str(round(tax_rate*100, 1)) + '%)':<55} ${inv_dict.get('tax_cad', 0):>8.2f}",
-        f"{'TOTAL (CAD)':<55} ${inv_dict.get('total_with_tax_cad', 0):>8.2f}",
+        f"Subtotal: ${inv.subtotal_cad:.2f}",
+        f"Tax ({inv.tax_rate * 100:g}%): ${inv.tax_amount_cad:.2f}",
+        f"TOTAL (CAD): ${inv.total_cad:.2f}",
         "",
         "=" * 60,
         "Xcelsior Inc. | xcelsior.ca | Built in Canada 🍁",
@@ -987,7 +980,7 @@ def api_download_invoice(
         content="\n".join(lines),
         media_type="text/plain",
         headers={
-            "Content-Disposition": f"attachment; filename=xcelsior-invoice-{customer_id[:8]}-{date_str}.txt"
+            "Content-Disposition": f"attachment; filename=xcelsior-invoice-{inv.invoice_id}.txt"
         },
     )
 

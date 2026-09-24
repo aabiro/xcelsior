@@ -86,6 +86,9 @@
     "vitest": "^4.1.2"
   },
   "overrides": {
+    "@serwist/next": {
+      "browserslist": "^4.28.7"
+    },
     "axios": "^1.18.1",
     "esbuild": "$esbuild",
     "postcss": "^8.5.19",
