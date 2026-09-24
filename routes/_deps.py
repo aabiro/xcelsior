@@ -347,7 +347,7 @@ def _deliver_notifications(event_type: str, data: dict):
         log.debug("Notification delivery error: %s", e)
 
 
-def broadcast_sse(event_type: str, data: dict):
+def broadcast_sse(event_type: str, data: dict, *, cursor: str | None = None):
     """Push an event to all connected SSE clients."""
     message = {
         "event": event_type,
@@ -355,6 +355,8 @@ def broadcast_sse(event_type: str, data: dict):
         "timestamp": time.time(),
         "message": _sse_message_text(event_type, data),
     }
+    if cursor is not None:
+        message["cursor"] = str(cursor)
     with _sse_lock:
         dead = []
         for q in _sse_subscribers:
