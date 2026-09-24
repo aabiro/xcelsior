@@ -45,6 +45,7 @@ from scheduler import (
     log,
     storage_healthcheck,
 )
+import metrics_catalog  # noqa: F401
 
 router = APIRouter()
 _projection_metrics_last_success_timestamp = 0.0

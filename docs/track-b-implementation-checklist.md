@@ -1112,15 +1112,16 @@ domain-state half of §25.1 exists.
   remain as a trace UI during transition). Gate: a compose validation job;
   every service exports to the collector; a synthetic trace is retrievable
   in Tempo.
-- [ ] **B7.2 Structured logging** (`DA§9.2`, §24.1). `structlog` JSON logs
+- [x] **B7.2 Structured logging** (2026-07-28, `DA§9.2`, §24.1). `structlog` JSON logs
   everywhere with timestamp, severity, environment, service, build,
   trace/span, tenant pseudonym where approved, job/attempt/lease/command/
   action ids, error code, and retryability. A **central redaction library**
   removes tokens, secrets, signed URLs, authorization headers, environment
   values, prompt bodies, and private host addresses. Track A's
   `setup_logging` already degrades to console on an unwritable path —
-  preserve that. Gate: a test that pipes known secrets through every log
-  helper and asserts none survive.
+  preserved and verified. Gate: `tests/test_structured_logging.py` (54 tests
+  piping known secrets across all helpers and asserting zero survive; metadata,
+  OTel trace context, and contextvars verified) and `tests/test_log_scrubbing_stays_linear.py`. ✔
 - [ ] **B7.3 Trace propagation** (§25.2, `DA§9.3`). W3C context across
   `MCP tool → API action plan → job/outbox → scheduler attempt → worker
   command → agent start → status/ACK → billing/event`, plus artifact
@@ -1129,7 +1130,7 @@ domain-state half of §25.1 exists.
   preserves errors, destructive MCP operations, slow placements, lease
   conflicts, and reconciliation failures. Gate: an end-to-end trace
   assembled in CI from a real launch.
-- [ ] **B7.4 Metrics catalog** (§25.3, `DA§9.1`). Scheduler: queue depth
+- [x] **B7.4 Metrics catalog** (2026-07-28, §25.3, `DA§9.1`). Scheduler: queue depth
   and age by class/model/region, claim latency and expiry, filter
   rejections by reason, placement duration and conflict retries,
   **allocation constraint violations (must stay zero)**, preemption plans
@@ -1144,8 +1145,8 @@ domain-state half of §25.1 exists.
   Redis, artifact, outbox, retrieval, and BigQuery indicators.
   **High-cardinality ids (`job_id`, `user_id`, prompt hash, artifact id,
   raw error text) never become metric labels** — they belong in logs and
-  traces. Gate: a metric-registry test failing on a label whose
-  cardinality class is unbounded.
+  traces. Gate: `tests/test_metrics_catalog.py` (62 tests failing on any unbounded
+  cardinality label, negative canary tested, full catalog registered and exposed via `/metrics/prometheus`). ✔
 - [ ] **B7.5 SLOs, error budgets, and alerts** (§25.4, `DA§17`). Encode the
   §25.4 table — four hard invariants at zero (duplicate active exclusive
   allocation; start accepted without valid current attempt/lease/fence;
