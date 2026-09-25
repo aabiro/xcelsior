@@ -16,7 +16,7 @@ import {
 import {
   fetchInstance, cancelInstance, requeueInstance,
   stopInstance, startInstance, restartInstance, terminateInstance, renameInstance,
-  fetchPlacementExplanation, fetchInstanceTimeline, fetchActiveLease,
+  fetchPlacementExplanation, fetchInstanceTimeline, fetchActiveLease, apiFetch
 } from "@/lib/api";
 // Aliased: the API response type and the component that renders it share a
 // name, and importing both unaliased shadows one silently.
@@ -27,6 +27,8 @@ import type {
   ActiveLease,
 } from "@/lib/api";
 import { ArtifactRetentionCard } from "@/components/instances/artifact-retention-card";
+import { DesiredObservedBadge } from "@/components/instances/desired-observed-badge";
+import { CostMeterCard } from "@/components/instances/cost-meter-card";
 import { toast } from "sonner";
 import { HostKeyVerification } from "@/components/instances/host-key-verification";
 import { PlacementExplanation } from "@/components/instances/placement-explanation";
@@ -412,6 +414,20 @@ export default function InstanceDetailPage() {
     }
   }
 
+  async function handleReconcile() {
+    if (!instance?.job_id) return;
+    setActionPending(true);
+    try {
+      await apiFetch(`/api/v1/instances/${instance.job_id}/reconcile`, { method: "POST" });
+      toast.success("Reconciliation requested");
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Reconcile failed");
+    } finally {
+      setActionPending(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="space-y-6">
@@ -592,6 +608,12 @@ export default function InstanceDetailPage() {
               <RotateCcw className="h-3.5 w-3.5" /> {t("dash.instances.requeue")}
             </Button>
           )}
+          {/* Reconcile for non-terminal instances */}
+          {!isTerminal && !readOnly && (
+            <Button variant="outline" size="sm" onClick={handleReconcile} disabled={actionPending}>
+              <RefreshCw className="h-3.5 w-3.5" /> Reconcile
+            </Button>
+          )}
         </div>
       </div>
 
@@ -693,7 +715,22 @@ export default function InstanceDetailPage() {
             <AttemptTimeline attempts={attempts} lease={lease} />
           </div>
         )}
+        
+        <div className="mt-4 border-t border-border pt-4 flex flex-col gap-4">
+          <div>
+            <h3 className="mb-2 text-xs font-semibold text-text-secondary">
+              State Synchronization
+            </h3>
+            <DesiredObservedBadge 
+              jobStatus={status} 
+              activeAttemptStatus={attempts.find(a => ["starting", "running", "assigned", "leased"].includes(a.status))?.status || null} 
+              leaseStatus={lease?.status || null} 
+            />
+          </div>
+        </div>
       </Card>
+
+      <CostMeterCard instance={instance} />
 
       {/* Spot preemption banner */}
       {showPreemptionBanner && (
