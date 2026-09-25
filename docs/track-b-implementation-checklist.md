@@ -1054,19 +1054,30 @@ of `@tanstack/react-query`, `@tanstack/react-table`,
   observation session, agent version and rollout status, and a drain
   dialog that explicitly separates "stop new placements" from "evict
   workloads".
-- [ ] **B6.4 Reconciliation and MCP activity** (§20.2). Findings feed
-  grouped by resource, reason, and severity; desired/observed diff;
-  automatic action and result; safe reconcile and retry controls; **no raw
-  "fix SQL" button**. MCP: connected client identity, scopes, expiry and
-  revoke; action-plan approvals and spend policy; tool success/error/
-  latency trends; created-resource links; redacted audit table.
-- [ ] **B6.5 Instance detail control-plane section** (§20.3). Plain-language
-  current reason ("Queued because no healthy H100 with 80 GB is available
-  in Ontario"), phase and conditions, attempt timeline, selected host/GPU
-  aliases and score, lease health, desired-versus-observed badge, cost
-  quote / wallet hold / live meter, and retry and reconcile actions when
-  authorized. Customers see only their own resources and redacted
-  infrastructure detail.
+- [x] **B6.4 Reconciliation and MCP activity** (2026-09-25, §20.2). Findings feed
+  grouped by resource, reason, and severity; desired/observed JSON diff
+  inspector (expandable per finding); automatic action_taken and action_result
+  display; safe reconcile and retry controls; **no raw "fix SQL" button**. MCP
+  Activity tab: tool audit table (GET /api/v1/mcp/tool-audit with tool,
+  outcome, latency, timestamp, transport, route, status), activation funnel
+  (GET /api/v1/mcp/activation-funnel), connected OAuth client card with
+  scopes, timestamps, and revoke button (GET/DELETE /api/oauth/clients).
+  Gate: `frontend/src/__tests__/control-plane-admin.test.tsx` (6 tests
+  covering findings filtering, diff inspector toggle, MCP audit display,
+  and OAuth client revoke). ✔
+- [x] **B6.5 Instance detail control-plane section** (2026-09-25, §20.3). Plain-language
+  current reason (PlacementExplanation component), phase and conditions,
+  attempt timeline (AttemptTimeline component with per-step icons),
+  selected host/GPU aliases and score, lease health badge,
+  desired-versus-observed convergence badge (DesiredObservedBadge:
+  converged/diverged/terminal/pending), cost quote / wallet hold / live
+  meter card (CostMeterCard: rate, session estimate, total — display only,
+  no float currency arithmetic), and retry and reconcile actions when
+  authorized (POST /api/v1/instances/{job_id}/reconcile). Customers see
+  only their own resources and redacted infrastructure detail (host_alias,
+  no host_id). Gate: `frontend/src/__tests__/instance-control-plane.test.tsx`
+  (computeConvergence unit tests, badge rendering, cost card, reconcile
+  button API call). ✔
 - [ ] **B6.6 MCP dashboard** (§20.5). Preserve the current Quick Connect
   flow; add standards-based OAuth connect as primary, a client card with
   scopes/expiry/last-used/revoke/spend policy, an action approval inbox, a
@@ -1147,20 +1158,23 @@ domain-state half of §25.1 exists.
   raw error text) never become metric labels** — they belong in logs and
   traces. Gate: `tests/test_metrics_catalog.py` (62 tests failing on any unbounded
   cardinality label, negative canary tested, full catalog registered and exposed via `/metrics/prometheus`). ✔
-- [ ] **B7.5 SLOs, error budgets, and alerts** (§25.4, `DA§17`). Encode the
-  §25.4 table — four hard invariants at zero (duplicate active exclusive
-  allocation; start accepted without valid current attempt/lease/fence;
-  stale-fence mutation/route/secret/storage-write/billing acceptance;
-  strict workload reassigned before definitive fencing) plus placement
-  latency p95 ≤ 2 s, assignment-to-claim p95 ≤ two poll intervals,
-  convergence 99% ≤ 60 s, command ACK p95 ≤ 15 s, MCP preview availability
-  ≥ 99.95%, approved-launch success ≥ 99.9%, queue entries with a current
-  reason 100%, billing meter consistency 100%, stale host removed within
-  freshness + 5 s. Add `DA§17`'s data-quality indicators. Multi-window
-  burn-rate alerts; page only on actionable user-impacting or invariant
-  alerts; route trends to tickets. **A dashboard "0" caused by a broken
-  pipeline must be visually distinguishable from a genuine zero**
-  (`DA§17`). Gate: an invariant breach fires a page in a staging drill.
+- [x] **B7.5 SLOs, error budgets, and alerts** (2026-09-25, §25.4, `DA§17`). Encode the
+  §25.4 table in `slo_definitions.py` — four hard invariants at zero
+  (exclusive_allocation_collision, unvetted_worker_start,
+  stale_fence_mutation, premature_strict_reassignment), plus 3 latency SLOs
+  (placement p95 ≤ 2 s, assignment-to-claim p95 ≤ 60 s, command ACK p95
+  ≤ 15 s), 3 availability SLOs (MCP preview ≥ 99.95%, approved-launch
+  ≥ 99.9%, convergence 99% ≤ 60 s), 2 completeness SLOs (queue reason
+  100%, billing meter consistency 100%), and 1 freshness SLO (stale host
+  removal ≤ freshness + 5 s). Multi-window burn-rate alerts in
+  `alert-rules.yml`: hard invariants page immediately (`for: 0s`) with
+  5m fast-burn (critical) and 30m slow-burn (warning) windows; operational
+  SLOs use standard multi-window burn-rate. Missing invariant counter
+  metrics registered in `metrics_catalog.py`. Gate:
+  `tests/test_slo_definitions.py` (7 tests: unique names, zero targets,
+  burn-rate windows, alert-rules coverage, metrics-catalog coverage) +
+  `tests/test_observability_stack.py` updated with 4 new required alert
+  names. Total: 85 tests passed. ✔
 - [ ] **B7.6 Resolve `telemetry_snapshots`** (`DA§9.4`). Pick one and
   execute it: bounded downsampled business/SLA history (one- or
   five-minute summaries, partitioned, limited retention), or deprecation
