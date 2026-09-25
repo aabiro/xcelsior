@@ -2035,7 +2035,14 @@ def start_pg_listen(callback, channel="xcelsior_events", *, stop_event=None):
     if DB_BACKEND not in ("postgres", "dual"):
         # SQLite mode: register callback directly as in-memory listener
         def _adapter(event):
-            callback(event.get("type", "message"), event.get("data", {}))
+            cursor = event.get("cursor")
+            try:
+                if cursor:
+                    callback(event.get("type", "message"), event.get("data", {}), cursor=cursor)
+                else:
+                    callback(event.get("type", "message"), event.get("data", {}))
+            except TypeError:
+                callback(event.get("type", "message"), event.get("data", {}))
 
         event_bus.add_listener(_adapter)
         log.info("PgEventBus: registered in-memory listener (SQLite mode)")
@@ -2073,10 +2080,16 @@ def start_pg_listen(callback, channel="xcelsior_events", *, stop_event=None):
                     for notify in gen:
                         try:
                             payload = json.loads(notify.payload)
-                            callback(
-                                payload.get("type", "message"),
-                                payload.get("data", {}),
-                            )
+                            event_type = payload.get("type", "message")
+                            event_data = payload.get("data", {})
+                            cursor = payload.get("cursor")
+                            try:
+                                if cursor:
+                                    callback(event_type, event_data, cursor=cursor)
+                                else:
+                                    callback(event_type, event_data)
+                            except TypeError:
+                                callback(event_type, event_data)
                         except (json.JSONDecodeError, AttributeError):
                             pass
                         break  # One notification per select cycle; re-check

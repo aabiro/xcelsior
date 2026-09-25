@@ -6,6 +6,7 @@ const apiMocks = vi.hoisted(() => ({
   fetchWallet: vi.fn(),
   fetchWalletHistory: vi.fn(),
   fetchInvoices: vi.fn(),
+  downloadInvoice: vi.fn(),
   fetchUsageSummary: vi.fn(),
   fetchReservedPlans: vi.fn(),
   fetchPaymentMethods: vi.fn(),
@@ -316,5 +317,36 @@ describe("BillingPage free credits flow", () => {
     expect(screen.getByText("Lightning Network")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /deposit btc/i })).toBeEnabled();
     expect(screen.getByRole("button", { name: /deposit via lightning/i })).toBeEnabled();
+  });
+
+  it("displays Unix-second invoice periods and downloads those exact periods", async () => {
+    const periodStart = Date.UTC(2024, 1, 1) / 1000;
+    const periodEnd = Date.UTC(2024, 2, 1) / 1000;
+    apiMocks.fetchInvoices.mockResolvedValue({ ok: true, invoices: [{
+      invoice_id: "DRAFT-february", period_start: periodStart, period_end: periodEnd,
+      subtotal_cad: 12.5, tax_cad: 1.63, total_cad: 14.13, tax_rate: 0.13,
+      line_items: 1, status: "draft",
+    }] });
+    apiMocks.downloadInvoice.mockResolvedValue(new Blob(["invoice"], { type: "text/csv" }));
+    const createUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:invoice");
+    const revokeUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    try {
+      render(<BillingPage />);
+      const month = new Date(periodStart * 1000).toLocaleDateString("en-CA", {
+        year: "numeric", month: "short", timeZone: "UTC",
+      });
+      expect(await screen.findByText(month, { exact: true })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Download invoice DRAFT-february" }));
+      await waitFor(() => expect(apiMocks.downloadInvoice).toHaveBeenCalledWith(
+        "cust-1", "csv", periodStart, periodEnd, 0.13,
+      ));
+      await waitFor(() => expect(click).toHaveBeenCalledOnce());
+      expect(revokeUrl).toHaveBeenCalledWith("blob:invoice");
+    } finally {
+      createUrl.mockRestore();
+      revokeUrl.mockRestore();
+      click.mockRestore();
+    }
   });
 });

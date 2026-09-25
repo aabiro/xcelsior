@@ -205,6 +205,10 @@ def test_alert_rules_cover_required_failure_modes_and_are_actionable():
         "XcelsiorProjectionDeadLetters",
         "XcelsiorControlPlaneMetricsMissing",
         "XcelsiorControlPlaneMetricsStale",
+        "XcelsiorInvariantExclusiveAllocationCollision",
+        "XcelsiorInvariantUnvettedWorkerStart",
+        "XcelsiorInvariantStaleFenceMutation",
+        "XcelsiorInvariantPrematureStrictReassignment",
     }
     assert required <= alerts.keys()
     for name, rule in alerts.items():

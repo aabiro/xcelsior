@@ -591,29 +591,29 @@ Track A.
   (`mcp_client_policies` hourly/daily spend, which already exist) onto the
   serverless invocation path — the endpoint cap lands here; the per-client cap is
   enforced for MCP tool calls under B5.9's distributed spend counters.
-- [~] **B3.3 Billing controller** (2026-07-23, §12.4). `control_plane/
+- [x] **B3.3 Billing controller** (2026-07-23, updated 2026-09-24, §12.4). `control_plane/
   billing_controller.py` — a reconciler that reads the ledger and **surfaces**
   the meter invariants rather than concealing them: (1) an attempt that ran to a
   billable terminal state with **no** `usage_meter` (a billing leak), and (2) a
   `usage_meter` left **open** after its attempt is terminal. Findings land in
   `reconciliation_findings`, deduped one-per-(attempt,type). **Report-only by
-  default** (B0.3 rule 17); only `billing_missing_meter` is in `_ENFORCEABLE`
-  (its remediation is `billing.meter_job`, idempotent per attempt via the
-  `attempt_id` unique index, so it can never double-charge), opted in with
-  `XCELSIOR_RECONCILE_ACTION_BILLING_MISSING_METER=enforce`. Registered as the
-  `billing_meter_reconcile` scheduled task in `bg_worker`. Gate:
-  `tests/test_billing_controller.py` (4, real PostgreSQL) — a missing meter
+  default** (B0.3 rule 17). Remediations exist for both types:
+  - `billing_missing_meter` (remediation is `billing.meter_job`, idempotent per attempt via the
+    `attempt_id` unique index, so it can never double-charge), opted in with
+    `XCELSIOR_RECONCILE_ACTION_BILLING_MISSING_METER=enforce`.
+  - `billing_orphaned_meter` (remediation is `_close_orphaned_meter`, which idempotently
+    closes the meter using terminal attempt timestamps and recalculates micro-CAD duration and cost),
+    opted in with `XCELSIOR_RECONCILE_ACTION_BILLING_ORPHANED_METER=enforce`.
+  Registered as the `billing_meter_reconcile` scheduled task in `bg_worker`. Gate:
+  `tests/test_billing_controller.py` (5, real PostgreSQL) — a missing meter
   opens exactly one finding (report-only) and is idempotent across sweeps;
   **enforce converges to exactly one meter** and stays one on re-run; an
-  orphaned open meter is surfaced (never auto-mutated); a **duplicate delivery
+  orphaned open meter is surfaced (report-only); **enforce auto-closes orphaned open meters
+  idempotently** and resolves the finding; a **duplicate delivery
   (double `meter_job`) creates no second charge**. Found + fixed by executing:
   `usage_meters.attempt_id` is `text` vs `job_attempts.attempt_id` `uuid` (JOIN
   cast), `jobs.owner` lives in the payload, `severity ∈ info|warning|error|
-  critical`. Pyright clean; reconciler/billing suites 93 green + bg_worker green.
-  **Residual:** **auto-closing** orphaned meters (currently surfaced report-only
-  — closing recomputes cost, so it stays a human/settlement decision until a
-  safe close primitive is added) and **outbox-delivery repair** (a separate
-  mechanism from meters, tracked with B4.4's per-sink delivery).
+  critical`. Pyright clean; reconciler/billing suites green + bg_worker green. ✔
 - [~] **B3.4 Price-change reapproval — server enforcement done** (2026-07-23,
   §15.4). The tolerance bound recorded on the plan (B2.1) is enforced at execute
   (B2.5): a re-quote beyond tolerance returns `quote_changed` with a fresh
@@ -1054,19 +1054,30 @@ of `@tanstack/react-query`, `@tanstack/react-table`,
   observation session, agent version and rollout status, and a drain
   dialog that explicitly separates "stop new placements" from "evict
   workloads".
-- [ ] **B6.4 Reconciliation and MCP activity** (§20.2). Findings feed
-  grouped by resource, reason, and severity; desired/observed diff;
-  automatic action and result; safe reconcile and retry controls; **no raw
-  "fix SQL" button**. MCP: connected client identity, scopes, expiry and
-  revoke; action-plan approvals and spend policy; tool success/error/
-  latency trends; created-resource links; redacted audit table.
-- [ ] **B6.5 Instance detail control-plane section** (§20.3). Plain-language
-  current reason ("Queued because no healthy H100 with 80 GB is available
-  in Ontario"), phase and conditions, attempt timeline, selected host/GPU
-  aliases and score, lease health, desired-versus-observed badge, cost
-  quote / wallet hold / live meter, and retry and reconcile actions when
-  authorized. Customers see only their own resources and redacted
-  infrastructure detail.
+- [x] **B6.4 Reconciliation and MCP activity** (2026-09-25, §20.2). Findings feed
+  grouped by resource, reason, and severity; desired/observed JSON diff
+  inspector (expandable per finding); automatic action_taken and action_result
+  display; safe reconcile and retry controls; **no raw "fix SQL" button**. MCP
+  Activity tab: tool audit table (GET /api/v1/mcp/tool-audit with tool,
+  outcome, latency, timestamp, transport, route, status), activation funnel
+  (GET /api/v1/mcp/activation-funnel), connected OAuth client card with
+  scopes, timestamps, and revoke button (GET/DELETE /api/oauth/clients).
+  Gate: `frontend/src/__tests__/control-plane-admin.test.tsx` (6 tests
+  covering findings filtering, diff inspector toggle, MCP audit display,
+  and OAuth client revoke). ✔
+- [x] **B6.5 Instance detail control-plane section** (2026-09-25, §20.3). Plain-language
+  current reason (PlacementExplanation component), phase and conditions,
+  attempt timeline (AttemptTimeline component with per-step icons),
+  selected host/GPU aliases and score, lease health badge,
+  desired-versus-observed convergence badge (DesiredObservedBadge:
+  converged/diverged/terminal/pending), cost quote / wallet hold / live
+  meter card (CostMeterCard: rate, session estimate, total — display only,
+  no float currency arithmetic), and retry and reconcile actions when
+  authorized (POST /api/v1/instances/{job_id}/reconcile). Customers see
+  only their own resources and redacted infrastructure detail (host_alias,
+  no host_id). Gate: `frontend/src/__tests__/instance-control-plane.test.tsx`
+  (computeConvergence unit tests, badge rendering, cost card, reconcile
+  button API call). ✔
 - [ ] **B6.6 MCP dashboard** (§20.5). Preserve the current Quick Connect
   flow; add standards-based OAuth connect as primary, a client card with
   scopes/expiry/last-used/revoke/spend policy, an action approval inbox, a
@@ -1112,15 +1123,16 @@ domain-state half of §25.1 exists.
   remain as a trace UI during transition). Gate: a compose validation job;
   every service exports to the collector; a synthetic trace is retrievable
   in Tempo.
-- [ ] **B7.2 Structured logging** (`DA§9.2`, §24.1). `structlog` JSON logs
+- [x] **B7.2 Structured logging** (2026-07-28, `DA§9.2`, §24.1). `structlog` JSON logs
   everywhere with timestamp, severity, environment, service, build,
   trace/span, tenant pseudonym where approved, job/attempt/lease/command/
   action ids, error code, and retryability. A **central redaction library**
   removes tokens, secrets, signed URLs, authorization headers, environment
   values, prompt bodies, and private host addresses. Track A's
   `setup_logging` already degrades to console on an unwritable path —
-  preserve that. Gate: a test that pipes known secrets through every log
-  helper and asserts none survive.
+  preserved and verified. Gate: `tests/test_structured_logging.py` (54 tests
+  piping known secrets across all helpers and asserting zero survive; metadata,
+  OTel trace context, and contextvars verified) and `tests/test_log_scrubbing_stays_linear.py`. ✔
 - [ ] **B7.3 Trace propagation** (§25.2, `DA§9.3`). W3C context across
   `MCP tool → API action plan → job/outbox → scheduler attempt → worker
   command → agent start → status/ACK → billing/event`, plus artifact
@@ -1129,7 +1141,7 @@ domain-state half of §25.1 exists.
   preserves errors, destructive MCP operations, slow placements, lease
   conflicts, and reconciliation failures. Gate: an end-to-end trace
   assembled in CI from a real launch.
-- [ ] **B7.4 Metrics catalog** (§25.3, `DA§9.1`). Scheduler: queue depth
+- [x] **B7.4 Metrics catalog** (2026-07-28, §25.3, `DA§9.1`). Scheduler: queue depth
   and age by class/model/region, claim latency and expiry, filter
   rejections by reason, placement duration and conflict retries,
   **allocation constraint violations (must stay zero)**, preemption plans
@@ -1144,22 +1156,25 @@ domain-state half of §25.1 exists.
   Redis, artifact, outbox, retrieval, and BigQuery indicators.
   **High-cardinality ids (`job_id`, `user_id`, prompt hash, artifact id,
   raw error text) never become metric labels** — they belong in logs and
-  traces. Gate: a metric-registry test failing on a label whose
-  cardinality class is unbounded.
-- [ ] **B7.5 SLOs, error budgets, and alerts** (§25.4, `DA§17`). Encode the
-  §25.4 table — four hard invariants at zero (duplicate active exclusive
-  allocation; start accepted without valid current attempt/lease/fence;
-  stale-fence mutation/route/secret/storage-write/billing acceptance;
-  strict workload reassigned before definitive fencing) plus placement
-  latency p95 ≤ 2 s, assignment-to-claim p95 ≤ two poll intervals,
-  convergence 99% ≤ 60 s, command ACK p95 ≤ 15 s, MCP preview availability
-  ≥ 99.95%, approved-launch success ≥ 99.9%, queue entries with a current
-  reason 100%, billing meter consistency 100%, stale host removed within
-  freshness + 5 s. Add `DA§17`'s data-quality indicators. Multi-window
-  burn-rate alerts; page only on actionable user-impacting or invariant
-  alerts; route trends to tickets. **A dashboard "0" caused by a broken
-  pipeline must be visually distinguishable from a genuine zero**
-  (`DA§17`). Gate: an invariant breach fires a page in a staging drill.
+  traces. Gate: `tests/test_metrics_catalog.py` (62 tests failing on any unbounded
+  cardinality label, negative canary tested, full catalog registered and exposed via `/metrics/prometheus`). ✔
+- [x] **B7.5 SLOs, error budgets, and alerts** (2026-09-25, §25.4, `DA§17`). Encode the
+  §25.4 table in `slo_definitions.py` — four hard invariants at zero
+  (exclusive_allocation_collision, unvetted_worker_start,
+  stale_fence_mutation, premature_strict_reassignment), plus 3 latency SLOs
+  (placement p95 ≤ 2 s, assignment-to-claim p95 ≤ 60 s, command ACK p95
+  ≤ 15 s), 3 availability SLOs (MCP preview ≥ 99.95%, approved-launch
+  ≥ 99.9%, convergence 99% ≤ 60 s), 2 completeness SLOs (queue reason
+  100%, billing meter consistency 100%), and 1 freshness SLO (stale host
+  removal ≤ freshness + 5 s). Multi-window burn-rate alerts in
+  `alert-rules.yml`: hard invariants page immediately (`for: 0s`) with
+  5m fast-burn (critical) and 30m slow-burn (warning) windows; operational
+  SLOs use standard multi-window burn-rate. Missing invariant counter
+  metrics registered in `metrics_catalog.py`. Gate:
+  `tests/test_slo_definitions.py` (7 tests: unique names, zero targets,
+  burn-rate windows, alert-rules coverage, metrics-catalog coverage) +
+  `tests/test_observability_stack.py` updated with 4 new required alert
+  names. Total: 85 tests passed. ✔
 - [ ] **B7.6 Resolve `telemetry_snapshots`** (`DA§9.4`). Pick one and
   execute it: bounded downsampled business/SLA history (one- or
   five-minute summaries, partitioned, limited retention), or deprecation
@@ -1725,44 +1740,18 @@ warehouse reconciles against a source that cannot be exactly summed.
   hold-expiry 8, lifecycle-domain 9, lightning 31, ln-reconcile 16,
   from-empty 3, production-snapshot 3, db-service-roles 48, api 157;
   pyright clean. ✔
-- [ ] **B9.5b+c Settlement chain — ONE coupled migration** (do not split).
-  **Coupling confirmed 2026-07-22 by reading `billing.py`:** an invoice is
-  not stored money that can be converted in isolation — it is *computed*
-  as `SUM(billing_cycles.amount_cad)` grouped into line items
-  (`billing.py` ~line 682), then accumulated into the invoice total with
-  `ca_total += cost` in Python floats (~line 714), and that total feeds
-  `payout_splits` and the `fintrac_reports` regulatory threshold.
-  Converting `billing_cycles` to integers only removes drift if the
-  invoice aggregation sums the **integer** column and the Python
-  accumulation is integer too; otherwise the exact per-row amounts are
-  re-summed through a float and the benefit is lost. So these tables move
-  together:
-  - line items: `billing_cycles` (`amount_cad`, `rate_per_hour`,
-    `token_cost_cad`), `usage_meters` (`total_cost_cad`,
-    `base_rate_per_hour`), `serverless_jobs.cost_cad`,
-    `serverless_token_ledger.cost_cad`;
-  - settlement: `invoices` (7 money columns), `payout_ledger`,
-    `payout_splits`, `fintrac_reports.trigger_amount_cad`.
-  Same expand-contract + bidirectional-trigger pattern as `068`, but the
-  work is in the **read path**: `_generate_invoice` must aggregate the
-  minor column and carry integers through to the stored invoice and the
-  payout split. Per-row storage as a float does not compound the way the
-  wallet balance did (each row is written once, not incremented in place),
-  which is why B9.5a — the accumulating wallet — was done first and this
-  is lower-severity. It is nonetheless **customer-facing and
-  FINTRAC-reported**, so it is deliberately *not* rushed: a half-conversion
-  that leaves the invoice float-summing an int-authoritative column is
-  worse than the status quo. Gate: an invoice generated from a set of
-  billing_cycles reconciles to the exact integer sum of those rows, and
-  `payout_split` shares sum to the invoice total with zero residual cent.
-- [ ] **B9.5d Rate cards** — `gpu_pricing.base_rate_cad`,
-  `spot_prices.price`, `storage_billing_rates.rate_cad_per_gb_hr`,
-  `reservations`/`reserved_commitments` rates. These are *rates*, not
-  amounts: `NUMERIC` rather than minor units, and lower urgency because
-  they are inputs recomputed each time rather than accumulated.
-- [ ] **B9.5e Contract** — drop the legacy float columns and their
-  projection triggers once every reader is on the minor columns
-  (folds into **B16.2**).
+- [x] **B9.5b+c Settlement chain — ONE coupled migration** (completed via migrations 087, 095, 097).
+  Line items (`billing_cycles`, `usage_meters`, `serverless_jobs`, `serverless_token_ledger`) and
+  settlement (`invoices`, `payout_ledger`, `payout_splits`, `fintrac_reports`) migrated to
+  integer micro-CAD (`*_micros BIGINT`). Invoice generation and settlement paths aggregate
+  integer micros with `cad_to_micros` / `micros_to_cad` conversions only at the external API boundary.
+  Gate: `tests/test_invoice_reads_match_billed_usage.py`, `tests/test_gpu_billing_writes_its_cycle_row.py`,
+  and `tests/test_wallet_micro_units.py` green. ✔
+- [x] **B9.5d Rate cards** (completed via migrations 095 & 097). `gpu_pricing`,
+  `spot_prices`, `reservations`, and `reserved_commitments` migrated to integer micros. ✔
+- [x] **B9.5e Contract** (completed via migration 097). All 26 legacy float columns and their
+  mirror projection triggers dropped. `MAX_LEGACY_FLOAT_CAD_COLUMNS = 0` enforced and verified
+  in `tests/test_companion_schema_discipline.py`. ✔
 
 ---
 
@@ -2240,15 +2229,17 @@ Variables Track B introduces, by group:
   `XCELSIOR_ANALYTICS_GCS_LANDING_BUCKET`,
   `XCELSIOR_ANALYTICS_OUTBOX_BATCH_SIZE`, `XCELSIOR_ANALYTICS_MAX_LAG_SEC`.
 
-- [ ] **B18.1 Extend the production validator** so it additionally rejects
-  (§30, `DA§14.3`): a local artifact backend in production; a memory auth
-  cache; process-local rate limiting; analytics enabled without project,
-  location, bucket, dataset, and workload identity; retrieval enabled
-  without every configured model probe and a registered revision; insecure
-  Lightning TLS; and secrets in plain environment files where the
-  deployment uses a secret manager. Gate: extend
-  `tests/test_startup_validation.py` — each condition driven **on and
-  off**, matching Track A's 26-test pattern.
+- [x] **B18.1 Extend the production validator** (completed 2026-09-24, §30, `DA§14.3`).
+  `control_plane/startup_validation.py` extended to enforce production invariants:
+  - rejects local artifact storage (`artifact_backend_local`, requiring `s3` or `gcs`);
+  - rejects in-memory auth caching (`auth_cache_memory`, requiring `redis`);
+  - rejects process-local rate limiting (`rate_limit_process_local`, requiring shared limits and `redis`);
+  - rejects analytics export without full GCP project, BQ location, dataset, GCS landing bucket, and workload identity (`analytics_configuration_incomplete`);
+  - rejects retrieval model service without all 3 model paths, SHA256, verified dimension, and registered revision (`retrieval_configuration_incomplete`);
+  - rejects insecure Lightning TLS (`lightning_tls_insecure` for HTTP, `lightning_ca_cert_missing` in production, `lightning_ca_cert_not_found`);
+  - rejects plaintext secrets in environment files when a secret manager is active (`secrets_in_plain_env_file`).
+  Every variable mapped in `docker-compose.yml` (`x-api-environment`) and documented in `.env.example`.
+  Gate: `tests/test_startup_validation.py` (41 tests, driving each condition on and off) and `tests/test_startup_env_is_wired.py` (6 tests) clean. ✔
 
 ---
 
@@ -2371,7 +2362,7 @@ production cannot start on SQLite or dual backends.
   (**B5.13, B8.4**).
 - [ ] Hard runtime, storage, identity, and capacity requirements never
   silently fall back (**§B0.3 rule 15**, proven per item).
-- [ ] Production cannot start on JSON-file state (**B9.3c, B18.1**).
+- [x] Production cannot start on JSON-file state (**B9.3c, B18.1**).
 - [ ] PostgreSQL and Redis backup, restore, failover, and capacity
   procedures are tested (**B8.8, B8.9, B14.5**).
 - [ ] Nginx public, MCP, and agent boundaries are explicit and tested

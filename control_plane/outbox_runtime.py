@@ -288,6 +288,10 @@ def handle_default(event: OutboxEvent) -> None:
         log.debug("outbox %s (%s): no SSE projection", event.event_id, event.event_type)
         return
     message["ts"] = time.time()
+    from control_plane.event_stream import encode_cursor
+
+    created_at = event.created_at if event.created_at is not None else time.time()
+    message["cursor"] = encode_cursor(created_at, str(event.event_id))
     run_transaction(
         lambda conn: conn.execute(
             "SELECT pg_notify(%s, %s)", (EVENTS_CHANNEL, json.dumps(message))

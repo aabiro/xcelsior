@@ -65,15 +65,20 @@ async def api_chat(body: ChatRequest, request: Request):
     # Sanitise user input
     user_message = redact_pii(body.message)
 
-    # Get or create conversation (persisted to SQLite)
+    # Get or create a conversation owned by the authenticated user.
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "chat:write")
-    user_email = user.get("email") if user else None
-    conversation_id, history = get_or_create_conversation(
-        body.conversation_id, ip=client_ip, user_email=user_email
-    )
+    user_email = user.get("email")
+    if not user_email:
+        raise HTTPException(403, "A user email is required for support chat.")
+    try:
+        conversation_id, history = get_or_create_conversation(
+            body.conversation_id, ip=client_ip, user_email=user_email
+        )
+    except LookupError:
+        raise HTTPException(404, "Conversation not found") from None
 
     # Build messages array
     system_prompt = build_system_prompt(user_message)
@@ -93,8 +98,8 @@ async def api_chat(body: ChatRequest, request: Request):
                 full_response.append(token)
                 yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
             # Store assistant response
-            append_message(conversation_id, "assistant", "".join(full_response))
-            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            message_id = append_message(conversation_id, "assistant", "".join(full_response))
+            yield f"data: {json.dumps({'type': 'done', 'message_id': message_id})}\n\n"
         except Exception as e:
             log.error("Chat stream error: %s", e)
             yield f"data: {json.dumps({'type': 'error', 'message': 'An error occurred. Please try again.'})}\n\n"
@@ -136,7 +141,7 @@ def api_chat_history(conversation_id: str, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "chat:read")
-    messages = get_conversation_messages(conversation_id)
+    messages = get_conversation_messages(conversation_id, user_email=user.get("email", ""))
     if messages is None:
         raise HTTPException(404, "Conversation not found or expired.")
     return {
@@ -181,7 +186,8 @@ def api_chat_feedback(body: ChatFeedbackRequest, request: Request):
     _require_scope(user, "chat:write")
     if body.vote not in ("up", "down"):
         raise HTTPException(400, "Vote must be 'up' or 'down'.")
-    record_feedback(body.message_id, body.vote)
+    if not record_feedback(body.message_id, body.vote, user_email=user.get("email", "")):
+        raise HTTPException(404, "Message not found")
     return {"ok": True}
 
 
@@ -240,7 +246,9 @@ async def api_ai_chat(body: AiChatRequest, request: Request):
         conversation_id = ai_create_conversation(user_id, source=source)
 
     return StreamingResponse(
-        stream_ai_response(body.message, conversation_id, user, body.page_context),
+        stream_ai_response(
+            body.message, conversation_id, user, body.page_context, rate_limit_checked=True
+        ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -369,6 +377,7 @@ async def api_ai_analytics_chat(body: AnalyticsAiRequest, request: Request):
             user,
             page_context,
             analytics_data=body.analytics_summary,
+            rate_limit_checked=True,
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},

@@ -122,6 +122,21 @@ async def test_a_broadcast_reaches_a_live_subscriber() -> None:
     assert json.loads(chunk.split("data: ", 1)[1].strip())["host_id"] == "h-1"
 
 
+async def test_a_broadcast_with_cursor_prefixes_id_header() -> None:
+    gen = _sse_generator(_FakeRequest(), last_event_id=None)
+    await _take(gen, 2)  # drain the handshake
+
+    deps.broadcast_sse(
+        "job_status", {"job_id": "j-cursor", "status": "running"}, cursor="1000000:ev-cursor-1"
+    )
+    chunk = (await _take(gen, 1))[0]
+    await gen.aclose()
+
+    assert "id: 1000000:ev-cursor-1\n" in chunk, chunk
+    assert "event: job_status\n" in chunk, chunk
+    assert json.loads(chunk.split("data: ", 1)[1].strip())["job_id"] == "j-cursor"
+
+
 async def test_the_stream_stops_when_the_client_disconnects() -> None:
     """The loop polls `is_disconnected`; without it a dropped client streams forever."""
     gen = _sse_generator(_FakeRequest(disconnect_after=0), last_event_id=None)

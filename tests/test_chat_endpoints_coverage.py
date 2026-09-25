@@ -55,10 +55,15 @@ def test_chat_feedback_validation(user_headers):
 
 
 def test_chat_feedback_ok(user_headers):
+    import chat
+
+    email = client.get("/api/auth/me", headers=user_headers).json()["user"]["email"]
+    conversation_id, _ = chat.get_or_create_conversation(user_email=email)
+    message_id = chat.append_message(conversation_id, "assistant", "A helpful response")
     r = client.post(
         "/api/chat/feedback",
         headers=user_headers,
-        json={"message_id": "msg-cov-2", "vote": "up"},
+        json={"message_id": message_id, "vote": "up"},
     )
     assert r.status_code == 200
     assert r.json().get("ok") is True
@@ -125,7 +130,7 @@ def test_ai_delete_conversation_not_found(user_headers):
 def ai_conversation_id(user_headers, monkeypatch):
     import routes.chat as chat_routes
 
-    async def _fake_stream(message, conversation_id, user, page_context=""):
+    async def _fake_stream(message, conversation_id, user, page_context="", *, rate_limit_checked=False):
         yield 'data: {"type":"done"}\n\n'
 
     monkeypatch.setattr(chat_routes, "stream_ai_response", _fake_stream)
@@ -174,7 +179,7 @@ def test_ai_confirm_unknown_id(user_headers):
 def test_ai_analytics_chat_mocked(user_headers, monkeypatch):
     import routes.chat as chat_routes
 
-    async def _fake_stream(message, conversation_id, user, page_context=""):
+    async def _fake_stream(message, conversation_id, user, page_context="", *, rate_limit_checked=False):
         yield 'data: {"type":"done"}\n\n'
 
     monkeypatch.setattr(chat_routes, "stream_ai_response", _fake_stream)
@@ -194,7 +199,7 @@ def test_ai_analytics_chat_mocked(user_headers, monkeypatch):
 def test_ai_chat_mocked(user_headers, monkeypatch):
     import routes.chat as chat_routes
 
-    async def _fake_stream(message, conversation_id, user, page_context=""):
+    async def _fake_stream(message, conversation_id, user, page_context="", *, rate_limit_checked=False):
         yield 'data: {"type":"token","content":"ok"}\n\n'
         yield 'data: {"type":"done"}\n\n'
 
