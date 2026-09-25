@@ -30,6 +30,10 @@ describe("ControlPlaneAdminPage", () => {
               severity: "warning",
               summary: "usage meter for attempt att-123 is open",
               created_at: new Date().toISOString(),
+              desired: { status: "closed" },
+              observed: { status: "open" },
+              action_taken: "Closing meter",
+              action_result: { success: true }
             },
           ],
         };
@@ -102,6 +106,48 @@ describe("ControlPlaneAdminPage", () => {
           ],
         };
       }
+      if (url.includes("/tool-audit")) {
+        return {
+          ok: true,
+          audits: [
+            {
+              audit_id: "aud-1",
+              tool_name: "check_health",
+              outcome: "success",
+              latency_ms: 45,
+              occurred_at: new Date().toISOString(),
+              transport: "sse",
+              api_route: "/api/health",
+              api_status: 200,
+            }
+          ]
+        };
+      }
+      if (url.includes("/activation-funnel")) {
+        return {
+          ok: true,
+          funnel: {
+            stages: [
+              { name: "Visited", count: 100 },
+              { name: "Signed Up", count: 50 },
+            ]
+          }
+        };
+      }
+      if (url.includes("/oauth/clients")) {
+        return {
+          ok: true,
+          clients: [
+            {
+              client_id: "client-abc",
+              display_name: "Test Client",
+              scopes: ["read", "write"],
+              created_at: new Date().toISOString(),
+              last_used_at: new Date().toISOString(),
+            }
+          ]
+        };
+      }
       return {};
     });
   });
@@ -143,5 +189,82 @@ describe("ControlPlaneAdminPage", () => {
     expect(screen.getByText("GPU Model Inventory")).toBeInTheDocument();
     expect(screen.getAllByText(/NVIDIA RTX 4090/i).length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText(/NVIDIA A100/i).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("filters findings by severity", async () => {
+    render(<ControlPlaneAdminPage />);
+    
+    await waitFor(() => {
+      expect(screen.getByText("Reconciler Findings")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Reconciler Findings"));
+
+    await waitFor(() => {
+      expect(screen.getByText("usage meter for attempt att-123 is open")).toBeInTheDocument();
+    });
+
+    // filter to critical
+    const severitySelect = screen.getAllByRole("combobox")[2];
+    fireEvent.change(severitySelect, { target: { value: "critical" } });
+
+    expect(screen.queryByText("usage meter for attempt att-123 is open")).not.toBeInTheDocument();
+  });
+
+  it("toggles desired/observed diff inspector", async () => {
+    render(<ControlPlaneAdminPage />);
+    
+    await waitFor(() => {
+      expect(screen.getByText("Reconciler Findings")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Reconciler Findings"));
+
+    await waitFor(() => {
+      expect(screen.getByText("View Desired/Observed Diff")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("View Desired/Observed Diff"));
+
+    expect(screen.getByText("Desired State")).toBeInTheDocument();
+    expect(screen.getByText("Observed State")).toBeInTheDocument();
+    expect(screen.getByText("Automated Actions")).toBeInTheDocument();
+  });
+
+  it("displays MCP tool audit table on MCP tab", async () => {
+    render(<ControlPlaneAdminPage />);
+    
+    await waitFor(() => {
+      expect(screen.getByText("MCP Activity")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("MCP Activity"));
+
+    await waitFor(() => {
+      expect(screen.getByText("MCP Operations & Connected Clients")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("check_health")).toBeInTheDocument();
+    expect(screen.getByText("Activation Funnel")).toBeInTheDocument();
+    expect(screen.getByText("Visited")).toBeInTheDocument();
+  });
+
+  it("displays connected OAuth clients with revoke", async () => {
+    render(<ControlPlaneAdminPage />);
+    
+    await waitFor(() => {
+      expect(screen.getByText("MCP Activity")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("MCP Activity"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Test Client")).toBeInTheDocument();
+    });
+
+    const revokeBtn = screen.getByText("Revoke");
+    fireEvent.click(revokeBtn);
+
+    expect(mockApiFetch).toHaveBeenCalledWith("/api/oauth/clients/client-abc", expect.objectContaining({ method: "DELETE" }));
   });
 });

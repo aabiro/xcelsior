@@ -109,7 +109,7 @@ const Badge = ({
 // Main Page Component
 export default function ControlPlaneAdminPage() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<"scheduler" | "hosts" | "findings" | "tasks">("scheduler");
+  const [activeTab, setActiveTab] = useState<"scheduler" | "hosts" | "findings" | "tasks" | "mcp">("scheduler");
   
   // Data State
   const [jobs, setJobs] = useState<any[]>([]);
@@ -117,6 +117,18 @@ export default function ControlPlaneAdminPage() {
   const [findings, setFindings] = useState<any[]>([]);
   const [tasks, setTasks] = useState<any[]>([]);
   
+  // MCP State
+  const [mcpAudits, setMcpAudits] = useState<any[]>([]);
+  const [mcpFunnel, setMcpFunnel] = useState<any>(null);
+  const [mcpClients, setMcpClients] = useState<any[]>([]);
+
+  // Findings Filters State
+  const [findingResourceFilter, setFindingResourceFilter] = useState("all");
+  const [findingTypeFilter, setFindingTypeFilter] = useState("all");
+  const [findingSeverityFilter, setFindingSeverityFilter] = useState("all");
+  const [findingGroupBy, setFindingGroupBy] = useState<"none" | "resource_type" | "finding_type">("none");
+  const [expandedFindingId, setExpandedFindingId] = useState<string | null>(null);
+
   // Loading & Action State
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -145,22 +157,40 @@ export default function ControlPlaneAdminPage() {
       // page at once with no sign of why.
       // Named `*Res` rather than reusing the state names: destructuring to
       // `findings` here would shadow the `findings` state in this scope.
-      const [findingsRes, jobsRes, hostsRes, tasksRes] = await Promise.allSettled([
+      const [findingsRes, jobsRes, hostsRes, tasksRes, auditsRes, funnelRes, clientsRes] = await Promise.allSettled([
         apiFetch<{ findings?: unknown[] }>("/api/admin/reconciler/findings?status=open"),
         apiFetch<{ jobs?: unknown[] }>("/api/admin/control-plane/jobs"),
         apiFetch<{ hosts?: unknown[] }>("/hosts?active_only=false"),
         apiFetch<{ tasks?: unknown[] }>("/api/admin/control-plane/scheduled-tasks"),
+        apiFetch<{ audits?: unknown[] }>("/api/v1/mcp/tool-audit"),
+        apiFetch<{ funnel?: unknown }>("/api/v1/mcp/activation-funnel"),
+        apiFetch<{ clients?: unknown[] }>("/api/oauth/clients"),
       ]);
       // Settled individually: one failing panel must not blank the other three.
       if (findingsRes.status === "fulfilled") setFindings(findingsRes.value.findings || []);
       if (jobsRes.status === "fulfilled") setJobs(jobsRes.value.jobs || []);
       if (hostsRes.status === "fulfilled") setHosts(hostsRes.value.hosts || []);
       if (tasksRes.status === "fulfilled") setTasks(tasksRes.value.tasks || []);
+      if (auditsRes.status === "fulfilled") setMcpAudits(auditsRes.value.audits || []);
+      if (funnelRes.status === "fulfilled") setMcpFunnel(funnelRes.value.funnel || null);
+      if (clientsRes.status === "fulfilled") setMcpClients(clientsRes.value.clients || []);
     } catch (err) {
       console.error("Failed to fetch control plane data", err);
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  };
+
+  const handleRevokeClient = async (clientId: string) => {
+    setActionPending(`revoke-${clientId}`);
+    try {
+      await apiFetch(`/api/oauth/clients/${clientId}`, { method: "DELETE" });
+      await fetchAllData();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setActionPending(null);
     }
   };
 
@@ -323,6 +353,20 @@ export default function ControlPlaneAdminPage() {
     (h.status || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
     (h.gpu_model || "").toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  let filteredFindings = findings.filter(f => {
+    const matchSearch = f.summary?.toLowerCase().includes(searchQuery.toLowerCase()) || f.resource_id?.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchRes = findingResourceFilter === "all" || f.resource_type === findingResourceFilter;
+    const matchType = findingTypeFilter === "all" || f.finding_type === findingTypeFilter;
+    const matchSev = findingSeverityFilter === "all" || f.severity === findingSeverityFilter;
+    return matchSearch && matchRes && matchType && matchSev;
+  });
+
+  if (findingGroupBy === "resource_type") {
+    filteredFindings = [...filteredFindings].sort((a, b) => (a.resource_type || "").localeCompare(b.resource_type || ""));
+  } else if (findingGroupBy === "finding_type") {
+    filteredFindings = [...filteredFindings].sort((a, b) => (a.finding_type || "").localeCompare(b.finding_type || ""));
+  }
 
   return (
     <div className="space-y-6 text-text-primary">
@@ -490,6 +534,20 @@ export default function ControlPlaneAdminPage() {
             <div className="flex items-center gap-2">
               <Database className={cn("h-4 w-4", activeTab === "tasks" && "text-accent-cyan")} />
               Durable Scheduled Tasks
+            </div>
+          </button>
+          <button
+            onClick={() => setActiveTab("mcp")}
+            className={cn(
+              "px-4 py-2 rounded-md text-sm font-semibold transition-all whitespace-nowrap",
+              activeTab === "mcp" 
+                ? "bg-card text-text-primary shadow-sm border border-border" 
+                : "text-text-muted hover:text-text-primary"
+            )}
+          >
+            <div className="flex items-center gap-2">
+              <Terminal className={cn("h-4 w-4", activeTab === "mcp" && "text-accent-cyan")} />
+              MCP Activity
             </div>
           </button>
         </div>
@@ -932,10 +990,56 @@ export default function ControlPlaneAdminPage() {
               <div className="space-y-6 animate-fadeIn">
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-bold">Durable Reconciliation Findings</h2>
-                  <span className="text-xs text-text-muted">Active anomalies: {findings.length}</span>
+                  <span className="text-xs text-text-muted">Active anomalies: {filteredFindings.length}</span>
                 </div>
 
-                {findings.length === 0 ? (
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <select
+                    value={findingResourceFilter}
+                    onChange={(e) => setFindingResourceFilter(e.target.value)}
+                    className="p-2 rounded bg-surface border border-border text-sm"
+                  >
+                    <option value="all">All Resources</option>
+                    {[...new Set(findings.map(f => f.resource_type).filter(Boolean))].map(type => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={findingTypeFilter}
+                    onChange={(e) => setFindingTypeFilter(e.target.value)}
+                    className="p-2 rounded bg-surface border border-border text-sm"
+                  >
+                    <option value="all">All Finding Types</option>
+                    {[...new Set(findings.map(f => f.finding_type).filter(Boolean))].map(type => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={findingSeverityFilter}
+                    onChange={(e) => setFindingSeverityFilter(e.target.value)}
+                    className="p-2 rounded bg-surface border border-border text-sm"
+                  >
+                    <option value="all">All Severities</option>
+                    <option value="info">Info</option>
+                    <option value="warning">Warning</option>
+                    <option value="error">Error</option>
+                    <option value="critical">Critical</option>
+                  </select>
+
+                  <select
+                    value={findingGroupBy}
+                    onChange={(e: any) => setFindingGroupBy(e.target.value)}
+                    className="p-2 rounded bg-surface border border-border text-sm"
+                  >
+                    <option value="none">No Grouping</option>
+                    <option value="resource_type">Group by Resource</option>
+                    <option value="finding_type">Group by Type</option>
+                  </select>
+                </div>
+
+                {filteredFindings.length === 0 ? (
                   <Card className="flex flex-col items-center justify-center py-16 text-center text-text-muted">
                     <CheckCircle className="h-12 w-12 text-emerald mb-3 animate-bounce" />
                     <p className="font-bold text-text-primary text-base">Perfect Integrity</p>
@@ -952,61 +1056,98 @@ export default function ControlPlaneAdminPage() {
                           <th className="p-4">Resource</th>
                           <th className="p-4">Anomaly Type</th>
                           <th className="p-4">Severity</th>
-                          <th className="p-4">Created At</th>
                           <th className="p-4 text-right">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border/60 text-sm">
-                        {findings.map((finding) => (
-                          <tr key={finding.finding_id} className="hover:bg-surface-hover/30 transition-colors">
-                            <td className="p-4 max-w-md">
-                              <p className="font-semibold text-text-primary">{finding.summary}</p>
-                              <p className="text-[11px] text-text-muted font-mono mt-1">UUID: {finding.finding_id}</p>
-                            </td>
-                            <td className="p-4">
-                              <span className="font-mono text-xs bg-surface-hover border border-border rounded px-1.5 py-0.5 select-all">
-                                {finding.resource_id}
-                              </span>
-                              <p className="text-[10px] text-text-muted capitalize mt-1">{finding.resource_type}</p>
-                            </td>
-                            <td className="p-4">
-                              <code className="text-xs text-accent-cyan font-semibold">
-                                {finding.finding_type}
-                              </code>
-                            </td>
-                            <td className="p-4">
-                              <Badge variant={
-                                finding.severity === "critical" ? "critical" :
-                                finding.severity === "error" ? "danger" :
-                                finding.severity === "warning" ? "warning" : "info"
-                              }>
-                                {finding.severity}
-                              </Badge>
-                            </td>
-                            <td className="p-4 text-xs text-text-muted">
-                              {finding.created_at ? new Date(finding.created_at).toLocaleString() : "-"}
-                            </td>
-                            <td className="p-4 text-right">
-                              <div className="flex items-center justify-end gap-2">
-                                <Button
-                                  onClick={() => handleDismissFinding(finding.finding_id)}
-                                  variant="secondary"
-                                  size="sm"
-                                  disabled={actionPending !== null}
-                                >
-                                  Dismiss
-                                </Button>
-                                <Button
-                                  onClick={() => handleEnforceFinding(finding.finding_id)}
-                                  variant="danger"
-                                  size="sm"
-                                  disabled={actionPending !== null}
-                                >
-                                  Enforce Fix
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
+                        {filteredFindings.map((finding) => (
+                          <React.Fragment key={finding.finding_id}>
+                            <tr className="hover:bg-surface-hover/30 transition-colors">
+                              <td className="p-4 max-w-md">
+                                <p className="font-semibold text-text-primary">{finding.summary}</p>
+                                <p className="text-[11px] text-text-muted font-mono mt-1">UUID: {finding.finding_id}</p>
+                                {(finding.desired || finding.observed) && (
+                                  <button
+                                    className="text-[11px] text-accent-cyan hover:underline mt-1 block"
+                                    onClick={() => setExpandedFindingId(expandedFindingId === finding.finding_id ? null : finding.finding_id)}
+                                  >
+                                    {expandedFindingId === finding.finding_id ? "Hide Details" : "View Desired/Observed Diff"}
+                                  </button>
+                                )}
+                              </td>
+                              <td className="p-4">
+                                <span className="font-mono text-xs bg-surface-hover border border-border rounded px-1.5 py-0.5 select-all">
+                                  {finding.resource_id}
+                                </span>
+                                <p className="text-[10px] text-text-muted capitalize mt-1">{finding.resource_type}</p>
+                              </td>
+                              <td className="p-4">
+                                <code className="text-xs text-accent-cyan font-semibold">
+                                  {finding.finding_type}
+                                </code>
+                              </td>
+                              <td className="p-4">
+                                <Badge variant={
+                                  finding.severity === "critical" ? "critical" :
+                                  finding.severity === "error" ? "danger" :
+                                  finding.severity === "warning" ? "warning" : "info"
+                                }>
+                                  {finding.severity}
+                                </Badge>
+                              </td>
+                              <td className="p-4 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  <Button
+                                    onClick={() => handleDismissFinding(finding.finding_id)}
+                                    variant="secondary"
+                                    size="sm"
+                                    disabled={actionPending !== null}
+                                  >
+                                    Dismiss
+                                  </Button>
+                                  <Button
+                                    onClick={() => handleEnforceFinding(finding.finding_id)}
+                                    variant="danger"
+                                    size="sm"
+                                    disabled={actionPending !== null}
+                                  >
+                                    Enforce Fix
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                            {expandedFindingId === finding.finding_id && (
+                              <tr className="bg-surface-hover/50">
+                                <td colSpan={5} className="p-4 border-b border-border/60">
+                                  <div className="grid grid-cols-2 gap-4 text-xs font-mono">
+                                    <div className="space-y-1">
+                                      <p className="font-bold text-accent-cyan uppercase tracking-wider text-[10px]">Desired State</p>
+                                      <pre className="bg-background p-3 rounded border border-border/40 overflow-x-auto text-[10px]">
+                                        {finding.desired ? JSON.stringify(finding.desired, null, 2) : "null"}
+                                      </pre>
+                                    </div>
+                                    <div className="space-y-1">
+                                      <p className="font-bold text-accent-gold uppercase tracking-wider text-[10px]">Observed State</p>
+                                      <pre className="bg-background p-3 rounded border border-border/40 overflow-x-auto text-[10px]">
+                                        {finding.observed ? JSON.stringify(finding.observed, null, 2) : "null"}
+                                      </pre>
+                                    </div>
+                                  </div>
+                                  {(finding.action_taken || finding.action_result) && (
+                                    <div className="mt-4 p-3 bg-background rounded border border-border/40">
+                                      <p className="font-bold text-text-primary text-[11px] uppercase mb-2">Automated Actions</p>
+                                      <p className="text-xs text-text-muted mb-2">Action taken: {finding.action_taken || "None"}</p>
+                                      {finding.action_result && (
+                                        <pre className="text-[10px] font-mono text-text-secondary overflow-x-auto">
+                                          {JSON.stringify(finding.action_result, null, 2)}
+                                        </pre>
+                                      )}
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
                         ))}
                       </tbody>
                     </table>
@@ -1089,6 +1230,135 @@ export default function ControlPlaneAdminPage() {
                     })}
                   </div>
                 )}
+              </div>
+            )}
+            
+            {/* 5. MCP Activity Tab */}
+            {activeTab === "mcp" && (
+              <div className="space-y-6 animate-fadeIn">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-bold">MCP Operations & Connected Clients</h2>
+                  <span className="text-xs text-text-muted">Active Tools & OAuth Clients</span>
+                </div>
+
+                <div className="grid gap-6 lg:grid-cols-2">
+                  {/* Section 2: Activation Funnel */}
+                  <Card className="border-accent-cyan/20 bg-gradient-to-br from-surface to-background/90">
+                    <h3 className="text-sm font-bold flex items-center gap-2 mb-4">
+                      <Activity className="h-4 w-4 text-accent-cyan" />
+                      Activation Funnel
+                    </h3>
+                    {!mcpFunnel?.stages ? (
+                      <p className="text-xs text-text-muted">No funnel data available.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {mcpFunnel.stages.map((stage: any, idx: number) => (
+                          <div key={stage.name} className="flex items-center justify-between bg-surface-hover p-2 rounded border border-border/40">
+                            <span className="text-xs font-semibold">{stage.name}</span>
+                            <Badge variant={idx === 0 ? "info" : "success"}>{stage.count}</Badge>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </Card>
+
+                  {/* Section 3: Connected Clients */}
+                  <Card className="border-border/60">
+                    <h3 className="text-sm font-bold flex items-center gap-2 mb-4">
+                      <User className="h-4 w-4 text-accent-cyan" />
+                      Connected OAuth Clients
+                    </h3>
+                    {mcpClients.length === 0 ? (
+                      <p className="text-xs text-text-muted">No connected clients.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {mcpClients.map(client => (
+                          <div key={client.client_id} className="bg-surface p-3 rounded border border-border/50 flex flex-col gap-2">
+                            <div className="flex items-start justify-between">
+                              <div>
+                                <p className="text-sm font-bold text-text-primary">{client.display_name || "Unknown Client"}</p>
+                                <p className="text-[10px] font-mono text-text-muted mt-1">ID: {client.client_id}</p>
+                              </div>
+                              <Button
+                                variant="danger"
+                                size="sm"
+                                onClick={() => handleRevokeClient(client.client_id)}
+                                disabled={actionPending !== null}
+                              >
+                                Revoke
+                              </Button>
+                            </div>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {(client.scopes || []).map((scope: string) => (
+                                <span key={scope} className="text-[9px] px-1.5 py-0.5 rounded bg-surface-hover border border-border text-text-secondary">
+                                  {scope}
+                                </span>
+                              ))}
+                            </div>
+                            <div className="flex justify-between text-[10px] text-text-muted mt-2 pt-2 border-t border-border/40">
+                              <span>Created: {client.created_at ? new Date(client.created_at).toLocaleDateString() : "N/A"}</span>
+                              <span>Last Used: {client.last_used_at ? new Date(client.last_used_at).toLocaleDateString() : "Never"}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </Card>
+                </div>
+
+                {/* Section 1: MCP Tool Audit Table */}
+                <Card className="border-border/60">
+                  <h3 className="text-sm font-bold flex items-center gap-2 mb-4">
+                    <Terminal className="h-4 w-4 text-accent-cyan" />
+                    MCP Tool Audit Log
+                  </h3>
+                  {mcpAudits.length === 0 ? (
+                    <p className="text-xs text-text-muted py-4 text-center">No tool executions recorded.</p>
+                  ) : (
+                    <div className="overflow-x-auto rounded border border-border/60">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-surface-hover/80 border-b border-border/60 text-[10px] uppercase tracking-wider text-text-muted">
+                            <th className="p-2.5">Time</th>
+                            <th className="p-2.5">Tool Name</th>
+                            <th className="p-2.5">Outcome</th>
+                            <th className="p-2.5">Latency</th>
+                            <th className="p-2.5">Transport</th>
+                            <th className="p-2.5">API Route</th>
+                            <th className="p-2.5">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border/40">
+                          {mcpAudits.map(audit => (
+                            <tr key={audit.audit_id || Math.random()} className="hover:bg-surface-hover/30">
+                              <td className="p-2.5 text-text-muted whitespace-nowrap">
+                                {audit.occurred_at ? new Date(audit.occurred_at).toLocaleString() : "-"}
+                              </td>
+                              <td className="p-2.5 font-mono text-text-primary font-semibold">
+                                {audit.tool_name}
+                              </td>
+                              <td className="p-2.5">
+                                <Badge variant={audit.outcome === "success" ? "success" : "danger"}>
+                                  {audit.outcome}
+                                </Badge>
+                              </td>
+                              <td className="p-2.5 font-mono">
+                                {audit.latency_ms ? `${audit.latency_ms}ms` : "-"}
+                              </td>
+                              <td className="p-2.5 text-text-secondary">{audit.transport}</td>
+                              <td className="p-2.5 text-text-secondary truncate max-w-[150px]" title={audit.api_route}>
+                                {audit.api_route}
+                              </td>
+                              <td className="p-2.5 font-mono">
+                                {audit.api_status}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </Card>
               </div>
             )}
           </>

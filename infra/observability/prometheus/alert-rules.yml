@@ -366,3 +366,200 @@ groups:
           summary: Telemetry component {{ $labels.job }} is unavailable
           description: Logs, traces, or notifications may be incomplete while this target is down.
           runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#telemetry-freshness
+
+  - name: xcelsior.slo-burn-rate
+    rules:
+      - alert: XcelsiorInvariantExclusiveAllocationCollision
+        expr: increase(xcelsior_scheduler_allocation_constraint_violations_total[5m]) > 0
+        for: 0s
+        labels:
+          severity: critical
+          owner: platform
+          slo: exclusive_allocation_collision
+        annotations:
+          summary: "INVARIANT BREACH: duplicate active exclusive GPU allocation detected"
+          description: "This is a zero-tolerance invariant. Any non-zero value represents a scheduling safety violation."
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#hard-invariants
+
+      - alert: XcelsiorInvariantExclusiveAllocationCollision
+        expr: increase(xcelsior_scheduler_allocation_constraint_violations_total[30m]) > 0
+        for: 0s
+        labels:
+          severity: warning
+          owner: platform
+          slo: exclusive_allocation_collision
+        annotations:
+          summary: "INVARIANT BREACH: duplicate active exclusive GPU allocation detected"
+          description: "This is a zero-tolerance invariant. Any non-zero value represents a scheduling safety violation."
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#hard-invariants
+
+      - alert: XcelsiorInvariantUnvettedWorkerStart
+        expr: increase(xcelsior_worker_unvetted_starts_total[5m]) > 0
+        for: 0s
+        labels:
+          severity: critical
+          owner: platform
+          slo: unvetted_worker_start
+        annotations:
+          summary: "INVARIANT BREACH: Start accepted without valid current attempt, lease, and fence"
+          description: "This is a zero-tolerance invariant."
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#hard-invariants
+
+      - alert: XcelsiorInvariantUnvettedWorkerStart
+        expr: increase(xcelsior_worker_unvetted_starts_total[30m]) > 0
+        for: 0s
+        labels:
+          severity: warning
+          owner: platform
+          slo: unvetted_worker_start
+        annotations:
+          summary: "INVARIANT BREACH: Start accepted without valid current attempt, lease, and fence"
+          description: "This is a zero-tolerance invariant."
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#hard-invariants
+
+      - alert: XcelsiorInvariantStaleFenceMutation
+        expr: increase(xcelsior_stale_fence_acceptances_total[5m]) > 0
+        for: 0s
+        labels:
+          severity: critical
+          owner: platform
+          slo: stale_fence_mutation
+        annotations:
+          summary: "INVARIANT BREACH: Mutation/route/secret/storage write behind a stale fence"
+          description: "This is a zero-tolerance invariant."
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#hard-invariants
+
+      - alert: XcelsiorInvariantStaleFenceMutation
+        expr: increase(xcelsior_stale_fence_acceptances_total[30m]) > 0
+        for: 0s
+        labels:
+          severity: warning
+          owner: platform
+          slo: stale_fence_mutation
+        annotations:
+          summary: "INVARIANT BREACH: Mutation/route/secret/storage write behind a stale fence"
+          description: "This is a zero-tolerance invariant."
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#hard-invariants
+
+      - alert: XcelsiorInvariantPrematureStrictReassignment
+        expr: increase(xcelsior_premature_strict_reassignments_total[5m]) > 0
+        for: 0s
+        labels:
+          severity: critical
+          owner: platform
+          slo: premature_strict_reassignment
+        annotations:
+          summary: "INVARIANT BREACH: Strict workload reassigned before definitive fencing"
+          description: "This is a zero-tolerance invariant."
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#hard-invariants
+
+      - alert: XcelsiorInvariantPrematureStrictReassignment
+        expr: increase(xcelsior_premature_strict_reassignments_total[30m]) > 0
+        for: 0s
+        labels:
+          severity: warning
+          owner: platform
+          slo: premature_strict_reassignment
+        annotations:
+          summary: "INVARIANT BREACH: Strict workload reassigned before definitive fencing"
+          description: "This is a zero-tolerance invariant."
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#hard-invariants
+
+      - alert: XcelsiorSloPlacementLatency
+        expr: xcelsior_scheduler_placement_duration_seconds > 2.0
+        for: 5m
+        labels:
+          severity: critical
+          owner: platform
+        annotations:
+          summary: "SLO Breach: Placement latency p95 > 2s"
+          description: "Burn rate on placement latency SLO."
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#slo
+
+      - alert: XcelsiorSloAssignmentToClaimLatency
+        expr: xcelsior_scheduler_claim_latency_seconds > 60.0
+        for: 5m
+        labels:
+          severity: critical
+          owner: platform
+        annotations:
+          summary: "SLO Breach: Assignment to claim latency p95 > 60s"
+          description: "Burn rate on claim latency SLO."
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#slo
+
+      - alert: XcelsiorSloConvergenceLatency
+        expr: xcelsior_reconciler_convergence_duration_seconds > 60.0
+        for: 5m
+        labels:
+          severity: critical
+          owner: platform
+        annotations:
+          summary: "SLO Breach: Convergence latency 99% > 60s"
+          description: "Burn rate on convergence latency SLO."
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#slo
+
+      - alert: XcelsiorSloCommandAckLatency
+        expr: xcelsior_worker_command_latency_seconds > 15.0
+        for: 5m
+        labels:
+          severity: critical
+          owner: platform
+        annotations:
+          summary: "SLO Breach: Command ACK latency p95 > 15s"
+          description: "Burn rate on command ACK latency SLO."
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#slo
+
+      - alert: XcelsiorSloMcpPreviewAvailability
+        expr: sum(xcelsior_mcp_funnel_transitions_total) < 1
+        for: 5m
+        labels:
+          severity: critical
+          owner: platform
+        annotations:
+          summary: "SLO Breach: MCP Preview Availability < 99.95%"
+          description: "Burn rate on availability SLO."
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#slo
+
+      - alert: XcelsiorSloApprovedLaunchSuccess
+        expr: sum(xcelsior_mcp_launch_outcomes_total) < 1
+        for: 5m
+        labels:
+          severity: critical
+          owner: platform
+        annotations:
+          summary: "SLO Breach: Approved Launch Success < 99.9%"
+          description: "Burn rate on availability SLO."
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#slo
+
+      - alert: XcelsiorSloQueueReasonCompleteness
+        expr: xcelsior_queue_reason_completeness < 1.0
+        for: 5m
+        labels:
+          severity: critical
+          owner: platform
+        annotations:
+          summary: "SLO Breach: Queue entries missing reasons"
+          description: "Burn rate on completeness SLO."
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#slo
+
+      - alert: XcelsiorSloBillingMeterConsistency
+        expr: xcelsior_billing_meter_mismatches_total > 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: platform
+        annotations:
+          summary: "SLO Breach: Billing meter consistency < 100%"
+          description: "Burn rate on consistency SLO."
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#slo
+
+      - alert: XcelsiorSloStaleHostRemoval
+        expr: xcelsior_stale_host_observations > 5.0
+        for: 5m
+        labels:
+          severity: critical
+          owner: platform
+        annotations:
+          summary: "SLO Breach: Stale host removal freshness"
+          description: "Burn rate on freshness SLO."
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#slo
