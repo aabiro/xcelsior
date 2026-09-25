@@ -403,3 +403,26 @@ def audit_metric_label_cardinality(collectors: Iterable[object] | None = None) -
                 )
 
     return violations
+
+WORKER_UNVETTED_STARTS_TOTAL = Counter(
+    "xcelsior_worker_unvetted_starts_total",
+    "Total worker starts unvetted (hard invariant: must remain zero)",
+    ["violation_type"],
+)
+
+STALE_FENCE_ACCEPTANCES_TOTAL = Counter(
+    "xcelsior_stale_fence_acceptances_total",
+    "Total stale fence acceptances (hard invariant: must remain zero)",
+    ["violation_type"],
+)
+
+PREMATURE_STRICT_REASSIGNMENTS_TOTAL = Counter(
+    "xcelsior_premature_strict_reassignments_total",
+    "Total premature strict reassignments (hard invariant: must remain zero)",
+    ["violation_type"],
+)
+
+QUEUE_REASON_COMPLETENESS = Gauge(
+    "xcelsior_queue_reason_completeness",
+    "Queue entries with a current reason",
+)
