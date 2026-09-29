@@ -504,6 +504,15 @@ def main():
 
     register_task("job_log_cleanup", _job_log_cleanup, 86400)
 
+    # 11b. Telemetry snapshots retention (Track B B7.6, DA§9.4): prune legacy
+    # unpartitioned telemetry_snapshots to enforce bounded table size.
+    def _telemetry_retention():
+        from control_plane.telemetry_retention import telemetry_retention_task
+
+        telemetry_retention_task()
+
+    register_task("telemetry_retention", _telemetry_retention, 86400)
+
     # 12. Notification + push retention cleanup (every 6 hours)
     def _notification_cleanup():
         from db import NotificationStore, WebPushSubscriptionStore

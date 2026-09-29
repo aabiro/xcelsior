@@ -560,13 +560,12 @@ services:
       - ${HOME}/.ssh/known_hosts:/home/xcelsior/.ssh/known_hosts:ro
       # No /exports — scheduler uses host-SSH for privileged volume ops.
     restart: unless-stopped
-    # This image's Dockerfile HEALTHCHECK probes the API's HTTP /healthz,
-    # which a headless worker doesn't serve — that gave a permanent false
-    # "unhealthy". Override with a process-liveness check instead.
+    # Blueprint §21.3 / B8.2: semantic readiness check verifies DB primitives,
+    # schema compatibility, queue access, and scheduler heartbeat.
     healthcheck:
-      test: ["CMD-SHELL", "grep -qa scheduler_main /proc/1/cmdline"]
+      test: ["CMD", "python", "-m", "control_plane.readiness", "--service", "scheduler"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       start_period: 20s
       retries: 3
 
@@ -587,12 +586,12 @@ services:
     restart: unless-stopped
     depends_on:
       - api
-    # Override the image's API-oriented HTTP HEALTHCHECK (this worker has no
-    # HTTP port) with a process-liveness check.
+    # Blueprint §21.3 / B8.2: semantic readiness check verifies DB access,
+    # reconciler heartbeat, and reconciliation queue access.
     healthcheck:
-      test: ["CMD-SHELL", "grep -qa bg_worker /proc/1/cmdline"]
+      test: ["CMD", "python", "-m", "control_plane.readiness", "--service", "reconciler"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       start_period: 20s
       retries: 3
 
