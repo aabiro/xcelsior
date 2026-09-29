@@ -209,6 +209,7 @@ def test_alert_rules_cover_required_failure_modes_and_are_actionable():
         "XcelsiorInvariantUnvettedWorkerStart",
         "XcelsiorInvariantStaleFenceMutation",
         "XcelsiorInvariantPrematureStrictReassignment",
+        "XcelsiorTelemetrySnapshotsSizeHigh",
     }
     assert required <= alerts.keys()
     for name, rule in alerts.items():
