@@ -20,6 +20,7 @@ import { useChatStream, ChatMessage } from "@/hooks/useChatStream";
 import { useTypewriterText } from "@/hooks/useTypewriterText";
 import { useLocale } from "@/lib/locale";
 import { useAuth } from "@/lib/auth";
+import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { formatMarkdown } from "@/lib/format-markdown";
 
@@ -139,19 +140,21 @@ function HistoryDrawer({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const controller = new AbortController();
     (async () => {
       try {
-        const res = await fetch("/api/chat/conversations", { credentials: "include" });
-        if (res.ok) {
-          const data = await res.json();
-          setConversations(Array.isArray(data.conversations) ? data.conversations : []);
-        }
+        const data = await apiFetch<{ conversations: typeof conversations }>("/api/chat/conversations", {
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) return;
+        setConversations(Array.isArray(data.conversations) ? data.conversations : []);
       } catch {
         // No-op
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     })();
+    return () => controller.abort();
   }, []);
 
   return (
@@ -192,12 +195,28 @@ function HistoryDrawer({
 }
 
 // ── Main Widget ──────────────────────────────────────────────────────
-export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPanel, aiPanelOpen, embedded }: { showFab?: boolean; externalOpen?: boolean; onClose?: () => void; onOpenAiPanel?: () => void; aiPanelOpen?: boolean; embedded?: boolean }) {
+interface ChatWidgetProps {
+  showFab?: boolean;
+  externalOpen?: boolean;
+  onClose?: () => void;
+  onOpenAiPanel?: () => void;
+  aiPanelOpen?: boolean;
+  embedded?: boolean;
+}
+
+export function ChatWidget(props: ChatWidgetProps) {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  // Remount all private UI state before another account can see it, including
+  // the history drawer, unsent text, feedback, and pending requests.
+  return <ChatWidgetSession key={user?.user_id ?? "anonymous"} {...props} />;
+}
+
+function ChatWidgetSession({ showFab = true, externalOpen, onClose, onOpenAiPanel, aiPanelOpen, embedded }: ChatWidgetProps) {
   const { t } = useLocale();
   const { user } = useAuth();
   const [open, setOpen] = useState(externalOpen ?? false);
   const [input, setInput] = useState("");
-  const [loadingHistory, setLoadingHistory] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [hasUnread, setHasUnread] = useState(false);
@@ -207,7 +226,10 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const { messages, isStreaming, error, sendMessage, clearChat, restoreConversation } = useChatStream();
+  const {
+    messages, isStreaming, loadingHistory, error, conversationId,
+    sendMessage, clearChat, loadConversation,
+  } = useChatStream(user?.user_id ?? null);
   const lastStreamingAssistantId = isStreaming
     ? [...messages].reverse().find((msg) => msg.role === "assistant")?.id ?? null
     : null;
@@ -272,39 +294,10 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
 
   // Fetch conversation history from server when panel opens
   const fetchHistory = useCallback(async () => {
-    const convId =
-      typeof window !== "undefined" ? localStorage.getItem("xcelsior-chat-conv-id") : null;
-    if (!convId || historyLoadedRef.current || messages.length > 0) return;
-
-    setLoadingHistory(true);
-    try {
-      const res = await fetch(`/api/chat/history/${encodeURIComponent(convId)}`, {
-        credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.ok && data.messages?.length) {
-          const restored: ChatMessage[] = data.messages.map(
-            (m: { message_id: string; role: string; content: string; timestamp: number }, i: number) => ({
-              messageId: m.message_id,
-              id: `hist-${i}`,
-              role: m.role as "user" | "assistant",
-              content: m.content,
-              timestamp: m.timestamp * 1000,
-            })
-          );
-          restoreConversation(convId, restored);
-        }
-      } else if (res.status === 404) {
-        clearChat();
-      }
-    } catch {
-      // Network error, no-op
-    } finally {
-      setLoadingHistory(false);
-      historyLoadedRef.current = true;
-    }
-  }, [messages.length, restoreConversation, clearChat]);
+    if (!conversationId || historyLoadedRef.current || messages.length > 0) return;
+    historyLoadedRef.current = true;
+    await loadConversation(conversationId);
+  }, [conversationId, messages.length, loadConversation]);
 
   useEffect(() => {
     if (open) void fetchHistory();
@@ -343,7 +336,7 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isStreaming) return;
+    if (!input.trim() || isStreaming || loadingHistory) return;
     void sendMessage(input);
     setInput("");
   };
@@ -356,13 +349,10 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
 
   const handleFeedback = useCallback(async (msgId: string, vote: "up" | "down") => {
     try {
-      const response = await fetch("/api/chat/feedback", {
+      await apiFetch("/api/chat/feedback", {
         method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message_id: msgId, vote }),
       });
-      if (!response.ok) throw new Error(`Feedback failed (${response.status})`);
       setFeedback((prev) => ({ ...prev, [msgId]: vote }));
     } catch (e) {
       console.error("Failed to send feedback", e);
@@ -377,33 +367,10 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
   const handleSelectConversation = useCallback(
     async (conversationId: string) => {
       setShowHistory(false);
-      setLoadingHistory(true);
-      try {
-        const res = await fetch(`/api/chat/history/${encodeURIComponent(conversationId)}`, {
-          credentials: "include",
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.ok && Array.isArray(data.messages)) {
-            const restored: ChatMessage[] = data.messages.map(
-              (m: { message_id: string; role: string; content: string; timestamp: number }, i: number) => ({
-                messageId: m.message_id,
-                id: `hist-sel-${i}`,
-                role: m.role as "user" | "assistant",
-                content: m.content,
-                timestamp: m.timestamp * 1000,
-              })
-            );
-            restoreConversation(conversationId, restored);
-          }
-        }
-      } catch {
-        // No-op
-      } finally {
-        setLoadingHistory(false);
-      }
+      historyLoadedRef.current = true;
+      await loadConversation(conversationId);
     },
-    [restoreConversation]
+    [loadConversation]
   );
 
   // Mobile swipe-to-dismiss handler
@@ -519,7 +486,7 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
                       </button>
                     )}
                     {/* Clear */}
-                    {messages.length > 0 && (
+                    {(messages.length > 0 || loadingHistory) && (
                       <button
                         onClick={() => {
                           clearChat();
@@ -608,13 +575,13 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         placeholder={t("chat.placeholder")}
-                        disabled={isStreaming}
+                        disabled={isStreaming || loadingHistory}
                         className="flex-1 rounded-xl border border-border bg-surface-hover px-4 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-red focus:outline-none focus:ring-1 focus:ring-accent-red disabled:opacity-50"
                         maxLength={2000}
                       />
                       <button
                         type="submit"
-                        disabled={!input.trim() || isStreaming}
+                        disabled={!input.trim() || isStreaming || loadingHistory}
                         className="flex shrink-0 items-center justify-center h-10 w-10 rounded-lg bg-accent-red text-white hover:bg-accent-red/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                         aria-label={t("chat.send")}
                       >

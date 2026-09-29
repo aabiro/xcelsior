@@ -69,6 +69,7 @@ INVENTORY: dict[str, tuple[str, str]] = {
     "routes/agent.py::env": (
         "relaxing", "agent unauth bypass; production hard-refuses via env_config"),
     # ── irrelevant: a label, not a decision ──
+    "structured_logging.py::add_standard_metadata": ("irrelevant", "log environment label"),
     "cache_keys.py::environment": ("irrelevant", "cache namespace segment"),
     "env_config.py::resolver": ("irrelevant", "the resolver itself"),
     "api.py::import": ("irrelevant", "re-export"),

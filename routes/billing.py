@@ -24,6 +24,7 @@ from routes._deps import (
     _canonical_owner_id,
     _effective_billing_customer_id,
     _get_current_user,
+    _get_real_client_ip,
     _is_interactive_human,
     _is_platform_admin,
     _user_team_id,
@@ -183,16 +184,9 @@ class PaymentIntentRequest(BaseModel):
 
 
 def _client_ip(request: Request) -> str:
-    """Best-effort client IP for Stripe Tax IP estimation fallback."""
-    xff = (request.headers.get("x-forwarded-for") or "").strip()
-    if xff:
-        return xff.split(",")[0].strip()
-    xri = (request.headers.get("x-real-ip") or "").strip()
-    if xri:
-        return xri
-    if request.client and request.client.host:
-        return str(request.client.host)
-    return ""
+    """Server-verified client IP for Stripe Tax IP estimation fallback."""
+    client_ip = _get_real_client_ip(request)
+    return "" if client_ip == "unknown" else client_ip
 
 
 def _account_tax_address(user: dict) -> dict:

@@ -19,9 +19,9 @@ throws, and the wrong answer is indistinguishable from a real one.
 
 ## Why this is a list rather than a ban
 
-Streaming genuinely needs the raw `Response` — `useAiChat`, `useChatStream` and
-the chat widget read `res.body` incrementally, which `apiFetch` cannot return
-because it resolves `.json()`. Those are correct and stay.
+Streaming needs the raw `Response`: `useAiChat` and `useChatStream`
+read `res.body` incrementally, which `apiFetch` cannot return because it
+resolves `.json()`. Ordinary JSON calls in those files still use `apiFetch`.
 
 So the allowlist below is the point of the test: every remaining raw call is
 either recorded with a reason, or it is a call that will not recover a session.
@@ -46,18 +46,6 @@ STREAMING = {
     "frontend/src/app/(dashboard)/dashboard/analytics/analytics-ai-panel.tsx",
 }
 
-#: Branches on a specific HTTP status. `apiFetch` throws an `ApiError`, so the
-#: status is still reachable — but only in a catch, which turns a two-branch
-#: read into exception control flow for no gain.
-#:
-#: `ChatWidget` clears a stale conversation id from `localStorage` on a 404.
-#: It was in `STREAMING` until the check was tightened, and it does not stream —
-#: `useChatStream` is the file that does. It passed the old loose check because
-#: a `className="site-legal-body"` elsewhere matched a substring of "body".
-STATUS_BRANCHING = {
-    "frontend/src/components/ChatWidget.tsx",
-}
-
 #: Public pages. `apiFetch` redirects to login on a failed refresh, which would
 #: bounce a logged-out visitor off a status page — worse than the bug this file
 #: is about. A different reason from streaming, so a different list: the first
@@ -68,7 +56,7 @@ PUBLIC_UNAUTHENTICATED = {
     "frontend/src/app/(marketing)/status/content.tsx",
 }
 
-EXEMPT = STREAMING | PUBLIC_UNAUTHENTICATED | STATUS_BRANCHING
+EXEMPT = STREAMING | PUBLIC_UNAUTHENTICATED
 
 #: Raw API calls that are not streaming and have not been converted yet.
 #: Each one cannot recover an expired session. Shrink this; never extend it.
@@ -118,18 +106,6 @@ def test_the_streaming_exemptions_really_stream():
             f"{rel} is exempted as streaming but never reads a response body. "
             "If it stopped streaming it should go through `apiFetch` and "
             "recover sessions like everything else."
-        )
-
-
-def test_the_status_branching_exemptions_really_branch_on_status():
-    """Otherwise it is an ordinary read that should recover its session."""
-    for rel in sorted(STATUS_BRANCHING):
-        path = ROOT / rel
-        assert path.exists(), f"{rel} is gone; remove it from the exemption list"
-        text = strip_ts_comments(read_source(path))
-        assert re.search(r"\.status\s*===", text), (
-            f"{rel} is exempted for branching on an HTTP status and does not. "
-            "It should go through `apiFetch`."
         )
 
 

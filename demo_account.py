@@ -22,10 +22,9 @@
 #   only decides whether the password is *handed out* by the endpoint and whether
 #   the button renders — the account itself is reachable by anyone who knows the
 #   password. Treat the password as public-ish; its protection is the whitelist.
-# * The client IP comes from proxy headers (cf-connecting-ip / x-real-ip /
-#   x-forwarded-for via routes/_deps._get_real_client_ip). That is only
-#   trustworthy if the edge (Cloudflare / nginx) sets those headers and strips
-#   client-supplied ones. Ensure that before relying on the gate in prod.
+# * Client IP comes from the ASGI server's trusted-proxy processing, never
+#   directly from caller-supplied headers. Restrict FORWARDED_ALLOW_IPS to
+#   actual ingress peers (the default loopback matches our nginx deployment).
 # * Kill switch: set XCELSIOR_DEMO_ENABLED=0 to make the endpoint 404 and the
 #   button disappear everywhere, without removing the account.
 
