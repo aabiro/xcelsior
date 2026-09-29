@@ -215,7 +215,10 @@ Look for `commit failed: ...` (docker issue), `push failed: ...` (registry
 auth/TLS), or the B7 distinct error messages. Then look at the API:
 
 ```bash
-curl -s "$API/admin/user-images?status=pending" -H "Authorization: Bearer $ADMIN_TOKEN"
+# `/user-images` has no `status` filter, so filter client-side. `scope=all`
+# is the admin-only union across owners; without it you only see your own.
+curl -s "$API/user-images?scope=all&limit=1000" -H "Authorization: Bearer $ADMIN_TOKEN" \
+  | jq '[.images[] | select(.status == "pending")]'
 ```
 
 The P3/A5 `user_images_pending_sweeper` bg_worker task marks rows
@@ -240,7 +243,8 @@ After configuring a host, trigger a real snapshot as a test user:
 
 ```bash
 # Grab an instance id of a running container:
-curl -s "$API/instances" -H "Authorization: Bearer $USER_TOKEN" | jq '.[] | select(.status == "running") | .job_id'
+curl -s "$API/instances" -H "Authorization: Bearer $USER_TOKEN" \
+  | jq '.instances[] | select(.status == "running") | .job_id'
 
 # Snapshot it:
 curl -X POST "$API/instances/$JOB_ID/snapshot" \
@@ -249,7 +253,8 @@ curl -X POST "$API/instances/$JOB_ID/snapshot" \
   -d '{"name":"registry-probe","tag":"v1","description":"registry smoke test"}'
 
 # Wait ~30s, then confirm it's ready:
-curl -s "$API/user-images" -H "Authorization: Bearer $USER_TOKEN" | jq '.[] | select(.name == "registry-probe")'
+curl -s "$API/user-images" -H "Authorization: Bearer $USER_TOKEN" \
+  | jq '.images[] | select(.name == "registry-probe")'
 ```
 
 If `status=ready` with `size_bytes > 0`, the registry is fully wired.

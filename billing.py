@@ -8,13 +8,15 @@
 
 import json
 import logging
+import math
 import os
 import time
 
-from money import cad_to_micros, micros_to_cad
+from money import cad_to_micros, micros_to_cad, cad_to_minor, minor_to_cad
 import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
+from decimal import Decimal
 from enum import Enum
 from typing import Any, Optional, cast
 
@@ -616,19 +618,30 @@ class BillingEngine:
         period_end: float,
         tax_rate: Optional[float] = None,  # None = auto-detect by province
         customer_province: str = "ON",  # Used for tax rate lookup
+        *,
+        persist: bool = True,
     ) -> Invoice:
         """Generate an itemized usage invoice for a billing period.
 
         Wallet debits happen continuously; this invoice is what customers see
         on request or on monthly summaries. Line items are grouped (not per-job
         pickers): GPU by model × tier × mode, serverless by GPU tier, storage
-        by volume.
+        by volume. A charge belongs to the half-open period containing its
+        completion time, including usage that started in an earlier month.
+        Read endpoints use persist=False to preview without issuing records.
         """
         if tax_rate is None:
             tax_rate, _desc = get_tax_rate_for_province(customer_province)
+        if not (
+            math.isfinite(period_start) and math.isfinite(period_end)
+            and 0 <= period_start < period_end
+        ):
+            raise ValueError("Invoice period must have finite, increasing timestamps")
+        if not math.isfinite(tax_rate) or not 0 <= tax_rate <= 1:
+            raise ValueError("Invoice tax rate must be between zero and one")
 
         line_items: list[dict] = []
-        subtotal_accum = 0.0
+        subtotal_micros = 0
 
         def _mode_label(mode: str) -> str:
             labels = {
@@ -647,24 +660,24 @@ class BillingEngine:
                     gpu_model,
                     trust_tier,
                     COALESCE(pricing_mode, 'on_demand') AS pricing_mode,
-                    ROUND((SUM(duration_sec) / 3600.0)::numeric, 4) AS gpu_hours,
-                    ROUND(COALESCE(SUM(total_cost_micros) / 1000000.0, 0)::numeric, 4) AS subtotal_cad,
-                    ROUND(COALESCE(AVG(base_rate_per_hour * tier_multiplier), 0)::numeric, 4)
-                        AS unit_price_cad,
+                    SUM(duration_sec) / 3600.0 AS gpu_hours,
+                    SUM(total_cost_micros) AS subtotal_micros,
                     MAX(province) AS province
                 FROM usage_meters
                 WHERE owner = %s
-                  AND started_at >= %s
-                  AND completed_at <= %s
+                  AND completed_at >= %s
+                  AND completed_at < %s
                   AND total_cost_micros > 0
                 GROUP BY gpu_model, trust_tier, COALESCE(pricing_mode, 'on_demand')
                 HAVING SUM(total_cost_micros) / 1000000.0 > 0
-                ORDER BY subtotal_cad DESC""",
+                ORDER BY subtotal_micros DESC, gpu_model, trust_tier, pricing_mode""",
                 (customer_id, period_start, period_end),
             ).fetchall()
 
             for row in gpu_rows:
-                cost = float(row["subtotal_cad"])
+                cost_micros = int(row["subtotal_micros"])
+                cost = micros_to_cad(cost_micros)
+                hours = float(row["gpu_hours"])
                 mode = str(row["pricing_mode"])
                 li = InvoiceLineItem(
                     description=(
@@ -672,9 +685,9 @@ class BillingEngine:
                         f"({row['trust_tier']} tier)"
                     ),
                     category="compute",
-                    quantity=float(row["gpu_hours"]),
+                    quantity=hours,
                     unit="GPU-hours",
-                    unit_price_cad=float(row["unit_price_cad"] or 0),
+                    unit_price_cad=cost / hours if hours > 0 else 0.0,
                     subtotal_cad=cost,
                     trust_tier=row["trust_tier"],
                     province=row["province"] or "",
@@ -683,78 +696,79 @@ class BillingEngine:
                     gpu_model=row["gpu_model"],
                 )
                 line_items.append(li.to_dict())
-                subtotal_accum += cost
+                subtotal_micros += cost_micros
 
             # ── Serverless inference (grouped by GPU tier) ──
             sl_rows = conn.execute(
                 """SELECT
                     gpu_model,
                     resource_type,
-                    ROUND(COALESCE(SUM(duration_seconds), 0)::numeric, 0) AS worker_seconds,
-                    ROUND(COALESCE(SUM(amount_micros), 0)::numeric / 1000000, 4) AS subtotal_cad,
-                    ROUND(COALESCE(AVG(rate_per_hour), 0)::numeric, 4) AS rate_per_hour
+                    COALESCE(SUM(duration_seconds), 0) AS worker_seconds,
+                    SUM(amount_micros) AS subtotal_micros
                 FROM billing_cycles
                 WHERE customer_id = %s
                   AND resource_type IN ('serverless_gpu', 'serverless_gpu_cold_start')
                   AND status = 'charged'
-                  AND period_start >= %s
-                  AND period_end <= %s
+                  AND period_end >= %s
+                  AND period_end < %s
                 GROUP BY gpu_model, resource_type
                 HAVING SUM(amount_micros) > 0
-                ORDER BY subtotal_cad DESC""",
+                ORDER BY subtotal_micros DESC, gpu_model, resource_type""",
                 (customer_id, period_start, period_end),
             ).fetchall()
 
             for row in sl_rows:
-                cost = float(row["subtotal_cad"])
+                cost_micros = int(row["subtotal_micros"])
+                cost = micros_to_cad(cost_micros)
                 gpu_tier = str(row["gpu_model"] or "serverless")
                 rtype = str(row["resource_type"])
                 cold = " (cold start)" if rtype == "serverless_gpu_cold_start" else ""
-                seconds = int(row["worker_seconds"] or 0)
+                hours = float(row["worker_seconds"] or 0) / 3600.0
                 li = InvoiceLineItem(
                     description=f"Serverless — {gpu_tier}{cold}",
                     category="compute",
-                    quantity=round(seconds / 3600.0, 4),
+                    quantity=hours,
                     unit="GPU-hours",
-                    unit_price_cad=float(row["rate_per_hour"] or 0),
+                    unit_price_cad=cost / hours if hours > 0 else 0.0,
                     subtotal_cad=cost,
                     line_type="serverless",
                     gpu_model=gpu_tier,
                     pricing_mode="on_demand",
                 )
                 line_items.append(li.to_dict())
-                subtotal_accum += cost
+                subtotal_micros += cost_micros
 
             # ── Persistent storage (per volume) ──
             vol_rows = conn.execute(
                 """SELECT
                     bc.job_id,
                     COALESCE(v.name, bc.job_id) AS volume_name,
-                    COALESCE(v.size_gb, 0) AS size_gb,
-                    ROUND(COALESCE(SUM(bc.duration_seconds), 0)::numeric, 0) AS billed_seconds,
-                    ROUND(COALESCE(SUM(bc.amount_micros), 0)::numeric / 1000000, 4) AS subtotal_cad
+                    COALESCE(SUM(bc.duration_seconds), 0) AS billed_seconds,
+                    SUM(bc.amount_micros) AS subtotal_micros
                 FROM billing_cycles bc
                 LEFT JOIN volumes v ON v.volume_id = bc.job_id
                 WHERE bc.customer_id = %s
                   AND bc.resource_type = 'volume'
                   AND bc.status = 'charged'
-                  AND bc.period_start >= %s
-                  AND bc.period_end <= %s
-                GROUP BY bc.job_id, v.name, v.size_gb
+                  AND bc.period_end >= %s
+                  AND bc.period_end < %s
+                GROUP BY bc.job_id, v.name
                 HAVING SUM(bc.amount_micros) > 0
-                ORDER BY subtotal_cad DESC""",
+                ORDER BY subtotal_micros DESC, bc.job_id""",
                 (customer_id, period_start, period_end),
             ).fetchall()
 
             for row in vol_rows:
-                cost = float(row["subtotal_cad"])
-                size_gb = int(row["size_gb"] or 0)
-                hours = round(float(row["billed_seconds"] or 0) / 3600.0, 4)
+                cost_micros = int(row["subtotal_micros"])
+                cost = micros_to_cad(cost_micros)
+                hours = float(row["billed_seconds"] or 0) / 3600.0
                 li = InvoiceLineItem(
-                    description=f"Storage — {row['volume_name']} ({size_gb} GB)",
+                    description=f"Storage — {row['volume_name']}",
                     category="storage",
                     quantity=hours,
-                    unit="GB-hours",
+                    # Cycles record time and charge, not historical volume size.
+                    # The present size cannot reconstruct billed GB-hours.
+                    unit="volume-hours",
                     unit_price_cad=round(cost / hours, 6) if hours > 0 else 0.0,
                     subtotal_cad=cost,
                     job_id=row["job_id"],
@@ -762,7 +776,7 @@ class BillingEngine:
                     gpu_model="storage",
                 )
                 line_items.append(li.to_dict())
-                subtotal_accum += cost
+                subtotal_micros += cost_micros
 
         try:
             from stripe_catalog import enrich_invoice_lines_with_catalog
@@ -771,9 +785,13 @@ class BillingEngine:
         except Exception as exc:
             log.debug("Stripe catalog enrichment skipped: %s", exc)
 
-        subtotal = subtotal_accum
-        tax = round(subtotal * tax_rate, 2)
-        total = round(subtotal + tax, 2)
+        # Preserve micro-CAD across groups, then round the displayed subtotal
+        # and tax once using the same half-up currency rule as wallet money.
+        subtotal_minor = cad_to_minor(Decimal(subtotal_micros) / 1_000_000)
+        tax_minor = cad_to_minor(Decimal(subtotal_minor) / 100 * Decimal(str(tax_rate)))
+        subtotal = minor_to_cad(subtotal_minor)
+        tax = minor_to_cad(tax_minor)
+        total = minor_to_cad(subtotal_minor + tax_minor)
 
         invoice = Invoice(
             customer_id=customer_id,
@@ -781,11 +799,18 @@ class BillingEngine:
             period_start=period_start,
             period_end=period_end,
             line_items=line_items,
-            subtotal_cad=round(subtotal, 2),
+            subtotal_cad=subtotal,
             tax_rate=tax_rate,
             tax_amount_cad=tax,
             total_cad=total,
         )
+
+        if not persist:
+            # A draft identifies a customer/period, not a new issued document
+            # on each read. Its contents may change as usage completes.
+            identity = json.dumps([customer_id, float(period_start), float(period_end), tax_rate])
+            invoice.invoice_id = f"DRAFT-{uuid.uuid5(uuid.NAMESPACE_URL, identity).hex}"
+            return invoice
 
         # Persist
         with self._conn() as conn:

@@ -56,6 +56,13 @@ dependencies = [
     # fails closed rather than falling back to local file:// storage
     # (data-architecture companion §2.4/§6.6).
     "boto3>=1.34",
+    "structlog>=26.1.0",
+    "tenacity>=9.1.4",
+    "opentelemetry-instrumentation-psycopg>=0.61b0",
+    "opentelemetry-instrumentation-httpx>=0.61b0",
+    "opentelemetry-instrumentation-requests>=0.61b0",
+    "opentelemetry-instrumentation-logging>=0.61b0",
+    "authlib>=1.8.0",
 ]
 
 [project.optional-dependencies]

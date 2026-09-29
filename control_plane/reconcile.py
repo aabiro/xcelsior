@@ -90,12 +90,16 @@ class ActionPolicy(str, enum.Enum):
 #   Remediation calls the one metering authority (`billing.meter_job`), which is
 #   idempotent per attempt (partial unique on `attempt_id`), so enforcing it can
 #   never create a second charge — see control_plane/billing_controller.py.
+# - `billing_orphaned_meter`: a usage_meter left open after its attempt is
+#   terminal. Remediation idempotently closes the meter using the attempt's
+#   terminal timestamps and calculates duration and micro-CAD cost.
 _ENFORCEABLE: frozenset[str] = frozenset(
     {
         "stale_fence_container",
         "attempt_container_missing",
         "orphaned_allocation",
         "billing_missing_meter",
+        "billing_orphaned_meter",
     }
 )
 

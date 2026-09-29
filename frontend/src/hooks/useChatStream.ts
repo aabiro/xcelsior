@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
+import { apiFetch, ApiError } from "@/lib/api";
 
 export interface ChatMessage {
   id: string;
+  messageId?: string;
   role: "user" | "assistant";
   content: string;
   timestamp: number;
@@ -12,34 +14,62 @@ export interface ChatMessage {
 interface UseChatStreamReturn {
   messages: ChatMessage[];
   isStreaming: boolean;
+  loadingHistory: boolean;
   error: string | null;
   conversationId: string | null;
   sendMessage: (message: string) => Promise<void>;
   clearChat: () => void;
+  restoreConversation: (conversationId: string, messages: ChatMessage[]) => void;
+  loadConversation: (conversationId: string) => Promise<void>;
   setMessages: (msgs: ChatMessage[]) => void;
 }
 
 const CONV_STORAGE_KEY = "xcelsior-chat-conv-id";
 
-export function useChatStream(): UseChatStreamReturn {
+export function useChatStream(ownerId: string | null): UseChatStreamReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const conversationIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const storageKey = ownerId ? `${CONV_STORAGE_KEY}:${encodeURIComponent(ownerId)}` : null;
 
-  // Restore conversation_id from localStorage on mount
-  useEffect(() => {
+  const rememberConversation = useCallback((id: string | null) => {
+    conversationIdRef.current = id;
+    setConversationId(id);
     try {
-      const stored = localStorage.getItem(CONV_STORAGE_KEY);
-      if (stored) conversationIdRef.current = stored;
-    } catch {
-      // SSR or storage unavailable
-    }
-  }, []);
+      if (storageKey) {
+        if (id) localStorage.setItem(storageKey, id);
+        else localStorage.removeItem(storageKey);
+      }
+    } catch { /* Storage unavailable */ }
+  }, [storageKey]);
+
+  // Browser storage and pending requests belong to the authenticated account.
+  // The legacy unscoped ID has no known owner and is intentionally not restored.
+  useEffect(() => {
+    setMessages([]);
+    setError(null);
+    setIsStreaming(false);
+    setLoadingHistory(false);
+    let stored: string | null = null;
+    try {
+      if (storageKey) stored = localStorage.getItem(storageKey);
+    } catch { /* Storage unavailable */ }
+    conversationIdRef.current = stored;
+    setConversationId(stored);
+    return () => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+    };
+  }, [storageKey]);
 
   const sendMessage = useCallback(async (message: string) => {
-    if (!message.trim() || isStreaming) return;
+    // The ref closes the gap before React commits isStreaming, and prevents a
+    // send from racing an outstanding history selection.
+    if (!message.trim() || abortRef.current) return;
 
     setError(null);
 
@@ -79,9 +109,13 @@ export function useChatStream(): UseChatStreamReturn {
       });
 
       if (!res.ok) {
+        if (res.status === 404 && !controller.signal.aborted) {
+          rememberConversation(null);
+        }
         const body = await res.json().catch(() => ({}));
         throw new Error(body?.detail || body?.error?.message || `Error ${res.status}`);
       }
+      if (controller.signal.aborted) return;
 
       const reader = res.body?.getReader();
       if (!reader) throw new Error("No response stream");
@@ -91,6 +125,7 @@ export function useChatStream(): UseChatStreamReturn {
 
       while (true) {
         const { done, value } = await reader.read();
+        if (controller.signal.aborted) return;
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
@@ -102,12 +137,7 @@ export function useChatStream(): UseChatStreamReturn {
           try {
             const data = JSON.parse(line.slice(6));
             if (data.type === "meta" && data.conversation_id) {
-              conversationIdRef.current = data.conversation_id;
-              try {
-                localStorage.setItem(CONV_STORAGE_KEY, data.conversation_id);
-              } catch {
-                // Storage unavailable
-              }
+              rememberConversation(data.conversation_id);
             } else if (data.type === "token" && data.content) {
               setMessages((prev) =>
                 prev.map((m) =>
@@ -116,6 +146,10 @@ export function useChatStream(): UseChatStreamReturn {
                     : m
                 )
               );
+            } else if (data.type === "done" && data.message_id) {
+              setMessages((prev) => prev.map((m) =>
+                m.id === assistantId ? { ...m, messageId: String(data.message_id) } : m
+              ));
             } else if (data.type === "error") {
               setError(data.message || "An error occurred");
             }
@@ -125,37 +159,84 @@ export function useChatStream(): UseChatStreamReturn {
         }
       }
     } catch (err) {
-      if ((err as Error).name === "AbortError") return;
+      if (controller.signal.aborted || (err as Error).name === "AbortError") return;
       const msg = (err as Error).message || "Failed to send message";
       setError(msg);
       // Remove empty assistant message on error
       setMessages((prev) => prev.filter((m) => m.id !== assistantId || m.content));
     } finally {
-      setIsStreaming(false);
-      abortRef.current = null;
+      if (abortRef.current === controller) {
+        setIsStreaming(false);
+        abortRef.current = null;
+      }
     }
-  }, [isStreaming]);
+  }, [rememberConversation]);
 
   const clearChat = useCallback(() => {
     abortRef.current?.abort();
+    abortRef.current = null;
     setMessages([]);
     setError(null);
     setIsStreaming(false);
-    conversationIdRef.current = null;
+    setLoadingHistory(false);
+    rememberConversation(null);
+  }, [rememberConversation]);
+
+  const restoreConversation = useCallback((conversationId: string, restored: ChatMessage[]) => {
+    clearChat();
+    rememberConversation(conversationId);
+    setMessages(restored);
+  }, [clearChat, rememberConversation]);
+
+  const loadConversation = useCallback(async (id: string) => {
+    clearChat();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setLoadingHistory(true);
     try {
-      localStorage.removeItem(CONV_STORAGE_KEY);
-    } catch {
-      // Storage unavailable
+      const data = await apiFetch<{ ok: boolean; messages: {
+        message_id: string; role: ChatMessage["role"]; content: string; timestamp: number;
+      }[] }>(`/api/chat/history/${encodeURIComponent(id)}`, {
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
+      if (!data.ok || !Array.isArray(data.messages)) {
+        throw new Error("Unable to load conversation. Please try again.");
+      }
+      setMessages(data.messages.map((message: {
+        message_id: string; role: ChatMessage["role"]; content: string; timestamp: number;
+      }, index: number) => ({
+        id: `history-${id}-${index}`,
+        messageId: String(message.message_id),
+        role: message.role,
+        content: message.content,
+        timestamp: message.timestamp * 1000,
+      })));
+      rememberConversation(id);
+    } catch (err) {
+      if (!controller.signal.aborted) {
+        setError(err instanceof ApiError
+          ? err.status === 404 ? "Conversation not found" : "Unable to load conversation. Please try again."
+          : (err as Error).message || "Unable to load conversation. Please try again.");
+      }
+    } finally {
+      if (abortRef.current === controller) {
+        abortRef.current = null;
+        setLoadingHistory(false);
+      }
     }
-  }, []);
+  }, [clearChat, rememberConversation]);
 
   return {
     messages,
     isStreaming,
+    loadingHistory,
     error,
-    conversationId: conversationIdRef.current,
+    conversationId,
     sendMessage,
     clearChat,
+    restoreConversation,
+    loadConversation,
     setMessages,
   };
 }

@@ -121,6 +121,65 @@ def pytest_collection_finish(session):
         os.environ["XCELSIOR_DB_BACKEND"] = _INTENDED_DB_BACKEND
 
 
+#: Every runtime namespace that holds a rolling rate-limit or lease window.
+#: These live in the `state` table, so unlike the per-process dicts a test
+#: fixture clears they are *durable* — they outlive the pytest process and leak
+#: into the next run.
+_SHARED_RUNTIME_NAMESPACES = (
+    "runtime.auth_rate_limit",
+    "runtime.billing_payment_rate_limit",
+    "runtime.chat_rate_limit",
+    "runtime.ai_rate_limit",
+    "runtime.snapshot_rate_limit",
+    "runtime.ws_connect_rate_limit",
+    "runtime.ws_tickets",
+    "runtime.terminal_session_slots",
+)
+
+
+@pytest.fixture(autouse=True)
+def _reset_shared_runtime_limits():
+    """Clear shared rate-limit state around every test.
+
+    The limiters count in shared state and keep their per-process dict only as
+    a fallback, so a fixture that clears the dict resets the half that was not
+    being used. Ten-odd test files do exactly that, and they were written when
+    the dict *was* the whole story.
+
+    The leak is worse than it looks because the state is durable. Windows that
+    prune on read hid it: the WS connect and terminal namespaces roll over in
+    60 and 120 seconds, so a suite that takes longer than that never noticed.
+    The snapshot limiter's window is an hour, and it failed on the first call
+    of the following run — which is how this was found.
+
+    Runs before *and* after, so a suite left dirty by an earlier run still
+    starts clean.
+    """
+    _clear_shared_runtime_limits()
+    yield
+    _clear_shared_runtime_limits()
+
+
+def _clear_shared_runtime_limits() -> None:
+    """Blank every namespace in one transaction.
+
+    Resetting each namespace separately would require two transactions per
+    namespace per test. Batch the resets to avoid that overhead.
+    """
+    from db import DatabaseOps, get_engine
+
+    empty = {"buckets": {}, "sessions": {}, "updated_at": 0.0}
+    try:
+        engine = get_engine()
+        with engine.transaction() as (conn, backend):
+            for namespace in _SHARED_RUNTIME_NAMESPACES:
+                DatabaseOps.upsert_state(conn, namespace, empty, backend=backend)
+    except Exception:
+        # A test that never touches shared state should not fail because the
+        # database is not up for it. The limiters degrade the same way.
+        pass
+
+
 @pytest.fixture(autouse=True)
 def _pin_test_auth_env(monkeypatch):
     """Keep auth flags consistent when tests temporarily rewrite os.environ."""
@@ -250,4 +309,3 @@ def _clear_module_test_client_cookies():
                 client.cookies.clear()
         except Exception:
             pass
-

@@ -492,12 +492,244 @@ def _check_shared_bearer_migration() -> Finding | None:
     return None
 
 
+def _check_artifact_backend() -> Finding | None:
+    backend = (os.environ.get("XCELSIOR_ARTIFACT_BACKEND") or "").strip().lower()
+    if not backend:
+        backend = (os.environ.get("XCELSIOR_STORAGE_BACKEND") or "").strip().lower()
+    if not backend:
+        if not enforcement_enabled():
+            return None
+        return Finding(
+            code="artifact_backend_missing",
+            severity="error",
+            message="XCELSIOR_ARTIFACT_BACKEND is unset in production — production requires 's3' or 'gcs'",
+            remediation=(
+                "Set XCELSIOR_ARTIFACT_BACKEND to 's3' or 'gcs' with corresponding bucket and credentials."
+            ),
+        )
+    if backend in ("local", "file", "filesystem"):
+        if not enforcement_enabled():
+            return None
+        return Finding(
+            code="artifact_backend_local",
+            severity="error",
+            message=f"XCELSIOR_ARTIFACT_BACKEND={backend!r} — production requires cloud object storage ('s3' or 'gcs')",
+            remediation=(
+                "Set XCELSIOR_ARTIFACT_BACKEND to 's3' or 'gcs'. Local filesystem artifact "
+                "storage cannot be shared across replicas and is prohibited in production."
+            ),
+        )
+    if backend not in ("s3", "gcs"):
+        return Finding(
+            code="artifact_backend_invalid",
+            severity="error",
+            message=f"XCELSIOR_ARTIFACT_BACKEND={backend!r} is unsupported (must be 's3' or 'gcs')",
+            remediation="Set XCELSIOR_ARTIFACT_BACKEND to 's3' or 'gcs'.",
+        )
+    return None
+
+
+def _check_auth_cache() -> Finding | None:
+    backend = (os.environ.get("XCELSIOR_AUTH_CACHE_BACKEND") or "redis").strip().lower()
+    if backend == "redis":
+        return None
+    if backend == "memory":
+        if not enforcement_enabled():
+            return None
+        return Finding(
+            code="auth_cache_memory",
+            severity="error",
+            message=(
+                "XCELSIOR_AUTH_CACHE_BACKEND='memory' is prohibited in production — "
+                "in-memory auth cache does not share tokens and sessions across replicas"
+            ),
+            remediation="Set XCELSIOR_AUTH_CACHE_BACKEND=redis and configure XCELSIOR_AUTH_REDIS_URL.",
+        )
+    return Finding(
+        code="auth_cache_invalid",
+        severity="error",
+        message=f"XCELSIOR_AUTH_CACHE_BACKEND={backend!r} is unsupported (must be 'redis')",
+        remediation="Set XCELSIOR_AUTH_CACHE_BACKEND=redis.",
+    )
+
+
+def _check_rate_limiting_backend() -> Finding | None:
+    backend = (os.environ.get("XCELSIOR_RATE_LIMIT_BACKEND") or "").strip().lower()
+    shared_limits = (os.environ.get("XCELSIOR_SHARED_RUNTIME_LIMITS") or "true").strip().lower()
+    if shared_limits in ("0", "false", "no", "off"):
+        if enforcement_enabled():
+            return Finding(
+                code="rate_limit_process_local",
+                severity="error",
+                message=(
+                    "XCELSIOR_SHARED_RUNTIME_LIMITS is disabled in production — "
+                    "process-local rate limiting does not protect multi-worker deployments"
+                ),
+                remediation="Set XCELSIOR_SHARED_RUNTIME_LIMITS=true.",
+            )
+    if backend in ("memory", "process", "local"):
+        if enforcement_enabled():
+            return Finding(
+                code="rate_limit_process_local",
+                severity="error",
+                message=(
+                    f"XCELSIOR_RATE_LIMIT_BACKEND={backend!r} — production requires "
+                    "a shared Redis rate limit store"
+                ),
+                remediation="Set XCELSIOR_RATE_LIMIT_BACKEND=redis and provide XCELSIOR_RATE_LIMIT_REDIS_URL.",
+            )
+    return None
+
+
+def _check_analytics_configuration() -> Finding | None:
+    if not _truthy("XCELSIOR_ANALYTICS_EXPORT_ENABLED"):
+        return None
+    project = (os.environ.get("XCELSIOR_ANALYTICS_GCP_PROJECT") or "").strip()
+    location = (os.environ.get("XCELSIOR_ANALYTICS_BQ_LOCATION") or "").strip()
+    dataset = (os.environ.get("XCELSIOR_ANALYTICS_BQ_RAW_DATASET") or "").strip()
+    bucket = (os.environ.get("XCELSIOR_ANALYTICS_GCS_LANDING_BUCKET") or "").strip()
+    workload_id = (
+        (os.environ.get("XCELSIOR_ANALYTICS_WORKLOAD_IDENTITY") or "").strip()
+        or (os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()
+    )
+    missing = []
+    if not project:
+        missing.append("XCELSIOR_ANALYTICS_GCP_PROJECT")
+    if not location:
+        missing.append("XCELSIOR_ANALYTICS_BQ_LOCATION")
+    if not dataset:
+        missing.append("XCELSIOR_ANALYTICS_BQ_RAW_DATASET")
+    if not bucket:
+        missing.append("XCELSIOR_ANALYTICS_GCS_LANDING_BUCKET")
+    if not workload_id:
+        missing.append("XCELSIOR_ANALYTICS_WORKLOAD_IDENTITY")
+    if missing:
+        return Finding(
+            code="analytics_configuration_incomplete",
+            severity="error",
+            message=(
+                "Analytics export is enabled (XCELSIOR_ANALYTICS_EXPORT_ENABLED=true) but "
+                f"required configuration is missing: {', '.join(missing)}"
+            ),
+            remediation=(
+                "Set the missing variables or set XCELSIOR_ANALYTICS_EXPORT_ENABLED=false."
+            ),
+        )
+    return None
+
+
+def _check_retrieval_configuration() -> Finding | None:
+    if not _truthy("XCELSIOR_RETRIEVAL_ENABLED"):
+        return None
+    embed_path = (os.environ.get("XCELSIOR_RETRIEVAL_EMBED_MODEL_PATH") or "").strip()
+    code_path = (os.environ.get("XCELSIOR_RETRIEVAL_CODE_MODEL_PATH") or "").strip()
+    rerank_path = (os.environ.get("XCELSIOR_RETRIEVAL_RERANK_MODEL_PATH") or "").strip()
+    sha256 = (os.environ.get("XCELSIOR_RETRIEVAL_EXPECTED_MODEL_SHA256") or "").strip()
+    dimension = (os.environ.get("XCELSIOR_RETRIEVAL_EXPECTED_DIMENSION") or "").strip()
+    revision = (
+        (os.environ.get("XCELSIOR_RETRIEVAL_REVISION") or "").strip()
+        or (os.environ.get("XCELSIOR_RETRIEVAL_MODEL_REVISION") or "").strip()
+    )
+    missing = []
+    if not embed_path:
+        missing.append("XCELSIOR_RETRIEVAL_EMBED_MODEL_PATH")
+    if not code_path:
+        missing.append("XCELSIOR_RETRIEVAL_CODE_MODEL_PATH")
+    if not rerank_path:
+        missing.append("XCELSIOR_RETRIEVAL_RERANK_MODEL_PATH")
+    if not sha256:
+        missing.append("XCELSIOR_RETRIEVAL_EXPECTED_MODEL_SHA256")
+    if not dimension:
+        missing.append("XCELSIOR_RETRIEVAL_EXPECTED_DIMENSION")
+    if not revision:
+        missing.append("XCELSIOR_RETRIEVAL_REVISION")
+    if missing:
+        return Finding(
+            code="retrieval_configuration_incomplete",
+            severity="error",
+            message=(
+                "Retrieval service is enabled (XCELSIOR_RETRIEVAL_ENABLED=true) but "
+                f"required model probes and registered revision are missing: {', '.join(missing)}"
+            ),
+            remediation=(
+                "Populate model paths, expected SHA256, dimension (after verified probe), "
+                "and registered revision, or set XCELSIOR_RETRIEVAL_ENABLED=false."
+            ),
+        )
+    return None
+
+
+def _check_lightning_tls() -> Finding | None:
+    if not _truthy("XCELSIOR_LN_ENABLED"):
+        return None
+    url = (os.environ.get("XCELSIOR_LN_CLNREST_URL") or "https://127.0.0.1:3010").strip().lower()
+    if url.startswith("http://"):
+        return Finding(
+            code="lightning_tls_insecure",
+            severity="error",
+            message=f"XCELSIOR_LN_CLNREST_URL={url!r} uses plaintext HTTP — Lightning clnrest requires TLS (https://)",
+            remediation="Change URL scheme to https:// and provide XCELSIOR_LN_CA_CERT.",
+        )
+    if enforcement_enabled():
+        ca_cert = (os.environ.get("XCELSIOR_LN_CA_CERT") or "").strip()
+        if not ca_cert:
+            return Finding(
+                code="lightning_ca_cert_missing",
+                severity="error",
+                message="XCELSIOR_LN_CA_CERT is required in production when Lightning is enabled",
+                remediation="Set XCELSIOR_LN_CA_CERT to the absolute path of the CLN CA certificate.",
+            )
+        if not os.path.exists(ca_cert):
+            return Finding(
+                code="lightning_ca_cert_not_found",
+                severity="error",
+                message=f"XCELSIOR_LN_CA_CERT points to nonexistent file: {ca_cert}",
+                remediation="Ensure the CA certificate file exists and is readable.",
+            )
+    return None
+
+
+def _check_secret_manager_discipline() -> Finding | None:
+    sm = (
+        (os.environ.get("XCELSIOR_SECRET_MANAGER") or "").strip().lower()
+        or (os.environ.get("XCELSIOR_SECRETS_BACKEND") or "").strip().lower()
+    )
+    if not sm or sm in ("none", "false", "0"):
+        return None
+    env_file = os.environ.get("XCELSIOR_ENV_FILE") or ".env"
+    if os.path.exists(env_file):
+        try:
+            with open(env_file, "r", encoding="utf-8") as f:
+                content = f.read()
+            sensitive_tokens = ("_SECRET=", "_KEY=", "_PASSWORD=", "_RUNE=")
+            found_tokens = [tok for tok in sensitive_tokens if tok in content]
+            if found_tokens:
+                return Finding(
+                    code="secrets_in_plain_env_file",
+                    severity="error",
+                    message=(
+                        f"Secret manager ({sm}) is active but plain environment file '{env_file}' "
+                        f"contains plaintext secrets ({', '.join(found_tokens)})"
+                    ),
+                    remediation=(
+                        "Remove plaintext secrets from .env files when using a secret manager. "
+                        "Inject secrets directly through the secret manager daemon or orchestrator."
+                    ),
+                )
+        except Exception:
+            pass
+    return None
+
+
 #: Ordered so the most fundamental misconfiguration is reported first.
 CHECKS: tuple[Callable[[], "Finding | None"], ...] = (
     _check_database_backend,
     _check_database_tls,
     _check_runtime_ddl,
     _check_oauth_signing,
+    _check_auth_cache,
+    _check_artifact_backend,
+    _check_rate_limiting_backend,
     _check_privacy_deletion_credentials,
     _check_agent_authentication,
     _check_agent_gateway_secret,
@@ -508,6 +740,10 @@ CHECKS: tuple[Callable[[], "Finding | None"], ...] = (
     _check_shared_bearer_migration,
     _check_mcp_rate_limiting,
     _check_volume_privilege,
+    _check_lightning_tls,
+    _check_analytics_configuration,
+    _check_retrieval_configuration,
+    _check_secret_manager_discipline,
 )
 
 

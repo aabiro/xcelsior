@@ -6,9 +6,10 @@ import ipaddress
 import json
 import os
 import re
+import threading
 import time
 import uuid
-from typing import Any, Literal, cast
+from typing import Any, Literal, NoReturn, cast
 
 from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse, Response
@@ -39,6 +40,7 @@ from routes._deps import (
     _require_auth,
     _require_scope,
     _sessions,
+    _shared_state_update,
     _sse_lock,
     _sse_subscribers,
     _user_lock,
@@ -96,7 +98,19 @@ from collections import deque as _deque  # noqa: E402
 
 _SNAPSHOT_RATE_LIMIT = int(os.environ.get("XCELSIOR_SNAPSHOT_RATE_LIMIT", "5"))
 _SNAPSHOT_RATE_WINDOW_SEC = int(os.environ.get("XCELSIOR_SNAPSHOT_RATE_WINDOW_SEC", "3600"))
+#: Per-process fallback only. The limit is enforced through the shared runtime
+#: state first, because this dict lives in one worker's memory and the default
+#: deployment runs two of them: a user whose requests round-robin got
+#: `_SNAPSHOT_RATE_LIMIT` snapshots *per worker*, so the quota the code states
+#: was twice what the code enforced (and four times it at GUNICORN_WORKERS=4).
+#: Snapshots are a docker commit plus a registry push, so the quota is there to
+#: bound real disk and bandwidth, not just request volume.
 _SNAPSHOT_RATE_BUCKETS: dict[str, "_deque[float]"] = {}
+_SNAPSHOT_RATE_LOCK = threading.Lock()
+_SNAPSHOT_RATE_STATE_NAMESPACE = os.environ.get(
+    "XCELSIOR_SNAPSHOT_RATE_STATE_NAMESPACE",
+    "runtime.snapshot_rate_limit",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -140,18 +154,65 @@ def _check_snapshot_rate_limit(owner_id: str) -> None:
     if _SNAPSHOT_RATE_LIMIT <= 0:
         return
     now = time.time()
-    bucket = _SNAPSHOT_RATE_BUCKETS.setdefault(owner_id, _deque())
-    while bucket and bucket[0] <= now - _SNAPSHOT_RATE_WINDOW_SEC:
-        bucket.popleft()
-    if len(bucket) >= _SNAPSHOT_RATE_LIMIT:
-        retry_in = int(_SNAPSHOT_RATE_WINDOW_SEC - (now - bucket[0]))
-        _snapshot_requests_total.labels(outcome="rate_limited").inc()
-        raise HTTPException(
-            429,
-            f"Snapshot rate limit exceeded: max {_SNAPSHOT_RATE_LIMIT} per "
-            f"{_SNAPSHOT_RATE_WINDOW_SEC // 60} min. Retry in ~{retry_in}s.",
+
+    shared_ok, shared_retry_in = _shared_state_update(
+        _SNAPSHOT_RATE_STATE_NAMESPACE,
+        lambda: {"buckets": {}},
+        lambda state: _mutate_shared_snapshot_buckets(state, owner_id, now),
+    )
+    if shared_ok:
+        if shared_retry_in is None:
+            return
+        _refuse_snapshot(int(shared_retry_in))
+
+    with _SNAPSHOT_RATE_LOCK:
+        bucket = _SNAPSHOT_RATE_BUCKETS.setdefault(owner_id, _deque())
+        while bucket and bucket[0] <= now - _SNAPSHOT_RATE_WINDOW_SEC:
+            bucket.popleft()
+        if len(bucket) >= _SNAPSHOT_RATE_LIMIT:
+            retry_in = int(_SNAPSHOT_RATE_WINDOW_SEC - (now - bucket[0]))
+        else:
+            bucket.append(now)
+            return
+    _refuse_snapshot(retry_in)
+
+
+def _refuse_snapshot(retry_in: int) -> NoReturn:
+    _snapshot_requests_total.labels(outcome="rate_limited").inc()
+    raise HTTPException(
+        429,
+        f"Snapshot rate limit exceeded: max {_SNAPSHOT_RATE_LIMIT} per "
+        f"{_SNAPSHOT_RATE_WINDOW_SEC // 60} min. Retry in ~{retry_in}s.",
+    )
+
+
+def _mutate_shared_snapshot_buckets(
+    state: dict, owner_id: str, now: float
+) -> tuple[dict, int | None]:
+    """Prune the rolling window and take a slot, or report the wait.
+
+    Returns ``None`` when the request is allowed and the seconds to wait when
+    it is not, so the caller raises with the same `Retry-After` figure whether
+    the decision came from shared state or the per-process fallback.
+    """
+    cutoff = now - _SNAPSHOT_RATE_WINDOW_SEC
+    buckets = state.get("buckets", {}) or {}
+    pruned: dict[str, list[float]] = {}
+    for key, entries in buckets.items():
+        cleaned = [float(ts) for ts in (entries or []) if float(ts) > cutoff]
+        if cleaned:
+            pruned[key] = cleaned[-_SNAPSHOT_RATE_LIMIT:]
+
+    history = pruned.get(owner_id, [])
+    if len(history) >= _SNAPSHOT_RATE_LIMIT:
+        return (
+            {"buckets": pruned, "updated_at": now},
+            int(_SNAPSHOT_RATE_WINDOW_SEC - (now - history[0])),
         )
-    bucket.append(now)
+
+    history.append(now)
+    pruned[owner_id] = history[-_SNAPSHOT_RATE_LIMIT:]
+    return {"buckets": pruned, "updated_at": now}, None
 
 
 def _lookup_user_concurrency_override(customer_id: str) -> int | None:

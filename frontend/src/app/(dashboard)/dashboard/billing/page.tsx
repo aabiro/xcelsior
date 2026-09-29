@@ -534,8 +534,8 @@ export default function BillingPage() {
     try {
       const blob = await api.downloadInvoice(
         customerId, "csv",
-        Math.floor(new Date(inv.period_start).getTime() / 1000),
-        Math.floor(new Date(inv.period_end).getTime() / 1000),
+        inv.period_start,
+        inv.period_end,
         inv.tax_rate,
       );
       const url = URL.createObjectURL(blob);
@@ -1424,9 +1424,7 @@ export default function BillingPage() {
                         <FileText className="h-4 w-4 text-text-muted" />
                         <div>
                           <p className="text-sm font-medium">
-                            {new Date(inv.period_start).toLocaleDateString("en-CA", { year: "numeric", month: "short" })}
-                            {", "}
-                            {new Date(inv.period_end).toLocaleDateString("en-CA", { year: "numeric", month: "short" })}
+                            {new Date(inv.period_start * 1000).toLocaleDateString("en-CA", { year: "numeric", month: "short", timeZone: "UTC" })}
                           </p>
                           <p className="text-xs text-text-muted">
                             {inv.line_items} item{inv.line_items !== 1 ? "s" : ""} · Tax {(inv.tax_rate * 100).toFixed(1)}%
@@ -1440,7 +1438,7 @@ export default function BillingPage() {
                             {inv.status}
                           </Badge>
                         </div>
-                        <Button variant="ghost" size="icon" onClick={() => handleInvoiceDownload(inv)}>
+                        <Button variant="ghost" size="icon" aria-label={`Download invoice ${inv.invoice_id}`} onClick={() => handleInvoiceDownload(inv)}>
                           <Download className="h-4 w-4" />
                         </Button>
                       </div>

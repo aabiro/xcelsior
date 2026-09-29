@@ -131,6 +131,7 @@ class TestRedisTimeoutBound:
 
     def test_get_redis_passes_bounded_timeouts(self, monkeypatch):
         import serverless.rate_limit_store as rls
+        import redis
         monkeypatch.setenv("XCELSIOR_SERVERLESS_REDIS_RATE_LIMITS", "true")
         monkeypatch.setenv("XCELSIOR_SERVERLESS_REDIS_URL", "redis://localhost:6379/0")
         monkeypatch.setenv("XCELSIOR_SERVERLESS_REDIS_TIMEOUT_SEC", "1.5")
@@ -142,13 +143,12 @@ class TestRedisTimeoutBound:
             captured.update(kw)
             return fake_client
 
-        fake_redis = mock.Mock()
-        fake_redis.from_url = fake_from_url
-        with mock.patch.dict("sys.modules", {"redis": fake_redis}):
-            client = rls._get_redis()
+        monkeypatch.setattr(redis, "from_url", fake_from_url)
+        client = rls._get_redis()
 
         assert client is fake_client
         assert captured["socket_timeout"] == 1.5
         assert captured["socket_connect_timeout"] == 1.5
         assert captured["retry_on_timeout"] is False
+        assert captured["retry"].get_retries() == 0
         fake_client.ping.assert_called_once()

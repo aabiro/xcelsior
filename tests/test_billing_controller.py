@@ -156,6 +156,7 @@ def test_enforce_converges_to_exactly_one_meter(scratch, monkeypatch):
 
 def test_orphaned_open_meter_is_surfaced(scratch, monkeypatch):
     monkeypatch.delenv("XCELSIOR_RECONCILE_ACTION_BILLING_MISSING_METER", raising=False)
+    monkeypatch.delenv("XCELSIOR_RECONCILE_ACTION_BILLING_ORPHANED_METER", raising=False)
     host = _mk_host(scratch)
     job = _mk_job(scratch)
     attempt = _mk_attempt(scratch, job, host, status="succeeded")
@@ -175,6 +176,62 @@ def test_orphaned_open_meter_is_surfaced(scratch, monkeypatch):
     ) == 1
     # The orphaned meter is surfaced, never auto-mutated (still open).
     assert _count("SELECT count(*) FROM usage_meters WHERE attempt_id=%s AND completed_at IS NULL", attempt) == 1
+
+
+def test_enforce_auto_closes_orphaned_open_meter(scratch, monkeypatch):
+    monkeypatch.setenv("XCELSIOR_RECONCILE_ACTION_BILLING_ORPHANED_METER", "enforce")
+    host = _mk_host(scratch)
+    job = _mk_job(scratch)
+    attempt = _mk_attempt(scratch, job, host, status="succeeded")
+    meter_id = f"mtr-{uuid.uuid4().hex[:12]}"
+    now = time.time()
+    with _pool.connection() as conn:
+        conn.execute(
+            """INSERT INTO usage_meters
+                   (meter_id, job_id, attempt_id, owner, started_at, completed_at,
+                    pricing_mode, base_rate_per_hour, tier_multiplier, spot_discount)
+               VALUES (%s, %s, %s, 'cust-bc', %s, NULL, 'on_demand', 1.5, 1.0, 0.0)""",
+            (meter_id, job, attempt, now - 1800),
+        )
+        conn.commit()
+
+    # Pre-open a finding in report-only first
+    monkeypatch.delenv("XCELSIOR_RECONCILE_ACTION_BILLING_ORPHANED_METER", raising=False)
+    _run()
+    assert _count(
+        "SELECT count(*) FROM reconciliation_findings WHERE resource_id=%s AND finding_type=%s AND resolved_at IS NULL",
+        attempt, FINDING_ORPHANED_METER,
+    ) == 1
+
+    # Now enforce
+    monkeypatch.setenv("XCELSIOR_RECONCILE_ACTION_BILLING_ORPHANED_METER", "enforce")
+    _run()
+
+    # Meter is closed
+    with _pool.connection() as conn:
+        row = conn.execute(
+            "SELECT completed_at, duration_sec, gpu_seconds, total_cost_micros FROM usage_meters WHERE meter_id=%s",
+            (meter_id,),
+        ).fetchone()
+        assert row is not None
+        completed_at, duration_sec, gpu_seconds, total_cost_micros = row
+        assert completed_at is not None
+        assert duration_sec > 0
+        assert gpu_seconds > 0
+        assert total_cost_micros > 0
+
+    # No open meters remain
+    assert _count("SELECT count(*) FROM usage_meters WHERE attempt_id=%s AND completed_at IS NULL", attempt) == 0
+
+    # Finding was resolved
+    assert _count(
+        "SELECT count(*) FROM reconciliation_findings WHERE resource_id=%s AND finding_type=%s AND resolved_at IS NULL",
+        attempt, FINDING_ORPHANED_METER,
+    ) == 0
+
+    # Idempotent re-run
+    _run()
+    assert _count("SELECT count(*) FROM usage_meters WHERE attempt_id=%s AND completed_at IS NULL", attempt) == 0
 
 
 def test_duplicate_delivery_creates_no_second_charge(scratch):

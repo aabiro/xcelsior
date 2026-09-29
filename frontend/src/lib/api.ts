@@ -3207,8 +3207,9 @@ export interface WalletTransaction {
 
 export interface Invoice {
   invoice_id: string;
-  period_start: string;
-  period_end: string;
+  /** Half-open billing period in Unix seconds (UTC). */
+  period_start: number;
+  period_end: number;
   total_cad: number;
   subtotal_cad: number;
   tax_cad: number;

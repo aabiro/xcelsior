@@ -9,13 +9,15 @@ Once an attempt has run, two invariants must hold or money is wrong:
 
 This controller surfaces both as findings in the shared
 ``reconciliation_findings`` table. Per B0.3 rule 17 it is **report-only by
-default**; only ``billing_missing_meter`` has a defined, safe remediation
-(``billing.meter_job`` — idempotent per attempt, so it can never double-charge),
-opted in with ``XCELSIOR_RECONCILE_ACTION_BILLING_MISSING_METER=enforce``.
-Orphaned meters are surfaced for a human, never auto-mutated.
+default**. Both finding types have defined, safe remediations:
+  - ``billing_missing_meter`` (``billing.meter_job`` — idempotent per attempt),
+    opted in with ``XCELSIOR_RECONCILE_ACTION_BILLING_MISSING_METER=enforce``.
+  - ``billing_orphaned_meter`` (safely closes orphaned meters using attempt
+    terminal timestamps and micro-CAD cost calculation), opted in with
+    ``XCELSIOR_RECONCILE_ACTION_BILLING_ORPHANED_METER=enforce``.
 
 It reads the ledger and reports; it does not conceal a violation by silently
-fixing it — a created meter is recorded and the finding notes the action.
+fixing it — created or closed meters are recorded and findings note the action.
 """
 
 from __future__ import annotations
@@ -45,12 +47,14 @@ class BillingReconcileResult:
     scanned: int = 0
     findings_opened: list[str] = field(default_factory=list)
     meters_created: list[str] = field(default_factory=list)
+    meters_closed: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "scanned": self.scanned,
             "findings_opened": self.findings_opened,
             "meters_created": self.meters_created,
+            "meters_closed": self.meters_closed,
         }
 
 
@@ -144,6 +148,87 @@ def _ensure_attempt_metered(conn: Connection, attempt_id: str) -> str | None:
     return getattr(meter, "meter_id", None)
 
 
+def _close_orphaned_meter(conn: Connection, attempt_id: str, meter_id: str) -> str | None:
+    """Enforce action for an orphaned open meter: close it idempotently.
+
+    Uses the attempt's terminal timestamps to complete the meter, computing
+    duration and total cost in micro-CAD. Idempotent: once completed_at is set,
+    subsequent sweeps or concurrent calls are no-ops.
+    """
+    row = conn.execute(
+        """
+        SELECT m.meter_id,
+               m.started_at,
+               m.base_rate_per_hour,
+               m.tier_multiplier,
+               m.spot_discount,
+               EXTRACT(EPOCH FROM a.started_at)::float8 AS att_started,
+               EXTRACT(EPOCH FROM a.ended_at)::float8 AS att_ended,
+               EXTRACT(EPOCH FROM clock_timestamp())::float8 AS now_epoch
+          FROM usage_meters m
+          JOIN job_attempts a ON a.attempt_id::text = m.attempt_id
+         WHERE m.meter_id = %s
+           AND m.completed_at IS NULL
+         LIMIT 1
+        """,
+        (meter_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    mid, m_started, base_rate, mult, spot_disc, att_started, att_ended, now_epoch = row
+    started = float(m_started if m_started is not None and m_started > 0 else (att_started or now_epoch))
+    completed = float(att_ended if att_ended is not None and att_ended > 0 else now_epoch)
+    if completed < started:
+        completed = started
+    duration = completed - started
+    duration_sec = round(duration, 2)
+    gpu_seconds = round(duration, 2)
+
+    base_rate = float(base_rate or 0.0)
+    mult = float(mult or 1.0)
+    spot_disc = float(spot_disc or 0.0)
+    if base_rate == 0.0:
+        jrow = conn.execute(
+            """
+            SELECT j.payload, h.payload
+              FROM job_attempts a
+              JOIN jobs j ON j.job_id = a.job_id
+              LEFT JOIN hosts h ON h.host_id = a.host_id
+             WHERE a.attempt_id = %s
+            """,
+            (attempt_id,),
+        ).fetchone()
+        if jrow:
+            j_payload, h_payload = jrow
+            j_dict = j_payload if isinstance(j_payload, dict) else {}
+            h_dict = h_payload if isinstance(h_payload, dict) else {}
+            from billing import resolve_compute_rate_cad
+
+            base_rate, _ = resolve_compute_rate_cad(j_dict, h_dict)
+
+    from money import cad_to_micros
+
+    duration_hr = duration / 3600.0
+    cost_cad = round(duration_hr * base_rate * mult * (1.0 - spot_disc), 4)
+    total_cost_micros = cad_to_micros(cost_cad)
+
+    res = conn.execute(
+        """
+        UPDATE usage_meters
+           SET completed_at = %s,
+               duration_sec = %s,
+               gpu_seconds = %s,
+               total_cost_micros = %s
+         WHERE meter_id = %s
+           AND completed_at IS NULL
+        """,
+        (completed, duration_sec, gpu_seconds, total_cost_micros, meter_id),
+    )
+    if res.rowcount > 0:
+        return str(meter_id)
+    return None
+
+
 def reconcile_billing_meters(conn: Connection, *, limit: int = 500) -> BillingReconcileResult:
     """One sweep of the meter invariants. Report-only unless a type is enforced."""
     result = BillingReconcileResult()
@@ -171,6 +256,18 @@ def reconcile_billing_meters(conn: Connection, *, limit: int = 500) -> BillingRe
             meter_id = _ensure_attempt_metered(conn, aid)
             if meter_id:
                 result.meters_created.append(str(meter_id))
+                conn.execute(
+                    """
+                    UPDATE reconciliation_findings
+                       SET resolved_at = clock_timestamp(),
+                           action_taken = 'enforce'
+                     WHERE resource_type = %s
+                       AND resource_id = %s
+                       AND finding_type = %s
+                       AND resolved_at IS NULL
+                    """,
+                    (RESOURCE_TYPE, aid, FINDING_MISSING_METER),
+                )
         else:
             if _open_finding(
                 conn,
@@ -194,20 +291,37 @@ def reconcile_billing_meters(conn: Connection, *, limit: int = 500) -> BillingRe
         """,
         (list(_TERMINAL), limit),
     ).fetchall()
+    enforce_orphaned = _enforce(FINDING_ORPHANED_METER)
     for attempt_id, meter_id in orphaned:
         result.scanned += 1
         aid = str(attempt_id)
-        # Report-only always: closing a meter recomputes cost and is never
-        # auto-mutated here (not in _ENFORCEABLE) — a human settles it.
-        if _open_finding(
-            conn,
-            resource_id=aid,
-            finding_type=FINDING_ORPHANED_METER,
-            severity="warning",
-            summary=f"usage meter {meter_id} for attempt {aid} is open after the attempt is terminal",
-            observed={"meter_id": str(meter_id)},
-        ):
-            result.findings_opened.append(aid)
+        mid = str(meter_id)
+        if enforce_orphaned:
+            closed_id = _close_orphaned_meter(conn, aid, mid)
+            if closed_id:
+                result.meters_closed.append(str(closed_id))
+                conn.execute(
+                    """
+                    UPDATE reconciliation_findings
+                       SET resolved_at = clock_timestamp(),
+                           action_taken = 'enforce'
+                     WHERE resource_type = %s
+                       AND resource_id = %s
+                       AND finding_type = %s
+                       AND resolved_at IS NULL
+                    """,
+                    (RESOURCE_TYPE, aid, FINDING_ORPHANED_METER),
+                )
+        else:
+            if _open_finding(
+                conn,
+                resource_id=aid,
+                finding_type=FINDING_ORPHANED_METER,
+                severity="warning",
+                summary=f"usage meter {mid} for attempt {aid} is open after the attempt is terminal",
+                observed={"meter_id": mid},
+            ):
+                result.findings_opened.append(aid)
 
     return result
 
@@ -223,8 +337,11 @@ def reconcile_billing_meters_task() -> None:
 
     with control_plane_transaction() as conn:
         result = reconcile_billing_meters(conn)
-    if result.findings_opened or result.meters_created:
+    if result.findings_opened or result.meters_created or result.meters_closed:
         log.warning(
-            "billing meter reconcile: scanned=%d findings=%d meters_created=%d",
-            result.scanned, len(result.findings_opened), len(result.meters_created),
+            "billing meter reconcile: scanned=%d findings=%d meters_created=%d meters_closed=%d",
+            result.scanned,
+            len(result.findings_opened),
+            len(result.meters_created),
+            len(result.meters_closed),
         )

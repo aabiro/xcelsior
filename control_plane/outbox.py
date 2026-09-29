@@ -39,6 +39,7 @@ class OutboxEvent:
     destination_class: str
     idempotency_key: str
     attempt_count: int
+    created_at: Any = None
 
 
 def _get(row: Any, key: str, index: int) -> Any:
@@ -117,7 +118,7 @@ def claim_batch(
          WHERE o.event_id = due.event_id
         RETURNING o.event_id, o.aggregate_type, o.aggregate_id, o.event_type,
                   o.payload, o.headers, o.destination_class,
-                  o.idempotency_key, o.attempt_count
+                  o.idempotency_key, o.attempt_count, o.created_at
         """,
         {
             "dest": destination_class,
@@ -137,6 +138,7 @@ def claim_batch(
             destination_class=str(_get(r, "destination_class", 6)),
             idempotency_key=str(_get(r, "idempotency_key", 7)),
             attempt_count=int(_get(r, "attempt_count", 8)),
+            created_at=_get(r, "created_at", 9),
         )
         for r in rows
     ]

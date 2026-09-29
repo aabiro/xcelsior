@@ -16,7 +16,7 @@ import {
 import {
   fetchInstance, cancelInstance, requeueInstance,
   stopInstance, startInstance, restartInstance, terminateInstance, renameInstance,
-  fetchPlacementExplanation, fetchInstanceTimeline, fetchActiveLease,
+  fetchPlacementExplanation, fetchInstanceTimeline, fetchActiveLease, apiFetch
 } from "@/lib/api";
 // Aliased: the API response type and the component that renders it share a
 // name, and importing both unaliased shadows one silently.
@@ -27,6 +27,8 @@ import type {
   ActiveLease,
 } from "@/lib/api";
 import { ArtifactRetentionCard } from "@/components/instances/artifact-retention-card";
+import { DesiredObservedBadge, type ObservationStatus } from "@/components/instances/desired-observed-badge";
+import { CostMeterCard } from "@/components/instances/cost-meter-card";
 import { toast } from "sonner";
 import { HostKeyVerification } from "@/components/instances/host-key-verification";
 import { PlacementExplanation } from "@/components/instances/placement-explanation";
@@ -273,6 +275,7 @@ export default function InstanceDetailPage() {
   // Both routes existed and were read only by MCP tools.
   const [attempts, setAttempts] = useState<InstanceAttempt[]>([]);
   const [lease, setLease] = useState<ActiveLease | null>(null);
+  const [observationStatus, setObservationStatus] = useState<ObservationStatus>("loading");
   const explainNeeded =
     instance?.status === "queued" || instance?.status === "assigned" || instance?.status === "leased";
   useEffect(() => {
@@ -289,18 +292,29 @@ export default function InstanceDetailPage() {
 
   // Attempts and lease, for any instance that has reached the scheduler. Unlike
   // the explanation these stay useful after placement — a completed instance's
-  // failed first attempt is exactly what someone is looking for.
+  // failed first attempt is exactly what someone is looking for. Renewals only
+  // update the lease row, so refresh after each instance snapshot, even when
+  // its status and updated_at are unchanged.
   useEffect(() => {
-    if (!id) return;
+    if (!id || !instance) return;
     let cancelled = false;
+    setObservationStatus("loading");
     Promise.allSettled([fetchInstanceTimeline(String(id)), fetchActiveLease(String(id))])
       .then(([t, l]) => {
         if (cancelled) return;
-        setAttempts(t.status === "fulfilled" ? (t.value.attempts ?? []) : []);
-        setLease(l.status === "fulfilled" ? (l.value.lease ?? null) : null);
+        const timeline = t.status === "fulfilled" && t.value.ok && Array.isArray(t.value.attempts)
+          ? t.value.attempts : null;
+        const leaseRead = l.status === "fulfilled" && l.value.ok && "lease" in l.value
+          ? l.value : null;
+        setAttempts(timeline ?? []);
+        setLease(leaseRead?.lease ?? null);
+        setObservationStatus(timeline && leaseRead ? "ready" : "unavailable");
       });
     return () => { cancelled = true; };
-  }, [id, instance?.status, instance?.updated_at]);
+  }, [id, instance]);
+
+  const currentAttempt = attempts.reduce<InstanceAttempt | null>((latest, attempt) =>
+    !latest || attempt.attempt_number > latest.attempt_number ? attempt : latest, null);
 
   const isLive = instance?.status === "queued" || instance?.status === "assigned"
     || instance?.status === "leased"
@@ -407,6 +421,20 @@ export default function InstanceDetailPage() {
       load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Requeue failed");
+    } finally {
+      setActionPending(false);
+    }
+  }
+
+  async function handleReconcile() {
+    if (!instance?.job_id) return;
+    setActionPending(true);
+    try {
+      await apiFetch(`/api/v1/instances/${instance.job_id}/reconcile`, { method: "POST" });
+      toast.success("Reconciliation requested");
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Reconcile failed");
     } finally {
       setActionPending(false);
     }
@@ -592,6 +620,12 @@ export default function InstanceDetailPage() {
               <RotateCcw className="h-3.5 w-3.5" /> {t("dash.instances.requeue")}
             </Button>
           )}
+          {/* Reconcile for non-terminal instances */}
+          {!isTerminal && !readOnly && (
+            <Button variant="outline" size="sm" onClick={handleReconcile} disabled={actionPending}>
+              <RefreshCw className="h-3.5 w-3.5" /> Reconcile
+            </Button>
+          )}
         </div>
       </div>
 
@@ -693,7 +727,27 @@ export default function InstanceDetailPage() {
             <AttemptTimeline attempts={attempts} lease={lease} />
           </div>
         )}
+        
+        <div className="mt-4 border-t border-border pt-4 flex flex-col gap-4">
+          <div role="status" aria-label="Instance synchronization">
+            <h3 className="mb-2 text-xs font-semibold text-text-secondary">
+              State Synchronization
+            </h3>
+            <DesiredObservedBadge 
+              jobStatus={status} 
+              observationStatus={observationStatus}
+              activeAttemptId={currentAttempt?.attempt_id ?? null}
+              activeAttemptStatus={currentAttempt?.status ?? null}
+              leaseAttemptId={lease?.attempt_id ?? null}
+              leaseStatus={lease?.status || null} 
+              leaseExpiresAt={lease?.expires_at ?? null}
+              leaseClaimDeadline={lease?.claim_deadline ?? null}
+            />
+          </div>
+        </div>
       </Card>
+
+      <CostMeterCard instance={instance} />
 
       {/* Spot preemption banner */}
       {showPreemptionBanner && (

@@ -83,6 +83,68 @@ _XCELSIOR_TOKEN_RE = re.compile(r"\b(xcel_ai|xoa)_[A-Za-z0-9]{16,}\b")
 #: that mangles every long number in the logs gets turned off.
 _PAN_CANDIDATE_RE = re.compile(r"\b(?:\d[ -]?){12,18}\d\b")
 
+# ── Extended PII and Infrastructure Secrets (B7.2 / DA§9.2) ─────────────
+#: S3, GCS, Azure, and generic signed URLs carrying auth signatures in query.
+_SIGNED_URL_RE = re.compile(
+    r"https?://[^\s\"'<>]+(?:\?|&)(?:[^\s\"'<>]*(?:X-Amz-Signature|X-Goog-Signature|GoogleAccessId|Signature|sig)=)[^\s\"'<>]*"
+)
+
+#: Authorization and proxy-authorization headers (Bearer, Basic, raw tokens).
+_AUTH_HEADER_RE = re.compile(
+    r"(?i)\b(authorization|proxy-authorization)\s*:\s*(?:bearer\s+|basic\s+)?[^\s,;\"'<>]{8,}"
+)
+_AUTH_JSON_RE = re.compile(
+    r"(?i)([\"'](?:authorization|proxy-authorization)[\"']\s*:\s*[\"'])(?:bearer\s+|basic\s+)?[^\"']{8,}([\"'])"
+)
+
+#: Database and broker connection strings containing passwords.
+_CONN_STR_RE = re.compile(r"(?i)\b([a-z0-9+.-]+://[^:\s/@]*):([^@\s/]+)@")
+
+#: Environment variable assignment secrets.
+_ENV_SECRET_RE = re.compile(
+    r"(?i)\b(XCELSIOR_[A-Z0-9_]*(?:SECRET|KEY|TOKEN|PASSWORD)|AWS_SECRET_ACCESS_KEY|STRIPE_SECRET_KEY|DATABASE_URL)\s*=\s*([\"']?)([^\s\"']{6,})\2"
+)
+
+#: Prompt bodies in format strings, serialized JSON, or kwargs.
+_PROMPT_BODY_RE = re.compile(r"(?i)([\"']?prompt[\"']?\s*[:=]\s*)([\"'])(.*?)\2")
+
+#: Private IPv4 ranges (RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, loopback 127.0.0.0/8).
+_OCTET = r"(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])"
+_PRIVATE_IPV4_RE = re.compile(
+    r"\b("
+    rf"10\.{_OCTET}\.{_OCTET}\.{_OCTET}|"
+    rf"172\.(?:1[6-9]|2[0-9]|3[0-1])\.{_OCTET}\.{_OCTET}|"
+    rf"192\.168\.{_OCTET}\.{_OCTET}|"
+    rf"127\.{_OCTET}\.{_OCTET}\.{_OCTET}"
+    r")\b"
+)
+
+#: Private IPv6 (link-local fe80::, unique-local fc00::/fd00::, ::1) and localhost.
+_PRIVATE_IPV6_RE = re.compile(
+    r"(?i)\b("
+    r"(?:fe80|fc00|fd[0-9a-f]{2}):[0-9a-f:]+|"
+    r"::1|"
+    r"localhost"
+    r")\b"
+)
+
+_SENSITIVE_KEY_NAMES = {
+    "authorization",
+    "proxy-authorization",
+    "password",
+    "passwd",
+    "secret",
+    "client_secret",
+    "stripe_secret",
+    "token",
+    "access_token",
+    "refresh_token",
+    "api_key",
+    "private_key",
+    "jwt_secret",
+    "webhook_secret",
+}
+
 
 def _luhn_ok(digits: str) -> bool:
     """The check digit every real card number satisfies.
@@ -129,6 +191,54 @@ def _scrub(text: str) -> str:
     text = _XCELSIOR_TOKEN_RE.sub("<xcelsior_token:redacted>", text)
     text = _JWT_RE.sub("<jwt:redacted>", text)
     text = _BEARER_RE.sub("Bearer <token:redacted>", text)
+    if "Basic " in text or "basic " in text:
+        text = re.sub(r"\b(Basic|basic)\s+[A-Za-z0-9+/=]{12,}\b", r"\1 <token:redacted>", text)
+
+    # Signed URLs: check substrings first before invoking regex
+    if (
+        "X-Amz-" in text
+        or "X-Goog-" in text
+        or "GoogleAccessId" in text
+        or "Signature=" in text
+        or "sig=" in text
+    ):
+        text = _SIGNED_URL_RE.sub("<signed_url:redacted>", text)
+
+    # Authorization headers
+    if "uthorization" in text.lower():
+        text = _AUTH_HEADER_RE.sub(r"\1: <token:redacted>", text)
+        text = _AUTH_JSON_RE.sub(r"\g<1><token:redacted>\g<2>", text)
+
+    # Connection strings with credentials
+    if "://" in text and "@" in text:
+        text = _CONN_STR_RE.sub(r"\1:<password:redacted>@", text)
+
+    # Environment variable secrets
+    if any(k in text for k in ("SECRET", "KEY", "TOKEN", "PASSWORD", "DATABASE_URL")):
+        text = _ENV_SECRET_RE.sub(r"\1=\2<secret:redacted>\2", text)
+
+    # Prompt bodies
+    if "prompt" in text.lower():
+        text = _PROMPT_BODY_RE.sub(r'\g<1>"<prompt:redacted>"', text)
+
+    # Private host addresses
+    if any(
+        p in text
+        for p in (
+            "10.",
+            "172.",
+            "192.168.",
+            "127.",
+            "fe80:",
+            "fc00:",
+            "fd",
+            "::1",
+            "localhost",
+        )
+    ):
+        text = _PRIVATE_IPV4_RE.sub("<ip:private>", text)
+        text = _PRIVATE_IPV6_RE.sub("<ip:private>", text)
+
     # PANs last: the candidate pattern is digit-only, so it cannot damage the
     # placeholder text the substitutions above have already inserted.
     text = _scrub_pans(text)
@@ -142,6 +252,28 @@ def _scrub(text: str) -> str:
         text,
     )
     return text
+
+
+def scrub_data(val: object) -> object:
+    """Recursively scrub sensitive keys and text values from arbitrary data structures."""
+    if isinstance(val, str):
+        return _scrub(val)
+    elif isinstance(val, dict):
+        scrubbed: dict[str, object] = {}
+        for k, v in val.items():
+            k_lower = str(k).lower()
+            if any(s in k_lower for s in _SENSITIVE_KEY_NAMES):
+                scrubbed[str(k)] = "<secret:redacted>"
+            elif "prompt" in k_lower:
+                scrubbed[str(k)] = "<prompt:redacted>"
+            else:
+                scrubbed[str(k)] = scrub_data(v)
+        return scrubbed
+    elif isinstance(val, list):
+        return [scrub_data(x) for x in val]
+    elif isinstance(val, tuple):
+        return tuple(scrub_data(x) for x in val)
+    return val
 
 
 class PIIScrubFilter(logging.Filter):
