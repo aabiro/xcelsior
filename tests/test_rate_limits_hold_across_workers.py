@@ -53,8 +53,8 @@ class _FakeRequest:
     """Enough of a Request for `_get_real_client_ip`."""
 
     def __init__(self, ip: str) -> None:
-        self.headers = {"x-real-ip": ip}
-        self.client = None
+        self.headers = {}
+        self.client = type("Client", (), {"host": ip})()
 
 
 def _exhaust_auth(ip: str) -> None:

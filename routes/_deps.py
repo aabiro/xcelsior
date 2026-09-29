@@ -14,6 +14,7 @@ from collections import defaultdict, deque
 from typing import Any
 
 from fastapi import HTTPException, Request, WebSocket
+from starlette.requests import HTTPConnection
 
 import env_config
 from db import DatabaseOps, UserStore, NotificationStore, get_engine
@@ -372,14 +373,11 @@ def broadcast_sse(event_type: str, data: dict, *, cursor: str | None = None):
 # ── Auth Helpers ──────────────────────────────────────────────────────
 
 
-def _get_real_client_ip(request: Request) -> str:
-    # Check cf-connecting-ip first so the resolved IP matches
-    # _get_ws_client_ip() — both functions must agree when
-    # a ticket is pinned during HTTP issuance and consumed on WS.
-    for header in ("cf-connecting-ip", "x-real-ip", "x-forwarded-for"):
-        val = request.headers.get(header, "")
-        if val:
-            return val.split(",")[0].strip()
+def _get_real_client_ip(request: HTTPConnection) -> str:
+    # Uvicorn resolves X-Forwarded-For only for configured trusted proxy peers
+    # (Gunicorn defaults to loopback, where our nginx ingress connects).
+    # Re-reading arbitrary headers here bypasses that trust boundary and lets
+    # callers choose their quota bucket, audit address, or WebSocket IP pin.
     return request.client.host if request.client else "unknown"
 
 
@@ -1673,15 +1671,8 @@ def _require_write_access(request: Request):
 
 
 def _get_ws_client_ip(websocket: WebSocket) -> str:
-    """Best-effort client IP extraction for WebSocket rate limiting."""
-    for header in ("cf-connecting-ip", "x-forwarded-for", "x-real-ip"):
-        raw = websocket.headers.get(header, "")
-        if raw:
-            return raw.split(",")[0].strip() or "unknown"
-    client = getattr(websocket, "client", None)
-    if client and getattr(client, "host", None):
-        return client.host
-    return "unknown"
+    """Use the same trusted ASGI client identity as HTTP ticket issuance."""
+    return _get_real_client_ip(websocket)
 
 
 def _lock_shared_state(

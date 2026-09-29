@@ -38,6 +38,7 @@ from control_plane.leases import (
     renew_lease,
 )
 from routes.agent import _require_agent_auth
+from routes._deps import _get_real_client_ip
 
 router = APIRouter()
 
@@ -404,9 +405,7 @@ def api_v2_token_rotate(request: Request):
             },
         )
 
-    client_ip = request.headers.get("x-real-ip") or (
-        request.client.host if request.client else None
-    )
+    client_ip = _get_real_client_ip(request)
     try:
         issued = run_transaction(
             lambda c: rotate_token(c, str(credential), client_ip=client_ip),
