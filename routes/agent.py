@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from routes._deps import (
     broadcast_sse,
     _get_current_user,
+    _get_real_client_ip,
     _require_user_grant,
 )
 from scheduler import (
@@ -72,9 +73,7 @@ def _resolve_host_token_identity(request: Request, host_id: str | None) -> dict 
     if not looks_like_host_token(credential):
         return None
 
-    client_ip = request.headers.get("x-real-ip") or (
-        request.client.host if request.client else None
-    )
+    client_ip = _get_real_client_ip(request)
     try:
         pool = _get_pg_pool()
         with pool.connection() as conn:

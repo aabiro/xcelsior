@@ -782,7 +782,7 @@
           "Billing"
         ],
         "summary": "Generate Invoice",
-        "description": "Generate an invoice for a billing period, itemised by job.",
+        "description": "Preview an itemized draft invoice without persisting a billing record.",
         "operationId": "api_generate_invoice_api_billing_invoice__customer_id__get",
         "parameters": [
           {
@@ -810,6 +810,8 @@
             "required": false,
             "schema": {
               "type": "number",
+              "maximum": 253402300799,
+              "minimum": 0,
               "default": 0,
               "title": "Period Start"
             }
@@ -820,6 +822,8 @@
             "required": false,
             "schema": {
               "type": "number",
+              "maximum": 253402300799,
+              "minimum": 0,
               "default": 0,
               "title": "Period End"
             }
@@ -830,6 +834,8 @@
             "required": false,
             "schema": {
               "type": "number",
+              "maximum": 1,
+              "minimum": 0,
               "default": 0.13,
               "title": "Tax Rate"
             }
@@ -863,7 +869,7 @@
           "Billing"
         ],
         "summary": "List Invoices",
-        "description": "List past invoices for a customer (monthly summaries).\n\nGenerates monthly invoice stubs for the last N months showing\ntotal spend, tax, job count, and top GPUs used.",
+        "description": "Preview usage summaries for the current and preceding UTC calendar months.",
         "operationId": "api_list_invoices_api_billing_invoices__customer_id__get",
         "parameters": [
           {
@@ -916,7 +922,7 @@
           "Billing"
         ],
         "summary": "Download Invoice",
-        "description": "Download an invoice as CSV or plain-text PDF-style document.\n\nFormats: csv (spreadsheet-ready), txt (printable receipt).",
+        "description": "Download a draft invoice as CSV or a plain-text receipt.\n\nFormats: csv (spreadsheet-ready), txt (printable receipt).",
         "operationId": "api_download_invoice_api_billing_invoice__customer_id__download_get",
         "parameters": [
           {
@@ -933,6 +939,10 @@
             "in": "query",
             "required": false,
             "schema": {
+              "enum": [
+                "csv",
+                "txt"
+              ],
               "type": "string",
               "default": "csv",
               "title": "Format"
@@ -944,6 +954,8 @@
             "required": false,
             "schema": {
               "type": "number",
+              "maximum": 253402300799,
+              "minimum": 0,
               "default": 0,
               "title": "Period Start"
             }
@@ -954,6 +966,8 @@
             "required": false,
             "schema": {
               "type": "number",
+              "maximum": 253402300799,
+              "minimum": 0,
               "default": 0,
               "title": "Period End"
             }
@@ -964,6 +978,8 @@
             "required": false,
             "schema": {
               "type": "number",
+              "maximum": 1,
+              "minimum": 0,
               "default": 0.13,
               "title": "Tax Rate"
             }
