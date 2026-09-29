@@ -288,6 +288,17 @@ groups:
           description: Verify the PostgreSQL, Prometheus, Loki, and Tempo data paths before deleting any retained evidence.
           runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#postgresql-capacity
 
+      - alert: XcelsiorTelemetrySnapshotsSizeHigh
+        expr: pg_stat_user_tables_n_live_tup{relname="telemetry_snapshots"} > 50000
+        for: 15m
+        labels:
+          severity: warning
+          owner: platform
+        annotations:
+          summary: telemetry_snapshots table size exceeds bounded retention threshold
+          description: Legacy telemetry_snapshots table contains excess unpruned rows. Run the telemetry retention task.
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#postgresql-capacity
+
       - alert: XcelsiorBackupMetricMissing
         expr: up{job="node"} == 1 and absent(xcelsior_backup_last_success_timestamp_seconds)
         for: 15m

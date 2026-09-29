@@ -228,7 +228,8 @@ const httpServer = http.createServer(async (req, res) => {
     return;
   }
   if (path === "/readyz") {
-    const checks = { redis: false, authorization_server: false, jwks: false };
+    const complete = PROFILE_TOOLS.every((name) => name in TOOL_CONTRACTS);
+    const checks = { redis: false, authorization_server: false, jwks: false, tool_registry: complete };
     checks.redis = await rateLimitReady(config.rateLimit);
     try {
       checks.authorization_server = (
