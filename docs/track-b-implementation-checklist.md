@@ -1175,11 +1175,12 @@ domain-state half of §25.1 exists.
   burn-rate windows, alert-rules coverage, metrics-catalog coverage) +
   `tests/test_observability_stack.py` updated with 4 new required alert
   names. Total: 85 tests passed. ✔
-- [x] **B7.6 Resolve `telemetry_snapshots`** (2026-09-28, `DA§9.4`). Implemented
-  bounded batch retention pruner (`control_plane/telemetry_retention.py`), wired
-  daily `telemetry_retention` scheduled task into `bg_worker.py`, and added
-  Prometheus size alert `XcelsiorTelemetrySnapshotsSizeHigh` in `alert-rules.yml`.
-  Gate: `tests/test_telemetry_snapshots_retention.py` + `tests/test_observability_stack.py` (20 tests passed). ✔
+- [ ] **B7.6 Resolve `telemetry_snapshots`** (`DA§9.4`). Pick one and
+  execute it: bounded downsampled business/SLA history (one- or
+  five-minute summaries, partitioned, limited retention), or deprecation
+  after B7.1 and B11 land. Do not leave it as an unbounded raw table in the
+  authority cluster. Gate: whichever path is chosen is enforced by a
+  retention task and a size alert.
 
 ---
 
@@ -1197,16 +1198,16 @@ Blueprint §21, §22, §23, §27, Phase 11; `DA§4.1`, `DA§4.3`, `DA§4.6`.
   rolling restart of every replica class creates no duplicate allocation,
   no unmetered execution, and no MCP launch outage — run as a repeated
   chaos job, not once.
-- [x] **B8.2 Health semantics completion** (2026-09-28, §21.3). Implemented
-  unified service readiness verification in `control_plane/readiness.py` covering
-  scheduler (DB primitives, schema range, heartbeat, queue probe), reconciler
-  (DB connection, heartbeat, reconciliation queue access), MCP connector (API
-  auth metadata, JWKS, Redis rate limit, complete tool registry in `mcp/src/index.ts`),
-  and worker node (identity, API livez reachability, GPU runtime, inventory,
-  capabilities). **PID-string health checks (`/proc/1/cmdline`) removed from
-  `docker-compose.yml`**. Gate: `tests/test_service_readiness_semantics.py`
-  (5 tests verifying each service transitions false on dependency break, true
-  when repaired, and absence of PID-string checks). ✔
+- [ ] **B8.2 Health semantics completion** (§21.3). Track A landed
+  `/livez`, `/readyz`, and `/startupz` for the API. Extend to every
+  service: scheduler readiness proves it can claim a synthetic
+  non-mutating probe or verify DB primitives plus heartbeat; reconciler
+  readiness proves heartbeat and queue access; MCP readiness proves API
+  auth metadata/JWKS reachable, Redis reachable if required, and a
+  complete tool registry; worker readiness proves identity, API, GPU
+  runtime, inventory, and mandatory capability probes. **PID-string health
+  checks are removed.** Gate: a test per service that readiness goes false
+  when its named dependency is broken and true when repaired.
 - [ ] **B8.3 Deployment sequence and rollback** (§21.4, §21.5). Encode the
   thirteen-step sequence in `scripts/deploy.sh`. Rollback: binaries only
   within the declared schema compatibility window (Track A's
