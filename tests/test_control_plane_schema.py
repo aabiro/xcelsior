@@ -712,6 +712,13 @@ class TestTelemetryTables:
                 conn.commit()
 
     def test_telemetry_samples_partition_routing(self, cleanup_ids):
+        # The current month only has a partition because maintenance creates
+        # it. Without this the test depended on the calendar: it passed while
+        # the months migration 057 pre-created lasted, and failed on 1 October
+        # 2026 — which is how the unregistered maintenance task was found.
+        from control_plane.audit_partitions import telemetry_partition_maintenance_task
+
+        telemetry_partition_maintenance_task()
         host_id = _mkhost(cleanup_ids)
         try:
             with _pool.connection() as conn:

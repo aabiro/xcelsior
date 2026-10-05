@@ -37,6 +37,15 @@ def _month_bounds(start: _dt.date, offset: int) -> tuple[str, str, str]:
 #: tries to prune.
 PARTITIONED_TABLES = ("audit_events_v2", "placement_decisions")
 
+#: Partitioned the same way, but not audit data, so it is kept out of
+#: `PARTITIONED_TABLES` — the audit task would otherwise apply the 24-month
+#: legal retention below to GPU temperature samples. It has its own task and its
+#: own policy; see `telemetry_partition_maintenance_task`.
+TELEMETRY_TABLE = "telemetry_samples"
+
+#: Every table whose name these functions will interpolate into DDL.
+_MAINTAINED_TABLES = PARTITIONED_TABLES + (TELEMETRY_TABLE,)
+
 #: How long append-only audit data is kept, in months.
 #:
 #: **This number is the retention policy, and it is enforced here or nowhere.**
@@ -72,7 +81,7 @@ def ensure_monthly_partitions(
     Returns the partition suffixes that now exist for the window. Idempotent.
     Takes an open connection so the caller owns the transaction boundary.
     """
-    if table not in PARTITIONED_TABLES:
+    if table not in _MAINTAINED_TABLES:
         # The name is interpolated into DDL, so it is never taken from a caller
         # unchecked.
         raise ValueError(f"{table!r} is not a known partitioned table")
@@ -132,7 +141,7 @@ def expired_partitions(
     is answerable without removing it, and the drop below is thin enough to
     read in one go because the selection lives here.
     """
-    if table not in PARTITIONED_TABLES:
+    if table not in _MAINTAINED_TABLES:
         raise ValueError(f"{table!r} is not a known partitioned table")
     base = (today or _dt.date.today()).replace(day=1)
     # `retention_months` back from the first of this month.
@@ -208,14 +217,16 @@ def audit_partition_maintenance_task() -> None:
     """Durable `scheduled_tasks` entry point — keep every window full, prune the tail."""
     from control_plane.db import control_plane_transaction
 
+    failures: list[str] = []
     for table in PARTITIONED_TABLES:
         with control_plane_transaction() as conn:
             # One transaction per table: a table whose partition creation fails
             # must not take the others' windows down with it.
             try:
                 ensured = ensure_monthly_partitions(conn, table)
-            except Exception:
+            except Exception as exc:
                 log.exception("partition maintenance failed for %s", table)
+                failures.append(f"{table} create: {exc}")
                 continue
         log.debug("%s partitions ensured: %s", table, ensured)
 
@@ -226,8 +237,99 @@ def audit_partition_maintenance_task() -> None:
             # drop stop partition creation and take writes down with it.
             try:
                 dropped = drop_expired_partitions(conn, table)
-            except Exception:
+            except Exception as exc:
                 log.exception("retention drop failed for %s", table)
+                failures.append(f"{table} retention: {exc}")
                 continue
         if dropped:
             log.info("%s retention dropped: %s", table, dropped)
+
+    # Isolating the tables from each other is right; reporting the run as a
+    # success when one of them failed is not. The exceptions above were caught
+    # and logged, so the scheduler recorded `succeeded` and the only trace of a
+    # stalled window was a log line. Raised after every table has had its turn.
+    if failures:
+        raise RuntimeError("; ".join(failures))
+
+
+#: Defaults for the policy row migration 057 seeds. The row is authoritative;
+#: these apply only if its payload is missing a key.
+TELEMETRY_MONTHS_AHEAD = 2
+TELEMETRY_RETENTION_MONTHS = 6
+TELEMETRY_TASK_NAME = "telemetry_partition_maintenance"
+
+
+def telemetry_policy(conn: Any) -> tuple[int, int]:
+    """(months_ahead, retention_months) from the task's own `scheduled_tasks` row.
+
+    Migration 057 seeded `{"months_ahead": 2, "retention_months": 6}` as the
+    policy. The dispatcher calls tasks with no arguments, so the task reads it
+    here rather than restating the numbers in code where they could drift.
+    """
+    row = conn.execute(
+        "SELECT payload FROM scheduled_tasks WHERE task_name = %s",
+        (TELEMETRY_TASK_NAME,),
+    ).fetchone()
+    if row is None:
+        payload: Any = {}
+    elif isinstance(row, dict):
+        payload = row.get("payload") or {}
+    else:
+        payload = row[0] or {}
+    if isinstance(payload, str):
+        import json
+
+        payload = json.loads(payload)
+    ahead = int(payload.get("months_ahead", TELEMETRY_MONTHS_AHEAD))
+    keep = int(payload.get("retention_months", TELEMETRY_RETENTION_MONTHS))
+    # A retention of zero would drop last month, and a negative one would drop
+    # the month being written to. Refuse a nonsense policy rather than act on it.
+    if ahead < 1 or keep < 1:
+        raise ValueError(
+            f"{TELEMETRY_TASK_NAME} policy is invalid: months_ahead={ahead}, "
+            f"retention_months={keep} (both must be at least 1)"
+        )
+    return ahead, keep
+
+
+def telemetry_partition_maintenance_task() -> None:
+    """The handler migration 057 promised and nothing ever registered.
+
+    057 created `telemetry_samples` with partitions for its own month and the
+    next two, and said that "after that, the seeded
+    'telemetry_partition_maintenance' scheduled task owns partition lifecycle".
+    The row was seeded; no function was registered under its name. The
+    dispatcher claimed it daily, logged "not found in registry", and recorded
+    `failed` — in production it had never once succeeded. Its only test asserted
+    that the row *existed*.
+
+    So the window stopped at September 2026. From 1 October every sample would
+    have landed in `telemetry_samples_default`, which is worse than unpruned:
+    once DEFAULT holds rows inside a month's range, `CREATE TABLE … PARTITION
+    OF` for that month is refused outright, and the gap can no longer be closed
+    by this task at all. It was caught with DEFAULT still empty.
+
+    Unlike the audit task this raises instead of logging: there is one table,
+    so there is nothing to isolate it from, and a swallowed exception is exactly
+    how a dead maintainer stays invisible.
+
+    If it ever does fail with "updated partition constraint for default
+    partition … would be violated", rows for that month are already in DEFAULT.
+    The repair is deliberate, not automatic: create the month as a standalone
+    table, move its rows out of DEFAULT, and ATTACH it, in one transaction.
+    """
+    from control_plane.db import control_plane_transaction
+
+    with control_plane_transaction() as conn:
+        months_ahead, retention_months = telemetry_policy(conn)
+        ensured = ensure_monthly_partitions(conn, TELEMETRY_TABLE, months_ahead=months_ahead)
+    log.debug("%s partitions ensured: %s", TELEMETRY_TABLE, ensured)
+
+    # After creation and in its own transaction, for the reason given in the
+    # audit task: a failing drop must never stop the window from advancing.
+    with control_plane_transaction() as conn:
+        dropped = drop_expired_partitions(
+            conn, TELEMETRY_TABLE, retention_months=retention_months
+        )
+    if dropped:
+        log.info("%s retention dropped: %s", TELEMETRY_TABLE, dropped)
