@@ -579,6 +579,114 @@ EOF
     success "Nginx configs installed"
 }
 
+# ── Production env is authoritative ──────────────────────────────────
+# A production deploy used to copy the deploying machine's `.env` over
+# `/opt/xcelsior/.env`, unconditionally. That file is also the developer's local
+# config, so the deploy shipped whatever the laptop happened to hold. Compared
+# key by key on 2026-10-05, it differed from production exactly where it matters:
+#
+#   XCELSIOR_STRIPE_MODE              local=sandbox  prod=live
+#       → real payments, payouts and Connect onboarding sent to the test
+#         account, with nothing failing loudly.
+#   XCELSIOR_SPIFFE_STRICT            local=(absent) prod=0
+#       → the key deleted, the code default of 1 applied, and the GPU fleet —
+#         which presents no SPIFFE identity until Envoy+SPIRE lands — refused
+#         by the agent gateway.
+#   XCELSIOR_ALERTMANAGER_CONFIG_PATH local=dev yml  prod=prod yml
+#       → production alerts routed to the development receivers.
+#
+# So a prod deploy no longer pushes the local file. Production's `.env` stays
+# as it is, and changing it is an explicit act on the host rather than a side
+# effect of whose machine ran this.
+#
+# Drift is still reported, by key name only, and the comparison runs *on the
+# host*: the local side sends SHA-256 digests of its values, never the values,
+# and the production file never leaves the box. Copying production's env down
+# to compare would put every production secret on the deploying machine.
+#
+# `NEXT_PUBLIC_*` drift is refused rather than reported, because the frontend
+# is built from the local file's public values and would ship non-production
+# ones to every browser.
+#
+# XCELSIOR_DEPLOY_PUSH_LOCAL_ENV=1 restores the old behaviour, for when
+# replacing production's config from the local file really is the intent.
+guard_prod_env() {
+    [[ "${TARGET_ENV:-}" == "prod" && -n "${ENV_FILE:-}" ]] || return 0
+    [[ -z "${PROD_ENV_GUARDED:-}" ]] || return 0
+    PROD_ENV_GUARDED=1
+
+    if [[ "${XCELSIOR_DEPLOY_PUSH_LOCAL_ENV:-0}" == "1" ]]; then
+        warn "XCELSIOR_DEPLOY_PUSH_LOCAL_ENV=1 — $ENV_FILE will REPLACE the production .env"
+        return 0
+    fi
+
+    SKIP_PROD_ENV_PUSH=1
+    local report
+    report=$(env_digests "$ENV_FILE" | ssh_cmd "python3 -c '$(env_drift_remote_py)' /opt/xcelsior/.env") \
+        || error "Could not compare the local .env with production's"
+    printf '%s\n' "$report" | sed -n 's/^REPORT //p'
+    if printf '%s\n' "$report" | grep -q '^PUBLIC_DRIFT'; then
+        error "NEXT_PUBLIC_* values differ from production; the frontend would ship them. Reconcile the local .env first."
+    fi
+    success "Production .env kept as-is (local .env not pushed)"
+}
+
+# `key<TAB>sha256(value)` per line. Values never leave this function's pipe.
+# The Anthropic credential is rotated by its owner directly; it is not
+# processed here, even as a digest.
+env_digests() {
+    python3 - "$1" <<'PY'
+import hashlib
+import re
+import sys
+
+skip = re.compile(r"ANTHROPIC", re.IGNORECASE)
+with open(sys.argv[1], encoding="utf-8", errors="replace") as handle:
+    for line in handle:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if skip.search(key):
+            continue
+        value = value.strip().strip('"').strip("'")
+        print(f"{key}\t{hashlib.sha256(value.encode()).hexdigest()}")
+PY
+}
+
+# Runs on the host: local digests on stdin, production's file read in place.
+# Single-quote free, because it travels inside `python3 -c '...'`.
+env_drift_remote_py() {
+    cat <<'PY'
+import hashlib, re, sys
+skip = re.compile(r"ANTHROPIC", re.IGNORECASE)
+local = dict(l.rstrip("\n").split("\t", 1) for l in sys.stdin if "\t" in l)
+prod = {}
+for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
+    line = line.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    k, v = line.split("=", 1)
+    k = k.strip()
+    if skip.search(k):
+        continue
+    prod[k] = hashlib.sha256(v.strip().strip(chr(34)).strip(chr(39)).encode()).hexdigest()
+differ = sorted(k for k in local.keys() & prod.keys() if local[k] != prod[k])
+only_local = sorted(local.keys() - prod.keys())
+only_prod = sorted(prod.keys() - local.keys())
+if not (differ or only_local or only_prod):
+    print("REPORT   local .env matches production")
+else:
+    print("REPORT   local .env differs from production (names only; production kept):")
+    for label, keys in (("differ", differ), ("only in local", only_local), ("only in production", only_prod)):
+        for k in keys:
+            print(f"REPORT     {label:<19} {k}")
+if any(k.startswith("NEXT_PUBLIC_") for k in differ + only_local + only_prod):
+    print("PUBLIC_DRIFT")
+PY
+}
+
 check_ssh() {
     log "Testing SSH connection to $REMOTE_HOST (mux=${SSH_CONTROL_PATH})..."
     if open_ssh_mux_all && ssh_cmd "echo 'SSH OK'" &>/dev/null; then
@@ -587,6 +695,7 @@ check_ssh() {
         error "Cannot connect to $REMOTE_HOST. Check SSH keys and connectivity."
     fi
     ensure_all_remote_deploy_tools
+    guard_prod_env
     if [[ ${#DEPLOY_SYNC_HOSTS[@]} -gt 0 ]]; then
         local host
         for host in "${DEPLOY_SYNC_HOSTS[@]}"; do
@@ -720,9 +829,17 @@ sync_code_push_env() {
 
 sync_code_push_env_host() {
     local host="${1:-$REMOTE_HOST}"
+    # 600 either way: the file carries every production secret, and compose —
+    # its only reader — runs as this same user. It was 664, readable by anyone
+    # with a shell on the box.
+    if [[ -n "${SKIP_PROD_ENV_PUSH:-}" ]]; then
+        log "Keeping $host's production .env (see guard_prod_env)"
+        ssh_cmd_host "$host" "chmod 600 /opt/xcelsior/.env"
+        return 0
+    fi
     log "Sending $TARGET_ENV environment config -> $host..."
     rsync_to_host "$host" "$ENV_FILE" "/tmp/xcelsior_env"
-    ssh_cmd_host "$host" "cp /tmp/xcelsior_env /opt/xcelsior/.env && rm /tmp/xcelsior_env"
+    ssh_cmd_host "$host" "cp /tmp/xcelsior_env /opt/xcelsior/.env && chmod 600 /opt/xcelsior/.env && rm /tmp/xcelsior_env"
 }
 
 sync_code_preserve_remote_files_host() {
