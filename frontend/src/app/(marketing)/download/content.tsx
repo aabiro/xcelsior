@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useSyncExternalStore } from "react";
 import Link from "next/link";
 import { AuthAwareLink } from "@/components/marketing/auth-aware-link";
 import {
@@ -83,9 +83,20 @@ const DESKTOP_FEATURES = [
   { icon: Monitor, titleKey: "download.feature_login_title", descKey: "download.feature_login_desc" },
 ];
 
+// The platform never changes during a visit, so there is nothing to subscribe to.
+const subscribeToNothing = () => () => {};
+
 export function DownloadContent() {
-  const [detected] = useState<Platform | null>(() =>
-    typeof window === "undefined" ? null : detectPlatform(),
+  // `useState(() => typeof window === "undefined" ? null : detectPlatform())`
+  // rendered the generic label on the server and the detected one in the
+  // client's *first* render, so hydration compared different text and React
+  // threw #418 on every visit — seen in production by the real-site Playwright
+  // examination, 2026-10-05. The server snapshot (`null`) is what hydration
+  // renders; the detected platform follows in the very next render.
+  const detected = useSyncExternalStore<Platform | null>(
+    subscribeToNothing,
+    detectPlatform,
+    () => null,
   );
   const { t } = useLocale();
 
