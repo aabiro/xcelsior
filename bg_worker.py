@@ -234,6 +234,18 @@ def main():
 
     register_task("audit_partition_maintenance", _audit_partition_maintenance, 86_400)
 
+    # Migration 057 seeded this row and nothing registered a handler for it, so
+    # it failed daily with "not found in registry" and telemetry partitions
+    # stopped at the last month 057 created. See the task's docstring.
+    def _telemetry_partition_maintenance():
+        from control_plane.audit_partitions import telemetry_partition_maintenance_task
+
+        telemetry_partition_maintenance_task()
+
+    register_task(
+        "telemetry_partition_maintenance", _telemetry_partition_maintenance, 86_400
+    )
+
     # 1a-iv. Signed audit checkpoints (§13.6/§12.2, Track B B4.5): daily, seal
     # the previous interval into a signed Merkle manifest and self-verify it.
     def _audit_checkpoint():
