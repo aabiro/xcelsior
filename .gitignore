@@ -181,6 +181,7 @@ scripts/globe_transform.py
 frontend/public/sw*
 frontend/playwright-report/
 frontend/test-results/
+frontend/test-results-prod/
 
 # ── Checkpoints (test artifacts) ─────────────────────────────────────────
 checkpoints/
