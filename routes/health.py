@@ -808,17 +808,71 @@ def readyz():
     return resp
 
 
-@router.get("/api/status", tags=["Infrastructure"])
-def service_status():
-    """Aggregated per-service health for the CLI wizard preflight gate (and dashboard).
+#: How long one probe of every subsystem answers anonymous callers.
+_PUBLIC_STATUS_TTL_SEC = 15.0
+_public_status_cache: dict[str, Any] = {"at": 0.0, "payload": None}
+_public_status_lock = threading.Lock()
 
-    Probes each named subsystem and reports state operational|degraded|down.
-    Intentionally unauthenticated (the wizard calls this before sign-in) and
-    never raises — it always returns 200 with a verdict so the gate can render.
+
+def _public_view(payload: dict) -> dict:
+    """State only. The detail strings are for operators.
+
+    They carry raw exception text — a failed database probe reads
+    `unreachable: connection to server at "…", port …, user "…"` — plus the
+    model name, host counts and storage backend. None of it tells a visitor
+    anything the state does not, and all of it tells an attacker something.
+    """
+    return {
+        **payload,
+        "services": [
+            {**svc, "detail": ""} for svc in payload.get("services", [])
+        ],
+    }
+
+
+@router.get("/api/status", tags=["Infrastructure"])
+def service_status(request: Request):
+    """Aggregated per-service health for the status page and the CLI preflight.
+
+    Probes each named subsystem and reports state operational|degraded|down,
+    and never raises — it always returns 200 with a verdict so callers render.
 
     verdict: "operational" (all green) | "degraded" (something down/degraded but
     the wizard can still run) | "blocked" (a *required* service is down).
+
+    This docstring said "intentionally unauthenticated" for as long as the path
+    was missing from `PUBLIC_PATHS`, so `TokenAuthMiddleware` answered 401 to
+    every anonymous caller. The public status page treats any failure as
+    "status check unreachable — treat it as unknown rather than healthy", which
+    is what it told every visitor while production was healthy (found by the
+    real-production Playwright examination, 2026-10-05). The CLI preflight,
+    which runs before sign-in by definition, got the same 401.
+
+    Made public as intended, with two conditions the intent did not spell out.
+    Anonymous callers get state without detail (see `_public_view`). And they
+    get a cached answer: public paths skip `RateLimitMiddleware`, and each
+    computation runs a database query, an auth-cache probe and an HTTP probe of
+    the MCP process with a 3-second timeout — unthrottled and uncached, that is
+    an endpoint for making the API do work on demand. A platform admin always
+    gets a fresh, detailed probe.
     """
+    user = _get_current_user(request)
+    if user and _is_platform_admin(user):
+        return _compute_service_status()
+
+    now = time.monotonic()
+    with _public_status_lock:
+        cached = _public_status_cache["payload"]
+        if cached is not None and now - _public_status_cache["at"] < _PUBLIC_STATUS_TTL_SEC:
+            return cached
+        # Computed under the lock so a burst of anonymous requests costs one
+        # probe, not one each.
+        fresh = _public_view(_compute_service_status())
+        _public_status_cache.update(at=now, payload=fresh)
+        return fresh
+
+
+def _compute_service_status() -> dict:
     services: list[dict[str, Any]] = []
 
     def add(name: str, state: str, detail: str, required: bool) -> None:
