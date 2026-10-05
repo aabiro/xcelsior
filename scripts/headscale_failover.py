@@ -16,6 +16,7 @@ not match.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sqlite3
@@ -23,6 +24,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+from contextlib import closing
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -173,6 +175,40 @@ def _env_or_dotenv(environ: Mapping[str, str], dotenv: Mapping[str, str], key: s
     return (environ.get(key) or dotenv.get(key) or "").strip()
 
 
+def _invoking_home(environ: Mapping[str, str]) -> str:
+    """The home of whoever ran this, which under `sudo` is not $HOME."""
+    sudo_user = (environ.get("SUDO_USER") or "").strip()
+    if sudo_user and sudo_user != "root":
+        try:
+            import pwd
+
+            return pwd.getpwnam(sudo_user).pw_dir
+        except (ImportError, KeyError):
+            return str(Path("/home") / sudo_user)
+    return (environ.get("HOME") or "").strip() or str(Path.home())
+
+
+def _expand_user_path(value: str, environ: Mapping[str, str]) -> str:
+    """Expand `~` and `$HOME` against the invoking user's home, then other vars.
+
+    `.env` holds `XCELSIOR_SSH_KEY=$HOME/.ssh/xcelsior`, which docker compose and
+    shells expand. This tool reads `.env` itself and did not, so the runbook's
+    recovery command — `sudo headscale-failover failback` — handed ssh the
+    literal path `$HOME/.ssh/xcelsior` and could not reach the VPS. The timer
+    units never showed it: their EnvironmentFile supplies an absolute path.
+
+    Plain `expandvars` would not have fixed it either. Under `sudo`, $HOME is
+    `/root`, and the key lives in the invoking user's home.
+    """
+    if not value:
+        return value
+    home = _invoking_home(environ)
+    if value == "~" or value.startswith("~/"):
+        value = home + value[1:]
+    value = value.replace("${HOME}", home).replace("$HOME", home)
+    return os.path.expandvars(value)
+
+
 def default_ssh_key(environ: Mapping[str, str] | None = None) -> str:
     environ = environ or os.environ
     sudo_user = (environ.get("SUDO_USER") or "").strip()
@@ -205,9 +241,12 @@ def settings_from_env(
         primary_host=_env_or_dotenv(environ, dotenv, "XCELSIOR_HEADSCALE_HOST")
         or DEFAULT_PRIMARY_HOST,
         primary_user=_env_or_dotenv(environ, dotenv, "XCELSIOR_HEADSCALE_USER") or "root",
-        ssh_key=_env_or_dotenv(environ, dotenv, "XCELSIOR_HEADSCALE_SSH_KEY")
-        or _env_or_dotenv(environ, dotenv, "XCELSIOR_SSH_KEY")
-        or default_ssh_key(environ),
+        ssh_key=_expand_user_path(
+            _env_or_dotenv(environ, dotenv, "XCELSIOR_HEADSCALE_SSH_KEY")
+            or _env_or_dotenv(environ, dotenv, "XCELSIOR_SSH_KEY")
+            or default_ssh_key(environ),
+            environ,
+        ),
         login_server=_env_or_dotenv(environ, dotenv, "XCELSIOR_HEADSCALE_URL")
         or DEFAULT_LOGIN_SERVER,
         dns_name=_env_or_dotenv(environ, dotenv, "XCELSIOR_HEADSCALE_DNS_NAME") or DEFAULT_DNS_NAME,
@@ -359,6 +398,7 @@ def failback_ready(
     state: FailoverState,
     live_nodes: int | None = None,
     force: bool = False,
+    primary_authoritative: bool = False,
 ) -> Decision:
     if state.role != "promoted":
         return Decision("none", "standby is not promoted; nothing to fail back")
@@ -368,6 +408,16 @@ def failback_ready(
             f"original VPS {health.primary_ip_error or 'is unreachable'}; "
             "copying the database there would fail and DNS must not flip yet",
             alert=True,
+        )
+    # The two checks below are about what a *push* would do to the VPS. When
+    # the VPS already holds every registration (see `push_verdict`), nothing is
+    # pushed, and refusing on their grounds would block the one failback that
+    # cannot lose anything.
+    if primary_authoritative:
+        return Decision(
+            "failback",
+            "VPS is reachable and already holds every registration the standby "
+            "has; restore DNS, push nothing",
         )
     if not replica.promotable:
         return Decision(
@@ -950,6 +1000,155 @@ def promote(
     )
 
 
+@dataclass(frozen=True)
+class PrimarySummary:
+    """What the VPS's own Headscale database holds, read in place.
+
+    Identity is `machine_key`, not the row id: the standby re-registers nodes
+    under fresh ids (asus-pc is 10 on the VPS and 1 on the standby), so ids say
+    nothing about whether two databases describe the same machines.
+    """
+
+    machine_keys: frozenset[str] = frozenset()
+    users: int = 0
+    noise_sha256: str = ""
+    missing: bool = False
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class PushVerdict:
+    action: str  # "push" | "skip" | "refuse"
+    reason: str
+
+
+# Runs on the VPS. Single-quote free: it travels inside `python3 -c '...'`.
+# Prints digests and public machine keys only — never the Noise private key.
+_PRIMARY_SUMMARY_PY = (
+    "import hashlib, json, os, sqlite3\n"
+    "db = \"/var/lib/headscale/db.sqlite\"\n"
+    "noise = \"/var/lib/headscale/noise_private.key\"\n"
+    "out = {\"missing\": not os.path.isfile(db)}\n"
+    "if not out[\"missing\"]:\n"
+    "    c = sqlite3.connect(\"file:\" + db + \"?mode=ro\", uri=True)\n"
+    "    out[\"machine_keys\"] = sorted(r[0] for r in c.execute("
+    "\"SELECT machine_key FROM nodes WHERE deleted_at IS NULL\"))\n"
+    "    out[\"users\"] = c.execute(\"SELECT count(*) FROM users\").fetchone()[0]\n"
+    "if os.path.isfile(noise):\n"
+    "    out[\"noise_sha256\"] = hashlib.sha256(open(noise, \"rb\").read()).hexdigest()\n"
+    "print(json.dumps(out))\n"
+)
+
+
+def primary_summary(
+    settings: Settings,
+    *,
+    runner: Callable[..., subprocess.CompletedProcess] | None = None,
+) -> PrimarySummary:
+    remote = f"{settings.primary_user}@{settings.primary_host}"
+    command = [
+        "ssh",
+        "-i",
+        settings.ssh_key,
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=8",
+        remote,
+        f"python3 -c '{_PRIMARY_SUMMARY_PY}'",
+    ]
+    try:
+        result = run_cmd(command, timeout=30, runner=runner)
+        payload = json.loads((result.stdout or "").strip() or "null")
+    except (FailoverError, ValueError) as exc:
+        return PrimarySummary(error=str(exc) or type(exc).__name__)
+    if not isinstance(payload, dict):
+        return PrimarySummary(error="the VPS returned no database summary")
+    return PrimarySummary(
+        machine_keys=frozenset(payload.get("machine_keys") or ()),
+        users=int(payload.get("users") or 0),
+        noise_sha256=str(payload.get("noise_sha256") or ""),
+        missing=bool(payload.get("missing")),
+    )
+
+
+def local_summary(sqlite_path: Path, noise_path: Path) -> tuple[frozenset[str], str]:
+    # An unreadable or corrupt candidate counts as holding nothing. That makes
+    # any VPS with registrations authoritative, which is the right answer: a
+    # database that cannot be read is the last thing to push over one that can.
+    keys: frozenset[str] = frozenset()
+    if sqlite_path.is_file() and sqlite_path.stat().st_size:
+        try:
+            with closing(sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)) as conn:
+                keys = frozenset(
+                    row[0]
+                    for row in conn.execute(
+                        "SELECT machine_key FROM nodes WHERE deleted_at IS NULL"
+                    )
+                )
+        except sqlite3.DatabaseError:
+            keys = frozenset()
+    noise = hashlib.sha256(noise_path.read_bytes()).hexdigest() if noise_path.is_file() else ""
+    return keys, noise
+
+
+def push_verdict(
+    primary: PrimarySummary,
+    candidate_keys: frozenset[str],
+    candidate_noise: str,
+    *,
+    force: bool = False,
+) -> PushVerdict:
+    """Decide whether failback should overwrite the VPS's database at all.
+
+    Failback assumed the standby held the newest truth, because the case it was
+    written for is a primary that *lost* its data. The outage of 2026-09-17 was
+    the other kind: the Vultr account went dark, the VPS's disk was untouched,
+    and when it returned its database was identical to the replica — 6 nodes,
+    same latest update to the nanosecond — while the standby's held 2, a strict
+    subset by machine key. Pushing anything would only have subtracted.
+
+    So compare first. Push only when the standby holds registrations the VPS
+    lacks; skip when the VPS already holds everything; refuse when each side
+    has something the other does not, since either direction loses data.
+    """
+    if force:
+        return PushVerdict("push", "--force: pushing the standby's database regardless")
+    if primary.error:
+        return PushVerdict(
+            "refuse",
+            f"could not read the VPS's own database ({primary.error}); refusing to "
+            "overwrite what cannot be verified. Pass --force to push anyway.",
+        )
+    if primary.missing or not primary.machine_keys:
+        return PushVerdict("push", "the VPS holds no registrations; restoring them")
+    if candidate_noise and primary.noise_sha256 and candidate_noise != primary.noise_sha256:
+        return PushVerdict(
+            "refuse",
+            "the VPS and the standby have different Noise keys — two tailnet "
+            "identities, not one behind the other. Reconcile by hand.",
+        )
+    only_here = candidate_keys - primary.machine_keys
+    only_there = primary.machine_keys - candidate_keys
+    if not only_here:
+        return PushVerdict(
+            "skip",
+            f"the VPS already holds every registration the standby has "
+            f"({node_label(len(primary.machine_keys))} there, "
+            f"{node_label(len(candidate_keys))} here); it is authoritative",
+        )
+    if only_there:
+        return PushVerdict(
+            "refuse",
+            f"the databases have diverged: {node_label(len(only_here))} only here, "
+            f"{node_label(len(only_there))} only on the VPS. Pushing would delete the "
+            "latter. Reconcile by hand, or pass --force if that loss is intended.",
+        )
+    return PushVerdict(
+        "push", f"the standby holds {node_label(len(only_here))} the VPS lacks"
+    )
+
+
 def failback(
     settings: Settings,
     *,
@@ -969,15 +1168,54 @@ def failback(
     live_noise = settings.live_data_dir / "noise_private.key"
     live_nodes = sqlite_counts(live_sqlite)[1] if live_sqlite.is_file() else None
 
+    # What would be pushed: the standby's live database, else the replica.
+    candidate_sqlite = live_sqlite if live_sqlite.is_file() else replica.sqlite_path
+    candidate_noise = live_noise if live_noise.is_file() else replica.noise_key_path
+
+    verdict: PushVerdict | None = None
+    if state.role == "promoted" and health.primary_ip_ok:
+        keys, noise = local_summary(candidate_sqlite, candidate_noise)
+        verdict = push_verdict(
+            primary_summary(settings, runner=runner), keys, noise, force=force
+        )
+        # First, because it is the more specific diagnosis. With the VPS
+        # unreadable, the node-count gate below would tell the operator to
+        # reconcile databases, when the actual problem is that one of them
+        # could not be looked at.
+        if verdict.action == "refuse":
+            raise FailoverError(verdict.reason)
+
     decision = failback_ready(
         health=health,
         replica=replica,
         state=state,
         live_nodes=live_nodes,
         force=force,
+        primary_authoritative=verdict is not None and verdict.action == "skip",
     )
     if decision.action != "failback":
         raise FailoverError(decision.reason)
+
+    if verdict is not None and verdict.action == "skip":
+        print(f"failback: nothing pushed — {verdict.reason}")
+        pushed = f"Nothing pushed — {verdict.reason}."
+    else:
+        pushed = _push_to_primary(
+            settings, replica=replica, live_sqlite=live_sqlite, live_noise=live_noise,
+            runner=runner,
+        )
+
+    _restore_dns_after_failback(settings, state=state, paths=paths, pushed=pushed, opener=opener)
+
+
+def _push_to_primary(
+    settings: Settings,
+    *,
+    replica: ReplicaStatus,
+    live_sqlite: Path,
+    live_noise: Path,
+    runner: Callable[..., subprocess.CompletedProcess] | None,
+) -> str:
 
     # Snapshot whatever the standby served during the outage into a NEW,
     # timestamped directory — never over the replica.
@@ -1042,7 +1280,17 @@ def failback(
         runner=runner,
     )
     run_cmd(ssh + ["systemctl start headscale"], timeout=30, runner=runner)
+    return f"Pushed {users} users / {node_label(nodes)}."
 
+
+def _restore_dns_after_failback(
+    settings: Settings,
+    *,
+    state: FailoverState,
+    paths: dict[str, Path],
+    pushed: str,
+    opener: Callable[..., object] | None,
+) -> None:
     # Restore the address DNS actually held, not `primary_host`.
     #
     # `promote()` records `original_a_record` for exactly this, reading it from
@@ -1061,15 +1309,13 @@ def failback(
     if not serving:
         telegram_send(
             settings,
-            f"Headscale failback HELD: the database and Noise key are restored on "
-            f"{settings.primary_host}, but {target} does not serve "
+            f"Headscale failback HELD: {pushed} But {target} does not serve "
             f"{settings.dns_name} ({why}). DNS was left pointing here. Fix the "
             "front for that name, then re-run failback.",
         )
         raise FailoverError(
             f"refusing to point {settings.dns_name} back at {target}: it does not "
-            f"serve the name ({why}). The identity has been pushed to "
-            f"{settings.primary_host}; only the DNS move is held."
+            f"serve the name ({why}). {pushed} Only the DNS move is held."
         )
 
     set_dns_a(settings, target, opener=opener)
@@ -1081,8 +1327,7 @@ def failback(
     telegram_send(
         settings,
         f"Headscale failed back to {settings.primary_host} (DNS -> {target}). "
-        f"Pushed {users} users / {node_label(nodes)}. DNS restored. "
-        "Node IPs unchanged.",
+        f"{pushed} DNS restored. Node IPs unchanged.",
     )
 
 
@@ -1180,6 +1425,19 @@ def main(argv: list[str] | None = None) -> int:
     except FailoverError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+    except PermissionError as exc:
+        # The replica directory is root-only by design, and `status` is what
+        # someone runs by hand to find out what is going on. It used to answer
+        # with a pathlib traceback — Python 3.12's `is_file()` raises on EACCES
+        # rather than returning False — which reads as the tool being broken
+        # rather than as "you are not root".
+        print(
+            f"error: {exc.filename} is not readable by this user ({exc.strerror}). "
+            f"The replica and its state are root-only; run: sudo {Path(sys.argv[0]).name} "
+            f"{args.command}",
+            file=sys.stderr,
+        )
+        return 2
     return 1
 
 

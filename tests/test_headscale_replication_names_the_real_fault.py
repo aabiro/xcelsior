@@ -349,6 +349,8 @@ def test_failback_restores_the_address_dns_actually_held(tmp_path: Path, monkeyp
     monkeypatch.setattr(hf, "telegram_send", lambda _s, _m: None)
     monkeypatch.setattr(hf, "sqlite_counts", lambda _p: (1, 6))
     monkeypatch.setattr(hf, "serves_dns_name", lambda _s, _a: (True, ""))
+    # A VPS with nothing on it: the case where a push is the recovery.
+    monkeypatch.setattr(hf, "primary_summary", lambda *a, **k: hf.PrimarySummary(missing=True))
 
     state = hf.FailoverState(role="promoted", original_a_record="45.76.3.128")
     hf.failback(
@@ -374,6 +376,7 @@ def test_failback_holds_dns_when_the_target_cannot_serve_the_name(
     monkeypatch.setattr(hf, "telegram_send", lambda _s, m: sent.append(m))
     monkeypatch.setattr(hf, "sqlite_counts", lambda _p: (1, 6))
     monkeypatch.setattr(hf, "serves_dns_name", lambda _s, _a: (False, "connection refused"))
+    monkeypatch.setattr(hf, "primary_summary", lambda *a, **k: hf.PrimarySummary(missing=True))
 
     state = hf.FailoverState(role="promoted", original_a_record="45.76.3.128")
     with pytest.raises(hf.FailoverError) as excinfo:
