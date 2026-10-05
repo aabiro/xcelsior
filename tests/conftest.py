@@ -160,6 +160,23 @@ def _reset_shared_runtime_limits():
     _clear_shared_runtime_limits()
 
 
+@pytest.fixture(autouse=True)
+def _reset_public_status_cache():
+    """`/api/status` serves anonymous callers a 15-second cached answer.
+
+    That is the intended production trade — public paths skip the rate limiter,
+    so the probe must not run per request — but across tests it means one test
+    that breaks the auth cache and asks for status leaves "down" for the next
+    test to read. Found exactly that way: the healthy-cache assertion failed only
+    when it ran straight after the broken-cache one.
+    """
+    import routes.health as health
+
+    health._public_status_cache.update(at=0.0, payload=None)
+    yield
+    health._public_status_cache.update(at=0.0, payload=None)
+
+
 def _clear_shared_runtime_limits() -> None:
     """Blank every namespace in one transaction.
 
