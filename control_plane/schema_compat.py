@@ -22,12 +22,31 @@ from typing import cast
 
 from psycopg import Connection
 
-# The minimum schema this code requires: migration 057 completed the
-# Track A expand set (attempts/allocations/leases/commands/outbox/
-# observations). Raise this only alongside code that needs the newer
-# schema; the maximum is open-ended until a breaking contract migration
+# The minimum schema this code requires. Raise this alongside code that needs a
+# newer schema; the maximum is open-ended until a breaking contract migration
 # defines one.
-REQUIRED_MIN_REVISION = "057"
+#
+# It said "057" — migration 057 completed the Track A expand set — for 59
+# revisions after the code moved past it, and the instruction to raise it was
+# never followed. The gate therefore certified as compatible every schema from
+# 057 upward, including ones missing columns the application writes on its
+# money paths:
+#
+#   095  wallets/payout_ledger/sla_monthly/reservations `_micros` columns
+#   116  wallets.low_balance_warned_at, written by `_warn_low_balance`
+#
+# A database at, say, 079 passed this check, the service started, and then every
+# query naming a `_micros` column raised `UndefinedColumn` inside an
+# `except Exception` and rendered as an empty result — no cycle rows written, so
+# each job re-billed from its start; the GST threshold computed from 0.0; SLA
+# credits never issued. That is the exact class `/readyz` is supposed to refuse
+# to serve, reported instead as healthy.
+#
+# 116 rather than head: `117` only drops redundant indexes, which nothing reads.
+# The floor is what the code *needs*, not where the chain happens to end, and
+# `test_schema_floor_covers_what_the_code_uses` derives it so it cannot drift
+# silently again.
+REQUIRED_MIN_REVISION = "116"
 REQUIRED_MAX_REVISION: str | None = None
 
 
