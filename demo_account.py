@@ -38,16 +38,22 @@ DEMO_EMAIL = os.environ.get("XCELSIOR_DEMO_EMAIL", "demo@xcelsior.ca").strip().l
 DEMO_PASSWORD = os.environ.get("XCELSIOR_DEMO_PASSWORD", "DemoUser123abc!")
 DEMO_NAME = os.environ.get("XCELSIOR_DEMO_NAME", "Demo Account")
 
-# ── Default whitelist — the owner's own networks (2026-07-15) ──────────────────
-# Determined live on the ASUS host (aaryn-tuf-rtx2060):
-#   public IP        153.68.20.238        (home / ASUS egress)
+# ── Default whitelist — the owner's own networks ───────────────────────────────
+# Determined live on the ASUS host (aaryn-tuf-rtx2060), 2026-07-15, except the
+# public IP, which is dynamic:
+#   public IP        207.219.90.237       (home / ASUS egress, 2026-10-05)
 #   tailscale ASUS   100.64.0.6           (+ IPv6 fd7a:115c:a1e0::6)
 #   tailscale Mac    100.64.0.3           (per tailnet map; NFS volume server)
 #   home LAN         192.168.1.0/24       (covers both machines' LAN IPs)
 # The Tailscale ULA /48 covers every tailnet node over IPv6; the LAN /24 covers
 # both boxes' LAN addresses without pinning a single host.
+# The public IP is the one entry that goes stale. It was 153.68.20.238 in July
+# and 66.222.170.140 in September; each change locks the owner out *and* leaves
+# a reassigned address able to fetch admin credentials for production. So the
+# old one is replaced, never kept alongside. The tailnet entries below are the
+# durable path; `XCELSIOR_DEMO_IP_WHITELIST_EXTRA` changes this without a deploy.
 _DEFAULT_WHITELIST = [
-    "153.68.20.238/32",     # public IP (home / ASUS)
+    "207.219.90.237/32",    # public IP (home / ASUS), 2026-10-05
     "100.64.0.6/32",        # tailscale — ASUS (aaryn-tuf-rtx2060)
     "100.64.0.3/32",        # tailscale — Mac (volume server)
     "192.168.1.0/24",       # home LAN (both machines)
