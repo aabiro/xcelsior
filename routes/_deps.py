@@ -144,6 +144,9 @@ PUBLIC_PATHS = {
     "/metrics",
     "/metrics/prometheus",
     "/api/stream",
+    # The status page and the pre-sign-in CLI preflight. The handler serves
+    # anonymous callers a cached, detail-free view; see `service_status`.
+    "/api/status",
     "/api/transparency/report",
     "/api/providers/webhook",
     "/.well-known/oauth-authorization-server",
