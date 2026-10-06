@@ -1451,7 +1451,7 @@ export default function BillingPage() {
 
           {/* Refunds, credited automatically for host-side job failures */}
           {(() => {
-            const refunds = transactions.filter((tx) => tx.type === "refund");
+            const refunds = transactions.filter((tx) => tx.tx_type === "refund");
             if (refunds.length === 0) return null;
             const total = refunds.reduce((sum, tx) => sum + tx.amount_cad, 0);
             return (
@@ -1491,7 +1491,7 @@ export default function BillingPage() {
                                 </Badge>
                               </div>
                               <p className="text-xs text-text-muted">
-                                {tx.created_at ? new Date(tx.created_at).toLocaleString() : "-"}
+                                {api.walletTxTime(tx)}
                                 {tx.job_id && <span className="ml-2">· Job {tx.job_id.slice(0, 8)}</span>}
                               </p>
                             </div>
@@ -1536,10 +1536,10 @@ export default function BillingPage() {
                           )}
                           <div>
                             <p className="text-sm font-medium">
-                              {tx.description || tx.type || "Transaction"}
+                              {tx.description || tx.tx_type || "Transaction"}
                             </p>
                             <p className="text-xs text-text-muted">
-                              {tx.created_at ? new Date(tx.created_at).toLocaleString() : "-"}
+                              {api.walletTxTime(tx)}
                               {tx.job_id && <span className="ml-2">· Job {tx.job_id.slice(0, 8)}</span>}
                             </p>
                           </div>
@@ -1569,11 +1569,7 @@ export default function BillingPage() {
                 let maxCount = 1;
                 for (const tx of transactions) {
                   if (!tx.created_at) continue;
-                  const d = new Date(
-                    typeof tx.created_at === "number"
-                      ? tx.created_at * 1000
-                      : tx.created_at
-                  );
+                  const d = new Date(tx.created_at * 1000);
                   const day = d.getDay();
                   const hour = d.getHours();
                   grid[day][hour]++;
