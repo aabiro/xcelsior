@@ -5,6 +5,7 @@
  * costs one slot of this network's auth rate limit and nothing else.
  */
 import { expect, test, type Page } from "@playwright/test";
+import { clippedContent } from "./layout-checks";
 
 const PUBLIC_PAGES = [
   "/", "/about", "/blog", "/download", "/features", "/gpu-availability", "/gpus",
@@ -100,6 +101,7 @@ for (const path of PUBLIC_PAGES) {
     expect.soft(findings.hydration, "hydration mismatches").toEqual([]);
     expect.soft(findings.failedRequests, "same-origin requests that failed").toEqual([]);
     expect.soft(findings.consoleErrors, "console errors").toEqual([]);
+    expect.soft(await clippedContent(page), "content past the edge of the screen").toEqual([]);
   });
 }
 

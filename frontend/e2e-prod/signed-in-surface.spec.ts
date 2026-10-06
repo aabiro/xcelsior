@@ -9,6 +9,7 @@
  * kept for every page so the result can be looked at, not just counted.
  */
 import { expect, test, type Page } from "@playwright/test";
+import { clippedContent } from "./layout-checks";
 
 const PAGES: Array<{ path: string; heading?: RegExp }> = [
   { path: "/dashboard" },
@@ -115,13 +116,14 @@ for (const { path } of PAGES) {
       const doc = document.documentElement;
       return doc.scrollWidth - doc.clientWidth;
     });
+    const clipped = await clippedContent(page);
     const brokenImages = await page.evaluate(() =>
       Array.from(document.images).filter((i) => i.complete && i.naturalWidth === 0).map((i) => i.src).slice(0, 10),
     );
 
     await page.screenshot({ path: info.outputPath(`${path.replace(/\W+/g, "_")}.png`), fullPage: true });
     await info.attach("findings", {
-      body: JSON.stringify({ ...findings, broken, overflow, brokenImages }, null, 2),
+      body: JSON.stringify({ ...findings, broken, overflow, clipped, brokenImages }, null, 2),
       contentType: "application/json",
     });
 
@@ -133,6 +135,7 @@ for (const { path } of PAGES) {
     expect.soft(findings.consoleErrors, "console errors").toEqual([]);
     expect.soft(broken, "text that means something rendered wrong").toEqual([]);
     expect.soft(overflow, "page scrolls sideways (px)").toBeLessThanOrEqual(1);
+    expect.soft(clipped, "content past the edge of the screen").toEqual([]);
     expect.soft(brokenImages, "images that failed to load").toEqual([]);
   });
 }
