@@ -89,6 +89,34 @@ if _off and workers > 1:
         "the per-process behaviour is genuinely what you want."
     )
 worker_class = "uvicorn.workers.UvicornWorker"
+
+# ---------- Which proxies may name the client ----------
+# `routes._deps._get_real_client_ip` reads only `request.client.host`, which
+# uvicorn resolves from X-Forwarded-For by walking it from the right and
+# stopping at the first hop it does not trust. That closed header spoofing
+# (fa37079), but with only loopback trusted it stopped one hop too early:
+# every request reaches nginx *from Cloudflare*, so nginx appends a Cloudflare
+# edge address, and that edge became "the client" for everyone behind it.
+# Measured on production on 2026-10-06: a request from 207.219.90.237 was
+# logged as 172.69.130.143. Every per-IP control was then shared by all
+# visitors on an edge — the login brute-force limit, the flood limit, the
+# WebSocket ticket's IP pin, audit addresses, the demo-account gate.
+#
+# Trusting Cloudflare's published edge ranges as well moves the walk one hop
+# further, to the address Cloudflare saw — the visitor. It does not reopen
+# spoofing: a client that bypasses Cloudflare arrives with its own address
+# appended by nginx, that address is not in these ranges, and the walk stops
+# there; anything it wrote further left is never read. Source:
+# https://www.cloudflare.com/ips-v4 and /ips-v6, fetched 2026-10-06.
+CLOUDFLARE_EDGE_RANGES = (
+    "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22",
+    "141.101.64.0/18", "108.162.192.0/18", "190.93.240.0/20", "188.114.96.0/20",
+    "197.234.240.0/22", "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13",
+    "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22",
+    "2400:cb00::/32", "2606:4700::/32", "2803:f800::/32", "2405:b500::/32",
+    "2405:8100::/32", "2a06:98c0::/29", "2c0f:f248::/32",
+)
+forwarded_allow_ips = ",".join(("127.0.0.1", "::1", *CLOUDFLARE_EDGE_RANGES))
 worker_tmp_dir = "/dev/shm"  # faster heartbeat on Linux
 
 # ---------- Graceful lifecycle ----------
