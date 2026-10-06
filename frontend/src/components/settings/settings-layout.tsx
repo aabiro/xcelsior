@@ -50,8 +50,12 @@ export function SettingsLayout({
   content: React.ReactNode;
 }) {
   return (
-    <div className="grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)] lg:items-start">
-      <aside className="lg:sticky lg:top-6">{nav}</aside>
+    // `grid-cols-1` is load-bearing below `lg`. Without explicit columns the
+    // implicit track sizes to its widest child's min-content, which is the
+    // whole row of tab pills, so on a phone the page rendered 640px wide and
+    // was clipped instead of letting the pills scroll.
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[220px_minmax(0,1fr)] lg:items-start">
+      <aside className="min-w-0 lg:sticky lg:top-6">{nav}</aside>
       <div className="min-w-0">{content}</div>
     </div>
   );
