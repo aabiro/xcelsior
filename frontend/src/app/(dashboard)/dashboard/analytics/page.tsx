@@ -521,7 +521,8 @@ export default function AnalyticsPage() {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        {/* Wraps on a phone: range, CSV, Refresh and Ask AI are ~540px in one row. */}
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1 rounded-lg bg-surface p-1">
             {RANGE_PRESETS.map((p) => (
               <button
