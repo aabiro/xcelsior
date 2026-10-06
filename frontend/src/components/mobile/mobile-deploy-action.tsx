@@ -259,7 +259,7 @@ export function MobileDeployAction({ canWrite, serverlessEnabled }: MobileDeploy
             <button
               type="button"
               onClick={resetArmed}
-              className="rounded-full border border-border/70 bg-surface/95 px-3 py-1 text-xs font-medium text-text-muted shadow-md backdrop-blur-sm hover:text-text-primary"
+              className="rounded-full border border-border/70 bg-(--bg)/90 px-3 py-1 text-xs font-medium text-text-muted shadow-md backdrop-blur-xl hover:text-text-primary"
               aria-label={t("dash.mobile.action_disarm_label")}
             >
               <span className="inline-flex items-center gap-1">
@@ -269,7 +269,9 @@ export function MobileDeployAction({ canWrite, serverlessEnabled }: MobileDeploy
             </button>
           )}
 
-          <div className="flex items-center gap-1 rounded-full border border-border/60 bg-surface/90 p-1 shadow-lg backdrop-blur-md">
+          {/* `--bg`, not `bg-surface`: in the dashboard theme surface is a 2% tint
+              for cards on the page, and over scrolled content it is see-through. */}
+          <div className="flex items-center gap-1 rounded-full border border-border/60 bg-(--bg)/90 p-1 shadow-lg backdrop-blur-xl">
             <button
               type="button"
               onClick={() => switchTrack("instance")}
@@ -300,7 +302,7 @@ export function MobileDeployAction({ canWrite, serverlessEnabled }: MobileDeploy
 
           {/* On a backdrop: bare text here floats over whatever the page has
               scrolled beneath it and the two run together. */}
-          <p className="rounded-full bg-surface/85 px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-text-muted shadow-sm backdrop-blur-md">
+          <p className="rounded-full bg-(--bg)/85 px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-text-muted shadow-sm backdrop-blur-xl">
             {t("dash.mobile.track_switch_hint")}
           </p>
 
@@ -323,7 +325,7 @@ export function MobileDeployAction({ canWrite, serverlessEnabled }: MobileDeploy
                 ? "text-white shadow-[0_0_48px_rgba(139,92,246,0.5)]"
                 : armedAccent === "cyan"
                   ? "text-navy shadow-[0_0_48px_rgba(34,211,238,0.45)]"
-                  : "border border-border/70 bg-surface text-text-primary shadow-[0_16px_48px_rgba(0,0,0,0.4)]",
+                  : "border border-border/70 bg-(--bg)/90 text-text-primary shadow-[0_16px_48px_rgba(0,0,0,0.4)] backdrop-blur-xl",
             )}
             animate={
               armedAccent
