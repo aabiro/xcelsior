@@ -109,7 +109,11 @@ def test_the_earnings_page_actually_renders_the_payout_state():
         "typed is not the property — the P5 placement control was fully typed "
         "and submitted nothing."
     )
-    assert "payouts={provider?.payouts}" in page, (
+    # Either spelling: the page renders the card only once an account exists
+    # (`provider && …`), because a customer with no account was being told Stripe
+    # "could not be reached" about it. The rendered behaviour, both ways round, is
+    # pinned in frontend/src/__tests__/earnings-page-payout-state.test.tsx.
+    assert re.search(r"payouts=\{provider\??\.payouts\}", page), (
         "PayoutRequirements is present but is not being passed the provider's "
         "payout state, so it renders its unknown branch forever."
     )
