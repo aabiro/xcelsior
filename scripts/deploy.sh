@@ -1542,7 +1542,14 @@ docker compose build $build_args frontend
     # If this fails, aborting is far safer than running new code against an
     # old schema. A failed deploy can be rolled back; a corrupted schema can't.
     log "Running database migrations..."
-    ssh_cmd "cd /opt/xcelsior && docker compose run --rm api python -m alembic upgrade head" || error "Migration failed — aborting deploy. Fix the migration then rerun scripts/deploy.sh."
+    # `--no-deps`: the migration needs Postgres, which is on the host, and
+    # nothing else. Without it `compose run` starts every `depends_on` of `api`,
+    # including the bundled redis — which cannot bind 127.0.0.1:6379 on a host
+    # whose own redis-server already holds it, goes unhealthy, and fails the
+    # migration. That is how the 2026-10-05 redeploy stopped; it also left the
+    # container crash-looping, ready to take the port the next time the
+    # host's redis restarted.
+    ssh_cmd "cd /opt/xcelsior && docker compose run --rm --no-deps api python -m alembic upgrade head" || error "Migration failed — aborting deploy. Fix the migration then rerun scripts/deploy.sh."
     success "Migrations applied"
 
     # ── Blue-green zero-downtime swap ────────────────────────────────────
@@ -1629,7 +1636,7 @@ docker compose build $build_args frontend
     fi
 
     log "Starting Jaeger (OTLP trace collector)..."
-    ssh_cmd "cd /opt/xcelsior && docker compose up -d jaeger" || warn "Jaeger failed to start — traces will not export"
+    ssh_cmd "cd /opt/xcelsior && docker compose up -d --no-deps jaeger" || warn "Jaeger failed to start — traces will not export"
     ssh_cmd "curl -sf http://127.0.0.1:4317 >/dev/null 2>&1 || true"  # gRPC port open check via compose health
     if ssh_cmd "docker ps --format '{{.Names}}' | grep -q jaeger"; then
         success "Jaeger running (UI http://127.0.0.1:16686 on server)"
@@ -1854,19 +1861,32 @@ EOF
 
 # ── Rollback ──────────────────────────────────────────────────────────
 rollback() {
-    log "Rolling back to previous version..."
-    
-    # Find latest backup
-    local latest
+    # This used to `docker compose down` — every service, a full outage — then
+    # untar the newest backup and run a bare `docker compose up -d`. In the
+    # blue-green layout that starts the green slot rather than the profiled blue
+    # one nginx points at, plus the bundled redis, which cannot bind beside the
+    # host's redis-server; `api` waits for redis to be healthy, so the API never
+    # came back. An emergency command that turns a bad deploy into an outage is
+    # worse than none.
+    #
+    # The reliable rollback is the tested path: deploy the previous commit. It
+    # rebuilds, migrates (forward-only, by the expand-contract rule), and swaps
+    # blue/green with health checks like any deploy. This prints exactly that.
+    local latest previous
     latest=$(ssh_cmd "ls -t /opt/xcelsior-backups/xcelsior_*.tar.gz 2>/dev/null | head -1")
-    [[ -z "$latest" ]] && error "No backups found"
-    log "Rolling back to: $latest"
-
-    # Stop, restore, restart
-    ssh_cmd "docker compose -f /opt/xcelsior/docker-compose.yml down 2>/dev/null || true"
-    ssh_cmd "sudo rm -rf /opt/xcelsior && sudo mkdir -p /opt/xcelsior && sudo tar -xzf '$latest' -C /opt && sudo chown -R \$USER:\$USER /opt/xcelsior"
-    ssh_cmd "cd /opt/xcelsior && docker compose up -d"
-    success "Rollback complete"
+    [[ -z "$latest" ]] && error "No backups found in /opt/xcelsior-backups"
+    previous=$(ssh_cmd "tar -xzOf '$latest' xcelsior/.deploy_hash 2>/dev/null" | tr -d '[:space:]')
+    [[ -n "$previous" ]] || error "$latest records no .deploy_hash; find the previous commit by hand"
+    warn "Not rolling back in place — see the comment above rollback() in scripts/deploy.sh."
+    echo
+    echo "  The version before the newest deploy is ${previous:0:12} ($latest)."
+    echo "  Redeploy it through the normal path:"
+    echo
+    echo "    git -C \"$PROJECT_DIR\" worktree add /tmp/xcelsior-rollback ${previous}"
+    echo "    (cd /tmp/xcelsior-rollback && cp \"$PROJECT_DIR/.env\" . && ./scripts/deploy.sh)"
+    echo
+    echo "  Production's .env is kept by the deploy regardless of the copied one."
+    exit 1
 }
 
 # ── Local Test Deployment ──────────────────────────────────────────────
@@ -2151,7 +2171,7 @@ main() {
             check_ssh
             repair_nginx_systemd
             install_nginx_configs
-            ssh_cmd "cd /opt/xcelsior && docker compose pull jaeger 2>/dev/null; docker compose up -d jaeger" \
+            ssh_cmd "cd /opt/xcelsior && docker compose pull jaeger 2>/dev/null; docker compose up -d --no-deps jaeger" \
                 || warn "Jaeger start failed"
             health_check
             log "OTEL in API logs:"
