@@ -16,6 +16,12 @@ services:
     environment:
       XCELSIOR_ENV: staging
       XCELSIOR_AGENT_HOST_TOKENS: ${XCELSIOR_AGENT_HOST_TOKENS:-allow}
+      # Fixed here, not taken from .env.staging. With a bind allowlist that
+      # includes a tailnet address, this is all that keeps `/agent/*` and
+      # `/host` from every peer the bind admits — and api.py defaults to
+      # `allow`. It used to rest on a gitignored file, which a fresh checkout
+      # does not have and which nothing in the repository could check.
+      XCELSIOR_AGENT_PUBLIC_INGRESS: deny
 
   api-blue:
     env_file:
@@ -23,6 +29,12 @@ services:
     environment:
       XCELSIOR_ENV: staging
       XCELSIOR_AGENT_HOST_TOKENS: ${XCELSIOR_AGENT_HOST_TOKENS:-allow}
+      # Fixed here, not taken from .env.staging. With a bind allowlist that
+      # includes a tailnet address, this is all that keeps `/agent/*` and
+      # `/host` from every peer the bind admits — and api.py defaults to
+      # `allow`. It used to rest on a gitignored file, which a fresh checkout
+      # does not have and which nothing in the repository could check.
+      XCELSIOR_AGENT_PUBLIC_INGRESS: deny
 
   bg-worker:
     env_file:

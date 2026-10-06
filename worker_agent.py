@@ -11,10 +11,18 @@
 #   - Compute score benchmarking (XCU)
 #   - Graceful preemption handling
 
-# Auto-load .env file
+import os
+
+# Auto-load .env file (must be before any os.environ reads) — except under the
+# test suite. `.env` is the developer's own config, and it holds real
+# credentials; loaded here, it silently filled every variable `.env.test` did
+# not set, so tests passed or failed by whose machine ran them, and could reach
+# live services with live keys. conftest sets XCELSIOR_SKIP_DOTENV before
+# anything imports this module.
 from dotenv import load_dotenv
 
-load_dotenv()
+if not os.environ.get("XCELSIOR_SKIP_DOTENV"):
+    load_dotenv()
 
 import json
 import logging

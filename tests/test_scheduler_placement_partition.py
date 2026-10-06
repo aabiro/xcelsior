@@ -337,6 +337,15 @@ class TestDirectHostLaunchDefersOwned:
         monkeypatch.setattr(inst_mod, "run_job", _spy_run_job)
         monkeypatch.setattr(inst_mod, "update_job_status", _spy_update)
 
+        # The deferral wakes the authoritative tick, which may then place the
+        # job *legitimately* — attempt, lease, durable start. Whether it does
+        # depends on canary host scope, and this test used to inherit that from
+        # the developer's `.env`: passing where the test host was out of scope,
+        # failing on a clean checkout where every host is in scope. What is
+        # under test is the direct path, so the tick is recorded, not run.
+        ticks: list = []
+        monkeypatch.setattr(sched, "_control_plane_tick", lambda *a, **k: ticks.append(1))
+
         host_payload = {
             "host_id": host_id,
             "gpu_model": model,
@@ -369,6 +378,7 @@ class TestDirectHostLaunchDefersOwned:
             p = json.loads(p)
         assert p.get("preferred_host_id") == host_id
         assert result is not None
+        assert ticks, "the deferral did not wake the transactional scheduler"
 
     def test_direct_launch_still_runs_for_unowned_legacy_job(
         self, fleet, reset_cp_config, monkeypatch

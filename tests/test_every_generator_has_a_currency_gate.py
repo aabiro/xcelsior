@@ -77,11 +77,6 @@ UNGATED_BACKLOG = {
         "output has diverged (1 modified, 1 uncommitted, measured 2026-09-19); "
         "hand-evolved, same as the dashboard and onboarding sets"
     ),
-    "gen_alaska_path.py": (
-        "one-shot SVG path derivation that fetches over the network; its output "
-        "is pasted by hand rather than written to a tracked path, so a currency "
-        "check would need a different shape from the others"
-    ),
 }
 
 #: Pinned to the measured count. 7 -> 6 when `regenerate_untested_endpoints.py`
@@ -106,7 +101,32 @@ GENERATOR_GLOBS = ("generate_*.py", "regenerate_*.py", "gen_*.py")
 
 
 def _generators() -> list[str]:
-    names = {p.name for g in GENERATOR_GLOBS for p in SCRIPTS.glob(g)}
+    """Generators the repository contains — tracked files only.
+
+    A plain glob also found whatever happened to sit in the checkout. That is
+    how a deliberately gitignored local tool (`scripts/gen_alaska_path.py`,
+    `.gitignore` line 178) came to be named in the committed backlog below: it
+    existed on one machine, so this gate demanded it be listed, and every other
+    checkout then failed because the listed file was not there. Untracked
+    files are not the repository's generators, and the answer must not depend
+    on whose working tree runs it.
+    """
+    import fnmatch
+    import subprocess
+
+    try:
+        tracked = subprocess.run(
+            ["git", "-C", str(SCRIPTS.parent), "ls-files", "--", "scripts"],
+            capture_output=True, text=True, check=True, timeout=30,
+        ).stdout.split()
+    except (OSError, subprocess.SubprocessError):
+        # Not a git checkout (an sdist, say): fall back to what is on disk.
+        return sorted({p.name for g in GENERATOR_GLOBS for p in SCRIPTS.glob(g)})
+    names = {
+        name.rsplit("/", 1)[-1]
+        for name in tracked
+        if name.count("/") == 1 and any(fnmatch.fnmatch(name.rsplit("/", 1)[-1], g) for g in GENERATOR_GLOBS)
+    }
     return sorted(names)
 
 

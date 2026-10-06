@@ -19,6 +19,13 @@ if PROJECT_ROOT not in sys.path:
 # Load test environment BEFORE any module imports touch os.environ
 from dotenv import load_dotenv
 
+# Tests run on `.env.test` alone. `db.py` and `worker_agent.py` call
+# `load_dotenv()` at import, which pulled in the developer's own `.env` to fill
+# whatever `.env.test` left unset: a test of canary placement passed on the
+# machine whose `.env` listed it as the only canary host and failed everywhere
+# else, and that file now carries live storage credentials.
+os.environ["XCELSIOR_SKIP_DOTENV"] = "1"
+
 _env_test = os.path.join(PROJECT_ROOT, ".env.test")
 # Never override env vars already set (GitHub Actions sets sqlite backend, etc.).
 if os.path.exists(_env_test):
