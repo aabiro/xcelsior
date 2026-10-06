@@ -194,6 +194,22 @@ class StoragePolicy(str, Enum):
 # ── Configuration ────────────────────────────────────────────────────
 
 
+def _with_scheme(endpoint: str) -> str:
+    """`s3.ca-east-006.backblazeb2.com` → `https://s3.ca-east-006.backblazeb2.com`.
+
+    Providers document the endpoint as a bare host, and that is how production
+    held it. boto3 rejects a scheme-less `endpoint_url` outright —
+    "Invalid endpoint" — so the S3 backend could not have initialised against
+    that configuration at all; it went unnoticed only because the backend was
+    still `local`. HTTPS is the only scheme assumed: a plain-HTTP endpoint (a
+    local MinIO) must say so explicitly.
+    """
+    endpoint = endpoint.strip()
+    if endpoint and "://" not in endpoint:
+        return f"https://{endpoint}"
+    return endpoint
+
+
 @dataclass
 class StorageConfig:
     """Configuration for a storage backend."""
@@ -215,7 +231,7 @@ class StorageConfig:
         return cls(
             backend=os.environ.get(f"{prefix}_BACKEND", "local"),
             local_dir=os.environ.get(f"{prefix}_LOCAL_DIR", ""),
-            endpoint_url=os.environ.get(f"{prefix}_ENDPOINT_URL", ""),
+            endpoint_url=_with_scheme(os.environ.get(f"{prefix}_ENDPOINT_URL", "")),
             bucket=os.environ.get(f"{prefix}_BUCKET", "xcelsior-artifacts"),
             region=os.environ.get(f"{prefix}_REGION", ""),
             access_key_id=os.environ.get(f"{prefix}_ACCESS_KEY_ID", ""),
