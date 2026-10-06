@@ -61,9 +61,13 @@ def _is_tested(path: str, handler: str, corpus: str, corpus_by_file: dict[str, s
 
 def _parse_routes() -> dict[str, list[tuple[str, str, str, bool, str]]]:
     corpus = _load_test_corpus()
+    # Sorted, because the first file that mentions an endpoint is the one the
+    # report credits. Unsorted, `rglob` yields directory order — which differs
+    # between filesystems — so the same tree produced two different reports and
+    # the currency gate failed on a checkout that had changed nothing.
     corpus_by_file = {
         p.name: p.read_text(encoding="utf-8", errors="replace")
-        for p in TESTS_DIR.rglob("*.py")
+        for p in sorted(TESTS_DIR.rglob("*.py"))
     }
     by_file: dict[str, list[tuple[str, str, str, bool, str]]] = defaultdict(list)
 

@@ -107,3 +107,28 @@ def test_a_date_only_change_does_not_fail_the_gate() -> None:
     assert _substance(body) == _substance(
         body.replace("_Regenerated 2026-", "_Regenerated 1999-", 1)
     ), "the date stamp is not being excluded, so this gate would fail every day"
+
+
+def test_the_report_does_not_depend_on_directory_order(monkeypatch) -> None:
+    """Same tree, same report — whatever order the filesystem lists files in.
+
+    The report credits the first test file that mentions an endpoint, and the
+    generator built that lookup from an unsorted `rglob`. Directory order
+    differs between filesystems, so a checkout on tmpfs produced a different
+    report from one on ext4 and this file's currency gate failed on a tree that
+    had changed nothing. Rendering with the listing reversed must give the
+    identical text.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("regen", GENERATOR)
+    regen = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(regen)
+
+    def render() -> str:
+        return regen._render(regen._parse_routes(), regen._parse_cli_commands(regen._load_cli_test_corpus()))
+
+    forward = render()
+    original = Path.rglob
+    monkeypatch.setattr(Path, "rglob", lambda self, pattern: reversed(list(original(self, pattern))))
+    assert render() == forward, "the report changes when the filesystem lists files in another order"
