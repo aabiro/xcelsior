@@ -13,19 +13,29 @@ import { expect, test, type Page } from "@playwright/test";
 const PAGES: Array<{ path: string; heading?: RegExp }> = [
   { path: "/dashboard" },
   { path: "/dashboard/admin/control-plane" },
+  { path: "/dashboard/ai" },
   { path: "/dashboard/analytics" },
+  { path: "/dashboard/artifacts" },
   { path: "/dashboard/billing" },
   { path: "/dashboard/compliance" },
   { path: "/dashboard/earnings" },
   { path: "/dashboard/events" },
+  { path: "/dashboard/hosts" },
   { path: "/dashboard/hpc" },
   { path: "/dashboard/inference" },
   { path: "/dashboard/instances" },
-  { path: "/dashboard/launch-plans" },
+  { path: "/dashboard/marketplace" },
+  { path: "/dashboard/mcp" },
+  { path: "/dashboard/notifications" },
   { path: "/dashboard/reputation" },
   { path: "/dashboard/settings" },
+  { path: "/dashboard/spot-pricing" },
+  { path: "/dashboard/telemetry" },
   { path: "/dashboard/templates" },
   { path: "/dashboard/trust" },
+  { path: "/dashboard/volumes" },
+  // Not `/dashboard/launch-plans`: there is no index. A plan is reached by the
+  // approval link an agent hands out, `/dashboard/launch-plans/{id}`.
 ];
 
 const EXPECTED_RESPONSES: Array<{ pattern: RegExp; why: string }> = [
@@ -90,12 +100,15 @@ for (const { path } of PAGES) {
   test(`${path} — signed in`, async ({ page, baseURL }, info) => {
     const origin = new URL(baseURL!).origin;
     const findings = await watch(page, origin);
-    const response = await page.goto(path, { waitUntil: "networkidle" });
+    // Not "networkidle": the dashboard holds an event stream open for live
+    // updates, so the network is never idle and every page timed out waiting
+    // for it. Load, then a visible heading, then a settle window for the
+    // client-side fetches that fill the page.
+    const response = await page.goto(path, { waitUntil: "load" });
     expect(response?.status() ?? 0, `${path} document`).toBeLessThan(400);
     expect(new URL(page.url()).pathname, "redirected away — the session did not hold").toBe(path);
-
-    // Give client-side data fetches their moment, then look.
-    await page.waitForTimeout(1500);
+    await page.locator("h1, h2").first().waitFor({ state: "visible", timeout: 20_000 }).catch(() => {});
+    await page.waitForTimeout(3000);
     findings.cspViolations.push(...(await page.evaluate(() => (window as unknown as { __csp: string[] }).__csp ?? [])));
     const broken = await brokenText(page);
     const overflow = await page.evaluate(() => {
@@ -125,11 +138,13 @@ for (const { path } of PAGES) {
 }
 
 test("an instance detail page renders its new cards — signed in", async ({ page }) => {
-  await page.goto("/dashboard/instances", { waitUntil: "networkidle" });
+  await page.goto("/dashboard/instances", { waitUntil: "load" });
+  await page.waitForTimeout(3000);
   const first = page.locator('a[href^="/dashboard/instances/"]').first();
   test.skip((await first.count()) === 0, "no instances on this account to open");
   await first.click();
-  await page.waitForLoadState("networkidle");
+  await page.waitForLoadState("load");
+  await page.waitForTimeout(3000);
   await expect(page.locator("h1, h2").first()).toBeVisible();
   const broken = await brokenText(page);
   expect.soft(broken, "text that means something rendered wrong").toEqual([]);
