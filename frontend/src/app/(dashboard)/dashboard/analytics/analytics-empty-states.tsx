@@ -112,7 +112,13 @@ export function PlatformPulseOverview({
               <Zap className="h-4 w-4 text-accent-gold" />
               <h3 className="text-sm font-semibold">Current spot rates</h3>
             </div>
-            <TopGpuChart data={spotChart} />
+            <TopGpuChart
+              data={spotChart}
+              title="Spot rates"
+              subtitle="CAD per GPU-hour, live"
+              valueSuffix="/hr"
+              showUsage={false}
+            />
           </div>
         </FadeIn>
       )}
