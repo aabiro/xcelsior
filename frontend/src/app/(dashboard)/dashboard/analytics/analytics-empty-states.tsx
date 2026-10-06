@@ -114,8 +114,8 @@ export function PlatformPulseOverview({
             </div>
             <TopGpuChart
               data={spotChart}
-              title="Spot rates"
-              subtitle="CAD per GPU-hour, live"
+              title="Highest rates right now"
+              subtitle={`Top ${spotChart.length} GPUs, CAD per GPU-hour`}
               valueSuffix="/hr"
               showUsage={false}
             />
