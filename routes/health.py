@@ -872,6 +872,37 @@ def service_status(request: Request):
         return fresh
 
 
+_ARTIFACT_PROBE_TIMEOUT_SEC = 5.0
+
+
+def _probe_artifact_storage() -> tuple[str, str, str, bool]:
+    """(name, state, detail, required) for the artifact bucket."""
+    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import TimeoutError as _ProbeTimeout
+
+    name = "Artifact storage"
+    try:
+        from artifacts import StorageClient, StorageConfig
+
+        config = StorageConfig.from_env()
+        client = StorageClient(config)
+    except Exception as exc:
+        return name, "degraded", f"not configured: {exc}", False
+
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
+        pool.submit(client.list_objects, "", 1).result(timeout=_ARTIFACT_PROBE_TIMEOUT_SEC)
+    except _ProbeTimeout:
+        return name, "degraded", f"{config.backend}: no answer in {_ARTIFACT_PROBE_TIMEOUT_SEC:g}s", False
+    except Exception as exc:
+        return name, "down", f"{config.backend}: {exc}", False
+    finally:
+        # Do not wait for a hung probe; it finishes or dies on its own.
+        pool.shutdown(wait=False, cancel_futures=True)
+    where = config.bucket if config.backend in ("s3", "gcs") else "local"
+    return name, "operational", f"{config.backend} · {where}", False
+
+
 def _compute_service_status() -> dict:
     services: list[dict[str, Any]] = []
 
@@ -979,6 +1010,16 @@ def _compute_service_status() -> dict:
             f"nfs error: {exc}",
             nfs_required,
         )
+
+    # Artifact storage — probed against the bucket itself. `storage_healthcheck`
+    # above only queries Postgres, so nothing anywhere exercised the bucket, and
+    # when every bucket in the Backblaze account was deleted (found 2026-10-06,
+    # some time after 2026-08-12) nothing noticed. A one-object listing proves
+    # the bucket exists and the key can read it. `list_objects` raises rather
+    # than returning an empty list, so a missing bucket cannot pass for an
+    # empty one. Capped at 5s in a worker thread: a provider that hangs must
+    # not hang the status page with it.
+    add(*_probe_artifact_storage())
 
     # MCP connector — the surface every connected AI assistant talks to. Probed
     # through its own readiness endpoint rather than assumed healthy because the
