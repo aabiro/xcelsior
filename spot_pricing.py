@@ -122,12 +122,29 @@ def _pg_available() -> bool:
         return False
 
 
+def _canonical_gpu_model(raw: str | None) -> str:
+    """The catalogue's name for a GPU, whatever the worker or offer called it.
+
+    Workers report what the driver says, `NVIDIA GeForce RTX 2060`, while the
+    catalogue says `RTX 2060`. Spot pricing keyed every map on the raw string,
+    so one GPU became two markets: supply, demand and history split between
+    them, and the raw name missed its `gpu_pricing` row, fell back to the
+    host's own cost, and quoted four times the catalogue spot rate. A job
+    locked on such a host was billed at that rate. Everything here keys on
+    this instead.
+    """
+    from host_metadata import normalize_gpu_model
+
+    return normalize_gpu_model(raw or "")
+
+
 def get_platform_rate(
     gpu_model: str,
     pricing_mode: str = "spot",
     tier: str = "standard",
 ) -> float | None:
     """Look up canonical platform rate from gpu_pricing."""
+    gpu_model = _canonical_gpu_model(gpu_model)
     if not gpu_model:
         return None
     try:
@@ -167,7 +184,7 @@ def _host_supply_by_gpu() -> dict[str, int]:
 
     supply: dict[str, int] = defaultdict(int)
     for host in load_hosts(active_only=True):
-        gpu = (host.get("gpu_model") or "unknown").strip()
+        gpu = _canonical_gpu_model(host.get("gpu_model")) or "unknown"
         supply[gpu] += max(1, int(host.get("num_gpus") or 1))
     return dict(supply)
 
@@ -177,7 +194,7 @@ def _host_min_cost_by_gpu() -> dict[str, float]:
 
     mins: dict[str, float] = {}
     for host in load_hosts(active_only=True):
-        gpu = (host.get("gpu_model") or "unknown").strip()
+        gpu = _canonical_gpu_model(host.get("gpu_model")) or "unknown"
         cost = float(host.get("cost_per_hour") or 0.20)
         if gpu not in mins or cost < mins[gpu]:
             mins[gpu] = cost
@@ -197,7 +214,12 @@ def _marketplace_supply_by_gpu() -> dict[str, int]:
                    WHERE available = TRUE AND spot_enabled = TRUE
                    GROUP BY gpu_model""",
             ).fetchall()
-        return {r[0]: int(r[1] or 0) for r in rows if r[0]}
+        supply: dict[str, int] = defaultdict(int)
+        for raw, count in rows:
+            gpu = _canonical_gpu_model(raw)
+            if gpu:
+                supply[gpu] += int(count or 0)
+        return dict(supply)
     except Exception as exc:
         log.debug("marketplace supply query failed: %s", exc)
         return {}
@@ -216,7 +238,13 @@ def _provider_floor_cents_by_gpu() -> dict[str, int]:
                    WHERE available = TRUE AND spot_enabled = TRUE
                    GROUP BY gpu_model""",
             ).fetchall()
-        return {r[0]: int(r[1] or 0) for r in rows if r[0]}
+        floors: dict[str, int] = {}
+        for raw, cents in rows:
+            gpu = _canonical_gpu_model(raw)
+            if gpu:
+                # MAX per name in SQL, so MAX again across names that merged.
+                floors[gpu] = max(floors.get(gpu, 0), int(cents or 0))
+        return floors
     except Exception as exc:
         log.debug("provider floor query failed: %s", exc)
         return {}
@@ -235,13 +263,13 @@ def _job_demand_by_gpu() -> dict[str, int]:
     for job in load_jobs():
         if job.get("status") not in ("running", "queued"):
             continue
-        gm = (job.get("gpu_model") or "").strip()
+        gm = _canonical_gpu_model(job.get("gpu_model"))
         if gm:
             demand[gm] += 1
             continue
         host_id = job.get("host_id")
         if host_id and host_id in host_map:
-            gpu = (host_map[host_id].get("gpu_model") or "unknown").strip()
+            gpu = _canonical_gpu_model(host_map[host_id].get("gpu_model")) or "unknown"
             demand[gpu] += 1
         elif supply_gpus:
             for gpu in supply_gpus:
@@ -251,6 +279,7 @@ def _job_demand_by_gpu() -> dict[str, int]:
 
 def get_supply_demand(gpu_model: str) -> tuple[int, int]:
     """Merged supply and demand for a GPU model."""
+    gpu_model = _canonical_gpu_model(gpu_model)
     host_supply = _host_supply_by_gpu()
     offer_supply = _marketplace_supply_by_gpu()
     supply = host_supply.get(gpu_model, 0) + offer_supply.get(gpu_model, 0)
@@ -273,7 +302,7 @@ def _catalog_gpu_models() -> set[str]:
                 """SELECT DISTINCT gpu_model FROM gpu_pricing
                    WHERE active = TRUE AND pricing_mode = 'spot'""",
             ).fetchall()
-        models.update(r[0] for r in rows if r[0])
+        models.update(_canonical_gpu_model(r[0]) for r in rows if r[0])
     except Exception:
         pass
     models.update(_host_supply_by_gpu())
@@ -290,6 +319,7 @@ def compute_live_spot_quote(
     demand: int | None = None,
 ) -> SpotQuote:
     """Compute a live spot quote for one GPU model."""
+    gpu_model = _canonical_gpu_model(gpu_model)
     if supply is None or demand is None:
         supply, demand = get_supply_demand(gpu_model)
 
@@ -397,17 +427,26 @@ def get_current_spot_prices() -> dict[str, float]:
 
             with pg_connection() as conn:
                 rows = conn.execute(
-                    """SELECT DISTINCT ON (gpu_model) gpu_model, clearing_price_cents
+                    """SELECT DISTINCT ON (gpu_model) gpu_model, clearing_price_cents, recorded_at
                        FROM spot_price_history
                        ORDER BY gpu_model, recorded_at DESC""",
                 ).fetchall()
-            # History outlives the catalog filter. Production still holds a
-            # row with an empty model from before it existed, and both
-            # `/spot-prices` keys were built from this read, so the dashboard
-            # charted a GPU with no name.
-            prices = {
-                r[0]: int(r[1]) / 100.0 for r in rows if _is_priceable_gpu_model(r[0])
-            }
+            # History outlives the filters that now guard what is written to
+            # it. Production still holds a row with an empty model, and rows
+            # under raw driver names (`NVIDIA GeForce RTX 2060`) beside the
+            # catalogue's (`RTX 2060`). Both `/spot-prices` keys are built from
+            # this read, so the dashboard charted a nameless GPU and the same
+            # card twice at different prices. Names are canonicalised and the
+            # newest row wins where two collapse into one.
+            latest: dict[str, tuple[float, float]] = {}
+            for raw, cents, recorded_at in rows:
+                gpu = _canonical_gpu_model(raw)
+                if not _is_priceable_gpu_model(gpu):
+                    continue
+                at = float(recorded_at or 0)
+                if gpu not in latest or at > latest[gpu][1]:
+                    latest[gpu] = (int(cents) / 100.0, at)
+            prices = {gpu: price for gpu, (price, _at) in latest.items()}
             if prices:
                 return prices
         except Exception as exc:
