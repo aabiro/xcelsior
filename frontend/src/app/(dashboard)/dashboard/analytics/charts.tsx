@@ -478,11 +478,25 @@ export function DurationHistogramChart({ data }: { data: { bucket: string; count
 
 // ── 9. Top GPU Models ─────────────────────────────────────────────────
 
-export function TopGpuChart({ data }: { data: { name: string; spend: number; jobs: number; hours: number }[] }) {
+export function TopGpuChart({
+  data,
+  title = "Top GPU Models",
+  subtitle = "By total spend",
+  valueSuffix = "",
+  showUsage = true,
+}: {
+  data: { name: string; spend: number; jobs: number; hours: number }[];
+  title?: string;
+  subtitle?: string;
+  /** e.g. "/hr" when the bars are rates rather than totals. */
+  valueSuffix?: string;
+  /** The jobs / GPU-hours line under each bar; meaningless for a rate. */
+  showUsage?: boolean;
+}) {
   if (!data?.length) return null;
   const maxSpend = Math.max(...data.map(d => d.spend));
   return (
-    <ChartCard title="Top GPU Models" subtitle="By total spend">
+    <ChartCard title={title} subtitle={subtitle}>
       <div className="space-y-2">
         {data.map((d, i) => {
           const pct = maxSpend > 0 ? (d.spend / maxSpend) * 100 : 0;
@@ -491,7 +505,7 @@ export function TopGpuChart({ data }: { data: { name: string; spend: number; job
             <div key={d.name} className="table-row-animate">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs font-medium truncate max-w-[140px]">{d.name}</span>
-                <span className="text-xs font-mono text-text-secondary">{formatCurrency(d.spend)}</span>
+                <span className="text-xs font-mono text-text-secondary">{formatCurrency(d.spend)}{valueSuffix}</span>
               </div>
               <div className="relative h-2 rounded-full bg-surface-hover overflow-hidden">
                 <div
@@ -499,10 +513,12 @@ export function TopGpuChart({ data }: { data: { name: string; spend: number; job
                   style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${color}99, ${color})`, boxShadow: `0 0 8px ${color}40` }}
                 />
               </div>
-              <div className="flex gap-4 mt-0.5 text-[10px] text-text-muted">
-                <span>{d.jobs} jobs</span>
-                <span>{d.hours.toFixed(1)}h GPU</span>
-              </div>
+              {showUsage && (
+                <div className="flex gap-4 mt-0.5 text-[10px] text-text-muted">
+                  <span>{d.jobs} jobs</span>
+                  <span>{d.hours.toFixed(1)}h GPU</span>
+                </div>
+              )}
             </div>
           );
         })}

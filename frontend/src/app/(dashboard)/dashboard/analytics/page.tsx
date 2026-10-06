@@ -31,6 +31,7 @@ import {
 } from "./charts";
 import type { Insight } from "./charts";
 import { AnalyticsAiPanel } from "./analytics-ai-panel";
+import { topSpotRates } from "./spot-rates";
 import {
   ComputeTabEmpty,
   FinancialTabEmpty,
@@ -298,13 +299,7 @@ export default function AnalyticsPage() {
       if (usageRes.status === "fulfilled") setData(usageRes.value);
       if (enhancedRes.status === "fulfilled") setEnhanced(enhancedRes.value as EnhancedAnalytics);
       if (spotRes.status === "fulfilled" && spotRes.value) {
-        const prices = (spotRes.value as any)?.spot_prices || (spotRes.value as any)?.prices || {};
-        setSpotPrices(
-          Object.entries(prices)
-            .map(([model, price]) => ({ model, price: Number(price ?? 0) }))
-            .sort((a, b) => b.price - a.price)
-            .slice(0, 10)
-        );
+        setSpotPrices(topSpotRates(spotRes.value));
       }
       setGpuBreakdown(gpuRes.status === "fulfilled" ? (((gpuRes.value as any)?.analytics ?? []) as any[]) : []);
       setProvinceBreakdown(provinceRes.status === "fulfilled" ? (((provinceRes.value as any)?.analytics ?? []) as any[]) : []);

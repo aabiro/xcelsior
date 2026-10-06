@@ -258,6 +258,11 @@ def get_supply_demand(gpu_model: str) -> tuple[int, int]:
     return supply, demand
 
 
+def _is_priceable_gpu_model(gpu_model: str | None) -> bool:
+    """A model a spot quote can be shown for: named, and not the placeholder."""
+    return bool(gpu_model and gpu_model.strip()) and gpu_model != "unknown"
+
+
 def _catalog_gpu_models() -> set[str]:
     models: set[str] = set()
     try:
@@ -274,7 +279,7 @@ def _catalog_gpu_models() -> set[str]:
     models.update(_host_supply_by_gpu())
     models.update(_marketplace_supply_by_gpu())
     models.update(_job_demand_by_gpu())
-    return {m for m in models if m and m != "unknown"}
+    return {m for m in models if _is_priceable_gpu_model(m)}
 
 
 def compute_live_spot_quote(
@@ -331,6 +336,10 @@ def compute_live_spot_quote(
 def record_spot_history(quote: SpotQuote) -> None:
     """Persist one quote row to spot_price_history."""
     global _history_cache
+    if not _is_priceable_gpu_model(quote.gpu_model):
+        # The reader drops these anyway; a row nobody can show is just noise
+        # in the history a chart pages through.
+        return
     entry = {
         "gpu_model": quote.gpu_model,
         "price": quote.rate_cad,
@@ -392,8 +401,15 @@ def get_current_spot_prices() -> dict[str, float]:
                        FROM spot_price_history
                        ORDER BY gpu_model, recorded_at DESC""",
                 ).fetchall()
-            if rows:
-                return {r[0]: int(r[1]) / 100.0 for r in rows}
+            # History outlives the catalog filter. Production still holds a
+            # row with an empty model from before it existed, and both
+            # `/spot-prices` keys were built from this read, so the dashboard
+            # charted a GPU with no name.
+            prices = {
+                r[0]: int(r[1]) / 100.0 for r in rows if _is_priceable_gpu_model(r[0])
+            }
+            if prices:
+                return prices
         except Exception as exc:
             log.debug("spot_price_history read failed: %s", exc)
 
