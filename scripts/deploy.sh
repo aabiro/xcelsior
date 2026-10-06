@@ -290,7 +290,13 @@ RSYNC_EXCLUDES=(
     --exclude='*.log'
     --exclude='data'
     --exclude='/artifacts'
-    --exclude='.env'
+    # Every `.env*` file except the templates. Excluding only `.env` shipped the
+    # rest on every deploy — `.env.bak.*` backups of production's own env,
+    # `.env.staging.secrets`, the worker envs — into /opt/xcelsior and, through
+    # an equally narrow .dockerignore, into the production images. Order
+    # matters: rsync applies the first rule that matches.
+    --include='.env*.example'
+    --exclude='.env*'
     # macOS AppleDouble sidecars. `.gitignore` hides them locally, but this is
     # rsync, not git — so they were shipped to the VPS and baked into the image,
     # where `compileall` fails on them with "source code string cannot contain
@@ -543,9 +549,47 @@ EOF
     success "nginx running under systemd"
 }
 
+# True when any vhost the deploy installs expects PROXY protocol on its TLS
+# listener — i.e. sits behind the stream router rather than on 443 itself.
+vhosts_need_tls_router() {
+    local dir="$1" f
+    for f in xcelsior headscale headscale-http docs-xcelsior downloads-xcelsior; do
+        [[ -f "$dir/$f.conf" ]] || continue
+        if grep -Eq '^[[:space:]]*listen[^;]*\bproxy_protocol\b' "$dir/$f.conf"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Reads nginx.conf on stdin. True only for an *active* top-level include of the
+# router — a commented-out line is the state before the cutover, not after it.
+nginx_conf_includes_tls_router() {
+    grep -Eq '^[[:space:]]*include[[:space:]]+[^;#]*stream-tls-router\.conf[[:space:]]*;'
+}
+
 install_nginx_configs() {
     log "Installing nginx site configs (rsync bundle)..."
     _deploy_mark "nginx-start"
+
+    # The repo's vhosts are in the SNI-passthrough layout: they listen on 8444
+    # with `proxy_protocol`, behind `stream-tls-router.conf`, which must own
+    # 0.0.0.0:443 from the top level of nginx.conf. This function installs the
+    # vhosts and never installed the router. On 2026-10-05 it did exactly that:
+    # xcelsior.ca left 443, the request landed on the agent gateway's mTLS block,
+    # and the public site answered "400 No required SSL certificate was sent"
+    # for about twelve minutes until the previous vhosts were restored.
+    #
+    # Installing the router is the ingress cutover (infra/spire/README.md) — a
+    # deliberate step on a host that also serves other products on 443 — not
+    # something a code deploy should do as a side effect. So until the router
+    # is there, the vhosts are left as they are, loudly.
+    if vhosts_need_tls_router "$PROJECT_DIR/nginx" \
+        && ! ssh_cmd "cat /etc/nginx/nginx.conf" | nginx_conf_includes_tls_router; then
+        warn "Nginx NOT updated: the repo's vhosts listen behind stream-tls-router.conf, and this host's nginx.conf does not include it. Installing them would take xcelsior.ca off port 443. Do the ingress cutover first (infra/spire/README.md); the next deploy installs them."
+        DEPLOY_NGINX_HELD=1
+        return 0
+    fi
 
     ssh_cmd "rm -rf /tmp/xcelsior-nginx && mkdir -p /tmp/xcelsior-nginx"
     rsync_to_remote "$PROJECT_DIR/nginx/" "/tmp/xcelsior-nginx/" \
@@ -834,7 +878,11 @@ sync_code_push_env_host() {
     # with a shell on the box.
     if [[ -n "${SKIP_PROD_ENV_PUSH:-}" ]]; then
         log "Keeping $host's production .env (see guard_prod_env)"
-        ssh_cmd_host "$host" "chmod 600 /opt/xcelsior/.env"
+        # Checked here, not first discovered in deploy_docker: by then nginx has
+        # already been reloaded. A bare `chmod` on a missing file printed an
+        # error and the deploy carried on.
+        ssh_cmd_host "$host" "test -f /opt/xcelsior/.env && chmod 600 /opt/xcelsior/.env" \
+            || error "production .env is missing on $host after the code sync. Nothing has restarted. Restore it from the newest /opt/xcelsior-backups/*.tar.gz (xcelsior/.env) before re-running."
         return 0
     fi
     log "Sending $TARGET_ENV environment config -> $host..."
@@ -849,6 +897,19 @@ set -e
 for f in docker-compose.override.yml docker-compose.prod.yml; do
     [ -f "/opt/xcelsior/$f" ] && cp "/opt/xcelsior/$f" "/tmp/xcelsior_preserve_$f" || true
 done
+# The production .env, too. The sync rebuilds /opt/xcelsior_new from nothing
+# and moves it over /opt/xcelsior, so anything not carried across is gone; the
+# env push used to put .env back afterwards, which hid that it was never
+# preserved. When the push stopped (guard_prod_env), the first deploy deleted
+# production's .env — caught by deploy_docker's existence check, before
+# anything restarted, and restored from the deploy's own backup.
+#
+# Not via /tmp: a predictable name in a world-writable directory is the wrong
+# place for every production secret. A private directory under /opt instead.
+if [ -f /opt/xcelsior/.env ]; then
+    sudo install -d -m 700 -o "$USER" -g "$USER" /opt/xcelsior_env_keep
+    install -m 600 /opt/xcelsior/.env /opt/xcelsior_env_keep/.env
+fi
 EOF
 }
 
@@ -860,6 +921,10 @@ for f in docker-compose.override.yml docker-compose.prod.yml; do
     [ -f "/tmp/xcelsior_preserve_$f" ] && cp "/tmp/xcelsior_preserve_$f" "/opt/xcelsior_new/$f" || true
     rm -f "/tmp/xcelsior_preserve_$f"
 done
+if [ -f /opt/xcelsior_env_keep/.env ]; then
+    install -m 600 /opt/xcelsior_env_keep/.env /opt/xcelsior_new/.env
+    rm -f /opt/xcelsior_env_keep/.env
+fi
 EOF
 }
 
@@ -1282,8 +1347,13 @@ store_remote_deploy_hash() {
 store_remote_deploy_hashes() {
     local meta payload
     meta=$(remote_deploy_meta_dir)
-    payload=$(printf 'api=%s\nfrontend=%s\nnginx=%s\nruntime=%s\n' \
-        "$DEPLOY_API_HASH" "$DEPLOY_FRONTEND_HASH" "$DEPLOY_NGINX_HASH" "$DEPLOY_RUNTIME_HASH")
+    payload=$(printf 'api=%s\nfrontend=%s\nruntime=%s\n' \
+        "$DEPLOY_API_HASH" "$DEPLOY_FRONTEND_HASH" "$DEPLOY_RUNTIME_HASH")
+    # A held nginx install did not happen, so its hash is not recorded: the next
+    # deploy must still see the vhosts as changed and try again.
+    if [[ -z "${DEPLOY_NGINX_HELD:-}" ]]; then
+        payload+=$'\n'"nginx=$DEPLOY_NGINX_HASH"
+    fi
     ssh_cmd "META='$meta'; mkdir -p \"\$META\"
 while IFS='=' read -r k v; do
   [[ -z \"\$k\" ]] && continue

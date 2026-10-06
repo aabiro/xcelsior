@@ -10,9 +10,10 @@ node_modules
 *.log
 data/
 artifacts/
-.env
-.env.test
-.env.worker
+# Every env file but the templates. Listing three names baked `.env.bak.*`
+# backups of production's env, and `.env.staging.secrets`, into the images.
+.env*
+!.env*.example
 /desktop
 checkpoints/
 .vscode/
