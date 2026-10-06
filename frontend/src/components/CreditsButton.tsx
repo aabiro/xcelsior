@@ -33,8 +33,12 @@ export function CreditsButton() {
         pollStoppedRef.current = true;
         return;
       }
-      // Keep existing balance if we already have one; otherwise default to 0 for new users
-      setBalance((prev) => prev ?? 0);
+      // Keep the last balance we actually read. There is no "new user" case to
+      // default for: the API creates a wallet on first read and answers $0.00
+      // itself. A fallback of 0 turned every 429, 5xx and dropped connection
+      // into a confident "$0.00" in the header of a funded account. With no
+      // reading at all, `null` renders as "-", which claims nothing.
+      setBalance((prev) => prev);
     } finally {
       setLoading(false);
     }
