@@ -16,15 +16,21 @@ Playwright run against production found them.
 
 from __future__ import annotations
 
+import functools
 import pathlib
 import re
+
+from tests._source_tree import iter_source_files, read_source
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 FRONTEND = ROOT / "frontend"
 SRC = FRONTEND / "src"
 PUBLIC = FRONTEND / "public"
 
-SOURCE_SUFFIXES = {".ts", ".tsx", ".js", ".jsx", ".css", ".mdx", ".md"}
+#: What `frontend/src` is written in. Each suffix is one walk of the repository,
+#: `node_modules` included, so this is the list that exists rather than every
+#: one that could.
+SOURCE_SUFFIXES = ("*.ts", "*.tsx", "*.css")
 ASSET = re.compile(
     r"""["'`(]"""
     r"""(/[A-Za-z0-9_\-./]+\."""
@@ -43,16 +49,18 @@ def _served_by_app_router(path: str) -> bool:
     )
 
 
+@functools.cache
 def _references() -> dict[str, list[str]]:
     found: dict[str, list[str]] = {}
-    for f in SRC.rglob("*"):
-        if f.suffix not in SOURCE_SUFFIXES or "__tests__" in f.parts:
-            continue
-        for match in ASSET.finditer(f.read_text(errors="ignore")):
-            path = match.group(1)
-            if path.startswith("//"):
+    for suffix in SOURCE_SUFFIXES:
+        # `include_prefixes` beats every exclude, so tests are dropped here.
+        for f, rel in iter_source_files(suffix, include_prefixes=("frontend/src/",)):
+            if not rel.startswith("frontend/src/") or rel.startswith("frontend/src/__tests__/"):
                 continue
-            found.setdefault(path, []).append(str(f.relative_to(ROOT)))
+            for match in ASSET.finditer(read_source(f)):
+                path = match.group(1)
+                if not path.startswith("//"):
+                    found.setdefault(path, []).append(rel)
     return found
 
 
