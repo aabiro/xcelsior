@@ -34,7 +34,12 @@ const toastMocks = vi.hoisted(() => ({
   info: vi.fn(),
 }));
 
-vi.mock("@/lib/api", () => apiMocks);
+// The real `walletTxTime`, not a copy: the date formatting is part of what the
+// transaction test below checks.
+vi.mock("@/lib/api", async () => ({
+  ...apiMocks,
+  walletTxTime: (await vi.importActual<typeof import("@/lib/api")>("@/lib/api")).walletTxTime,
+}));
 
 vi.mock("@/lib/auth", () => ({
   useAuth: authMocks.useAuth,
@@ -202,6 +207,41 @@ describe("BillingPage free credits flow", () => {
     await waitFor(() => {
       expect(screen.queryByText("dash.billing.free_credits_title")).not.toBeInTheDocument();
     });
+  });
+
+  it("renders wallet transactions in the shape the API actually sends", async () => {
+    // `/api/billing/wallet/{id}/history` on production, 2026-10-06: micros in
+    // storage with CAD derived at the boundary, Unix seconds, `tx_type`. Every
+    // other test here mocks history as an empty list, so none of them rendered
+    // a transaction — which is how a page that crashed on `amount_cad.toFixed`,
+    // dated rows 1970 and never showed refunds passed this suite.
+    const createdAt = Date.UTC(2026, 9, 6, 12, 0, 0) / 1000;
+    apiMocks.fetchWalletHistory.mockResolvedValue({
+      ok: true,
+      customer_id: "cust-1",
+      transactions: [
+        {
+          tx_id: "tx-1",
+          tx_type: "refund",
+          amount_micros: 5_000_000,
+          amount_cad: 5,
+          balance_after_micros: 20_000_000,
+          balance_after_cad: 20,
+          description: "Refund: host failure",
+          job_id: "job-12345678",
+          created_at: createdAt,
+        },
+      ],
+    });
+
+    render(<BillingPage />);
+
+    expect((await screen.findAllByText("Refund: host failure")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/\+\$5\.00/).length).toBeGreaterThan(0);
+    // Refunds are recognised by `tx_type`; under `tx.type` this card never showed.
+    expect(screen.getByText(/refunded/)).toBeTruthy();
+    // Seconds, not milliseconds: read as ms this is January 1970.
+    expect(screen.queryByText(/1970/)).toBeNull();
   });
 
   it("hides the reset control for non-admin users", async () => {

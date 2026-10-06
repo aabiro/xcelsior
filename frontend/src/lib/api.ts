@@ -3195,14 +3195,32 @@ export interface VerifiedHost {
   deverify_reason?: string;
 }
 
+/**
+ * One row of `/api/billing/wallet/{id}/history`, as the API actually sends it.
+ *
+ * This type used to describe a row that did not exist — `type` (the API says
+ * `tx_type`), `created_at` as a string (it is Unix seconds), `amount_cad` (the
+ * API sent only integer micros). TypeScript enforced the fiction, so the
+ * billing page crashed on `amount_cad.toFixed`, dated every transaction 1970,
+ * and never showed refunds, all with the compiler satisfied.
+ */
 export interface WalletTransaction {
   tx_id: string;
-  type: string;
+  /** "deposit", "charge", "refund", … */
+  tx_type: string;
+  /** CAD, derived at the API boundary from `amount_micros`. */
   amount_cad: number;
+  amount_micros?: number;
+  balance_after_cad?: number;
   description?: string;
   job_id?: string;
-  created_at: string;
-  balance_after?: number;
+  /** Unix seconds. */
+  created_at: number;
+}
+
+/** A wallet transaction's time, from the API's Unix seconds. */
+export function walletTxTime(tx: Pick<WalletTransaction, "created_at">): string {
+  return tx.created_at ? new Date(tx.created_at * 1000).toLocaleString() : "-";
 }
 
 export interface Invoice {

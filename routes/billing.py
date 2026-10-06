@@ -792,12 +792,32 @@ def api_free_credits_status(customer_id: str, request: Request):
     return {"ok": True, "claimed": row is not None}
 
 
+def _wallet_transaction_for_api(row: dict) -> dict:
+    """One wallet transaction as the API states money: in CAD.
+
+    `get_wallet_history` returns the stored row, and since money moved to
+    integer micros that row carries `amount_micros` and `balance_after_micros`
+    and nothing in CAD. The route passed it through, so the dashboard read
+    `tx.amount_cad` as undefined: the billing page crashed on `.toFixed` for
+    every account with a transaction, and analytics summed undefined into
+    `$NaN` — both seen on production on 2026-10-06. CAD is the unit at the API
+    boundary everywhere else; it is derived here, once. The micros fields stay,
+    because MCP clients already receive them.
+    """
+    out = dict(row)
+    if row.get("amount_micros") is not None:
+        out["amount_cad"] = micros_to_cad(int(row["amount_micros"]))
+    if row.get("balance_after_micros") is not None:
+        out["balance_after_cad"] = micros_to_cad(int(row["balance_after_micros"]))
+    return out
+
+
 @router.get("/api/billing/wallet/{customer_id}/history", tags=["Billing"])
 def api_wallet_history(customer_id: str, request: Request, limit: int = Query(50, ge=1, le=1000)):
     """Get transaction history for a wallet."""
     _require_customer_access(request, customer_id)
     be = get_billing_engine()
-    history = be.get_wallet_history(customer_id, limit)
+    history = [_wallet_transaction_for_api(r) for r in be.get_wallet_history(customer_id, limit)]
     return {"ok": True, "customer_id": customer_id, "transactions": history}
 
 
