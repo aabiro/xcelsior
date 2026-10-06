@@ -437,3 +437,31 @@ class TestRemoteBackendFailsClosed:
         up = client.generate_upload_url("job_output/j1/out.txt")
         assert up["url"].startswith("file://")
         assert client.list_objects("job_output/") == []
+
+
+class TestEndpointScheme:
+    """Production held its B2 endpoint as a bare host, which boto3 refuses."""
+
+    def test_a_bare_host_gets_https(self, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_STORAGE_ENDPOINT_URL", "s3.ca-east-006.backblazeb2.com")
+        cfg = StorageConfig.from_env("XCELSIOR_STORAGE")
+        assert cfg.endpoint_url == "https://s3.ca-east-006.backblazeb2.com"
+
+    def test_an_explicit_scheme_is_kept(self, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_STORAGE_ENDPOINT_URL", "http://127.0.0.1:9000")
+        assert StorageConfig.from_env("XCELSIOR_STORAGE").endpoint_url == "http://127.0.0.1:9000"
+
+    def test_no_endpoint_stays_none_so_aws_defaults_apply(self, monkeypatch):
+        monkeypatch.delenv("XCELSIOR_STORAGE_ENDPOINT_URL", raising=False)
+        assert StorageConfig.from_env("XCELSIOR_STORAGE").endpoint_url == ""
+
+    def test_boto3_accepts_the_normalised_endpoint(self, monkeypatch):
+        """The failure was at client construction, so construct one."""
+        import boto3
+
+        monkeypatch.setenv("XCELSIOR_STORAGE_ENDPOINT_URL", "s3.ca-east-006.backblazeb2.com")
+        cfg = StorageConfig.from_env("XCELSIOR_STORAGE")
+        boto3.client(
+            "s3", endpoint_url=cfg.endpoint_url, region_name="ca-east-006",
+            aws_access_key_id="x", aws_secret_access_key="y",
+        )
