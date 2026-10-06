@@ -66,10 +66,17 @@ def test_the_bind_is_an_allowlist_rather_than_a_wildcard_switch():
     # Both pinned. `XCELSIOR_API_PORT` is set in the ambient environment here
     # (9501, the blue slot), and a test that reads it asserts whatever the shell
     # happened to export rather than the property.
-    previous = {k: os.environ.get(k) for k in ("XCELSIOR_API_BIND", "XCELSIOR_API_PORT")}
+    # `GUNICORN_WORKERS` too: the test environment runs in-memory auth, which
+    # the config refuses alongside several workers, so this passed or failed
+    # depending on what earlier tests had left in the environment.
+    previous = {
+        k: os.environ.get(k)
+        for k in ("XCELSIOR_API_BIND", "XCELSIOR_API_PORT", "GUNICORN_WORKERS")
+    }
     try:
         os.environ["XCELSIOR_API_BIND"] = "127.0.0.1,100.64.0.6"
         os.environ["XCELSIOR_API_PORT"] = "9500"
+        os.environ["GUNICORN_WORKERS"] = "1"
         exec(compile(conf, "gunicorn.conf.py", "exec"), namespace)
         assert namespace["bind"] == ["127.0.0.1:9500", "100.64.0.6:9500"], namespace["bind"]
         # The point of an allowlist: naming interfaces must not quietly include
@@ -126,15 +133,20 @@ def test_staging_keeps_agent_ingress_denied():
     **410**, and the LAN address `192.168.1.127:9502` refused the connection
     outright because that interface is not in the allowlist.
     """
-    env = (ROOT / ".env.staging").read_text(encoding="utf-8")
-    match = re.search(r"^XCELSIOR_AGENT_PUBLIC_INGRESS=(\S+)", env, re.M)
-    assert match, (
-        ".env.staging no longer sets XCELSIOR_AGENT_PUBLIC_INGRESS, so it falls "
-        "back to the api.py default of `allow` — and the worker protocol is "
-        "served to every peer the bind allowlist admits"
-    )
-    assert match.group(1).strip().lower() == "deny", (
-        f"staging sets agent ingress to {match.group(1)!r}. With a bind "
-        "allowlist that includes a tailnet address, this is the difference "
-        "between a reachable staging API and an open worker protocol."
-    )
+    # Read from the committed overlay. This used to read `.env.staging`, which
+    # is gitignored, so on any fresh checkout the test died on a missing file
+    # and the property it guards was checked nowhere. The overlay's
+    # `environment:` overrides `env_file:`, so it is also the value that wins.
+    import yaml
+
+    overlay = yaml.safe_load((ROOT / "docker-compose.staging.yml").read_text(encoding="utf-8"))
+    for service in ("api", "api-blue"):
+        value = str((overlay["services"][service].get("environment") or {}).get(
+            "XCELSIOR_AGENT_PUBLIC_INGRESS", ""
+        )).strip().lower()
+        assert value == "deny", (
+            f"staging's {service} sets agent ingress to {value!r} (empty means the "
+            "api.py default of `allow`). With a bind allowlist that includes a "
+            "tailnet address, this is the difference between a reachable staging "
+            "API and an open worker protocol."
+        )
