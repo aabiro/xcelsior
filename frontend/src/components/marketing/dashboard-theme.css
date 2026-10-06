@@ -1527,6 +1527,9 @@ html.light .dashboard-site-modal-overlay {
 @media (max-width: 768px) {
   .dashboard-site-main {
     padding-top: 16px;
+    /* Room to scroll the end of the page clear of the mobile deploy dock,
+       which publishes how much of the viewport it covers. */
+    padding-bottom: max(32px, calc(var(--mobile-dock-clearance, 0px) + 16px));
   }
 
   .dashboard-overview-loading-grid {
