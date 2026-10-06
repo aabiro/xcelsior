@@ -198,3 +198,70 @@ def test_no_env_file_enters_the_image(name: str) -> None:
 
 def test_the_templates_still_do() -> None:
     assert not _dockerignored(".env.example")
+
+
+# ── Nothing on the production path starts the bundled redis ───────────────
+#
+# The redeploy that followed stopped at the migration: `docker compose run --rm
+# api …` without `--no-deps` started `api`'s `depends_on`, including the bundled
+# redis, which cannot bind 127.0.0.1:6379 beside the host's own redis-server. It
+# went unhealthy, the migration failed, and the container was left crash-looping
+# with `restart: unless-stopped`, ready to take the port whenever the host's
+# redis restarted.
+
+
+def _compose_deps() -> dict[str, set[str]]:
+    import yaml
+
+    services = yaml.safe_load((ROOT / "docker-compose.yml").read_text())["services"]
+    direct = {}
+    for name, svc in services.items():
+        deps = svc.get("depends_on") or {}
+        direct[name] = set(deps if isinstance(deps, list) else deps.keys())
+
+    def closure(name: str, seen: set[str]) -> set[str]:
+        for dep in direct.get(name, set()) - seen:
+            seen.add(dep)
+            closure(dep, seen)
+        return seen
+
+    return {name: closure(name, set()) for name in direct}
+
+
+def test_the_premise_api_does_depend_on_the_bundled_redis() -> None:
+    """If this stops being true, the guard below is guarding nothing."""
+    assert "redis" in _compose_deps()["api"]
+
+
+def _production_compose_calls() -> list[str]:
+    calls = []
+    for line in DEPLOY.read_text().splitlines():
+        if line.lstrip().startswith("#") or "/opt/xcelsior" not in line:
+            continue
+        calls += re.findall(r"docker compose(?: [^;&|\"]*)? (?:run|up)\b[^;&|\"]*", line)
+    return calls
+
+
+def test_no_production_compose_call_can_start_redis() -> None:
+    deps = _compose_deps()
+    offenders = []
+    for call in _production_compose_calls():
+        if "--no-deps" in call:
+            continue
+        named = [w for w in call.split() if w in deps]
+        if not named:
+            offenders.append(f"{call!r} names no service, so it starts all of them")
+            continue
+        for service in named:
+            if "redis" in deps[service] or service == "redis":
+                offenders.append(f"{call!r} starts redis through {service}")
+    assert not offenders, offenders
+    assert _production_compose_calls(), "the scan found no compose calls — it is broken"
+
+
+def test_rollback_cannot_take_production_down() -> None:
+    """`compose down` then a bare `up -d` was a full outage in this layout."""
+    body = _function("rollback")
+    code = "\n".join(l for l in body.splitlines() if not l.lstrip().startswith("#"))
+    assert "compose" not in code or "down" not in code, "rollback still stops every service"
+    assert not re.search(r"docker compose[^\n\"]*up -d\"", code), "rollback still runs a bare up"
