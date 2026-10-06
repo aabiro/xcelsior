@@ -146,9 +146,9 @@ export function PayoutRequirements({ payouts }: { payouts?: ProviderPayoutState 
               Payout status could not be checked
             </p>
             <p className="mt-0.5 text-[11px] leading-relaxed text-text-muted">
-              We could not reach Stripe for this account just now, so this is not a
-              statement that everything is in order. Refresh, or open the Stripe
-              dashboard directly.
+              Stripe has not reported on this account, so this is not a statement
+              that everything is in order. Finish Stripe setup if you have not, then
+              refresh, or open the Stripe dashboard directly.
             </p>
           </div>
         </div>

@@ -81,7 +81,10 @@ export default function EarningsPage() {
       const pid = providerId || customerId;
       const promises: Promise<any>[] = [];
       promises.push(api.fetchProviderEarnings(pid).catch(() => null));
-      promises.push(api.fetchProvider(pid).catch(() => null));
+      // Only a provider has an account to fetch. Registration writes
+      // `provider_id` onto the user, so its absence is the answer; probing by
+      // customer id instead cost every non-provider a 404 on each visit.
+      promises.push(providerId ? api.fetchProvider(providerId).catch(() => null) : Promise.resolve(null));
       promises.push(api.fetchGstThreshold(customerId || providerId));
       promises.push(api.checkPayPalEnabled().catch(() => ({ enabled: false, platform_mode: false })));
       const [earningsRes, providerRes, gstRes, paypalFlagRes] = await Promise.allSettled(promises);
@@ -373,9 +376,14 @@ export default function EarningsPage() {
                     deadline appears while the account is still active. That is
                     the window in which telling someone early is worth
                     something. */}
-                <div className="mb-3">
-                  <PayoutRequirements payouts={provider?.payouts} />
-                </div>
+                {/* No account, no payout state: "could not be checked" would
+                    describe a Stripe account that does not exist. The
+                    become-a-provider branch below is the whole answer. */}
+                {provider && (
+                  <div className="mb-3">
+                    <PayoutRequirements payouts={provider.payouts} />
+                  </div>
+                )}
                 {provider?.status === "active" ? (
                   <div className="space-y-3">
                     {/* Always-visible connected banner */}
