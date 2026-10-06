@@ -21,6 +21,13 @@ interface MobileDeployActionProps {
 type DeployTrack = "instance" | "serverless";
 
 const SWIPE_THRESHOLD_PX = 48;
+/** How much of the viewport bottom the dock covers; the main column pads by it. */
+const DOCK_CLEARANCE_VAR = "--mobile-dock-clearance";
+/**
+ * Full-height pages with their own input pinned to the bottom. The dock sat
+ * over the Xcel AI composer and its suggestions; these pages get none.
+ */
+const DOCKLESS_PATHS = ["/dashboard/ai", "/dashboard/mcp"];
 const ARM_TAP_GRACE_MS = 400;
 const ARMED_IDLE_MS = 45_000;
 const TOAST_COOLDOWN_MS = 2_500;
@@ -45,6 +52,7 @@ export function MobileDeployAction({ canWrite, serverlessEnabled }: MobileDeploy
   const lastToastAtRef = useRef(0);
   const modalOpenRef = useRef(false);
   const swipeOriginRef = useRef<{ x: number; y: number } | null>(null);
+  const dockRef = useRef<HTMLDivElement | null>(null);
   const didSwipeRef = useRef(false);
 
   const announce = useCallback((message: string) => {
@@ -196,7 +204,34 @@ export function MobileDeployAction({ canWrite, serverlessEnabled }: MobileDeploy
     resetArmed();
   }, [resetArmed]);
 
-  if (!canWrite) return null;
+  // The dock is fixed over the bottom of every dashboard page on a phone. The
+  // main column used to keep 32px of bottom padding under ~230px of dock, so
+  // the end of every page, Save buttons included, could never be scrolled
+  // clear of it. Its real footprint is measured rather than guessed: it grows
+  // when armed, and is display:none on desktop, where it must reserve nothing.
+  const dockless = DOCKLESS_PATHS.some((p) => pathname === p || pathname?.startsWith(`${p}/`));
+
+  useEffect(() => {
+    const el = dockRef.current;
+    const root = document.documentElement;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const publish = () => {
+      const rect = el.getBoundingClientRect();
+      const covered = rect.height > 0 ? Math.max(0, window.innerHeight - rect.top) : 0;
+      root.style.setProperty(DOCK_CLEARANCE_VAR, `${Math.ceil(covered)}px`);
+    };
+    publish();
+    const ro = new ResizeObserver(publish);
+    ro.observe(el);
+    window.addEventListener("resize", publish);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", publish);
+      root.style.removeProperty(DOCK_CLEARANCE_VAR);
+    };
+  }, [canWrite, dockless]);
+
+  if (!canWrite || dockless) return null;
 
   const showOnMobile = desktopState.isStandalonePwa;
   const trackAccent = selectedTrack === "serverless" ? "violet" : "cyan";
@@ -209,6 +244,7 @@ export function MobileDeployAction({ canWrite, serverlessEnabled }: MobileDeploy
       </div>
 
       <div
+        ref={dockRef}
         className={cn(
           "pointer-events-none fixed inset-x-0 z-[48] flex justify-center",
           showOnMobile
@@ -262,7 +298,9 @@ export function MobileDeployAction({ canWrite, serverlessEnabled }: MobileDeploy
             )}
           </div>
 
-          <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-text-muted/80">
+          {/* On a backdrop: bare text here floats over whatever the page has
+              scrolled beneath it and the two run together. */}
+          <p className="rounded-full bg-surface/85 px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-text-muted shadow-sm backdrop-blur-md">
             {t("dash.mobile.track_switch_hint")}
           </p>
 
