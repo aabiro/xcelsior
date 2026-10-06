@@ -437,6 +437,11 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       {/* Settings + Docs + Getting Started (mobile drawer) */}
       {mobile && (
         <div className="dashboard-site-sidebar-footer p-2 space-y-0.5">
+          {/* Language and theme live here below `sm`; the top bar has no room. */}
+          <div className="flex items-center justify-between gap-3 px-3 py-2 sm:hidden">
+            <LocaleToggle className="dashboard-site-pill-control" />
+            <ThemeToggle />
+          </div>
           <button
             type="button"
             onClick={() => setMobileOnboardingOpen((o) => !o)}
@@ -563,7 +568,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               <div className="brand-line absolute bottom-0 left-0 right-0" />
               <div className="dashboard-site-topbar-inner">
                 <button
-                  className="dashboard-site-icon-button flex h-11 w-11 items-center justify-center rounded-full md:hidden"
+                  className="dashboard-site-icon-button flex h-11 w-11 shrink-0 items-center justify-center rounded-full md:hidden"
                   onClick={() => setMobileOpen(true)}
                   aria-label="Open menu"
                 >
@@ -579,8 +584,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 </div>
                 <DesktopStatusStrip className="dashboard-site-status hidden xl:flex" />
                 <div className={cn("dashboard-site-actions flex items-center", desktopMode && "desktop-topbar-actions")}>
-                  <LocaleToggle className="dashboard-site-pill-control" />
-                  <ThemeToggle />
+                  {/* On a phone these two moved into the menu drawer. Seven
+                      controls in a 412px bar pushed the wallet and the account
+                      menu off-screen on every page. */}
+                  <div className="hidden sm:contents">
+                    <LocaleToggle className="dashboard-site-pill-control" />
+                    <ThemeToggle />
+                  </div>
                   <div className="h-6 w-px bg-[var(--line)] hidden sm:block" />
                   <div className="dashboard-site-control">
                     <NotificationBell />
