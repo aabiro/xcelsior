@@ -83,9 +83,7 @@ export function TransactionHistory({
     <Card>
       <CardHeader>
         <CardTitle>{t("dash.billing.transactions")}</CardTitle>
-        <CardDescription>
-          {t("dash.billing.transactions_desc")} Top-ups and refunds appear here; usage is debited automatically from your wallet.
-        </CardDescription>
+        <CardDescription>{t("dash.billing.transactions_desc")}</CardDescription>
       </CardHeader>
       <CardContent>
         {failed ? (
