@@ -70,12 +70,6 @@ def _router_check(conf: str) -> bool:
     return _bash(script, input=conf).returncode == 0
 
 
-def test_the_repo_vhosts_need_the_router() -> None:
-    """If this stops being true the guard is inert, not satisfied."""
-    script = _function("vhosts_need_tls_router") + f'vhosts_need_tls_router "{ROOT}/nginx"'
-    assert _bash(script).returncode == 0
-
-
 def test_production_shape_nginx_conf_does_not_count_as_routed() -> None:
     assert not _router_check(PROD_NGINX_CONF)
 
@@ -88,13 +82,18 @@ def test_an_active_top_level_include_counts() -> None:
     assert _router_check(PROD_NGINX_CONF + "include /etc/nginx/stream-tls-router.conf;\n")
 
 
-def test_a_held_install_is_not_recorded_as_done() -> None:
-    """Otherwise the next deploy sees nginx as unchanged and never retries."""
-    body = _function("store_remote_deploy_hashes")
-    assert "DEPLOY_NGINX_HELD" in body
+def test_the_install_renders_for_the_detected_ingress_and_can_roll_back() -> None:
+    """The router check now picks the rendering instead of holding the install.
+
+    Holding left production's vhosts drifting from the repo for every release;
+    tests/test_nginx_vhosts_install_safely.py runs the renderer and the
+    installer for real.
+    """
     install = _function("install_nginx_configs")
-    held = install.index("DEPLOY_NGINX_HELD=1")
-    assert held < install.index("sudo cp"), "the hold must return before any vhost is copied"
+    assert "nginx_conf_includes_tls_router" in install
+    assert "render_nginx_vhosts.py" in install and "install_nginx_vhosts.sh" in install
+    assert "read_remote_api_colour" in install and "read_remote_mcp_colour" in install
+    assert "sudo cp" not in install, "vhosts are copied by the installer, which can restore them"
 
 
 # ── The production .env survives the directory swap ──────────────────────

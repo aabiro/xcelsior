@@ -549,19 +549,6 @@ EOF
     success "nginx running under systemd"
 }
 
-# True when any vhost the deploy installs expects PROXY protocol on its TLS
-# listener — i.e. sits behind the stream router rather than on 443 itself.
-vhosts_need_tls_router() {
-    local dir="$1" f
-    for f in xcelsior headscale headscale-http docs-xcelsior downloads-xcelsior; do
-        [[ -f "$dir/$f.conf" ]] || continue
-        if grep -Eq '^[[:space:]]*listen[^;]*\bproxy_protocol\b' "$dir/$f.conf"; then
-            return 0
-        fi
-    done
-    return 1
-}
-
 # Reads nginx.conf on stdin. True only for an *active* top-level include of the
 # router — a commented-out line is the state before the cutover, not after it.
 nginx_conf_includes_tls_router() {
@@ -569,56 +556,46 @@ nginx_conf_includes_tls_router() {
 }
 
 install_nginx_configs() {
-    log "Installing nginx site configs (rsync bundle)..."
+    log "Installing nginx site configs..."
     _deploy_mark "nginx-start"
 
-    # The repo's vhosts are in the SNI-passthrough layout: they listen on 8444
-    # with `proxy_protocol`, behind `stream-tls-router.conf`, which must own
-    # 0.0.0.0:443 from the top level of nginx.conf. This function installs the
-    # vhosts and never installed the router. On 2026-10-05 it did exactly that:
-    # xcelsior.ca left 443, the request landed on the agent gateway's mTLS block,
-    # and the public site answered "400 No required SSL certificate was sent"
-    # for about twelve minutes until the previous vhosts were restored.
+    # The repo's vhosts are written for the SNI-passthrough ingress (8444 with
+    # `proxy_protocol`, behind `stream-tls-router.conf`). On 2026-10-05 this
+    # function installed them as written onto a host with no router:
+    # xcelsior.ca left 443 and answered "400 No required SSL certificate" for
+    # twelve minutes. The response was to hold every nginx install until the
+    # ingress cutover, and production's vhosts then drifted from the repo with
+    # each release (a connection cap refusing ordinary page loads, an error
+    # page pointing at a missing file, a stale headscale certificate).
     #
-    # Installing the router is the ingress cutover (infra/spire/README.md) — a
-    # deliberate step on a host that also serves other products on 443 — not
-    # something a code deploy should do as a side effect. So until the router
-    # is there, the vhosts are left as they are, loudly.
-    if vhosts_need_tls_router "$PROJECT_DIR/nginx" \
-        && ! ssh_cmd "cat /etc/nginx/nginx.conf" | nginx_conf_includes_tls_router; then
-        warn "Nginx NOT updated: the repo's vhosts listen behind stream-tls-router.conf, and this host's nginx.conf does not include it. Installing them would take xcelsior.ca off port 443. Do the ingress cutover first (infra/spire/README.md); the next deploy installs them."
-        DEPLOY_NGINX_HELD=1
-        return 0
+    # So the vhosts are rendered for the topology this host actually has, with
+    # the API and MCP upstreams pointed at the colours live right now (the
+    # blue-green swaps edit the installed file, so the repo's "9500 primary"
+    # would otherwise route to a drained replica). The installer backs up what
+    # is serving, and restores it if `nginx -t` fails or xcelsior.ca/healthz
+    # does not answer 200 through nginx afterwards.
+    local topology=direct
+    if ssh_cmd "cat /etc/nginx/nginx.conf" | nginx_conf_includes_tls_router; then
+        topology=router
     fi
+    local api_live mcp_live rendered
+    api_live=$(read_remote_api_colour)
+    mcp_live=$(read_remote_mcp_colour)
+    rendered=$(mktemp -d)
+    python3 "$PROJECT_DIR/scripts/render_nginx_vhosts.py" "$PROJECT_DIR/nginx" "$rendered" \
+        --topology "$topology" --api-live "$api_live" --mcp-live "$mcp_live" \
+        || { rm -rf "$rendered"; error "Could not render the nginx vhosts"; }
+    log "Vhosts rendered for the $topology ingress (API live: $api_live, MCP live: $mcp_live)"
 
     ssh_cmd "rm -rf /tmp/xcelsior-nginx && mkdir -p /tmp/xcelsior-nginx"
-    rsync_to_remote "$PROJECT_DIR/nginx/" "/tmp/xcelsior-nginx/" \
-        --include='*.conf' --exclude='*'
+    rsync_to_remote "$rendered/" "/tmp/xcelsior-nginx/" --include='*.conf' --exclude='*'
+    rm -rf "$rendered"
 
-    ssh_cmd << 'EOF'
-set -e
-# `headscale` and `headscale-http` are installed here, and the certificate they
-# name is a **self-signed internal cert** (`/etc/nginx/ssl/hs-internal.*`), not
-# ACME. On 2026-08-08 these still named a Let's Encrypt path that had been
-# deleted — the entry could not renew, because the ACME challenge for this name
-# is answered by the host DNS points at rather than this one — and the missing
-# file made `nginx -t` fail and aborted the whole deploy before anything shipped.
-#
-# The fix was to point them at the internal certificate, not to stop installing
-# them: this host does serve that vhost on 127.0.0.1 and on its own address, and
-# dropping it from this list would have silently removed it at the next reload.
-for f in xcelsior headscale headscale-http docs-xcelsior downloads-xcelsior; do
-  sudo cp "/tmp/xcelsior-nginx/${f}.conf" "/etc/nginx/sites-available/${f}"
-  sudo ln -sf "/etc/nginx/sites-available/${f}" "/etc/nginx/sites-enabled/${f}"
-done
-sudo nginx -t
-if systemctl is-active --quiet nginx; then
-  sudo systemctl reload nginx
-else
-  sudo systemctl reset-failed nginx 2>/dev/null || true
-  sudo systemctl start nginx
-fi
-EOF
+    # headscale / headscale-http are installed here too. hs.xcelsior.ca uses a
+    # Let's Encrypt certificate issued on this host by DNS-01 (1624d67), so it
+    # renews whichever host the record points at.
+    ssh_cmd "bash -s" < "$PROJECT_DIR/scripts/install_nginx_vhosts.sh" \
+        || error "Nginx install failed; the previous vhosts were restored and are serving"
     _deploy_mark "nginx-done"
     success "Nginx configs installed"
 }
@@ -1347,13 +1324,10 @@ store_remote_deploy_hash() {
 store_remote_deploy_hashes() {
     local meta payload
     meta=$(remote_deploy_meta_dir)
-    payload=$(printf 'api=%s\nfrontend=%s\nruntime=%s\n' \
-        "$DEPLOY_API_HASH" "$DEPLOY_FRONTEND_HASH" "$DEPLOY_RUNTIME_HASH")
-    # A held nginx install did not happen, so its hash is not recorded: the next
-    # deploy must still see the vhosts as changed and try again.
-    if [[ -z "${DEPLOY_NGINX_HELD:-}" ]]; then
-        payload+=$'\n'"nginx=$DEPLOY_NGINX_HASH"
-    fi
+    # A failed nginx install exits the deploy before this runs, so reaching it
+    # means the vhosts that were rendered are the ones serving.
+    payload=$(printf 'api=%s\nfrontend=%s\nruntime=%s\nnginx=%s\n' \
+        "$DEPLOY_API_HASH" "$DEPLOY_FRONTEND_HASH" "$DEPLOY_RUNTIME_HASH" "$DEPLOY_NGINX_HASH")
     ssh_cmd "META='$meta'; mkdir -p \"\$META\"
 while IFS='=' read -r k v; do
   [[ -z \"\$k\" ]] && continue
@@ -1385,7 +1359,7 @@ detect_deploy_inputs() {
     hash_repo_subset .dockerignore Dockerfile requirements.txt alembic.ini pyproject.toml "*.py" routes templates migrations \
         >"$hash_dir/api" &
     frontend_build_hash >"$hash_dir/frontend" &
-    hash_repo_subset nginx >"$hash_dir/nginx" &
+    hash_repo_subset nginx scripts/render_nginx_vhosts.py scripts/install_nginx_vhosts.sh >"$hash_dir/nginx" &
     hash_repo_subset docker-compose.yml "$env_rel" >"$hash_dir/runtime" &
     wait
 
