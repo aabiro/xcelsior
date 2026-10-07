@@ -10,9 +10,38 @@ import { toast } from "sonner";
 import { X, CreditCard, Loader2, ShieldCheck, Sparkles } from "lucide-react";
 import posthog from "posthog-js";
 
+/** The account's auto-reload setting, which decides when a saved card is charged. */
+export interface AutoReloadSetting {
+  enabled: boolean;
+  amount_cad: number;
+  threshold_cad: number;
+}
+
 interface PaymentMethodModalProps {
   onClose: () => void;
   onSuccess: () => void;
+  autoReload?: AutoReloadSetting;
+}
+
+/**
+ * When a saved card is charged, stated exactly.
+ *
+ * Stripe's own line for an off-session SetupIntent says the card may be charged
+ * "for future payments", which read as a standing authorisation even with
+ * auto-reload off. It is not one: the only off-session charges are the ones a
+ * customer starts by adding credits, and the auto-reload sweep, which selects
+ * only wallets with auto-reload on (billing.py, `auto_topup_enabled = true`).
+ * So this sentence replaces Stripe's, and it follows the setting.
+ */
+export function savedCardConsent(autoReload?: AutoReloadSetting): string {
+  if (autoReload?.enabled) {
+    return (
+      `It is charged when you add credits, and by auto-reload: ` +
+      `$${autoReload.amount_cad.toFixed(2)} whenever your balance falls below ` +
+      `$${autoReload.threshold_cad.toFixed(2)}.`
+    );
+  }
+  return "It is charged only when you choose to add credits.";
 }
 
 function ModalShell({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
@@ -32,7 +61,7 @@ function ModalShell({ onClose, children }: { onClose: () => void; children: Reac
             </div>
             <div>
               <h2 className="text-lg font-semibold">Add a card</h2>
-              <p className="text-xs text-text-muted">Save a card for automatic top-ups</p>
+              <p className="text-xs text-text-muted">Save a card for faster top-ups</p>
             </div>
           </div>
           <button
@@ -48,7 +77,7 @@ function ModalShell({ onClose, children }: { onClose: () => void; children: Reac
   );
 }
 
-function AddCardForm({ onClose, onSuccess, clientSecret }: PaymentMethodModalProps & { clientSecret: string }) {
+function AddCardForm({ onClose, onSuccess, autoReload }: PaymentMethodModalProps & { clientSecret: string }) {
   const stripe = useStripe();
   const elements = useElements();
   const [paymentReady, setPaymentReady] = useState(false);
@@ -90,13 +119,15 @@ function AddCardForm({ onClose, onSuccess, clientSecret }: PaymentMethodModalPro
         </div>
         <PaymentElement
           onChange={(e) => setPaymentReady(e.complete)}
-          options={STRIPE_PAYMENT_ELEMENT_OPTIONS}
+          // Stripe's generic "future payments" line is replaced by the exact
+          // statement below, which follows the auto-reload setting.
+          options={{ ...STRIPE_PAYMENT_ELEMENT_OPTIONS, terms: { card: "never" } }}
         />
       </div>
       <div className="mb-4 flex items-start gap-2 rounded-lg border border-accent-cyan/15 bg-accent-cyan/5 p-3">
         <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-accent-cyan" />
-        <p className="text-xs text-text-secondary">
-          Embedded checkout, your card is stored securely with Stripe for off-session wallet top-ups.
+        <p className="text-xs text-text-secondary" data-testid="saved-card-consent">
+          Your card is saved securely with Stripe. {savedCardConsent(autoReload)}
         </p>
       </div>
       <div className="flex gap-3">
@@ -115,7 +146,7 @@ function AddCardForm({ onClose, onSuccess, clientSecret }: PaymentMethodModalPro
   );
 }
 
-export function PaymentMethodModal({ onClose, onSuccess }: PaymentMethodModalProps) {
+export function PaymentMethodModal({ onClose, onSuccess, autoReload }: PaymentMethodModalProps) {
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const stripePromise = getStripePromise();
@@ -159,7 +190,7 @@ export function PaymentMethodModal({ onClose, onSuccess }: PaymentMethodModalPro
   return (
     <ModalShell onClose={onClose}>
       <Elements stripe={stripePromise} options={getStripeElementsOptions(clientSecret)}>
-        <AddCardForm onClose={onClose} onSuccess={onSuccess} clientSecret={clientSecret} />
+        <AddCardForm onClose={onClose} onSuccess={onSuccess} clientSecret={clientSecret} autoReload={autoReload} />
       </Elements>
     </ModalShell>
   );
