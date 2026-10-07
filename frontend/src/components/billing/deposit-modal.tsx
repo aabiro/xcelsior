@@ -401,7 +401,7 @@ function DepositPaymentStep({
       <div className="mb-4 flex items-start gap-2 rounded-lg bg-accent-cyan/5 border border-accent-cyan/15 p-3">
         <ShieldCheck className="h-4 w-4 text-accent-cyan mt-0.5 shrink-0" />
         <p className="text-xs text-text-secondary">
-          Embedded checkout, card details never touch our servers. Powered by Stripe.
+          Secure payment, processed by Stripe.
         </p>
       </div>
 
