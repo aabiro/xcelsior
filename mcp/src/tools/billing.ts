@@ -51,9 +51,14 @@ export function registerBillingTools(
       inputSchema: z.object({
         customer_id: z.string().optional().describe("Customer ID; omit to use your account"),
         limit: z.number().int().min(1).max(200).default(50),
+        before: z
+          .string()
+          .max(256)
+          .optional()
+          .describe("next_cursor from a previous call, to read the older transactions after it"),
       }),
     },
-    async ({ customer_id, limit }) => {
+    async ({ customer_id, limit, before }) => {
       const denied = scopeDenied("get_wallet_history", user);
       if (denied) return denied;
       const cid = customer_id || user?.customer_id || user?.user_id;
@@ -62,6 +67,7 @@ export function registerBillingTools(
         return jsonText(
           await client.get(`/api/billing/wallet/${encodeURIComponent(cid)}/history`, {
             limit: Number(limit ?? 50),
+            ...(before ? { before } : {}),
           }),
         );
       } catch (e) {

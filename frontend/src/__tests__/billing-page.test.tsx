@@ -5,6 +5,8 @@ import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
 const apiMocks = vi.hoisted(() => ({
   fetchWallet: vi.fn(),
   fetchWalletHistory: vi.fn(),
+  // The transaction list pages through history on its own.
+  fetchWalletHistoryPage: vi.fn(),
   fetchInvoices: vi.fn(),
   downloadInvoice: vi.fn(),
   fetchUsageSummary: vi.fn(),
@@ -136,6 +138,7 @@ describe("BillingPage free credits flow", () => {
       wallet: { customer_id: "cust-1", balance_cad: 5, currency: "CAD" },
     });
     apiMocks.fetchWalletHistory.mockResolvedValue({ ok: true, transactions: [] });
+    apiMocks.fetchWalletHistoryPage.mockResolvedValue({ ok: true, transactions: [], next_cursor: null, total: 0 });
     apiMocks.fetchInvoices.mockResolvedValue({ ok: true, invoices: [] });
     apiMocks.fetchUsageSummary.mockResolvedValue({
       ok: true,
@@ -216,22 +219,22 @@ describe("BillingPage free credits flow", () => {
     // a transaction — which is how a page that crashed on `amount_cad.toFixed`,
     // dated rows 1970 and never showed refunds passed this suite.
     const createdAt = Date.UTC(2026, 9, 6, 12, 0, 0) / 1000;
-    apiMocks.fetchWalletHistory.mockResolvedValue({
-      ok: true,
-      customer_id: "cust-1",
-      transactions: [
-        {
-          tx_id: "tx-1",
-          tx_type: "refund",
-          amount_micros: 5_000_000,
-          amount_cad: 5,
-          balance_after_micros: 20_000_000,
-          balance_after_cad: 20,
-          description: "Refund: host failure",
-          job_id: "job-12345678",
-          created_at: createdAt,
-        },
-      ],
+    const transactions = [
+      {
+        tx_id: "tx-1",
+        tx_type: "refund",
+        amount_micros: 5_000_000,
+        amount_cad: 5,
+        balance_after_micros: 20_000_000,
+        balance_after_cad: 20,
+        description: "Refund: host failure",
+        job_id: "job-12345678",
+        created_at: createdAt,
+      },
+    ];
+    apiMocks.fetchWalletHistory.mockResolvedValue({ ok: true, customer_id: "cust-1", transactions });
+    apiMocks.fetchWalletHistoryPage.mockResolvedValue({
+      ok: true, customer_id: "cust-1", transactions, next_cursor: null, total: 1,
     });
 
     render(<BillingPage />);
