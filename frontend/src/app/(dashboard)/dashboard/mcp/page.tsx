@@ -14,7 +14,7 @@ export default function McpConnectPage() {
 
   return (
     <div
-      className="dashboard-mcp-page relative isolate h-full min-h-0 overflow-hidden"
+      className="dashboard-mcp-page relative isolate h-full min-h-0 overflow-y-auto"
       style={{ fontFamily: "var(--font-geist-sans), Geist, system-ui, sans-serif" }}
     >
       <PixelField className="z-0" />
@@ -30,7 +30,10 @@ export default function McpConnectPage() {
         <ExternalLink className="h-3.5 w-3.5" />
       </a>
 
-      <div className="relative z-10 mx-auto flex h-full max-w-2xl flex-col items-center justify-center px-4 py-2 text-center sm:py-4">
+      {/* `min-h-full`, not `h-full`: centred content taller than the pane used
+          to overflow both edges of an unscrollable box, clipping the headline
+          and the footnote. Now the column grows and the page scrolls. */}
+      <div className="relative z-10 mx-auto flex min-h-full max-w-2xl flex-col items-center justify-center px-4 py-2 text-center sm:py-4">
         <FadeIn>
           <Image
             src={SITE_ASSETS.iconGradient}
