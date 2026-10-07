@@ -16,7 +16,7 @@ from routes._deps import (
     otel_span,
 )
 from db import UserStore
-from stripe_connect import get_stripe_manager
+from stripe_connect import AccountSessionError, get_stripe_manager
 from paypal_connect import get_paypal_manager, paypal_enabled
 from reputation import VerificationType, get_reputation_engine
 
@@ -354,6 +354,8 @@ def api_provider_account_session(provider_id: str, request: Request):
     _require_scope(user, "providers:write")
     try:
         result = get_stripe_manager().create_account_session(provider_id)
+    except AccountSessionError as e:
+        raise HTTPException(e.status_code, str(e)) from e
     except RuntimeError as e:
         raise HTTPException(400, str(e)) from e
     return {"ok": True, **result}
