@@ -1133,11 +1133,6 @@ const en: Record<string, string> = {
   /* ── MCP Connect page (/dashboard/mcp) ─────────────────────────────── */
   "dash.mcp.headline": "From prompt to compute. In any agent.",
   "dash.mcp.subhead": "Connect Claude, Cursor, or any AI agent to your GPUs. Paste one prompt — your access token is already baked in.",
-  "dash.mcp.oauth_title": "Connect with your Xcelsior account",
-  "dash.mcp.oauth_body": "Paste this URL into Claude, ChatGPT, Grok, Cursor, or VS Code and press connect. You will be asked to sign in and approve what the assistant may do. No token to copy, nothing to store.",
-  "dash.mcp.oauth_copy": "Copy connector URL",
-  "dash.mcp.install_in": "Install in",
-  "dash.mcp.automation_heading": "Or use an access token for automation",
   "dash.settings.mcp.oauth_title": "Connect with your Xcelsior account (recommended)",
   "dash.settings.mcp.oauth_body": "Paste this URL into Claude, ChatGPT, Grok, Copilot Studio, Cursor, or VS Code and press connect. You will be asked to sign in and approve the permissions the assistant is requesting. No token to copy, nothing to store.",
   "dash.settings.mcp.oauth_copy_url": "Copy connector URL",
