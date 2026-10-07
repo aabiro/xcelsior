@@ -50,8 +50,10 @@ function ModalShell({ onClose, children }: { onClose: () => void; children: Reac
       className="dashboard-site-modal-overlay fixed inset-0 z-[300] flex items-center justify-center"
       onClick={onClose}
     >
+      {/* Capped to the viewport and scrolls inside: centred in a fixed overlay, a
+          taller panel was clipped at both edges, hiding the title and the buttons. */}
       <div
-        className="dashboard-site-modal-panel brand-top-accent w-full max-w-md rounded-2xl border p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+        className="dashboard-site-modal-panel brand-top-accent mx-4 max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-6 flex items-center justify-between">
