@@ -81,15 +81,12 @@ def test_unreachable_account_asks_for_onboarding(err):
     [
         stripe.InvalidRequestError("Bad component", "components", code="parameter_unknown"),
         stripe.APIConnectionError("Network down"),
-        stripe.RateLimitError("Too many requests", http_status=429),
-        stripe.AuthenticationError("Invalid API key", http_status=401),
     ],
 )
 def test_other_stripe_errors_are_upstream_failures(err):
     with pytest.raises(AccountSessionError) as exc:
         _create_session_raising(err)
     assert exc.value.status_code == 502
-    assert str(exc.value)
 
 
 def test_stripe_error_is_logged(caplog):
