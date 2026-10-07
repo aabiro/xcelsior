@@ -231,6 +231,18 @@ def _stripe_create_transfer(
     return client.Transfer.create(**kwargs, idempotency_key=idempotency_key)
 
 
+class AccountSessionError(Exception):
+    """Stripe refused an AccountSession. `status_code` is what the route returns."""
+
+    def __init__(self, message: str, *, status_code: int):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+# Stripe answers these when the stored connected account is gone or detached.
+_UNREACHABLE_ACCOUNT_CODES = {"account_invalid", "resource_missing"}
+
+
 # ── Enums and Data Models ────────────────────────────────────────────
 
 
@@ -1116,15 +1128,38 @@ class StripeConnectManager:
         if not provider or not provider.get("stripe_account_id"):
             raise RuntimeError("Provider has no Stripe account — start onboarding first")
         account_id = provider["stripe_account_id"]
-        session = stripe.AccountSession.create(
-            account=account_id,
-            components={
-                "account_onboarding": {"enabled": True},
-                "notification_banner": {"enabled": True},
-                "account_management": {"enabled": True},
-                "payouts": {"enabled": True},
-            },
-        )
+        try:
+            session = stripe.AccountSession.create(
+                account=account_id,
+                components={
+                    "account_onboarding": {"enabled": True},
+                    "notification_banner": {"enabled": True},
+                    "account_management": {"enabled": True},
+                    "payouts": {"enabled": True},
+                },
+            )
+        except stripe.StripeError as e:
+            log.warning(
+                "AccountSession create failed provider=%s type=%s code=%s http_status=%s request_id=%s: %s",
+                provider_id,
+                type(e).__name__,
+                e.code,
+                e.http_status,
+                e.request_id,
+                e,
+            )
+            if isinstance(e, stripe.PermissionError) or (
+                isinstance(e, stripe.InvalidRequestError) and e.code in _UNREACHABLE_ACCOUNT_CODES
+            ):
+                raise AccountSessionError(
+                    "Stripe no longer recognizes your connected account. "
+                    "Restart Stripe onboarding to reconnect payouts.",
+                    status_code=409,
+                ) from e
+            raise AccountSessionError(
+                "Stripe could not open the payouts session. Try again in a few minutes.",
+                status_code=502,
+            ) from e
         return {
             "client_secret": session.client_secret,
             "account_id": account_id,
