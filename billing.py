@@ -1988,17 +1988,51 @@ class BillingEngine:
                 ),
             )
 
-    def get_wallet_history(self, customer_id: str, limit: int = 50) -> list:
-        """Get transaction history for a wallet."""
+    def get_wallet_history(
+        self,
+        customer_id: str,
+        limit: int = 50,
+        *,
+        before: tuple[float, str] | None = None,
+    ) -> list:
+        """Transaction history for a wallet, newest first.
+
+        `before` is a keyset cursor, `(created_at, tx_id)` of the last row of
+        the previous page. Keyset rather than offset because this is a ledger
+        that grows at the head while someone pages: with offsets, every charge
+        that lands shifts the rows under the reader, so page two repeats rows
+        from page one. `tx_id` breaks ties between rows written in the same
+        instant, and is in the ORDER BY so the cursor and the order agree.
+        """
         self._ensure_wallet_table()
         with self._conn() as conn:
-            rows = conn.execute(
-                """SELECT * FROM wallet_transactions
-                   WHERE customer_id = %s
-                   ORDER BY created_at DESC LIMIT %s""",
-                (customer_id, limit),
-            ).fetchall()
+            if before is None:
+                rows = conn.execute(
+                    """SELECT * FROM wallet_transactions
+                       WHERE customer_id = %s
+                       ORDER BY created_at DESC, tx_id DESC LIMIT %s""",
+                    (customer_id, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT * FROM wallet_transactions
+                       WHERE customer_id = %s AND (created_at, tx_id) < (%s, %s)
+                       ORDER BY created_at DESC, tx_id DESC LIMIT %s""",
+                    (customer_id, before[0], before[1], limit),
+                ).fetchall()
             return [dict(r) for r in rows]
+
+    def count_wallet_history(self, customer_id: str) -> int:
+        """How many transactions the wallet has, for "21-40 of 134"."""
+        self._ensure_wallet_table()
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM wallet_transactions WHERE customer_id = %s",
+                (customer_id,),
+            ).fetchone()
+        if row is None:
+            return 0
+        return int(row["n"] if isinstance(row, dict) else row[0])
 
     def reset_wallet_testing_state(self, customer_id: str) -> dict:
         """Reset a wallet to a clean promo-testing state.

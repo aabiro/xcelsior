@@ -1,5 +1,6 @@
 """Routes: billing."""
 
+import base64
 import hashlib
 import httpx
 import io
@@ -812,13 +813,47 @@ def _wallet_transaction_for_api(row: dict) -> dict:
     return out
 
 
+def _history_cursor(row: dict) -> str:
+    """An opaque cursor naming the last row of a page."""
+    raw = json.dumps([float(row["created_at"]), str(row["tx_id"])], separators=(",", ":"))
+    return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+
+
+def _parse_history_cursor(cursor: str) -> tuple[float, str]:
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        created_at, tx_id = json.loads(base64.urlsafe_b64decode(padded.encode()))
+        return float(created_at), str(tx_id)
+    except (ValueError, TypeError):
+        raise HTTPException(400, "Invalid history cursor") from None
+
+
 @router.get("/api/billing/wallet/{customer_id}/history", tags=["Billing"])
-def api_wallet_history(customer_id: str, request: Request, limit: int = Query(50, ge=1, le=1000)):
-    """Get transaction history for a wallet."""
+def api_wallet_history(
+    customer_id: str,
+    request: Request,
+    limit: int = Query(50, ge=1, le=1000),
+    before: str | None = Query(None, max_length=256, description="`next_cursor` from the previous page"),
+):
+    """Transaction history for a wallet, newest first, one page at a time.
+
+    Pass the response's `next_cursor` as `before` for the next (older) page;
+    it is null on the last page. `total` counts every transaction, so a client
+    can say where a page sits. Callers that send only `limit` get exactly what
+    they always did: the newest `limit` transactions.
+    """
     _require_customer_access(request, customer_id)
     be = get_billing_engine()
-    history = [_wallet_transaction_for_api(r) for r in be.get_wallet_history(customer_id, limit)]
-    return {"ok": True, "customer_id": customer_id, "transactions": history}
+    cursor = _parse_history_cursor(before) if before else None
+    rows = be.get_wallet_history(customer_id, limit + 1, before=cursor)
+    page, more = rows[:limit], len(rows) > limit
+    return {
+        "ok": True,
+        "customer_id": customer_id,
+        "transactions": [_wallet_transaction_for_api(r) for r in page],
+        "next_cursor": _history_cursor(page[-1]) if more and page else None,
+        "total": be.count_wallet_history(customer_id),
+    }
 
 
 @router.get("/api/billing/wallet/{customer_id}/depletion", tags=["Billing"])

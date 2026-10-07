@@ -627,7 +627,7 @@
           "Billing"
         ],
         "summary": "Wallet History",
-        "description": "Get transaction history for a wallet.",
+        "description": "Transaction history for a wallet, newest first, one page at a time.\n\nPass the response's `next_cursor` as `before` for the next (older) page;\nit is null on the last page. `total` counts every transaction, so a client\ncan say where a page sits. Callers that send only `limit` get exactly what\nthey always did: the newest `limit` transactions.",
         "operationId": "api_wallet_history_api_billing_wallet__customer_id__history_get",
         "parameters": [
           {
@@ -650,6 +650,25 @@
               "default": 50,
               "title": "Limit"
             }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 256
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`next_cursor` from the previous page",
+              "title": "Before"
+            },
+            "description": "`next_cursor` from the previous page"
           }
         ],
         "responses": {

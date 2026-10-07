@@ -1426,6 +1426,10 @@
         "limit": {
           "type": "number",
           "optional": true
+        },
+        "before": {
+          "type": "string",
+          "optional": true
         }
       },
       "hasOutputSchema": true
