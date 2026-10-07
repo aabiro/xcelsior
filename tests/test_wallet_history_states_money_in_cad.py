@@ -51,8 +51,11 @@ def test_the_endpoint_applies_it(monkeypatch) -> None:  # noqa: ANN001
     """Wired into the route, not merely defined."""
 
     class _Engine:
-        def get_wallet_history(self, customer_id, limit):  # noqa: ANN001
+        def get_wallet_history(self, customer_id, limit, *, before=None):  # noqa: ANN001
             return [dict(ROW)]
+
+        def count_wallet_history(self, customer_id):  # noqa: ANN001
+            return 1
 
     monkeypatch.setattr(billing_routes, "get_billing_engine", lambda: _Engine())
     monkeypatch.setattr(billing_routes, "_require_customer_access", lambda *a, **k: None)

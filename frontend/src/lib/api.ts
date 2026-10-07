@@ -1057,8 +1057,30 @@ export async function resumePendingVerification(stripeIntentId: string) {
 }
 
 export async function fetchWalletHistory(customerId: string, limit = 50) {
-  return apiFetch<{ ok: boolean; customer_id: string; transactions: WalletTransaction[] }>(
+  return apiFetch<WalletHistoryPage>(
     `/api/billing/wallet/${encodeURIComponent(customerId)}/history?limit=${limit}`,
+  );
+}
+
+/** One page of wallet history, newest first. */
+export interface WalletHistoryPage {
+  ok: boolean;
+  customer_id: string;
+  transactions: WalletTransaction[];
+  /** Pass as `before` for the next, older page; null on the last page. */
+  next_cursor: string | null;
+  /** Every transaction on the wallet, for "21-40 of 134". */
+  total: number;
+}
+
+export async function fetchWalletHistoryPage(
+  customerId: string,
+  { limit = 20, before }: { limit?: number; before?: string | null } = {},
+) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (before) params.set("before", before);
+  return apiFetch<WalletHistoryPage>(
+    `/api/billing/wallet/${encodeURIComponent(customerId)}/history?${params}`,
   );
 }
 

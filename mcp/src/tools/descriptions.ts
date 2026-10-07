@@ -640,7 +640,9 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "amount and what it was for. Use when a balance is lower than expected, or the user asks " +
     "where their money went or what they were billed for: get_wallet_balance returns the number " +
     "and this is the only tool that explains it. For what the balance will do next rather than " +
-    "what it did, use get_spend_envelope, which answers burn rate and runway. Read-only and free.",
+    "what it did, use get_spend_envelope, which answers burn rate and runway. Returns one page " +
+    "with `total` and `next_cursor`; pass that cursor as `before` for older transactions, and " +
+    "stop when it is null. Read-only and free.",
 
   get_spend_envelope:
     "How long the balance lasts at the current burn rate, and which instances are consuming it. " +

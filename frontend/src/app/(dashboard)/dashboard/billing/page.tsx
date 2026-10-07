@@ -15,6 +15,7 @@ import { DepositModal } from "@/components/billing/deposit-modal";
 import { CryptoDepositModal } from "@/components/billing/crypto-deposit-modal";
 import { LightningDepositModal } from "@/components/billing/lightning-deposit-modal";
 import { PaymentMethodModal } from "@/components/billing/payment-method-modal";
+import { TransactionHistory } from "@/components/billing/transaction-history";
 import { ScaResumePanel } from "@/components/billing/sca-resume-panel";
 import {
   CreditCard, DollarSign, RefreshCw, Download, Plus, FileText,
@@ -1508,52 +1509,9 @@ export default function BillingPage() {
             );
           })()}
 
-          {/* Transaction History */}
-          <Card>
-            <CardHeader>
-                <CardTitle>{t("dash.billing.transactions")}</CardTitle>
-              <CardDescription>
-                {t("dash.billing.transactions_desc")} Top-ups and refunds appear here; usage is debited automatically from your wallet.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {transactions.length === 0 ? (
-                <p className="text-sm text-text-muted">{t("dash.billing.no_transactions")}</p>
-              ) : (
-                <div className="space-y-2">
-                  {transactions.map((tx) => {
-                    const isCredit = tx.amount_cad > 0;
-                    return (
-                      <div
-                        key={tx.tx_id}
-                        className="flex items-center justify-between rounded-lg border border-border p-3"
-                      >
-                        <div className="flex items-center gap-3">
-                          {isCredit ? (
-                            <ArrowDownRight className="h-4 w-4 text-emerald" />
-                          ) : (
-                            <ArrowUpRight className="h-4 w-4 text-accent-red" />
-                          )}
-                          <div>
-                            <p className="text-sm font-medium">
-                              {tx.description || tx.tx_type || "Transaction"}
-                            </p>
-                            <p className="text-xs text-text-muted">
-                              {api.walletTxTime(tx)}
-                              {tx.job_id && <span className="ml-2">· Job {tx.job_id.slice(0, 8)}</span>}
-                            </p>
-                          </div>
-                        </div>
-                        <span className={`font-mono text-sm font-medium ${isCredit ? "text-emerald" : "text-accent-red"}`}>
-                          {isCredit ? "+" : ""}${tx.amount_cad.toFixed(2)}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          {/* Transaction History, a page at a time. `transactions` (the newest
+              50) still feeds the burn rate, refunds and heatmap above and below. */}
+          <TransactionHistory customerId={customerId} refreshKey={transactions} />
 
           {/* Usage Heatmap, hourly submission patterns */}
           <Card>
