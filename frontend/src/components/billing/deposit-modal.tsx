@@ -1,5 +1,6 @@
 "use client";
 
+import { createPortal } from "react-dom";
 import { useState, useCallback, useEffect } from "react";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { Button } from "@/components/ui/button";
@@ -136,7 +137,10 @@ function ModalShell({
   subtitle: string;
   children: React.ReactNode;
 }) {
-  return (
+  // Portalled to <body> like the shared Dialog: rendered inside <main>, the
+  // overlay's z-index was trapped below the dashboard top bar, which then
+  // drew over the modal's title, undimmed.
+  return createPortal(
     <div className="dashboard-site-modal-overlay fixed inset-0 z-[300] flex items-center justify-center" onClick={onClose}>
       {/* Capped to the viewport and scrolls inside: centred in a fixed overlay, a
           taller panel was clipped at both edges, hiding the title and the buttons. */}
@@ -163,7 +167,8 @@ function ModalShell({
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
