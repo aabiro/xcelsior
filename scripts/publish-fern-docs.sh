@@ -15,10 +15,15 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
-set -a
-# shellcheck disable=SC1090
-source "$ENV_FILE"
-set +a
+# Read the one key this needs. `.env` is dotenv, not shell: `source`-ing it ran
+# any value containing a space as a command (a Redis password did exactly that)
+# and would execute anything else the file happened to contain.
+if [[ -z "${FERN_TOKEN:-}" ]]; then
+  FERN_TOKEN="$(sed -n 's/^FERN_TOKEN=//p' "$ENV_FILE" | tail -n 1)"
+  FERN_TOKEN="${FERN_TOKEN%\"}"; FERN_TOKEN="${FERN_TOKEN#\"}"
+  FERN_TOKEN="${FERN_TOKEN%\'}"; FERN_TOKEN="${FERN_TOKEN#\'}"
+fi
+export FERN_TOKEN
 
 if [[ -z "${FERN_TOKEN:-}" ]]; then
   echo "FERN_TOKEN is empty in ${ENV_FILE}." >&2
