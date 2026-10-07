@@ -1303,17 +1303,29 @@ load_remote_deploy_hash() {
     printf '%s' "${REMOTE_DEPLOY_HASHES[$name]:-}"
 }
 
-load_remote_deploy_hashes() {
-    local meta line name value
+# `name|hash` per line for each recorded deploy input. Safe to run in the
+# background: it only prints.
+fetch_remote_deploy_hashes() {
+    local meta
     meta=$(remote_deploy_meta_dir)
-    declare -gA REMOTE_DEPLOY_HASHES=()
-    while IFS='|' read -r name value; do
-        [[ -n "$name" ]] && REMOTE_DEPLOY_HASHES["$name"]="$value"
-    done < <(ssh_cmd "META='$meta'; for n in api frontend nginx runtime; do
+    ssh_cmd "META='$meta'; for n in api frontend nginx runtime; do
         printf '%s|' \"\$n\"
         cat \"\$META/\$n\" 2>/dev/null || true
         printf '\n'
-    done" 2>/dev/null || true)
+    done" 2>/dev/null || true
+}
+
+# Reads fetch_remote_deploy_hashes' output on stdin into REMOTE_DEPLOY_HASHES.
+# Must run in the deploying shell itself. It used to be one function started
+# with `&`, which fills the array in a background subshell and then discards
+# it: every "previous" hash read as empty, so every deploy rebuilt the API and
+# the frontend and reinstalled nginx, and "nothing to deploy" never happened.
+parse_remote_deploy_hashes() {
+    local name value
+    declare -gA REMOTE_DEPLOY_HASHES=()
+    while IFS='|' read -r name value; do
+        [[ -n "$name" ]] && REMOTE_DEPLOY_HASHES["$name"]="$value"
+    done
 }
 
 store_remote_deploy_hash() {
@@ -1352,8 +1364,8 @@ detect_deploy_inputs() {
     hash_dir=$(mktemp -d)
     _deploy_mark "diff-start"
 
-    # One SSH round-trip for all remote hashes (was 4 sequential calls).
-    load_remote_deploy_hashes & local pid_remote=$!
+    # One SSH round-trip for all remote hashes, overlapped with local hashing.
+    fetch_remote_deploy_hashes >"$hash_dir/remote" & local pid_remote=$!
 
     # Hash local inputs in parallel (CPU-bound).
     hash_repo_subset .dockerignore Dockerfile requirements.txt alembic.ini pyproject.toml "*.py" routes templates migrations \
@@ -1364,6 +1376,7 @@ detect_deploy_inputs() {
     wait
 
     wait "$pid_remote" 2>/dev/null || true
+    parse_remote_deploy_hashes <"$hash_dir/remote"
 
     DEPLOY_API_HASH=$(cat "$hash_dir/api")
     DEPLOY_FRONTEND_HASH=$(cat "$hash_dir/frontend")
