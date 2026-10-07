@@ -1648,6 +1648,7 @@ export default function BillingPage() {
         <PaymentMethodModal
           onClose={() => setShowAddCard(false)}
           onSuccess={() => loadPaymentMethods()}
+          autoReload={autoTopup}
         />
       )}
 
