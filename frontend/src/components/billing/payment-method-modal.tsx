@@ -1,5 +1,6 @@
 "use client";
 
+import { createPortal } from "react-dom";
 import { useCallback, useEffect, useState } from "react";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { Button } from "@/components/ui/button";
@@ -45,7 +46,10 @@ export function savedCardConsent(autoReload?: AutoReloadSetting): string {
 }
 
 function ModalShell({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
-  return (
+  // Portalled to <body> like the shared Dialog: rendered inside <main>, the
+  // overlay's z-index was trapped below the dashboard top bar, which then
+  // drew over the modal's title, undimmed.
+  return createPortal(
     <div
       className="dashboard-site-modal-overlay fixed inset-0 z-[300] flex items-center justify-center"
       onClick={onClose}
@@ -75,7 +79,8 @@ function ModalShell({ onClose, children }: { onClose: () => void; children: Reac
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
