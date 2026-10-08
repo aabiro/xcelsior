@@ -258,6 +258,8 @@ tatus\ --short
 et
 wget-log
 .hypothesis/
+# Pasted Claude Code transcripts: they quote credentials and infrastructure detail
+*-pastedcontent-*.txt
 
 # Next.js incremental build cache
 frontend/tsconfig.tsbuildinfo
