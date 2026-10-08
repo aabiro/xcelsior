@@ -79,6 +79,22 @@ this whole review sequence has been about.
 The registration token is minted fresh from the API on each start, expires in an
 hour, and is never written to disk. It is not a repository secret.
 
+### Serving another repository
+
+`XCELSIOR_CI_REPO` registers the runner for a different repository, with the same
+sandbox. `aabiro/aabiro.github.io` deploys its GitHub Pages site this way:
+
+```bash
+XCELSIOR_CI_REPO=aabiro/aabiro.github.io ./scripts/ci-runner/run-runner.sh
+```
+
+The fork-trigger check follows the variable. For this repository it reads the
+workflows on this checkout's HEAD; for any other it reads them from that
+repository's default branch through the API, and refuses to start if it cannot.
+The rule is the same either way: no workflow that targets
+`[self-hosted, sandboxed]` may have a `pull_request` or `pull_request_target`
+trigger.
+
 ### As a service, so it outlives the terminal that started it
 
 `--loop` is a foreground loop, so a hand-started runner dies with its shell — and
