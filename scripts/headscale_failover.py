@@ -46,12 +46,15 @@ def project_root() -> Path:
 PROJECT = project_root()
 DEFAULT_ENV_FILE = PROJECT / ".env"
 
-# Headscale runs on the API VPS (`pixelenhance-labs`), not on 45.76.3.128 —
-# that address is `aarynfans`, which has never had Headscale installed. The old
-# default made every replication attempt fail against a healthy fleet and page
-# about it. `headscale nodes list` on this host shows the original tailnet:
-# .1 vps-linuxuser, .3 the Mac, .6 asus-pc.
-DEFAULT_PRIMARY_HOST = "149.28.121.61"
+# Headscale runs on the API VPS, not on a front that merely proxies the name.
+# Until 2026-10-07 that was `pixelenhance-labs` (149.28.121.61) behind a proxy
+# on `aarynfans` (45.76.3.128); an old default aimed at the proxy made every
+# replication attempt fail against a healthy fleet and page about it. Both Vultr
+# boxes were merged into one Hetzner host on 2026-10-07, which now runs
+# Headscale *and* answers for `hs.xcelsior.ca` itself — the primary and the A
+# record are the same address again. The tailnet kept its identities: .1 is
+# this host, .5 its second node (`aarynfans-prod`), .3 the Mac, .6 asus-pc.
+DEFAULT_PRIMARY_HOST = "46.225.20.97"
 DEFAULT_DNS_NAME = "hs.xcelsior.ca"
 DEFAULT_LOGIN_SERVER = "https://hs.xcelsior.ca"
 DEFAULT_REPLICA_DIR = Path("/var/backups/headscale")
