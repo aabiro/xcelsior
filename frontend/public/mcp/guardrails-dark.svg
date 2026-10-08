@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 320" fill="none">
+  <defs>
+    <linearGradient id="gd-body" x1="158" y1="34" x2="322" y2="246" gradientUnits="userSpaceOnUse"><stop stop-color="#17243d"/><stop offset=".55" stop-color="#0c1526"/><stop offset="1" stop-color="#070f1c"/></linearGradient>
+    <linearGradient id="gd-card" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#131d33"/><stop offset="1" stop-color="#0a1222"/></linearGradient>
+    <linearGradient id="gd-edge" x1="20" y1="34" x2="460" y2="300" gradientUnits="userSpaceOnUse"><stop stop-color="#38dbff"/><stop offset=".6" stop-color="#9b6dff"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <linearGradient id="gd-shield-edge" x1="158" y1="34" x2="322" y2="246" gradientUnits="userSpaceOnUse"><stop stop-color="#38dbff"/><stop offset=".6" stop-color="#9b6dff"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <linearGradient id="gd-gold" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#fde68a"/><stop offset="1" stop-color="#d4a233"/></linearGradient>
+    <linearGradient id="gd-gold-arc" x1="194" y1="150" x2="262" y2="104" gradientUnits="userSpaceOnUse"><stop stop-color="#d4a233"/><stop offset="1" stop-color="#fde68a"/></linearGradient>
+    <linearGradient id="gd-emerald" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#34d399"/><stop offset="1" stop-color="#10b981"/></linearGradient>
+    <linearGradient id="gd-rail" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#38dbff" stop-opacity=".08"/><stop offset=".5" stop-color="#38dbff" stop-opacity=".55"/><stop offset="1" stop-color="#9b6dff" stop-opacity=".1"/></linearGradient>
+    <radialGradient id="gd-halo" cx="240" cy="140" r="150" gradientUnits="userSpaceOnUse"><stop stop-color="#38dbff" stop-opacity=".20"/><stop offset=".55" stop-color="#9b6dff" stop-opacity=".14"/><stop offset="1" stop-color="#9b6dff" stop-opacity="0"/></radialGradient>
+    <radialGradient id="gd-sh" cx="50%" cy="50%" r="50%"><stop stop-color="#38dbff" stop-opacity=".26"/><stop offset="1" stop-color="#38dbff" stop-opacity="0"/></radialGradient>
+    <filter id="gd-glow" x="-35%" y="-35%" width="170%" height="170%" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="0" stdDeviation="4.5" flood-color="#38dbff" flood-opacity=".55"/><feDropShadow dx="0" dy="9" stdDeviation="13" flood-color="#9b6dff" flood-opacity=".32"/></filter>
+    <filter id="gd-soft" x="-30%" y="-40%" width="160%" height="190%" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000000" flood-opacity=".45"/><feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="#38dbff" flood-opacity=".22"/></filter>
+  </defs>
+
+  <circle cx="240" cy="140" r="150" fill="url(#gd-halo)"/>
+  <ellipse cx="240" cy="304" rx="170" ry="9" fill="url(#gd-sh)"/>
+
+  <!-- circuit rails tying the three checks to the shield -->
+  <path d="M132 134 H158" stroke="url(#gd-rail)" stroke-width="3" stroke-linecap="round"/>
+  <path d="M322 134 H348" stroke="url(#gd-rail)" stroke-width="3" stroke-linecap="round"/>
+  <path d="M240 246 V262" stroke="#9b6dff" stroke-opacity=".45" stroke-width="3" stroke-linecap="round"/>
+  <g stroke="#38dbff" stroke-opacity=".3" stroke-width="2" stroke-linecap="round">
+    <path d="M60 172 V196 H120 l14 14 H190"/>
+    <path d="M420 172 V196 H360 l-14 14 H290"/>
+  </g>
+  <circle cx="190" cy="210" r="3" fill="#38dbff" fill-opacity=".7"/>
+  <circle cx="290" cy="210" r="3" fill="#34d399" fill-opacity=".7"/>
+  <circle cx="145" cy="134" r="3.5" fill="#38dbff"/>
+  <circle cx="335" cy="134" r="3.5" fill="#34d399"/>
+
+  <!-- estimate card: CAD coin, line items, spend sparkline -->
+  <g filter="url(#gd-soft)">
+    <rect x="20" y="96" width="112" height="76" rx="16" fill="url(#gd-card)" stroke="url(#gd-edge)" stroke-width="1.6"/>
+  </g>
+  <circle cx="44" cy="120" r="12" fill="url(#gd-gold)"/>
+  <circle cx="44" cy="120" r="8.5" stroke="#3b2a07" stroke-opacity=".35" stroke-width="1.2"/>
+  <path d="M47.4 116.4c-.9-1-2.2-1.5-3.6-1.5-2 0-3.4 1-3.4 2.5 0 3.6 7.2 2 7.2 5.7 0 1.6-1.5 2.7-3.6 2.7-1.6 0-3-.6-3.9-1.7M43.8 112.6v2.3M43.8 125.8v2.3" stroke="#3b2a07" stroke-width="1.7" stroke-linecap="round"/>
+  <rect x="64" y="113" width="54" height="6" rx="3" fill="#38dbff" fill-opacity=".7"/>
+  <rect x="64" y="124" width="36" height="5" rx="2.5" fill="#ecfeff" fill-opacity=".16"/>
+  <path d="M32 158 L44 152 L56 155 L68 146 L80 149 L92 141 L104 144 L118 136" stroke="url(#gd-edge)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="118" cy="136" r="3" fill="#fde68a"/>
+
+  <!-- confirm card: toggle switched on, destructive action locked -->
+  <g filter="url(#gd-soft)">
+    <rect x="348" y="96" width="112" height="76" rx="16" fill="url(#gd-card)" stroke="url(#gd-edge)" stroke-width="1.6"/>
+  </g>
+  <rect x="362" y="110" width="44" height="24" rx="12" fill="url(#gd-emerald)"/>
+  <circle cx="394" cy="122" r="9" fill="#ffffff"/>
+  <path d="M390 122 l3 3 l5.5 -6" stroke="#10b981" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="414" y="113" width="32" height="6" rx="3" fill="#34d399" fill-opacity=".7"/>
+  <rect x="414" y="124" width="22" height="5" rx="2.5" fill="#ecfeff" fill-opacity=".16"/>
+  <rect x="362" y="146" width="84" height="16" rx="8" stroke="#ff8f8f" stroke-opacity=".7" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <rect x="369" y="151.5" width="8" height="7" rx="1.6" fill="#ff8f8f"/>
+  <path d="M370.6 151.5v-2a2.4 2.4 0 0 1 4.8 0v2" stroke="#ff8f8f" stroke-width="1.5"/>
+  <rect x="383" y="152.5" width="54" height="5" rx="2.5" fill="#ff8f8f" fill-opacity=".45"/>
+
+  <!-- the shield: spend gauge against a hard cap, and the all-clear -->
+  <path d="M240 34 L322 66 V146 C322 204 240 246 240 246 C240 246 158 204 158 146 V66 Z" transform="translate(0 7)" fill="url(#gd-shield-edge)" fill-opacity=".22"/>
+  <path d="M240 34 L322 66 V146 C322 204 240 246 240 246 C240 246 158 204 158 146 V66 Z" fill="url(#gd-body)" stroke="url(#gd-shield-edge)" stroke-width="3" stroke-linejoin="round" filter="url(#gd-glow)"/>
+  <path d="M240 46 L311 74 V146 C311 196 240 232 240 232 C240 232 169 196 169 146 V74 Z" stroke="#ecfeff" stroke-opacity=".08" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M194 150 A46 46 0 0 1 286 150" stroke="#ecfeff" stroke-opacity=".14" stroke-width="9" stroke-linecap="round"/>
+  <path d="M194 150 A46 46 0 0 1 256.9 107.2" stroke="url(#gd-gold-arc)" stroke-width="9" stroke-linecap="round"/>
+  <g stroke="#ecfeff" stroke-opacity=".28" stroke-width="2" stroke-linecap="round">
+    <path d="M182.1 150 h-5"/><path d="M199 108.9 l-3.5 -3.5"/><path d="M240 92 v-5"/><path d="M281 108.9 l3.5 -3.5"/><path d="M297.9 150 h5"/>
+  </g>
+  <path d="M273.9 132.7 L291.7 123.6" stroke="#ff8f8f" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M240 150 L253.2 116.5" stroke="#ecfeff" stroke-width="3.5" stroke-linecap="round"/>
+  <circle cx="240" cy="150" r="7.5" fill="url(#gd-gold)"/>
+  <circle cx="240" cy="150" r="7.5" stroke="#ecfeff" stroke-opacity=".35" stroke-width="1.2"/>
+  <circle cx="240" cy="194" r="16" fill="url(#gd-emerald)"/>
+  <circle cx="240" cy="194" r="16" stroke="#ffffff" stroke-opacity=".35" stroke-width="1.2"/>
+  <path d="M232.5 194.5 l5 5 l10.5 -11" stroke="#062016" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- scoped key: only the scopes you granted -->
+  <g filter="url(#gd-soft)">
+    <rect x="176" y="262" width="128" height="36" rx="18" fill="url(#gd-card)" stroke="url(#gd-edge)" stroke-width="1.6"/>
+  </g>
+  <circle cx="198" cy="280" r="6.5" stroke="url(#gd-gold)" stroke-width="3"/>
+  <path d="M204.5 280 H224 M218 280 v5.5 M224 280 v4" stroke="url(#gd-gold)" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="242" cy="280" r="4.5" fill="#38dbff"/>
+  <circle cx="260" cy="280" r="4.5" fill="#9b6dff"/>
+  <circle cx="278" cy="280" r="4.5" fill="#34d399"/>
+  <circle cx="290" cy="280" r="2" fill="#ecfeff" fill-opacity=".16"/>
+
+  <g opacity=".9">
+    <path d="M0 -6 L1.4 -1.4 L6 0 L1.4 1.4 L0 6 L-1.4 1.4 L-6 0 L-1.4 -1.4 Z" transform="translate(150 50)" fill="#38dbff"/>
+    <path d="M0 -6 L1.4 -1.4 L6 0 L1.4 1.4 L0 6 L-1.4 1.4 L-6 0 L-1.4 -1.4 Z" transform="translate(334 56) scale(.8)" fill="#9b6dff"/>
+    <path d="M0 -6 L1.4 -1.4 L6 0 L1.4 1.4 L0 6 L-1.4 1.4 L-6 0 L-1.4 -1.4 Z" transform="translate(336 232) scale(.65)" fill="#34d399"/>
+    <path d="M0 -6 L1.4 -1.4 L6 0 L1.4 1.4 L0 6 L-1.4 1.4 L-6 0 L-1.4 -1.4 Z" transform="translate(140 236) scale(.55)" fill="#fde68a"/>
+  </g>
+</svg>

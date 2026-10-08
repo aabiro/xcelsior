@@ -521,6 +521,34 @@ class EventStore:
         """Full event history for an entity — the auditable truth."""
         return self.get_events(entity_type=entity_type, entity_id=entity_id, limit=10000)
 
+    def get_event_page(self, *, limit: int, before: tuple[float, str] | None = None,
+                       event_type: str | None = None, severity: str | None = None,
+                       include_verbose: bool = False) -> dict:
+        """Newest-first audit pages; a new event cannot shift older-page boundaries."""
+        clauses, params = [], []
+        if not include_verbose:
+            clauses.append("event_type NOT IN ('job_log', 'spot_prices', 'host_update')")
+        if event_type:
+            clauses.append("event_type = %s")
+            params.append(event_type)
+        severity_sql = "COALESCE(data->>'severity', metadata->>'severity', 'info')"
+        if severity:
+            clauses.append(f"{severity_sql} = %s")
+            params.append(severity)
+        where = " AND ".join(clauses) or "TRUE"
+        with self._conn() as conn:
+            total = conn.execute(f"SELECT COUNT(*) AS n FROM events WHERE {where}", params).fetchone()["n"]
+            types = conn.execute("SELECT DISTINCT event_type FROM events ORDER BY event_type").fetchall()
+            if before:
+                where += " AND (timestamp, event_id) < (%s, %s)"
+                params.extend(before)
+            rows = conn.execute(
+                f"SELECT *, {severity_sql} AS severity FROM events WHERE {where} "
+                "ORDER BY timestamp DESC, event_id DESC LIMIT %s", [*params, limit + 1],
+            ).fetchall()
+        return {"events": [dict(row) for row in rows[:limit]], "has_more": len(rows) > limit,
+                "total": total, "event_types": [row["event_type"] for row in types]}
+
     # ── Lease operations ──────────────────────────────────────────────
 
     def grant_lease(

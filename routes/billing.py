@@ -17,7 +17,7 @@ from typing import Any, Literal, cast
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from routes._deps import (
     XCELSIOR_ENV,
@@ -173,6 +173,20 @@ def api_get_wallet(customer_id: str, request: Request):
 class DepositRequest(BaseModel):
     amount_cad: float = Field(gt=0, le=10000)
     description: str = Field(default="Credit deposit", max_length=500)
+
+
+class AdminCreditRequest(BaseModel):
+    amount_cad: float = Field(gt=0, le=10000, multiple_of=0.01, allow_inf_nan=False)
+    # Shown to the customer in their transaction history and kept in the audit
+    # event, so a grant always says why it exists.
+    reason: str = Field(min_length=3, max_length=200)
+    # Client-generated per submit: a double click or a retried request grants once.
+    idempotency_key: str = Field(min_length=8, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def strip_reason(cls, value):
+        return value.strip() if isinstance(value, str) else value
 
 
 # ── Model: PaymentIntentRequest ──
@@ -725,6 +739,52 @@ def api_reset_wallet_testing_state(customer_id: str, request: Request):
     be = get_billing_engine()
     result = be.reset_wallet_testing_state(customer_id)
     return {"ok": True, **result}
+
+
+@router.post("/api/billing/wallet/{customer_id}/admin-credit", tags=["Billing"])
+def api_admin_credit(customer_id: str, req: AdminCreditRequest, request: Request):
+    """Credit a wallet without a payment. Platform admins only, in every environment.
+
+    For exercising paid flows end to end on production without a card, and for
+    goodwill credits. Recorded as an admin credit (``tx_type='credit'``), not a
+    deposit, so it never reads as cash received; every grant is audited with who
+    made it and why.
+    """
+    user = _require_customer_access(request, customer_id, billing_write=True)
+    if not _is_platform_admin(user):
+        raise HTTPException(403, "Admin access required")
+    be = get_billing_engine()
+    be._ensure_wallet_table()
+    with be._conn() as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM wallets WHERE customer_id = %s", (customer_id,)
+        ).fetchone()
+    # Every account gets a wallet at registration. Crediting an id with none
+    # would mint an orphan wallet from a typo instead of reaching anyone.
+    if not exists:
+        raise HTTPException(404, "No wallet exists for that customer")
+    reason = req.reason.strip()
+    amount = float(req.amount_cad)
+    try:
+        result = be.grant_credit(
+            customer_id,
+            amount,
+            f"Admin credit: {reason}",
+            idempotency_key=f"admin-credit:{customer_id}:{req.idempotency_key}",
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    from routes._deps import append_user_audit_event
+
+    if not result.get("dedup"):
+        append_user_audit_event(
+            "admin.billing.credit",
+            "billing",
+            customer_id,
+            user,
+            data={"amount_cad": amount, "reason": reason, "tx_id": result["tx_id"]},
+        )
+    return {"ok": True, "amount_cad": amount, **result}
 
 
 @router.post("/api/billing/free-credits/{customer_id}", tags=["Billing"])

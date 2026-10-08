@@ -1,4 +1,4 @@
-// Tests for wizard sprite — choreographed Sixel frame system
+// Tests for wizard sprite — choreographed pixel-frame system
 
 import { describe, it, expect } from "vitest";
 import {
@@ -19,6 +19,7 @@ import {
     SPRITE_COLS,
     SPRITE_ROWS,
     SPRITE_PX,
+    PALETTE,
     type Frame,
 } from "../../sprites/wizard/wizard-frames.js";
 import {
@@ -56,35 +57,34 @@ describe("wizard-frames", () => {
     it("DANCE has 10 frames", () => expect(DANCE_FRAMES).toHaveLength(10));
     it("BOW has 8 frames", () => expect(BOW_FRAMES).toHaveLength(8));
 
-    it("every frame is a non-empty string", () => {
+    it("every frame is SPRITE_PX.h rows of SPRITE_PX.w pixels", () => {
         for (const frame of ALL_FLAT) {
-            expect(typeof frame).toBe("string");
-            expect(frame.length).toBeGreaterThan(0);
+            expect(frame).toHaveLength(SPRITE_PX.h);
+            for (const row of frame) expect(row).toHaveLength(SPRITE_PX.w);
         }
     });
 
-    it("frames are Sixel sequences (start with DCS, end with ST)", () => {
+    it("every pixel is transparent or a palette colour", () => {
         for (const frame of ALL_FLAT) {
-            // DCS = ESC P, ST = ESC backslash
-            expect(frame.startsWith("\x1bP")).toBe(true);
-            expect(frame.endsWith("\x1b\\")).toBe(true);
+            for (const row of frame) {
+                for (const px of row) {
+                    if (px === ".") continue;
+                    expect(PALETTE[px]).toMatch(/^#[0-9a-f]{6}$/);
+                }
+            }
         }
     });
 
-    it("non-transparent frames contain Sixel color registers", () => {
-        for (const frame of ALL_FLAT) {
-            // Skip empty Sixel (all-transparent frames like outro-8)
-            if (frame.length < 30) continue;
-            // Color registers look like #N;2;R;G;B
-            expect(frame).toMatch(/#\d+;2;\d+;\d+;\d+/);
-        }
-    });
-
-    it("idle frames exist and are valid Sixel", () => {
+    it("idle frames draw the wizard", () => {
         for (const frame of IDLE_FRAMES) {
-            expect(frame.startsWith("\x1bP")).toBe(true);
-            expect(frame.length).toBeGreaterThan(50);
+            const painted = frame.join("").replace(/\./g, "").length;
+            expect(painted).toBeGreaterThan(150);
         }
+    });
+
+    it("sprite cells match the pixel size: one column per pixel, two rows per cell", () => {
+        expect(SPRITE_COLS).toBe(SPRITE_PX.w);
+        expect(SPRITE_ROWS).toBe(Math.ceil(SPRITE_PX.h / 2));
     });
 
     it("sprite layout constants are positive", () => {

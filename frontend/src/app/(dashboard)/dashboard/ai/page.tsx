@@ -150,13 +150,15 @@ export default function AiAssistantPage() {
         setPanelActive(localStorage.getItem(AI_PANEL_KEY) === "true");
       } catch { /* noop */ }
     };
+    const openHandler = () => setPanelActive(true);
+    const closeHandler = () => setPanelActive(false);
     window.addEventListener("storage", handler);
-    window.addEventListener("xcelsior-open-ai-panel", () => setPanelActive(true));
-    window.addEventListener("xcelsior-close-ai-panel", () => setPanelActive(false));
+    window.addEventListener("xcelsior-open-ai-panel", openHandler);
+    window.addEventListener("xcelsior-close-ai-panel", closeHandler);
     return () => {
       window.removeEventListener("storage", handler);
-      window.removeEventListener("xcelsior-open-ai-panel", () => setPanelActive(true));
-      window.removeEventListener("xcelsior-close-ai-panel", () => setPanelActive(false));
+      window.removeEventListener("xcelsior-open-ai-panel", openHandler);
+      window.removeEventListener("xcelsior-close-ai-panel", closeHandler);
     };
   }, []);
 

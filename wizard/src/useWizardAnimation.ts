@@ -1,14 +1,17 @@
-// useWizardAnimation — Choreographed sprite animation sequencer.
+// useWizardAnimation — Hexara's choreography: which frame plays, and where
+// on the stage he stands while it does.
 //
 // Core sequence: INTRO → SETTLE → mood-driven loop → OUTRO
 // Branch reactions: EUREKA, CELEBRATE, ERROR, SLEEP, LEVITATE, DANCE, WAVE, CAST, BOW
 //
 // Branches fire at act boundaries, or immediately for urgent reactions (success,
 // error, dance, wave, cast) so Hexara feels responsive during long PACE/CAST acts.
+//
+// On top of the frames, each act has a stage motion: he strolls across the
+// stage while pacing (facing the way he walks), hops side to side when he
+// dances, jumps when he celebrates, floats when he levitates. `HexaraDirector`
+// runs the clock and publishes a snapshot that HexaraStage draws.
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import { PassThrough } from "node:stream";
-import { writeSync, appendFileSync } from "node:fs";
 import {
     INTRO_FRAMES,
     IDLE_FRAMES,
@@ -24,12 +27,9 @@ import {
     LEVITATE_FRAMES,
     DANCE_FRAMES,
     BOW_FRAMES,
-    SPRITE_ROWS,
-    SPRITE_COLS,
     type Frame,
 } from "../sprites/wizard/wizard-frames.js";
 
-import { spriteCapable } from "./capability.js";
 import { PEEK_FRAMES, TYPE_FRAMES, NOD_FRAMES } from "./hexara-moves.js";
 
 const BASE_FRAME_MS = 160;
@@ -210,137 +210,267 @@ export function advance(prev: AnimState, wantExit: boolean, pendingBranch: Branc
     }
 }
 
-export const WIZARD_ROW = 2;
-const PAD_ROWS = 1;
+// ── Stage motion ─────────────────────────────────────────────────────
 
-const LOG_FILE = "/tmp/wizard-debug.log";
-function dbg(msg: string): void {
-    try { appendFileSync(LOG_FILE, `${Date.now()} ${msg}\n`); } catch (_) { }
+/** What is playing right now — the key the stage motion is chosen by. */
+export type ActId =
+    | "intro" | "settle" | "recovery" | "outro"
+    | "pace" | "think" | "idle" | "sleep"
+    | BranchId;
+
+const ACT_IDS: Record<string, ActId> = {};
+function nameActs(id: ActId, ...acts: readonly Frame[][]): void {
+    // Acts are identified by array identity: SETTLE, RECOVERY and the *_ACT
+    // repeats are distinct arrays even where their frames coincide.
+    for (const act of acts) ACT_IDS[actKey(act)] = id;
 }
-
-let lastSixelFrame = "";
-let customStdout: (NodeJS.WriteStream & { _isCustom?: boolean }) | null = null;
-
-export function getCustomStdout(): NodeJS.WriteStream {
-    if (!customStdout) {
-        if (!spriteCapable()) {
-            return process.stdout;
-        }
-
-        const pt = new PassThrough() as any;
-        pt.isTTY = process.stdout.isTTY;
-        pt.columns = process.stdout.columns;
-        pt.rows = process.stdout.rows;
-        pt._isCustom = true;
-
-        pt.on("data", (chunk: Buffer) => {
-            let out = chunk.toString("latin1");
-            if (lastSixelFrame) {
-                // Draw Hexara on the right side of the screen
-                const col = spriteCol();
-                const cup = `\x1b[${WIZARD_ROW};${col}H`;
-                out += `\x1b7${cup}${lastSixelFrame}\x1b8`;
-            }
-            process.stdout.write(out, "latin1");
-        });
-
-        process.stdout.on("resize", () => {
-            pt.columns = process.stdout.columns;
-            pt.rows = process.stdout.rows;
-            pt.emit("resize");
-        });
-
-        customStdout = pt;
-
-        // DECSDM - Sixel Display Mode (prevents scrolling)
-        process.stdout.write("\x1b[?80h");
+const actKeys = new WeakMap<readonly Frame[], string>();
+let nextActKey = 0;
+function actKey(act: readonly Frame[]): string {
+    let key = actKeys.get(act);
+    if (!key) {
+        key = `a${nextActKey++}`;
+        actKeys.set(act, key);
     }
-    return customStdout!;
+    return key;
+}
+nameActs("intro", INTRO_FRAMES);
+nameActs("settle", SETTLE);
+nameActs("recovery", RECOVERY);
+nameActs("outro", OUTRO_FRAMES);
+nameActs("pace", PACE_FRAMES);
+nameActs("think", THINK_ACT, THINK_FRAMES);
+nameActs("wave", WAVE_ACT, WAVE_FRAMES);
+nameActs("cast", CAST_ACT, CAST_FRAMES);
+nameActs("dance", DANCE_ACT, DANCE_FRAMES);
+nameActs("levitate", LEVITATE_ACT, LEVITATE_FRAMES);
+nameActs("idle", IDLE_FRAMES);
+nameActs("sleep", SLEEP_FRAMES);
+nameActs("celebrate", CELEBRATE_FRAMES);
+nameActs("eureka", EUREKA_FRAMES);
+nameActs("error", ERROR_FRAMES);
+nameActs("bow", BOW_FRAMES);
+nameActs("peek", PEEK_FRAMES);
+nameActs("type", TYPE_FRAMES);
+nameActs("nod", NOD_FRAMES);
+
+/** The act being played in `state`, or null once the sequence is over. */
+export function currentAct(state: AnimState, mood: WizardMood = "idle"): ActId | null {
+    if (state.phase === "branch" && state.branchId) return state.branchId;
+    const act = getSeq(state, mood)[state.actIdx];
+    return act ? (ACT_IDS[actKey(act)] ?? "idle") : null;
 }
 
-export function setupWizardRegion(): void {
-    // No-op. We use the stream interceptor now instead of scroll regions,
-    // which prevents layout breaking on small terminals and fighting with Ink.
+/** Where an act wants Hexara this frame, relative to his home spot. */
+export interface MotionTarget {
+    /** Columns from home; negative is left. */
+    dx: number;
+    /** Rows above the floor. */
+    dy: number;
 }
 
-export function resetWizardRegion(): void {
-    if (!spriteCapable()) return;
-    lastSixelFrame = "";
-    process.stdout.write("\x1b[?80l"); // Disable DECSDM
+/**
+ * Stage choreography. `amp` is how far he may roam either side of home.
+ * Every path starts and ends at home, so acts chain without a jump; the
+ * director eases him toward each target, so a branch that cuts in mid-stroll
+ * walks him back rather than teleporting him.
+ */
+export function motionFor(act: ActId | null, frameIdx: number, frameCount: number, amp: number): MotionTarget {
+    const n = Math.max(1, frameCount);
+    // 0 on the first frame, 1 on the last: every path is home at both ends,
+    // where the frames are the shared neutral pose.
+    const t = n > 1 ? frameIdx / (n - 1) : 0;
+    const col = (v: number) => Math.round(v) + 0; // + 0 turns -0 into 0
+    switch (act) {
+        case "pace":
+            // A stroll: out to the left, back past home, out to the right, home.
+            return { dx: col(-amp * Math.sin(2 * Math.PI * t)), dy: 0 };
+        case "dance": {
+            // Two side-to-side hops, with a bounce on every other beat.
+            const reach = Math.max(1, Math.round(amp * 0.7));
+            return { dx: col(reach * Math.sin(4 * Math.PI * t)), dy: frameIdx % 2 === 1 && frameIdx < n - 1 ? 1 : 0 };
+        }
+        case "celebrate":
+            // One big jump.
+            return { dx: 0, dy: Math.round(2 * Math.sin(Math.PI * (frameIdx / Math.max(1, n - 1)))) };
+        case "eureka":
+            return { dx: 0, dy: frameIdx > 0 && frameIdx < n - 1 && frameIdx % 3 !== 0 ? 1 : 0 };
+        case "levitate":
+            // Rise, hover with a slow bob, settle.
+            if (frameIdx === 0 || frameIdx === n - 1) return { dx: 0, dy: 0 };
+            return { dx: 0, dy: frameIdx === 1 || frameIdx === n - 2 ? 1 : 2 - (frameIdx % 4 === 0 ? 1 : 0) };
+        case "error":
+            // A stumble: a quick shake on the spot.
+            return { dx: frameIdx > 0 && frameIdx < n - 1 ? (frameIdx % 2 === 0 ? 1 : -1) : 0, dy: 0 };
+        default:
+            return { dx: 0, dy: 0 };
+    }
 }
 
-export interface WizardAnimationResult {
+/** Move `from` toward `to` by at most `max` per tick. */
+export function easeToward(from: number, to: number, max: number): number {
+    if (from === to) return from;
+    return from < to ? Math.min(to, from + max) : Math.max(to, from - max);
+}
+
+// ── Director ─────────────────────────────────────────────────────────
+
+/** Rows of headroom above the sprite so he can jump and float. */
+export const STAGE_HEADROOM = 2;
+/** Frame interval while exiting — the outro should not hold up a quit. */
+const EXIT_FRAME_MS = 70;
+
+export interface HexaraSnapshot {
+    frame: Frame;
+    /** Columns from the stage's left edge to the sprite's left edge. */
+    x: number;
+    /** Rows above the floor. */
+    y: number;
+    facingLeft: boolean;
+    act: ActId | null;
     done: boolean;
-    triggerBranch: (branch: BranchId) => void;
 }
 
-export function useWizardAnimation(exiting: boolean, mood: WizardMood = "idle"): WizardAnimationResult {
-    const exitRef = useRef(false);
-    const branchRef = useRef<BranchId | null>(null);
-    const moodRef = useRef<WizardMood>(mood);
-    const paintRef = useRef(spriteCapable());
-    const stateRef = useRef<AnimState>({
-        phase: "prelude",
-        actIdx: 0,
-        frameIdx: 0,
-    });
-    const [done, setDone] = useState(false);
+/**
+ * Runs Hexara's clock outside React so the stage can move between layouts
+ * (beside or above the steps) without restarting his routine, and so a tick
+ * re-renders only the stage. Subscribe with `useSyncExternalStore`.
+ */
+export class HexaraDirector {
+    private state: AnimState = { phase: "prelude", actIdx: 0, frameIdx: 0 };
+    private mood: WizardMood = "idle";
+    private pending: BranchId | null = null;
+    private exiting = false;
+    private animate: boolean;
+    private amp = 0;
+    private x = 0;
+    private y = 0;
+    private facingLeft = false;
+    private timer: ReturnType<typeof setTimeout> | null = null;
+    private listeners = new Set<() => void>();
+    private snapshot: HexaraSnapshot;
+    private finished = false;
 
-    if (exiting && !exitRef.current) exitRef.current = true;
-
-    if (moodRef.current !== mood) {
-        moodRef.current = mood;
-        if (stateRef.current.phase === "loop") {
-            stateRef.current = { phase: "loop", actIdx: 0, frameIdx: 0 };
-        }
+    constructor(options: { animate: boolean; onDone?: () => void }) {
+        this.animate = options.animate;
+        this.onDone = options.onDone ?? null;
+        this.snapshot = this.compose();
     }
 
-    const triggerBranch = useCallback((branch: BranchId) => {
-        branchRef.current = branch;
-    }, []);
+    /** Called once the exit sequence has played (or at once when not animating). */
+    onDone: (() => void) | null;
 
-    useEffect(() => {
-        if (done) return;
+    subscribe = (listener: () => void): (() => void) => {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    };
 
-        const tick = () => {
-            const prev = stateRef.current;
-            if (prev.phase === "done") return;
+    getSnapshot = (): HexaraSnapshot => this.snapshot;
 
-            const next = advance(prev, exitRef.current, branchRef.current, moodRef.current);
-            if (next.phase === "branch" && branchRef.current) {
-                branchRef.current = null;
-            }
-            stateRef.current = next;
+    start(): void {
+        if (this.animate && !this.timer && !this.finished) this.schedule();
+    }
 
-            if (next.phase === "done") {
-                setDone(true);
-                return;
-            }
+    stop(): void {
+        if (this.timer) clearTimeout(this.timer);
+        this.timer = null;
+    }
 
-            const seq = getSeq(next, moodRef.current);
-            const frame = seq[next.actIdx]?.[next.frameIdx];
-            if (frame && paintRef.current) {
-                lastSixelFrame = frame as string;
-                // Force a render flush if nothing else is moving
-                const cup = `\x1b[${WIZARD_ROW};${spriteCol()}H`;
-                process.stdout.write(`\x1b7${cup}${frame}\x1b8`, "latin1");
-            }
+    setMood(mood: WizardMood): void {
+        if (mood === this.mood) return;
+        this.mood = mood;
+        // A new mood starts its own loop from the top rather than finishing
+        // an act chosen for the old one.
+        if (this.state.phase === "loop") this.state = { phase: "loop", actIdx: 0, frameIdx: 0 };
+    }
+
+    trigger(branch: BranchId): void {
+        // Already on stage: a re-trigger (the step's message changed) must not
+        // queue the same move again, or a busy step replays it forever.
+        if (this.state.phase === "branch" && this.state.branchId === branch) return;
+        this.pending = branch;
+    }
+
+    /** How far he may wander either side of home, in columns. */
+    setRoam(amp: number): void {
+        this.amp = Math.max(0, Math.floor(amp));
+        this.x = Math.max(-this.amp, Math.min(this.amp, this.x));
+        this.publish();
+    }
+
+    /** Play the farewell, then call onDone; `immediate` skips it (he is off screen). */
+    setExiting(exiting: boolean, options: { immediate?: boolean } = {}): void {
+        if (!exiting || this.finished) return;
+        if (!this.animate || options.immediate) {
+            this.exiting = true;
+            this.finish();
+            return;
+        }
+        if (this.exiting) return;
+        this.exiting = true;
+        // Restart the clock at the faster exit pace.
+        this.stop();
+        this.schedule();
+    }
+
+    private schedule(): void {
+        const ms = this.exiting ? EXIT_FRAME_MS : frameMsForMood(this.mood);
+        this.timer = setTimeout(() => {
+            this.timer = null;
+            this.tick();
+            if (!this.finished) this.schedule();
+        }, ms);
+    }
+
+    /** @internal advance one frame; exported behaviour is driven by start(). */
+    tick(): void {
+        if (this.finished) return;
+        const next = advance(this.state, this.exiting, this.pending, this.mood);
+        if (next.phase === "branch" && this.state.phase !== "branch") this.pending = null;
+        this.state = next;
+        if (next.phase === "done") {
+            this.finish();
+            return;
+        }
+        const act = currentAct(next, this.mood);
+        const frames = getSeq(next, this.mood)[next.actIdx] ?? [];
+        if (act === "intro" || act === "outro") {
+            this.x = 0;
+            this.y = 0;
+            this.facingLeft = false;
+        } else {
+            const target = motionFor(act, next.frameIdx, frames.length, this.amp);
+            const nx = easeToward(this.x, Math.max(-this.amp, Math.min(this.amp, target.dx)), 2);
+            if (nx !== this.x) this.facingLeft = nx < this.x;
+            this.x = nx;
+            this.y = easeToward(this.y, Math.max(0, Math.min(STAGE_HEADROOM, target.dy)), 1);
+        }
+        this.publish();
+    }
+
+    private finish(): void {
+        this.finished = true;
+        this.stop();
+        this.state = { phase: "done", actIdx: 0, frameIdx: 0 };
+        this.publish();
+        this.onDone?.();
+    }
+
+    private compose(): HexaraSnapshot {
+        const seq = getSeq(this.state, this.mood);
+        const frame = seq[this.state.actIdx]?.[this.state.frameIdx] ?? IDLE_FRAMES[0];
+        return {
+            frame,
+            x: this.amp + this.x,
+            y: this.y,
+            facingLeft: this.facingLeft,
+            act: currentAct(this.state, this.mood),
+            done: this.finished,
         };
+    }
 
-        tick();
-        const ms = frameMsForMood(moodRef.current);
-        const id = setInterval(tick, ms);
-
-        return () => {
-            clearInterval(id);
-        };
-    }, [done, mood]);
-
-    return { done, triggerBranch };
-}
-
-function spriteCol(): number {
-    const cols = process.stdout.columns || 80;
-    // Position Hexara on the right side of the screen
-    return Math.max(1, cols - SPRITE_COLS - 2);
+    private publish(): void {
+        this.snapshot = this.compose();
+        for (const listener of this.listeners) listener();
+    }
 }

@@ -1,5 +1,10 @@
 """Routes: events."""
 
+import base64
+import json
+import math
+from typing import Literal
+
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from routes._deps import (
@@ -72,9 +77,32 @@ def api_instance_audit_trail(job_id: str, request: Request):
 
 
 @router.get("/api/events", tags=["Events"])
-def api_get_all_events(request: Request, limit: int = Query(100, ge=1, le=1000)):
-    """Get recent events across all entities (platform admin only)."""
+def api_get_all_events(
+    request: Request, limit: int = Query(25, ge=1, le=1000),
+    before: str | None = Query(None, max_length=256),
+    event_type: str | None = Query(None, max_length=128),
+    severity: Literal["info", "warning", "error", "critical"] | None = None,
+    include_verbose: bool = False,
+):
+    """Filtered event history, newest first, with an opaque next-page cursor (admin only)."""
     _require_admin(request)
-    store = get_event_store()
-    events = store.get_events(limit=limit)
-    return {"ok": True, "events": [e if isinstance(e, dict) else e.__dict__ for e in events]}
+    cursor = None
+    if before:
+        try:
+            at, event_id = json.loads(base64.urlsafe_b64decode(before + "=" * (-len(before) % 4)))
+            if isinstance(at, bool) or not isinstance(at, (int, float)) or not math.isfinite(at):
+                raise ValueError()
+            if not isinstance(event_id, str) or not event_id:
+                raise ValueError()
+            cursor = (float(at), event_id)
+        except (ValueError, TypeError):
+            raise HTTPException(400, "Invalid events cursor") from None
+    page = get_event_store().get_event_page(limit=limit, before=cursor, event_type=event_type,
+                                            severity=severity, include_verbose=include_verbose)
+    rows = page["events"]
+    last = rows[-1] if rows else None
+    next_cursor = None
+    if page.pop("has_more") and last:
+        raw = json.dumps([float(last["timestamp"]), str(last["event_id"])], separators=(",", ":"))
+        next_cursor = base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+    return {"ok": True, **page, "next_cursor": next_cursor}

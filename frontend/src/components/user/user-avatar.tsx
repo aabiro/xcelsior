@@ -46,7 +46,7 @@ export function UserAvatar({
         "relative shrink-0 rounded-full",
         showRing && [
           dim.ring,
-          "bg-gradient-to-br from-accent-cyan via-accent-violet to-accent-cyan",
+          "user-avatar-ring",
           "shadow-[0_0_18px_rgba(0,212,255,0.22)]",
         ],
         className,
@@ -54,7 +54,7 @@ export function UserAvatar({
     >
       <div
         className={cn(
-          "relative flex items-center justify-center overflow-hidden rounded-full bg-navy-light",
+          "user-avatar-face relative flex items-center justify-center overflow-hidden rounded-full",
           dim.box,
           !showRing && "ring-1 ring-border/80",
         )}

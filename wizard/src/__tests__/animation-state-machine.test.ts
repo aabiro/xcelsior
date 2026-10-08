@@ -8,7 +8,6 @@ import {
     frameMsForMood,
     type AnimState,
     type BranchId,
-    WIZARD_ROW,
 } from "../useWizardAnimation.js";
 import {
     INTRO_FRAMES,
@@ -456,17 +455,9 @@ describe("advance — full sequence simulation", () => {
     });
 });
 
-// ── WIZARD_ROW constant ─────────────────────────────────────────────
-
 describe("frameMsForMood", () => {
     it("working is faster than waiting", () => {
         expect(frameMsForMood("working")).toBeLessThan(frameMsForMood("waiting"));
     });
 });
 
-describe("WIZARD_ROW", () => {
-    it("is a positive integer", () => {
-        expect(WIZARD_ROW).toBeGreaterThan(0);
-        expect(Number.isInteger(WIZARD_ROW)).toBe(true);
-    });
-});

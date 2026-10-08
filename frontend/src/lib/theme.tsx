@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
+  useRef,
   useState,
   useCallback,
 } from "react";
@@ -82,9 +83,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     setTheme(stored);
   }, []);
 
-  useEffect(() => {
-    applyTheme(theme);
-  }, [theme]);
+  // No `useEffect(() => applyTheme(theme), [theme])` here: on mount it would
+  // run with the placeholder "dark" and write it to storage, and StrictMode's
+  // effect replay then re-reads that "dark" in the reconcile above — a stored
+  // light theme never survived a dev reload. Every setter applies explicitly.
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
 
   useEffect(() => {
     const reconcile = () => {
@@ -110,7 +114,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const toggleTheme = useCallback(() => {
-    setTheme((t) => (t === "dark" ? "light" : "dark"));
+    const next: Theme = themeRef.current === "dark" ? "light" : "dark";
+    themeRef.current = next;
+    applyTheme(next);
+    setTheme(next);
   }, []);
 
   return (

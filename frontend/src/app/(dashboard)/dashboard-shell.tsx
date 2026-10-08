@@ -55,7 +55,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [mobileOnboardingOpen, setMobileOnboardingOpen] = useState(false);
   const [supportPopoutOpen, setSupportPopoutOpen] = useState(false);
-  const [aiPanelOpen, setAiPanelOpen] = useState(() => readStoredFlag(AI_PANEL_KEY));
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [serverlessEnabled, setServerlessEnabled] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   const gearRef = useRef<HTMLDivElement>(null);
@@ -94,6 +94,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   // Listen for custom events from AI full-page to open/close panel
   useEffect(() => {
+    // This flag coordinates the two AI views only during this dashboard visit.
+    try { localStorage.setItem(AI_PANEL_KEY, "false"); } catch { /* noop */ }
+    window.dispatchEvent(new CustomEvent("xcelsior-close-ai-panel"));
     const openHandler = () => {
       setAiPanelOpen(true);
       try { localStorage.setItem(AI_PANEL_KEY, "true"); } catch { /* noop */ }
@@ -105,10 +108,21 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     window.addEventListener("xcelsior-open-ai-panel", openHandler);
     window.addEventListener("xcelsior-close-ai-panel", closeHandler);
     return () => {
+      try { localStorage.setItem(AI_PANEL_KEY, "false"); } catch { /* noop */ }
       window.removeEventListener("xcelsior-open-ai-panel", openHandler);
       window.removeEventListener("xcelsior-close-ai-panel", closeHandler);
     };
   }, []);
+
+  const navigateSettings = (event: React.MouseEvent<HTMLAnchorElement>, tab: string) => {
+    setProfileOpen(false);
+    if (pathname === "/dashboard/settings" && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+      event.preventDefault();
+      // Next's same-route hash navigation uses history.pushState, which does
+      // not emit hashchange. Native hash navigation keeps settings in sync.
+      window.location.hash = tab;
+    }
+  };
 
   const [redirectingToLogin, setRedirectingToLogin] = useState(false);
   // Gate the full-screen spinner behind a short delay so a fast auth check
@@ -638,9 +652,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                           </div>
                           <div className="py-1">
                             <Link
-                              href="/dashboard/settings"
+                              href="/dashboard/settings#profile"
                               className="dashboard-site-popout-link flex items-center gap-2.5 px-3 py-2 text-sm"
-                              onClick={() => setProfileOpen(false)}
+                              onClick={(event) => navigateSettings(event, "profile")}
                             >
                               <Settings className="h-4 w-4" />
                               {t("dash.settings")}
@@ -648,7 +662,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                             <Link
                               href="/dashboard/settings#team"
                               className="dashboard-site-popout-link flex items-center gap-2.5 px-3 py-2 text-sm"
-                              onClick={() => setProfileOpen(false)}
+                              onClick={(event) => navigateSettings(event, "team")}
                             >
                               <Users className="h-4 w-4" />
                               {t("dash.team") || "Team"}
@@ -656,7 +670,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                             <Link
                               href="/dashboard/settings#api-keys"
                               className="dashboard-site-popout-link flex items-center gap-2.5 px-3 py-2 text-sm"
-                              onClick={() => setProfileOpen(false)}
+                              onClick={(event) => navigateSettings(event, "api-keys")}
                             >
                               <Key className="h-4 w-4" />
                               {t("dash.settings.api_keys") || "API Keys"}

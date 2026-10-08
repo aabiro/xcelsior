@@ -44,7 +44,10 @@ export function Badge({ className, variant, ...props }: BadgeProps) {
   );
 }
 
-export function StatusBadge({ status }: { status: string }) {
+export function StatusBadge({ status: rawStatus }: { status: string | null | undefined }) {
+  // One row with no status (e.g. a host that registered but never reported)
+  // must not take down the whole table it sits in.
+  const status = rawStatus || "unknown";
   const variant = (
     {
       active: "active",

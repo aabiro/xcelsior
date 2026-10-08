@@ -111,6 +111,52 @@ def test_regenerate_rotates_the_client():
     assert rotated["client_id"] != first["client_id"]
 
 
+def _authenticates(key: str) -> bool:
+    return client.get("/api/auth/me", headers=_auth(key)).status_code == 200
+
+
+def test_regenerate_revokes_the_previous_key():
+    """Rotation that leaves the old key working is not rotation.
+
+    Deleting the OAuth client did nothing to the agent keys bound to it, and
+    key validation never looks the client up, so "Regenerate" used to hand out
+    a second live credential while the one in the old config kept working.
+    """
+    token = _register_and_get_token("qc-revoke@xcelsior.ca")
+    first = client.get("/api/mcp/quick-connect", headers=_auth(token)).json()["access_token"]
+    assert _authenticates(first)
+    second = client.get(
+        "/api/mcp/quick-connect?regenerate=true", headers=_auth(token)
+    ).json()["access_token"]
+    assert second and second != first
+    assert not _authenticates(first)
+    assert _authenticates(second)
+
+
+def test_cli_surface_is_its_own_credential():
+    """The CLI tab's key is not the MCP key, and rotating one leaves the other."""
+    token = _register_and_get_token("qc-cli@xcelsior.ca")
+    mcp = client.get("/api/mcp/quick-connect?surface=mcp", headers=_auth(token)).json()
+    cli = client.get("/api/mcp/quick-connect?surface=cli", headers=_auth(token)).json()
+    assert mcp["client_id"] != cli["client_id"]
+    assert mcp["access_token"] != cli["access_token"]
+    # The Agent Skill drives the REST API through the SDK.
+    assert _authenticates(cli["access_token"])
+
+    rotated = client.get(
+        "/api/mcp/quick-connect?surface=cli&regenerate=true", headers=_auth(token)
+    ).json()["access_token"]
+    assert not _authenticates(cli["access_token"])
+    assert _authenticates(rotated)
+    assert _authenticates(mcp["access_token"])
+
+
+def test_unknown_surface_is_rejected():
+    token = _register_and_get_token("qc-surface@xcelsior.ca")
+    r = client.get("/api/mcp/quick-connect?surface=desktop", headers=_auth(token))
+    assert r.status_code == 422
+
+
 def test_quick_connect_client_excluded_from_client_list():
     token = _register_and_get_token("qc-hidden@xcelsior.ca")
     # Provision the quick-connect client.

@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Users, ChevronDown, User, Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
@@ -22,6 +23,35 @@ export function TeamSwitcher({ className, compact = false }: TeamSwitcherProps) 
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const pathname = usePathname();
+
+  useEffect(() => { setOpen(false); }, [pathname]);
+  useEffect(() => {
+    if (!open) return;
+    const dismiss = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+      if ((event.key === "ArrowDown" || event.key === "ArrowUp") && menuRef.current?.contains(event.target as Node)) {
+        event.preventDefault();
+        const options = Array.from(menuRef.current.querySelectorAll<HTMLButtonElement>('[role="option"]'));
+        const current = options.indexOf(document.activeElement as HTMLButtonElement);
+        options[(current + (event.key === "ArrowDown" ? 1 : options.length - 1)) % options.length]?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", dismiss);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
 
   const loadTeams = useCallback(async () => {
     setLoading(true);
@@ -73,8 +103,9 @@ export function TeamSwitcher({ className, compact = false }: TeamSwitcherProps) 
     : t("dash.team.personal_workspace");
 
   return (
-    <div className={cn("relative", className)}>
+    <div ref={menuRef} className={cn("relative", className)}>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
@@ -95,14 +126,9 @@ export function TeamSwitcher({ className, compact = false }: TeamSwitcherProps) 
 
       {open && (
         <>
-          <button
-            type="button"
-            className="dashboard-site-dropdown-backdrop"
-            aria-label="Close team switcher"
-            onClick={() => setOpen(false)}
-          />
           <div
             role="listbox"
+            aria-label="Workspace"
             className="dashboard-site-team-dropdown absolute right-0 top-full z-[200] mt-1 min-w-[12rem] overflow-hidden rounded-xl border border-[var(--edge)] bg-[var(--popover-solid)] shadow-[var(--shadow-panel)]"
           >
             <button

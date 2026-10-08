@@ -1375,7 +1375,7 @@ function InstallWorkerSection({
               className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-accent-cyan to-accent-cyan/90 text-navy px-3.5 py-2 text-xs font-semibold hover:from-accent-cyan/90 hover:to-accent-cyan transition-all duration-200 shadow-sm shadow-accent-cyan/25"
             >
               {view === "sdk" ? (
-                <>View Quickstart <ArrowRight className="h-3.5 w-3.5" /></>
+                <>View Manual Setup <ArrowRight className="h-3.5 w-3.5" /></>
               ) : (
                 <><ArrowLeft className="h-3.5 w-3.5" /> View Wizard Setup</>
               )}
