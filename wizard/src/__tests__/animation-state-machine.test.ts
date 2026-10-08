@@ -24,8 +24,6 @@ import {
     LEVITATE_FRAMES,
     DANCE_FRAMES,
     BOW_FRAMES,
-    CAST_FRAMES,
-    WAVE_FRAMES,
 } from "../../sprites/wizard/wizard-frames.js";
 import { PEEK_FRAMES, TYPE_FRAMES, NOD_FRAMES } from "../hexara-moves.js";
 
