@@ -1,0 +1,1586 @@
+
+❯ AI said: Found your Vultr account (2 servers) and the backups at
+  /mnt/storage/backups/vultr-offsite-2026-10-06/. Now checking what's in them
+  and what's on each server.
+
+  SSH into the live servers was blocked by the permission system, so I'll size
+  things from the backups and the Vultr API instead.
+
+  Still looking: I'm searching yesterday's session for your Hetzner plan before
+  I write up the recommendation.
+
+  Yesterday's session has the context (prod details, Headscale routing). Now
+  pulling current Hetzner prices so the recommendation uses real numbers.
+
+  The Hetzner picture has changed a lot in 2026 (big price hikes, the cheap
+  CX/CAX line sold out). Checking live stock and the auction before I recommend
+  anything.
+
+  Backups are on your storage drive, and they look complete. I'm locking them
+  down now, then writing up the plan. One heads-up: Hetzner raised prices in
+  2026, and their cheap line is mostly sold out.
+
+  I'm leaving the backup's original server permissions intact since restores
+  depend on them. Instead, I'll add a README, a checksum manifest, and a
+  shortcut in your home folder.
+
+  Almost done. I found two jobs on this PC that watch the Vultr Headscale
+  server and can flip DNS. Checking how they're configured so the move doesn't
+  trigger them.
+
+  Your backups are safe on your storage drive. Get a Hetzner CX43 if Hetzner
+  will let you order one (usually sold out); if it's sold out, get a 64 GB
+  server from Hetzner's auction. Hetzner raised prices a lot in 2026, so the
+  cheap route only works if you get one of those two.
+
+  Your backups
+  Where they are: /mnt/storage/backups/vultr-offsite-2026-10-06. There's now a
+  shortcut at ~/vultr-backup-2026-10-06.
+  What's in them: both servers, about 66 GB, plus database dumps of both. Both
+  dump files open without errors.
+  This is now your only copy. Vultr's automatic backups were turned off and a
+  snapshot was deleted early on Oct 6, right after this copy finished. Vultr
+  now shows zero backups.
+  What I did to keep it safe:
+  I added a README-FIRST.txt that explains what's inside and the restore traps.
+  A checksum list is being built in the background, so you can confirm copies
+  later.
+  I didn't change any file permissions, because the restore needs the original
+  server permissions.
+  Risks to know about:
+  The drive it's on is 98% full, and there's no second copy.
+  It contains secrets: your password vault, .env files and a Lightning wallet
+  key. Never upload it anywhere public.
+  Copy it only with rsync -S. Some files are mostly empty space and would
+  ──── (246 lines hidden) ─────────────────────────────────────────────────────
+  f0f1198716a27a0155bbaa45219ca971ae76a58ff0a44fa49882a
+  I’ll save those credentials in the local xcelsior .env and verify Porkbun
+  access. That lets me prepare the DNS switch for both servers together. I also
+  confirmed there are no running xcelsior jobs, active leases, or connected
+  NFS clients on Vultr.
+
+  Searched the web for https://porkbun.com/llms/dns
+  porkbun
+
+
+  Edited files
+  You've hit your usage limit. Upgrade your plan or add credits to continue, or
+  try again at 12:14 PM.
+
+  Edited 15 files
+  +616
+  -0
+  /home/aaryn/vultr-migration-2026-10-07/import_hetzner_token.py
+  /home/aaryn/vultr-migration-2026-10-07/
+  import_hetzner_token.py
+  +35
+  -0
+  /home/aaryn/vultr-migration-2026-10-07/fix_nginx_remote.py
+  /home/aaryn/vultr-migration-2026-10-07/
+  fix_nginx_remote.py
+  +53
+  -0
+  /home/aaryn/vultr-migration-2026-10-07/cloudflare_inventory.py
+  /home/aaryn/vultr-migration-2026-10-07/
+  cloudflare_inventory.py
+  +34
+  -0
+  /home/aaryn/vultr-migration-2026-10-07/preflight_remote.py
+  /home/aaryn/vultr-migration-2026-10-07/
+  preflight_remote.py
+  +48
+  -0
+  /home/aaryn/vultr-migration-2026-10-07/capture_running.py
+  /home/aaryn/vultr-migration-2026-10-07/
+  capture_running.py
+  +14
+  -0
+  /home/aaryn/vultr-migration-2026-10-07/compare_images.py
+  /home/aaryn/vultr-migration-2026-10-07/
+  compare_images.py
+  +15
+  -0
+  /home/aaryn/vultr-migration-2026-10-07/finish_config_remote.py
+  /home/aaryn/vultr-migration-2026-10-07/
+  finish_config_remote.py
+  +43
+  -0
+  /home/aaryn/vultr-migration-2026-10-07/fix_runtime_key_remote.py
+  /home/aaryn/vultr-migration-2026-10-07/
+  fix_runtime_key_remote.py
+  +24
+  -0
+  /home/aaryn/vultr-migration-2026-10-07/backup_coverage.py
+  /home/aaryn/vultr-migration-2026-10-07/
+  backup_coverage.py
+  +35
+  -0
+  /home/aaryn/vultr-migration-2026-10-07/verify_db_backups.py
+  /home/aaryn/vultr-migration-2026-10-07/
+  verify_db_backups.py
+  +32
+  -0
+  /home/aaryn/vultr-migration-2026-10-07/harden_ssh_remote.py
+  /home/aaryn/vultr-migration-2026-10-07/
+  harden_ssh_remote.py
+  +18
+  -0
+  /home/aaryn/vultr-migration-2026-10-07/pixel_freeze_snapshot.py
+  /home/aaryn/vultr-migration-2026-10-07/
+  pixel_freeze_snapshot.py
+  +92
+  -0
+  /home/aaryn/vultr-migration-2026-10-07/dns_cutover.py
+  /home/aaryn/vultr-migration-2026-10-07/
+  dns_cutover.py
+  +48
+  -0
+  /home/aaryn/vultr-migration-2026-10-07/pixel_transfer_restore.py
+  /home/aaryn/vultr-migration-2026-10-07/
+  pixel_transfer_restore.py
+  +80
+  -0
+  /home/aaryn/vultr-migration-2026-10-07/porkbun_dns.py
+  /home/aaryn/vultr-migration-2026-10-07/
+  porkbun_dns.py
+  +45
+  -0
+
+  Collapse files
+  go
+  , look at the hetxner migration doc read all of it too
+
+● I'll start by finding the migration doc and the working directory the previous
+  session left behind.
+
+  Searched for 1 pattern, read 2 files, listed 3 directories, recalled 1 memory (ctrl+o to expand)
+
+● There's a lot of prior state. The pasted transcript mentions a handoff and a
+  CX43 at 46.225.20.97. Let me find that handoff and read the scripts the last
+  session wrote.
+
+  Searched for 1 pattern, ran 1 shell command (ctrl+o to expand)
+
+● The previous session was split across Codex and an Antigravity (Gemini)
+  session that built the box. Let me read the Antigravity session's handoff and
+  its last steps.
+
+  Read 1 file, listed 1 directory (ctrl+o to expand)
+
+● I'll check the Codex session log and current live state to see if the
+  freeze/transfer scripts actually ran, since a half-completed freeze could mean
+  prod is down right now.
+
+  Listed 1 directory, ran 1 shell command (ctrl+o to expand)
+
+● Prod is still on Vultr, meaning the freeze hasn't run yet — but the Codex log
+  timestamp (09:56) suggests that session might still be active. I'll check on
+  that first to avoid two agents running a cutover simultaneously.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Codex is out of usage so I'm continuing solo — the Hetzner box is built and
+  DNS TTLs lowered, but the freeze/final-sync/restore scripts haven't run yet.
+  I'll now review all of Codex's recorded findings to catch any corrections
+  before proceeding.
+
+  Read 1 file, ran 2 shell commands (ctrl+o to expand)
+
+● Now the live state of the Hetzner box, read-only: services, containers, nginx,
+  disk, and which databases exist.
+
+  Searched for 1 pattern, ran 1 shell command (ctrl+o to expand)
+
+● The Hetzner box checks out healthy—16 GB RAM, 54 GB free disk, and xcelsior
+  api/frontend/mcp plus pixelenhance/pixelspark running for validation. Now I'll
+  compare this against each Vultr box's current services so the cutover
+  replicates the same setup.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I'll check the two live Vultr boxes directly, read-only.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+❯ <ide_opened_file>The user opened the file
+  /home/aaryn/storage/projects/xcelsior/.env in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+  in paths get rid of vultr- like /vultr-etc -> /etc
+
+❯ in new box
+
+● I'll list every path containing "vultr" in its name to see what's there before
+  renaming anything, since some are reference copies of the old /etc.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Each vultr-* folder holds two old /etc backups that I'll rename from
+  /root/vultr-etc to /root/etc without merging them into the live /etc, since
+  that would overwrite the new box's network, boot, and SSH config. I'm now
+  checking for name collisions and path references before renaming.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● No collisions, nothing running from those paths, and the only references are
+  the migration helper scripts. Renaming now and updating those scripts to
+  match.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The remaining files—app source, icon cache, and cloud-init packages—can stay
+  as is. I still need to rename the orig-vultr folder and files in the custom
+  nginx build, then re-test nginx.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Nginx reloaded fine, but I noticed there are two nginx binaries on the
+  box—systemd runs /usr/sbin/nginx while I tested /usr/local's version. I'll
+  verify which config the live service is actually using.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+❯ these get rid of vultr-:
+  /root/vultr-log
+  /root/vultr-etc
+  /root/vultr-root
+  /root/vultr-home
+
+● Those four directories are already renamed, which also handles vultr-spool,
+  the /var/backups folders, and the .orig-vultr files. I found that the live
+  nginx is Ubuntu's /usr/sbin/nginx reading /etc/nginx rather than the custom
+  RTMP build, so I'm now checking whether that live config actually serves the
+  aarynfans sites.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Confirmed the live nginx setup is Ubuntu's with RTMP/brotli handling all
+  vhosts, and that /usr/local/sbin/nginx is unused. Now checking the
+  Hetzner-side prep scripts to identify which files were modified there, so the
+  final sync doesn't overwrite them.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+❯ and no .orig-vultr either, it should be same paths as before , just combined
+  projects on server
+
+● Everything's already at its correct old paths except leftover .orig files and
+  stray /root/etc, /root/home, etc. folders, which I'll archive into
+  /var/backups/migration-20261007/ rather than unpacking the old /etc trees
+  (that could break networking or double-bill aarynfans). First I'll identify
+  which .orig files are actually migration artifacts, so I don't sweep up any
+  legitimate .orig files from the old servers.
+  Ran 1 shell command (ctrl+o to expand)
+
+❯ do not leave anything out
+
+● I'm cross-checking every file on both old servers against the new box to build
+  a complete list of what's missing before cutover. Now I'll check the format
+  of this morning's file inventories from Codex.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I'll run the same metadata inventory on the new box and diff it against the
+  old servers' results to pinpoint exactly what's missing or different.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The new-box inventory has 972,836 entries. Now the path-by-path diff against
+  both old servers:
+
+● Write(~/vultr-migration-2026-10-07/compare_to_hetzner.py)
+  ⎿  Wrote 73 lines to ../../../../home/aaryn/vultr-migration-2026-10-07/co
+     mpare_to_hetzner.py
+       1 """Path-by-path: is every file/symlink of each old Vultr server
+         at the same path on Hetzner?"""
+       2 import collections
+       3 import json
+       4 import stat
+       6 from pathlib import Path
+       7
+       8 out = Path(__file__).parent
+       9 new = {}
+      10 for line in (out / 'hetzner-inventory.jsonl').open():
+     … +82 lines (ctrl+o to expand)
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● The grouping is too fine to read. Re-aggregating the missing and different
+  files into coarser groups, with byte totals:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Most files already match across both paths, but I found real gaps on each
+  side—like aarynfans' SSH keys, Let's Encrypt certs, and mail queue, plus
+  pixelenhance's xcelsior DB backups and nginx-deploy files. Next I'll list
+  every missing or changed path outside logs and raw Postgres data to sort each
+  into copy, merge, or explain-why-not.
+
+  Read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● The full list breaks into four groups: unique real data to copy over,
+  overlapping files needing merges, OS/hardware/Vultr configs better fixed via
+  package installs, and old logs/dpkg backups to skip. Next I'll check the saved
+  package lists and customized-config lists from the earlier session.
+
+  Listed 1 directory (ctrl+o to expand)
+
+● I've saved both servers' package lists. Now I'll compare them against the new
+  box across apt, snaps, global npm, system pip, and check which config files
+  were modified via dpkg.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I've identified all the gaps between the old servers and the new box. Now I'm
+  re-running the package comparison with correct sorting and checking runtime
+  versions to find what's missing before installing.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The new box already covers the needed runtimes, but aarynfans also had Java 11
+  and pixelenhance had edgetpu-compiler, flyway, and some admin tools that need
+  adding. Next I'll check which package config files each old server
+  customized, since those edits need to carry over.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I'm pulling the saved config details from both old servers—users, UIDs,
+  crontabs, sysctl, hosts, postfix, the aarynfans nginx override, tailscale
+  identities, and the duplicate hs.xcelsior.ca cert—to decide the remaining
+  merges correctly.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● UID mappings match across both servers, crontabs and sysctl/hosts merge
+  without conflict — the one open issue is that both boxes have separate
+  Tailscale identities (aarynfans-prod at 100.64.0.5, pixelenhance at
+  100.64.0.1), so I'm checking if anything depends on aarynfans' tailnet address
+  before deciding how to consolidate.
+
+  Searched for 1 pattern, ran 1 shell command (ctrl+o to expand)
+
+● Nothing live relies on aarynfans' tailnet IP—just docs and an .env.example
+  comment—and its mail queue is empty, but I'll still run aarynfans-prod as a
+  second tailnet node on the new box per your request. Next I'll settle
+  remaining config differences: .bashrc, sudoers, journald, password policy, apt
+  pins, firewall rules, missing users, and the current hs.xcelsior.ca
+  certificate.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Found more cutover-breaking gaps: a missing ntfy-relay user, a missing sudoers
+  entry for linuxuser, and incomplete group memberships for ubuntu, www-data,
+  and linuxuser. Before writing the fix, I'll compare firewall rules on both
+  servers and verify which hs.xcelsior.ca cert is current.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Found aarynfans' firewall gaps: Postgres access from the WireGuard subnet and
+  one external IP, plus port 3000 (which will need to move to 3003 to avoid
+  conflicting with xcelsior's frontend). Keeping pixelenhance's newer cert for
+  hs.xcelsior.ca; now checking aarynfans' Postgres access rules and WireGuard
+  peers to ensure the firewall rules work on the merged box.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I'm intentionally skipping aarynfans' two Postgres access rules, since those
+  addresses never had real access on the old box but would gain it on the new
+  one, and I'm fixing the WireGuard NAT rule to use eth0 instead of enp1s0. Now
+  I'm writing a fill-in script that pulls missing items from Vultr into their
+  original paths without overwriting anything, starting by verifying SSH agent
+  forwarding works for those pulls.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Agent forwarding works: the new box reaches both Vultr servers, with sudo on
+  pixelenhance. Writing the fill-in script:
+
+● Write(~/vultr-migration-2026-10-07/fill_gaps_remote.sh)
+  ⎿  Denied by auto mode classifier ∙ [Permission Grant] ∙ see
+     https://code.claude.com/docs/s/claude-code-auto-mode
+
+● My auto-mode classifier flagged that script for three privilege changes
+  (sudoers edit, re-adding users to old groups, opening port 3003), so I'm
+  stripping those out for your approval—note the sudoers line is redundant
+  anyway since linuxuser already has that rule via
+  /etc/sudoers.d/90-cloud-init-users. Rewriting the script now without them.
+
+● Write(~/vultr-migration-2026-10-07/fill_gaps_remote.sh)
+  ⎿  Denied by auto mode classifier ∙ [Remote Shell Writes] ∙ see
+     https://code.claude.com/docs/s/claude-code-auto-mode
+● The rewritten script was also blocked, flagged as "remote shell writes," so I
+  won't try bypassing it with smaller commands. I'm saving the current progress
+  to memory for continuity and pausing to ask how you'd like to proceed.
+
+  Wrote 2 memories (ctrl+o to expand)
+
+● I've stopped before changing anything on the new box: the auto-mode permission
+  checker blocked my script for copying the missing files. Prod is still
+  running normally on Vultr. Nothing has been frozen, no data has been switched
+  over, and no DNS has changed.
+
+  Where things stand
+  - Codex ran out of credits at 07:37, right before the cutover. The new server
+    (46.225.20.97) has the bulk copy, its web server config checks out, and
+    xcelsior, pixelenhance and pixelspark run there for testing. DNS TTLs are
+    already lowered.
+  - I read the move plan in full. Its copy list was too narrow, which is why so
+    much was missing.
+  - Renamed as you asked:
+    - /root/vultr-etc, vultr-root, vultr-home, vultr-log and vultr-spool are now
+      /root/etc and so on.
+    - Every .orig-vultr file and the vultr- backup folders are renamed.
+    - The web server config still passes its check.
+
+  Nothing left out: I compared every file
+  I listed every file on the new box and compared it with full file lists of
+  both old servers. Most of it is in place at the same path (514,810
+  pixelenhance files and 71,317 aarynfans files match). These were missing or
+  would have broken things:
+  - aarynfans: root's SSH keypair (/root/.ssh/id_rsa), 704 files of certificate
+    history, /var/backups/nginx, /setup_log.txt, its tailnet identity
+    (aarynfans-prod, 100.64.0.5), and its mail config.
+  - pixelenhance: /var/backups/xcelsior (the DB backups), the pixelenhance DB
+    dumps, the backup-status metrics, and flyway.
+  - The ntfy-relay user doesn't exist, so that service would fail to start.
+  - About 90 programs: Java 11, edgetpu-compiler, and admin tools.
+  - WireGuard: its NAT rule names Vultr's network interface (enp1s0); on Hetzner
+    it's eth0.
+
+  The script I wrote copies all of this into the original paths, never
+  overwrites anything, and merges files both servers had, such as /etc/hosts,
+  known_hosts and shell history. Then it moves every leftover into one archive
+  at /var/backups/migration-20261007/.
+
+  Left out on purpose (it would break something):
+  - Vultr's network, boot and SSH-key files.
+  - aarynfans' own nginx service file: it would swap in the old nginx build and
+    take down every pixelenhance and xcelsior site.
+  - Two Postgres access rules: they never worked on aarynfans, and on the new
+    box they would open the database, one of them with no password.
+  - Hardware-only packages.
+
+  What I need from you
+  1. A permission rule, so I can work on the new box and do the cutover:
+  "allow": ["Bash(ssh hetzner:*)", "Bash(ssh -A hetzner:*)", "Bash(ssh
+  root@45.76.3.128:*)", "Bash(ssh -o BatchMode=yes -o ProxyJump=none
+  linuxuser@149.28.121.61:*)"]
+     Add it to .claude/settings.local.json. Saying "go" in chat may not get past
+     the checker, which also blocks stopping prod and the DNS switch. The other
+     option is that I prepare each step as a command and you run it.
+  2. Three privilege changes, yes or no:
+     - Port 3003: open it to the public, because aarynfans had admin-api-test
+       public on port 3000.
+     - Old groups: add ubuntu back to cdrom, dip, plugdev and users.
+     - sudoers: put linuxuser's rule back in /etc/sudoers. Nothing changes in
+       practice, because it already works through /etc/sudoers.d.
+  3. BTCPay: its containers have been stopped since June, but the service is set
+     to start at boot. I'll keep it off on the new box, because it runs a real
+     Bitcoin Lightning node and two copies must never run at once. Keep it off,
+     or turn it on?
+  4. WireGuard clients 10.0.0.2–.4 will need their endpoint changed if they
+     connect to 45.76.3.128 by IP.
+
+  Once I have the permission, the order is: fill the gaps, re-check until
+  nothing is missing, then do the cutover. The cutover stops both Vultr servers,
+  does a final sync, restores the databases and starts everything, then
+  switches DNS on Cloudflare and Porkbun and checks every site. I'll only delete
+  the Vultr servers when you say so.
+
+❯ /root/vultr-spool
+
+  Ran 1 shell command (ctrl+o to expand)
+
+❯ no do them u have permission
+
+● Confirmed /root/vultr-spool is already renamed to /root/spool, with no vultr
+  references left in those paths. I'll proceed with your approved changes,
+  including the privilege updates, but keep BTCPay off to avoid running two
+  Lightning nodes simultaneously—now writing the fill-in script.
+
+● Write(~/vultr-migration-2026-10-07/fill_gaps_remote.sh)
+  ⎿  Denied by auto mode classifier ∙ [Permission Grant] ∙ see
+     https://code.claude.com/docs/s/claude-code-auto-mode
+
+● The checker rejected the action again since chat approval alone doesn't
+  satisfy it—only a saved permission rule does, and I won't bypass that by
+  editing my own permissions. Let me find where to add your rule instead.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The checker is now blocking even a read of the permissions file, so I've
+  stopped. Nothing has changed on any server since my last update, apart from
+  the renames you asked for. I can't get past this from inside the chat; you
+  have two options:
+
+  Option 1: add allow rules once (fastest). Type /permissions in Claude Code,
+  choose Allow, and add these rules:
+  Bash(ssh:*)
+  Bash(python3 /home/aaryn/vultr-migration-2026-10-07/dns_cutover.py:*)
+  Bash(python3 /home/aaryn/vultr-migration-2026-10-07/porkbun_dns.py:*)
+  Write(/home/aaryn/vultr-migration-2026-10-07/**)
+  Edit(/home/aaryn/vultr-migration-2026-10-07/**)
+  Or paste the same lines into the permissions.allow list in
+  /mnt/storage/projects/xcelsior/.claude/settings.local.json. Be aware that
+  Bash(ssh:*) lets me run any ssh command without asking, including on prod. You
+  can remove it after the move.
+
+  Option 2: approve each step yourself. Press Shift+Tab to leave auto mode. Each
+  server command will then pop up for you to approve or reject as I go. It's
+  slower, but you see every step.
+
+  When either is in place, say "go". This is the order I'll work in, and none of
+  it is done yet:
+  1. Fill the gaps on the new box:
+     - Copy in everything missing, at its original path.
+     - Make the three privilege changes you approved: port 3003, the old groups,
+       and the sudoers line.
+     - Install the missing packages.
+     - Move the leftovers into the archive at /var/backups/migration-20261007/.
+  2. Re-check the new box against both old servers until the only differences
+     left are the deliberate ones.
+  3. Cut over:
+     - Stop both Vultr servers.
+     - Do a final sync and restore the databases.
+     - Start everything on the new box. aarynfans-prod comes up as a second
+       tailnet node, and BTCPay stays off.
+     - Switch DNS on Cloudflare and Porkbun, then check every site.
+
+❯ <ide_selection>The user selected the lines 14 to 15 from
+  /home/aaryn/.claude/settings.json:
+        "Bash(python3
+  /home/aaryn/vultr-migration-2026-10-07/dns_cutover.py:*)",
+        "Bash(python3 /home/aaryn/vultr-migration-2026-10-07/por
+
+  This may or may not be related to the current task.</ide_selection>
+
+❯ i did option 1
+
+● You've added the rules, so I'm starting step 1, filling the gaps on the new
+  box, beginning with writing the script.
+
+● Write(~/vultr-migration-2026-10-07/fill_gaps_remote.sh)
+  ⎿  Wrote 140 lines to
+     ../../../../home/aaryn/vultr-migration-2026-10-07/fill_gaps_remote.sh
+       1 #!/bin/bash
+         ill_gaps_remote.sh`.
+       3 # Puts everything the two old servers had at the same paths on t
+       4 # Never overwrites an existing file (rsync --ignore-existing); m
+         erges are explicit below.
+          cutover.
+       6 set -euo pipefail
+       8 [ "$(hostname)" = xcelsior-prod-hetzner ] || { echo "wrong host"
+         ; exit 1; }
+      10 PX=linuxuser@149.28.121.61
+     … +200 lines (ctrl+o to expand)
+
+● Running it on the new box, with my SSH agent forwarded so it can pull from
+  both Vultr servers:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The script likely failed because piping it through stdin let the first inner
+  ssh consume the rest as its input — a launch bug, not a server issue. I'll
+  check what actually ran before re-running it properly.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Steps 1 and 2 are complete, but step 3's merge got cut off mid-way; since
+  everything is safely repeatable, I'll copy the script onto the box and run it
+  from a file so stdin isn't an issue for the inner ssh call.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● That was denied only because the command chained in scp, which your ssh rule
+  doesn't cover. The earlier ssh run went through. I'll transfer the file with
+  ssh alone, as separate commands:
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Still getting denied as a "permission grant" despite the rule starting with
+  ssh — either the match isn't working as expected or the checker's flagging the
+  sudoers/group edits. I'll check how the rule was actually saved.
+
+  Read 1 file (ctrl+o to expand)
+
+● The sudoers line, group memberships, and opening port 3003 count as privilege
+  grants that need your direct approval, so I'll pull those into a separate
+  script for you to run and proceed with everything else now.
+
+● Update(~/vultr-migration-2026-10-07/fill_gaps_remote.sh)
+  ⎿  Removed 5 lines
+      72  $SSH $AF 'cat /etc/sysctl.conf' > /etc/sysctl.conf
+      73  [ -e /etc/sysctl.d/90-merged.conf ] && { mkdir -p $ARCH/origina
+          ls-before-merge/etc/sysctl.d; mv /etc/sysctl.d/90-merged.conf $
+          ARCH/originals-before-merge/etc/sysctl.d/; }
+      74  sysctl --system > /dev/null
+      75 -# sudoers: pixelenhance had linuxuser's rule in /etc/sudoers it
+         -self (also in sudoers.d/90-cloud-init-users)                   
+      76 -keep /etc/sudoers                                              
+      77 -grep -q '^linuxuser ALL=(ALL) NOPASSWD: ALL' /etc/sudoers || { 
+      78 -  cp /etc/sudoers /tmp/sudoers.new; echo 'linuxuser ALL=(ALL) N
+         -OPASSWD: ALL' >> /tmp/sudoers.new                              
+      79 -  visudo -cf /tmp/sudoers.new && install -m 440 /tmp/sudoers.ne
+         -w /etc/sudoers; }                                              
+      75  # postfix: aarynfans' configuration (pixelenhance had no postfi
+          x)
+      76  keep /etc/postfix/main.cf
+      77  $SSH $AF 'cat /etc/postfix/main.cf' > /etc/postfix/main.cf
+
+● Update(~/vultr-migration-2026-10-07/fill_gaps_remote.sh)
+  ⎿  Added 1 line, removed 3 lines
+      79  # WireGuard: aarynfans' NAT rule names Vultr's interface (enp1s
+          0); this box's is eth0
+      80  keep /etc/wireguard/wg0.conf
+      81  sed -i 's/-o enp1s0 /-o eth0 /g' /etc/wireguard/wg0.conf
+      82 -# firewall: admin-api-test was public on 3000 on aarynfans; it 
+         -listens on 3003 here (3000 is xcelsior's frontend)             
+      83 -ufw status | grep -q '^3003/tcp' || ufw allow 3003/tcp comment 
+         -'admin-api-test (aarynfans, was 3000)' >/dev/null              
+      82  
+      85 -echo "### 4. users and group memberships"                      
+      83 +echo "### 4. ntfy-relay service account (its unit runs as User=
+         +ntfy-relay)"                                                   
+      84  if ! getent passwd ntfy-relay >/dev/null; then
+      85    IFS=: read -r _ _ uid gid _ home shell <<< "$($SSH $PX 'geten
+          t passwd ntfy-relay')"
+      86    getent group ntfy-relay >/dev/null || { getent group "$gid" >
+          /dev/null && groupadd --system ntfy-relay || groupadd --system 
+          -g "$gid" ntfy-relay; }
+
+● Update(~/vultr-migration-2026-10-07/fill_gaps_remote.sh)
+  ⎿  Added 1 line, removed 3 lines
+      88    else useradd --system -u "$uid" -g ntfy-relay -d "$home" -s "
+          $shell" -M ntfy-relay; fi
+      89  fi
+      90  $SSH $PX 'sudo -n stat -c "%U:%G %n" /etc/ntfy-relay /etc/ntfy-
+          relay/env'; stat -c '%U:%G %n' /etc/ntfy-relay /etc/ntfy-relay/
+          env
+      91 -for g in cdrom dip plugdev users; do getent group $g >/dev/null
+         - && usermod -aG $g ubuntu; done                                
+      92 -gpasswd -a www-data www-data >/dev/null; gpasswd -a linuxuser l
+         -inuxuser >/dev/null                                            
+      93 -id ubuntu; id linuxuser; id www-data; id ntfy-relay            
+      91 +id ntfy-relay                                                  
+      92  
+      93  echo "### 5. packages the old servers had (software only)"
+      94  apt-get update -qq || true
+
+● Update(~/vultr-migration-2026-10-07/fill_gaps_remote.sh)
+  ⎿  Removed 2 lines
+      122  
+      123  echo "### 6. checks"
+      124  /usr/sbin/nginx -t 2>&1 | grep -v 'http2. directive is depreca
+           ted'
+      125 -visudo -c | tail -1                                           
+      125  sysctl net.ipv4.ip_forward net.ipv6.conf.all.forwarding vm.max
+           _map_count net.ipv4.conf.all.rp_filter
+      126  postconf myhostname inet_interfaces
+      128 -ufw status | grep -E '^3003'                                  
+      127  systemctl --failed --no-legend --plain
+      128  df -h / | tail -1
+      129  echo "FILL_GAPS_DONE log=$LOG"
+
+❯ i give poermisssion
+
+❯ give me the cmnd
+  ⎿  11 skills available
+
+● Here are the commands. Running them yourself is fine; the checker only blocks
+  me from doing these. First I'll save the three privilege changes as their own
+  small script:
+● Write(~/vultr-migration-2026-10-07/grant_privileges_remote.sh)
+  ⎿  Denied by auto mode classifier ∙ [Permission Grant] ∙ see
+     https://code.claude.com/docs/s/claude-code-auto-mode
+
+● I can't save that script either, so here are both commands to paste. Put ! in
+  front of each one at this prompt, so the command runs as you and I see the
+  output.
+
+  1. Fill in everything missing. This takes a few minutes, mostly installing
+  packages:
+  ! ssh -A hetzner 'cat >
+  /var/backups/migration-20261007/work/fill_gaps_remote.sh && bash
+  /var/backups/migration-20261007/work/fill_gaps_remote.sh < /dev/null' <
+  ~/vultr-migration-2026-10-07/fill_gaps_remote.sh
+
+  2. The three privilege changes you approved: the sudoers line, the old group
+  memberships, and opening port 3003:
+  ! ssh hetzner 'mkdir -p
+  /var/backups/migration-20261007/originals-before-merge/etc && cp -an
+  /etc/sudoers
+  /var/backups/migration-20261007/originals-before-merge/etc/sudoers; grep -q
+  "^linuxuser ALL=(ALL) NOPASSWD: ALL" /etc/sudoers || { cp /etc/sudoers /tmp/s
+  && echo "linuxuser ALL=(ALL) NOPASSWD: ALL" >> /tmp/s && visudo -cf /tmp/s &&
+  install -m 440 /tmp/s /etc/sudoers; }; usermod -aG cdrom,dip,plugdev,users
+  ubuntu; gpasswd -a www-data www-data; gpasswd -a linuxuser linuxuser; ufw
+  allow 3003/tcp comment "admin-api-test (aarynfans, was 3000)"; visudo -c; id
+  ubuntu; ufw status | grep 3003'
+
+  Neither command touches the live Vultr servers. The first only reads from
+  them, and both only make changes on the new box. When both finish, I'll
+  re-check the new box against both old servers.
+
+❯ ! ssh -A hetzner 'cat >
+  /var/backups/migration-20261007/work/fill_gaps_remote.sh && bash
+  /var/backups/migration-20261007/work/fill_gaps_remote.sh < /dev/null' <
+  ~/vultr-migration-2026-10-07/fill_gaps_remote.sh
+
+● I don't see any output from that command, so let me check on the box whether
+  it ran:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The ! prefix didn't actually execute the command—it just sent me the text, so
+  the box still has the old version with no new log. I'll run the command myself
+  now.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Fill-in completed successfully, but I found three issues: /etc/ntfy-relay got
+  the wrong group ownership due to a missing group during copy, edgetpu-compiler
+  can't install from Google's Coral repo (403 error), and libcups2 is named
+  libcups2t64 on Ubuntu 24.04. I'll fix ownership by copying edgetpu-compiler
+  files directly from pixelenhance, then take a fresh inventory of the new box
+  to check ownership across all files before running the privilege changes.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Update(~/vultr-migration-2026-10-07/compare_to_hetzner.py)
+  ⎿  Added 7 lines, removed 1 line
+       6  from pathlib import Path
+       7  
+       8  out = Path(__file__).parent
+       9 +backups = Path('/mnt/storage/backups/vultr-full-2026-10-07')   
+      10 +                                                               
+      11 +def names(path):                                               
+      12 +    return {int(fields[2]): fields[0] for fields in (line.split
+         +(':') for line in path.read_text().splitlines()) if len(fields)
+         + > 2}                                                          
+      13 +                                                               
+      14 +new_users, new_groups = names(out / 'hetzner-passwd'), names(ou
+         +t / 'hetzner-group')                                           
+      15  new = {}
+      16  for line in (out / 'hetzner-inventory.jsonl').open():
+      17      item = json.loads(line)
+      18      if 'path' in item and 'event' not in item:
+      13 -        new[item['path']] = (item['mode'], item['size'], item.g
+         -et('link'))                                                    
+      19 +        new[item['path']] = (item['mode'], item['size'], item.g
+         +et('link'), item['uid'], item['gid'])                          
+      20  
+      21  # Package-managed or runtime-only trees: compared by package li
+          st / image list instead of by file.
+      22  PACKAGED = ('/usr/bin', '/usr/sbin', '/usr/lib', '/usr/libexec'
+          , '/usr/share', '/usr/include', '/usr/src',
+
+● Update(~/vultr-migration-2026-10-07/compare_to_hetzner.py)
+  ⎿  Added 4 lines, removed 1 line
+      44      counts = collections.Counter()
+      45      missing = collections.Counter()
+      46      differ = collections.Counter()
+      47 -    with (out / f'{name}-missing-on-hetzner.jsonl').open('w') a
+         -s miss_file, (out / f'{name}-differs-on-hetzner.jsonl').open('w
+         -') as diff_file:                                               
+      47 +    owner = collections.Counter()                              
+      48 +    old_users, old_groups = names(backups / name / 'etc/passwd'
+         +), names(backups / name / 'etc/group')                         
+      49 +    with (out / f'{name}-missing-on-hetzner.jsonl').open('w') a
+         +s miss_file, (out / f'{name}-differs-on-hetzner.jsonl').open('w
+         +') as diff_file, \                                             
+      50 +         (out / f'{name}-owner-differs-on-hetzner.tsv').open('w
+         +') as owner_file:                                              
+      51          for line in (out / f'{name}-inventory.jsonl').open():
+      52              item = json.loads(line)
+      53              if 'event' in item:
+
+● Update(~/vultr-migration-2026-10-07/compare_to_hetzner.py)
+  ⎿  Added 7 lines
+      59                  counts['package_or_runtime'] += 1
+      60                  continue
+      61              have = new.get(path)
+      62 +            if have is not None:                               
+      63 +                was = (old_users.get(item['uid'], item['uid']),
+         + old_groups.get(item['gid'], item['gid']), stat.S_IMODE(mode)) 
+      64 +                now = (new_users.get(have[3], have[3]), new_gro
+         +ups.get(have[4], have[4]), stat.S_IMODE(have[0]))              
+      65 +                if not stat.S_ISLNK(mode) and was != now:      
+      66 +                    counts['owner_or_mode_differs'] += 1       
+      67 +                    owner[f'{group(path)}  {was[0]}:{was[1]} {w
+         +as[2]:o} -> {now[0]}:{now[1]} {now[2]:o}'] += 1                
+      68 +                    owner_file.write(f'{path}\t{was[0]}:{was[1]
+         +}\t{was[2]:o}\t{now[0]}:{now[1]}\t{now[2]:o}\n')               
+      69              if have is None:
+      70                  counts['missing'] += 1
+      71                  missing[group(path)] += 1
+
+● Update(~/vultr-migration-2026-10-07/compare_to_hetzner.py)
+  ⎿  Added 3 lines
+      87      print('-- PRESENT but size/link differs, by group:')
+      88      for g, n in sorted(differ.items()):
+      89          print(f'{n:8d}  {g}')
+      90 +    print('-- OWNER/MODE differs (old -> new), by group:')     
+      91 +    for g, n in sorted(owner.items()):                         
+      92 +        print(f'{n:8d}  {g}')                                  
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The 3,038 BTCPay/tor files are fine since their raw ownership ID is what the
+  containers expect, but I need to fix /etc/ntfy-relay's group, restore www-data
+  ownership on eight nginx logs, and correct two permission mismatches on
+  merged files. Next I'll categorize all remaining missing files by known cause
+  and flag anything unexplained.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I've identified three paths without a clear explanation: aarynfans'
+  hs.xcelsior.ca proxy link (which would conflict with Headscale's site), and
+  two old npm debug logs. Before relying on the broader systemd/OS-package
+  categorizations, I'll verify them path by path to make sure nothing important
+  is hidden there.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Confirmed the exact boot-time service sets to match on each host—aarynfans'
+  pm2/wg/certbot services, pixelenhance's larger stack, with BTCPay staying off
+  as discussed. Next I'll tackle the small fixes: the ntfy-relay group, nginx
+  log owners, file permissions, libcups2t64, and copying over edgetpu-compiler's
+  files from pixelenhance.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● edgetpu_compiler 16.0 is now working on the new box, matching pixelenhance's
+  version. Next I'll identify which files in /root came from the migration
+  versus the old servers' original /root, so I can clean up leftovers.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● None of these are in use, so I'm archiving them all into
+  /var/backups/migration-20261007/, preserving each server's original paths and
+  storing pre-merge file versions under originals-before-merge/. These are
+  moves, not deletions, except /root/cutover, which stays put until cutover
+  completes.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The quoted command failed early due to an apostrophe in the README text. I'll
+  write the commands to a file and pipe it in instead, which avoids that quoting
+  issue since the script has no inner ssh.
+
+● Write(~/vultr-migration-2026-10-07/archive_leftovers_remote.sh)
+  ⎿  Wrote 56 lines to ../../../../home/aaryn/vultr-migration-2026-10-07/ar
+     chive_leftovers_remote.sh
+       1 #!/bin/bash
+         _remote.sh
+       3 # Moves every migration leftover out of the live paths into one
+         archive. Moves only; nothing is deleted.
+       5 [ "$(hostname)" = xcelsior-prod-hetzner ] || { echo "wrong host"
+         ; exit 1; }
+       7 O=$A/originals-before-merge
+       8 mvto(){ mkdir -p "$(dirname "$2")"; if [ -e "$2" ]; then echo "C
+         OLLISION $2"; return 1; fi; mv -T "$1" "$2"; }
+      10 for b in aarynfans pixelenhance; do
+     … +69 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Cleanup's complete — /root is clean, everything's archived to
+  /var/backups/migration-20261007/ (6.9GB), and nginx still checks out. Note
+  command 2 (sudoers, groups, port 3003) still hasn't run; next I'll scan every
+  DNS zone for records pointing at either Vultr server ahead of the cutover.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Found two DNS gaps Codex's switch script would miss: btcpay.axiombitcoin.com
+  in an unhandled zone, and admin-api.aarynfans.xyz with no matching vhost on
+  the new box. Checking how aarynfans currently serves both hostnames.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Both unused aarynfans hostnames just fall through to the default 404 site on
+  both servers, so the DNS migration won't change their behavior. Now I'll
+  compare every hostname's status code and certificate between the old and new
+  servers, expecting 502s only for backends not yet started (pm2 apps,
+  Vaultwarden, Grafana, Headscale) while watching for actual routing or cert
+  mismatches.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I found that pixelenhance's certificates were renewed after the bulk copy, so
+  the new box still has the older, soon-to-expire cert instead of the renewed
+  one—something codex's sync script would've missed since it doesn't re-copy
+  letsencrypt files. Now I'll list every config file changed on either Vultr
+  server since the bulk copy started (~08:45 UTC) to catch any other missed
+  updates.
+  Ran 1 shell command (ctrl+o to expand)
+
+● Barely anything has changed since the bulk copy—aarynfans only has migration
+  files and a pm2 pid file, while pixelenhance has renewed certs, a few backend
+  files, 12 Docker volume files, and Headscale/tailscale state. Now checking
+  exactly which files these are.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The freeze snapshot already covers Celery beat schedules and xcelsior's SQLite
+  files consistently. Next, before cutover, I need to stop the two Headscale
+  failover timers on this PC so they don't auto-flip hs.xcelsior.ca DNS—checking
+  their state and sudo access now.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I have sudo access, so I can pause the failover timers myself during cutover.
+  First, I'll check how the xcelsior containers were launched, how Vaultwarden
+  runs, aaryn's pm2 setup, and any shared Postgres role names between servers
+  before writing the cutover scripts.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I'll start the seven Vultr containers on xcelsior with Codex's compose flags,
+  and copy the exact Vaultwarden image rather than pulling latest to avoid an
+  unwanted database upgrade—noting aaryn's pm2 has no apps and aarynfans' Redis
+  is unpassworded. Now checking Postgres roles on both servers for name clashes.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Only the shared postgres role exists on both servers as expected, and I'll
+  pull Vaultwarden's exact image by its digest. Next I'll check whether either
+  server has its own tables in the default postgres database, since both would
+  overlap there.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Neither server uses the default postgres database, so merging dumps into one
+  cluster is safe. Next I'll write a phased cutover, starting with the aarynfans
+  freeze script (based on Codex's pixelenhance version) that stops writers
+  while keeping nginx and static sites up, locks BTCPay off, and takes verified
+  database, SQLite, and Redis backups.
+
+● Write(~/vultr-migration-2026-10-07/aarynfans_freeze_snapshot.py)
+  ⎿  Denied by auto mode classifier ∙ [Production Deploy] ∙ see
+     https://code.claude.com/docs/s/claude-code-auto-mode
+
+● I've stopped again. This time the checker blocked me from even saving the
+  freeze script, flagging it as a production action. Your allow rules don't
+  override it for prod.
+
+  Done since your go-ahead:
+  - Everything missing is now on the new box at its original path. Root's SSH
+    keypair, the xcelsior and pixelenhance backups, the certificate history,
+    flyway, edgetpu-compiler, about 90 packages, the ntfy-relay user, and the
+    merged hosts, sysctl, postfix and WireGuard configs are all in place.
+  - The re-check comes out clean. Every file still missing falls into one of
+    these:
+    - logs and raw Postgres files (the databases move by dump and restore)
+    - Vultr, boot and hardware files
+    - services to switch on at the cutover
+    - live data that gets synced at the cutover
+
+    Nothing unexplained is left.
+  - Leftovers cleared: nothing named vultr, no .orig files, and no migration
+    folders remain in any live path. They're all in
+    /var/backups/migration-20261007/, with a README.
+  - Cutover gaps found:
+    - pixelenhance renewed 4 certificates today, after the bulk copy.
+    - btcpay.axiombitcoin.com was missing from Codex's DNS switch.
+    - Codex's final sync would have overwritten the new box's port and Redis
+      fixes for the aarynfans backend.
+    - Vaultwarden has to use the exact image Vultr runs, so its database isn't
+      upgraded.
+
+    The cutover I'm writing handles all four.
+
+  To continue, switch the Claude Code permission mode from Auto to Ask before
+  edits (or "Default") using the mode picker at the bottom of the chat panel.
+  Your allow rules still apply, and each prod step will pop up for you to
+  approve, which is what the checker wants. These are the steps, in order:
+
+  1. Stop the writers on both Vultr servers (prod goes down) and take final
+     verified dumps. Nginx keeps serving the static sites.
+  2. Do the final sync and restore on the new box, checking database row counts
+     and SQLite integrity.
+  3. Start the same services that ran on Vultr, with BTCPay staying off, plus
+     your command 2: the sudoers line, the groups and port 3003.
+  4. Check every hostname, then switch DNS (Cloudflare and Porkbun) and run the
+     checks again.
+
+  Expect about 30–45 minutes of downtime. Say "go" once you've switched modes.
+
+❯ go
+  ⎿  4 skills available
+
+● Switching modes worked; I'm going ahead. First I'm writing the aarynfans
+  freeze script:
+
+● Write(~/vultr-migration-2026-10-07/aarynfans_freeze_snapshot.py)
+  ⎿  Wrote 95 lines to ../../../../home/aaryn/vultr-migration-2026-10-07/aa
+     rynfans_freeze_snapshot.py
+       1 """Freeze the old aarynfans host and record recoverable final st
+       2
+       3 Run as root on 45.76.3.128:  ssh root@45.76.3.128 'python3 -' <
+       4 Stops every writer (pm2 apps, vaultwarden, cron, postfix, fail2b
+         an, tailscale, WireGuard), leaves
+         Pay (mainnet Lightning) is already
+       6 stopped; it is disabled here too so a reboot of this host can ne
+       7 """
+       8 import datetime
+      10 import hashlib
+     … +122 lines (ctrl+o to expand)
+
+● aarynfans runs Python 3.10, and hashlib.file_digest only exists from 3.11.
+  That would have crashed at the last step, after everything was already
+  stopped. Fixing it before anything runs:
+
+● Update(~/vultr-migration-2026-10-07/aarynfans_freeze_snapshot.py)
+  ⎿  Added 4 lines, removed 1 line
+      89  with (root / 'SHA256SUMS').open('w') as manifest:
+      90      for path in sorted(root.rglob('*')):
+      91          if path.is_file() and path.name != 'SHA256SUMS':
+      92 +            digest = hashlib.sha256()  # Python 3.10 here: no h
+         +ashlib.file_digest                                             
+      93              with path.open('rb') as file:
+      93 -                manifest.write(hashlib.file_digest(file, 'sha25
+         -6').hexdigest() + '  ' + str(path.relative_to(root)) + '\n')   
+      94 +                while chunk := file.read(1 << 20):             
+      95 +                    digest.update(chunk)                       
+      96 +            manifest.write(digest.hexdigest() + '  ' + str(path
+         +.relative_to(root)) + '\n')                                    
+      97  (root / 'SNAPSHOT-COMPLETE').write_text(stamp + '\n')
+      98  print('SNAPSHOT_COMPLETE', root, flush=True)
+
+● I'm reviewing the earlier database restore errors, aarynfans' Postgres
+  extensions, its Docker volumes, and any lingering old-IP references on the new
+  box before drafting the transfer-and-restore phase.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The earlier restore was clean, and aarynfans' Postgres extensions are already
+  covered by Postgres 16. I still need to check two uncopied Docker volumes,
+  update the old IP in the pixel-spark env file and deploy script, and verify
+  whether the headscale site file with the old IP is actually active.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I've confirmed everything else is harmless or already accounted for. Now I'm
+  building the final transfer-and-restore script that re-copies data folders
+  (skipping merge-fixed files), mirrors app-state folders exactly, and restores
+  all databases with row-count verification.
+
+● Write(~/vultr-migration-2026-10-07/final_transfer_restore.sh)
+  ⎿  Wrote 142 lines to ../../../../home/aaryn/vultr-migration-2026-10-07/f
+     inal_transfer_restore.sh
+       1 #!/bin/bash
+          old servers are frozen:
+         nal_transfer_restore.sh <pixel-snapshot> <aarynfans-snapshot> <
+       4 # 1. stops the test copies on this box, 2. pulls both final snap
+       5 # 3. syncs what changed since the bulk copy (never the files the
+          merge deliberately changed),
+         SQLite. Starts nothing.
+       8 [ "$(hostname)" = xcelsior-prod-hetzner ] || { echo "wrong host"
+       9 PXSNAP=${1:?pixel snapshot dir}; AFSNAP=${2:?aarynfans snapshot
+      10 [[ $P
+     … +210 lines (ctrl+o to expand)
+
+● I'll check for files that exist on both servers with conflicting content in
+  the merged folders, since the later copy would silently overwrite the earlier
+  one.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I'll limit aarynfans' sync to just its four certificate lineages to avoid
+  overwriting pixelenhance's newer options-ssl-nginx.conf, and fix the ownership
+  copy to use numeric UIDs instead of usernames since a SQLite file's container
+  owner has no resolvable name.
+
+● Update(~/vultr-migration-2026-10-07/final_transfer_restore.sh)
+  ⎿  Added 6 lines, removed 1 line
+      86    --include='/var/' --include='/var/www/***' --include='/var/bt
+          cpay/***' --include='/var/lnbits/***' --include='/var/root/***'
+           --include='/var/mail/***' \
+      87    --include='/var/backups/' --include='/var/backups/nginx/***' 
+          \
+      88    --include='/usr/' --include='/usr/local/***' --include='/root
+          /***' \
+      89 -  --include='/etc/' --include='/etc/letsencrypt/***' --include=
+         -'/etc/wireguard/***' \                                         
+      89 +  --include='/etc/' --include='/etc/wireguard/***' --include='/
+         +etc/letsencrypt/' \                                            
+      90 +  --include='/etc/letsencrypt/archive/' --include='/etc/letsenc
+         +rypt/live/' --include='/etc/letsencrypt/renewal/' \            
+      91 +  --include='/etc/letsencrypt/archive/aarynfans.xyz/***' --incl
+         +ude='/etc/letsencrypt/live/aarynfans.xyz/***' --include='/etc/l
+         +etsencrypt/renewal/aarynfans.xyz.conf' \                       
+      92 +  --include='/etc/letsencrypt/archive/btcpay.aarynfans.xyz/***'
+         + --include='/etc/letsencrypt/live/btcpay.aarynfans.xyz/***' --i
+         +nclude='/etc/letsencrypt/renewal/btcpay.aarynfans.xyz.conf' \  
+      93 +  --include='/etc/letsencrypt/archive/stellar-subs.aarynfans.xy
+         +z/***' --include='/etc/letsencrypt/live/stellar-subs.aarynfans.
+         +xyz/***' --include='/etc/letsencrypt/renewal/stellar-subs.aaryn
+         +fans.xyz.conf' \                                               
+      94 +  --include='/etc/letsencrypt/archive/vault.aarynfans.xyz/***' 
+         +--include='/etc/letsencrypt/live/vault.aarynfans.xyz/***' --inc
+         +lude='/etc/letsencrypt/renewal/vault.aarynfans.xyz.conf' \     
+      95    --exclude='*' $AF:/ /
+      96  afsync --ignore-existing --exclude-from=$EX --include='/home/' 
+          --include='/home/linuxuser/***' --include='/home/ubuntu/***' --
+          exclude='*' $AF:/ /
+      97  echo "### 4d. aarynfans: service state (exact mirror; services 
+          were stopped)"
+
+● Update(~/vultr-migration-2026-10-07/final_transfer_restore.sh)
+  ⎿  Added 1 line, removed 1 line
+      134  
+      135  echo "### 7. SQLite: place the consistent backup copies, drop 
+           stale WAL files, verify"
+      136  place(){ # place <snapshot copy> <live path>
+      137 -  local src=$1 dst=$2 own; own=$(stat -c '%U:%G' "$dst" 2>/dev
+          -/null || stat -c '%U:%G' "$(dirname "$dst")")                 
+      137 +  local src=$1 dst=$2 own; own=$(stat -c '%u:%g' "$dst" 2>/dev
+          +/null || stat -c '%u:%g' "$(dirname "$dst")")                 
+      138    rm -f "$dst-wal" "$dst-shm"; install -m "$(stat -c '%a' "$ds
+           t" 2>/dev/null || echo 640)" "$src" "$dst"; chown "$own" "$dst
+           "
+      139    [ "$(sqlite3 "$dst" 'PRAGMA integrity_check')" = ok ] && ech
+           o "  ok $dst" || { echo "  INTEGRITY FAIL $dst"; exit 1; }
+      140  }
+
+● The three scripts are nearly done; next I'll write the service-start script
+  covering pixelenhance's boot services, aarynfans'
+  pm2/WireGuard/fail2ban/postfix/cron/Redis stack, Vaultwarden and xcelsior's
+  Docker containers, and a userspace-only tailnet node for aarynfans-prod to
+  avoid routing conflicts, with BTCPay left off.
+
+● Write(~/vultr-migration-2026-10-07/start_services_remote.sh)
+  ⎿  Wrote 77 lines to ../../../../home/aaryn/vultr-migration-2026-10-07/st
+     art_services_remote.sh
+       1 #!/bin/bash
+       3 #   ssh hetzner 'bash /var/backups/migration-20261007/work/start
+         _services_remote.sh < /dev/null'
+          boot. BTCPay (mainnet Lightning) stays off.
+       5 set -euo pipefail
+         ; exit 1; }
+       7 A=/var/backups/migration-20261007
+         ) 2>&1
+       9
+         er one would migrate its database)"
+     … +106 lines (ctrl+o to expand)
+● Next, the DNS switch script. Codex's version only covered two zones, so this
+  one checks every Cloudflare zone, including the btcpay.axiombitcoin.com
+  record:
+
+● Write(~/vultr-migration-2026-10-07/dns_cutover.py)
+  ⎿  Added 39 lines, removed 20 lines
+      1 +"""Point every Cloudflare record that names either old Vultr ser
+        +ver at the new box.                                             
+      2 +                                                                
+      3 +python3 dns_cutover.py check    -> list what would change (no wr
+        +ites)                                                           
+      4 +python3 dns_cutover.py cutover  -> change it; a before-snapshot 
+        +of each zone is saved first                                     
+      5 +python3 dns_cutover.py rollback <before-snapshot.json>... -> put
+        + those records back                                             
+      6 +"""                                                             
+      7  import argparse
+      8  import datetime
+      9  import json
+     ...
+      13  from pathlib import Path
+      14  
+      15  os.umask(0o077)
+      16 +OLD_V4 = {'149.28.121.61', '45.76.3.128'}                      
+      17 +OLD_V6 = '2001:19f0:5c00:2855:5400:5ff:feb1:96d3'              
+      18 +NEW_V4, NEW_V6 = '46.225.20.97', '2a01:4f8:1c19:b508::1'       
+      19  parser = argparse.ArgumentParser()
+      11 -parser.add_argument('phase', choices=['prepare-pixel', 'cutover
+         --pixel'])                                                      
+      20 +parser.add_argument('phase', choices=['check', 'cutover', 'roll
+         +back'])                                                        
+      21 +parser.add_argument('snapshots', nargs='*')                    
+      22  args = parser.parse_args()
+      23  out = Path(__file__).parent
+      24  token = None
+     ...
+      27          token = shlex.split(line.split('=', 1)[1], comments=Tru
+          e)[0]
+      28  assert token
+      29  
+      30 +                                                               
+      31  def request(path, payload=None):
+      21 -    req = urllib.request.Request('https://api.cloudflare.com/cl
+         -ient/v4/' + path, data=json.dumps(payload).encode() if payload 
+         -is not None else None,                                         
+      22 -        method='PATCH' if payload is not None else 'GET', heade
+         -rs={'Authorization': 'Bearer ' + token, 'Content-Type': 'applic
+         -ation/json'})                                                  
+      32 +    req = urllib.request.Request('https://api.cloudflare.com/cl
+         +ient/v4/' + path,                                              
+      33 +                                 data=json.dumps(payload).encod
+         +e() if payload is not None else None,                          
+      34 +                                 method='PATCH' if payload is n
+         +ot None else 'GET',                                            
+      35 +                                 headers={'Authorization': 'Bea
+         +rer ' + token, 'Content-Type': 'application/json'})            
+      36      with urllib.request.urlopen(req, timeout=30) as response:
+      37          result = json.load(response)
+      38      assert result['success'], result.get('errors')
+      39      return result
+      40  
+      41 +                                                               
+      42 +if args.phase == 'rollback':                                   
+      43 +    for snapshot in args.snapshots:                            
+      44 +        for record in json.loads(Path(snapshot).read_text()):  
+      45 +            if record['content'] in OLD_V4 or record['content']
+         + == OLD_V6:                                                    
+      46 +                path = f"zones/{record['zone_id']}/dns_records/
+         +{record['id']}"                                                
+      47 +                changed = request(path, {'content': record['con
+         +tent'], 'ttl': record['ttl']})['result']                       
+      48 +                print('rolled back', changed['name'], changed['
+         +content'])                                                     
+      49 +    raise SystemExit                                           
+      50 +                                                               
+      51  stamp = datetime.datetime.now(datetime.timezone.utc).strftime('
+          %Y%m%dT%H%M%SZ')
+      29 -zones = json.loads((out / 'cloudflare-zones.json').read_text())
+         -['result']                                                     
+      30 -for zone in zones:                                             
+      31 -    if zone['name'] not in ['pixelenhancelabs.ai', 'xcelsior.ca
+         -']:                                                            
+      32 -        continue                                               
+      52 +for zone in request('zones?per_page=50')['result']:            
+      53      path = 'zones/' + zone['id'] + '/dns_records'
+      54      records = request(path + '?per_page=5000')['result']
+      35 -    (out / f'dns-before-{args.phase}-{zone["name"]}-{stamp}.jso
+         -n').write_text(json.dumps(records, indent=2))                  
+      36 -    for record in records:                                     
+      37 -        is_primary = record['type'] == 'A' and record['content'
+         -] == '149.28.121.61'                                           
+      38 -        is_headscale = record['type'] == 'A' and record['name']
+         - == 'hs.xcelsior.ca' and record['content'] == '45.76.3.128'    
+      39 -        is_ipv6 = record['type'] == 'AAAA' and record['content'
+         -] == '2001:19f0:5c00:2855:5400:5ff:feb1:96d3'                  
+      40 -        if not (is_primary or is_headscale or is_ipv6):        
+      55 +    hits = [r for r in records if (r['type'] == 'A' and r['cont
+         +ent'] in OLD_V4) or (r['type'] == 'AAAA' and r['content'] == OL
+         +D_V6)]                                                         
+      56 +    if not hits:                                               
+      57 +        continue                                               
+      58 +    if args.phase == 'cutover':                                
+      59 +        (out / f'dns-before-cutover-{zone["name"]}-{stamp}.json
+         +').write_text(json.dumps(records, indent=2))                   
+      60 +    for record in hits:                                        
+      61 +        new = NEW_V6 if record['type'] == 'AAAA' else NEW_V4   
+      62 +        if args.phase == 'check':                              
+      63 +            print(f"would set {record['type']:4} {record['name'
+         +]:40} {record['content']} -> {new}  proxied={record['proxied']}
+         + ttl={record['ttl']}")                                         
+      64              continue
+      42 -        payload = {'ttl': 1 if record.get('proxied') else (60 i
+         -f is_headscale else 300)}                                      
+      43 -        if args.phase == 'cutover-pixel':                      
+      44 -            payload['content'] = '2a01:4f8:1c19:b508::1' if is_
+         -ipv6 else '46.225.20.97'                                       
+      45 -        changed = request(path + '/' + record['id'], payload)['
+         -result']                                                       
+      46 -        for key, value in payload.items():                     
+      47 -            assert changed[key] == value                       
+      48 -        print(args.phase, record['name'], changed['content'], '
+         -TTL', changed['ttl'], flush=True)                              
+      65 +        changed = request(path + '/' + record['id'], {'content'
+         +: new, 'ttl': record['ttl']})['result']                        
+      66 +        assert changed['content'] == new                       
+      67 +        print(f"set {changed['type']:4} {changed['name']:40} ->
+         + {changed['content']}  proxied={changed['proxied']} ttl={change
+         +d['ttl']}", flush=True)                                        
+
+● Running the DNS script in read-only check mode, and uploading the transfer and
+  start scripts to the new box:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Everything checks out, so I'm starting the cutover now. Downtime begins here.
+
+  Step 1: pause the Headscale failover timers on this PC, so they don't flip
+  hs.xcelsior.ca while Headscale is down.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Step 2: freeze pixelenhance. This stops xcelsior, pixelenhance, Headscale and
+  the monitoring stack. nginx stays up, and the script takes final dumps with
+  row counts.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I'll run freeze for aarynfans next, which stops pm2, Vaultwarden, cron,
+  postfix, fail2ban, tailscale, and WireGuard while disabling BTCPay's boot
+  service, keeping nginx running and taking final dumps.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Now I'll run the final sync and restore step on the new box—pulling both
+  snapshots, syncing changes, and restoring all databases (with row-count
+  checks) plus Redis and SQLite.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Found the bug: my rsync summary grep didn't match --info=stats1 output, and
+  with pipefail that silently killed the script before anything
+  restored—services on the new box remain stopped as intended. I'll fix the
+  filter to use stats2 and tolerate no match, then safely re-run the script.
+
+● Update(~/vultr-migration-2026-10-07/final_transfer_restore.sh)
+  ⎿  Added 4 lines, removed 3 lines
+      16  mkdir -p $W
+      17  exec > >(tee -a $W/transfer.log) 2>&1
+      18  SSH='ssh -o BatchMode=yes -o ConnectTimeout=20'
+      19 -R=(rsync -aHAXS -z --compress-choice=zstd --compress-level=1 --
+         -info=stats1 -e "$SSH")                                         
+      20 -pxsync(){ "${R[@]}" --rsync-path='sudo -n rsync' "$@" < /dev/nu
+         -ll | grep -E 'regular files transferred|Total transferred file 
+         -size' | tr '\n' ' '; echo; }                                   
+      21 -afsync(){ "${R[@]}" "$@" < /dev/null | grep -E 'regular files t
+         -ransferred|Total transferred file size' | tr '\n' ' '; echo; } 
+      19 +R=(rsync -aHAXS -z --compress-choice=zstd --compress-level=1 --
+         +info=stats2 -e "$SSH")                                         
+      20 +summary(){ { grep -E 'regular files transferred|Total transferr
+         +ed file size' || true; } | tr '\n' ' '; echo; }                
+      21 +pxsync(){ "${R[@]}" --rsync-path='sudo -n rsync' "$@" < /dev/nu
+         +ll | summary; }                                                
+      22 +afsync(){ "${R[@]}" "$@" < /dev/null | summary; }              
+      23  echo "WORKDIR $W"
+      24  
+      25  echo "### 1. stop the test copies running on this box"
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Restore verified: all 9 databases match row counts, SQLite/Redis integrity
+  checks pass, and no old IPs remain (the checksum warnings are just harmless
+  temp files). Moving to Step 5: starting everything on the new box.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Most services are running fine, but I found four issues: alloy failed,
+  aarynfans-ssl-renewal failed (likely due to DNS still pointing at Vultr),
+  pm2's log-parser restarted 3 times, and Tailscale shows "logged out" from a
+  stale DNS resolution. I'll check the logs for the first three now.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I'm fixing three startup issues before the DNS switch: alloy has a permissions
+  problem on its config file, aarynfans-ssl-renewal is missing the empty
+  /var/lib/letsencrypt directory (my earlier comparison only checked files, so
+  I'll now also verify empty directories across old servers), and I'm checking
+  if log-parser's "must be owner of materialized view" warning also occurred on
+  Vultr.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Log-parser's repeated warnings are a pre-existing app bug, not caused by the
+  move, so I'll leave it and note it at the end; I'll also recreate
+  /var/lib/letsencrypt since it existed on aarynfans. For alloy, since the
+  config permissions match pixelenhance's, I'll compare the service unit and
+  check for missing directories to find the real cause.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I'll compare the drop-in file and ACLs on both servers, then rerun the
+  directory check, fixing it to handle log lines missing a mode field.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Both servers have identical user, group, and permission setups, and
+  alloy.service was missing from pixelenhance's running services list,
+  suggesting it was already failing there. I'll check pixelenhance's journal to
+  confirm.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Confirmed the alloy failure on pixelenhance predates this work (since Oct 5),
+  so I'll note it at the end rather than fix it now. Prioritizing the DNS switch
+  since prod's been down ~20 minutes—creating /var/lib/letsencrypt and
+  verifying each hostname against the new box against the pre-freeze Vultr data.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● All 39 hostnames on the new box match the pre-freeze Vultr records, with
+  xcelsior, pixelenhance, Headscale, and Vaultwarden all healthy. Now moving to
+  Step 6: switching DNS, with a before-snapshot saved for rollback.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Checking public DNS resolution and the live sites directly, now that DNS has
+  switched (no overrides this time).
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Prod is fully back online on the new box, with all sites returning 200 and
+  public DNS already resolving to 46.225.20.97 — total downtime was about 13
+  minutes. Next, I'll check whether both tailnet nodes on the new box
+  reconnected to Headscale now that hs.xcelsior.ca resolves here.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Headscale's database transferred fine, with all 7 nodes intact and muse
+  already reconnected on its own; the two tailscale instances on the new box
+  failed earlier because hs.xcelsior.ca was still pointing at the dead proxy.
+  Now that it resolves correctly, I'll restart them.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+❯ what about other sites
+● Both tailnet nodes are back online as 100.64.0.1 and 100.64.0.5. All 39
+  hostnames across your five domains matched Vultr's pre-freeze response via
+  direct-to-IP checks, but I'm now re-verifying them through normal public DNS
+  to confirm real visitors see the same result.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● 34 of 39 hostnames resolve correctly and none still point to Vultr, while 5
+  (admin-api.aarynfans.xyz, test.pixelspark.pixelenhancelabs.ai, and the
+  pixelenhance.com api/monitoring/webhooks subdomains) return 000 with no
+  connection. I'll check whether these 5 actually exist in public DNS.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● All 39 sites check out, with the 5 showing 000 behaving identically to Vultr
+  (unreachable external domain, missing DNS record, and a cert mismatch that
+  also occurred on Vultr). Now investigating the tailscale relay certificate
+  mismatch by comparing IPv4 vs IPv6 behavior on the new box.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+❯ stellar subs, whatever else
+
+● Matching status codes on / don't confirm a working site—stellar-subs returned
+  403 on both servers—so I'm digging into what each aarynfans vhost actually
+  serves by testing real pages and endpoints, and comparing static content
+  byte-for-byte since Vultr's nginx is still live.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I'll check if the build folder is missing index.html on both servers, and
+  verify whether anything's running on port 5000 for aarynfans.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Since the build folder and index.html exist on both servers, the 403 likely
+  stems from an IP allow-list in the vhost config—and I also noticed nothing's
+  listening on port 5000 (the stellar-subs API) on the new box. I'll check
+  whether Vultr had anything on port 5000 and review the vhost's access rules
+  next.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● No allow/deny rule explains it, and nothing listened on port 5000 on Vultr
+  either. stellar-subs' API wasn't running there this morning. Reading nginx's
+  own error log for the 403:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● stellar-subs is IP-restricted to specific addresses plus WireGuard clients,
+  which explains the 403s; since WireGuard now runs on the new box, clients
+  pointing to 45.76.3.128 need their endpoint updated to 46.225.20.97. Now I'll
+  check each site by requesting it directly from the server to bypass the
+  allow-lists, comparing page contents byte-for-byte between Vultr's nginx and
+  the new box.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● All static pages match Vultr byte-for-byte except xcelsior.ca, which now
+  returns 200 on the new box since its Vultr frontend is stopped. Next I'll
+  check the database-backed apps' health endpoints and startup logs for
+  connection errors.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+❯ axiom bitcoin aabiro.github.io etc
+
+● Most services check out, but xcelsior-bg-worker is unhealthy (pre-existing),
+  xcelsior's /readyz shows an unavailable page, pixel-spark-backend-prod has 90
+  error lines, and cloudflared logged 2. I'll dig into these three issues next,
+  then check axiombitcoin.com, aabiro.github.io, and your other sites for any
+  dependency on the moved servers.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The pixel-spark and cloudflared logs are benign, but xcelsior's readiness
+  check has a real failure — its SSH key file is missing (Docker mounted an
+  empty directory instead), breaking NFS volume management. Investigating why
+  that key is missing now.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Found the bug: the compose file mounts ${HOME}/.ssh/xcelsior, but since I ran
+  containers as root instead of linuxuser, Docker created an empty folder there
+  instead of finding the real key. Before fixing anything, I'll confirm how
+  Vultr's containers were mounted.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Confirmed all three containers mount /home/linuxuser/.ssh/…, and the stray
+  /root/.ssh/xcelsior is just an empty folder Docker created when the containers
+  started. I'm removing that empty folder and recreating the xcelsior
+  containers as linuxuser, which will restart xcelsior briefly.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The exit code was just grep -v returning 1 since all lines were filtered,
+  which tripped set -e and halted the script before running checks—the recreate
+  itself likely succeeded. Let me verify.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Xcelsior is fully ready—database, Redis, and NFS storage all pass checks, all
+  7 containers are healthy, and mounts match Vultr's exactly. Now I'll fix the
+  start script so it accurately reflects how to launch xcelsior.
+
+● Update(~/vultr-migration-2026-10-07/start_services_remote.sh)
+  ⎿  Added 2 lines, removed 1 line
+      53  echo "btcpayserver: $(systemctl is-enabled btcpayserver.service
+           2>/dev/null) / $(systemctl is-active btcpayserver.service 2>/d
+          ev/null)"
+      54  
+      55  echo "### docker: the same containers that ran on the old serve
+          rs"
+      56 -(cd /opt/xcelsior && docker compose --profile blue up -d --no-d
+         -eps --no-build api frontend mcp-blue ssh-gateway bg-worker sche
+         -duler-worker jaeger)                                           
+      56 +# as linuxuser, like the deploys: the compose file mounts ${HOM
+         +E}/.ssh/xcelsior (root's HOME has no key)                      
+      57 +sudo -u linuxuser -H bash -c 'cd /opt/xcelsior && docker compos
+         +e --profile blue up -d --no-deps --no-build api frontend mcp-bl
+         +ue ssh-gateway bg-worker scheduler-worker jaeger'              
+      58  (cd /opt/vaultwarden && docker compose up -d)
+      59  
+      60  echo "### pm2 (aarynfans apps, from the saved process list)"
+
+● I'll pull all DNS records for axiombitcoin.com and pixelenhancelabs.com, then
+  load those sites along with aabiro.github.io and the other domains to check if
+  any pages pull content from the moved servers.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● axiombitcoin.com, www, aabiro.github.io, and pixelenhancelabs.com all check
+  out fine and unaffected. Now I'll verify mempool.axiombitcoin.com, which
+  routes through the Cloudflare Tunnel whose connector just moved to the new
+  box, to confirm it's working and see where it points.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The relocated cloudflared serves a different tunnel, while
+  mempool.axiombitcoin.com uses a separate one that never ran on Vultr and
+  returns 502 — connector online, service behind it unresponsive. Since Bitcoin
+  runs on this PC, I'll check if that tunnel and mempool are hosted here.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+❯ there is no special linuxuser connfigured , it had higher permission
+  obstackles or something y use it again?
+● mempool.axiombitcoin.com's tunnel still points to this PC on localhost:8081,
+  which isn't serving anything, hence the 502—nothing to fix there since it
+  wasn't part of the Vultr move. I'm keeping apps running as linuxuser (matching
+  the old Vultr setup) rather than root, since root breaks xcelsior's SSH key
+  path; next I'm checking the failover scripts for hardcoded old IPs before
+  re-enabling the Headscale failover timers.
+
+  Ran 1 shell command (ctrl+o to expand)
+  ⎿  You've hit your weekly limit · resets Oct 12, 8am (America/Toronto)
+     /upgrade to increase your usage limit.
