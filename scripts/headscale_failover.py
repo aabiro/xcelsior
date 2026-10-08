@@ -45,6 +45,7 @@ def project_root() -> Path:
 
 PROJECT = project_root()
 DEFAULT_ENV_FILE = PROJECT / ".env"
+DEFAULT_SYSTEM_ENV_FILE = Path("/etc/default/headscale-failover")
 
 # Headscale runs on the API VPS, not on a front that merely proxies the name.
 # Until 2026-10-07 that was `pixelenhance-labs` (149.28.121.61) behind a proxy
@@ -174,6 +175,13 @@ def read_dotenv_values(path: Path) -> dict[str, str]:
     return values
 
 
+def _read_system_env(path: Path) -> dict[str, str]:
+    try:
+        return read_dotenv_values(path)
+    except OSError:
+        return {}
+
+
 def _env_or_dotenv(environ: Mapping[str, str], dotenv: Mapping[str, str], key: str) -> str:
     return (environ.get(key) or dotenv.get(key) or "").strip()
 
@@ -229,8 +237,21 @@ def default_ssh_key(environ: Mapping[str, str] | None = None) -> str:
 def settings_from_env(
     environ: Mapping[str, str] | None = None,
     dotenv_path: Path | None = None,
+    system_env_path: Path | None = None,
 ) -> Settings:
-    environ = environ or os.environ
+    # The timers get /etc/default/headscale-failover through `EnvironmentFile=`;
+    # an operator's `sudo headscale-failover ...` does not, and used to fall
+    # through to the project .env instead. After the 2026-10-07 move that ran a
+    # manual `replicate` with a key the timers no longer use, and it would have
+    # done the same to a manual `promote` mid-outage. Read the file here as well,
+    # below the process environment, so both paths resolve the same settings.
+    if not environ:
+        environ = {
+            **_read_system_env(system_env_path or DEFAULT_SYSTEM_ENV_FILE),
+            **os.environ,
+        }
+    elif system_env_path is not None:
+        environ = {**_read_system_env(system_env_path), **environ}
     dotenv_path = dotenv_path or Path(environ.get("XCELSIOR_ENV_FILE") or DEFAULT_ENV_FILE)
     dotenv = read_dotenv_values(dotenv_path)
     replica = environ.get("XCELSIOR_HEADSCALE_REPLICA_DIR") or str(DEFAULT_REPLICA_DIR)

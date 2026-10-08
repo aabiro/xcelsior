@@ -87,6 +87,43 @@ def test_settings_prefer_environ_over_dotenv(tmp_path: Path) -> None:
     assert settings.ssh_key == "/home/aaryn/.ssh/id_ed25519"
 
 
+def test_manual_run_uses_the_units_settings_not_the_project_env(tmp_path: Path) -> None:
+    """`sudo headscale-failover replicate` once used the project .env's key while
+    the timers used /etc/default/headscale-failover's, so the two disagreed."""
+    project_env = tmp_path / ".env"
+    project_env.write_text("XCELSIOR_HEADSCALE_SSH_KEY=/home/aaryn/.ssh/xcelsior\n")
+    system_env = tmp_path / "headscale-failover"
+    system_env.write_text(
+        "XCELSIOR_HEADSCALE_HOST=46.225.20.97\n"
+        "XCELSIOR_HEADSCALE_SSH_KEY=/home/aaryn/.ssh/id_ed25519\n"
+        f"XCELSIOR_ENV_FILE={project_env}\n"
+    )
+    settings = settings_from_env({"HOME": "/root"}, system_env_path=system_env)
+    assert settings.primary_host == "46.225.20.97"
+    assert settings.ssh_key == "/home/aaryn/.ssh/id_ed25519"
+    assert settings.env_file == project_env
+
+
+def test_process_environment_still_beats_the_units_settings(tmp_path: Path) -> None:
+    system_env = tmp_path / "headscale-failover"
+    system_env.write_text("XCELSIOR_HEADSCALE_HOST=46.225.20.97\n")
+    settings = settings_from_env(
+        {"XCELSIOR_HEADSCALE_HOST": "203.0.113.9", "HOME": "/root"},
+        dotenv_path=tmp_path / "missing.env",
+        system_env_path=system_env,
+    )
+    assert settings.primary_host == "203.0.113.9"
+
+
+def test_unreadable_units_settings_are_skipped_not_fatal(tmp_path: Path) -> None:
+    settings = settings_from_env(
+        {"HOME": "/root"},
+        dotenv_path=tmp_path / "missing.env",
+        system_env_path=tmp_path / "does-not-exist",
+    )
+    assert settings.primary_host == "46.225.20.97"
+
+
 def test_empty_replica_is_not_promotable(tmp_path: Path) -> None:
     _, replica = _replica(tmp_path, users=0, nodes=0)
     assert replica.promotable is False
