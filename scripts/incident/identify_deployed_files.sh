@@ -14,13 +14,13 @@
 #
 # Usage, from a checkout of this repo, with SSH access to the VPS:
 #     ./scripts/incident/identify_deployed_files.sh
-#     REMOTE=linuxuser@149.28.121.61 DEPLOY_DIR=/opt/xcelsior ./scripts/incident/identify_deployed_files.sh
+#     REMOTE=linuxuser@46.225.20.97 DEPLOY_DIR=/opt/xcelsior ./scripts/incident/identify_deployed_files.sh
 #
 # Read-only on both ends.
 
 set -uo pipefail
 
-REMOTE="${REMOTE:-linuxuser@149.28.121.61}"
+REMOTE="${REMOTE:-linuxuser@46.225.20.97}"
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/xcelsior}"
 
 # The four that answer open questions:
