@@ -15,7 +15,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 DEPLOY_DIR="/opt/xcelsior"
 REMOTE_USER="${XCELSIOR_DEPLOY_USER:-linuxuser}"
-REMOTE_HOST="${XCELSIOR_DEPLOY_HOST:-149.28.121.61}"
+REMOTE_HOST="${XCELSIOR_DEPLOY_HOST:-46.225.20.97}"
 DOMAIN="xcelsior.ca"
 BACKUP_DIR="/opt/xcelsior-backups"
 
@@ -2030,7 +2030,7 @@ ${CYAN}Environment files:${NC}
 
 ${CYAN}Environment variables:${NC}
   XCELSIOR_DEPLOY_USER  SSH user (default: linuxuser)
-  XCELSIOR_DEPLOY_HOST  VPS IP (default: 149.28.121.61)
+  XCELSIOR_DEPLOY_HOST  VPS IP (default: 46.225.20.97)
   XCELSIOR_SSH_KEY      SSH key path (default: ~/.ssh/xcelsior)
   XCELSIOR_DEPLOY_SYNC  rsync (default, fast delta) or tarball (legacy)
   XCELSIOR_DEPLOY_COMPRESS  zstd (default) | gzip | none — installs zstd/pigz/rsync as needed

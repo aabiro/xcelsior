@@ -5,7 +5,7 @@
 #   sudo bash scripts/setup_nfs_vps.sh
 #
 # Or from workstation:
-#   ssh -i ~/.ssh/xcelsior linuxuser@149.28.121.61 'sudo bash -s' < scripts/setup_nfs_vps.sh
+#   ssh -i ~/.ssh/xcelsior linuxuser@46.225.20.97 'sudo bash -s' < scripts/setup_nfs_vps.sh
 #
 # After running, set in .env:
 #   XCELSIOR_NFS_SERVER=100.64.0.1          # mesh IP workers mount

@@ -40,11 +40,18 @@ DNS is pointed at the VPS again.
 > was in the front, not the control plane.
 
 
+> **Moved 2026-10-07.** Both Vultr boxes (`149.28.121.61` and `45.76.3.128`)
+> were merged into one Hetzner host, `46.225.20.97`. It runs Headscale and
+> terminates TLS for `hs.xcelsior.ca` itself, so the separate front — and the
+> single point of failure described above — is gone. The Headscale database
+> moved intact (same 7 nodes, same keys). Neither Vultr address is in service;
+> nothing should point at them.
+
 | Role | Address | Notes |
 |---|---|---|
-| Headscale primary | `149.28.121.61` (`pixelenhance-labs`) | **Headscale runs here**, with the API. SSH as `root` with `~/.ssh/xcelsior` (*not* `id_ed25519`). |
-| `hs.xcelsior.ca` front | `45.76.3.128` (`aarynfans`, DNS-only, TTL 60–120) | Reverse proxy **only** — `/etc/nginx/sites-available/hs.xcelsior.ca` → `proxy_pass https://149.28.121.61`. No Headscale binary, no `/var/lib/headscale`. |
-| API VPS | `149.28.121.61` | Same box as the Headscale primary. Must be reachable **without** ProxyJump through `45.76.3.128`. Use `ssh xcelsior-api`. |
+| Headscale primary | `46.225.20.97` (Hetzner, `xcelsior-prod-hetzner`) | **Headscale runs here**, with the API. Tailnet `100.64.0.1`; the box's second node `aarynfans-prod` is `100.64.0.5`. |
+| `hs.xcelsior.ca` | `46.225.20.97` (DNS-only, TTL 60–120) | Same host as the primary — no proxy in front any more. |
+| API VPS | `46.225.20.97` | Same box. Reach it directly, never through the tailnet. Use `ssh xcelsior-api` (see `infra/ssh/xcelsior-vps.conf`). |
 | Standby | the host running `headscale-failover` (this laptop unless moved) | Replica lives in `/var/backups/headscale` |
 | Public DERP | Tailscale's published map | NAT relay must not depend on the VPS |
 
@@ -210,7 +217,8 @@ Failback:
 1. Snapshots the standby database (captures any nodes seen during the outage).
 2. Refuses if the VPS is still unreachable or the replica is empty.
 3. Stops Headscale on the VPS, copies sqlite + Noise key, starts Headscale.
-4. Points `hs.xcelsior.ca` back at `45.76.3.128`.
+4. Points `hs.xcelsior.ca` back at the address it held when the standby was
+   promoted (`46.225.20.97` since 2026-10-07).
 5. Leaves the standby in `role=standby` and resumes replica refresh.
 
 Node IPs are the ones in sqlite. They do not change.
@@ -236,7 +244,7 @@ sudo headscale-failover replicate   # requires the VPS to be up
 sudo headscale-failover status --json
 ```
 
-SSH to the Headscale VPS uses `root@149.28.121.61` and `~/.ssh/xcelsior`
+SSH to the Headscale VPS uses `root@46.225.20.97` and `~/.ssh/xcelsior`
 (`XCELSIOR_HEADSCALE_HOST` / `XCELSIOR_HEADSCALE_SSH_KEY` override).
 
 Cloudflare and Telegram credentials are read as **data** from the project

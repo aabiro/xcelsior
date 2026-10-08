@@ -354,7 +354,8 @@ written. All MVP 2 work is therefore only in the dirty worktree.
 
 ## Current production truth
 
-Production is the remote VPS `linuxuser@149.28.121.61`, deployed under
+Production is the remote VPS `linuxuser@46.225.20.97` (Hetzner, since the
+2026-10-07 move off Vultr's `149.28.121.61`), deployed under
 `/opt/xcelsior`. That directory is not a Git checkout; the deployed revision is
 stored in `/opt/xcelsior/.deploy_hash`.
 

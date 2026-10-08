@@ -26,7 +26,7 @@
 # stdout; it is never unpacked.
 set -euo pipefail
 
-REMOTE="${REMOTE:-linuxuser@149.28.121.61}"
+REMOTE="${REMOTE:-linuxuser@46.225.20.97}"
 SSH_OPTS="${SSH_OPTS:--o ControlPath=none}"
 SSH_KEY="${XCELSIOR_SSH_KEY:-$HOME/.ssh/xcelsior}"
 BACKUP_DIR="${BACKUP_DIR:-/opt/xcelsior-backups}"

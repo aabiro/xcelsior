@@ -12,7 +12,12 @@ Pass --apply to make the change.
     python scripts/flip_headscale_dns.py --apply    # do it
 
 Reads CLOUDFLARE_API_TOKEN / CLOUDFLARE_ZONE_ID from the repo `.env`; prints
-neither. Reversible: re-run with `--target 45.76.3.128 --apply`.
+neither. Reversible: re-run with `--target <previous address> --apply`.
+
+Since 2026-10-07 both Vultr boxes (149.28.121.61 and 45.76.3.128) are merged
+into one Hetzner host, 46.225.20.97, which runs Headscale and terminates TLS for
+the name. The default target is that host; with the record already there this
+reports "nothing to do".
 """
 
 from __future__ import annotations
@@ -27,7 +32,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import headscale_failover as hf  # noqa: E402
 
-HEADSCALE_HOST = "149.28.121.61"
+HEADSCALE_HOST = "46.225.20.97"
 
 
 def main() -> int:

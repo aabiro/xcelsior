@@ -7,7 +7,7 @@
 set -euo pipefail
 
 REMOTE_USER="${XCELSIOR_DEPLOY_USER:-linuxuser}"
-REMOTE_HOST="${XCELSIOR_DEPLOY_HOST:-149.28.121.61}"
+REMOTE_HOST="${XCELSIOR_DEPLOY_HOST:-46.225.20.97}"
 SSH_KEY="${XCELSIOR_SSH_KEY:-$HOME/.ssh/xcelsior}"
 REMOTE_ENV="/opt/xcelsior/.env"
 DRY_RUN=false
