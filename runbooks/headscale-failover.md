@@ -49,7 +49,7 @@ DNS is pointed at the VPS again.
 
 | Role | Address | Notes |
 |---|---|---|
-| Headscale primary | `46.225.20.97` (Hetzner, `xcelsior-prod-hetzner`) | **Headscale runs here**, with the API. Tailnet `100.64.0.1`; the box's second node `aarynfans-prod` is `100.64.0.5`. |
+| Headscale primary | `46.225.20.97` (Hetzner, `prod-hetzner`) | **Headscale runs here**, with the API. Tailnet `100.64.0.1`; the box's second node `aarynfans-prod` is `100.64.0.5`. |
 | `hs.xcelsior.ca` | `46.225.20.97` (DNS-only, TTL 60–120) | Same host as the primary — no proxy in front any more. |
 | API VPS | `46.225.20.97` | Same box. Reach it directly, never through the tailnet. Use `ssh xcelsior-api` (see `infra/ssh/xcelsior-vps.conf`). |
 | Standby | the host running `headscale-failover` (this laptop unless moved) | Replica lives in `/var/backups/headscale` |
@@ -244,8 +244,16 @@ sudo headscale-failover replicate   # requires the VPS to be up
 sudo headscale-failover status --json
 ```
 
-SSH to the Headscale VPS uses `root@46.225.20.97` and `~/.ssh/xcelsior`
-(`XCELSIOR_HEADSCALE_HOST` / `XCELSIOR_HEADSCALE_SSH_KEY` override).
+SSH to the Headscale VPS uses `root@46.225.20.97` and `~/.ssh/id_ed25519`
+(`XCELSIOR_HEADSCALE_HOST` / `XCELSIOR_HEADSCALE_SSH_KEY` override). Not
+`~/.ssh/xcelsior`: on `prod-hetzner` root accepts that key only from the box
+itself (`from=` in `/root/.ssh/authorized_keys`), because the API container
+uses it for volume management. sshd logs a refusal as *"correct key but not
+from a permitted host"*.
+
+The timers read their settings from `/etc/default/headscale-failover`. A manual
+`sudo headscale-failover ...` reads the same file, then the project `.env` for
+anything it does not set, so set the host and key there, not in `.env`.
 
 Cloudflare and Telegram credentials are read as **data** from the project
 `.env` (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID`, `XCELSIOR_TG_TOKEN`,
