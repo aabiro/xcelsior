@@ -90,7 +90,15 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `117_drop_redundant_indexes.py`.**
+**Repository head: `118_revoke_orphaned_quick_connect_keys.py`.**
+
+(`118` revokes Quick Connect agent keys whose OAuth client no longer exists.
+"Regenerate" deleted the system-managed client and minted a key for a new one,
+but deleting a client never touched the keys bound to it and validation never
+consults `oauth_clients`, so every rotated-away key kept working. The route now
+revokes as it rotates; this clears what it left behind. Scoped by key name to
+the two Quick Connect surfaces, data only, idempotent, no downgrade.)
+
 
 (`117` drops 17 indexes that another index already covers. A single-column btree
 index is redundant when a second has that column leading with the same

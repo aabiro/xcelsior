@@ -1551,6 +1551,9 @@ MCP_QUICK_CONNECT_SCOPES = [
     "reputation:read",
 ]
 MCP_QUICK_CONNECT_CLIENT_NAME = "mcp-quick-connect"
+# The Agent Skill (CLI tab) gets its own client so its key is separately
+# revocable and never the same credential as the MCP connector's.
+CLI_SKILL_CONNECT_CLIENT_NAME = "cli-skill-connect"
 
 
 def get_or_create_mcp_quick_connect_client(
@@ -1559,6 +1562,7 @@ def get_or_create_mcp_quick_connect_client(
     workspace_customer_id: str | None,
     team_id: str | None,
     regenerate: bool = False,
+    surface: str = "mcp",
 ) -> dict[str, Any]:
     """Find-or-create the per-user, system-managed OAuth client that backs the
     always-there copy-paste token on /dashboard/mcp.
@@ -1566,17 +1570,24 @@ def get_or_create_mcp_quick_connect_client(
     No secret storage needed: `issue_client_credentials_jwt` mints a fresh
     access token straight from the client row (it never needs the raw
     secret — see below), so there's nothing to encrypt-at-rest or reveal
-    once. `regenerate=True` deletes and recreates the client (new client_id),
-    which invalidates any previously-issued tokens for it on next validation.
+    once. `regenerate=True` deletes and recreates the client (new client_id)
+    and reports the old id as `replaced_client_id`, whose agent keys the
+    caller revokes.
     """
-    existing = OAuthStore.get_system_managed_client(created_by_email, MCP_QUICK_CONNECT_CLIENT_NAME)
+    if surface not in {"mcp", "cli"}:
+        raise ValueError("Unknown quick-connect surface")
+    client_name = MCP_QUICK_CONNECT_CLIENT_NAME if surface == "mcp" else CLI_SKILL_CONNECT_CLIENT_NAME
+    # A team switch must never return credentials bound to the previous wallet.
+    if team_id:
+        client_name = f"{client_name}:{team_id}"
+    existing = OAuthStore.get_system_managed_client(created_by_email, client_name)
     if existing and not regenerate:
         return existing
     if existing and regenerate:
         OAuthStore.delete_client(existing["client_id"], created_by_email)
     created = create_oauth_client(
         actor=SYSTEM_PRINCIPAL,
-        client_name=MCP_QUICK_CONNECT_CLIENT_NAME,
+        client_name=client_name,
         redirect_uris=[],
         grant_types=["client_credentials"],
         scopes=list(MCP_QUICK_CONNECT_SCOPES),
@@ -1590,7 +1601,12 @@ def get_or_create_mcp_quick_connect_client(
     # The plaintext client_secret in `created` is discarded here on purpose —
     # this client is never authenticated via the public /oauth/token endpoint,
     # so nothing ever needs it again.
-    return OAuthStore.get_client(created["client_id"]) or created
+    client = dict(OAuthStore.get_client(created["client_id"]) or created)
+    # Deleting a client does not touch the agent keys bound to it, and key
+    # validation never looks the client up. The caller must revoke these, or
+    # "Regenerate" hands out a new key while the old one keeps working.
+    client["replaced_client_id"] = existing["client_id"] if existing else None
+    return client
 
 
 def authenticate_client(client_id: str, client_secret: str | None = None) -> dict:

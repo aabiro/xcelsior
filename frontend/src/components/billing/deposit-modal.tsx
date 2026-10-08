@@ -14,6 +14,9 @@ import {
 } from "@/lib/api";
 import { getStripeElementsOptions, STRIPE_PAYMENT_ELEMENT_OPTIONS } from "@/lib/stripe-appearance";
 import { getStripePromise } from "@/lib/stripe-client";
+import { useAuth } from "@/lib/auth";
+import { PillToggle } from "@/components/dashboard/pill-toggle";
+import { AdminCreditForm } from "@/components/billing/admin-credit";
 import { toast } from "sonner";
 import { X, CreditCard, Loader2, CheckCircle, ShieldCheck, Sparkles } from "lucide-react";
 
@@ -22,6 +25,11 @@ interface DepositModalProps {
   onClose: () => void;
   onSuccess: (newBalance: number) => void;
 }
+
+type DepositFormProps = DepositModalProps & {
+  /** Admin-only pay/credit switch, shown where switching cannot lose a payment in progress. */
+  toolbar?: React.ReactNode;
+};
 
 const PRESETS = [10, 25, 50, 100, 250, 500];
 
@@ -131,10 +139,12 @@ function AmountStep({
 function ModalShell({
   onClose,
   subtitle,
+  toolbar,
   children,
 }: {
   onClose: () => void;
   subtitle: string;
+  toolbar?: React.ReactNode;
   children: React.ReactNode;
 }) {
   // Portalled to <body> like the shared Dialog: rendered inside <main>, the
@@ -165,6 +175,7 @@ function ModalShell({
             <X className="h-4 w-4" />
           </button>
         </div>
+        {toolbar && <div className="mb-5 flex justify-center">{toolbar}</div>}
         {children}
       </div>
     </div>,
@@ -229,7 +240,7 @@ function PayPalButton({
   );
 }
 
-function PayPalOnlyDepositForm({ customerId, onClose, onSuccess }: DepositModalProps) {
+function PayPalOnlyDepositForm({ customerId, onClose, onSuccess, toolbar }: DepositFormProps) {
   const [amount, setAmount] = useState("");
   const [step, setStep] = useState<"amount" | "pay" | "success" | "unavailable">("amount");
   const [paypalAvailable, setPaypalAvailable] = useState<boolean | null>(null);
@@ -250,7 +261,7 @@ function PayPalOnlyDepositForm({ customerId, onClose, onSuccess }: DepositModalP
 
   if (step === "unavailable" || paypalAvailable === false) {
     return (
-      <ModalShell onClose={onClose} subtitle="Payments unavailable">
+      <ModalShell onClose={onClose} subtitle="Payments unavailable" toolbar={toolbar}>
         <p className="text-sm text-text-secondary mb-4">
           Card payments are not configured and PayPal is unavailable. Please contact support to add credits.
         </p>
@@ -270,7 +281,11 @@ function PayPalOnlyDepositForm({ customerId, onClose, onSuccess }: DepositModalP
   }
 
   return (
-    <ModalShell onClose={onClose} subtitle={step === "success" ? "Payment complete" : "Pay with PayPal"}>
+    <ModalShell
+      onClose={onClose}
+      subtitle={step === "success" ? "Payment complete" : "Pay with PayPal"}
+      toolbar={step === "amount" ? toolbar : undefined}
+    >
       {step === "success" ? (
         <div className="flex flex-col items-center py-8">
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald/10 mb-4">
@@ -440,7 +455,7 @@ function DepositPaymentStep({
   );
 }
 
-function DepositForm({ customerId, onClose, onSuccess }: DepositModalProps) {
+function DepositForm({ customerId, onClose, onSuccess, toolbar }: DepositFormProps) {
   const [amount, setAmount] = useState("");
   const [step, setStep] = useState<"amount" | "pay" | "success">("amount");
   const [clientSecret, setClientSecret] = useState<string | null>(null);
@@ -487,6 +502,7 @@ function DepositForm({ customerId, onClose, onSuccess }: DepositModalProps) {
       subtitle={
         step === "amount" ? "Choose deposit amount" : step === "pay" ? "Enter payment details" : "Payment complete"
       }
+      toolbar={step === "amount" ? toolbar : undefined}
     >
       {step === "success" ? (
         <div className="flex flex-col items-center py-8">
@@ -535,9 +551,34 @@ function DepositForm({ customerId, onClose, onSuccess }: DepositModalProps) {
 }
 
 export function DepositModal(props: DepositModalProps) {
+  const { user } = useAuth();
+  const [mode, setMode] = useState<"pay" | "admin">("pay");
   const stripe = getStripePromise();
-  if (!stripe) {
-    return <PayPalOnlyDepositForm {...props} />;
+  // Platform admins can also credit without paying — in test and production —
+  // so a paid flow can be exercised end to end without a card.
+  const toolbar = user?.is_admin ? (
+    <PillToggle
+      value={mode}
+      onChange={(id) => setMode(id as "pay" | "admin")}
+      options={[
+        { id: "pay", label: "Pay" },
+        { id: "admin", label: "Admin credit" },
+      ]}
+    />
+  ) : undefined;
+  if (toolbar && mode === "admin") {
+    return (
+      <ModalShell onClose={props.onClose} subtitle="Credit without payment" toolbar={toolbar}>
+        <AdminCreditForm
+          customerId={props.customerId}
+          onCancel={props.onClose}
+          onCredited={(balance) => props.onSuccess(balance)}
+        />
+      </ModalShell>
+    );
   }
-  return <DepositForm {...props} />;
+  if (!stripe) {
+    return <PayPalOnlyDepositForm {...props} toolbar={toolbar} />;
+  }
+  return <DepositForm {...props} toolbar={toolbar} />;
 }

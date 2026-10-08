@@ -10,8 +10,9 @@ import { FadeIn, ScrollReveal, StaggerList, StaggerItem, CountUp, HoverCard } fr
 import {
   Users, RefreshCw, Search, ChevronUp, ChevronDown,
   ArrowUpDown, Download, UserX, Wallet, BarChart3, UserCheck,
-  MoreHorizontal, ShieldCheck, ShieldOff, ChevronRight, UserMinus,
+  MoreHorizontal, ShieldCheck, ShieldOff, ChevronRight, UserMinus, CirclePlus,
 } from "lucide-react";
+import { AdminCreditDialog } from "@/components/billing/admin-credit";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import * as api from "@/lib/api";
 import { useEventStream } from "@/hooks/useEventStream";
@@ -117,6 +118,8 @@ export default function AdminUsersPage() {
     }
     setRemoveFromTeam(null);
   };
+
+  const [creditTarget, setCreditTarget] = useState<User | null>(null);
 
   const handleToggleAdmin = async (email: string) => {
     try {
@@ -306,6 +309,14 @@ export default function AdminUsersPage() {
                                     {u.is_admin ? <ShieldOff className="h-3.5 w-3.5" /> : <ShieldCheck className="h-3.5 w-3.5" />}
                                     {u.is_admin ? "Revoke Admin" : "Grant Admin"}
                                   </button>
+                                  <button
+                                    onClick={() => { setCreditTarget(u); setActionMenu(null); }}
+                                    disabled={!u.customer_id}
+                                    className="flex w-full items-center gap-2 px-3 py-2 hover:bg-surface-hover transition-colors disabled:opacity-50"
+                                  >
+                                    <CirclePlus className="h-3.5 w-3.5 text-accent-gold" />
+                                    Add credits
+                                  </button>
                                   <div className="border-t border-border my-1" />
                                   <p className="px-3 py-1 text-[10px] text-text-muted uppercase tracking-wide">Set Role</p>
                                   {["submitter", "provider"].map((role) => (
@@ -397,6 +408,14 @@ export default function AdminUsersPage() {
         </ScrollReveal>
         </>
       )}
+
+      <AdminCreditDialog
+        open={creditTarget !== null}
+        customerId={creditTarget?.customer_id ?? ""}
+        recipient={creditTarget?.email ?? ""}
+        onClose={() => setCreditTarget(null)}
+        onCredited={() => load()}
+      />
 
       <ConfirmDialog
         open={removeFromTeam !== null}

@@ -10,11 +10,11 @@ describe("HEXARA_MOVE_FRAME_PLAN", () => {
 });
 
 describe("composed placeholder frames", () => {
-    it("peek/type/nod placeholders are non-empty sixel strings", () => {
+    it("peek/type/nod have drawn frames", () => {
         for (const frames of [PEEK_FRAMES, TYPE_FRAMES, NOD_FRAMES]) {
             expect(frames.length).toBeGreaterThan(0);
             for (const f of frames) {
-                expect(f.length).toBeGreaterThan(10);
+                expect(f.join("").replace(/\./g, "").length).toBeGreaterThan(100);
             }
         }
     });

@@ -159,8 +159,8 @@ export default function RootLayout({
         <Providers>
           {children}
           <RootClientWidgets />
+          <DeferredClientToaster />
         </Providers>
-        <DeferredClientToaster />
       </body>
     </html>
   );

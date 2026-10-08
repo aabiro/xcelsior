@@ -125,6 +125,9 @@ def api_admin_users(request: Request):
         safe_users.append(
             {
                 "email": email,
+                # The wallet key — what an admin credit or a billing lookup
+                # for this user is addressed to.
+                "customer_id": cid,
                 "role": u.get("role", "submitter"),
                 "is_admin": True if _is_platform_admin(u) else False,
                 "is_active": last_at >= active_threshold,

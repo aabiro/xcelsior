@@ -55,10 +55,14 @@ export function CreditsButton() {
     loadBalance();
     const interval = setInterval(loadBalance, 30_000);
     const onTeamChanged = () => { void loadBalance(); };
+    // Fired after a deposit or admin credit lands, so the header does not
+    // keep showing the old balance until the next 30s poll.
     window.addEventListener("xcelsior-team-changed", onTeamChanged);
+    window.addEventListener("xcelsior-wallet-changed", onTeamChanged);
     return () => {
       clearInterval(interval);
       window.removeEventListener("xcelsior-team-changed", onTeamChanged);
+      window.removeEventListener("xcelsior-wallet-changed", onTeamChanged);
     };
   }, [loadBalance, user, customerId]);
 

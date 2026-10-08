@@ -41,6 +41,8 @@ interface WorkScreenProps {
     nudge?: string | null;
     /** Whether Hexara is reachable (affects the Ask Hexara tab). */
     aiAvailable?: boolean;
+    /** Columns this pane may use, when less than the whole terminal. */
+    maxWidth?: number;
 }
 
 type StatusTab = "status" | "tail" | "ask";
@@ -137,8 +139,11 @@ function StatusPane({ log, tail, aiAvailable = true, inputActive = true }: Statu
     );
 }
 
-export function WorkScreen({ tasks, slides, slideIntervalMs, log = [], tail = [], intro, nudge, aiAvailable = true }: WorkScreenProps) {
-    const width = useTerminalWidth();
+export function WorkScreen({ tasks, slides, slideIntervalMs, log = [], tail = [], intro, nudge, aiAvailable = true, maxWidth }: WorkScreenProps) {
+    const terminalWidth = useTerminalWidth();
+    // The caller may reserve part of the terminal (Hexara's stage sits beside
+    // this pane on wide terminals); reflow against what is actually left.
+    const width = maxWidth !== undefined ? Math.min(terminalWidth, maxWidth + 2) : terminalWidth;
     const narrow = shouldReflow(width);
 
     if (narrow) {

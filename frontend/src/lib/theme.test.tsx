@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { StrictMode } from "react";
 import { renderHook, render, act } from "@testing-library/react";
 import { ThemeProvider, useTheme, applyTheme, syncThemeFromStorage, type Theme } from "@/lib/theme";
 
@@ -98,6 +99,44 @@ describe("ThemeProvider re-sync", () => {
     });
 
     expect(result.current.theme).toBe("light");
+    expect(document.documentElement.classList.contains("light")).toBe(true);
+  });
+});
+
+describe("ThemeProvider under StrictMode", () => {
+  // Regression: a `[theme]` effect applied the placeholder "dark" on mount and
+  // wrote it to storage; StrictMode's effect replay then re-read "dark", so a
+  // stored light theme never survived a reload in development.
+  it("keeps a stored light theme through the effect replay", () => {
+    storage["xcelsior-theme"] = "light";
+    const seen: Theme[] = [];
+    function Probe() {
+      seen.push(useTheme().theme);
+      return null;
+    }
+    render(
+      <StrictMode>
+        <ThemeProvider>
+          <Probe />
+        </ThemeProvider>
+      </StrictMode>,
+    );
+    expect(seen[seen.length - 1]).toBe("light");
+    expect(storage["xcelsior-theme"]).toBe("light");
+    expect(document.documentElement.dataset.theme).toBe("light");
+  });
+
+  it("toggle writes the new theme straight through", () => {
+    const { result } = renderHook(() => useTheme(), {
+      wrapper: ({ children }) => (
+        <StrictMode>
+          <ThemeProvider>{children}</ThemeProvider>
+        </StrictMode>
+      ),
+    });
+    act(() => result.current.toggleTheme());
+    expect(result.current.theme).toBe("light");
+    expect(storage["xcelsior-theme"]).toBe("light");
     expect(document.documentElement.classList.contains("light")).toBe(true);
   });
 });

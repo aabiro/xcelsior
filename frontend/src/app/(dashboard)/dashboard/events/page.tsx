@@ -15,7 +15,9 @@ interface Event {
   type: string;
   severity?: "info" | "warning" | "error" | "critical";
   data?: any;
-  timestamp: string;
+  timestamp: string | number;
+  event_type?: string;
+  event_id?: string;
   message?: string;
 }
 
@@ -41,69 +43,89 @@ export default function EventsPage() {
   const [showVerbose, setShowVerbose] = useState(false);
   const [live, setLive] = useState(false);
   const [connStatus, setConnStatus] = useState<ConnectionStatus>("disconnected");
+  const [cursors, setCursors] = useState<(string | null)[]>([null]);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [total, setTotal] = useState(0);
+  const [allTypes, setAllTypes] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+  const [newEvents, setNewEvents] = useState(0);
+  const latest = useRef(0);
+  const before = cursors[pageIndex];
   const esRef = useRef<EventSource | null>(null);
   const reconnectAttempt = useRef(0);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  // Load historical events
-  const loadHistory = useCallback(() => {
-    apiFetch<{ events?: Event[] }>("/api/events")
-      .then((d) => setEvents(Array.isArray(d.events) ? d.events : []))
-      .catch(() => toast.error("Failed to load events"));
-  }, []);
+  const resetPage = () => { setCursors([null]); setPageIndex(0); };
+  const loadHistory = useCallback(async () => {
+    const request = ++latest.current;
+    setLoading(true);
+    setFailed(false);
+    const query = new URLSearchParams({ limit: "25", include_verbose: String(showVerbose) });
+    if (before) query.set("before", before);
+    if (filter !== "all") query.set("event_type", filter);
+    if (severityFilter !== "all") query.set("severity", severityFilter);
+    try {
+      const data = await apiFetch<{ events: Event[]; total: number; next_cursor: string | null; event_types: string[] }>(`/api/events?${query}`);
+      if (request !== latest.current) return;
+      setEvents((data.events || []).map((event) => ({ ...event, id: event.event_id ?? event.id, type: event.event_type ?? event.type })));
+      setTotal(data.total);
+      setNextCursor(data.next_cursor);
+      setAllTypes(data.event_types || []);
+      setNewEvents(0);
+    } catch {
+      if (request === latest.current) { setFailed(true); toast.error("Failed to load events"); }
+    } finally {
+      if (request === latest.current) setLoading(false);
+    }
+  }, [before, filter, severityFilter, showVerbose]);
 
-  useEffect(() => { loadHistory(); }, [loadHistory]);
-
-  // SSE live stream with exponential backoff reconnect
-  const connectSSE = useCallback(function connectSSEImpl() {
-    void isEventStreamAvailable("/api/stream", { force: true }).then((available) => {
-      if (!available) {
-        setConnStatus("disconnected");
-        setLive(false);
-        toast.error("Live event stream is unavailable right now.");
-        return;
-      }
-
-      if (esRef.current) esRef.current.close();
-      setConnStatus(reconnectAttempt.current > 0 ? "reconnecting" : "connecting");
-
-      const es = createEventSource();
-      es.onopen = () => { reconnectAttempt.current = 0; setConnStatus("connected"); };
-      es.onmessage = (e) => {
-        try {
-          const event = JSON.parse(e.data);
-          setEvents((prev) => [event, ...prev].slice(0, 500));
-        } catch {}
-      };
-      es.onerror = () => {
-        es.close();
-        if (live) {
-          const delay = Math.min(1000 * Math.pow(2, reconnectAttempt.current), MAX_RECONNECT_DELAY);
-          reconnectAttempt.current++;
-          setConnStatus("reconnecting");
-          reconnectTimer.current = setTimeout(connectSSEImpl, delay);
-        } else {
-          setConnStatus("disconnected");
-        }
-      };
-      esRef.current = es;
-    });
-  }, [live]);
+  useEffect(() => { void loadHistory(); return () => { latest.current++; }; }, [loadHistory]);
 
   useEffect(() => {
-    if (live) {
-      connectSSE();
-    } else {
+    if (!live) { setConnStatus("disconnected"); return; }
+    let active = true;
+    reconnectAttempt.current = 0;
+    const connect = async () => {
+      setConnStatus(reconnectAttempt.current ? "reconnecting" : "connecting");
+      try {
+        const available = await isEventStreamAvailable("/api/stream", { force: true });
+        if (!active) return;
+        if (!available) {
+          setLive(false);
+          toast.error("Live event stream is unavailable right now.");
+          return;
+        }
+        const es = createEventSource();
+        esRef.current = es;
+        es.onopen = () => { if (active) { reconnectAttempt.current = 0; setConnStatus("connected"); } };
+        es.onmessage = (message) => {
+          if (!active) return;
+          try {
+            const event = JSON.parse(message.data);
+            if (event.type || event.event_type) setNewEvents((count) => count + 1);
+          } catch { /* Ignore stream keepalives. */ }
+        };
+        es.onerror = () => {
+          es.close();
+          if (active) reconnect();
+        };
+      } catch { if (active) reconnect(); }
+    };
+    const reconnect = () => {
+      const delay = Math.min(1000 * 2 ** reconnectAttempt.current++, MAX_RECONNECT_DELAY);
+      setConnStatus("reconnecting");
+      reconnectTimer.current = setTimeout(() => void connect(), delay);
+    };
+    void connect();
+    return () => {
+      active = false;
       esRef.current?.close();
       esRef.current = null;
-      setConnStatus("disconnected");
-      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
-    }
-    return () => {
-      esRef.current?.close();
-      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      clearTimeout(reconnectTimer.current);
     };
-  }, [live, connectSSE]);
+  }, [live]);
 
   const filtered = events.filter((e) => {
     if (!showVerbose && VERBOSE_EVENT_TYPES.has(e.type)) return false;
@@ -112,14 +134,7 @@ export default function EventsPage() {
     return true;
   });
 
-  // Only show non-verbose types in the type dropdown by default
-  const eventTypes = [...new Set(
-    events
-      .filter((e) => showVerbose || !VERBOSE_EVENT_TYPES.has(e.type))
-      .map((e) => e.type)
-      .filter(Boolean),
-  )];
-  const verboseCount = events.filter((e) => VERBOSE_EVENT_TYPES.has(e.type)).length;
+  const eventTypes = allTypes.filter((type) => showVerbose || !VERBOSE_EVENT_TYPES.has(type));
 
   // Download events as JSON log
   const handleDownload = () => {
@@ -140,9 +155,9 @@ export default function EventsPage() {
         <h1 className="text-2xl font-bold">{t("dash.events.title")}</h1>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={handleDownload} disabled={filtered.length === 0}>
-            <Download className="h-3.5 w-3.5" /> {t("dash.events.export")}
+            <Download className="h-3.5 w-3.5" /> {t("dash.events.export")} page
           </Button>
-          <Button variant="outline" size="sm" onClick={loadHistory}>
+          <Button variant="outline" size="sm" onClick={() => void loadHistory()} disabled={loading}>
             <RefreshCw className="h-3.5 w-3.5" /> {t("common.refresh")}
           </Button>
           <Button
@@ -169,13 +184,13 @@ export default function EventsPage() {
       </div>
 
       <div className="flex gap-3 flex-wrap">
-        <Select value={filter} onChange={(e) => setFilter(e.target.value)}>
+        <Select value={filter} aria-label="Event type" onChange={(e) => { setFilter(e.target.value); resetPage(); }}>
           <option value="all">All Types</option>
           {eventTypes.map((t) => (
             <option key={t} value={t}>{t}</option>
           ))}
         </Select>
-        <Select value={severityFilter} onChange={(e) => setSeverityFilter(e.target.value)}>
+        <Select value={severityFilter} aria-label="Severity" onChange={(e) => { setSeverityFilter(e.target.value); resetPage(); }}>
           <option value="all">All Severity</option>
           <option value="info">Info</option>
           <option value="warning">Warning</option>
@@ -184,7 +199,7 @@ export default function EventsPage() {
         </Select>
         <button
           type="button"
-          onClick={() => { setShowVerbose((v) => !v); setFilter("all"); }}
+          onClick={() => { setShowVerbose((v) => !v); setFilter("all"); resetPage(); }}
           className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs transition-colors ${
             showVerbose
               ? "border-accent-violet/40 bg-accent-violet/10 text-accent-violet"
@@ -192,18 +207,19 @@ export default function EventsPage() {
           }`}
         >
           <EyeOff className="h-3 w-3" />
-          {showVerbose ? "Hide verbose" : `Show verbose${verboseCount > 0 ? ` (${verboseCount})` : ""}`}
+          {showVerbose ? "Hide verbose" : "Show verbose"}
         </button>
         {events.length > 0 && (
           <span className="flex items-center text-xs text-text-muted">
-            {filtered.length} of {events.length} events
+            {total} matching events
           </span>
         )}
       </div>
 
+      {newEvents > 0 && <button type="button" onClick={() => { resetPage(); if (pageIndex === 0) void loadHistory(); }} className="w-full rounded-xl border border-accent-cyan/30 bg-accent-cyan/5 px-4 py-3 text-sm text-accent-cyan">{newEvents} new events · Show latest</button>}
       <Card>
         <CardContent className="p-0">
-          {filtered.length === 0 ? (
+          {loading ? <p role="status" className="p-12 text-center text-text-muted">Loading events…</p> : failed ? <div className="p-12 text-center"><p className="mb-3 text-text-secondary">Couldn’t load this page.</p><Button onClick={() => void loadHistory()}>Retry</Button></div> : filtered.length === 0 ? (
             <div className="p-12 text-center">
               <Calendar className="mx-auto h-12 w-12 text-text-muted mb-4" />
               <h3 className="text-lg font-semibold mb-1">No events</h3>
@@ -224,7 +240,7 @@ export default function EventsPage() {
                           <Badge variant={colors.badge} className="text-[10px] px-1.5 py-0">{sev}</Badge>
                         )}
                         <span className="text-xs text-text-muted">
-                          {event.timestamp ? new Date(event.timestamp).toLocaleString() : "-"}
+                          {event.timestamp ? new Date(typeof event.timestamp === "number" ? event.timestamp * 1000 : event.timestamp).toLocaleString() : "-"}
                         </span>
                       </div>
                       <p className="text-sm text-text-secondary truncate">
@@ -242,6 +258,13 @@ export default function EventsPage() {
           )}
         </CardContent>
       </Card>
+      <nav aria-label="Event pagination" className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-text-muted">Page {pageIndex + 1} · {total} matching events</p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" disabled={loading || pageIndex === 0} onClick={() => setPageIndex((page) => page - 1)}>Newer events</Button>
+          <Button variant="outline" size="sm" disabled={loading || failed || !nextCursor} onClick={() => { setCursors((current) => [...current.slice(0, pageIndex + 1), nextCursor]); setPageIndex((page) => page + 1); }}>Older events</Button>
+        </div>
+      </nav>
     </div>
   );
 }

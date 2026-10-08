@@ -17,3 +17,20 @@ export function useTerminalWidth(): number {
     }, [stdout]);
     return width;
 }
+
+/** Track terminal columns and rows, updating on resize. */
+export function useTerminalSize(): { columns: number; rows: number } {
+    const { stdout } = useStdout();
+    const read = () => ({ columns: stdout?.columns ?? 80, rows: stdout?.rows ?? 24 });
+    const [size, setSize] = useState(read);
+    useEffect(() => {
+        if (!stdout) return;
+        const onResize = () => setSize(read());
+        stdout.on("resize", onResize);
+        return () => {
+            stdout.off?.("resize", onResize);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [stdout]);
+    return size;
+}
