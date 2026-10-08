@@ -1596,6 +1596,7 @@ export default function BillingPage() {
           onSuccess={(newBalance) => {
             setWallet((w) => w ? { ...w, balance_cad: newBalance } : w);
             setShowDeposit(false);
+            window.dispatchEvent(new CustomEvent("xcelsior-wallet-changed"));
             load();
           }}
         />

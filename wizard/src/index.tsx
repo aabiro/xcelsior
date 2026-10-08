@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 // Xcelsior CLI Wizard — Entry Point
 // Structured setup wizard: auth → browse GPUs → pick → configure → pay → launch.
-// The wizard sprite (Hexara) stays on line 1. Steps render below it.
+// Hexara performs on a stage beside the steps (wide terminals) or above them
+// (tall ones); small terminals get his lines without the sprite.
 // Press "?" at any step to ask Hexara for help inline.
 
-import React, { useState, useCallback, useMemo, useEffect } from "react";
+import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { pathToFileURL } from "node:url";
 import { render, Box, Text, useApp, useInput } from "ink";
-import { WizardLine } from "./WizardLine.js";
+import { HexaraStage, STAGE_ROWS, roamFor } from "./HexaraStage.js";
 import { computeWizardBranch, computeWizardMood } from "./hexara-choreography.js";
-import { setupWizardRegion, resetWizardRegion, getCustomStdout } from "./useWizardAnimation.js";
+import { HexaraDirector } from "./useWizardAnimation.js";
 import { spriteCapable } from "./capability.js";
+import { useTerminalSize } from "./use-terminal-width.js";
 import { STATE_COLORS } from "../sprites/wizard/wizard-sprite.js";
 import { WIZARD_STEPS, STATIC_STEP_HELP } from "./wizard-flow.js";
 import { useWizardFlow } from "./useWizardFlow.js";
@@ -21,7 +23,6 @@ import { timeHintForStep, buildMarketplaceSlides, LEARN_SLIDES, sdkLearnSlides }
 import { TitleBar, KeybindFooter } from "./chrome.js";
 import { StartupCard } from "./StartupCard.js";
 import { detectEnvironment } from "./environment.js";
-import { initSpriteCapability } from "./capability.js";
 import {
   ProgressBar,
   SelectStep,
@@ -42,6 +43,28 @@ import {
 
 // Long-running step types where the two-pane WorkScreen (Learn + Tasks) shows.
 const WORK_STEP_TYPES = ["auto-check", "auto-fetch", "payment-gate"];
+
+/** Width of the step column. */
+const CONTENT_WIDTH = 64;
+/** Hexara's stage when it stands beside the steps. */
+const SIDE_STAGE_WIDTH = 54;
+/** Gap between the step column and the stage. */
+const STAGE_GAP = 3;
+
+export type StageLayout = "side" | "top" | "compact";
+
+/**
+ * Where Hexara performs. Beside the steps when the terminal is wide enough,
+ * above them when it is tall enough, otherwise not at all — Ink redraws the
+ * whole screen every frame once its output is taller than the terminal, so a
+ * stage that does not fit would turn his animation into flicker.
+ */
+export function chooseStageLayout(columns: number, rows: number, canDraw: boolean): StageLayout {
+    if (!canDraw) return "compact";
+    if (columns >= CONTENT_WIDTH + STAGE_GAP + SIDE_STAGE_WIDTH && rows >= STAGE_ROWS + 9) return "side";
+    if (columns >= CONTENT_WIDTH + 2 && rows >= STAGE_ROWS + 30) return "top";
+    return "compact";
+}
 
 export function App() {
   const { exit } = useApp();
@@ -107,6 +130,21 @@ export function App() {
     marketplaceStats,
   } = useWizardFlow();
 
+  // Hexara: one director for the whole session, so his routine carries on when
+  // the stage moves between layouts. It only animates where he can be drawn.
+  const canDraw = useMemo(() => spriteCapable(), []);
+  const [director] = useState(() => new HexaraDirector({ animate: canDraw }));
+  const { columns, rows } = useTerminalSize();
+  const stageLayout = chooseStageLayout(columns, rows, canDraw);
+  const stageWidth = stageLayout === "side" ? SIDE_STAGE_WIDTH : CONTENT_WIDTH;
+  useEffect(() => {
+    director.start();
+    return () => director.stop();
+  }, [director]);
+  useEffect(() => {
+    director.setRoam(roamFor(stageWidth));
+  }, [director, stageWidth]);
+
   // Prefer live marketplace charts in the Learn pane; fall back to concept cards.
   const learnSlides = useMemo(() => {
     if (answers.mode === "sdk") return sdkLearnSlides();
@@ -161,10 +199,15 @@ export function App() {
     flushCheckpoint();
     setExiting(true);
   }, [flushCheckpoint]);
-  const handleExitDone = useCallback(() => {
-    resetWizardRegion();
-    exit();
-  }, [exit]);
+  const exitRef = useRef(exit);
+  exitRef.current = exit;
+  useEffect(() => {
+    director.onDone = () => exitRef.current();
+  }, [director]);
+  useEffect(() => {
+    // His farewell plays only where he is on screen; otherwise quit at once.
+    if (exiting) director.setExiting(true, { immediate: stageLayout === "compact" });
+  }, [director, exiting, stageLayout]);
 
   // Global "?" keybind — opens AI prompt on any step that supports it
   useInput((input, key) => {
@@ -249,21 +292,42 @@ export function App() {
   const wizardMood = useMemo(() => computeWizardMood(hexaraCtx), [hexaraCtx]);
   const wizardBranch = useMemo(() => computeWizardBranch(hexaraCtx), [hexaraCtx]);
 
+  useEffect(() => {
+    director.setMood(wizardMood);
+  }, [director, wizardMood]);
+  // A branch is a reaction to something happening, so it fires when the
+  // reason changes — a new step, or a new line from Hexara — not every render.
+  const lastBranchKey = useRef<string | null>(null);
+  useEffect(() => {
+    const key = wizardBranch ? `${wizardBranch}:${step.id}:${wizardMessage.slice(0, 24)}` : null;
+    if (wizardBranch && key !== lastBranchKey.current) director.trigger(wizardBranch);
+    lastBranchKey.current = key;
+  }, [director, wizardBranch, step.id, wizardMessage]);
+
+  const stage = stageLayout === "compact" ? null : (
+    <HexaraStage
+      director={director}
+      width={stageWidth}
+      caption={wizardMessage}
+      captionColor={STATE_COLORS[wizardState]}
+    />
+  );
+
   return (
-    <Box flexDirection="column" alignItems="center" paddingRight={spriteCapable() ? 42 : 0} width="100%">
+    <Box flexDirection="column" alignItems="center" width="100%">
       {/* Persistent branded title bar (Part I) */}
       <TitleBar />
 
-      {/* Hexara wizard sprite — choreographed animation */}
-      <WizardLine
-        message={wizardMessage}
-        messageColor={STATE_COLORS[wizardState]}
-        exiting={exiting}
-        onExitDone={handleExitDone}
-        branch={wizardBranch}
-        mood={wizardMood}
-        pulseKey={step.id}
-      />
+      {/* Hexara above the steps, or — compact — just his line */}
+      {stageLayout === "top" && <Box marginTop={1}>{stage}</Box>}
+      {stageLayout === "compact" && (
+        <Box justifyContent="center">
+          <Text color={STATE_COLORS[wizardState]}>{wizardMessage}</Text>
+        </Box>
+      )}
+
+      <Box flexDirection="row" alignItems="flex-start">
+      <Box flexDirection="column" alignItems="center">
 
       {/* Resume / expiry notices */}
       {resumeInfo.resumed && !isComplete && (
@@ -305,6 +369,7 @@ export function App() {
       {isWorkStep && (
         <Box marginTop={1}>
           <WorkScreen
+            maxWidth={stageLayout === "side" ? columns - SIDE_STAGE_WIDTH - STAGE_GAP - 2 : undefined}
             tasks={tasks}
             slides={learnSlides}
             log={statusLog}
@@ -500,6 +565,9 @@ export function App() {
         </Box>
       )}
       </>)}
+      </Box>
+      {stageLayout === "side" && <Box marginLeft={STAGE_GAP} marginTop={1}>{stage}</Box>}
+      </Box>
 
       {/* Context-sensitive keybind footer (Part I) */}
       <Box marginTop={1}>
@@ -533,15 +601,5 @@ function isEntryModule(): boolean {
 }
 
 if (isEntryModule()) {
-  void (async () => {
-    // Probe the terminal for Sixel support (DA1) before Ink takes over stdin, so
-    // the sprite only paints where it'll render cleanly. Falls back fast on
-    // non-TTY / opt-out, so this never hangs headless.
-    await initSpriteCapability();
-
-    // Set up stream interceptor for flawless Hexara Sixel rendering
-    setupWizardRegion();
-
-    render(<App />, { stdout: getCustomStdout() });
-  })();
+  render(<App />);
 }

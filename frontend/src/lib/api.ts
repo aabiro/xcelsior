@@ -810,6 +810,23 @@ export async function depositWallet(customerId: string, amount: number, descript
   );
 }
 
+/** Platform admins only: credit a wallet with no payment behind it. Recorded
+ * as an admin credit (never a deposit) and audited with the reason. */
+export async function adminCreditWallet(
+  customerId: string,
+  amountCad: number,
+  reason: string,
+  idempotencyKey: string,
+) {
+  return apiFetch<{ ok: boolean; tx_id: string; balance_cad: number; amount_cad: number; dedup?: boolean }>(
+    `/api/billing/wallet/${encodeURIComponent(customerId)}/admin-credit`,
+    {
+      method: "POST",
+      body: JSON.stringify({ amount_cad: amountCad, reason, idempotency_key: idempotencyKey }),
+    },
+  );
+}
+
 export async function resetWalletTestingState(customerId: string) {
   return apiFetch<{ ok: boolean; wallet: Wallet; cleared_transactions: number; promo_available: boolean }>(
     `/api/billing/wallet/${encodeURIComponent(customerId)}/reset-testing`,
@@ -2136,8 +2153,8 @@ export interface McpQuickConnect {
 /** Powers the /dashboard/mcp page. Returns the full key only when one is
  * minted — which happens when there is no key, or the existing key has never
  * been used, or `regenerate` forces a rotation. */
-export async function getMcpQuickConnect(regenerate = false) {
-  const q = regenerate ? "?regenerate=true" : "";
+export async function getMcpQuickConnect(regenerate = false, surface: "mcp" | "cli" = "mcp") {
+  const q = `?surface=${surface}${regenerate ? "&regenerate=true" : ""}`;
   return apiFetch<McpQuickConnect>(`/api/mcp/quick-connect${q}`, { cache: "no-store" });
 }
 
@@ -2591,7 +2608,7 @@ export async function fetchAdminUsers() {
   return apiFetch<{
     ok: boolean;
     users: {
-      email: string; role: string; is_admin?: boolean; is_active: boolean;
+      email: string; customer_id: string; role: string; is_admin?: boolean; is_active: boolean;
       created_at: string; wallet_balance_cad: number; total_jobs: number;
       province: string; country: string; team_id?: string | null;
     }[];

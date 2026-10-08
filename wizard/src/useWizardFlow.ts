@@ -4,6 +4,8 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { existsSync, readFileSync } from "node:fs";
+import * as path from "node:path";
+import { updateEnvFile } from "./config-files.js";
 import { WIZARD_STEPS, getNextStep, STATIC_STEP_HELP, type WizardStep, IMAGE_TEMPLATES, WORKLOAD_IMAGE_MAP } from "./wizard-flow.js";
 import {
     streamChat, confirmAction, type ApiClientConfig,
@@ -293,31 +295,13 @@ async function writeProjectEnv(
     oauthClientSecret?: string,
 ): Promise<true | string> {
     try {
-        const fs = await import("node:fs");
-        const pairs: Array<{ key: string; value: string }> = [];
+        const values: Record<string, string> = { XCELSIOR_API_URL: API_BASE_URL };
         if (oauthClientId && oauthClientSecret) {
-            pairs.push({ key: "XCELSIOR_OAUTH_CLIENT_ID", value: oauthClientId });
-            pairs.push({ key: "XCELSIOR_OAUTH_CLIENT_SECRET", value: oauthClientSecret });
+            values.XCELSIOR_OAUTH_CLIENT_ID = oauthClientId;
+            values.XCELSIOR_OAUTH_CLIENT_SECRET = oauthClientSecret;
         }
-        if (token) {
-            pairs.push({ key: "XCELSIOR_API_TOKEN", value: token });
-        }
-
-        if (fs.existsSync(envPath)) {
-            let content = fs.readFileSync(envPath, "utf-8");
-            for (const { key, value } of pairs) {
-                const regex = new RegExp(`^${key}=.*$`, "m");
-                if (regex.test(content)) {
-                    content = content.replace(regex, `${key}=${value}`);
-                } else {
-                    content = content.trimEnd() + "\n" + `${key}=${value}` + "\n";
-                }
-            }
-            fs.writeFileSync(envPath, content, { mode: 0o600 });
-        } else {
-            const lines = pairs.map(({ key, value }) => `${key}=${value}`);
-            fs.writeFileSync(envPath, `# Added by Xcelsior setup wizard\n${lines.join("\n")}\n`, { mode: 0o600 });
-        }
+        if (token) values.XCELSIOR_API_TOKEN = token;
+        updateEnvFile(envPath, values);
         return true;
     } catch (err) {
         return err instanceof Error ? err.message : `Failed to write ${envPath}`;
@@ -365,7 +349,6 @@ async function saveConfig(answers: Record<string, string | string[]>): Promise<v
 
 /** Find the project root by walking up from cwd looking for .git, .env, or well-known markers */
 function findProjectRoot(): string {
-    const path = require("node:path");
     let dir = process.cwd();
     // Walk up until we find .git or hit filesystem root
     for (let i = 0; i < 10; i++) {
@@ -379,7 +362,6 @@ function findProjectRoot(): string {
 
 /** Detect project framework in the project root */
 function detectFramework(): { name: string; envPath: string } | null {
-    const path = require("node:path");
     const root = findProjectRoot();
     try {
         const pkgPath = path.join(root, "package.json");
@@ -1617,13 +1599,13 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 };
                 answersRef.current = updated;
                 setAnswers(updated);
-                streamItem("OAuth client", !!(oauthId && oauthSecret), oauthId ? oauthId : "optional — xoa_ token works");
+                streamItem("OAuth client", true, oauthId ? oauthId : "Using the supplied credential");
                 streamItem(".env.local", true, envPath);
                 return [
                     {
                         name: "OAuth client",
                         ok: true,
-                        detail: oauthId ? `Created ${oauthId} (Settings → API)` : "Skipped — use xoa_ session token",
+                        detail: oauthId ? `Created ${oauthId} (Settings → API)` : "Using the supplied API key or sign-in token",
                     },
                     { name: ".env.local", ok: true, detail: envPath },
                 ];

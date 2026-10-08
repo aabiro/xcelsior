@@ -29,12 +29,12 @@ export function validateApiToken(token: string): string | null {
     if (!trimmed) return "Token cannot be empty";
     if (trimmed.length < MIN_TOKEN_LEN) return "Token looks too short";
     if (trimmed.length > MAX_TOKEN_LEN) return "Token looks too long";
-    if (/[\r\n]/.test(trimmed)) return "Token cannot contain newlines";
+    if (/\s/.test(trimmed)) return "Credentials cannot contain whitespace";
     if (trimmed.startsWith("oauth_")) {
         return "That is an OAuth client ID (oauth_…), not an access token — paste an xoa_… session token from device sign-in";
     }
-    if (!trimmed.startsWith("xoa_")) {
-        return "Access tokens start with xoa_ — sign in via device flow (Enter) or copy from Dashboard → Settings";
+    if (!trimmed.startsWith("xoa_") && !trimmed.startsWith("xcel_ai_")) {
+        return "Use an xcel_ai_ API key from Dashboard → MCP → CLI, or an xoa_ token from device sign-in";
     }
     return null;
 }

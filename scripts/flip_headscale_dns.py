@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Point `hs.xcelsior.ca` at the host that actually runs Headscale.
 
-Step 3 of 3 in removing the 45.76.3.128 single point of failure. Steps 1 and 2
-(issue a Let's Encrypt certificate on 149.28.121.61 by DNS-01, and repoint that
-host's nginx at it) are already done and verified — this only moves the record.
+The default target is the consolidated Hetzner host, 46.225.20.97.
+The target must already serve a valid certificate and healthy Headscale endpoint.
 
 Run it with no arguments to see the current record and what would change.
 Pass --apply to make the change.

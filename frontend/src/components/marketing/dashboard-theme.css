@@ -204,6 +204,55 @@
   background: linear-gradient(180deg, var(--popover-solid-2), var(--popover-solid));
 }
 
+/* Prompt surface and its inline chips. The chips are the prompt's
+   placeholders: what is on screen is what Copy Prompt copies. */
+.dashboard-shell .mcp-connect-prompt {
+  background: color-mix(in srgb, var(--bg) 55%, var(--popover-solid));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.dashboard-shell .mcp-connect-chip {
+  border: 1px solid transparent;
+  line-height: 1.6;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.dashboard-shell .mcp-connect-chip-key {
+  color: #5ee7ff;
+  background: rgba(56, 219, 255, 0.1);
+  border-color: rgba(56, 219, 255, 0.28);
+  cursor: copy;
+}
+.dashboard-shell .mcp-connect-chip-key:hover { background: rgba(56, 219, 255, 0.18); }
+.dashboard-shell .mcp-connect-chip-command {
+  color: #6ee7b7;
+  background: rgba(52, 211, 153, 0.1);
+  border-color: rgba(52, 211, 153, 0.28);
+  cursor: copy;
+}
+.dashboard-shell .mcp-connect-chip-command:hover { background: rgba(52, 211, 153, 0.18); }
+.dashboard-shell .mcp-connect-chip-masked {
+  color: var(--text-3);
+  background: var(--surface-2);
+  border-color: var(--edge);
+}
+.dashboard-shell .mcp-connect-chip:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+.dashboard-shell[data-theme="light"] .mcp-connect-prompt {
+  background: #f8fafc;
+  box-shadow: inset 0 1px 0 #ffffff;
+}
+.dashboard-shell[data-theme="light"] .mcp-connect-chip-key {
+  color: #0e7490;
+  background: rgba(8, 145, 178, 0.08);
+  border-color: rgba(8, 145, 178, 0.3);
+}
+.dashboard-shell[data-theme="light"] .mcp-connect-chip-command {
+  color: #047857;
+  background: rgba(5, 150, 105, 0.08);
+  border-color: rgba(5, 150, 105, 0.3);
+}
+
 .dashboard-shell .glow-card::before {
   opacity: 1;
   background: linear-gradient(135deg, rgba(56, 219, 255, 0.18), rgba(155, 109, 255, 0.16), transparent 62%);
@@ -433,7 +482,6 @@
   border: 1px solid var(--edge);
   background: linear-gradient(180deg, var(--popover-solid-2), var(--popover-solid));
   box-shadow: var(--shadow-panel);
-  backdrop-filter: blur(24px);
   z-index: 200;
 }
 
@@ -725,17 +773,6 @@
   z-index: 200;
 }
 
-/* Plain click-catcher: no backdrop-filter. A full-screen blur here stacked with
-   the listbox's own filter triggered a Chromium nested-backdrop repaint bug that
-   flashed the whole viewport to flat navy on hover. */
-.dashboard-site-dropdown-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 190;
-  cursor: default;
-  background: transparent;
-}
-
 .dashboard-site-control > div > button,
 .dashboard-site-control > button {
   border-radius: 999px;
@@ -755,7 +792,6 @@
   border: 1px solid var(--edge);
   background: linear-gradient(180deg, var(--popover-solid-2), var(--popover-solid));
   box-shadow: var(--shadow-panel);
-  backdrop-filter: blur(24px);
   z-index: 200;
 }
 

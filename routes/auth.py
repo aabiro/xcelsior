@@ -9,7 +9,7 @@ import env_config
 import secrets
 import time
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
@@ -1262,10 +1262,12 @@ def api_list_oauth_clients(request: Request):
 
 
 @router.get("/api/mcp/quick-connect", tags=["Auth"])
-def api_mcp_quick_connect(request: Request, regenerate: bool = False):
-    """Powers the /dashboard/mcp page: always returns a live, ready-to-paste
-    Bearer token for the caller's auto-provisioned MCP client — no client
-    secret is ever stored or shown, see oauth_service.get_or_create_mcp_quick_connect_client."""
+def api_mcp_quick_connect(request: Request, regenerate: bool = False, surface: Literal["mcp", "cli"] = "mcp"):
+    """Return a dedicated MCP or CLI API key, revealed only on minting.
+
+    Each surface has its own client, audience and independently revocable key.
+    Used keys are returned as masked identifiers until explicitly regenerated.
+    """
     user = _require_user_grant(request)
     from oauth_service import (
         MCP_QUICK_CONNECT_SCOPES,
@@ -1277,13 +1279,18 @@ def api_mcp_quick_connect(request: Request, regenerate: bool = False):
         workspace_customer_id=_oauth_workspace_customer_id(user),
         team_id=_oauth_workspace_team_id(user),
         regenerate=regenerate,
+        surface=surface,
     )
     from db import AgentKeyStore
-    from oauth_service import MCP_RESOURCE_AUDIENCE, issue_agent_api_key
+    from oauth_service import MCP_RESOURCE_AUDIENCE, OAUTH_AUDIENCE, issue_agent_api_key
 
     scopes = list(client.get("scopes") or MCP_QUICK_CONNECT_SCOPES)
     user_id = str(user.get("user_id") or user.get("email") or "")
     client_id = client["client_id"]
+
+    replaced_client_id = client.get("replaced_client_id")
+    if replaced_client_id:
+        AgentKeyStore.revoke_all_for_client(user_id, replaced_client_id)
 
     live = [
         k
@@ -1303,8 +1310,8 @@ def api_mcp_quick_connect(request: Request, regenerate: bool = False):
             user=user,
             client_id=client_id,
             scopes=scopes,
-            audience=MCP_RESOURCE_AUDIENCE,
-            name="MCP Quick Connect",
+            audience=MCP_RESOURCE_AUDIENCE if surface == "mcp" else OAUTH_AUDIENCE,
+            name="MCP Quick Connect" if surface == "mcp" else "CLI Skill",
             replace_existing=True,
         )
 

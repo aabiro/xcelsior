@@ -1618,10 +1618,42 @@ class BillingEngine:
         If idempotency_key is provided, the deposit is deduplicated:
         a second call with the same key returns the original result.
         """
+        return self._add_to_wallet(
+            customer_id, amount_cad, description, idempotency_key, tx_type="deposit"
+        )
+
+    def grant_credit(
+        self,
+        customer_id: str,
+        amount_cad: float,
+        description: str,
+        idempotency_key: str = "",
+    ) -> dict:
+        """Credit a wallet with no payment behind it — a platform admin's grant.
+
+        Recorded as ``tx_type='credit'``, never ``'deposit'``: the admin revenue
+        reports sum deposits as cash received, and the FINTRAC 24-hour aggregate
+        sums them toward the LVCTR threshold. A grant is neither, and
+        ``total_deposited_micros`` stays a count of money actually paid in.
+        """
+        return self._add_to_wallet(
+            customer_id, amount_cad, description, idempotency_key, tx_type="credit"
+        )
+
+    def _add_to_wallet(
+        self,
+        customer_id: str,
+        amount_cad: float,
+        description: str,
+        idempotency_key: str,
+        *,
+        tx_type: str,
+    ) -> dict:
         self._ensure_wallet_table()
+        paid_in = tx_type == "deposit"
 
         # Idempotency check
-        if idempotency_key:
+        if idempotency_key and paid_in:
             with self._conn() as conn:
                 existing = conn.execute(
                     "SELECT tx_id, balance_after_micros / 1000000.0 AS balance_after_cad FROM wallet_transactions WHERE idempotency_key = %s",
@@ -1643,6 +1675,29 @@ class BillingEngine:
         tx_id = f"TX-{int(time.time())}-{os.urandom(3).hex()}"
 
         with self._conn() as conn:
+            if not paid_in:
+                # Serialize grant retries with the balance update. Checking in
+                # a separate transaction lets two requests both miss the key.
+                wallet_row = conn.execute(
+                    "SELECT customer_id FROM wallets WHERE customer_id = %s FOR UPDATE",
+                    (customer_id,),
+                ).fetchone()
+                if not wallet_row:
+                    raise ValueError("Wallet no longer exists")
+                if idempotency_key:
+                    existing = conn.execute(
+                        "SELECT tx_id, customer_id, amount_micros, tx_type, description, "
+                        "balance_after_micros FROM wallet_transactions WHERE idempotency_key = %s",
+                        (idempotency_key,),
+                    ).fetchone()
+                    if existing:
+                        if (existing["customer_id"] != customer_id
+                            or existing["amount_micros"] != cad_to_micros(amount_cad)
+                            or existing["tx_type"] != tx_type
+                            or existing["description"] != description):
+                            raise ValueError("This request ID was already used for a different credit grant")
+                        return {"tx_id": existing["tx_id"],
+                                "balance_cad": micros_to_cad(existing["balance_after_micros"]), "dedup": True}
             # Atomic: increment balance and get new value in one statement
             row = conn.execute(
                 # Integer minor units: the arithmetic itself must be exact
@@ -1656,7 +1711,7 @@ class BillingEngine:
                        updated_at = %s
                    WHERE customer_id = %s
                    RETURNING balance_micros, balance_micros / 1000000.0 AS balance_cad""",
-                (cad_to_micros(amount_cad), cad_to_micros(amount_cad),
+                (cad_to_micros(amount_cad), cad_to_micros(amount_cad) if paid_in else 0,
                  time.time(), customer_id),
             ).fetchone()
             # Read the derived float for the legacy response shape; the
@@ -1670,10 +1725,11 @@ class BillingEngine:
                 """INSERT INTO wallet_transactions
                    (tx_id, customer_id, tx_type, amount_micros,
                     balance_after_micros, description, created_at, idempotency_key)
-                   VALUES (%s, %s, 'deposit', %s, %s, %s, %s, %s)""",
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     tx_id,
                     customer_id,
+                    tx_type,
                     cad_to_micros(amount_cad),
                     cad_to_micros(new_balance),
                     description,
@@ -1682,7 +1738,7 @@ class BillingEngine:
                 ),
             )
 
-        log.info("DEPOSIT %s +$%.2f CAD balance=$%.2f", customer_id, amount_cad, new_balance)
+        log.info("%s %s +$%.2f CAD balance=$%.2f", tx_type.upper(), customer_id, amount_cad, new_balance)
         return {"tx_id": tx_id, "balance_cad": new_balance}
 
     def low_balance_threshold_cad(self, customer_id: str) -> float:

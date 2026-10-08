@@ -1,10 +1,12 @@
 #!/usr/bin/env tsx
 /**
- * generate-wizard-frames.ts — Build-time PNG → Sixel sprite converter
+ * generate-wizard-frames.ts — Build-time PNG → pixel-frame converter
  *
- * Reads PNG frames from sprites/wizard/, crops to a global bounding box,
- * encodes as Sixel graphics strings, writes sprites/wizard/wizard-frames.ts.
- * Sixel allows rendering full-resolution pixel art directly in the terminal.
+ * Reads PNG frames from sprites/wizard/, crops them to one global bounding box,
+ * and writes sprites/wizard/wizard-frames.ts: a shared colour palette plus
+ * every frame as rows of palette keys. src/sprite-render.ts turns a frame into
+ * truecolor half-block text (two pixel rows per terminal cell), so Hexara draws
+ * in any colour terminal — no Sixel support, no cursor tricks.
  *
  * Usage: npx tsx scripts/generate-wizard-frames.ts
  */
@@ -65,93 +67,29 @@ function cropTo(grid: Grid, top: number, bottom: number, left: number, right: nu
     return grid.slice(top, bottom + 1).map(row => row.slice(left, right + 1));
 }
 
-// ── Sixel encoding ───────────────────────────────────────────
-/** Encode a pixel grid as a Sixel escape sequence.
- *  Transparent pixels are not drawn (terminal background shows through).
- *  Uses RLE compression to minimize string size. */
-function rgbaToSixel(grid: Grid): string {
-    const h = grid.length;
-    const w = grid[0]?.length ?? 0;
-    if (!h || !w) return "";
+// ── Pixel encoding ───────────────────────────────────────────
+/** Below this alpha a pixel is background; at or above it is drawn solid. */
+const ALPHA_THRESHOLD = 32;
+/** One character per palette entry; "." is reserved for transparent. */
+const KEYS = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const palette = new Map<string, string>(); // "#rrggbb" → key
 
-    // Build indexed bitmap + palette
-    const colorMap = new Map<string, number>();
-    const palette: RGBA[] = [];
-    const indexed: number[][] = [];
+function hex(px: RGBA): string {
+    return "#" + [px.r, px.g, px.b].map((v) => v.toString(16).padStart(2, "0")).join("");
+}
 
-    for (let y = 0; y < h; y++) {
-        const row: number[] = [];
-        for (let x = 0; x < w; x++) {
-            const px = grid[y][x];
-            if (px.a < 32) { row.push(-1); continue; }
-            const key = `${px.r},${px.g},${px.b}`;
-            let ci = colorMap.get(key);
-            if (ci === undefined) {
-                ci = palette.length;
-                colorMap.set(key, ci);
-                palette.push(px);
-            }
-            row.push(ci);
+function encodeFrame(grid: Grid): string[] {
+    return grid.map((row) => row.map((px) => {
+        if (px.a < ALPHA_THRESHOLD) return ".";
+        const color = hex(px);
+        let key = palette.get(color);
+        if (key === undefined) {
+            if (palette.size >= KEYS.length) throw new Error(`More than ${KEYS.length} sprite colours`);
+            key = KEYS[palette.size];
+            palette.set(color, key);
         }
-        indexed.push(row);
-    }
-
-    if (palette.length === 0) return `\x1bPq"1;1;${w};${h}\x1b\\`; // all transparent — valid empty Sixel
-
-    // DCS q with raster attributes (1:1 aspect, width x height)
-    let s = `\x1bPq"1;1;${w};${h}`;
-
-    // Color registers (Sixel RGB uses 0-100 scale)
-    for (let i = 0; i < palette.length; i++) {
-        const c = palette[i];
-        s += `#${i};2;${Math.round(c.r * 100 / 255)};${Math.round(c.g * 100 / 255)};${Math.round(c.b * 100 / 255)}`;
-    }
-
-    // Encode pixel bands (each band = 6 pixel rows)
-    const bands = Math.ceil(h / 6);
-    for (let band = 0; band < bands; band++) {
-        const y0 = band * 6;
-        for (let ci = 0; ci < palette.length; ci++) {
-            const raw: number[] = [];
-            let lastNonZero = -1;
-            for (let x = 0; x < w; x++) {
-                let bits = 0;
-                for (let dy = 0; dy < 6; dy++) {
-                    const y = y0 + dy;
-                    if (y < h && indexed[y][x] === ci) bits |= (1 << dy);
-                }
-                raw.push(bits);
-                if (bits > 0) lastNonZero = x;
-            }
-
-            if (lastNonZero < 0) continue; // no pixels for this color in this band
-
-            // RLE encode, trimming trailing zeros
-            let data = "";
-            let runVal = raw[0];
-            let runLen = 1;
-            for (let x = 1; x <= lastNonZero; x++) {
-                if (raw[x] === runVal) {
-                    runLen++;
-                } else {
-                    data += runLen > 3
-                        ? `!${runLen}${String.fromCharCode(63 + runVal)}`
-                        : String.fromCharCode(63 + runVal).repeat(runLen);
-                    runVal = raw[x];
-                    runLen = 1;
-                }
-            }
-            data += runLen > 3
-                ? `!${runLen}${String.fromCharCode(63 + runVal)}`
-                : String.fromCharCode(63 + runVal).repeat(runLen);
-
-            s += `#${ci}${data}$`;
-        }
-        if (band < bands - 1) s += "-";
-    }
-
-    s += `\x1b\\`;
-    return s;
+        return key;
+    }).join(""));
 }
 
 // ── File grouping ────────────────────────────────────────────
@@ -182,9 +120,21 @@ function classify(name: string): Group | null {
 }
 
 // ── Serialization ────────────────────────────────────────────
-function serializeFrames(name: string, frames: string[]): string {
-    const inner = frames.map(f => `  ${JSON.stringify(f)}`).join(",\n");
-    return `export const ${name}: Frame[] = [\n${inner},\n];`;
+// Identical frames (the neutral bookends every move shares) are stored once.
+const uniqueFrames: string[][] = [];
+const frameIndex = new Map<string, number>();
+function frameRef(frame: string[]): string {
+    const id = frame.join("\n");
+    let i = frameIndex.get(id);
+    if (i === undefined) {
+        i = uniqueFrames.length;
+        uniqueFrames.push(frame);
+        frameIndex.set(id, i);
+    }
+    return `F[${i}]`;
+}
+function serializeFrames(name: string, frames: string[][]): string {
+    return `export const ${name}: Frame[] = [${frames.map(frameRef).join(", ")}];`;
 }
 
 // ── Main ─────────────────────────────────────────────────────
@@ -193,7 +143,7 @@ const ALL_GROUPS: Group[] = [
     "eureka", "celebrate", "error", "sleep", "levitate", "dance", "bow",
     "peek", "type", "nod",
 ];
-const groups: Record<Group, string[]> = {
+const groups: Record<Group, string[][]> = {
     intro: [], idle: [], pace: [], think: [], wave: [], cast: [], outro: [],
     eureka: [], celebrate: [], error: [], sleep: [], levitate: [], dance: [], bow: [],
     peek: [], type: [], nod: [],
@@ -276,13 +226,12 @@ const cropW = gTop <= gBottom ? gRight - gLeft + 1 : 0;
 const cropH = gTop <= gBottom ? gBottom - gTop + 1 : 0;
 console.log(`  📐 Global bbox: ${cropW}×${cropH} px (rows ${gTop}–${gBottom}, cols ${gLeft}–${gRight})\n`);
 
-// Crop all frames to global bbox then encode as Sixel
+// Crop all frames to the global bbox, then encode against the shared palette
 for (const g of ALL_GROUPS) {
     for (const { file, grid } of rawByGroup[g]) {
         const cropped = (gTop <= gBottom) ? cropTo(grid, gTop, gBottom, gLeft, gRight) : grid;
-        const sixel = rgbaToSixel(cropped);
-        groups[g].push(sixel);
-        console.log(`  ✓  ${file} → ${g} (${grid[0].length}×${grid.length} → ${cropW}×${cropH} sixel, ${sixel.length} bytes)`);
+        groups[g].push(encodeFrame(cropped));
+        console.log(`  ✓  ${file} → ${g} (${grid[0].length}×${grid.length} → ${cropW}×${cropH})`);
     }
 }
 
@@ -323,35 +272,47 @@ const NAMES: Record<Group, string> = {
     nod: "NOD_FRAMES",
 };
 
-// Estimate terminal cell dimensions (typical ~8x16 px per cell)
-const spriteCols = Math.ceil(cropW / 8);
-const spriteRows = Math.ceil(cropH / 16);
+const spriteCols = cropW;
+const spriteRows = Math.ceil(cropH / 2);
 
 const sections = ALL_GROUPS
     .filter((g) => groups[g].length > 0)
     .map((g) => serializeFrames(NAMES[g], groups[g]))
-    .join("\n\n");
+    .join("\n");
+
+const paletteBody = [...palette.entries()].map(([color, key]) => `  "${key}": "${color}",`).join("\n");
+const framesBody = uniqueFrames
+    .map((rows) => `  [\n${rows.map((r) => `    "${r}",`).join("\n")}\n  ],`)
+    .join("\n");
 
 const output = `// Auto-generated by scripts/generate-wizard-frames.ts — DO NOT EDIT
 // Re-generate: npm run generate-frames
-// Source: sprites/wizard/*.png → Sixel graphics (full pixel resolution)
+// Source: sprites/wizard/*.png → palette-keyed pixel rows (full resolution)
 //
-// 14 frame groups: 7 core + 7 branch reactions
-//   Core: INTRO → IDLE → [PACE → THINK → WAVE → CAST → IDLE] loop → OUTRO
-//   Branch: EUREKA, CELEBRATE, ERROR, SLEEP, LEVITATE, DANCE, BOW
+// Core: INTRO → IDLE → [PACE → THINK → WAVE → CAST → IDLE] loop → OUTRO
+// Branch reactions: EUREKA, CELEBRATE, ERROR, SLEEP, LEVITATE, DANCE, BOW,
+// PEEK, TYPE, NOD. src/sprite-render.ts draws them as half-block text.
 
-/** Sixel escape sequence string */
-export type Frame = string;
+/** One frame: SPRITE_PX.h rows of SPRITE_PX.w palette keys; "." is transparent. */
+export type Frame = readonly string[];
 
-/** Estimated terminal cell width of sprite */
-export const SPRITE_COLS = ${spriteCols};
-/** Estimated terminal cell height of sprite */
-export const SPRITE_ROWS = ${spriteRows};
+/** Palette key → hex colour. */
+export const PALETTE: Readonly<Record<string, string>> = {
+${paletteBody}
+};
+
 /** Sprite pixel dimensions */
-export const SPRITE_PX = { w: ${cropW}, h: ${cropH} };
+export const SPRITE_PX = { w: ${cropW}, h: ${cropH} } as const;
+/** Terminal cells: one column per pixel, two pixel rows per cell. */
+export const SPRITE_COLS = ${spriteCols};
+export const SPRITE_ROWS = ${spriteRows};
+
+const F: Frame[] = [
+${framesBody}
+];
 
 ${sections}
 `;
 
 writeFileSync(OUTPUT, output, "utf-8");
-console.log(`\n✓ Wrote ${OUTPUT} (${total} frames, ${spriteCols}×${spriteRows} estimated cells)`);
+console.log(`\n✓ Wrote ${OUTPUT} (${total} frames, ${uniqueFrames.length} unique, ${palette.size} colours, ${spriteCols}×${spriteRows} cells)`);

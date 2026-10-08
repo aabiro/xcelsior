@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { AuthAwareLink } from "@/components/marketing/auth-aware-link";
-import { ArrowRight, CheckCircle2, Zap } from "lucide-react";
+import { ArrowRight, Coins, KeyRound, ShieldCheck, ToggleRight, Zap } from "lucide-react";
 import { CodeBlock } from "@/components/ui/code-block";
 import { PixelField } from "@/components/ui/pixel-field";
 import { m } from "@/components/marketing/motion";
@@ -36,6 +36,22 @@ const BENTO = [
   { key: "guardrails", icon: "shield-check", tools: 1, accent: "gold" as const },
   { key: "monitoring", icon: "activity", tools: 1, accent: "cyan" as const },
 ] as const;
+
+// Same three checks the guardrails artwork draws: the estimate card, the
+// confirm toggle and the scoped key.
+const GUARDS = [
+  { key: "guard_1", icon: Coins, accent: "gold" },
+  { key: "guard_2", icon: ToggleRight, accent: "green" },
+  { key: "guard_3", icon: KeyRound, accent: "violet" },
+] as const;
+
+/** Renders the literal `confirm:true` as code wherever a translation keeps it. */
+function withInlineCode(text: string) {
+  const parts = text.split(/(confirm:true)/);
+  return parts.map((part, i) =>
+    part === "confirm:true" ? <code key={i} className="mcp-guard-code">{part}</code> : part,
+  );
+}
 
 const AGENT_TABS = [
   { id: "cursor", art: "/mcp/agent-cursor.svg", labelKey: "mcp.landing.agent_cursor" },
@@ -239,23 +255,39 @@ export function McpLandingContent() {
 
         <section className="site-rails site-section">
           <SectionMarker code="04" label={t("mcp.landing.guardrails_title")} />
-          <div className="site-split-panel">
-            <div className="site-split-panel-media">
-              <Image src="/mcp/flow-guardrails.svg" alt="" width={320} height={200} className="site-guardrails-art" />
+          <m.div
+            variants={fadeUp}
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true }}
+            custom={0}
+            className="mcp-guard"
+          >
+            <div className="mcp-guard-art">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/mcp/guardrails-dark.svg" alt="" width={480} height={320} className="site-theme-dark" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/mcp/guardrails-light.svg" alt="" width={480} height={320} className="site-theme-light" />
             </div>
-            <div className="site-split-panel-body">
-              <h2 className="site-callout-title" style={{ color: "var(--gold)" }}>{t("mcp.landing.guardrails_title")}</h2>
-              <p className="site-callout-copy">{t("mcp.landing.guardrails_desc")}</p>
-              <ul className="site-checklist">
-                {(["guard_1", "guard_2", "guard_3"] as const).map((key) => (
-                  <li key={key} className="site-check-item">
-                    <CheckCircle2 className="site-check-icon" />
-                    <span>{t(`mcp.landing.${key}`)}</span>
+            <div className="mcp-guard-body">
+              <p className="mcp-guard-eyebrow">
+                <ShieldCheck aria-hidden />
+                {t("mcp.landing.guardrails_eyebrow")}
+              </p>
+              <h2 className="mcp-guard-title">{t("mcp.landing.guardrails_title")}</h2>
+              <p className="mcp-guard-copy">{t("mcp.landing.guardrails_desc")}</p>
+              <ul className="mcp-guard-list">
+                {GUARDS.map(({ key, icon: Icon, accent }) => (
+                  <li key={key} className="mcp-guard-item" data-accent={accent}>
+                    <span className="mcp-guard-icon">
+                      <Icon aria-hidden />
+                    </span>
+                    <span>{withInlineCode(t(`mcp.landing.${key}`))}</span>
                   </li>
                 ))}
               </ul>
             </div>
-          </div>
+          </m.div>
         </section>
 
         <section className="site-rails site-section">
