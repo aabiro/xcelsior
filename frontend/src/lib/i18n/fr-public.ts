@@ -643,6 +643,7 @@ const fr_public: Record<string, string> = {
   "pwa.install_desktop_title": "Appli de bureau disponible",
   "pwa.install_desktop_desc": "Notifications système, mises à jour auto et liens profonds.",
   "pwa.install_desktop_cta": "Télécharger",
+  "ui.close": "Fermer",
   "common.refresh": "Actualiser",
   "common.back": "Retour",
   "common.next": "Suivant",

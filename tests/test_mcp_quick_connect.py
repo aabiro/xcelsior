@@ -1,7 +1,7 @@
 """Functional coverage for the /dashboard/mcp quick-connect endpoint.
 
 Verifies the always-there copy-paste token flow: find-or-create a system-managed
-MCP client, mint a live token every call, rotate on regenerate, and never surface
+MCP client, reveal its key once, rotate on regenerate, and never surface
 the client in the user-facing OAuth client list.
 """
 
@@ -97,9 +97,47 @@ def test_quick_connect_is_idempotent():
     token = _register_and_get_token("qc-idem@xcelsior.ca")
     first = client.get("/api/mcp/quick-connect", headers=_auth(token)).json()
     second = client.get("/api/mcp/quick-connect", headers=_auth(token)).json()
-    # Same underlying client (find-or-create), fresh token each time.
+    # Reloads must preserve even a copied-but-not-yet-used credential.
     assert first["client_id"] == second["client_id"]
-    assert first["access_token"] and second["access_token"]
+    assert first["access_token"] and second["access_token"] is None
+    assert first["key_id"] == second["key_id"]
+    assert second["in_use"] is False
+    assert _authenticates(first["access_token"])
+
+
+def test_concurrent_first_load_only_mints_one_key():
+    from concurrent.futures import ThreadPoolExecutor
+
+    token = _register_and_get_token("qc-concurrent@xcelsior.ca")
+    def load():
+        with TestClient(app) as isolated:
+            response = isolated.get("/api/mcp/quick-connect?surface=cli", headers=_auth(token))
+            assert response.status_code == 200, response.text
+            return response.json()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: load(), range(2)))
+    assert results[0]["client_id"] == results[1]["client_id"]
+    assert results[0]["key_id"] == results[1]["key_id"]
+    revealed = [result["access_token"] for result in results if result["access_token"]]
+    assert len(revealed) == 1
+    assert _authenticates(revealed[0])
+
+
+def test_failed_rotation_preserves_previous_credential(monkeypatch):
+    import oauth_service
+
+    token = _register_and_get_token("qc-atomic@xcelsior.ca")
+    first = client.get("/api/mcp/quick-connect", headers=_auth(token)).json()
+    def fail(**kwargs):
+        raise RuntimeError("Key storage unavailable")
+    monkeypatch.setattr(oauth_service, "issue_agent_api_key", fail)
+    with pytest.raises(RuntimeError, match="Key storage unavailable"):
+        client.get("/api/mcp/quick-connect?regenerate=true", headers=_auth(token))
+    assert _authenticates(first["access_token"])
+    again = client.get("/api/mcp/quick-connect", headers=_auth(token)).json()
+    assert again["client_id"] == first["client_id"]
+    assert again["key_id"] == first["key_id"]
 
 
 def test_regenerate_rotates_the_client():

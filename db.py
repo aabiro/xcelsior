@@ -29,6 +29,7 @@ import threading
 import time
 from collections.abc import Mapping
 from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any, cast
 
 from oauth_delegation import assert_delegable  # scope-write guard, see #16
@@ -1097,9 +1098,34 @@ def _ensure_auth_schema(conn) -> None:
         _auth_schema_ensured = True
 
 
+_auth_transaction_connection: ContextVar[Any | None] = ContextVar("auth_transaction_connection", default=None)
+
+
+@contextmanager
+def auth_transaction(lock_key: str):
+    """Compose synchronous auth-store calls into one serialized transaction.
+
+    The transaction owns commit/rollback; nested stores must not commit early.
+    PostgreSQL's transaction lock also serializes callers in other API workers.
+    Keep this context in one thread and do not launch background work from it.
+    """
+    with auth_connection() as conn:
+        conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (lock_key,))
+        token = _auth_transaction_connection.set(conn)
+        try:
+            yield conn
+        finally:
+            _auth_transaction_connection.reset(token)
+
+
 @contextmanager
 def auth_connection():
     """PostgreSQL connection for auth tables (users, sessions, API keys, teams, notifications, SSH keys)."""
+    existing = _auth_transaction_connection.get()
+    if existing is not None:
+        yield existing
+        return
+
     from psycopg.rows import dict_row
 
     pool = _get_pg_pool()

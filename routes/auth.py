@@ -1266,7 +1266,7 @@ def api_mcp_quick_connect(request: Request, regenerate: bool = False, surface: L
     """Return a dedicated MCP or CLI API key, revealed only on minting.
 
     Each surface has its own client, audience and independently revocable key.
-    Used keys are returned as masked identifiers until explicitly regenerated.
+    Previously issued keys are masked until explicitly regenerated, even before first use.
     """
     user = _require_user_grant(request)
     from oauth_service import (
@@ -1274,46 +1274,50 @@ def api_mcp_quick_connect(request: Request, regenerate: bool = False, surface: L
         get_or_create_mcp_quick_connect_client,
     )
 
-    client = get_or_create_mcp_quick_connect_client(
-        created_by_email=user["email"],
-        workspace_customer_id=_oauth_workspace_customer_id(user),
-        team_id=_oauth_workspace_team_id(user),
-        regenerate=regenerate,
-        surface=surface,
-    )
-    from db import AgentKeyStore
-    from oauth_service import MCP_RESOURCE_AUDIENCE, OAUTH_AUDIENCE, issue_agent_api_key
+    from db import auth_transaction
 
-    scopes = list(client.get("scopes") or MCP_QUICK_CONNECT_SCOPES)
-    user_id = str(user.get("user_id") or user.get("email") or "")
-    client_id = client["client_id"]
-
-    replaced_client_id = client.get("replaced_client_id")
-    if replaced_client_id:
-        AgentKeyStore.revoke_all_for_client(user_id, replaced_client_id)
-
-    live = [
-        k
-        for k in AgentKeyStore.list_for_user(user_id)
-        if k["client_id"] == client_id
-    ]
-    existing = live[0] if live else None
-
-    # Only the SHA-256 digest of a key is stored, so a key can never be shown
-    # a second time. That leaves three cases, and the distinction that matters
-    # is last_used_at: a key that has never authenticated a request cannot be
-    # in anyone's config, so replacing it breaks nothing.
-    mint = existing is None or existing["last_used_at"] is None or regenerate
-    bundle = None
-    if mint:
-        bundle = issue_agent_api_key(
-            user=user,
-            client_id=client_id,
-            scopes=scopes,
-            audience=MCP_RESOURCE_AUDIENCE if surface == "mcp" else OAUTH_AUDIENCE,
-            name="MCP Quick Connect" if surface == "mcp" else "CLI Skill",
-            replace_existing=True,
+    # Serialize creation/rotation for this identity and surface across workers.
+    # Client replacement, old-key revocation and minting commit together.
+    lock_key = f"quick-connect:{user['email']}:{_oauth_workspace_team_id(user) or 'personal'}:{surface}"
+    with auth_transaction(lock_key):
+        client = get_or_create_mcp_quick_connect_client(
+            created_by_email=user["email"],
+            workspace_customer_id=_oauth_workspace_customer_id(user),
+            team_id=_oauth_workspace_team_id(user),
+            regenerate=regenerate,
+            surface=surface,
         )
+        from db import AgentKeyStore
+        from oauth_service import MCP_RESOURCE_AUDIENCE, OAUTH_AUDIENCE, issue_agent_api_key
+
+        scopes = list(client.get("scopes") or MCP_QUICK_CONNECT_SCOPES)
+        user_id = str(user.get("user_id") or user.get("email") or "")
+        client_id = client["client_id"]
+
+        replaced_client_id = client.get("replaced_client_id")
+        if replaced_client_id:
+            AgentKeyStore.revoke_all_for_client(user_id, replaced_client_id)
+
+        live = [
+            k
+            for k in AgentKeyStore.list_for_user(user_id)
+            if k["client_id"] == client_id
+        ]
+        existing = live[0] if live else None
+
+        # A copied key may not have been used yet. Reads never invalidate it;
+        # only an explicit regeneration replaces an existing credential.
+        mint = existing is None or regenerate
+        bundle = None
+        if mint:
+            bundle = issue_agent_api_key(
+                user=user,
+                client_id=client_id,
+                scopes=scopes,
+                audience=MCP_RESOURCE_AUDIENCE if surface == "mcp" else OAUTH_AUDIENCE,
+                name="MCP Quick Connect" if surface == "mcp" else "CLI Skill",
+                replace_existing=True,
+            )
 
     # `XCELSIOR_BASE_URL` is the plumbed name for this. `XCELSIOR_PUBLIC_URL`
     # was read here and **mapped in no compose file**, so the container never
@@ -1338,8 +1342,8 @@ def api_mcp_quick_connect(request: Request, regenerate: bool = False, surface: L
         # The canonical connector URL, not `${api}/mcp`: an agent key is bound
         # to the MCP resource, so a config pointing anywhere else authenticates
         # against a resource the token was never issued for.
-        # Present only when freshly minted. Absent means "already issued and in
-        # use" — the UI shows the masked prefix instead of a token it cannot
+        # Present only when freshly minted. Absent means "already issued" —
+        # the UI shows the masked prefix instead of a token it cannot
         # legitimately produce.
         "access_token": bundle["access_token"] if bundle else None,
         "key_id": bundle["key_id"] if bundle else (existing["key_id"] if existing else None),
