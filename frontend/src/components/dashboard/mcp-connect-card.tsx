@@ -88,6 +88,7 @@ function WorkspaceConnectCard() {
   const values: Record<string, string> = {
     token,
     mcp_url: conn?.mcp_url ?? MCP_CONNECTOR_URL,
+    api_url: conn?.api_url ?? "https://xcelsior.ca",
     command: SKILL_INSTALL_COMMAND,
   };
   const template = t(tab === "cli" ? "dash.mcp.cli_prompt" : "dash.mcp.mcp_prompt");
@@ -147,10 +148,10 @@ function WorkspaceConnectCard() {
           </button>
         );
       }
-      if (part === "{mcp_url}") {
+      if (part === "{mcp_url}" || part === "{api_url}") {
         return (
           <span key={i} className="whitespace-nowrap font-mono text-[0.85em] text-text-primary">
-            {values.mcp_url}
+            {values[part.slice(1, -1)]}
           </span>
         );
       }
@@ -200,7 +201,7 @@ function WorkspaceConnectCard() {
               )}
             >
               <KeyRound className="h-3 w-3" />
-              {keyLabel} · {masked ? t("dash.mcp.key_status_in_use") : t("dash.mcp.key_status_ready")}
+              {keyLabel} · {masked ? t(conn?.in_use ? "dash.mcp.key_status_in_use" : "dash.mcp.key_status_issued") : t("dash.mcp.key_status_ready")}
             </span>
           )}
         </div>

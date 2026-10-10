@@ -649,6 +649,7 @@ const en_public: Record<string, string> = {
   "pwa.install_desktop_title": "Desktop app available",
   "pwa.install_desktop_desc": "Tray notifications, auto-updates, and deep links.",
   "pwa.install_desktop_cta": "Download",
+  "ui.close": "Close",
   "mcp.landing.badge": "Agent-native compute",
   "mcp.landing.headline": "Fast GPUs for your AI agents.",
   "mcp.landing.subheadline": "Built for MCP, Claude, and heavy workloads. No more waiting, natural language into compute, instantly.",

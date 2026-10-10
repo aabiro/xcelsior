@@ -1564,15 +1564,11 @@ def get_or_create_mcp_quick_connect_client(
     regenerate: bool = False,
     surface: str = "mcp",
 ) -> dict[str, Any]:
-    """Find-or-create the per-user, system-managed OAuth client that backs the
-    always-there copy-paste token on /dashboard/mcp.
+    """Find or replace the system client for one user's workspace and surface.
 
-    No secret storage needed: `issue_client_credentials_jwt` mints a fresh
-    access token straight from the client row (it never needs the raw
-    secret — see below), so there's nothing to encrypt-at-rest or reveal
-    once. `regenerate=True` deletes and recreates the client (new client_id)
-    and reports the old id as `replaced_client_id`, whose agent keys the
-    caller revokes.
+    Quick-connect calls this inside ``auth_transaction``. The client and its
+    hashed agent key share one transaction; raw secrets are never stored.
+    Replacement reports the old ID so its agent keys can be revoked atomically.
     """
     if surface not in {"mcp", "cli"}:
         raise ValueError("Unknown quick-connect surface")
