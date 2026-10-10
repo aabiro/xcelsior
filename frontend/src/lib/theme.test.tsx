@@ -89,6 +89,24 @@ describe("ThemeProvider hydration safety", () => {
 });
 
 describe("ThemeProvider re-sync", () => {
+  it("does not keep reconciling document visibility after unmount", () => {
+    const { unmount } = renderThemeHook();
+    unmount();
+    storage["xcelsior-theme"] = "light";
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+
+  it("remains usable when browser storage is unavailable", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new DOMException("Storage blocked", "SecurityError"); });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new DOMException("Storage blocked", "SecurityError"); });
+    const { result } = renderThemeHook();
+    expect(result.current.theme).toBe("dark");
+    act(() => result.current.toggleTheme());
+    expect(result.current.theme).toBe("light");
+    expect(document.documentElement.dataset.theme).toBe("light");
+  });
+
   it("reconciles when localStorage changes on window focus (marketing→dashboard handoff)", () => {
     const { result } = renderThemeHook();
     expect(result.current.theme).toBe("dark");
