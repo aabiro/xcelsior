@@ -48,6 +48,16 @@ const NON_RETRYABLE_WS_CLOSE_CODES = new Set([
   4500,
 ]);
 
+function loadTerminalModules() {
+  return Promise.all([
+    import("@xterm/xterm"),
+    import("@xterm/addon-fit"),
+    import("@xterm/addon-web-links"),
+    import("@xterm/addon-search"),
+    import("@xterm/addon-unicode11"),
+  ]);
+}
+
 // ── Badge helper ──────────────────────────────────────────────────────────────
 
 function _badgeVariant(state: ConnState): "active" | "warning" | "failed" | "default" {
@@ -86,7 +96,11 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const staleCheckTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const lastPongAtRef = useRef<number>(0);
+  const lastActivityAtRef = useRef<number>(0);
+  const connectionGenRef = useRef(0);
+  const terminalGenRef = useRef(0);
+  const terminalModulesRef = useRef<ReturnType<typeof loadTerminalModules> | null>(null);
+  const serverErrorRef = useRef("");
   const mountedRef = useRef(true);
   const termReadyRef = useRef(false);
   const visChangeRef = useRef<(() => void) | null>(null);
@@ -173,6 +187,11 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
   const connectWs = useCallback(async () => {
     const term = termRef.current;
     if (!term || !mountedRef.current) return;
+    const generation = ++connectionGenRef.current;
+    const isCurrent = () => mountedRef.current && connectionGenRef.current === generation;
+    serverErrorRef.current = "";
+    if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
+    if (staleCheckTimerRef.current) clearInterval(staleCheckTimerRef.current);
 
     // Tear down any previous socket cleanly before opening a new one.
     if (wsRef.current) {
@@ -198,14 +217,14 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
     try {
       ticketResp = await createTerminalTicket(instanceId);
     } catch (err) {
-      if (!mountedRef.current) return;
+      if (!isCurrent()) return;
       const message = err instanceof Error ? err.message : "Failed to open terminal";
       // Ticket failures are usually transient (session refresh), fall through
       // to the reconnect schedule rather than dead-ending.
       scheduleReconnect(message);
       return;
     }
-    if (!mountedRef.current) return;
+    if (!isCurrent()) return;
 
     const wsUrl = `${wsBase}/ws/terminal/${instanceId}?ticket=${encodeURIComponent(ticketResp.ticket)}`;
     const ws = new WebSocket(wsUrl);
@@ -213,18 +232,16 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      if (!mountedRef.current) { ws.close(); return; }
-      reconnectAttemptsRef.current = 0;
-      reconnectNoticeShownRef.current = false;
-      setConnState("connected");
-      setStatusMsg("");
+      if (!isCurrent()) { ws.close(); return; }
+      setConnState("connecting");
+      setStatusMsg("Waiting for the instance…");
       ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
       term.focus();
 
-      // Heartbeat: ping every 20s, close as stale if no pong in 45s. This
+      // Heartbeat: ping every 20s, close if no server traffic in 45s. This
       // prevents zombie TCP connections (e.g. silent NAT rebind) from
       // appearing 'connected' while bytes silently drop on the floor.
-      lastPongAtRef.current = Date.now();
+      lastActivityAtRef.current = Date.now();
       if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
       heartbeatTimerRef.current = setInterval(() => {
         const w = wsRef.current;
@@ -236,7 +253,7 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
       staleCheckTimerRef.current = setInterval(() => {
         const w = wsRef.current;
         if (!w || w.readyState !== WebSocket.OPEN) return;
-        if (Date.now() - lastPongAtRef.current > 45_000) {
+        if (Date.now() - lastActivityAtRef.current > 45_000) {
           // Force close; onclose drives the reconnect.
           try { w.close(4000, "stale"); } catch { /* ignore */ }
         }
@@ -244,12 +261,19 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
     };
 
     ws.onmessage = (event: MessageEvent) => {
+      if (!isCurrent()) return;
       const t = termRef.current;
       if (!t) return;
+      // Startup sends progress before the PTY's ping/pong reader exists.
+      // Progress and PTY output both prove the server is still connected.
+      lastActivityAtRef.current = Date.now();
 
       if (event.data instanceof ArrayBuffer) {
         // Binary frame: raw PTY bytes, write directly (fastest path)
         t.write(new Uint8Array(event.data));
+        reconnectAttemptsRef.current = 0;
+        reconnectNoticeShownRef.current = false;
+        setConnState("connected");
         return;
       }
 
@@ -275,10 +299,15 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
               }
             }
             if (msg.retry) setConnState("connecting");
-            else setConnState("connected");
+            else {
+              reconnectAttemptsRef.current = 0;
+              reconnectNoticeShownRef.current = false;
+              setConnState("connected");
+            }
             break;
 
           case "error":
+            serverErrorRef.current = msg.message ?? "Error";
             t.write(`\r\n\x1b[31m⚠ ${msg.message ?? "Error"}\x1b[0m\r\n`);
             setConnState("error");
             setStatusMsg(msg.message ?? "Error");
@@ -290,7 +319,6 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
             break;
 
           case "pong":
-            lastPongAtRef.current = Date.now();
             break;
         }
       } catch {
@@ -299,7 +327,7 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
     };
 
     ws.onclose = (event: CloseEvent) => {
-      if (!mountedRef.current) return;
+      if (!isCurrent()) return;
       console.debug("[terminal] ws closed", event.code, event.reason);
 
       if (heartbeatTimerRef.current) {
@@ -318,7 +346,7 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
           setStatusMsg("Connection closed");
         } else {
           setConnState("error");
-          setStatusMsg(event.reason || `Connection closed (${event.code})`);
+          setStatusMsg(serverErrorRef.current || event.reason || `Connection closed (${event.code})`);
         }
         return;
       }
@@ -327,6 +355,7 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
     };
 
     ws.onerror = () => {
+      if (!isCurrent()) return;
       // onclose fires immediately after onerror, let it handle reconnect.
       setConnState((s) => (s === "connected" ? s : "error"));
     };
@@ -336,15 +365,13 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
   connectWsRef.current = connectWs;
 
   // ── Terminal initialization (runs exactly once on mount) ─────────────────────
-  const initTerminal = useCallback(async () => {
+  const initTerminal = useCallback(async (generation: number) => {
+    const isCurrent = () => mountedRef.current && terminalGenRef.current === generation;
     if (!containerRef.current || !mountedRef.current || termReadyRef.current) return;
 
-    const { Terminal } = await import("@xterm/xterm");
-    const { FitAddon } = await import("@xterm/addon-fit");
-    const { WebLinksAddon } = await import("@xterm/addon-web-links");
-    const { SearchAddon } = await import("@xterm/addon-search");
-    const { Unicode11Addon } = await import("@xterm/addon-unicode11");
-    if (!mountedRef.current || !containerRef.current) return;
+    const [{ Terminal }, { FitAddon }, { WebLinksAddon }, { SearchAddon }, { Unicode11Addon }] =
+      await (terminalModulesRef.current ??= loadTerminalModules());
+    if (!isCurrent() || !containerRef.current || termReadyRef.current) return;
 
     const term = new Terminal({
       cursorBlink: true,
@@ -398,10 +425,12 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
 
     try {
       const { WebglAddon } = await import("@xterm/addon-webgl");
+      if (!isCurrent()) return;
       const webgl = new WebglAddon();
       term.loadAddon(webgl);
       webglAddonRef.current = webgl;
     } catch {
+      if (!isCurrent()) return;
       webglAddonRef.current = null;
     }
     term.options.cursorBlink = true;
@@ -479,11 +508,19 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
   // ── Mount / unmount ─────────────────────────────────────────────────────────
   useEffect(() => {
     mountedRef.current = true;
-    void initTerminal().then(() => {
-      if (mountedRef.current) void connectWs();
+    const generation = ++terminalGenRef.current;
+    void initTerminal(generation).then(() => {
+      if (mountedRef.current && terminalGenRef.current === generation) void connectWs();
+    }).catch(() => {
+      if (mountedRef.current && terminalGenRef.current === generation) {
+        setConnState("error");
+        setStatusMsg("Terminal could not load. Reload the page to try again.");
+      }
     });
     return () => {
       mountedRef.current = false;
+      terminalGenRef.current += 1;
+      connectionGenRef.current += 1;
       termReadyRef.current = false;
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
@@ -496,8 +533,11 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
       try { wsRef.current?.close(); } catch { /* ignore */ }
       wsRef.current = null;
       webglAddonRef.current?.dispose();
+      webglAddonRef.current = null;
       termRef.current?.dispose();
       termRef.current = null;
+      fitAddonRef.current = null;
+      searchAddonRef.current = null;
     };
   }, [initTerminal, connectWs]);
 
