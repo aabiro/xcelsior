@@ -69,8 +69,18 @@ brought both hosts' rules. Each log now has one owner: the stock `rsyslog`,
 `btmp` and `nginx` rules, with `maxsize` caps of 100M, 50M and 200M. The
 duplicate rules were archived, not deleted.
 
-## Before decommissioning Vultr
+## Vultr decommissioned (2026-10-10)
 
-1. Hetzner backups enabled on `prod-hetzner`.
-2. One restore actually checked.
-3. Only then delete the Vultr servers.
+1. Hetzner backups enabled on `prod-hetzner` (2026-10-08; daily, seven kept).
+2. One restore actually checked (2026-10-10): the 2026-10-09 backup booted as a
+   separate server with SSH in from the operator only and all egress blocked.
+   Every database, table and key file matched production; the drill server was
+   then deleted.
+3. Both Vultr servers deleted (2026-10-10). Their full-disk copies, including
+   the final pre-cutover dumps, are on the operator machine's storage, not in
+   any cloud.
+
+Restoring this host: Hetzner console → server → Backups → create a server from
+the backup. Give it a firewall that blocks egress before it boots if production
+is still running; otherwise it rejoins the tailnet and Lightning RPC as a second
+copy.
