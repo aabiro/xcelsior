@@ -12,7 +12,11 @@
   isolation: isolate;
   min-height: 100vh;
   height: 100dvh;
+  /* clip, not just hidden: a hidden box is still programmatically scrollable,
+     and the ::after glow below overhangs the right edge by 80px, so a focus
+     or scrollIntoView slid the whole dashboard sideways under a modal. */
   overflow: hidden;
+  overflow: clip;
   font-family: var(--font-geist-sans), "Geist", system-ui, sans-serif;
   color: var(--text);
   background:
@@ -535,12 +539,15 @@
 .dashboard-site-main-row {
   position: relative;
   z-index: 1;
+  /* Same reason as .dashboard-shell: never programmatically scrollable. */
+  overflow: clip;
 }
 
 .dashboard-site-content-column {
   position: relative;
   z-index: 1;
   isolation: isolate;
+  overflow: clip;
 }
 
 /* Primary square grid — mid-tile lines + center origin so verticals land at
