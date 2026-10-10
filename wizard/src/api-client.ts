@@ -614,6 +614,21 @@ export async function launchInstance(
     return data.instance;
 }
 
+export interface InstanceSummary extends InstanceInfo {
+    /** Server clock, epoch seconds. */
+    submitted_at?: number;
+}
+
+export async function listInstances(baseUrl: string, token: string): Promise<InstanceSummary[]> {
+    const { status, data } = await jsonRequest<{ instances?: InstanceSummary[] }>(
+        "GET", baseUrl, "/instances", undefined, token,
+    );
+    if (status !== 200 || !Array.isArray(data.instances)) {
+        throw mapHttpError(status, `Instance list failed: HTTP ${status}`, baseUrl);
+    }
+    return data.instances;
+}
+
 export async function getInstance(
     baseUrl: string,
     token: string,
