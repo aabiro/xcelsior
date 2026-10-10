@@ -808,7 +808,8 @@ def run_network_benchmark(scheduler_url: str | None = None):
     parsed = urlparse(target)
     host = parsed.hostname or "127.0.0.1"
 
-    report = {}
+    # Missing ICMP evidence must not report a perfect connection.
+    report = {"packet_loss_pct": 100.0, "jitter_ms": 0.0, "throughput_mbps": 0.0}
 
     # ── Latency + Jitter + Loss via ping ──
     try:
@@ -837,30 +838,31 @@ def run_network_benchmark(scheduler_url: str | None = None):
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
 
-    # ── Throughput estimate via HTTP download (scheduler /metrics endpoint) ──
+    # Use the same fixed, incompressible payload as provider onboarding.
+    # /metrics is too small to measure throughput, and an HTTP error page
+    # must never count as a successful measurement. Use the worker surface
+    # so per-host credentials remain valid after fleet-token retirement.
     try:
-        import requests as req
+        from urllib.parse import quote
 
-        # Download a known endpoint multiple times to estimate throughput
-        sizes = []
-        times = []
-        for _ in range(5):
-            t0 = time.perf_counter()
-            resp = req.get(f"{target}/metrics", timeout=5, headers=_api_headers())
-            t1 = time.perf_counter()
-            sizes.append(len(resp.content))
-            times.append(t1 - t0)
-        total_bytes = sum(sizes)
-        total_time = sum(times)
+        total_bytes = 0
+        started = time.perf_counter()
+        for _ in range(2):
+            resp = _api_request(
+                "get",
+                f"{target.rstrip('/')}/agent/network-download/{quote(str(HOST_ID), safe='')}",
+                timeout=20,
+                headers={**_api_headers(), "Accept-Encoding": "identity"},
+            )
+            resp.raise_for_status()
+            if len(resp.content) != 8 * 1024 * 1024:
+                raise ValueError("Incomplete network diagnostic payload")
+            total_bytes += len(resp.content)
+        total_time = time.perf_counter() - started
         if total_time > 0:
             report["throughput_mbps"] = round(total_bytes * 8 / total_time / 1_000_000, 2)
     except Exception as e:
         log.debug("HTTP throughput test failed: %s", e)
-
-    # Defaults for missing values
-    report.setdefault("packet_loss_pct", 0)
-    report.setdefault("jitter_ms", 0)
-    report.setdefault("throughput_mbps", 0)
 
     return report
 
@@ -4006,6 +4008,20 @@ def _is_serverless_job(job: dict) -> bool:
     return str(job.get("job_type") or "").strip() == "serverless_worker"
 
 
+def _container_command(command, *, serverless: bool):
+    """Return Docker arguments and entrypoint overrides for a noninteractive job."""
+    if not isinstance(command, str) or not command.strip():
+        return command, []
+    stripped = command.strip()
+    # Managed engines supply flags to the image's ENTRYPOINT. Running those
+    # through sh -c replaces the server with a shell trying to execute --model.
+    if serverless and stripped.startswith("-"):
+        return shlex.split(stripped), []
+    if stripped.startswith("sh -c "):
+        stripped = stripped[6:].strip().strip('"').strip("'")
+    return ["-c", stripped], ["--entrypoint", "sh"]
+
+
 def _allocate_host_port_mappings(
     job_id: str, container_ports: list
 ) -> tuple[dict[str, int], list[str]]:
@@ -4279,30 +4295,31 @@ def run_job(job):
             release_lease(job_id, reason)
 
     encrypted_vol_ids = []
+    encrypted_ws_vid = None
     managed_vol_mounts = []  # /mnt/xcelsior-volumes/{vid} paths for cleanup
     current_stage = "preparing instance"
 
     # ── Phase 7 / §3: acquire exclusive GPU before any container/IO setup ──
     exclusive_gpu = bool(job.get("exclusive_gpu"))
     _excl_state: dict = {}
-    if exclusive_gpu:
-        log.info(
-            "Job %s requested exclusive_gpu — acquiring tier-1 GPU lock",
-            job_id,
-        )
-        _excl_state = _acquire_exclusive_gpu(job_id)
-        if not _excl_state.get("ok"):
-            err = _excl_state.get("error", "unknown")
-            log.error("Job %s: exclusive_gpu acquire failed: %s", job_id, err)
-            report_job_status(
-                job_id,
-                "failed",
-                error_message=f"exclusive_gpu acquire failed: {err}",
-            )
-            _release_execution_lease("failed")
-            return
-
     try:
+        if exclusive_gpu:
+            log.info(
+                "Job %s requested exclusive_gpu — acquiring tier-1 GPU lock",
+                job_id,
+            )
+            _excl_state = _acquire_exclusive_gpu(job_id)
+            if not _excl_state.get("ok"):
+                err = _excl_state.get("error", "unknown")
+                log.error("Job %s: exclusive_gpu acquire failed: %s", job_id, err)
+                report_job_status(
+                    job_id,
+                    "failed",
+                    error_message=f"exclusive_gpu acquire failed: {err}",
+                )
+                _release_execution_lease("failed")
+                return
+
         # 0. Mount legacy shared NFS (models/datasets). Skip when managed
         # volume_ids are present — those mount per-volume under /mnt/xcelsior-volumes/{id}.
         # Also skip interactive instances (30s mount timeout blocks SSH startup).
@@ -4397,7 +4414,6 @@ def run_job(job):
             return
 
         # 0d. Encrypted workspace (ephemeral LUKS volume on GPU host)
-        encrypted_ws_vid = None
         if job.get("encrypted_workspace"):
             encrypted_ws_vid = f"ws-{job_id}"
             ws_size_gb = 20  # Default ephemeral workspace size
@@ -4613,14 +4629,10 @@ def run_job(job):
             port_map, _sl_port_args = _allocate_host_port_mappings(job_id, list(_sl_ports))
             extra_docker_args.extend(_sl_port_args)
         if effective_command and not is_interactive:
-            if isinstance(effective_command, list):
-                pass
-            elif isinstance(effective_command, str):
-                stripped = effective_command.strip()
-                if stripped.startswith("sh -c "):
-                    stripped = stripped[6:].strip().strip('"').strip("'")
-                extra_docker_args.extend(["--entrypoint", "sh"])
-                effective_command = ["-c", stripped]
+            effective_command, entrypoint_args = _container_command(
+                effective_command, serverless=is_serverless,
+            )
+            extra_docker_args.extend(entrypoint_args)
         if is_interactive:
             log.info("INTERACTIVE MODE for job %s — container will stay running", job_id)
             # --- Interactive terminal UI (stdout banner + status notes) ---
