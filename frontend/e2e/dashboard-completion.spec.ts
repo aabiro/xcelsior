@@ -198,3 +198,34 @@ test("a platform admin credits a wallet without paying, and the wallet shows it"
   expect(grants[0].idempotency_key).toMatch(/\S{8,}/);
   await expect(page.locator("header").getByText("$225.00")).toBeVisible();
 });
+
+test("the Xcel AI panel is closed again after leaving the dashboard and coming back", async ({ context, page, baseURL }) => {
+  await installFixtures(context, baseURL!);
+  await context.addInitScript(() => localStorage.setItem("xcelsior-ai-onboarding-v1", "1"));
+  const panel = page.locator(".dashboard-site-ai-panel");
+  await page.goto("/dashboard/mcp");
+  await page.locator(".dashboard-site-ai-toggle").click();
+  await expect(panel).toBeVisible();
+  // Moving between dashboard pages keeps it open.
+  await page.locator('a[href="/dashboard/settings"]:visible').first().click();
+  await expect(page).toHaveURL(/\/dashboard\/settings/);
+  await expect(panel).toBeVisible();
+
+  // Out to the product site in the same tab, then back through its own link.
+  await page.locator('a[href="/features"]:visible').first().click();
+  await expect(page).toHaveURL(/\/features$/);
+  await page.locator('a[href="/dashboard"]:visible').first().click();
+  await expect(page).toHaveURL(/\/dashboard/);
+  await expect(page.locator(".dashboard-site-ai-toggle")).toBeVisible();
+  await expect(panel).toBeHidden();
+
+  // And with the browser's Back button.
+  await page.locator(".dashboard-site-ai-toggle").click();
+  await expect(panel).toBeVisible();
+  await page.locator('a[href="/features"]:visible').first().click();
+  await expect(page).toHaveURL(/\/features$/);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/dashboard/);
+  await expect(page.locator(".dashboard-site-ai-toggle")).toBeVisible();
+  await expect(panel).toBeHidden();
+});
