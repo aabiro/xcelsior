@@ -981,7 +981,7 @@ const fr_dashboard: Record<string, string> = {
   "dash.mcp.key_status_ready": "prête",
   "dash.mcp.key_status_in_use": "en service",
   "dash.mcp.key_status_issued": "émise",
-  "dash.mcp.key_masked_hint": "Cette clé est déjà en service. Seuls ses derniers caractères peuvent être affichés.",
+  "dash.mcp.key_masked_hint": "Cette clé a déjà été émise. Seuls ses derniers caractères peuvent être affichés.",
   "dash.mcp.key_in_use_note": "Votre {key} a déjà été émise et n’est affichée qu’une seule fois. Continuez d’utiliser votre clé enregistrée ou créez-en une nouvelle pour copier un nouveau prompt. La création d’une nouvelle clé révoque la précédente.",
   "dash.mcp.separate_keys": "MCP et CLI ont chacun leur propre clé API : en régénérer une ne casse jamais l'autre.",
   "dash.mcp.copy_command": "Copier la commande d'installation",
