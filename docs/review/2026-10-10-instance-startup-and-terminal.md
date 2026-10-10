@@ -68,9 +68,11 @@ Read-only database checks and API/worker logs showed:
 - Wizard: 632 tests across 39 files, build, bundled installer packaging passed.
 - Frontend: 385 tests across 66 files, lint (zero errors, 19 existing warnings),
   translation validation, production build, and PWA verification passed.
-- Production-build browser scenarios: initial seven passed (both themes,
-  secret modal, pagination, admin grant UI, sidebar return); additional
-  keyboard/history and narrow team switching passed.
+- Production-build browser scenarios: all 11 passed, including both themes,
+  secret modal, clipboard denial, theme changes without reloading, pagination,
+  admin grant UI, sidebar return, keyboard/history, and narrow team switching.
+  The toaster now mounts with the application; deferred loading could drop
+  an action's first notification before the subscriber existed.
 - Focused worker/managed-engine checks: 148 passed. Host freshness and fleet
   authorization: 13 passed. Corrected generated-contract/billing checks:
   71 passed.
@@ -80,6 +82,8 @@ Read-only database checks and API/worker logs showed:
   rerun. No second full-suite green run is implied.
 - Deployment packaging: 26 tests passed, including actual rsync/tar runs that
   exclude the private signing key while retaining its public key/signatures.
+- Repository-wide Ruff, deployment shell syntax, and diff whitespace checks
+  passed. Frontend tests/build/PWA were repeated after the toaster fix.
 - The published vLLM image pulled successfully and performed a CUDA tensor
   operation on the RTX 2060 (vLLM 0.8.5, CUDA 12.4). Its entrypoint accepts the
   documented engine arguments. This is not an inference/model-load test.

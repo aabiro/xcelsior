@@ -116,7 +116,6 @@ test("clipboard denial preserves the secret and shows a themed error", async ({ 
   await page.getByRole("button", { name: "Create MCP Client", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Save your client secret" });
   await expect(dialog).toBeFocused();
-  await expect(page.locator("[data-sonner-toaster]")).toHaveAttribute("data-sonner-theme", "light");
   await dialog.getByRole("button", { name: "Copy secret", exact: true }).click();
   await expect(page.locator('[data-sonner-toast][data-type="error"]')).toBeVisible();
   await expect(page.locator("[data-sonner-toaster]")).toHaveAttribute("data-sonner-theme", "light");

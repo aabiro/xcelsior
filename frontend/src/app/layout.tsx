@@ -3,7 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import { Providers } from "./providers";
 import { RootClientWidgets } from "@/components/RootClientWidgets";
-import { DeferredClientToaster } from "@/components/DeferredClientToaster";
+import { ClientToaster } from "@/components/ClientToaster";
 import { BRAND_ASSET_ORIGIN, SITE_ASSETS } from "@/lib/brand-assets";
 import "./globals.css";
 import "@/components/marketing/marketing-theme.css";
@@ -159,7 +159,7 @@ export default function RootLayout({
         <Providers>
           {children}
           <RootClientWidgets />
-          <DeferredClientToaster />
+          <ClientToaster />
         </Providers>
       </body>
     </html>

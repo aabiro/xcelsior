@@ -6,7 +6,14 @@ Updated: 2026-10-10 (America/Toronto)
 
 Complete every item in the original dashboard/onboarding request, including the visual polish and the actual user journeys behind it. Existing source changes are a starting point; a feature is complete only when its behavior and relevant rendered UI have been verified.
 
-This plan was checked against commit `fdb5a6a`. The worktree was clean before adding this document. The original goal remains active.
+The initial plan was checked against `fdb5a6a`; the latest continuation began at `1ceb953`. The original scope is not yet fully verified.
+
+The startup investigation and current validation record are in
+[2026-10-10-instance-startup-and-terminal.md](2026-10-10-instance-startup-and-terminal.md).
+That record supersedes the older test counts below. It includes production
+log evidence; earlier dashboard screenshots and mocked browser scenarios remain
+local UI evidence. Deployment and live verification results will be recorded
+separately from local checks.
 
 Current evidence:
 
@@ -43,18 +50,18 @@ Local evidence only: nothing below was deployed or run against production, and t
 | ID | Evidence | Still unverified |
 | --- | --- | --- |
 | D1 | `e2e/dashboard-completion.spec.ts` traverses 60 events across three pages and resets to page one on a severity filter; `test_event_pagination.py` | Live event arrival while paging, session refresh mid-page |
-| D2 | Same spec: avatar → Team, API keys, Profile from the settings page itself, URL and heading checked | Keyboard-only menu use, Back/Forward |
-| D3 | Screenshots in both themes with the team menu open and an option hovered: no overlay, page intact | Narrow viewport |
+| D2 | Same spec: avatar → Team, API keys, Profile from the settings page itself, URL and heading checked; keyboard selection and Back/Forward pass | — |
+| D3 | Screenshots in both themes with the team menu open and an option hovered: no overlay, page intact; 390px menu placement and keyboard team selection pass | — |
 | D4 | Spec: panel stays open across dashboard pages, closed after leaving for /features and returning by link and by Back | Reload while open (starts closed by design) |
 | D5 | Ring visible on the initials avatar in dark screenshots; spec asserts a background image on `.user-avatar-ring` | Photo avatar variant |
-| V1 | Spec: dialog focused, Tab to Close, value `nowrap`, scrolls on 390px, Escape blocked until acknowledged. Fixed: the dashboard slid 79px left under the modal (`overflow: clip`) | Clipboard denial |
-| V2 | Toasts follow the theme (`data-sonner-theme`) in both screenshots; on phones the stack now drops from the top so it no longer covers the modal's Done | Every toast type side by side, live theme switch |
+| V1 | Spec: dialog focused, Tab to Close, value `nowrap`, scrolls on 390px, Escape blocked until acknowledged; clipboard denial preserves the secret and keeps Done disabled. Fixed: the dashboard slid 79px left under the modal (`overflow: clip`) | — |
+| V2 | Toasts follow the theme (`data-sonner-theme`), including changing theme without reloading. The toaster mounts with the application so early actions are not lost during deferred loading. On phones the stack drops from the top so it no longer covers the modal's Done | Every toast type side by side |
 | B1 | Spec: Billing → Add Credits → Admin credit → $100 + reason posts one admin-credit with an idempotency key and the header shows $225; `test_admin_credit.py` | Real ledger round trip on a deployed stack |
 | C1/C2 | Spec: CLI tab shows its own key and the `npx skills add` command in a mono font; copy verified from the clipboard. Fixed: a reload re-minted a copied but unused key; rotation is atomic (`test_mcp_quick_connect.py`, 52 backend tests) | The installed skill calling the API with that key |
 | M1 | Footer now opaque over the fixed particle field (screenshots before/after, both themes) | — |
 | M2 | Guardrails art compared beside gpu/bolt in both themes; card screenshotted desktop and mobile | — |
 | W1 | Button label "View Manual Setup" in `hosts/page.tsx` | — |
-| W2 | Fixed: provider journeys always stopped at verification (a server row that cannot pass before registration); retrying a launch could start and bill a second instance; npx-launched SDK installs failed with EALLOWSCRIPTS. Controller tests walk the provider track to a saved config, renter launch adopt/relaunch/can't-tell, auth lifecycle; `npm run test:sdk:contract` installs the published SDK and renews OAuth. 624 wizard tests | Real GPU host install with heartbeat; "both" track end to end |
+| W2 | Provider and both controller journeys reach saved configuration; renter retries adopt existing launches and refuse an ambiguous replay. SDK install contract passes. Worker install recognizes v2 observation timestamps and requires durable credentials. 632 wizard tests and build pass | Real GPU host installation; durable launch idempotency for automatic replay |
 | W3 | Fixed: Hexara was never drawn below 121 columns or 45 rows; the layout now measures each screen. Fixed: narrowing the terminal left ghost rows. `hexara-preview.html` (demo, re-recorded with resizes) and `hexara-in-wizard.html` (real wizard at 110x36) are playable recordings | Very short terminals (he steps aside below roughly 32 rows on the opening screen) |
 
 ## Execution order
