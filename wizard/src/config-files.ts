@@ -1,7 +1,26 @@
 /** Preserve the user's project configuration when installing credentials. */
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
+
+export function configDirectory(): string {
+    const override = process.env.XCELSIOR_CONFIG_DIR?.trim();
+    return override ? resolve(override) : join(homedir(), ".xcelsior");
+}
+
+/** Replace a private file atomically, including when an older file was public. */
+export function writePrivateFile(file: string, body: string): void {
+    mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+    const temp = `${file}.${randomUUID()}.tmp`;
+    try {
+        writeFileSync(temp, body, { mode: 0o600, flag: "wx" });
+        chmodSync(temp, 0o600);
+        renameSync(temp, file);
+    } finally {
+        if (existsSync(temp)) unlinkSync(temp);
+    }
+}
 
 export function updateEnvFile(file: string, values: Record<string, string>): void {
     const remaining = new Map(Object.entries(values));
@@ -20,13 +39,5 @@ export function updateEnvFile(file: string, values: Record<string, string>): voi
     });
     for (const [key, value] of remaining) updated.push(`${key}=${JSON.stringify(value)}`);
     const body = updated.join("\n").replace(/^\n/, "").replace(/\n*$/, "\n");
-    mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-    const temp = `${file}.${randomUUID()}.tmp`;
-    try {
-        writeFileSync(temp, body, { mode: 0o600 });
-        chmodSync(temp, 0o600);
-        renameSync(temp, file);
-    } finally {
-        if (existsSync(temp)) unlinkSync(temp);
-    }
+    writePrivateFile(file, body);
 }

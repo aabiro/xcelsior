@@ -9,6 +9,7 @@ import TextInput from "ink-text-input";
 import type { SelectOption } from "./wizard-flow.js";
 import type { AutoCheckResults, ProviderSummaryData } from "./useWizardFlow.js";
 import { openUrl } from "./open-url.js";
+import { tokenFilePath } from "./wizard-state.js";
 import { detectAgents, describeAgents, writeXcelsiorContext } from "./agent-context.js";
 
 // ── Brand spinner ────────────────────────────────────────────────────
@@ -365,7 +366,7 @@ export function DeviceAuthStep({
         <Text color="#22c55e">✓ Authenticated{email ? ` as ${email}` : ""}</Text>
         {token && (
           <Box marginTop={1} flexDirection="column">
-            <Text>Your session token (for CLI / API access):</Text>
+            <Text>{token.startsWith("xcel_ai_") ? "Your API key:" : "Your sign-in access token:"}</Text>
             <Box marginTop={0}>
               <Text bold color="#ffcc00" wrap="wrap">
                 {tokenRevealed
@@ -378,7 +379,7 @@ export function DeviceAuthStep({
               <Text color="#ef4444">✗ Failed to save token: {tokenSaveError}</Text>
             ) : (
               <>
-                <Text color="#22c55e">✓ Saved to <Text bold>~/.xcelsior/token.json</Text></Text>
+                <Text color="#22c55e">✓ Saved to <Text bold>{tokenFilePath()}</Text></Text>
                 {envPath && (
                   <Text color="#22c55e">✓ Written to <Text bold>{envPath}</Text></Text>
                 )}
@@ -461,14 +462,14 @@ export function ManualTokenStep({ onSubmit }: ManualTokenStepProps) {
 
   return (
     <Box flexDirection="column">
-      <Text dimColor>Paste your xoa_ access token (from device sign-in — not an oauth_ client ID):</Text>
+      <Text dimColor>Paste your xcel_ai_ API key or xoa_ sign-in token:</Text>
       <Box>
         <Text color="#00d4ff">{"› "}</Text>
         <TextInput
           value={value}
           onChange={setValue}
           onSubmit={handleSubmit}
-          placeholder="xoa_..."
+          placeholder="xcel_ai_... or xoa_..."
         />
       </Box>
     </Box>

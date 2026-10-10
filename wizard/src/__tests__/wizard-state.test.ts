@@ -1,9 +1,6 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { describe, expect, it } from "vitest";
 import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import {
-    clearWizardCheckpoint,
     loadWizardCheckpoint,
     maskToken,
     redactSecrets,
@@ -12,17 +9,6 @@ import {
 } from "../wizard-state.js";
 
 describe("wizard-state", () => {
-    let tmpHome: string;
-
-    beforeEach(() => {
-        tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "wiz-state-"));
-        process.env.HOME = tmpHome;
-    });
-
-    afterEach(() => {
-        clearWizardCheckpoint();
-    });
-
     it("saves and loads checkpoint at mode 600 without secrets", () => {
         saveWizardCheckpoint({
             stepIndex: 3,
