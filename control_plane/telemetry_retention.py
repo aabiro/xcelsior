@@ -48,7 +48,8 @@ def prune_telemetry_snapshots(
             DELETE FROM telemetry_snapshots
             WHERE id IN (
                 SELECT id FROM telemetry_snapshots
-                WHERE recorded_at < clock_timestamp() - make_interval(days => %s)
+                WHERE recorded_at < EXTRACT(EPOCH FROM
+                    (clock_timestamp() - make_interval(days => %s)))
                 ORDER BY recorded_at ASC
                 LIMIT %s
             )

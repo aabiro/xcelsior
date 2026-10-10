@@ -15,6 +15,24 @@ from control_plane.telemetry_retention import (
 OBS_ROOT = Path(__file__).resolve().parent.parent / "infra" / "observability"
 
 
+def test_retention_runs_against_the_real_postgres_column_type():
+    from db import pg_connection
+
+    with pg_connection() as conn:
+        # Shadow the table on this connection using the migrated schema's
+        # types. Never delete the test suite's shared telemetry records.
+        conn.execute("CREATE TEMP TABLE telemetry_snapshots ON COMMIT DROP AS SELECT * FROM public.telemetry_snapshots WITH NO DATA")
+        conn.execute("""
+            INSERT INTO telemetry_snapshots (id, recorded_at)
+            VALUES (1, EXTRACT(EPOCH FROM now() - interval '20 days')),
+                   (2, EXTRACT(EPOCH FROM now() - interval '16 days')),
+                   (3, EXTRACT(EPOCH FROM now() - interval '1 day'))
+        """)
+        assert prune_telemetry_snapshots(conn, retention_days=14, batch_limit=1) == 2
+        assert conn.execute("SELECT id FROM telemetry_snapshots").fetchall() == [(3,)]
+        conn.rollback()
+
+
 def test_prune_telemetry_snapshots_deletes_old_rows_in_batches():
     """Verify prune_telemetry_snapshots deletes rows older than retention_days."""
     mock_conn = MagicMock()

@@ -305,11 +305,52 @@ def check_worker_readiness(
     return ok, details
 
 
+def check_maintenance_readiness(
+    conn: Any = None, *, max_heartbeat_age_sec: float = 60.0,
+) -> tuple[bool, dict[str, Any]]:
+    """Prove the background executor can claim and successfully settle work.
+
+    bg_worker owns scheduled_tasks and writes maintenance_heartbeat there;
+    it does not run the separate reconciler or write its service heartbeat.
+    """
+    details: dict[str, Any] = {"db_connected": False, "heartbeat_fresh": False}
+
+    def probe(c: Any) -> None:
+        row = c.execute(
+            """
+            SELECT EXTRACT(EPOCH FROM (clock_timestamp() - last_run_at)),
+                   last_status, enabled
+              FROM scheduled_tasks
+             WHERE task_name = 'maintenance_heartbeat'
+            """
+        ).fetchone()
+        details["db_connected"] = True
+        age = float(row[0]) if row and row[0] is not None else None
+        details["heartbeat_age_sec"] = age
+        details["last_status"] = row[1] if row else None
+        max_age = float(os.environ.get("XCELSIOR_SERVICE_HEARTBEAT_FRESH_SEC", max_heartbeat_age_sec))
+        details["heartbeat_fresh"] = bool(
+            row and row[2] and row[1] == "succeeded" and age is not None and 0 <= age <= max_age
+        )
+
+    try:
+        if conn is not None:
+            probe(conn)
+        else:
+            from db import pg_connection
+
+            with pg_connection() as c:
+                probe(c)
+    except Exception as exc:
+        details["error"] = str(exc)
+    return bool(details["db_connected"] and details["heartbeat_fresh"]), details
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Xcelsior Service Readiness Probe (§21.3)")
     parser.add_argument(
         "--service",
-        choices=["scheduler", "reconciler", "mcp", "worker"],
+        choices=["scheduler", "reconciler", "maintenance", "mcp", "worker"],
         required=True,
         help="Service to check readiness for",
     )
@@ -325,6 +366,8 @@ def main() -> None:
         ok, details = check_scheduler_readiness(max_heartbeat_age_sec=args.max_age)
     elif args.service == "reconciler":
         ok, details = check_reconciler_readiness(max_heartbeat_age_sec=args.max_age)
+    elif args.service == "maintenance":
+        ok, details = check_maintenance_readiness(max_heartbeat_age_sec=args.max_age)
     elif args.service == "mcp":
         ok, details = check_mcp_readiness()
     elif args.service == "worker":
