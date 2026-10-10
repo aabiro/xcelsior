@@ -283,6 +283,8 @@ RSYNC_EXCLUDES=(
     --exclude='__pycache__'
     --exclude='.pytest_cache'
     --exclude='venv'
+    --exclude='.venv'
+    --exclude='/scripts/agent-signing.key'
     --exclude='node_modules'
     --exclude='.next'
     --exclude='*.db'
@@ -1002,6 +1004,8 @@ done
         --exclude='__pycache__' \
         --exclude='.pytest_cache' \
         --exclude='venv' \
+        --exclude='.venv' \
+        --exclude='./scripts/agent-signing.key' \
         --exclude='node_modules' \
         --exclude='.next' \
         --exclude='*.db' \
