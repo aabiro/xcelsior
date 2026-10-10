@@ -7,6 +7,7 @@ import {
     benchmarkUnavailableResults,
     buildWizardVerificationResults,
     buildWorkerEnvContent,
+    hasFreshWorkerHeartbeat,
     mergeAuthorizedKeys,
     MINIMUM_VERSIONS,
     sanitizeHostSshUser,
@@ -75,6 +76,21 @@ function makeVersions(allPass = true): VersionCheck[] {
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
+
+describe("worker installation heartbeat", () => {
+    const since = Date.parse("2026-10-10T12:00:00Z");
+    it("accepts a new v2 observation while the legacy heartbeat is stale", () => {
+        expect(hasFreshWorkerHeartbeat({ last_seen: since / 1000 - 3600, last_observed_at: since / 1000 + 1 }, since)).toBe(true);
+    });
+    it("still accepts a fresh v1 heartbeat", () => {
+        expect(hasFreshWorkerHeartbeat({ last_seen: "2026-10-10T12:00:01Z", last_observed_at: null }, since)).toBe(true);
+    });
+    it("does not treat an active or admitted host as evidence of a fresh heartbeat", () => {
+        expect(hasFreshWorkerHeartbeat({ status: "active", admitted: true, last_observed_at: since / 1000 - 60 }, since)).toBe(false);
+        expect(hasFreshWorkerHeartbeat({ last_seen: "invalid" }, since)).toBe(false);
+        expect(hasFreshWorkerHeartbeat(undefined, since)).toBe(false);
+    });
+});
 
 describe("runVerificationChecks", () => {
     it("all checks pass with good hardware", () => {
@@ -338,5 +354,11 @@ describe("worker host SSH setup helpers", () => {
         expect(env).toContain("XCELSIOR_HOST_ID=host-1\n");
         expect(env).toContain("XCELSIOR_HOST_SSH_USER=provider\n");
         expect(env).toContain("XCELSIOR_API_TOKEN=token\n");
+    });
+
+    it.each(["https://example.test?a=1&b=2", "$(touch /tmp/unwanted)", "~/.secret", "value\nCOMMAND=bad"])("rejects shell syntax in worker configuration: %s", (apiUrl) => {
+        expect(() => buildWorkerEnvContent({
+            hostId: "host-1", apiUrl, hostIp: "100.64.0.6", hostSshUser: "provider",
+        })).toThrow("Unsupported characters");
     });
 });

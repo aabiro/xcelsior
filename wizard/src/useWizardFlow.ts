@@ -1094,17 +1094,19 @@ export function useWizardFlow(): UseWizardFlowReturn {
 
         // The launch intent is saved before the POST. A retry after an
         // ambiguous failure (a timeout or 5xx after the server committed), or
-        // a resume, first looks for the instance the earlier attempt created,
-        // so the user never gets, and pays for, a second one.
+        // a resume, first looks for the instance the earlier attempt created.
+        // An empty list cannot prove the POST failed: it may still be in flight.
+        // Until this endpoint supports durable idempotency, never replay it.
         const priorName = currentAnswers["_launch_host"] === hostId ? currentAnswers["_launch_name"] as string | undefined : undefined;
         const startedAt = priorName ? Number(currentAnswers["_launch_started_at"] || 0) : Date.now();
         if (priorName) {
             let existing: InstanceInfo | undefined;
             try {
-                existing = (await listInstances(API_BASE_URL, token)).find((instance) =>
-                    instance.name === priorName && instance.host_id === hostId
+                const matches = (await listInstances(API_BASE_URL, token)).filter((instance) =>
+                    instance.name === priorName && (!instance.host_id || instance.host_id === hostId)
                     // Allow for clock skew between this machine and the server.
                     && (instance.submitted_at ?? 0) * 1000 >= startedAt - 5 * 60_000);
+                if (matches.length === 1) existing = matches[0];
             } catch (err) {
                 return [{
                     name: "Instance",
@@ -1116,6 +1118,10 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 setInstanceInfo(existing);
                 return [{ name: "Instance", ok: true, detail: `${existing.job_id} — ${existing.status} (started by the earlier attempt)` }];
             }
+            return [{
+                name: "Instance", ok: false,
+                detail: `The earlier launch (${priorName}) has not appeared yet. Nothing new was launched. Retry to check again, or check Instances in the dashboard before starting a new setup.`,
+            }];
         }
         const name = priorName ?? generateInstanceName();
         const intent = {

@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { useWizardFlow, type UseWizardFlowReturn } from "../useWizardFlow.js";
 import { configDirectory, writePrivateFile } from "../config-files.js";
-import { saveWizardCheckpoint, tokenFilePath } from "../wizard-state.js";
+import { loadWizardCheckpoint, saveWizardCheckpoint, tokenFilePath } from "../wizard-state.js";
 import { WIZARD_STEPS } from "../wizard-flow.js";
 
 // Drives the real controller through the provider track. Only the machine
@@ -122,10 +122,12 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("provider journey through the flow controller", () => {
-    it("passes local verification before the host exists, then registers, installs and saves", async () => {
+    it.each(["provide", "both"])("completes %s through registration, install, and saved configuration", async (mode) => {
+        const checkpoint = loadWizardCheckpoint()!;
+        saveWizardCheckpoint({ ...checkpoint, answers: { ...checkpoint.answers, mode } });
         render(<Probe />);
         await settle();
-        const visited = await drive({ pricing: "recommended", "spot-enabled": "no" }, "done");
+        const visited = await drive({ pricing: "recommended", "spot-enabled": "no", "want-launch": "no" }, "done");
 
         expect(visited).toEqual(expect.arrayContaining([
             "gpu-detect", "version-check", "network-setup", "benchmark", "network-bench",
@@ -146,7 +148,12 @@ describe("provider journey through the flow controller", () => {
         expect(machine.installWorkerAgent).toHaveBeenCalledTimes(1);
         expect(machine.installWorkerAgent.mock.calls[0][2]).toBe(registered.host_id);
         expect(flow.isComplete).toBe(true);
-        expect(readFileSync(join(configDirectory(), "config.toml"), "utf8")).toContain('mode = "provide"');
+        expect(readFileSync(join(configDirectory(), "config.toml"), "utf8")).toContain(`mode = "${mode}"`);
+        expect(api.createOAuthClient).toHaveBeenCalledTimes(1);
+        if (mode === "both") {
+            expect(visited).toEqual(expect.arrayContaining(["want-launch", "confirm-setup"]));
+            expect(visited).not.toContain("launch-instance");
+        }
     });
 
     it("stops at the network test instead of verifying with invented numbers", async () => {

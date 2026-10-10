@@ -72,7 +72,7 @@ describe("launching from the wizard", () => {
         expect(flow.instanceInfo?.job_id).toBe("job-1");
     });
 
-    it("launches again under the same name when the first attempt created nothing", async () => {
+    it("does not replay a timed-out POST when the first instance has not appeared yet", async () => {
         api.launchInstance.mockRejectedValueOnce(new Error("Request timed out"));
         await startAtLaunch();
         const name = api.launchInstance.mock.calls[0][2].name;
@@ -80,9 +80,16 @@ describe("launching from the wizard", () => {
         flow.retryCheck();
         await settle();
         expect(api.listInstances).toHaveBeenCalledTimes(1);
-        expect(api.launchInstance).toHaveBeenCalledTimes(2);
-        expect(api.launchInstance.mock.calls[1][2].name).toBe(name);
-        expect(flow.checkResults["launch-instance"].allPassed).toBe(true);
+        expect(api.launchInstance).toHaveBeenCalledTimes(1);
+        expect(flow.checkResults["launch-instance"].allPassed).toBe(false);
+        expect(flow.checkResults["launch-instance"].items[0].detail).toContain("Nothing new was launched");
+        // The original POST can finish after that empty read. A queued job
+        // may not have an assigned host yet; it must still be recovered.
+        api.listInstances.mockResolvedValue([{ ...launched(name), host_id: null }]);
+        flow.retryCheck();
+        await settle();
+        expect(api.launchInstance).toHaveBeenCalledTimes(1);
+        expect(flow.instanceInfo?.job_id).toBe("job-1");
     });
 
     it("launches nothing when it cannot tell whether the first attempt went through", async () => {
