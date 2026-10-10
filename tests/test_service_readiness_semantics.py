@@ -10,15 +10,41 @@ Verifies per-service readiness transitions:
 
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+import pytest
 
 from control_plane.readiness import (
     check_scheduler_readiness,
     check_reconciler_readiness,
     check_mcp_readiness,
     check_worker_readiness,
+    check_maintenance_readiness,
 )
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+@pytest.mark.parametrize("row,expected", [
+    (None, False),
+    ((None, None, True), False),
+    ((121.0, "succeeded", True), False),
+    ((1.0, "failed", True), False),
+    ((1.0, "succeeded", False), False),
+    ((1.0, "succeeded", True), True),
+])
+def test_maintenance_readiness_requires_a_recent_successful_enabled_task(row, expected):
+    conn = MagicMock()
+    conn.execute.return_value.fetchone.return_value = row
+    ok, details = check_maintenance_readiness(conn=conn)
+    assert ok is expected
+    assert details["db_connected"] is True
+
+
+def test_maintenance_readiness_fails_closed_when_database_is_unreachable():
+    conn = MagicMock()
+    conn.execute.side_effect = RuntimeError("database unavailable")
+    ok, details = check_maintenance_readiness(conn=conn)
+    assert not ok
+    assert not details["db_connected"]
 
 
 def test_scheduler_readiness_transitions_on_dependency_break_and_repair():

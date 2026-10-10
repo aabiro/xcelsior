@@ -586,10 +586,10 @@ services:
     restart: unless-stopped
     depends_on:
       - api
-    # Blueprint §21.3 / B8.2: semantic readiness check verifies DB access,
-    # reconciler heartbeat, and reconciliation queue access.
+    # Check this executor's settled maintenance task, not the heartbeat of
+    # the separate reconciler process (which this service never writes).
     healthcheck:
-      test: ["CMD", "python", "-m", "control_plane.readiness", "--service", "reconciler"]
+      test: ["CMD", "python", "-m", "control_plane.readiness", "--service", "maintenance"]
       interval: 30s
       timeout: 10s
       start_period: 20s

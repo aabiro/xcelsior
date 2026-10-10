@@ -62,12 +62,18 @@ _NETWORK_DIAGNOSTIC_LOCK = threading.Lock()
 @router.get("/api/diagnostics/network-download", tags=["Infrastructure"])
 def network_download(request: Request):
     """Bounded authenticated download for provider network diagnostics."""
-    from routes._deps import _canonical_owner_id, _require_scope, _take_shared_rate_slot
+    from routes._deps import _canonical_owner_id, _require_scope
 
     user = _require_auth(request)
     _require_scope(user, "hosts:write")
+    return _network_download_response(_canonical_owner_id(user))
+
+
+def _network_download_response(owner_id: str):
+    from routes._deps import _take_shared_rate_slot
+
     allowed = _take_shared_rate_slot(
-        "runtime.network_diagnostic_rate_limit", _canonical_owner_id(user), time.time(),
+        "runtime.network_diagnostic_rate_limit", owner_id, time.time(),
         limit=4, window_sec=60,
         buckets=_NETWORK_DIAGNOSTIC_BUCKETS, lock=_NETWORK_DIAGNOSTIC_LOCK,
     )
