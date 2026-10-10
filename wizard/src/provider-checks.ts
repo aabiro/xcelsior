@@ -773,6 +773,20 @@ export interface WorkerInstallResult {
     detail: string;
 }
 
+interface WorkerHeartbeat {
+    last_seen?: number | string;
+    last_observed_at?: number | string | null;
+    status?: string;
+    admitted?: boolean;
+}
+
+export function hasFreshWorkerHeartbeat(host: WorkerHeartbeat | undefined, since: number): boolean {
+    return [host?.last_observed_at, host?.last_seen].some((value) => {
+        const timestamp = typeof value === "number" ? value * 1000 : Date.parse(value || "");
+        return Number.isFinite(timestamp) && timestamp >= since;
+    });
+}
+
 export function sanitizeHostSshUser(value: string | null | undefined): string {
     const trimmed = String(value ?? "").trim();
     return /^[A-Za-z0-9_.-]{1,64}$/.test(trimmed) ? trimmed : "";
@@ -811,7 +825,7 @@ export function buildWorkerEnvContent(params: {
     // This file is read by systemd and the shared shell installer. Only scalar
     // configuration values are accepted; none may become shell expressions.
     for (const [name, value] of Object.entries(params)) {
-        if (value && !/^[A-Za-z0-9_./:@%+?=&~-]+$/.test(value)) {
+        if (value && !/^[A-Za-z0-9_./:@%+=-]+$/.test(value)) {
             throw new Error(`Unsupported characters in worker configuration: ${name}`);
         }
     }
@@ -834,25 +848,19 @@ export function buildWorkerEnvContent(params: {
 }
 
 async function fetchPlatformHostPublicKey(apiUrl: string, apiToken: string): Promise<string> {
-    const pubkeyResp = await fetch(`${apiUrl}/api/ssh/pubkey`);
+    const pubkeyResp = await fetch(new URL("/api/ssh/pubkey", apiUrl), {
+        headers: { Authorization: `Bearer ${apiToken}` },
+        signal: AbortSignal.timeout(10_000),
+    });
     if (pubkeyResp.ok) {
         const body = await pubkeyResp.json() as { public_key?: string };
         const publicKey = String(body.public_key ?? "").trim();
         if (publicKey) return publicKey;
     }
 
-    const headers: Record<string, string> = {};
-    if (apiToken) {
-        headers.Authorization = `Bearer ${apiToken}`;
-        headers.Cookie = `xcelsior_session=${apiToken}`;
-    }
-    const keygenResp = await fetch(`${apiUrl}/ssh/keygen`, {
-        method: "POST",
-        headers,
-    });
-    if (!keygenResp.ok) return "";
-    const body = await keygenResp.json() as { public_key?: string };
-    return String(body.public_key ?? "").trim();
+    // Platform key creation/rotation is an operator action. A missing key
+    // must not make provider onboarding regenerate the fleet's SSH identity.
+    return "";
 }
 
 async function installPlatformHostPublicKey(
@@ -919,8 +927,11 @@ export async function installWorkerAgent(
     const startedAt = Date.now();
     if (process.platform !== "linux") return { installed: false, detail: "Worker installation requires Linux and systemd" };
     if (!hostId || !isIP(hostIp)) return { installed: false, detail: "Register the host and complete network setup before installing its worker" };
-    if (!oauthClientId && !apiToken.startsWith("xcel_ai_")) {
+    if (!(oauthClientId && oauthClientSecret) && !apiToken.startsWith("xcel_ai_")) {
         return { installed: false, detail: "A durable API key or renewing OAuth client is required for the worker" };
+    }
+    if (Boolean(oauthClientId) !== Boolean(oauthClientSecret)) {
+        return { installed: false, detail: "Both the OAuth client ID and client secret are required" };
     }
     const currentUser = sanitizeHostSshUser(userInfo().username || process.env.USER);
     const sudoUser = sanitizeHostSshUser(process.env.SUDO_USER);
@@ -974,11 +985,10 @@ systemctl is-active --quiet xcelsior-worker
                 headers: { Authorization: `Bearer ${apiToken}` }, signal: AbortSignal.timeout(5_000),
             });
             if (!response.ok) throw new Error(`Host status check returned HTTP ${response.status}`);
-            const body = await response.json() as { host?: { last_seen?: number | string; status?: string; admitted?: boolean } };
+            const body = await response.json() as { host?: WorkerHeartbeat };
             const host = body.host;
-            const heartbeat = typeof host?.last_seen === "number" ? host.last_seen * 1000 : Date.parse(host?.last_seen || "");
             lastState = `Host status: ${host?.status || "unknown"}`;
-            if (Number.isFinite(heartbeat) && heartbeat >= startedAt) {
+            if (hasFreshWorkerHeartbeat(host, startedAt)) {
                 return { installed: true, detail: host?.admitted
                     ? "Worker service active; fresh scheduler heartbeat and admission confirmed"
                     : "Worker service active; fresh scheduler heartbeat confirmed. Admission is still pending; the host is not ready for marketplace work." };
