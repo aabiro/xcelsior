@@ -3,9 +3,11 @@
 // marketplace browsing, payment gating, instance launch, and AI escape hatch.
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
-import { updateEnvFile } from "./config-files.js";
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import { openUrl as openBrowser } from "./open-url.js";
+import { configDirectory, updateEnvFile, writePrivateFile } from "./config-files.js";
 import { WIZARD_STEPS, getNextStep, STATIC_STEP_HELP, type WizardStep, IMAGE_TEMPLATES, WORKLOAD_IMAGE_MAP } from "./wizard-flow.js";
 import {
     streamChat, confirmAction, type ApiClientConfig,
@@ -20,7 +22,7 @@ import { checkDocker, type CheckResult } from "./checks.js";
 import {
     checkVersions, detectGpuFull, runComputeBenchmark,
     runNetworkBenchmark, buildVerificationReport,
-    benchmarkUnavailableResults, buildWizardVerificationResults,
+    benchmarkUnavailableResults, buildLocalVerificationResults,
     CHECK_REMEDIATION,
     type GpuInfo, type BenchmarkResult, type NetworkBenchResult,
     type VersionCheck,
@@ -30,6 +32,7 @@ import {
     hydrateWizardCheckpoint,
     loadWizardCheckpoint,
     saveWizardCheckpoint,
+    tokenFilePath,
     type WizardCheckpoint,
 } from "./wizard-state.js";
 import { sanitizeContextValue, validateApiBaseUrl, validateApiToken } from "./wizard-guards.js";
@@ -49,9 +52,6 @@ import {
 // ── Config ───────────────────────────────────────────────────────────
 
 const API_BASE_URL = process.env["XCELSIOR_API_URL"] || "https://xcelsior.ca";
-const CONFIG_HOME = process.env["HOME"] ?? "/tmp";
-const TOKEN_FILE = `${CONFIG_HOME}/.xcelsior/token.json`;
-const CONFIG_FILE = `${CONFIG_HOME}/.xcelsior/config.toml`;
 const DEFAULT_DEVICE_POLL_MS = 5_000;
 const DEVICE_CODE_EXPIRY_MS = 15 * 60 * 1000;
 const WALLET_POLL_MS = 5_000;
@@ -162,7 +162,7 @@ export interface UseWizardFlowReturn {
     confirmAi: (approved: boolean) => Promise<void>;
     /** Tool calls made during current AI response */
     aiToolCalls: AiToolCall[];
-    /** True during the 8s choreography delay after submitAnswer — hides step content */
+    /** True during the choreography delay after submitAnswer — hides step content */
     transitioning: boolean;
     /** Resume metadata when a prior checkpoint was found */
     resumeInfo: { resumed: boolean; needsReauth: boolean; expired: boolean };
@@ -264,149 +264,37 @@ async function checkGpuBasic(): Promise<CheckResult[]> {
     }
 }
 
-/** Save token to ~/.xcelsior/token.json (0o600 perms).
- *  Returns true on success, error message string on failure. */
-async function saveToken(token: string): Promise<true | string> {
-    try {
-        const fs = await import("node:fs");
-        const path = await import("node:path");
-        const dir = path.dirname(TOKEN_FILE);
-        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-        fs.writeFileSync(TOKEN_FILE, JSON.stringify({ access_token: token }, null, 2), {
-            mode: 0o600,
-        });
-        // Verify the write
-        const written = fs.readFileSync(TOKEN_FILE, "utf-8");
-        const parsed = JSON.parse(written);
-        if (parsed.access_token !== token) return "Token file verification failed — written content does not match";
-        return true;
-    } catch (err) {
-        return err instanceof Error ? err.message : "Failed to save token";
-    }
+/** Save only after the current authentication attempt has been verified. */
+function saveToken(token: string): void {
+    writePrivateFile(tokenFilePath(), JSON.stringify({ access_token: token }, null, 2));
 }
 
-/** Write auth credentials to the project's .env file (append if exists, create if not).
- *  Writes OAuth client credentials when provided, and API token as fallback.
- *  Returns true on success, error message string on failure. */
-async function writeProjectEnv(
-    envPath: string,
-    token: string,
-    oauthClientId?: string,
-    oauthClientSecret?: string,
-): Promise<true | string> {
-    try {
-        const values: Record<string, string> = { XCELSIOR_API_URL: API_BASE_URL };
-        if (oauthClientId && oauthClientSecret) {
-            values.XCELSIOR_OAUTH_CLIENT_ID = oauthClientId;
-            values.XCELSIOR_OAUTH_CLIENT_SECRET = oauthClientSecret;
-        }
-        if (token) values.XCELSIOR_API_TOKEN = token;
-        updateEnvFile(envPath, values);
-        return true;
-    } catch (err) {
-        return err instanceof Error ? err.message : `Failed to write ${envPath}`;
-    }
-}
-
-/** Save config to ~/.xcelsior/config.toml */
-async function saveConfig(answers: Record<string, string | string[]>): Promise<void> {
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const dir = path.dirname(CONFIG_FILE);
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-
+/** Required writes finish before the flow can report completion. */
+function saveConfig(answers: Record<string, string | string[]>): void {
     const lines = [
-        `# Xcelsior configuration — generated by setup wizard`,
-        `api_url = "${API_BASE_URL}"`,
+        "# Xcelsior configuration — generated by setup wizard",
+        `api_url = ${JSON.stringify(API_BASE_URL)}`,
     ];
-    if (answers.mode) lines.push(`mode = "${answers.mode}"`);
-    if (answers.workload) lines.push(`workload = "${answers.workload}"`);
-    if (answers.pricing) lines.push(`pricing = "${answers.pricing}"`);
-    if (answers["custom-rate"]) lines.push(`custom_rate = ${answers["custom-rate"]}`);
-    if (answers["_host_id"]) lines.push(`host_id = "${answers["_host_id"]}"`);
-    fs.writeFileSync(CONFIG_FILE, lines.join("\n") + "\n", { mode: 0o600 });
+    for (const key of ["mode", "workload", "pricing"] as const) {
+        if (answers[key]) lines.push(`${key} = ${JSON.stringify(answers[key])}`);
+    }
+    if (answers["custom-rate"]) lines.push(`custom_rate = ${Number(answers["custom-rate"])}`);
+    if (answers["_host_id"]) lines.push(`host_id = ${JSON.stringify(answers["_host_id"])}`);
 
-    // Write .env for worker agent (provider mode)
-    // Prefer OAuth client credentials when available; keep API token as fallback.
     if ((answers.mode === "provide" || answers.mode === "both") && answers["_host_id"]) {
-        const envFile = `${CONFIG_HOME}/.xcelsior/.env`;
-        const envLines = [
-            `# Xcelsior worker environment — generated by setup wizard`,
-            `XCELSIOR_HOST_ID=${answers["_host_id"]}`,
-            `XCELSIOR_SCHEDULER_URL=${API_BASE_URL}`,
-        ];
+        const values: Record<string, string> = {
+            XCELSIOR_HOST_ID: String(answers["_host_id"]),
+            XCELSIOR_SCHEDULER_URL: API_BASE_URL,
+        };
         if (answers["oauth-client-id"] && answers["oauth-client-secret"]) {
-            envLines.push(`XCELSIOR_OAUTH_CLIENT_ID=${answers["oauth-client-id"]}`);
-            envLines.push(`XCELSIOR_OAUTH_CLIENT_SECRET=${answers["oauth-client-secret"]}`);
+            values.XCELSIOR_OAUTH_CLIENT_ID = String(answers["oauth-client-id"]);
+            values.XCELSIOR_OAUTH_CLIENT_SECRET = String(answers["oauth-client-secret"]);
         }
-        if (answers["api-key"]) {
-            envLines.push(`XCELSIOR_API_TOKEN=${answers["api-key"]}`);
-        }
-        if (answers["custom-rate"]) envLines.push(`XCELSIOR_COST_PER_HOUR=${answers["custom-rate"]}`);
-        fs.writeFileSync(envFile, envLines.join("\n") + "\n", { mode: 0o600 });
+        if (answers["api-key"]) values.XCELSIOR_API_TOKEN = String(answers["api-key"]);
+        if (answers["custom-rate"]) values.XCELSIOR_COST_PER_HOUR = String(answers["custom-rate"]);
+        updateEnvFile(path.join(configDirectory(), ".env"), values);
     }
-}
-
-/** Find the project root by walking up from cwd looking for .git, .env, or well-known markers */
-function findProjectRoot(): string {
-    let dir = process.cwd();
-    // Walk up until we find .git or hit filesystem root
-    for (let i = 0; i < 10; i++) {
-        if (existsSync(path.join(dir, ".git")) || existsSync(path.join(dir, ".env"))) return dir;
-        const parent = path.dirname(dir);
-        if (parent === dir) break;
-        dir = parent;
-    }
-    return process.cwd();
-}
-
-/** Detect project framework in the project root */
-function detectFramework(): { name: string; envPath: string } | null {
-    const root = findProjectRoot();
-    try {
-        const pkgPath = path.join(root, "package.json");
-        if (existsSync(pkgPath)) {
-            const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-            const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-            if (deps["next"]) return { name: "Next.js", envPath: path.join(root, ".env.local") };
-            if (deps["react"]) return { name: "React", envPath: path.join(root, ".env") };
-            if (deps["vue"]) return { name: "Vue", envPath: path.join(root, ".env") };
-            if (deps["svelte"] || deps["@sveltejs/kit"]) return { name: "SvelteKit", envPath: path.join(root, ".env") };
-            return { name: "Node.js", envPath: path.join(root, ".env") };
-        }
-        if (existsSync(path.join(root, "requirements.txt")) || existsSync(path.join(root, "pyproject.toml"))) {
-            return { name: "Python", envPath: path.join(root, ".env") };
-        }
-        if (existsSync(path.join(root, "Cargo.toml"))) return { name: "Rust", envPath: path.join(root, ".env") };
-        if (existsSync(path.join(root, "go.mod"))) return { name: "Go", envPath: path.join(root, ".env") };
-    } catch {
-        // ignore
-    }
-    return null;
-}
-
-/** Open a URL in the default browser */
-async function openBrowser(url: string): Promise<boolean> {
-    const { execFile } = await import("node:child_process");
-    const { promisify } = await import("node:util");
-    const exec = promisify(execFile);
-
-    // Try platform-specific openers
-    const cmds: [string, string[]][] = process.platform === "darwin"
-        ? [["open", [url]]]
-        : process.platform === "win32"
-            ? [["cmd", ["/c", "start", url]]]
-            : [["xdg-open", [url]], ["sensible-browser", [url]], ["x-www-browser", [url]]];
-
-    for (const [cmd, args] of cmds) {
-        try {
-            await exec(cmd, args, { timeout: 5_000 });
-            return true;
-        } catch {
-            continue;
-        }
-    }
-    return false;
+    writePrivateFile(path.join(configDirectory(), "config.toml"), lines.join("\n") + "\n");
 }
 
 /**
@@ -546,12 +434,12 @@ function buildWorkerOAuthClientName(
 // ── Hook ─────────────────────────────────────────────────────────────
 
 export function useWizardFlow(): UseWizardFlowReturn {
-    const hydrated = hydrateWizardCheckpoint(
+    const [hydrated] = useState(() => hydrateWizardCheckpoint(
         loadWizardCheckpoint(),
         WIZARD_STEPS.length,
         DEVICE_AUTH_STEP_INDEX >= 0 ? DEVICE_AUTH_STEP_INDEX : 0,
-    );
-    const initialCheckpoint = hydrated?.checkpoint ?? null;
+    ));
+    const initialCheckpoint = hydrated?.expired ? null : hydrated?.checkpoint ?? null;
     const initialStepIndex = initialCheckpoint?.stepIndex ?? 0;
     const initialAnswers = initialCheckpoint?.answers ?? { "_api_base_url": API_BASE_URL };
     const initialStep = WIZARD_STEPS[initialStepIndex] ?? WIZARD_STEPS[0];
@@ -583,6 +471,9 @@ export function useWizardFlow(): UseWizardFlowReturn {
     const [aiStreaming, setAiStreaming] = useState(false);
     const lastAiContentRef = useRef<string | null>(null);
     const [isComplete, setIsComplete] = useState(false);
+    const completedRef = useRef(false);
+    const mountedRef = useRef(true);
+    const transitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [transitioning, setTransitioning] = useState(false);
     const [validationError, setValidationError] = useState<string | null>(null);
     const [confirmError, setConfirmError] = useState<string | null>(null);
@@ -603,15 +494,21 @@ export function useWizardFlow(): UseWizardFlowReturn {
     });
     const devicePollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const browserTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const authGenRef = useRef(0);
+    const manualAuthInFlightRef = useRef(false);
 
     // Marketplace
-    const [gpuListings, setGpuListings] = useState<MarketplaceListing[]>([]);
+    const [gpuListings, setGpuListings] = useState<MarketplaceListing[]>(initialCheckpoint?.runtime?.listings ?? []);
     const [browseError, setBrowseError] = useState<string | null>(null);
-    const [gpuOptions, setGpuOptions] = useState<{ label: string; value: string }[]>([]);
+    const [gpuOptions, setGpuOptions] = useState<{ label: string; value: string }[]>(() =>
+        (initialCheckpoint?.runtime?.listings ?? []).map((listing) => ({
+            label: `${listing.gpu_model} · ${listing.vram_gb} GB · $${listing.price_per_hour.toFixed(2)}/hr · ${listing.owner}`,
+            value: listing.host_id,
+        })));
     const [imageOptions, setImageOptions] = useState<{ label: string; value: string }[]>([]);
 
     // Instance
-    const [instanceInfo, setInstanceInfo] = useState<InstanceInfo | null>(null);
+    const [instanceInfo, setInstanceInfo] = useState<InstanceInfo | null>(initialCheckpoint?.runtime?.instance ?? null);
 
     // Payment
     const [paymentGate, setPaymentGate] = useState({
@@ -626,11 +523,13 @@ export function useWizardFlow(): UseWizardFlowReturn {
     const [checkProgress, setCheckProgress] = useState<string[]>([]);
     // Live marketplace snapshot powering the Learn pane charts (best-effort).
     const [marketplaceStats, setMarketplaceStats] = useState<MarketplaceStats | null>(null);
+    const checkRunningRef = useRef(false);
+    const browseRunningRef = useRef(false);
     const activeCheckRef = useRef<{ checkId: string; stepId: string } | null>(null);
     const lastAdvanceRef = useRef<number>(0);
     const checkpointTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const flowGenRef = useRef(0);
-    const gpuListingsRef = useRef<MarketplaceListing[]>([]);
+    const gpuListingsRef = useRef<MarketplaceListing[]>(initialCheckpoint?.runtime?.listings ?? []);
     const lastAutoAnalysisRef = useRef<{ key: string; at: number } | null>(null);
 
     // Device auth — detected .env path for display
@@ -643,8 +542,11 @@ export function useWizardFlow(): UseWizardFlowReturn {
 
     const scheduleCheckpoint = useCallback((override?: Partial<WizardCheckpoint>) => {
         if (checkpointTimerRef.current) clearTimeout(checkpointTimerRef.current);
+        if (completedRef.current) return;
         checkpointTimerRef.current = setTimeout(() => {
+            if (completedRef.current) return;
             saveWizardCheckpoint({
+                runtime: runtimeSnapshot(),
                 stepIndex: stepIndexRef.current,
                 answers: answersRef.current,
                 conversationId: conversationIdRef.current ?? undefined,
@@ -660,8 +562,9 @@ export function useWizardFlow(): UseWizardFlowReturn {
             clearTimeout(checkpointTimerRef.current);
             checkpointTimerRef.current = null;
         }
-        if (isComplete) return;
+        if (completedRef.current) return;
         saveWizardCheckpoint({
+                runtime: runtimeSnapshot(),
             stepIndex: stepIndexRef.current,
             answers: answersRef.current,
             conversationId: conversationIdRef.current ?? undefined,
@@ -687,11 +590,20 @@ export function useWizardFlow(): UseWizardFlowReturn {
     const [aiToolCalls, setAiToolCalls] = useState<AiToolCall[]>([]);
 
     // Provider flow state
-    const gpuInfoRef = useRef<GpuInfo | null>(null);
-    const benchResultRef = useRef<BenchmarkResult | null>(null);
-    const networkResultRef = useRef<NetworkBenchResult | null>(null);
-    const versionChecksRef = useRef<VersionCheck[]>([]);
-    const [providerSummary, setProviderSummary] = useState<ProviderSummaryData | null>(null);
+    const gpuInfoRef = useRef<GpuInfo | null>(initialCheckpoint?.runtime?.gpu ?? null);
+    const benchResultRef = useRef<BenchmarkResult | null>(initialCheckpoint?.runtime?.benchmark ?? null);
+    const networkResultRef = useRef<NetworkBenchResult | null>(initialCheckpoint?.runtime?.network ?? null);
+    const versionChecksRef = useRef<VersionCheck[]>(initialCheckpoint?.runtime?.versions ?? []);
+    const [providerSummary, setProviderSummary] = useState<ProviderSummaryData | null>(initialCheckpoint?.runtime?.providerSummary ?? null);
+    const providerSummaryRef = useRef(providerSummary);
+    providerSummaryRef.current = providerSummary;
+    const instanceInfoRef = useRef(instanceInfo);
+    instanceInfoRef.current = instanceInfo;
+    const runtimeSnapshot = () => ({
+        gpu: gpuInfoRef.current, benchmark: benchResultRef.current, network: networkResultRef.current,
+        versions: versionChecksRef.current, listings: gpuListingsRef.current,
+        providerSummary: providerSummaryRef.current, instance: instanceInfoRef.current,
+    });
 
     // ── Preflight service-health gate (Part A) ───────────────────────
     const [gatePhase, setGatePhase] = useState<GatePhase>("checking");
@@ -710,7 +622,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
     const launchSummary: string[] = [];
     if (step.id === "confirm-launch") {
         const pickedHost = answers["gpu-pick"] as string;
-        const listing = gpuListings.find((l) => l.host_id === pickedHost);
+        const listing = gpuListingsRef.current.find((l) => l.host_id === pickedHost);
         const image = answers["image-pick"] as string;
         if (listing) {
             launchSummary.push(`GPU: ${listing.gpu_model} · ${listing.vram_gb} GB`);
@@ -786,7 +698,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
 
     // ── Device auth flow ─────────────────────────────────────────────
 
-    const stopDevicePoll = useCallback(() => {
+    const clearDeviceTimers = useCallback(() => {
         if (browserTimeoutRef.current) {
             clearTimeout(browserTimeoutRef.current);
             browserTimeoutRef.current = null;
@@ -795,6 +707,42 @@ export function useWizardFlow(): UseWizardFlowReturn {
             clearTimeout(devicePollRef.current as unknown as ReturnType<typeof setTimeout>);
             devicePollRef.current = null;
         }
+    }, []);
+
+    const stopDevicePoll = useCallback(() => {
+        authGenRef.current += 1;
+        manualAuthInFlightRef.current = false;
+        clearDeviceTimers();
+    }, [clearDeviceTimers]);
+
+    const acceptAuthentication = useCallback(async (token: string, source: "authorized" | "manual", gen: number) => {
+        const profile = await getMe(API_BASE_URL, token);
+        if (gen !== authGenRef.current) return;
+        if (!profile.user_id) throw new Error("The server returned an incomplete account profile");
+        try {
+            // This atomic write is synchronous: no superseding auth attempt can
+            // interleave between the generation check and credential storage.
+            saveToken(token);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Could not save credential";
+            setTokenSaveError(message);
+            throw new Error(`Credential could not be saved: ${message}`);
+        }
+        const updated = {
+            ...answersRef.current,
+            "api-key": token,
+            "device-auth": source,
+            "_session-token": token,
+            "_customer_id": profile.customer_id || "",
+            "_email": profile.email || "",
+        };
+        answersRef.current = updated;
+        setAnswers(updated);
+        setDeviceAuth((prev) => ({ ...prev, status: "authorized", token, email: profile.email, errorMessage: null }));
+        setTokenSaveError(null);
+        setDeviceAuthEnvPath(null);
+        setWizardState("excited");
+        setWizardMessage(`Credential saved to ${tokenFilePath()} — press Enter to continue`);
     }, []);
 
     /** Open browser immediately — cancels the 15s countdown timer */
@@ -815,203 +763,143 @@ export function useWizardFlow(): UseWizardFlowReturn {
         if (!shouldProvisionWizardOAuthClient(currentAnswers)) return currentAnswers;
         if (currentAnswers["oauth-client-id"] && currentAnswers["oauth-client-secret"]) return currentAnswers;
 
-        const userGrant = String(sessionToken || currentAnswers["_session-token"] || "").trim();
-        if (!userGrant) return currentAnswers;
+        const userGrant = String(sessionToken || currentAnswers["_session-token"] || currentAnswers["api-key"] || "").trim();
+        if (!userGrant) throw new Error("Sign in before creating worker credentials");
+        const gen = flowGenRef.current;
+        const origin = stepIndexRef.current;
 
         const mode = String(currentAnswers.mode || "rent");
         try {
-            const client = await createOAuthClient(API_BASE_URL, userGrant, {
+            // The general progress checkpoint deliberately strips secrets. Keep
+            // application credentials in a separate private file so retries and
+            // resumes reuse this application's client instead of creating more.
+            const identity = JSON.stringify([API_BASE_URL, currentAnswers["_email"],
+                currentAnswers["_customer_id"], mode, mode === "sdk" ? process.cwd() : currentAnswers["_host_id"]]);
+            const credentialsFile = path.join(configDirectory(), "clients", `${createHash("sha256").update(identity).digest("hex")}.json`);
+            const saved = existsSync(credentialsFile)
+                ? JSON.parse(readFileSync(credentialsFile, "utf8")) as { client_id?: string; client_secret?: string }
+                : null;
+            if (saved && (!saved.client_id || !saved.client_secret)) throw new Error(`Incomplete credentials in ${credentialsFile}`);
+            const client = saved || await createOAuthClient(API_BASE_URL, userGrant, {
                 client_name: buildWorkerOAuthClientName(currentAnswers),
                 client_type: "confidential",
                 redirect_uris: [],
                 grant_types: ["client_credentials"],
                 scopes: wizardOAuthScopes(mode),
             });
+            if (!saved) writePrivateFile(credentialsFile, JSON.stringify(client));
+            if (!mountedRef.current || completedRef.current || gen !== flowGenRef.current || origin !== stepIndexRef.current) {
+                throw new Error("Credential setup was cancelled");
+            }
             const updated = {
-                ...currentAnswers,
-                "oauth-client-id": client.client_id,
-                "oauth-client-secret": client.client_secret,
+                ...answersRef.current,
+                "oauth-client-id": client.client_id!,
+                "oauth-client-secret": client.client_secret!,
             };
             answersRef.current = updated;
             setAnswers(updated);
             return updated;
-        } catch {
-            return currentAnswers;
+        } catch (err) {
+            throw new Error(`Could not create application credentials: ${err instanceof Error ? err.message : "unknown error"}`);
         }
     }, []);
 
     const startDeviceAuth = useCallback(async () => {
         stopDevicePoll();
+        const gen = authGenRef.current;
+        const isCurrent = () => gen === authGenRef.current;
+        setValidationError(null);
+        setTokenSaveError(null);
         setDeviceAuth({ status: "loading", userCode: null, verificationUri: null, token: null, email: null, errorMessage: null });
         setWizardState("thinking");
 
+        const fail = (message: string) => {
+            if (!isCurrent()) return;
+            clearDeviceTimers();
+            setDeviceAuth((prev) => ({ ...prev, status: "error", errorMessage: message }));
+            setWizardState("error");
+            setWizardMessage(`${message} — press Enter to retry or m for manual`);
+        };
         try {
             const result = await requestDeviceCode(API_BASE_URL);
+            if (!isCurrent()) return;
             setDeviceAuth({
-                status: "waiting",
-                userCode: result.user_code,
-                verificationUri: result.verification_uri,
-                token: null,
-                email: null,
-                errorMessage: null,
+                status: "waiting", userCode: result.user_code,
+                verificationUri: result.verification_uri, token: null, email: null, errorMessage: null,
             });
             setWizardState("waiting");
             setWizardMessage("Enter the code shown below in your browser...");
-
-            // Delay browser open by 15 seconds so user can see the code
             browserTimeoutRef.current = setTimeout(() => {
-                openBrowser(result.verification_uri);
+                if (isCurrent()) openBrowser(result.verification_uri);
             }, 15_000);
 
-            // RFC 8628 polling with server interval + slow_down backoff
             let devicePollInFlight = false;
             const pollStartTime = Date.now();
             let pollIntervalMs = Math.max((result.interval ?? 5) * 1000, DEFAULT_DEVICE_POLL_MS);
-
             const schedulePoll = (delayMs: number) => {
+                if (!isCurrent()) return;
                 if (devicePollRef.current) clearTimeout(devicePollRef.current);
                 devicePollRef.current = setTimeout(() => { void pollOnce(); }, delayMs);
             };
-
             const pollOnce = async () => {
-                if (devicePollInFlight) return;
-                if (Date.now() - pollStartTime > (result.expires_in * 1000 || DEVICE_CODE_EXPIRY_MS)) {
-                    stopDevicePoll();
-                    setDeviceAuth((prev) => ({ ...prev, status: "error", errorMessage: "Device code expired — please retry" }));
-                    setWizardState("error");
-                    setWizardMessage("Device code expired — press Enter to retry");
+                if (!isCurrent() || devicePollInFlight) return;
+                if (Date.now() - pollStartTime >= (result.expires_in * 1000 || DEVICE_CODE_EXPIRY_MS)) {
+                    fail("Device code expired");
                     return;
                 }
                 devicePollInFlight = true;
+                let tokenReceived = false;
                 try {
                     const pollResult = await pollDeviceToken(API_BASE_URL, result.device_code);
+                    if (!isCurrent()) return;
                     if (pollResult.status === "authorized") {
-                        stopDevicePoll();
-                        const sessionToken = pollResult.token.access_token;
-                        const apiKey = sessionToken;
-
-                        const saveResult = await saveToken(apiKey);
-
-                        // Get user profile
-                        let email: string | null = null;
-                        let customerId: string | null = null;
-                        try {
-                            const profile = await getMe(API_BASE_URL, sessionToken);
-                            email = profile.email;
-                            customerId = profile.customer_id;
-                        } catch {
-                            // profile fetch is best-effort
-                        }
-
-                        let updated: Record<string, string | string[]> = {
-                            ...answersRef.current,
-                            "api-key": apiKey,
-                            "device-auth": "authorized",
-                            "_session-token": sessionToken,
-                        };
-                        if (customerId) updated["_customer_id"] = customerId;
-                        if (email) updated["_email"] = email;
-                        updated = await ensureWorkerOAuthClient(updated, sessionToken);
-
-                        setDeviceAuth({
-                            status: "authorized",
-                            userCode: result.user_code,
-                            verificationUri: result.verification_uri,
-                            token: apiKey,
-                            email,
-                            errorMessage: null,
-                        });
-                        answersRef.current = updated;
-                        setAnswers(updated);
-
-                        if (saveResult === true) {
-                            setTokenSaveError(null);
-                            setWizardState("excited");
-
-                            // Write to project .env if detected
-                            const fw = detectFramework();
-                            if (fw) {
-                                const oauthId = answersRef.current["oauth-client-id"] as string | undefined;
-                                const oauthSecret = answersRef.current["oauth-client-secret"] as string | undefined;
-                                const envResult = await writeProjectEnv(fw.envPath, apiKey, oauthId, oauthSecret);
-                                const displayPath = fw.envPath.replace(CONFIG_HOME, "~");
-                                if (envResult === true) {
-                                    setDeviceAuthEnvPath(displayPath);
-                                    if (oauthId && oauthSecret) {
-                                        setWizardMessage(`API key saved to ~/.xcelsior/token.json and worker OAuth credentials written to ${displayPath} — press Enter to continue`);
-                                    } else {
-                                        setWizardMessage(`Key saved to ~/.xcelsior/token.json and ${displayPath} — press Enter to continue`);
-                                    }
-                                } else {
-                                    setDeviceAuthEnvPath(null);
-                                    if (oauthId && oauthSecret) {
-                                        setWizardMessage(`API key saved to ~/.xcelsior/token.json (could not write worker OAuth credentials to ${displayPath}: ${envResult}) — press Enter to continue`);
-                                    } else {
-                                        setWizardMessage(`Key saved to ~/.xcelsior/token.json (could not write ${displayPath}: ${envResult}) — press Enter to continue`);
-                                    }
-                                }
-                            } else {
-                                setDeviceAuthEnvPath(null);
-                                setWizardMessage("Key saved to ~/.xcelsior/token.json — press Enter to continue");
-                            }
-                        } else {
-                            setTokenSaveError(saveResult);
-                            setWizardState("error");
-                            setDeviceAuthEnvPath(null);
-                            setWizardMessage(`Token save failed: ${saveResult}`);
-                        }
+                        tokenReceived = true;
+                        clearDeviceTimers();
+                        await acceptAuthentication(pollResult.token.access_token, "authorized", gen);
                     } else if (pollResult.status === "slow_down") {
                         pollIntervalMs = Math.min(pollIntervalMs + 5000, 60_000);
                         schedulePoll(pollIntervalMs);
                     } else if (pollResult.status === "expired") {
-                        stopDevicePoll();
-                        setDeviceAuth((prev) => ({ ...prev, status: "error", errorMessage: "Device code expired" }));
-                        setWizardState("error");
-                        setWizardMessage("Device code expired — press Enter to retry");
+                        fail("Device code expired");
                     } else if (pollResult.status === "error") {
-                        stopDevicePoll();
-                        setDeviceAuth((prev) => ({ ...prev, status: "error", errorMessage: pollResult.message }));
-                        setWizardState("error");
-                        setWizardMessage("Authentication failed — press Enter to retry");
+                        fail(pollResult.message);
                     } else {
                         schedulePoll(pollIntervalMs);
                     }
                 } catch (err) {
-                    const msg = err instanceof Error ? err.message : "Auth failed";
-                    if (msg.includes("expired") || msg.includes("denied")) {
-                        stopDevicePoll();
-                        setDeviceAuth((prev) => ({ ...prev, status: "error", errorMessage: msg }));
-                        setWizardState("error");
-                        setWizardMessage("Authentication failed — press Enter to retry");
-                    } else {
-                        schedulePoll(pollIntervalMs);
-                    }
+                    if (!isCurrent()) return;
+                    const msg = err instanceof Error ? err.message : "Authentication failed";
+                    // Once authorized the device grant may be consumed. Profile
+                    // or save failures require a fresh attempt, not more polling.
+                    if (tokenReceived || msg.includes("expired") || msg.includes("denied")) fail(msg);
+                    else schedulePoll(pollIntervalMs);
                 } finally {
                     devicePollInFlight = false;
                 }
             };
-
             schedulePoll(pollIntervalMs);
         } catch (err) {
-            const msg = err instanceof Error ? err.message : "Auth init failed";
-            setDeviceAuth({ status: "error", userCode: null, verificationUri: null, token: null, email: null, errorMessage: msg });
-            setWizardState("error");
-            setWizardMessage("Authentication failed — press Enter to retry or m for manual");
+            fail(err instanceof Error ? err.message : "Authentication failed");
         }
-    }, [stopDevicePoll]);
+    }, [stopDevicePoll, clearDeviceTimers, acceptAuthentication]);
 
     const switchToManualAuth = useCallback(() => {
         stopDevicePoll();
-        setDeviceAuth((prev) => ({ ...prev, status: "manual" }));
+        setValidationError(null);
+        setTokenSaveError(null);
+        setDeviceAuth({ status: "manual", userCode: null, verificationUri: null, token: null, email: null, errorMessage: null });
         setWizardState("idle");
-        setWizardMessage("Paste your API token below:");
+        setWizardMessage("Paste your API key or sign-in token below:");
     }, [stopDevicePoll]);
 
     const retryDeviceAuth = useCallback(() => {
-        startDeviceAuth();
+        void startDeviceAuth();
     }, [startDeviceAuth]);
 
     const submitManualToken = useCallback(async (token: string) => {
+        if (manualAuthInFlightRef.current) return;
+        stopDevicePoll();
+        const gen = authGenRef.current;
         const trimmed = token.trim();
         const tokenError = validateApiToken(trimmed);
         if (tokenError) {
@@ -1020,76 +908,34 @@ export function useWizardFlow(): UseWizardFlowReturn {
             setWizardMessage(tokenError);
             return;
         }
-
+        manualAuthInFlightRef.current = true;
         setValidationError(null);
+        setTokenSaveError(null);
         setWizardState("thinking");
-        setWizardMessage("Verifying token...");
-
-        let email: string | null = null;
-        let customerId: string | null = null;
+        setWizardMessage("Verifying credential...");
         try {
-            const profile = await getMe(API_BASE_URL, trimmed);
-            email = profile.email;
-            customerId = profile.customer_id;
+            await acceptAuthentication(trimmed, "manual", gen);
         } catch (err) {
-            const msg = err instanceof Error ? err.message : "Invalid token";
+            if (gen !== authGenRef.current) return;
+            const msg = err instanceof Error ? err.message : "Invalid credential";
+            setDeviceAuth((prev) => ({ ...prev, status: "manual", errorMessage: msg }));
             setValidationError(msg);
             setWizardState("error");
-            setWizardMessage(`Token rejected — ${msg}`);
-            return;
+            setWizardMessage(`Sign-in failed — ${msg}`);
+        } finally {
+            if (gen === authGenRef.current) manualAuthInFlightRef.current = false;
         }
-
-        const updated: Record<string, string | string[]> = {
-            ...answersRef.current,
-            "api-key": trimmed,
-            "device-auth": "manual",
-            "_session-token": trimmed,
-        };
-        if (customerId) updated["_customer_id"] = customerId;
-        if (email) updated["_email"] = email;
-        const withOAuth = await ensureWorkerOAuthClient(updated, trimmed);
-        answersRef.current = withOAuth;
-        setAnswers(withOAuth);
-
-        const saveResult = await saveToken(trimmed);
-
-        setDeviceAuth((prev) => ({
-            ...prev,
-            status: "authorized",
-            token: trimmed,
-            email,
-        }));
-
-        if (saveResult === true) {
-            setTokenSaveError(null);
-            setWizardState("success");
-
-            // Write to project .env if detected
-            const fw = detectFramework();
-            if (fw) {
-                const envResult = await writeProjectEnv(fw.envPath, trimmed);
-                if (envResult === true) {
-                    setDeviceAuthEnvPath(fw.envPath);
-                    setWizardMessage(`Token saved to ~/.xcelsior/token.json and ${fw.envPath} — press Enter to continue`);
-                } else {
-                    setDeviceAuthEnvPath(null);
-                    setWizardMessage(`Token saved to ~/.xcelsior/token.json (could not write ${fw.envPath}: ${envResult}) — press Enter to continue`);
-                }
-            } else {
-                setDeviceAuthEnvPath(null);
-                setWizardMessage("Token saved to ~/.xcelsior/token.json — press Enter to continue");
-            }
-        } else {
-            setTokenSaveError(saveResult);
-            setWizardState("error");
-            setDeviceAuthEnvPath(null);
-            setWizardMessage(`Token save failed: ${saveResult}`);
-        }
-    }, []);
+    }, [stopDevicePoll, acceptAuthentication]);
 
     // ── Marketplace browsing ─────────────────────────────────────────
 
     const browseGpus = useCallback(async (currentAnswers: Record<string, string | string[]>) => {
+        if (browseRunningRef.current) return;
+        browseRunningRef.current = true;
+        const gen = flowGenRef.current;
+        const origin = stepIndexRef.current;
+        const isCurrent = () => mountedRef.current && !completedRef.current
+            && gen === flowGenRef.current && origin === stepIndexRef.current;
         setWizardState("thinking");
         setWizardMessage("Searching the marketplace...");
         setBrowseError(null);
@@ -1106,6 +952,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
 
         try {
             const result = await searchMarketplace(API_BASE_URL, token, filters);
+            if (!isCurrent()) return;
             if (result.listings.length === 0) {
                 setBrowseError("No GPUs available right now. Hexara suggests checking back shortly.");
                 setWizardState("error");
@@ -1127,10 +974,12 @@ export function useWizardFlow(): UseWizardFlowReturn {
             const updated = { ...currentAnswers, "browse-gpus": "done" };
             answersRef.current = updated;
             setAnswers(updated);
-            setTimeout(() => {
-                advanceToNext(updated);
+            transitionTimerRef.current = setTimeout(() => {
+                transitionTimerRef.current = null;
+                if (isCurrent()) void advanceToNext(updated);
             }, CHOREOGRAPHY_DELAY_MS);
         } catch (err) {
+            if (!isCurrent()) return;
             const msg = err instanceof Error ? err.message : "Search failed";
             // Friendly error messages for common failures
             let friendlyMsg: string;
@@ -1148,6 +997,8 @@ export function useWizardFlow(): UseWizardFlowReturn {
             setBrowseError(friendlyMsg);
             setWizardState("error");
             setWizardMessage("Marketplace unavailable — press Enter to retry");
+        } finally {
+            browseRunningRef.current = false;
         }
     }, []);
 
@@ -1196,8 +1047,11 @@ export function useWizardFlow(): UseWizardFlowReturn {
 
             // Determine required rate
             const pickedHost = currentAnswers["gpu-pick"] as string;
-            const listing = gpuListings.find((l) => l.host_id === pickedHost);
-            const required = listing?.price_per_hour ?? 0;
+            const listing = gpuListingsRef.current.find((l) => l.host_id === pickedHost);
+            if (!listing || !Number.isFinite(listing.price_per_hour) || listing.price_per_hour < 0) {
+                throw new Error("The selected GPU price is unavailable. Return to marketplace selection before launching.");
+            }
+            const required = listing.price_per_hour;
 
             if (balance < required) {
                 // Mark insufficient — payment-gate step will show
@@ -1218,7 +1072,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
 
             const detail = creditResult.already_claimed
                 ? `$${balance.toFixed(2)} CAD`
-                : `$${balance.toFixed(2)} CAD (includes $10 welcome bonus!)`;
+                : `$${balance.toFixed(2)} CAD (includes $${creditResult.amount.toFixed(2)} welcome credit)`;
 
             return [{ name: "Wallet Balance", ok: balance >= required, detail }];
         } catch (err) {
@@ -1236,7 +1090,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
         const token = currentAnswers["api-key"] as string;
         const hostId = currentAnswers["gpu-pick"] as string;
         const image = currentAnswers["image-pick"] as string;
-        const listing = gpuListings.find((l) => l.host_id === hostId);
+        const listing = gpuListingsRef.current.find((l) => l.host_id === hostId);
 
         try {
             const instance = await launchInstance(API_BASE_URL, token, {
@@ -1273,13 +1127,26 @@ export function useWizardFlow(): UseWizardFlowReturn {
         checkId: string,
         currentAnswers: Record<string, string | string[]>,
     ): Promise<CheckResult[]> => {
-        // Reset the live progress log for this check run.
+        const gen = flowGenRef.current;
+        const origin = stepIndexRef.current;
+        const isCurrent = () => mountedRef.current && !completedRef.current
+            && gen === flowGenRef.current && origin === stepIndexRef.current;
+        const assertCurrent = () => {
+            if (!isCurrent()) throw new Error("This check was cancelled");
+        };
+        const checked = async <T,>(operation: Promise<T>): Promise<T> => {
+            const result = await operation;
+            assertCurrent();
+            return result;
+        };
+        // Never let a previous step append progress or mutate current answers.
+        assertCurrent();
         setCheckProgress([]);
         const streamItem = (name: string, ok: boolean, detail: string) =>
-            setCheckProgress((prev) => [...prev, `${ok ? "✓" : "✗"} ${name}: ${detail}`].slice(-30));
+            isCurrent() && setCheckProgress((prev) => [...prev, `${ok ? "✓" : "✗"} ${name}: ${detail}`].slice(-30));
         // Phase markers for long single-process checks (benchmark/network).
         const streamPhase = (msg: string) =>
-            setCheckProgress((prev) => [...prev, `⟳ ${msg}`].slice(-30));
+            isCurrent() && setCheckProgress((prev) => [...prev, `⟳ ${msg}`].slice(-30));
 
         switch (checkId) {
             case "docker":
@@ -1288,7 +1155,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 return checkApi(API_BASE_URL, currentAnswers["api-key"] as string || "");
             case "gpu": {
                 // Full GPU detection — store result for provider flow
-                const gpuFull = await detectGpuFull();
+                const gpuFull = await checked(detectGpuFull());
                 if (gpuFull) {
                     gpuInfoRef.current = gpuFull;
                     return [{
@@ -1304,9 +1171,9 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 return checkGpuBasic();
             }
             case "versions": {
-                const results = await checkVersions((v) =>
+                const results = await checked(checkVersions((v) =>
                     streamItem(v.component, v.passed, v.version ? `v${v.version}` : `not found — needs ≥${v.minimum}`),
-                );
+                ));
                 versionChecksRef.current = results;
                 return results.map((v) => ({
                     name: v.component,
@@ -1324,7 +1191,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                         "Failed — detailed GPU data unavailable (nvidia-smi query failed)",
                     );
                 }
-                const bench = await runComputeBenchmark(streamPhase);
+                const bench = await checked(runComputeBenchmark(streamPhase));
                 if (!bench || bench.error) {
                     const errorDetail = bench?.error === "no_torch" ? "PyTorch not installed"
                         : bench?.error === "no_cuda" ? "CUDA not available"
@@ -1340,7 +1207,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 ];
             }
             case "network": {
-                const net = await runNetworkBenchmark(API_BASE_URL, streamPhase);
+                const net = await checked(runNetworkBenchmark(API_BASE_URL, streamPhase, currentAnswers["api-key"] as string));
                 networkResultRef.current = net;
                 return [
                     { name: "Latency", ok: net.latency_avg_ms > 0, detail: `${net.latency_avg_ms}ms avg (${net.latency_min_ms}–${net.latency_max_ms}ms)` },
@@ -1356,22 +1223,13 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 if (!gpu || !bench) {
                     return [{ name: "Verification", ok: false, detail: "Missing GPU or benchmark data — please retry previous steps" }];
                 }
-                // Use zeroed network data if network bench was skipped
-                const netData = net || { latency_avg_ms: 0, latency_min_ms: 0, latency_max_ms: 0, jitter_ms: 0, packet_loss_pct: 0, throughput_mbps: 0 };
-                const report = buildVerificationReport(gpu, bench, netData, versionChecksRef.current);
-                // Submit to server
-                const token = currentAnswers["api-key"] as string;
-                const hostId = (currentAnswers["_host_id"] as string) || `host-${Date.now()}`;
-                try {
-                    const result = await reportVerification(API_BASE_URL, token, hostId, report as unknown as Record<string, unknown>);
-                    // Store verification state
-                    const updated = { ...currentAnswers, "_verification_state": result.state, "_verification_score": String(result.score) };
-                    answersRef.current = updated;
-                    setAnswers(updated);
-                    return buildWizardVerificationResults(report, result);
-                } catch {
-                    return buildWizardVerificationResults(report);
+                if (!net) {
+                    return [{ name: "Verification", ok: false, detail: "Missing network measurement — please retry the network test" }];
                 }
+                const report = buildVerificationReport(gpu, bench, net, versionChecksRef.current);
+                // The host is not registered yet, so only local readiness can be
+                // checked here. The installed worker submits the server report.
+                return buildLocalVerificationResults(report);
             }
             case "host-register": {
                 const gpu = gpuInfoRef.current;
@@ -1383,29 +1241,35 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 const pricing = currentAnswers.pricing as string;
                 const customRate = currentAnswers["custom-rate"] as string;
 
-                // Compute cost based on marketplace data when possible
-                let costPerHour = 0.20;
+                let costPerHour: number;
                 if (pricing === "custom" && customRate) {
-                    costPerHour = parseFloat(customRate);
+                    costPerHour = Number(customRate);
                 } else {
-                    // Look up market rates for this GPU model
                     try {
-                        const market = await searchMarketplace(API_BASE_URL, token, { gpu_model: gpu.gpu_model, limit: 20 });
-                        if (market.listings.length > 0) {
-                            const avgPrice = market.listings.reduce((sum, l) => sum + l.price_per_hour, 0) / market.listings.length;
-                            costPerHour = pricing === "competitive" ? avgPrice * 0.85 : avgPrice;
-                        } else {
-                            costPerHour = pricing === "competitive" ? 0.15 : 0.20;
-                        }
-                    } catch {
-                        // Fallback to defaults if marketplace unavailable
-                        costPerHour = pricing === "competitive" ? 0.15 : 0.20;
+                        const market = await checked(searchMarketplace(API_BASE_URL, token, { gpu_model: gpu.gpu_model, limit: 20 }));
+                        const rates = market.listings.map((listing) => listing.price_per_hour)
+                            .filter((rate) => Number.isFinite(rate) && rate > 0);
+                        if (!rates.length) throw new Error("No comparable marketplace rates are available");
+                        const average = rates.reduce((sum, rate) => sum + rate, 0) / rates.length;
+                        costPerHour = Math.round(average * (pricing === "competitive" ? 0.85 : 1) * 100) / 100;
+                    } catch (err) {
+                        assertCurrent();
+                        return [{ name: "Host Registration", ok: false,
+                            detail: `Cannot determine your rate: ${err instanceof Error ? err.message : "marketplace unavailable"}. Retry when rates are available.` }];
                     }
-                    // Round to 2 decimal places
-                    costPerHour = Math.round(costPerHour * 100) / 100;
                 }
-
-                const hostId = `host-${Date.now()}`;
+                if (!Number.isFinite(costPerHour) || costPerHour <= 0) {
+                    return [{ name: "Host Registration", ok: false, detail: "A positive hourly rate is required" }];
+                }
+                const hostIp = String(currentAnswers["_host_ip"] || "");
+                if (!hostIp) return [{ name: "Host Registration", ok: false, detail: "Complete network setup before registration" }];
+                // Persist the intended ID before the remote mutation. An ambiguous
+                // timeout and a resumed attempt update the same host.
+                const hostId = String(currentAnswers["_host_id"] || `host-${randomUUID()}`);
+                const registrationAnswers = { ...answersRef.current, "_host_id": hostId, "_host_cost_per_hour": String(costPerHour) };
+                answersRef.current = registrationAnswers;
+                setAnswers(registrationAnswers);
+                flushCheckpoint();
                 const versions: Record<string, string> = {};
                 for (const v of versionChecksRef.current) {
                     if (v.version) versions[v.component] = v.version;
@@ -1418,9 +1282,10 @@ export function useWizardFlow(): UseWizardFlowReturn {
                     : 0;
 
                 try {
-                    const host = await registerHost(API_BASE_URL, token, {
+                    assertCurrent();
+                    const host = await checked(registerHost(API_BASE_URL, token, {
                         host_id: hostId,
-                        ip: "auto",
+                        ip: hostIp,
                         gpu_model: gpu.gpu_model,
                         total_vram_gb: gpu.total_vram_gb,
                         free_vram_gb: gpu.free_vram_gb,
@@ -1428,10 +1293,10 @@ export function useWizardFlow(): UseWizardFlowReturn {
                         versions,
                         spot_enabled: spotEnabled,
                         spot_min_cents: spotMinCents,
-                    });
+                    }));
 
                     // Store host ID and cost
-                    const updated = { ...currentAnswers, "_host_id": host.host_id || hostId, "_host_cost_per_hour": String(costPerHour) };
+                    const updated = { ...answersRef.current, "_host_id": host.host_id || hostId, "_host_cost_per_hour": String(costPerHour) };
                     answersRef.current = updated;
                     setAnswers(updated);
 
@@ -1468,7 +1333,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                     if (v.version) versions[v.component] = v.version;
                 }
                 try {
-                    const result = await reportVersions(API_BASE_URL, token, hostId, versions);
+                    const result = await checked(reportVersions(API_BASE_URL, token, hostId, versions));
                     const compatible = result.compatible === true;
                     const admitted = result.admitted === true;
                     const runtime = (result.details as Record<string, string>)?.recommended_runtime || "runc";
@@ -1528,8 +1393,8 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 return launchGpuInstance(currentAnswers);
             case "network-setup": {
                 try {
-                    const { setupNetworking } = await import("./provider-checks.js");
-                    const result = await setupNetworking();
+                    const { setupNetworking } = await checked(import("./provider-checks.js"));
+                    const result = await checked(setupNetworking());
                     const updated = {
                         ...currentAnswers,
                         "_host_ip": result.ip,
@@ -1546,8 +1411,8 @@ export function useWizardFlow(): UseWizardFlowReturn {
             }
             case "worker-install": {
                 try {
-                    const { installWorkerAgent } = await import("./provider-checks.js");
-                    const answersWithWorkerAuth = await ensureWorkerOAuthClient(currentAnswers);
+                    const { installWorkerAgent } = await checked(import("./provider-checks.js"));
+                    const answersWithWorkerAuth = await checked(ensureWorkerOAuthClient(currentAnswers));
                     const token = answersWithWorkerAuth["api-key"] as string;
                     const hostId = answersWithWorkerAuth["_host_id"] as string;
                     const hostIp = answersWithWorkerAuth["_host_ip"] as string || "";
@@ -1563,9 +1428,9 @@ export function useWizardFlow(): UseWizardFlowReturn {
             }
             case "ssh-key-setup": {
                 try {
-                    const { setupSshKeys } = await import("./provider-checks.js");
+                    const { setupSshKeys } = await checked(import("./provider-checks.js"));
                     const token = currentAnswers["api-key"] as string;
-                    const result = await setupSshKeys(API_BASE_URL, token);
+                    const result = await checked(setupSshKeys(API_BASE_URL, token));
                     return [
                         { name: "SSH Keys", ok: result.keyFound, detail: result.detail },
                     ];
@@ -1579,14 +1444,16 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 return results;
             }
             case "sdk-install": {
-                const results = await checkSdkPackage();
+                const results = await checked(checkSdkPackage());
                 for (const r of results) streamItem(r.name, r.ok, r.detail);
                 return results;
             }
             case "sdk-credentials": {
                 const token = currentAnswers["api-key"] as string;
                 const baseUrl = (currentAnswers["_api_base_url"] as string) || API_BASE_URL;
-                const withOAuth = await ensureWorkerOAuthClient(currentAnswers, token);
+                const withOAuth = token.startsWith("xcel_ai_")
+                    ? currentAnswers
+                    : await checked(ensureWorkerOAuthClient(currentAnswers, token));
                 const oauthId = withOAuth["oauth-client-id"] as string | undefined;
                 const oauthSecret = withOAuth["oauth-client-secret"] as string | undefined;
                 const envPath = writeSdkEnvSnippet(baseUrl, token, oauthId, oauthSecret);
@@ -1600,20 +1467,25 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 answersRef.current = updated;
                 setAnswers(updated);
                 streamItem("OAuth client", true, oauthId ? oauthId : "Using the supplied credential");
-                streamItem(".env.local", true, envPath);
+                streamItem("Environment", true, envPath);
                 return [
                     {
                         name: "OAuth client",
                         ok: true,
-                        detail: oauthId ? `Created ${oauthId} (Settings → API)` : "Using the supplied API key or sign-in token",
+                        detail: oauthId ? `Configured ${oauthId} with automatic token renewal` : "Using the supplied durable API key",
                     },
-                    { name: ".env.local", ok: true, detail: envPath },
+                    { name: "Environment", ok: true, detail: envPath },
                 ];
             }
             case "sdk-verify": {
                 const token = currentAnswers["api-key"] as string;
                 const baseUrl = (currentAnswers["_api_base_url"] as string) || API_BASE_URL;
-                const results = await checkSdkApi(baseUrl, token);
+                const credentials = token.startsWith("xcel_ai_")
+                    ? currentAnswers
+                    : await checked(ensureWorkerOAuthClient(currentAnswers, token));
+                const results = await checked(checkSdkApi(baseUrl, token,
+                    credentials["oauth-client-id"] as string | undefined,
+                    credentials["oauth-client-secret"] as string | undefined));
                 for (const r of results) streamItem(r.name, r.ok, r.detail);
                 return results;
             }
@@ -1625,10 +1497,11 @@ export function useWizardFlow(): UseWizardFlowReturn {
     // ── Step advancement ─────────────────────────────────────────────
 
     const advanceToNext = useCallback(
-        async (currentAnswers: Record<string, string | string[]>) => {
+        async (currentAnswers: Record<string, string | string[]>, resumeAt?: number) => {
             // Debounce rapid Enter presses — prevent double-advancing
+            if (completedRef.current || !mountedRef.current) return;
             const now = Date.now();
-            if (now - lastAdvanceRef.current < ADVANCE_DEBOUNCE_MS) return;
+            if (resumeAt === undefined && now - lastAdvanceRef.current < ADVANCE_DEBOUNCE_MS) return;
             lastAdvanceRef.current = now;
 
             setTransitioning(false);
@@ -1639,36 +1512,44 @@ export function useWizardFlow(): UseWizardFlowReturn {
             setShowAiPrompt(false);
             setChatHistory([]);
             setCurrentAiQuestion(null);
+            setAiStreaming(false);
+            setAiResponse(null);
 
             const currentStep = WIZARD_STEPS[stepIndexRef.current];
-            if (currentStep && !completedStepIdsRef.current.includes(currentStep.id)) {
+            if (currentStep?.type === "device-auth") stopDevicePoll();
+            if (resumeAt === undefined && currentStep && !completedStepIdsRef.current.includes(currentStep.id)) {
                 completedStepIdsRef.current.push(currentStep.id);
             }
 
-            const next = getNextStep(stepIndexRef.current, currentAnswers);
+            const next = resumeAt ?? getNextStep(stepIndexRef.current, currentAnswers);
             if (next === -1 || WIZARD_STEPS[next].type === "done") {
-                // Find the done step
-                const doneIdx = WIZARD_STEPS.findIndex((s) => s.type === "done");
-                if (doneIdx >= 0) {
-                    stepIndexRef.current = doneIdx;
-                    setStepIndex(doneIdx);
-                    setWizardState("finishing");
-                    setWizardMessage(WIZARD_STEPS[doneIdx].prompt);
-
-                    // Detect project framework
-                    detectFramework();
-
-                    // Save config
-                    saveConfig(currentAnswers).catch((err) => {
-                        setWizardMessage((prev) => `${prev}\n⚠ Could not save config: ${err instanceof Error ? err.message : "unknown error"}`);
-                    });
+                try {
+                    saveConfig(currentAnswers);
+                    if (checkpointTimerRef.current) clearTimeout(checkpointTimerRef.current);
                     clearWizardCheckpoint();
+                } catch (err) {
+                    setWizardState("error");
+                    setWizardMessage(`Could not save configuration: ${err instanceof Error ? err.message : "unknown error"}. Fix the destination and continue this step to retry.`);
+                    if (currentStep?.type === "auto-check") setCheckAwaitContinue(true);
+                    return;
                 }
+                completedRef.current = true;
+                stopDevicePoll();
+                const doneIdx = WIZARD_STEPS.findIndex((s) => s.type === "done");
+                stepIndexRef.current = doneIdx;
+                setStepIndex(doneIdx);
+                setWizardState("finishing");
+                setWizardMessage(WIZARD_STEPS[doneIdx].prompt);
                 setIsComplete(true);
                 return;
             }
 
             const nextStep = WIZARD_STEPS[next];
+            const entryGen = ++flowGenRef.current;
+            const isEntryCurrent = () => mountedRef.current && !completedRef.current
+                && !isFlowStale(entryGen) && stepIndexRef.current === next;
+            activeCheckRef.current = null;
+            checkRunningRef.current = nextStep.type === "auto-check";
             stepIndexRef.current = next;
             setStepIndex(next);
             scheduleCheckpoint({
@@ -1682,12 +1563,13 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 || nextStep.type === "auto-check"
                 || nextStep.type === "auto-fetch"
                 || nextStep.type === "payment-gate";
-            if (needsInit) {
+            if (needsInit && resumeAt === undefined) {
                 setWizardMessage(nextStep.prompt);
                 await new Promise((r) => setTimeout(r, CHOREOGRAPHY_DELAY_MS));
             } else {
                 setWizardMessage(nextStep.prompt);
             }
+            if (!isEntryCurrent()) return;
 
             // ── Handle step type-specific init ───────────────────────
             if (nextStep.type === "device-auth") {
@@ -1710,6 +1592,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 openBrowser(paymentGate.billingUrl).catch(() => { });
 
                 let walletPollFailures = 0;
+                let walletPollInFlight = false;
                 const pollGen = ++flowGenRef.current;
                 walletPollRef.current = setInterval(async () => {
                     if (isFlowStale(pollGen)) {
@@ -1717,9 +1600,11 @@ export function useWizardFlow(): UseWizardFlowReturn {
                         walletPollRef.current = null;
                         return;
                     }
+                    if (walletPollInFlight) return;
                     const liveAnswers = answersRef.current;
                     const customerId = liveAnswers["_customer_id"] as string;
                     if (!customerId) return;
+                    walletPollInFlight = true;
                     try {
                         const wallet = await getWallet(API_BASE_URL, liveAnswers["api-key"] as string, customerId);
                         if (isFlowStale(pollGen)) return;
@@ -1728,7 +1613,15 @@ export function useWizardFlow(): UseWizardFlowReturn {
                         const listing = gpuListingsRef.current.find(
                             (l) => l.host_id === (liveAnswers["gpu-pick"] as string),
                         );
-                        if (wallet.balance_cad >= (listing?.price_per_hour ?? 0)) {
+                        if (!listing || !Number.isFinite(listing.price_per_hour) || listing.price_per_hour < 0) {
+                            if (walletPollRef.current) clearInterval(walletPollRef.current);
+                            walletPollRef.current = null;
+                            setPaymentGate((prev) => ({ ...prev, polling: false }));
+                            setWizardState("error");
+                            setWizardMessage("The selected GPU price is unavailable. Skip this launch and select a GPU again.");
+                            return;
+                        }
+                        if (wallet.balance_cad >= listing.price_per_hour) {
                             if (walletPollRef.current) clearInterval(walletPollRef.current);
                             walletPollRef.current = null;
                             const updated = {
@@ -1740,7 +1633,11 @@ export function useWizardFlow(): UseWizardFlowReturn {
                             setAnswers(updated);
                             setWizardState("excited");
                             setWizardMessage("Wallet funded! Proceeding...");
-                            setTimeout(() => advanceToNext(updated), CHOREOGRAPHY_DELAY_MS);
+                            setPaymentGate((prev) => ({ ...prev, polling: false }));
+                            transitionTimerRef.current = setTimeout(() => {
+                                transitionTimerRef.current = null;
+                                if (!isFlowStale(pollGen)) void advanceToNext(updated);
+                            }, CHOREOGRAPHY_DELAY_MS);
                         }
                     } catch {
                         if (isFlowStale(pollGen)) return;
@@ -1749,8 +1646,11 @@ export function useWizardFlow(): UseWizardFlowReturn {
                             if (walletPollRef.current) clearInterval(walletPollRef.current);
                             walletPollRef.current = null;
                             setWizardState("error");
+                            setPaymentGate((prev) => ({ ...prev, polling: false }));
                             setWizardMessage("Wallet polling failed repeatedly — press s to skip");
                         }
+                    } finally {
+                        walletPollInFlight = false;
                     }
                 }, WALLET_POLL_MS);
                 return;
@@ -1788,6 +1688,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 activeCheckRef.current = { checkId: nextStep.checkId, stepId: nextStep.id };
 
                 runCheck(nextStep.checkId, currentAnswers).then((results) => {
+                    if (!isEntryCurrent()) return;
                     const allPassed = results.every((r) => r.ok);
                     setCheckResults((prev) => ({
                         ...prev,
@@ -1796,13 +1697,14 @@ export function useWizardFlow(): UseWizardFlowReturn {
 
                     if (allPassed) {
                         // Use "excited" (dance) for big milestones, "success" (eureka) for routine
-                        const isMilestone = nextStep.checkId === "launch" || nextStep.checkId === "verify"
-                            || nextStep.checkId === "host-register" || nextStep.checkId === "docker"
+                        // Local checks and a pending registration are progress,
+                        // not a verified outcome, so they get the brief acknowledgement.
+                        const isMilestone = nextStep.checkId === "launch" || nextStep.checkId === "docker"
                             || nextStep.checkId === "sdk-verify" || nextStep.checkId === "sdk-credentials";
                         setWizardState(isMilestone ? "excited" : "success");
                         const successMsg = nextStep.checkId === "launch" ? "Instance launched!"
                             : nextStep.checkId === "benchmark" ? "Benchmarks complete!"
-                                : nextStep.checkId === "verify" ? "Hardware verified!"
+                                : nextStep.checkId === "verify" ? "Local hardware checks passed!"
                                     : nextStep.checkId === "host-register" ? "Host registered as pending verification."
                                         : nextStep.checkId === "admission" ? "Compatibility recorded; admission remains pending."
                                         : nextStep.checkId === "docker" ? "Docker environment ready!"
@@ -1860,6 +1762,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                                         `Diagnose each failure and give the exact commands to fix it.`,
                                         conversationIdRef.current ?? undefined,
                                     )) {
+                                        if (!isEntryCurrent()) return;
                                         if (event.type === "meta" && event.conversation_id) {
                                             conversationIdRef.current = event.conversation_id;
                                         } else if (event.type === "token") {
@@ -1870,6 +1773,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                                             setWizardMessage(`Hexara is analyzing ${failCount} issue(s)...`);
                                         }
                                     }
+                                    if (!isEntryCurrent()) return;
                                     // Stream complete — reveal full analysis
                                     if (explanation) {
                                         setAiResponse(explanation);
@@ -1877,20 +1781,24 @@ export function useWizardFlow(): UseWizardFlowReturn {
                                         setWizardMessage(`${failCount} issue(s) found — see analysis below`);
                                     }
                                 } catch (err) {
+                                    if (!isEntryCurrent()) return;
                                     const msg = err instanceof Error ? err.message : "unknown";
                                     setAiResponse(explanation || `Analysis failed: ${msg}`);
                                     setWizardState("error");
                                     setWizardMessage(`${failCount} check(s) failed`);
                                 } finally {
-                                    setAiStreaming(false);
+                                    if (isEntryCurrent()) setAiStreaming(false);
                                 }
                             })();
                         }
                     }
                 }).catch(() => {
+                    if (!isEntryCurrent()) return;
                     setWizardState("error");
                     setWizardMessage("Check failed unexpectedly — retry");
                     setCheckCanRetry(true);
+                }).finally(() => {
+                    if (isEntryCurrent()) checkRunningRef.current = false;
                 });
                 return;
             }
@@ -1910,13 +1818,14 @@ export function useWizardFlow(): UseWizardFlowReturn {
             // Default — set appropriate state
             setWizardState("idle");
         },
-        [startDeviceAuth, browseGpus, runCheck, gpuListings, paymentGate.billingUrl, scheduleCheckpoint, isFlowStale, shouldRunAutoAnalysis],
+        [startDeviceAuth, stopDevicePoll, browseGpus, runCheck, gpuListings, paymentGate.billingUrl, scheduleCheckpoint, isFlowStale, shouldRunAutoAnalysis],
     );
 
     // ── Submit answer ────────────────────────────────────────────────
 
     const submitAnswer = useCallback(
         (value: string | string[]) => {
+            if (completedRef.current || transitionTimerRef.current) return;
             const currentStep = WIZARD_STEPS[stepIndexRef.current];
 
             // Auto-fetch retry — re-trigger browse instead of advancing
@@ -1945,8 +1854,11 @@ export function useWizardFlow(): UseWizardFlowReturn {
                         if (doneIdx >= 0) {
                             stepIndexRef.current = doneIdx;
                             setStepIndex(doneIdx);
-                            setWizardState("success");
-                            setWizardMessage(WIZARD_STEPS[doneIdx].prompt);
+                            setWizardState("idle");
+                            setWizardMessage("Launch cancelled. No instance was launched.");
+                            completedRef.current = true;
+                            if (checkpointTimerRef.current) clearTimeout(checkpointTimerRef.current);
+                            clearWizardCheckpoint();
                             setIsComplete(true);
                         }
                         return;
@@ -1960,8 +1872,11 @@ export function useWizardFlow(): UseWizardFlowReturn {
                         if (doneIdx >= 0) {
                             stepIndexRef.current = doneIdx;
                             setStepIndex(doneIdx);
-                            setWizardState("success");
+                            setWizardState("idle");
                             setWizardMessage("Setup cancelled. Run the wizard again when you're ready.");
+                            completedRef.current = true;
+                            if (checkpointTimerRef.current) clearTimeout(checkpointTimerRef.current);
+                            clearWizardCheckpoint();
                             setIsComplete(true);
                         }
                         return;
@@ -2012,7 +1927,10 @@ export function useWizardFlow(): UseWizardFlowReturn {
             setAnswers(updated);
             scheduleCheckpoint({ answers: updated });
 
-            setTimeout(() => advanceToNext(updated), CHOREOGRAPHY_DELAY_MS);
+            transitionTimerRef.current = setTimeout(() => {
+                transitionTimerRef.current = null;
+                void advanceToNext(answersRef.current);
+            }, CHOREOGRAPHY_DELAY_MS);
         },
         [advanceToNext],
     );
@@ -2020,94 +1938,10 @@ export function useWizardFlow(): UseWizardFlowReturn {
     // ── Check retry/skip ─────────────────────────────────────────────
 
     const retryCheck = useCallback(() => {
-        if (!activeCheckRef.current) return;
-        setCheckCanRetry(false);
-        setCheckAwaitContinue(false);
-        const { checkId, stepId } = activeCheckRef.current;
-        setWizardState("thinking");
-        setWizardMessage("Retrying...");
-
-        runCheck(checkId, answersRef.current).then((results) => {
-            const allPassed = results.every((r) => r.ok);
-            setCheckResults((prev) => ({
-                ...prev,
-                [stepId]: { items: results, allPassed },
-            }));
-
-            if (allPassed) {
-                setWizardState("success");
-                setWizardMessage("All checks passed!");
-                setCheckAwaitContinue(true);
-            } else {
-                const failCount = results.filter((r) => !r.ok).length;
-                const failDetails = results
-                    .filter((r) => !r.ok)
-                    .map((r) => `${r.name}: ${r.detail}`)
-                    .join("; ");
-                setWizardState("error");
-                const retrySummary = summarizeFailure(results);
-                setWizardMessage(apiToken ? `Still: ${retrySummary} — Hexara is digging deeper` : retrySummary);
-                setCheckCanRetry(true);
-
-                // Auto-trigger AI re-analysis on retry failure
-                if (apiToken && shouldRunAutoAnalysis(stepId, failDetails)) {
-                    const pageCtx = buildWizardContext(
-                        stepId, answersRef.current, {
-                        ...checkResults,
-                        [stepId]: { items: results, allPassed: false },
-                    }, providerSummary, gpuListings, browseError,
-                        gpuInfoRef.current, benchResultRef.current, networkResultRef.current,
-                    );
-                    const config: ApiClientConfig = {
-                        baseUrl: API_BASE_URL,
-                        apiKey: apiToken,
-                        pageContext: pageCtx,
-                    };
-                    setAiStreaming(true);
-                    setAiResponse(null);
-                    setCurrentAiQuestion(null);
-                    setWizardState("thinking");
-                    setWizardMessage(`Hexara is re-analyzing ${failCount} issue(s)...`);
-                    void (async () => {
-                        let explanation = "";
-                        try {
-                            for await (const event of streamChat(config,
-                                `Retry attempt: these checks are still failing: ${failDetails}. ` +
-                                `The user already tried fixing them. Dig deeper — suggest alternative solutions.`,
-                                conversationIdRef.current ?? undefined,
-                            )) {
-                                if (event.type === "meta" && event.conversation_id) {
-                                    conversationIdRef.current = event.conversation_id;
-                                } else if (event.type === "token") {
-                                    explanation += event.content ?? "";
-                                } else if (event.type === "tool_call" && event.name) {
-                                    setWizardMessage(`Using ${event.name}...`);
-                                } else if (event.type === "tool_result") {
-                                    setWizardMessage(`Hexara is re-analyzing ${failCount} issue(s)...`);
-                                }
-                            }
-                            if (explanation) {
-                                setAiResponse(explanation);
-                                setWizardState("error");
-                                setWizardMessage(`${failCount} issue(s) persist — see analysis below`);
-                            }
-                        } catch (err) {
-                            const msg = err instanceof Error ? err.message : "unknown";
-                            setAiResponse(explanation || `Re-analysis failed: ${msg}`);
-                            setWizardState("error");
-                            setWizardMessage(`${failCount} check(s) failed`);
-                        } finally {
-                            setAiStreaming(false);
-                        }
-                    })();
-                }
-            }
-        }).catch(() => {
-            setWizardState("error");
-            setWizardMessage("Check failed unexpectedly — retry");
-            setCheckCanRetry(true);
-        });
-    }, [runCheck, advanceToNext, apiToken, checkResults, providerSummary, gpuListings, browseError]);
+        if (!activeCheckRef.current || checkRunningRef.current || completedRef.current) return;
+        // Reuse the same entry path and lifecycle guards as the first attempt.
+        void advanceToNext(answersRef.current, stepIndexRef.current);
+    }, [advanceToNext]);
 
     const skipCheck = useCallback(() => {
         if (!activeCheckRef.current) return;
@@ -2135,20 +1969,25 @@ export function useWizardFlow(): UseWizardFlowReturn {
     // ── Device-auth continue (Enter after authorized) ────────────────
 
     const continueFromAuth = useCallback(() => {
-        if (deviceAuth.status !== "authorized") return;
+        if (deviceAuth.status !== "authorized" || tokenSaveError) return;
+        stopDevicePoll();
         advanceToNext(answersRef.current);
-    }, [advanceToNext, deviceAuth.status]);
+    }, [advanceToNext, deviceAuth.status, tokenSaveError, stopDevicePoll]);
 
     // ── Payment skip ─────────────────────────────────────────────────
 
     const skipPayment = useCallback(() => {
+        flowGenRef.current += 1;
+        if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
+        transitionTimerRef.current = null;
         if (walletPollRef.current) {
             clearInterval(walletPollRef.current);
             walletPollRef.current = null;
         }
-        const updated = { ...answersRef.current, "payment-gate": "skipped", "_wallet_insufficient": "false" };
+        const updated = { ...answersRef.current, "payment-gate": "skipped", "want-launch": "no" };
         answersRef.current = updated;
         setAnswers(updated);
+        setPaymentGate((prev) => ({ ...prev, polling: false }));
         setWizardState("idle");
         advanceToNext(updated);
     }, [advanceToNext]);
@@ -2321,28 +2160,30 @@ export function useWizardFlow(): UseWizardFlowReturn {
         setShowAiPrompt((prev) => !prev);
     }, [aiAvailable]);
 
-    // Resume: kick off device flow when restoring on device-auth without a token
+    // Restored steps need the same initialization as normal navigation. Wait
+    // for preflight before starting network requests, processes or wallet polls.
+    const resumeInitializedRef = useRef(false);
     useEffect(() => {
-        if (resumeInfo.expired) {
-            setResumeInfo((prev) => ({ ...prev, expired: false }));
-        }
-        const current = WIZARD_STEPS[stepIndexRef.current];
-        if (initialCheckpoint && current?.type === "device-auth" && !answersRef.current["api-key"]) {
-            startDeviceAuth();
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
-    }, []);
+        if (gatePhase !== "passed" || resumeInitializedRef.current) return;
+        resumeInitializedRef.current = true;
+        if (resumeInfo.expired) setResumeInfo((prev) => ({ ...prev, expired: false }));
+        if (initialCheckpoint) void advanceToNext(answersRef.current, stepIndexRef.current);
+    }, [gatePhase, initialCheckpoint, advanceToNext, resumeInfo.expired]);
 
     // Cleanup polls and persist progress on unmount
     useEffect(() => {
+        mountedRef.current = true;
         return () => {
+            mountedRef.current = false;
             flowGenRef.current += 1;
-            if (browserTimeoutRef.current) clearTimeout(browserTimeoutRef.current);
-            if (devicePollRef.current) clearTimeout(devicePollRef.current);
+            gateGenRef.current += 1;
+            stopDevicePoll();
+            if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
             if (walletPollRef.current) clearInterval(walletPollRef.current);
             if (checkpointTimerRef.current) clearTimeout(checkpointTimerRef.current);
-            if (!isComplete) {
+            if (!completedRef.current) {
                 saveWizardCheckpoint({
+                runtime: runtimeSnapshot(),
                     stepIndex: stepIndexRef.current,
                     answers: answersRef.current,
                     conversationId: conversationIdRef.current ?? undefined,
@@ -2351,7 +2192,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 });
             }
         };
-    }, [isComplete]);
+    }, [stopDevicePoll]);
 
     return {
         step,

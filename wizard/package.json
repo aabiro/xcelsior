@@ -19,7 +19,10 @@
     "generate-frames": "tsx scripts/generate-wizard-frames.ts",
     "prebuild": "npm run generate-frames",
     "build": "tsc",
+    "postbuild": "node scripts/package-worker-installer.mjs",
+    "test:sdk:contract": "tsx scripts/sdk-contract-smoke.ts",
     "dev": "tsx src/index.tsx",
+    "demo": "tsx src/animation-demo.tsx",
     "test": "vitest run",
     "test:watch": "vitest",
     "prepublishOnly": "npm run build"

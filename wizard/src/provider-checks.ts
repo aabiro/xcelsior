@@ -3,6 +3,9 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { configDirectory, writePrivateFile } from "./config-files.js";
+import { fileURLToPath } from "node:url";
+import { isIP } from "node:net";
 
 const exec = promisify(execFile);
 
@@ -127,6 +130,19 @@ export function benchmarkUnavailableResults(detail: string): WizardCheckResult[]
 }
 
 /**
+ * Local readiness evidence only. The verify step runs before the host is
+ * registered, so the server cannot have decided anything yet; its verdict
+ * arrives with the worker's report after installation.
+ */
+export function buildLocalVerificationResults(report: VerificationReport): WizardCheckResult[] {
+    return report.checks.map((check) => ({
+        name: check.name,
+        ok: check.passed,
+        detail: check.detail,
+    }));
+}
+
+/**
  * Combine local evidence with the server's decision. Local success is never
  * presented as verified when the server is unavailable or returns a
  * non-verified state.
@@ -135,11 +151,7 @@ export function buildWizardVerificationResults(
     report: VerificationReport,
     server?: ServerVerificationOutcome,
 ): WizardCheckResult[] {
-    const results = report.checks.map((check) => ({
-        name: check.name,
-        ok: check.passed,
-        detail: check.detail,
-    }));
+    const results = buildLocalVerificationResults(report);
 
     const verified = server?.ok === true && server.state === "verified";
     results.push({
@@ -472,13 +484,14 @@ export async function runComputeBenchmark(
 export async function runNetworkBenchmark(
     schedulerUrl: string,
     onPhase?: (msg: string) => void,
+    apiToken?: string,
 ): Promise<NetworkBenchResult> {
     const result: NetworkBenchResult = {
         latency_avg_ms: 0,
         latency_min_ms: 0,
         latency_max_ms: 0,
         jitter_ms: 0,
-        packet_loss_pct: 0,
+        packet_loss_pct: 100,
         throughput_mbps: 0,
     };
 
@@ -516,14 +529,19 @@ export async function runNetworkBenchmark(
     // Throughput estimate via HTTP — download a larger payload for meaningful measurement
     onPhase?.("Measuring throughput to the scheduler…");
     try {
-        // Use /healthz (small) but do many iterations to amortize connection overhead
-        const url = new URL("/healthz", schedulerUrl);
+        const url = new URL("/api/diagnostics/network-download", schedulerUrl);
         const totalStart = performance.now();
         let totalBytes = 0;
-        const ITERATIONS = 20;
+        const ITERATIONS = 2;
         for (let i = 0; i < ITERATIONS; i++) {
-            const resp = await fetch(url.toString(), { signal: AbortSignal.timeout(5_000) });
+            const resp = await fetch(url.toString(), {
+                signal: AbortSignal.timeout(20_000),
+                headers: apiToken ? { Authorization: `Bearer ${apiToken}` } : {},
+                cache: "no-store",
+            });
+            if (!resp.ok) throw new Error(`Network download returned HTTP ${resp.status}`);
             const body = await resp.arrayBuffer();
+            if (body.byteLength !== 8 * 1024 * 1024) throw new Error("Incomplete network diagnostic payload");
             totalBytes += body.byteLength;
         }
         const totalTime = (performance.now() - totalStart) / 1000;
@@ -790,6 +808,13 @@ export function buildWorkerEnvContent(params: {
     oauthClientId?: string;
     oauthClientSecret?: string;
 }): string {
+    // This file is read by systemd and the shared shell installer. Only scalar
+    // configuration values are accepted; none may become shell expressions.
+    for (const [name, value] of Object.entries(params)) {
+        if (value && !/^[A-Za-z0-9_./:@%+?=&~-]+$/.test(value)) {
+            throw new Error(`Unsupported characters in worker configuration: ${name}`);
+        }
+    }
     const envLines = [
         `XCELSIOR_HOST_ID=${params.hostId}`,
         `XCELSIOR_SCHEDULER_URL=${params.apiUrl}`,
@@ -875,8 +900,10 @@ async function installPlatformHostPublicKey(
     }
 }
 
-function shellQuote(value: string): string {
-    return `'${value.replace(/'/g, "'\\''")}'`;
+/** Resolve the installed package asset, or the repository copy during development. */
+export function workerInstallerPath(): string {
+    return fileURLToPath(new URL(import.meta.url.includes("/dist/")
+        ? "../assets/worker-install.sh" : "../../scripts/install.sh", import.meta.url));
 }
 
 export async function installWorkerAgent(
@@ -887,118 +914,81 @@ export async function installWorkerAgent(
     oauthClientId?: string,
     oauthClientSecret?: string,
 ): Promise<WorkerInstallResult> {
-    const { execSync } = await import("child_process");
-    const { writeFileSync, existsSync, mkdirSync } = await import("fs");
-    const { join } = await import("path");
-    const { homedir, userInfo } = await import("os");
-
+    const { homedir, userInfo } = await import("node:os");
+    const { join } = await import("node:path");
+    const startedAt = Date.now();
+    if (process.platform !== "linux") return { installed: false, detail: "Worker installation requires Linux and systemd" };
+    if (!hostId || !isIP(hostIp)) return { installed: false, detail: "Register the host and complete network setup before installing its worker" };
+    if (!oauthClientId && !apiToken.startsWith("xcel_ai_")) {
+        return { installed: false, detail: "A durable API key or renewing OAuth client is required for the worker" };
+    }
     const currentUser = sanitizeHostSshUser(userInfo().username || process.env.USER);
     const sudoUser = sanitizeHostSshUser(process.env.SUDO_USER);
     const hostSshUser = sudoUser && sudoUser !== "root" ? sudoUser : currentUser;
-    if (!hostSshUser) {
-        return {
-            installed: false,
-            detail: "Could not determine the local SSH user for Docker host access",
-        };
-    }
-    let sshHome = homedir();
-    if (sudoUser && sudoUser !== currentUser) {
-        try {
-            const resolvedHome = execSync(`getent passwd ${shellQuote(sudoUser)} | cut -d: -f6`, {
-                encoding: "utf-8",
-                timeout: 5_000,
-            }).trim();
-            if (resolvedHome) sshHome = resolvedHome;
-        } catch {
-            // Fall back to os.homedir(); key install will fail if it is wrong.
-        }
-    }
-
-    const hostKeyResult = await installPlatformHostPublicKey(apiUrl, apiToken, sshHome);
-    if (!hostKeyResult.installed) {
-        return {
-            installed: false,
-            detail: `Host-control SSH setup failed — ${hostKeyResult.detail}`,
-        };
-    }
-
-    // 1. Ensure config dir exists
-    const configDir = join(homedir(), ".xcelsior");
-    if (!existsSync(configDir)) {
-        mkdirSync(configDir, { recursive: true });
-    }
-
-    // 2. Write worker agent env file
-    // Prefer OAuth client credentials when available; fall back to API token.
-    const envContent = buildWorkerEnvContent({
-        hostId,
-        apiUrl,
-        hostIp,
-        hostSshUser,
-        apiToken,
-        oauthClientId,
-        oauthClientSecret,
-    });
-
-    const envFile = join(configDir, "worker.env");
-    writeFileSync(envFile, envContent, { mode: 0o600 });
-
-    // 3. Download worker_agent.py if not present
-    const agentPath = join(configDir, "worker_agent.py");
-    if (!existsSync(agentPath)) {
-        try {
-            execSync(
-                `curl -fsSL "${apiUrl}/static/worker_agent.py" -o "${agentPath}"`,
-                { timeout: 30_000 },
-            );
-        } catch {
-            return {
-                installed: false,
-                detail: "Failed to download worker agent — check network connectivity",
-            };
-        }
-    }
-
-    // 4. Create systemd service unit
-    const serviceContent = `[Unit]
-Description=Xcelsior Worker Agent
-After=network-online.target docker.service
-Wants=network-online.target
-Requires=docker.service
-
-[Service]
-Type=simple
-EnvironmentFile=${envFile}
-ExecStart=/usr/bin/python3 ${agentPath}
-Restart=always
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-`;
-
+    if (!hostSshUser) return { installed: false, detail: "Could not determine the local SSH user" };
     try {
-        // Write service file (needs sudo)
-        const tmpService = "/tmp/xcelsior-worker.service";
-        writeFileSync(tmpService, serviceContent);
-        execSync(`sudo cp "${tmpService}" /etc/systemd/system/xcelsior-worker.service`, {
-            timeout: 10_000,
+        if (process.getuid?.() !== 0) await exec("sudo", ["-n", "true"], { timeout: 5_000 });
+    } catch {
+        return { installed: false, detail: "Administrator access is required. Run sudo -v in another terminal, then retry installation." };
+    }
+    try {
+        let sshHome = homedir();
+        if (sudoUser && sudoUser !== currentUser) {
+            const { stdout } = await exec("getent", ["passwd", sudoUser], { timeout: 5_000 });
+            const home = stdout.trim().split(":")[5];
+            if (!home) throw new Error("Could not resolve the SSH user's home directory");
+            sshHome = home;
+        }
+        const hostKey = await installPlatformHostPublicKey(apiUrl, apiToken, sshHome);
+        if (!hostKey.installed) return { installed: false, detail: `Host SSH setup failed: ${hostKey.detail}` };
+        const configDir = configDirectory();
+        writePrivateFile(join(configDir, "worker.env"), buildWorkerEnvContent({
+            hostId, apiUrl, hostIp, hostSshUser,
+            // Don't leave an expiring sign-in token to mask renewal failures.
+            apiToken: oauthClientId ? undefined : apiToken, oauthClientId, oauthClientSecret,
+        }));
+        // Source the bundled installer with structured arguments. It verifies
+        // every signed worker module, installs Python dependencies into a venv,
+        // and installs the same service as the documented manual setup.
+        await exec("bash", ["-c", `
+set -euo pipefail
+source "$1"
+sudo() { if [ "$(id -u)" = 0 ]; then "$@"; else command sudo -n "$@"; fi; }
+check_platform
+check_deps
+check_nvidia
+check_docker
+install_agent
+install_registry_login
+install_systemd
+systemctl is-active --quiet xcelsior-worker
+`, "xcelsior-worker-install", workerInstallerPath()], {
+            timeout: 360_000, maxBuffer: 4 * 1024 * 1024,
+            env: { ...process.env, XCELSIOR_API_URL: apiUrl, XCELSIOR_CONFIG_DIR: configDir },
         });
-        execSync("sudo systemctl daemon-reload", { timeout: 10_000 });
-        execSync("sudo systemctl enable xcelsior-worker", { timeout: 10_000 });
-        execSync("sudo systemctl start xcelsior-worker", { timeout: 10_000 });
-
-        return {
-            installed: true,
-            detail: `Worker agent installed and running as systemd service; host SSH authorized for ${hostSshUser}`,
-        };
-    } catch (e) {
-        return {
-            installed: false,
-            detail: `Service install failed after host SSH setup — run manually: python3 ${agentPath}`,
-        };
+        // A service start is not evidence that the worker reached the scheduler.
+        // Look for a heartbeat newer than this installation before success.
+        let lastState = "No heartbeat received";
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+            const response = await fetch(new URL(`/host/${encodeURIComponent(hostId)}`, apiUrl), {
+                headers: { Authorization: `Bearer ${apiToken}` }, signal: AbortSignal.timeout(5_000),
+            });
+            if (!response.ok) throw new Error(`Host status check returned HTTP ${response.status}`);
+            const body = await response.json() as { host?: { last_seen?: number | string; status?: string; admitted?: boolean } };
+            const host = body.host;
+            const heartbeat = typeof host?.last_seen === "number" ? host.last_seen * 1000 : Date.parse(host?.last_seen || "");
+            lastState = `Host status: ${host?.status || "unknown"}`;
+            if (Number.isFinite(heartbeat) && heartbeat >= startedAt) {
+                return { installed: true, detail: host?.admitted
+                    ? "Worker service active; fresh scheduler heartbeat and admission confirmed"
+                    : "Worker service active; fresh scheduler heartbeat confirmed. Admission is still pending; the host is not ready for marketplace work." };
+            }
+            await new Promise((resolve) => setTimeout(resolve, 5_000));
+        }
+        return { installed: false, detail: `Service installed, but no fresh worker heartbeat was confirmed. ${lastState}. Check journalctl -u xcelsior-worker -n 50 and retry.` };
+    } catch (err) {
+        const { redactSecrets } = await import("./wizard-state.js");
+        return { installed: false, detail: redactSecrets(err instanceof Error ? err.message : "Worker installation failed") };
     }
 }
 
