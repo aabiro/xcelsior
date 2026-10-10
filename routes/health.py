@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from collections import defaultdict, deque
 import os
 import secrets
 from typing import Any
@@ -16,6 +17,7 @@ from fastapi.responses import (
     PlainTextResponse,
     RedirectResponse,
     StreamingResponse,
+    Response,
 )
 from pydantic import BaseModel, Field
 
@@ -49,6 +51,33 @@ import metrics_catalog  # noqa: F401
 
 router = APIRouter()
 _projection_metrics_last_success_timestamp = 0.0
+
+# Incompressible, fixed-size payload: small JSON/metrics requests measure
+# request latency, not link throughput. No caller-controlled allocation.
+_NETWORK_SAMPLE = secrets.token_bytes(8 * 1024 * 1024)
+_NETWORK_DIAGNOSTIC_BUCKETS: defaultdict[str, deque] = defaultdict(deque)
+_NETWORK_DIAGNOSTIC_LOCK = threading.Lock()
+
+
+@router.get("/api/diagnostics/network-download", tags=["Infrastructure"])
+def network_download(request: Request):
+    """Bounded authenticated download for provider network diagnostics."""
+    from routes._deps import _canonical_owner_id, _require_scope, _take_shared_rate_slot
+
+    user = _require_auth(request)
+    _require_scope(user, "hosts:write")
+    allowed = _take_shared_rate_slot(
+        "runtime.network_diagnostic_rate_limit", _canonical_owner_id(user), time.time(),
+        limit=4, window_sec=60,
+        buckets=_NETWORK_DIAGNOSTIC_BUCKETS, lock=_NETWORK_DIAGNOSTIC_LOCK,
+    )
+    if not allowed:
+        raise HTTPException(429, "Retry network diagnostics in one minute", headers={"Retry-After": "60"})
+    return Response(_NETWORK_SAMPLE, media_type="application/octet-stream", headers={
+        "Cache-Control": "no-store, no-transform",
+        "Content-Encoding": "identity",
+        "X-Content-Type-Options": "nosniff",
+    })
 
 # Templates and device code constants
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"

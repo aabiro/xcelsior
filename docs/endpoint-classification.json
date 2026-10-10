@@ -451,6 +451,10 @@
     "class": "gap",
     "notes": "P6's provider surface — register, onboard, earnings, payout, Connect accounts; no tool reaches any of it"
   },
+  "GET /api/diagnostics/network-download": {
+    "class": "internal",
+    "notes": "fixed 8 MiB payload the provider onboarding wizard downloads to measure throughput to the scheduler; a measurement fixture, not a capability"
+  },
   "GET /api/events": {
     "class": "internal",
     "notes": "_require_admin — the account-wide feed is a platform-operator view, never an agent capability."
@@ -1550,6 +1554,10 @@
   "POST /api/billing/setup-intent": {
     "class": "internal",
     "notes": "card and subscription management. The plan puts adding a card out of the agent surface entirely: card data belongs on a first-party page and the agent only ever references what is already on file"
+  },
+  "POST /api/billing/wallet/{customer_id}/admin-credit": {
+    "class": "internal",
+    "notes": "platform admin console; grants credit without payment. An operator action, never an agent tool: a tool that can credit wallets can fund its own spend"
   },
   "POST /api/billing/wallet/{customer_id}/deposit": {
     "class": "internal",
