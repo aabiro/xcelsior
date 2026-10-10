@@ -1,10 +1,10 @@
 import type { DeployStudioForm } from "./types";
 
-export const PRESET_IMAGE = "xcelsior/serverless-vllm:12.4";
+export const PRESET_IMAGE = "vllm/vllm-openai:v0.8.5";
 
 /** Phase 15, additional managed engines (vLLM default; TGI/SGLang opt-in). */
 export const MANAGED_ENGINES = [
-  { id: "vllm", label: "vLLM (default)", image: "xcelsior/serverless-vllm:12.4" },
+  { id: "vllm", label: "vLLM (default)", image: PRESET_IMAGE },
   { id: "tgi", label: "Text Generation Inference", image: "ghcr.io/huggingface/text-generation-inference:latest" },
   { id: "sglang", label: "SGLang", image: "lmsysorg/sglang:latest" },
 ] as const;
