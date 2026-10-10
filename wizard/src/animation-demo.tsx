@@ -5,6 +5,7 @@ import { Box, Text, render, useApp, useInput, useStdout } from "ink";
 import { HexaraStage, roamFor } from "./HexaraStage.js";
 import { HexaraDirector, type BranchId, type WizardMood } from "./useWizardAnimation.js";
 import { spriteCapable } from "./capability.js";
+import { useRepaintOnNarrow } from "./use-terminal-width.js";
 
 const scenes: { at: number; title: string; mood: WizardMood; branch?: BranchId }[] = [
     { at: 0, title: "Arrival", mood: "idle" },
@@ -26,6 +27,7 @@ export function AnimationDemo() {
     const [manual, setManual] = useState(false);
     const width = Math.max(1, Math.min(columns - 4, 76));
     const capable = spriteCapable();
+    useRepaintOnNarrow();
 
     useEffect(() => {
         const resize = () => setColumns(stdout.columns || 80);

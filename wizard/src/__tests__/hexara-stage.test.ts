@@ -254,6 +254,26 @@ describe("chooseStageLayout", () => {
         expect(chooseStageLayout(160, STAGE_ROWS + 2, true)).toBe("compact");
     });
 
+    it("stands above a short step on an ordinary terminal once the screen is measured", () => {
+        // The opening question needs about a dozen rows without him.
+        expect(chooseStageLayout(110, 36, true)).toBe("compact");
+        expect(chooseStageLayout(110, 36, true, 12)).toBe("top");
+        expect(chooseStageLayout(80, 34, true, 12)).toBe("top");
+    });
+
+    it("steps aside for a step that needs the room", () => {
+        expect(chooseStageLayout(110, 36, true, 30)).toBe("compact");
+        expect(chooseStageLayout(80, 24, true, 12)).toBe("compact");
+        // Exactly filling the terminal would make Ink clear and redraw every frame.
+        expect(chooseStageLayout(110, 12 + STAGE_ROWS + 3, true, 12)).toBe("compact");
+        expect(chooseStageLayout(110, 12 + STAGE_ROWS + 4, true, 12)).toBe("top");
+    });
+
+    it("keeps the side stage on a wide terminal unless the steps alone overflow it", () => {
+        expect(chooseStageLayout(160, 40, true, 20)).toBe("side");
+        expect(chooseStageLayout(160, 40, true, 39)).toBe("compact");
+    });
+
     it("gives him room to roam on either stage", () => {
         expect(roamFor(54)).toBeGreaterThan(0);
         expect(roamFor(64)).toBeGreaterThan(roamFor(54));
