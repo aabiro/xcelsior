@@ -1041,6 +1041,15 @@ export interface components {
              */
             role: string;
         };
+        /** AdminCreditRequest */
+        AdminCreditRequest: {
+            /** Amount Cad */
+            amount_cad: number;
+            /** Reason */
+            reason: string;
+            /** Idempotency Key */
+            idempotency_key: string;
+        };
         /** AdmissionDecisionRequest */
         AdmissionDecisionRequest: {
             /** Action */

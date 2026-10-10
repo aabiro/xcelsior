@@ -1013,6 +1013,16 @@ def api_get_host(host_id: str, request: Request):
         raise HTTPException(status_code=404, detail=f"Host {host_id} not found")
     host = next(h for h in hosts if h["host_id"] == resolved)
     _require_host_visible(user, host)
+    # V2 workers report observations instead of refreshing the legacy JSON
+    # last_seen field. Expose the server receipt time for install verification.
+    from db import pg_connection
+
+    with pg_connection() as conn:
+        row = conn.execute(
+            "SELECT EXTRACT(EPOCH FROM last_observed_at) FROM hosts WHERE host_id = %s",
+            (resolved,),
+        ).fetchone()
+    host = {**host, "last_observed_at": float(row[0]) if row and row[0] is not None else None}
     return {"ok": True, "host": enrich_host_for_api(host)}
 
 

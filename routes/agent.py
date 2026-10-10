@@ -8,7 +8,7 @@ import time
 from collections import defaultdict
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from routes._deps import (
@@ -372,6 +372,15 @@ class BenchmarkReport(BaseModel):
     details: dict | None = None
 
 
+@router.get("/agent/network-download/{host_id}", tags=["Agent"])
+def api_agent_network_download(host_id: str, request: Request):
+    """Measure throughput using the host's normal, verified worker identity."""
+    _require_agent_auth(request, host_id=host_id)
+    from routes.health import _network_download_response
+
+    return _network_download_response(f"host:{host_id}")
+
+
 @router.get("/agent/work/{host_id}", tags=["Agent"])
 def api_agent_work(host_id: str, request: Request):
     """Pull pending work for an agent. Returns assigned jobs."""
@@ -385,7 +394,9 @@ def api_agent_work(host_id: str, request: Request):
 
     jobs = pending + queued_work
     if not jobs:
-        return JSONResponse(status_code=204, content=None)
+        # 204 must have no body. JSONResponse(None) emits four bytes (null),
+        # which Uvicorn rejects after it has sent the no-content headers.
+        return Response(status_code=204)
 
     # Enrich each job with volume mount paths from the volume_attachments table
     try:
