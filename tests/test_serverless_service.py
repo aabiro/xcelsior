@@ -50,7 +50,7 @@ class TestManagedEngines:
         assert ALLOWED_MANAGED_ENGINES == frozenset({"vllm", "tgi", "sglang"})
 
     def test_preset_image_for_engine(self):
-        assert _preset_image_for_engine("vllm") == "xcelsior/serverless-vllm:12.4"
+        assert _preset_image_for_engine("vllm") == "vllm/vllm-openai:v0.8.5"
         assert "text-generation-inference" in _preset_image_for_engine("tgi")
         assert "sglang" in _preset_image_for_engine("sglang")
 
@@ -71,6 +71,15 @@ class TestManagedEngines:
         assert "--chat-template" not in embed
         rerank = _preset_startup_command("vllm", "BAAI/bge-reranker-v2-m3")
         assert "--task score" in rerank
+
+    @pytest.mark.parametrize("model", ["Qwen/Qwen3-8B", "BAAI/bge-m3", "BAAI/bge-reranker-v2-m3"])
+    def test_vllm_listens_on_the_configured_health_check_port(self, model):
+        import shlex
+
+        for port in (8080, 9123):
+            args = shlex.split(_preset_startup_command("vllm", model, http_port=port))
+            assert args[args.index("--port") + 1] == str(port)
+            assert args[args.index("--host") + 1] == "0.0.0.0"
 
     def test_qwen3_startup_includes_eagle3_when_force_enabled(self, monkeypatch):
         monkeypatch.setenv("XCELSIOR_VLLM_EAGLE3_FORCE", "1")
@@ -366,6 +375,27 @@ class TestStreams:
 
 
 class TestServiceValidation:
+    def test_vllm_preset_persists_the_runnable_image_port_and_cache(self, monkeypatch, repo, owner_id):
+        from serverless.registry_models import ResolvedPresetModel
+
+        monkeypatch.setattr(ServerlessService, "wallet_preflight", lambda *_: None)
+        monkeypatch.setattr("serverless.service.replicate_cache_volumes", lambda *a, **kw: {})
+        monkeypatch.setattr("serverless.service._preset_lmcache_env", lambda: {})
+        monkeypatch.setattr("serverless.registry_models.ensure_preset_model_local", lambda ref: ResolvedPresetModel(ref, ref))
+        service = ServerlessService(repo)
+        endpoint = service.create_endpoint(EndpointCreate(
+            owner_id=owner_id, name="runnable-vllm-preset", mode="preset",
+            model_ref="Qwen/Qwen3-8B", min_workers=0, http_port=9123,
+        ), emit_sse=False)
+        try:
+            stored = repo.get_endpoint(endpoint["endpoint_id"], owner_id=owner_id)
+            assert stored["image_ref"] == "vllm/vllm-openai:v0.8.5"
+            assert "--port 9123" in stored["startup_command"]
+            assert stored["env"]["HF_HOME"] == "/xcelsior-cache/huggingface"
+            assert stored["env"]["HF_HUB_CACHE"] == "/xcelsior-cache/huggingface/hub"
+        finally:
+            repo.soft_delete_endpoint(endpoint["endpoint_id"], owner_id)
+
     def test_validate_preset_requires_model(self):
         svc = ServerlessService()
         with pytest.raises(ValueError, match="model_ref"):

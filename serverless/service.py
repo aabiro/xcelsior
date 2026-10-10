@@ -68,7 +68,9 @@ def _record_queue_depth_sample(endpoint_id: str, depth: int) -> list[tuple[float
         del hist[: len(hist) - _QUEUE_HISTORY_MAX]
     return list(hist)
 
-DEFAULT_VLLM_IMAGE = "xcelsior/serverless-vllm:12.4"
+# Use the published upstream image. The former xcelsior/serverless-vllm
+# reference was never published and every managed launch failed on pull.
+DEFAULT_VLLM_IMAGE = "vllm/vllm-openai:v0.8.5"
 
 MANAGED_ENGINE_IMAGES: dict[str, str] = {
     "vllm": DEFAULT_VLLM_IMAGE,
@@ -106,6 +108,7 @@ def _preset_startup_command(
     lora_adapters: list[dict[str, str]] | None = None,
     *,
     launch_ref: str | None = None,
+    http_port: int = 8080,
 ) -> str:
     launch = (launch_ref or model_ref).strip()
     if managed_engine == "tgi":
@@ -117,13 +120,14 @@ def _preset_startup_command(
     from serverless.openai_proxy import model_task
 
     task = model_task(model_ref)
+    bind = f"--host 0.0.0.0 --port {int(http_port)}"
     if task == "embed":
-        return f"--model {launch} --task embed"
+        return f"--model {launch} --task embed {bind}"
     if task == "rerank":
-        return f"--model {launch} --task score"
+        return f"--model {launch} --task score {bind}"
     cmd = (
         f"--model {launch} --max-model-len 4096 "
-        f"--chat-template-content-format openai --enable-prefix-caching"
+        f"--chat-template-content-format openai --enable-prefix-caching {bind}"
     )
     if lora_adapters:
         # vLLM multiplexes several LoRA adapters on one running engine;
@@ -246,8 +250,11 @@ class ServerlessService:
                 spec.model_ref,
                 spec.lora_adapters,
                 launch_ref=resolved.launch_ref,
+                http_port=spec.http_port,
             )
         if spec.mode == "preset" and spec.managed_engine == "vllm":
+            spec.env.setdefault("HF_HOME", "/xcelsior-cache/huggingface")
+            spec.env.setdefault("HF_HUB_CACHE", "/xcelsior-cache/huggingface/hub")
             spec.env.update(_preset_lmcache_env())
 
         if spec.mode == "custom" and (spec.source_type or "").strip().lower() == "github":
