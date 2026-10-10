@@ -1,14 +1,10 @@
 "use client";
 
 import { useSyncExternalStore, type CSSProperties } from "react";
-import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { AlertTriangle, CheckCircle2, Info, Loader2, XCircle } from "lucide-react";
 import { useTheme } from "@/lib/theme";
-
-const Toaster = dynamic(() => import("sonner").then((m) => ({ default: m.Toaster })), {
-  ssr: false,
-});
+import { Toaster } from "sonner";
 
 // Sonner's own look is switched off (`unstyled`); the whole card is drawn by
 // the .xcelsior-toast rules in globals.css, in both themes.
