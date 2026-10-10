@@ -7,12 +7,12 @@
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { pathToFileURL } from "node:url";
-import { render, Box, Text, useApp, useInput } from "ink";
+import { render, measureElement, Box, Text, useApp, useInput, type DOMElement } from "ink";
 import { HexaraStage, STAGE_ROWS, roamFor } from "./HexaraStage.js";
 import { computeWizardBranch, computeWizardMood } from "./hexara-choreography.js";
 import { HexaraDirector } from "./useWizardAnimation.js";
 import { spriteCapable } from "./capability.js";
-import { useTerminalSize } from "./use-terminal-width.js";
+import { useRepaintOnNarrow, useTerminalSize } from "./use-terminal-width.js";
 import { STATE_COLORS } from "../sprites/wizard/wizard-sprite.js";
 import { WIZARD_STEPS, STATIC_STEP_HELP } from "./wizard-flow.js";
 import { useWizardFlow } from "./useWizardFlow.js";
@@ -53,17 +53,26 @@ const STAGE_GAP = 3;
 
 export type StageLayout = "side" | "top" | "compact";
 
+/** Rows the top stage adds: its margin, the stage, and up to two caption lines. */
+const TOP_STAGE_EXTRA_ROWS = 1 + STAGE_ROWS + 2;
+
 /**
  * Where Hexara performs. Beside the steps when the terminal is wide enough,
- * above them when it is tall enough, otherwise not at all — Ink redraws the
- * whole screen every frame once its output is taller than the terminal, so a
- * stage that does not fit would turn his animation into flicker.
+ * above them when there is room, otherwise not at all — Ink redraws the whole
+ * screen every frame once its output is taller than the terminal, so a stage
+ * that does not fit would turn his animation into flicker.
+ *
+ * `needed` is the rows the screen takes without him, measured from the last
+ * frame. Without it, "above" assumes the tallest step, which kept him off
+ * every ordinary terminal even on the four-line opening question.
  */
-export function chooseStageLayout(columns: number, rows: number, canDraw: boolean): StageLayout {
+export function chooseStageLayout(columns: number, rows: number, canDraw: boolean, needed?: number): StageLayout {
     if (!canDraw) return "compact";
-    if (columns >= CONTENT_WIDTH + STAGE_GAP + SIDE_STAGE_WIDTH && rows >= STAGE_ROWS + 9) return "side";
-    if (columns >= CONTENT_WIDTH + 2 && rows >= STAGE_ROWS + 30) return "top";
-    return "compact";
+    const fits = needed === undefined || needed + 2 < rows;
+    if (fits && columns >= CONTENT_WIDTH + STAGE_GAP + SIDE_STAGE_WIDTH && rows >= STAGE_ROWS + 9) return "side";
+    if (columns < CONTENT_WIDTH + 2) return "compact";
+    if (needed === undefined) return rows >= STAGE_ROWS + 30 ? "top" : "compact";
+    return needed + TOP_STAGE_EXTRA_ROWS < rows ? "top" : "compact";
 }
 
 export function App() {
@@ -135,7 +144,21 @@ export function App() {
   const canDraw = useMemo(() => spriteCapable(), []);
   const [director] = useState(() => new HexaraDirector({ animate: canDraw }));
   const { columns, rows } = useTerminalSize();
-  const stageLayout = chooseStageLayout(columns, rows, canDraw);
+  useRepaintOnNarrow();
+  // Rows the screen takes without Hexara: everything but his slot, with the
+  // step column standing in for the row it shares with the side stage.
+  const rootRef = useRef<DOMElement>(null);
+  const slotRef = useRef<DOMElement>(null);
+  const rowRef = useRef<DOMElement>(null);
+  const stepsRef = useRef<DOMElement>(null);
+  const [needed, setNeeded] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    if (!rootRef.current || !slotRef.current || !rowRef.current || !stepsRef.current) return;
+    const height = measureElement(rootRef.current).height - measureElement(slotRef.current).height
+      - measureElement(rowRef.current).height + measureElement(stepsRef.current).height;
+    if (height !== needed) setNeeded(height);
+  });
+  const stageLayout = chooseStageLayout(columns, rows, canDraw, needed);
   const stageWidth = stageLayout === "side" ? SIDE_STAGE_WIDTH : CONTENT_WIDTH;
   useEffect(() => {
     director.start();
@@ -314,20 +337,22 @@ export function App() {
   );
 
   return (
-    <Box flexDirection="column" alignItems="center" width="100%">
+    <Box ref={rootRef} flexDirection="column" alignItems="center" width="100%">
       {/* Persistent branded title bar (Part I) */}
       <TitleBar />
 
       {/* Hexara above the steps, or — compact — just his line */}
-      {stageLayout === "top" && <Box marginTop={1}>{stage}</Box>}
-      {stageLayout === "compact" && (
-        <Box justifyContent="center">
-          <Text color={STATE_COLORS[wizardState]}>{wizardMessage}</Text>
-        </Box>
-      )}
+      <Box ref={slotRef} flexDirection="column" alignItems="center">
+        {stageLayout === "top" && <Box marginTop={1}>{stage}</Box>}
+        {stageLayout === "compact" && (
+          <Box justifyContent="center">
+            <Text color={STATE_COLORS[wizardState]}>{wizardMessage}</Text>
+          </Box>
+        )}
+      </Box>
 
-      <Box flexDirection="row" alignItems="flex-start">
-      <Box flexDirection="column" alignItems="center">
+      <Box ref={rowRef} flexDirection="row" alignItems="flex-start">
+      <Box ref={stepsRef} flexDirection="column" alignItems="center">
 
       {/* Resume / expiry notices */}
       {resumeInfo.resumed && !isComplete && (
