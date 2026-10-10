@@ -446,7 +446,7 @@ export function App() {
                 versions: "Version checks passed!",
                 benchmark: "Benchmarks complete!",
                 network: "Network tests passed!",
-                verify: "Hardware verified!",
+                verify: "Local hardware checks passed!",
                 "host-register": "Host registered as pending verification!",
                 admission: "Compatibility recorded; admission remains pending.",
                 launch: "Instance launched!",

@@ -1,30 +1,26 @@
 /** Checkpoint wizard progress for resume-after-crash (A5). */
 
 import {
-    chmodSync,
     existsSync,
-    mkdirSync,
     readFileSync,
-    renameSync,
     unlinkSync,
-    writeFileSync,
 } from "node:fs";
-import { dirname } from "node:path";
+import { join } from "node:path";
+import { configDirectory, writePrivateFile } from "./config-files.js";
 import { clampStepIndex, mergeTokenIntoAnswers, stripSecretsFromAnswers } from "./wizard-guards.js";
+import type { GpuInfo, BenchmarkResult, NetworkBenchResult, VersionCheck } from "./provider-checks.js";
+import type { MarketplaceListing, InstanceInfo } from "./api-client.js";
+import type { ProviderSummaryData } from "./useWizardFlow.js";
 
 export const CHECKPOINT_VERSION = 1;
 export const CHECKPOINT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
-function configHome(): string {
-    return process.env["HOME"] ?? "/tmp";
-}
-
 export function wizardStateFile(): string {
-    return `${configHome()}/.xcelsior/wizard-state.json`;
+    return join(configDirectory(), "wizard-state.json");
 }
 
 export function tokenFilePath(): string {
-    return `${configHome()}/.xcelsior/token.json`;
+    return join(configDirectory(), "token.json");
 }
 
 export interface WizardCheckpoint {
@@ -34,6 +30,18 @@ export interface WizardCheckpoint {
     conversationId?: string;
     completedStepIds: string[];
     savedAt: string;
+    runtime?: WizardRuntime;
+}
+
+/** Observations needed to resume a step; never a server admission authority. */
+export interface WizardRuntime {
+    gpu: GpuInfo | null;
+    benchmark: BenchmarkResult | null;
+    network: NetworkBenchResult | null;
+    versions: VersionCheck[];
+    listings: MarketplaceListing[];
+    providerSummary: ProviderSummaryData | null;
+    instance: InstanceInfo | null;
 }
 
 export interface HydratedCheckpoint {
@@ -86,6 +94,9 @@ export function validateCheckpoint(
         conversationId: typeof cp.conversationId === "string" ? cp.conversationId : undefined,
         completedStepIds: cp.completedStepIds.filter((id) => typeof id === "string"),
         savedAt: cp.savedAt,
+        runtime: cp.runtime && typeof cp.runtime === "object"
+            && Array.isArray(cp.runtime.versions) && Array.isArray(cp.runtime.listings)
+            ? cp.runtime : undefined,
     };
 }
 
@@ -160,9 +171,6 @@ export function hydrateWizardCheckpoint(
 
 export function saveWizardCheckpoint(checkpoint: WizardCheckpoint): void {
     const file = wizardStateFile();
-    const dir = dirname(file);
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
-
     const payload: WizardCheckpoint = {
         version: CHECKPOINT_VERSION,
         stepIndex: checkpoint.stepIndex,
@@ -170,16 +178,10 @@ export function saveWizardCheckpoint(checkpoint: WizardCheckpoint): void {
         conversationId: checkpoint.conversationId,
         completedStepIds: checkpoint.completedStepIds,
         savedAt: checkpoint.savedAt,
+        runtime: checkpoint.runtime,
     };
 
-    const tmp = `${file}.tmp`;
-    writeFileSync(tmp, JSON.stringify(payload, null, 2), { mode: 0o600 });
-    renameSync(tmp, file);
-    try {
-        chmodSync(file, 0o600);
-    } catch {
-        // best-effort on platforms that ignore mode
-    }
+    writePrivateFile(file, JSON.stringify(payload, null, 2));
 }
 
 export function clearWizardCheckpoint(): void {
@@ -197,6 +199,7 @@ export function redactSecrets(text: string): string {
     return text
         .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]")
         .replace(/xc-[A-Za-z0-9]{8,}/g, "xc-[REDACTED]")
+        .replace(/\b(?:xcel_ai_|xoa_)[A-Za-z0-9._-]+/g, "[REDACTED]")
         .replace(/client_secret["']?\s*[:=]\s*["']?[^"'\s]+/gi, "client_secret=[REDACTED]")
         .replace(/XCELSIOR_API_TOKEN=[^\s]+/gi, "XCELSIOR_API_TOKEN=[REDACTED]")
         .replace(/XCELSIOR_OAUTH_CLIENT_SECRET=[^\s]+/gi, "XCELSIOR_OAUTH_CLIENT_SECRET=[REDACTED]");

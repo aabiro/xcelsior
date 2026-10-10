@@ -1477,9 +1477,9 @@ describe("required checks", () => {
         expect(step.checkRequired).toBeFalsy();
     });
 
-    it("network-bench is not required (can be skipped)", () => {
+    it("network-bench is required: server verification enforces it and nothing honest can stand in", () => {
         const step = findStep("network-bench");
-        expect(step.checkRequired).toBeFalsy();
+        expect(step.checkRequired).toBe(true);
     });
 });
 

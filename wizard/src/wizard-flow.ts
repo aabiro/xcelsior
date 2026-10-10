@@ -110,6 +110,7 @@ export const WIZARD_STEPS: WizardStep[] = [
         type: "auto-check",
         prompt: "Detecting your project framework...",
         checkId: "sdk-detect",
+        checkRequired: true,
         condition: (a) => a.mode === "sdk",
     },
 
@@ -142,8 +143,9 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "sdk-install",
         type: "auto-check",
-        prompt: "Checking for @xcelsior-gpu/sdk...",
+        prompt: "Installing and verifying @xcelsior-gpu/sdk...",
         checkId: "sdk-install",
+        checkRequired: true,
         condition: (a) => a.mode === "sdk",
     },
 
@@ -151,7 +153,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "sdk-credentials",
         type: "auto-check",
-        prompt: "Creating API credentials and writing .env.local...",
+        prompt: "Creating application credentials and server-side SDK configuration...",
         checkId: "sdk-credentials",
         condition: (a) => a.mode === "sdk",
         checkRequired: true,
@@ -201,6 +203,7 @@ export const WIZARD_STEPS: WizardStep[] = [
         type: "auto-check",
         prompt: "Setting up secure mesh networking...",
         checkId: "network-setup",
+        checkRequired: true,
         condition: (a) => a.mode === "provide" || a.mode === "both",
     },
 
@@ -220,6 +223,7 @@ export const WIZARD_STEPS: WizardStep[] = [
         type: "auto-check",
         prompt: "Testing network quality to the scheduler...",
         checkId: "network",
+        checkRequired: true,
         condition: (a) => a.mode === "provide" || a.mode === "both",
     },
 

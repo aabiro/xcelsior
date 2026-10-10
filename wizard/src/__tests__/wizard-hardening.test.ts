@@ -1,10 +1,8 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { describe, expect, it } from "vitest";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import {
     CHECKPOINT_VERSION,
-    clearWizardCheckpoint,
     hydrateWizardCheckpoint,
     isCheckpointExpired,
     readLocalAccessToken,
@@ -63,19 +61,7 @@ describe("wizard-guards", () => {
 });
 
 describe("wizard checkpoint hardening", () => {
-    let tmpHome: string;
     const deviceAuthIndex = WIZARD_STEPS.findIndex((s) => s.id === "device-auth");
-
-    beforeEach(() => {
-        tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "wiz-hard-"));
-        process.env.HOME = tmpHome;
-    });
-
-    afterEach(() => {
-        clearWizardCheckpoint();
-        const tokenFile = tokenFilePath();
-        if (fs.existsSync(tokenFile)) fs.unlinkSync(tokenFile);
-    });
 
     it("rejects malformed checkpoints", () => {
         expect(validateCheckpoint(null, 10)).toBeNull();

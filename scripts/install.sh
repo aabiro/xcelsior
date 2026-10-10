@@ -12,7 +12,7 @@
 set -euo pipefail
 
 XCELSIOR_API="${XCELSIOR_API_URL:-https://xcelsior.ca}"
-CONFIG_DIR="$HOME/.xcelsior"
+CONFIG_DIR="${XCELSIOR_CONFIG_DIR:-$HOME/.xcelsior}"
 AGENT_PATH="$CONFIG_DIR/worker_agent.py"
 ENV_FILE="$CONFIG_DIR/worker.env"
 VENV_DIR="$CONFIG_DIR/venv"
