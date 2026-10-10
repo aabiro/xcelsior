@@ -35,8 +35,12 @@ export function useTheme() {
 
 function readStoredTheme(): Theme {
   if (typeof window === "undefined") return "dark";
-  const stored = localStorage.getItem(STORAGE_KEY);
-  return stored === "light" || stored === "dark" ? stored : "dark";
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored === "light" || stored === "dark" ? stored : "dark";
+  } catch {
+    return "dark";
+  }
 }
 
 /** Single source of truth: html class, data-theme, color-scheme, and storage. */
@@ -77,8 +81,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   // Reconcile to the stored theme before the browser paints the hydrated tree,
   // so the shells' data-theme flips in the same frame (no flash) and — crucially
   // — a real re-render occurs, updating the DOM attribute the shells render.
+  // Every setter writes this before React re-renders, so toggles read the
+  // theme the user sees without a render-time ref write.
+  const themeRef = useRef(theme);
+
   useIsomorphicLayoutEffect(() => {
     const stored = readStoredTheme();
+    themeRef.current = stored;
     applyTheme(stored);
     setTheme(stored);
   }, []);
@@ -87,29 +96,31 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   // run with the placeholder "dark" and write it to storage, and StrictMode's
   // effect replay then re-reads that "dark" in the reconcile above — a stored
   // light theme never survived a dev reload. Every setter applies explicitly.
-  const themeRef = useRef(theme);
-  themeRef.current = theme;
 
   useEffect(() => {
     const reconcile = () => {
       const stored = readStoredTheme();
+      themeRef.current = stored;
       setTheme((current) => (current !== stored ? stored : current));
       applyTheme(stored);
     };
     const onStorage = (event: StorageEvent) => {
       if (event.key !== STORAGE_KEY) return;
       const next = event.newValue === "light" || event.newValue === "dark" ? event.newValue : "dark";
+      themeRef.current = next;
       setTheme(next);
       applyTheme(next);
     };
     window.addEventListener("storage", onStorage);
     window.addEventListener("focus", reconcile);
-    document.addEventListener("visibilitychange", () => {
+    const onVisibility = () => {
       if (document.visibilityState === "visible") reconcile();
-    });
+    };
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       window.removeEventListener("storage", onStorage);
       window.removeEventListener("focus", reconcile);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 
