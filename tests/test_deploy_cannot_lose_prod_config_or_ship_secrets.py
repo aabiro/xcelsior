@@ -199,6 +199,28 @@ def test_the_templates_still_do() -> None:
     assert not _dockerignored(".env.example")
 
 
+@pytest.mark.parametrize("transport", ["rsync", "tar"])
+def test_worker_signing_private_key_stays_on_the_signing_machine(tmp_path: Path, transport: str) -> None:
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    (src / "scripts").mkdir(parents=True)
+    dst.mkdir()
+    for name in ("agent-signing.key", "agent-signing.pub", "worker_agent.py.sig"):
+        (src / "scripts" / name).write_text("fixture, not a key")
+    if transport == "rsync":
+        options = re.search(r"^RSYNC_EXCLUDES=\((.*?)^\)", DEPLOY.read_text(), re.M | re.S).group(1)
+        filters = re.findall(r"--(?:include|exclude)='[^']*'", options)
+        result = _bash(f"rsync -a {' '.join(filters)} '{src}/' '{dst}/'")
+    else:
+        filters = re.findall(r"--exclude='[^']*'", _function("sync_code_tarball"))
+        result = _bash(f"tar -cf - {' '.join(filters)} -C '{src}' . | tar -xf - -C '{dst}'")
+    assert result.returncode == 0, result.stderr
+    assert not (dst / "scripts" / "agent-signing.key").exists()
+    assert (dst / "scripts" / "agent-signing.pub").exists()
+    assert (dst / "scripts" / "worker_agent.py.sig").exists()
+    assert _dockerignored("scripts/agent-signing.key")
+    assert not _dockerignored("scripts/agent-signing.pub")
+
+
 # ── Nothing on the production path starts the bundled redis ───────────────
 #
 # The redeploy that followed stopped at the migration: `docker compose run --rm

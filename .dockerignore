@@ -3,6 +3,7 @@ __pycache__
 .pytest_cache
 venv
 .venv
+scripts/agent-signing.key
 node_modules
 .next
 *.db
