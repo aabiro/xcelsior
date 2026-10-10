@@ -346,6 +346,58 @@ def collect_all_gpus() -> list[dict]:
     return results
 
 
+def get_gpu_compute_pids(gpu_index: int) -> Optional[set[int]]:
+    """Host PIDs that hold a compute context on GPU `gpu_index`.
+
+    Used to attribute GPU load to a process (and from there to a job
+    container) instead of to the whole device. Returns None when the
+    attribution itself is unavailable, so callers can tell "nobody is
+    using this GPU" (empty set) apart from "we can't tell".
+    """
+    if _nvml_initialized:
+        try:
+            handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_index)
+            return {p.pid for p in pynvml.nvmlDeviceGetComputeRunningProcesses(handle)}
+        except Exception as e:
+            log.debug("NVML: compute process query failed for GPU %d: %s", gpu_index, e)
+
+    import subprocess
+
+    try:
+        gpus = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index,uuid", "--format=csv,noheader,nounits"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        apps = subprocess.run(
+            ["nvidia-smi", "--query-compute-apps=gpu_uuid,pid", "--format=csv,noheader,nounits"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if gpus.returncode != 0 or apps.returncode != 0:
+            return None
+        uuid = next(
+            (
+                u.strip()
+                for i, u in (l.split(",", 1) for l in gpus.stdout.splitlines() if "," in l)
+                if i.strip() == str(gpu_index)
+            ),
+            None,
+        )
+        if uuid is None:
+            return None
+        return {
+            int(pid)
+            for u, pid in (l.split(",", 1) for l in apps.stdout.splitlines() if "," in l)
+            if u.strip() == uuid and pid.strip().isdigit()
+        }
+    except Exception as e:
+        log.debug("nvidia-smi compute process query failed: %s", e)
+        return None
+
+
 # ── nvidia-smi Fallback ──────────────────────────────────────────────
 # Used when pynvml is not installed (dev machines, CI, etc.)
 
