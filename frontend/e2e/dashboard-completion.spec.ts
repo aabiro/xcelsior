@@ -169,3 +169,32 @@ test("events traverse pages and filtering resets to the first page", async ({ co
   expect(state.eventRequests.at(-1)).toContain("severity=warning");
   expect(state.eventRequests.at(-1)).not.toContain("before=");
 });
+
+test("a platform admin credits a wallet without paying, and the wallet shows it", async ({ context, page, baseURL }, info) => {
+  await installFixtures(context, baseURL!);
+  let balance = 125;
+  const grants: { amount_cad: number; reason: string; idempotency_key: string }[] = [];
+  // Registered after the fixtures, so it answers wallet requests first.
+  await context.route(/\/api\/billing\/wallet\//, async (route) => {
+    const request = route.request();
+    const json = (body: unknown) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+    if (request.method() === "POST" && request.url().endsWith("/admin-credit")) {
+      const body = request.postDataJSON();
+      grants.push(body);
+      balance += body.amount_cad;
+      return json({ ok: true, tx_id: "tx-review", balance_cad: balance, amount_cad: body.amount_cad });
+    }
+    return json({ ok: true, wallet: { customer_id: user.customer_id, balance_cad: balance, total_deposited_cad: 100, status: "active" }, transactions: [] });
+  });
+  await page.goto("/dashboard/billing?topup=true");
+  await page.getByText("Admin credit", { exact: true }).click();
+  await page.getByRole("button", { name: "$100", exact: true }).click();
+  await page.getByLabel(/Reason/).fill("End-to-end launch test");
+  await page.screenshot({ path: info.outputPath("admin-credit.png") });
+  await page.getByRole("button", { name: "Credit $100.00" }).click();
+  await expect(page.locator("[data-sonner-toast]").filter({ hasText: "$100.00 CAD credited" })).toBeVisible();
+  expect(grants).toHaveLength(1);
+  expect(grants[0]).toMatchObject({ amount_cad: 100, reason: "End-to-end launch test" });
+  expect(grants[0].idempotency_key).toMatch(/\S{8,}/);
+  await expect(page.locator("header").getByText("$225.00")).toBeVisible();
+});
