@@ -1275,7 +1275,8 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
         # soon as you click launch; it'll auto-connect when the container is
         # up" rather than "connection refused until fully booted". Only
         # terminal states (failed/completed/cancelled/terminated) get rejected.
-        if instance.get("status") not in ("running", "starting", "queued", "assigned"):
+        startup_statuses = {"queued", "assigned", "leased", "starting"}
+        if instance.get("status") not in startup_statuses | {"running"}:
             await _send_error(
                 websocket,
                 f"Instance is '{instance.get('status', 'unknown')}', not running",
@@ -1287,7 +1288,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
 
         status_poll_max = 90
         status_poll_sec = 2.0
-        if instance.get("status") in ("queued", "assigned", "starting"):
+        if instance.get("status") in startup_statuses:
             # Budget: 30 min (600 polls × 3s) for large image pulls (e.g. 20GB
             # pytorch). Workers advance queued→assigned→starting→running; if we
             # reach 30 min total without running, we drop. The reaper will also
@@ -1296,6 +1297,8 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
             status_poll_sec = 3.0
             prev_status = str(instance.get("status") or "pending")
             for s_attempt in range(status_poll_max):
+                if s_attempt % 10 == 0:
+                    await asyncio.to_thread(_refresh_terminal_session_slot, user, session_slot)
                 await _send_status(
                     websocket,
                     f"{prev_status.capitalize()}… ({s_attempt + 1})",
@@ -1312,8 +1315,12 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                     prev_status = cur
                 if cur == "running":
                     break
-                if cur in ("failed", "cancelled", "terminated"):
-                    await _send_error(websocket, f"Instance {cur} during startup", 4003)
+                if cur not in startup_statuses:
+                    reason = str(instance.get("error_message") or "").strip()
+                    detail = f"Instance {cur or 'unavailable'} during startup"
+                    if reason:
+                        detail += f": {reason[:500]}"
+                    await _send_error(websocket, detail, 4003)
                     await websocket.close(code=4003)
                     return
             else:
