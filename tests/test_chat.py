@@ -3,6 +3,7 @@
 import os
 import time
 import tempfile
+from types import SimpleNamespace
 
 import pytest
 from unittest.mock import patch
@@ -73,6 +74,13 @@ class TestSystemPrompt:
 
 
 class TestChatRateLimit:
+    @pytest.fixture(autouse=True)
+    def request_time(self, monkeypatch):
+        # These requests represent one burst. A slow DB/build must not let the
+        # real minute roll over halfway through the configured quota.
+        now = time.time()
+        monkeypatch.setattr("chat.time", SimpleNamespace(time=lambda: now))
+
     def setup_method(self):
         _chat_rate_buckets.clear()
 
@@ -82,7 +90,7 @@ class TestChatRateLimit:
 
     def test_blocks_over_limit(self):
         for _ in range(CHAT_RATE_LIMIT):
-            check_chat_rate_limit("10.0.0.2")
+            assert check_chat_rate_limit("10.0.0.2") is True
         assert check_chat_rate_limit("10.0.0.2") is False
 
     def test_separate_ip_buckets(self):
