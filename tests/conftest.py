@@ -141,6 +141,7 @@ _SHARED_RUNTIME_NAMESPACES = (
     "runtime.ws_connect_rate_limit",
     "runtime.ws_tickets",
     "runtime.terminal_session_slots",
+    "runtime.network_diagnostic_rate_limit",
 )
 
 

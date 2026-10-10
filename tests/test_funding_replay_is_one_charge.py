@@ -253,7 +253,7 @@ def test_the_tool_supplies_a_key_when_the_model_omits_one():
 # ── The other funding rail ─────────────────────────────────────────────
 
 
-def test_the_wallet_deposit_rail_deduplicates_on_its_key(engine):
+def test_the_wallet_deposit_rail_deduplicates_on_its_key(engine, probe_customer):
     """The crypto and PayPal rails credit through `deposit`, not through Stripe.
 
     They take the same gate: the same key must not credit twice. `deposit`
@@ -261,11 +261,23 @@ def test_the_wallet_deposit_rail_deduplicates_on_its_key(engine):
     mechanism from Stripe's, so it is asserted separately rather than assumed to
     behave the same way.
     """
-    import inspect
+    from db import pg_connection
 
-    source = inspect.getsource(engine.deposit)
-    assert "idempotency_key" in source, "deposit no longer accepts an idempotency key"
-    assert "SELECT tx_id" in source and "wallet_transactions" in source, (
-        "deposit no longer looks for an existing transaction with the same key, "
-        "so a replayed deposit would credit the wallet a second time"
-    )
+    key = f"deposit-replay-{uuid.uuid4().hex}"
+    try:
+        engine.deposit(probe_customer, 10.0, idempotency_key=key)
+        engine.deposit(probe_customer, 10.0, idempotency_key=key)
+        wallet = engine.get_wallet(probe_customer)
+        assert wallet["balance_cad"] == 10.0
+        assert wallet["total_deposited_cad"] == 10.0
+        with pg_connection() as conn:
+            count = conn.execute(
+                "SELECT count(*) FROM wallet_transactions WHERE customer_id = %s AND idempotency_key = %s",
+                (probe_customer, key),
+            ).fetchone()[0]
+        assert count == 1
+    finally:
+        with pg_connection() as conn:
+            conn.execute("DELETE FROM wallet_transactions WHERE customer_id = %s", (probe_customer,))
+            conn.execute("DELETE FROM wallets WHERE customer_id = %s", (probe_customer,))
+            conn.commit()

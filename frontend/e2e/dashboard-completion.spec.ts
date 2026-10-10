@@ -82,6 +82,82 @@ async function openAvatar(page: Page) {
   await page.locator("header button").filter({ hasText: user.name }).click();
 }
 
+test("avatar keyboard navigation and browser history", async ({ context, page, baseURL }) => {
+  await installFixtures(context, baseURL!);
+  await page.goto("/dashboard/mcp");
+  const trigger = page.locator(".dashboard-site-profile-trigger");
+  await trigger.focus();
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Tab");
+  await expect(page.locator('.dashboard-site-header-dropdown a[href$="#profile"]')).toBeFocused();
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/settings#team$/);
+  await trigger.focus();
+  await page.keyboard.press("Enter");
+  for (let i = 0; i < 3; i++) await page.keyboard.press("Tab");
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/settings#api-keys$/);
+  await expect(page.getByRole("heading", { name: /SSH Keys/i }).first()).toBeVisible();
+  await page.goBack();
+  await expect(page).toHaveURL(/settings#team$/);
+  await page.goForward();
+  await expect(page).toHaveURL(/settings#api-keys$/);
+  await expect(page.getByRole("heading", { name: /SSH Keys/i }).first()).toBeVisible();
+});
+
+test("clipboard denial preserves the secret and shows a themed error", async ({ context, page, baseURL }) => {
+  await installFixtures(context, baseURL!);
+  await context.addInitScript(() => {
+    localStorage.setItem("xcelsior-theme", "light");
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: () => Promise.reject(new Error("Clipboard denied")) } });
+  });
+  await page.goto("/dashboard/settings#mcp");
+  await page.getByRole("button", { name: "Create MCP Client", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Save your client secret" });
+  await expect(dialog).toBeFocused();
+  await expect(page.locator("[data-sonner-toaster]")).toHaveAttribute("data-sonner-theme", "light");
+  await dialog.getByRole("button", { name: "Copy secret", exact: true }).click();
+  await expect(page.locator('[data-sonner-toast][data-type="error"]')).toBeVisible();
+  await expect(page.locator("[data-sonner-toaster]")).toHaveAttribute("data-sonner-theme", "light");
+  await expect(page.locator(".oauth-secret-value")).toHaveText(secret);
+  await expect(dialog.getByRole("button", { name: "Done", exact: true })).toBeDisabled();
+});
+
+test("notifications follow a theme change without reloading", async ({ context, page, baseURL }) => {
+  await installFixtures(context, baseURL!);
+  await context.addInitScript(() => localStorage.setItem("xcelsior-theme", "light"));
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/dashboard/mcp");
+  await page.getByRole("tab", { name: "CLI", exact: true }).click();
+  const copy = page.getByRole("button", { name: /npx skills add/ });
+  await copy.click();
+  await expect(page.locator("[data-sonner-toaster]")).toHaveAttribute("data-sonner-theme", "light");
+  await page.getByRole("button", { name: "Switch to dark mode" }).last().click();
+  await copy.click();
+  await expect(page.locator("[data-sonner-toaster]")).toHaveAttribute("data-sonner-theme", "dark");
+});
+
+test("the narrow team menu supports keyboard selection", async ({ context, page, baseURL }) => {
+  await installFixtures(context, baseURL!);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/dashboard/mcp");
+  const trigger = page.getByRole("button", { name: "Personal workspace", exact: true });
+  await trigger.focus();
+  await page.keyboard.press("Enter");
+  const menu = page.getByRole("listbox", { name: "Workspace" });
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await expect(menu.getByRole("option", { name: "Research Team" })).toBeFocused();
+  const bounds = await menu.boundingBox();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
+  await expect(page.locator(".mcp-connect-card")).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(menu).toBeHidden();
+  await expect(page.getByRole("button", { name: "Research Team", exact: true })).toBeVisible();
+});
+
 for (const theme of ["light", "dark"] as const) {
   test(`${theme}: menus remain usable and CLI shows its own key`, async ({ context, page, baseURL }, info) => {
     const state = await installFixtures(context, baseURL!);
