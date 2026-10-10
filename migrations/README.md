@@ -90,7 +90,13 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `118_revoke_orphaned_quick_connect_keys.py`.**
+**Repository head: `119_privacy_epoch_columns_any_numeric_type.py`.**
+
+(`119` repeats 090's float-epoch → TIMESTAMPTZ conversion for `casl_consent`
+and `user_encryption_keys`, guarded on any numeric type instead of only
+`double precision`. Databases whose `casl_consent` predates the first 084 held
+REAL columns, slipped past 090's guard, and failed every consent write. It's a no-op where
+the columns are already TIMESTAMPTZ (prod, 2026-10-10), it's idempotent, and it has no downgrade.)
 
 (`118` revokes Quick Connect agent keys whose OAuth client no longer exists.
 "Regenerate" deleted the system-managed client and minted a key for a new one,
