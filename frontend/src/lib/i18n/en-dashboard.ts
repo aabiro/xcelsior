@@ -450,7 +450,7 @@ const en_dashboard: Record<string, string> = {
   "dash.mcp.key_status_ready": "ready",
   "dash.mcp.key_status_in_use": "in use",
   "dash.mcp.key_status_issued": "issued",
-  "dash.mcp.key_masked_hint": "This key is already in use. Only its last characters can be shown.",
+  "dash.mcp.key_masked_hint": "This key was already issued. Only its last characters can be shown.",
   "dash.mcp.key_in_use_note": "Your {key} was already issued and is shown only once. Keep using your saved key, or create a new one to copy a fresh prompt. Creating a new key revokes the previous one.",
   "dash.mcp.separate_keys": "MCP and CLI each get their own API key, so regenerating one never breaks the other.",
   "dash.mcp.copy_command": "Copy install command",
