@@ -1806,6 +1806,13 @@
   background: var(--panel-2);
 }
 
+/* Stacking alone was not enough: the panel tint is half transparent, so the
+   fixed particle field still glittered through the footer. On a page with
+   that field the same tint sits on the solid page colour, as the cards do. */
+.marketing-site:has(.mcp-particle-field) .site-footer {
+  background: linear-gradient(var(--panel-2), var(--panel-2)), var(--bg);
+}
+
 .site-footer-grid {
   display: grid;
   grid-template-columns: 2fr 1fr 1fr 1fr;
