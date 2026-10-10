@@ -1950,6 +1950,37 @@
         ],
         "title": "AddTeamMemberRequest"
       },
+      "AdminCreditRequest": {
+        "properties": {
+          "amount_cad": {
+            "type": "number",
+            "multipleOf": 0.01,
+            "maximum": 10000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Amount Cad"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 3,
+            "title": "Reason"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Idempotency Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "amount_cad",
+          "reason",
+          "idempotency_key"
+        ],
+        "title": "AdminCreditRequest"
+      },
       "AdmissionDecisionRequest": {
         "properties": {
           "action": {

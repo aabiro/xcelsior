@@ -105,6 +105,40 @@ def _verify(secret: str, **kwargs):
 # ── Storage and issuance ──────────────────────────────────────────────
 
 
+def test_host_network_download_uses_its_own_identity_and_quota(hosts, monkeypatch):
+    import api
+    import routes._deps as deps
+    import routes.health as health
+
+    monkeypatch.setattr(api, "AUTH_REQUIRED", True)
+    monkeypatch.setattr(deps, "AUTH_REQUIRED", True)
+    monkeypatch.setenv("XCELSIOR_API_TOKEN", "host-token-diagnostic-test-only")
+    monkeypatch.setenv("XCELSIOR_AGENT_HOST_TOKENS", "require")
+    health._NETWORK_DIAGNOSTIC_BUCKETS.clear()
+    issued = _issue(hosts[0])
+    headers = {"Authorization": f"Bearer {issued.secret}"}
+    other = client.get(f"/agent/network-download/{hosts[1]}", headers=headers)
+    assert other.status_code == 403, other.text
+    for _ in range(4):
+        response = client.get(f"/agent/network-download/{hosts[0]}", headers=headers)
+        assert response.status_code == 200, response.text[:200]
+        assert len(response.content) == 8 * 1024 * 1024
+        assert response.headers["content-encoding"] == "identity"
+    assert client.get(f"/agent/network-download/{hosts[0]}", headers=headers).status_code == 429
+
+
+def test_idle_worker_poll_has_a_truly_empty_204_body(hosts, monkeypatch):
+    import api
+
+    monkeypatch.setattr(api, "AUTH_REQUIRED", True)
+    monkeypatch.setenv("XCELSIOR_API_TOKEN", "host-token-poll-test-only")
+    monkeypatch.setenv("XCELSIOR_AGENT_HOST_TOKENS", "require")
+    issued = _issue(hosts[0])
+    response = client.get(f"/agent/work/{hosts[0]}", headers={"Authorization": f"Bearer {issued.secret}"})
+    assert response.status_code == 204, response.text
+    assert response.content == b""
+
+
 def test_secret_is_never_stored_in_cleartext(hosts):
     host_id = hosts[0]
     issued = _issue(host_id)

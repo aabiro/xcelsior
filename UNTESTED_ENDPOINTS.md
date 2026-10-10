@@ -1,8 +1,8 @@
 # Untested endpoints — coverage-gap worklist
 
-_Regenerated 2026-10-06 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
+_Regenerated 2026-10-10 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
 
-**0 of 529 routes (0%)** and **0 of 48 CLI commands** (0%) have no test signal.
+**0 of 532 routes (0%)** and **0 of 48 CLI commands** (0%) have no test signal.
 
 Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the box; if it 500s/throws, fix-or-delete then tick. Caveat: a few may be exercised transitively; confirm with the test.
 
@@ -65,6 +65,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /agent/lease/renew` — `api_agent_lease_renew`
 - [x] `POST /agent/logs/{job_id}` — `api_agent_logs`
 - [x] `POST /agent/mining-alert` — `api_mining_alert`
+- [x] `GET /agent/network-download/{host_id}` — `api_agent_network_download`
 - [x] `GET /agent/popular-images` — `api_agent_popular_images`
 - [x] `GET /agent/preempt/{host_id}` — `api_agent_preempt`
 - [x] `POST /agent/preempt/{host_id}/{job_id}` — `api_schedule_preemption`
@@ -190,6 +191,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /api/billing/setup-intent` — `api_billing_setup_intent`  ✓ test_billing_endpoints_coverage.py
 - [x] `GET /api/billing/usage/{customer_id}` — `api_usage_summary`  ✓ test_billing_endpoints_coverage.py
 - [x] `GET /api/billing/wallet/{customer_id}` — `api_get_wallet`  ✓ test_agent_endpoints_coverage.py
+- [x] `POST /api/billing/wallet/{customer_id}/admin-credit` — `api_admin_credit`  ✓ test_agent_endpoints_coverage.py
 - [x] `GET /api/billing/wallet/{customer_id}/depletion` — `api_wallet_depletion`  ✓ test_agent_endpoints_coverage.py
 - [x] `POST /api/billing/wallet/{customer_id}/deposit` — `api_deposit`  ✓ test_agent_endpoints_coverage.py
 - [x] `GET /api/billing/wallet/{customer_id}/history` — `api_wallet_history`  ✓ test_agent_endpoints_coverage.py
@@ -281,6 +283,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `PUT /alerts/config` — `api_generate_ssh_key`  ✓ test_health_endpoints_coverage.py
 - [x] `GET /api/alerts/config` — `api_get_alert_config_alias`  ✓ test_health_endpoints_coverage.py
 - [x] `PUT /api/alerts/config` — `api_set_alert_config_alias`  ✓ test_health_endpoints_coverage.py
+- [x] `GET /api/diagnostics/network-download` — `network_download`
 - [x] `GET /api/nfs/config` — `api_build_image`
 - [x] `GET /api/slurm/instances` — `api_slurm_list_instances`  ✓ test_health_endpoints_coverage.py
 - [x] `GET /api/slurm/profiles` — `api_nfs_config`

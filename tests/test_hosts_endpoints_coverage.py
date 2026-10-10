@@ -113,6 +113,21 @@ def test_hosts_list_and_get(user_headers):
     assert r3.status_code == 200
     assert r3.json().get("host", {}).get("host_id") == host_id
 
+    # V2 receipt time lives in a column, while the v1 JSON timestamp can stay
+    # stale. The installer must be able to observe the actual server heartbeat.
+    from db import pg_connection
+
+    observed_at = 1791633601.0
+    with pg_connection() as conn:
+        conn.execute(
+            "UPDATE hosts SET last_observed_at = to_timestamp(%s) WHERE host_id = %s",
+            (observed_at, host_id),
+        )
+        conn.commit()
+    observed = client.get(f"/host/{host_id}", headers=user_headers["headers"])
+    assert observed.status_code == 200
+    assert observed.json()["host"]["last_observed_at"] == observed_at
+
 
 def test_hosts_compute_scores():
     r = client.get("/compute-scores")

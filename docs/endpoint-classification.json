@@ -143,6 +143,10 @@
     "class": "internal",
     "notes": "worker-agent callbacks, authenticated by the fleet secret"
   },
+  "GET /agent/network-download/{host_id}": {
+    "class": "internal",
+    "notes": "Authenticated host-scoped network diagnostic payload for worker verification; not an MCP tool."
+  },
   "GET /agent/popular-images": {
     "class": "internal",
     "notes": "worker-agent callbacks, authenticated by the fleet secret"
