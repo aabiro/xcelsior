@@ -11,7 +11,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
-from typing import Any, Mapping
+from typing import Any, Mapping, cast
 
 from psycopg.types.json import Jsonb
 
@@ -582,7 +582,8 @@ def delete_redis_subject(request: Mapping[str, Any], _sink: Mapping[str, Any]) -
                 if len(keys) >= 5_000:
                     break
         if keys:
-            deleted += int(client.unlink(*sorted(keys)))
+            # Sync client: redis-py types unlink() as ResponseT (sync|async union).
+            deleted += cast(int, client.unlink(*sorted(keys)))
 
     return SinkOutcome(
         "completed",
