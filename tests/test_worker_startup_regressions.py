@@ -1,0 +1,102 @@
+"""Startup failures observed in production, with machine/network IO isolated."""
+
+from unittest.mock import Mock
+import subprocess
+
+import pytest
+import requests
+
+import worker_agent as worker
+
+
+def test_managed_engine_flags_preserve_the_image_entrypoint():
+    from serverless.service import _preset_startup_command
+
+    command, overrides = worker._container_command(
+        _preset_startup_command("vllm", "Qwen/Qwen3-8B", http_port=9123), serverless=True,
+    )
+    assert overrides == []
+    assert command[:2] == ["--model", "Qwen/Qwen3-8B"]
+    assert command[command.index("--port") + 1] == "9123"
+
+
+@pytest.mark.parametrize("serverless", [True, False])
+def test_custom_shell_commands_still_override_the_entrypoint(serverless):
+    command, overrides = worker._container_command("python app.py --name 'my model'", serverless=serverless)
+    assert overrides == ["--entrypoint", "sh"]
+    assert command == ["-c", "python app.py --name 'my model'"]
+
+
+def test_explicit_argv_is_not_reinterpreted_as_shell():
+    args = ["--model", "my model"]
+    assert worker._container_command(args, serverless=True) == (args, [])
+
+
+def test_partial_volume_mount_failure_cleans_up_without_masking_the_error(monkeypatch):
+    for name in ("get_gpu_info", "build_platform_env"):
+        monkeypatch.setattr(worker, name, Mock(return_value={}))
+    for name in ("_kill_container", "_remove_container", "destroy_encrypted_volume"):
+        monkeypatch.setattr(worker, name, Mock())
+    monkeypatch.setattr(worker.time, "sleep", Mock())
+    monkeypatch.setattr(worker, "claim_lease", Mock(return_value=None))
+    release = Mock()
+    monkeypatch.setattr(worker, "release_lease", release)
+    report = Mock(return_value=True)
+    monkeypatch.setattr(worker, "report_job_status", report)
+    monkeypatch.setattr(worker, "_mount_nfs", Mock(side_effect=[True, False]))
+    unmount = Mock()
+    monkeypatch.setattr(worker, "_unmount_nfs", unmount)
+
+    worker.run_job({
+        "job_id": "mount-failure-regression", "image": "test/image:1",
+        "volume_ids": ["vol-present", "vol-missing"], "nfs_server": "192.0.2.1",
+    })
+
+    report.assert_any_call("mount-failure-regression", "failed", error_message="required volume mount failed: vol-missing")
+    release.assert_called_once_with("mount-failure-regression", "failed")
+    unmount.assert_called_once_with("/mnt/xcelsior-volumes/vol-present")
+    worker.destroy_encrypted_volume.assert_not_called()
+    assert "mount-failure-regression" not in worker._active_containers
+
+
+@pytest.mark.parametrize("failure", [None, "http", "short", "second_download", "no_ping"])
+def test_network_measurement_requires_real_payload_and_ping_evidence(monkeypatch, failure):
+    ping = Mock(return_value=subprocess.CompletedProcess([], 0, stdout=(
+        "20 packets transmitted, 20 received, 0% packet loss\n"
+        "rtt min/avg/max/mdev = 12.0/15.0/18.0/2.0 ms\n"
+    )))
+    if failure == "no_ping":
+        ping.side_effect = FileNotFoundError("ping")
+    monkeypatch.setattr(worker.subprocess, "run", ping)
+    monkeypatch.setattr(worker, "HOST_ID", "test-host")
+    monkeypatch.setattr(worker, "_api_headers", lambda: {"Authorization": "Bearer xat_test"})
+    monkeypatch.setattr(worker.time, "perf_counter", Mock(side_effect=[10.0, 10.5]))
+    response = requests.Response()
+    response.status_code = 403 if failure == "http" else 200
+    response._content = b"x" * (128 if failure == "short" else 8 * 1024 * 1024)
+    get = Mock(return_value=response)
+    if failure == "second_download":
+        get.side_effect = [response, requests.Timeout("timed out")]
+    monkeypatch.setattr(worker.requests, "get", get)
+
+    report = worker.run_network_benchmark("https://api.example.test/")
+
+    assert report["throughput_mbps"] == (268.44 if failure in (None, "no_ping") else 0)
+    assert report["packet_loss_pct"] == (100 if failure == "no_ping" else 0)
+    for call in get.call_args_list:
+        assert call.args[0] == "https://api.example.test/agent/network-download/test-host"
+        assert call.kwargs["headers"]["Authorization"] == "Bearer xat_test"
+
+
+def test_exclusive_gpu_refusal_clears_worker_bookkeeping(monkeypatch):
+    for name in ("get_gpu_info", "build_platform_env"):
+        monkeypatch.setattr(worker, name, Mock(return_value={}))
+    for name in ("_kill_container", "_remove_container", "release_lease"):
+        monkeypatch.setattr(worker, name, Mock())
+    monkeypatch.setattr(worker.time, "sleep", Mock())
+    monkeypatch.setattr(worker, "claim_lease", Mock(return_value=None))
+    monkeypatch.setattr(worker, "report_job_status", Mock(return_value=True))
+    monkeypatch.setattr(worker, "_acquire_exclusive_gpu", Mock(return_value={"ok": False, "error": "busy"}))
+    worker.run_job({"job_id": "gpu-busy-regression", "image": "test/image:1", "exclusive_gpu": True})
+    assert "gpu-busy-regression" not in worker._active_containers
+    worker.release_lease.assert_called_once_with("gpu-busy-regression", "failed")

@@ -1168,6 +1168,21 @@ class TestTerminalTicketApi:
 class TestWsInstanceResolution:
     """Tests that bypass auth to exercise instance-resolution logic."""
 
+    @pytest.mark.parametrize("status", ["queued", "assigned", "leased", "starting"])
+    def test_all_startup_states_wait_and_surface_the_actual_failure(self, monkeypatch, status):
+        monkeypatch.setattr(term_mod, "_validate_ws_auth", lambda *a, **kw: {"user_id": "user-1"})
+        initial = {"job_id": "startup", "owner": "user-1", "status": status}
+        failed = {**initial, "status": "failed", "error_message": "required volume mount failed: test-volume"}
+        states = iter([initial, failed])
+        monkeypatch.setattr(scheduler, "get_job", lambda _: next(states))
+        with client.websocket_connect("/ws/terminal/startup") as ws:
+            progress = ws.receive_json()
+            assert progress["type"] == "status"
+            assert status.capitalize() in progress["message"]
+            error = ws.receive_json()
+            assert error["type"] == "error"
+            assert "required volume mount failed: test-volume" in error["message"]
+
     def test_instance_not_found(self, monkeypatch):
         """Returns 4004 error when instance doesn't exist."""
         monkeypatch.setattr(
