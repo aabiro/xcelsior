@@ -42,7 +42,10 @@ export function TeamSwitcher({ className, compact = false }: TeamSwitcherProps) 
         event.preventDefault();
         const options = Array.from(menuRef.current.querySelectorAll<HTMLButtonElement>('[role="option"]'));
         const current = options.indexOf(document.activeElement as HTMLButtonElement);
-        options[(current + (event.key === "ArrowDown" ? 1 : options.length - 1)) % options.length]?.focus();
+        const next = current < 0
+          ? (event.key === "ArrowDown" ? 0 : options.length - 1)
+          : (current + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length;
+        options[next]?.focus();
       }
     };
     document.addEventListener("pointerdown", dismiss);
@@ -67,7 +70,7 @@ export function TeamSwitcher({ className, compact = false }: TeamSwitcherProps) 
 
   useEffect(() => {
     void loadTeams();
-  }, [loadTeams, user?.team_id]);
+  }, [loadTeams, user?.team_id, user?.user_id]);
 
   const handleSwitch = async (teamId: string | null) => {
     if (switching) return;
