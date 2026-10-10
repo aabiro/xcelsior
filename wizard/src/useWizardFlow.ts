@@ -14,7 +14,7 @@ import {
     requestDeviceCode, pollDeviceToken,
     getMe, createOAuthClient, searchMarketplace, type MarketplaceListing, type MarketplaceFilters,
     getWallet, claimFreeCredits,
-    launchInstance, type InstanceInfo,
+    launchInstance, listInstances, type InstanceInfo,
     registerHost, reportVersions, reportBenchmark, reportVerification,
 } from "./api-client.js";
 import type { WizardState } from "../sprites/wizard/wizard-sprite.js";
@@ -1092,9 +1092,43 @@ export function useWizardFlow(): UseWizardFlowReturn {
         const image = currentAnswers["image-pick"] as string;
         const listing = gpuListingsRef.current.find((l) => l.host_id === hostId);
 
+        // The launch intent is saved before the POST. A retry after an
+        // ambiguous failure (a timeout or 5xx after the server committed), or
+        // a resume, first looks for the instance the earlier attempt created,
+        // so the user never gets, and pays for, a second one.
+        const priorName = currentAnswers["_launch_host"] === hostId ? currentAnswers["_launch_name"] as string | undefined : undefined;
+        const startedAt = priorName ? Number(currentAnswers["_launch_started_at"] || 0) : Date.now();
+        if (priorName) {
+            let existing: InstanceInfo | undefined;
+            try {
+                existing = (await listInstances(API_BASE_URL, token)).find((instance) =>
+                    instance.name === priorName && instance.host_id === hostId
+                    // Allow for clock skew between this machine and the server.
+                    && (instance.submitted_at ?? 0) * 1000 >= startedAt - 5 * 60_000);
+            } catch (err) {
+                return [{
+                    name: "Instance",
+                    ok: false,
+                    detail: `Couldn't confirm whether the earlier launch went through (${err instanceof Error ? err.message : "API unavailable"}). Nothing new was launched; retry when the API is reachable.`,
+                }];
+            }
+            if (existing) {
+                setInstanceInfo(existing);
+                return [{ name: "Instance", ok: true, detail: `${existing.job_id} — ${existing.status} (started by the earlier attempt)` }];
+            }
+        }
+        const name = priorName ?? generateInstanceName();
+        const intent = {
+            ...answersRef.current,
+            "_launch_name": name, "_launch_host": hostId, "_launch_started_at": String(startedAt),
+        };
+        answersRef.current = intent;
+        setAnswers(intent);
+        flushCheckpoint();
+
         try {
             const instance = await launchInstance(API_BASE_URL, token, {
-                name: generateInstanceName(),
+                name,
                 host_id: hostId,
                 image: image || "nvidia/cuda:12.4.1-devel-ubuntu22.04",
                 interactive: true,
@@ -1119,7 +1153,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 detail: err instanceof Error ? err.message : "Launch failed",
             }];
         }
-    }, [gpuListings]);
+    }, [flushCheckpoint]);
 
     // ── Auto-check runner ────────────────────────────────────────────
 
