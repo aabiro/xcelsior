@@ -17,11 +17,12 @@ def _resolve_backend(conn=None, backend: str | None = None) -> str:
     if backend:
         return backend
     if conn is not None:
-        import sqlite3
-
-        if isinstance(conn, sqlite3.Connection):
+        # By module name: importing sqlite3 here would put shared security state
+        # outside the local-state boundary (tests/test_local_state_boundary.py).
+        module = type(conn).__module__
+        if module == "sqlite3":
             return "sqlite"
-        if type(conn).__module__.startswith("psycopg") or hasattr(conn, "pgconn"):
+        if module.startswith("psycopg") or hasattr(conn, "pgconn"):
             return "postgres"
     try:
         engine = get_engine()
