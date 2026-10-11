@@ -3686,7 +3686,7 @@ def build_ai_system_prompt(user: dict, page_context: str = "") -> str:
     # is handled separately from this provider-admission slice.
     context = re.sub(
         r"npx @xcelsior-gpu/wizard@[^\s`]+",
-        "npx @xcelsior-gpu/wizard@0.1.1",
+        "npx @xcelsior-gpu/wizard@0.1.2",
         _load_llms_txt(),
     )
 
@@ -3743,7 +3743,7 @@ When a user wants to provide GPUs, guide them step-by-step:
 3. Use `estimate_cost` in reverse — estimate monthly earnings at 40-70% utilisation.
 4. Walk them through installation:
    ```bash
-   npx @xcelsior-gpu/wizard@0.1.1
+   npx @xcelsior-gpu/wizard@0.1.2
    ```
    (Use `npx`, not `npm install -g` — a global install writes to a root-owned
    directory like /usr/lib/node_modules and fails with EACCES on most Linux setups.)
@@ -3757,7 +3757,7 @@ WORKER INSTALLATION GUIDE (provide when users ask how to install the worker):
 
 **Option A: AI Onboarding Wizard (Recommended)**
 ```bash
-npx @xcelsior-gpu/wizard@0.1.1
+npx @xcelsior-gpu/wizard@0.1.2
 ```
 (Use `npx`, not `npm install -g` — global installs fail with EACCES against
 root-owned /usr/lib/node_modules on most Linux setups. To use the SDK in your
