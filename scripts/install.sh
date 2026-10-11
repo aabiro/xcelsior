@@ -17,7 +17,7 @@ AGENT_PATH="$CONFIG_DIR/worker_agent.py"
 ENV_FILE="$CONFIG_DIR/worker.env"
 VENV_DIR="$CONFIG_DIR/venv"
 VENV_PYTHON="$VENV_DIR/bin/python3"
-readonly WIZARD_PACKAGE="@xcelsior-gpu/wizard@0.1.1"
+readonly WIZARD_PACKAGE="@xcelsior-gpu/wizard@0.1.2"
 AGENT_SIGNING_PUB_EMBEDDED='-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAa8ybnMNSvU/2/QRbDJ5Y1F6LzusKKu1ACYMeMhyyRXs=
 -----END PUBLIC KEY-----'
