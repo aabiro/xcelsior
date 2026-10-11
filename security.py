@@ -17,8 +17,6 @@ import subprocess
 import time
 from cryptography.fernet import Fernet, InvalidToken
 
-import env_config
-
 log = logging.getLogger("xcelsior")
 
 # ── Encryption key for user secrets ───────────────────────────────────
@@ -28,6 +26,10 @@ _fernet = None
 
 
 def _get_fernet():
+    # Imported here, not at module level: worker hosts import this module, and
+    # installs from before env_config.py was shipped to them must still start.
+    import env_config
+
     global _fernet
     if _fernet is None:
         key = _SECRETS_KEY

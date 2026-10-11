@@ -161,3 +161,41 @@ def test_install_status_check_requires_admitted_flag_for_active_success():
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "authoritatively admitted and active" in result.stdout
+
+
+def test_installer_runs_main_when_piped():
+    # `curl -fsSL .../install.sh | bash -s -- --help`: BASH_SOURCE[0] is empty there.
+    result = subprocess.run(
+        ["/bin/bash", "-s", "--", "--help"], input=INSTALL_SH.read_text(),
+        text=True, capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Usage:" in result.stdout
+
+
+def test_installer_does_not_run_main_when_sourced():
+    # The wizard sources install.sh for its functions.
+    result = subprocess.run(
+        ["/bin/bash", "-c", f"source {INSTALL_SH}; echo sourced", "xcelsior-worker-install"],
+        text=True, capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "sourced"
+
+
+def test_systemd_unit_uses_state_directory(tmp_path):
+    unit = tmp_path / "xcelsior-worker.service"
+    result = _run_installer_function(
+        "install_systemd",
+        {
+            # `sudo install -m 0644 <tmp> /etc/systemd/system/xcelsior-worker.service`
+            "sudo": f'if [ "$1" = install ]; then cp "$4" {unit}; fi',
+            "systemctl": "exit 0",
+        },
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    text = unit.read_text()
+    assert "StateDirectory=xcelsior\n" in text
+    # A missing ReadWritePaths entry fails the first start with 226/NAMESPACE.
+    rw = next(line for line in text.splitlines() if line.startswith("ReadWritePaths="))
+    assert "/var/lib/xcelsior" not in rw
