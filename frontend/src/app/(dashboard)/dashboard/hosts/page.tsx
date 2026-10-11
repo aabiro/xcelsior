@@ -762,7 +762,7 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://xcelsior.ca";
 const APP_HOST = APP_URL.replace(/^https?:\/\//, "");
-const WIZARD_CMD = "npx @xcelsior-gpu/wizard@0.1.0";
+const WIZARD_CMD = "npx @xcelsior-gpu/wizard@0.1.1";
 const SDK_INSTALL_CMD = "npm install @xcelsior-gpu/sdk";
 
 const LLM_INSTALL_PROMPT = `I am setting up an Xcelsior GPU worker node to join the distributed GPU compute marketplace at ${APP_HOST}. Walk me through setup step-by-step. Mark any values I need to fill in with placeholder comments.
@@ -775,7 +775,7 @@ Register at ${APP_URL}/dashboard/hosts → "Register Host" (the wizard can also 
 ### 2. Run the wizard (one command on the GPU host)
 
 \`\`\`bash
-npx @xcelsior-gpu/wizard@0.1.0
+npx @xcelsior-gpu/wizard@0.1.1
 \`\`\`
 
 (\`npx\` runs the wizard without a global install, no \`-g\`, no \`/usr/lib/node_modules\` permission issues.)
@@ -805,64 +805,30 @@ xcelsior earnings --period 30d                   # Earnings summary
 ### Requirements
 - Node.js >= 18, NVIDIA drivers >= 550, Docker >= 24.0, Ubuntu 22.04+ or WSL2
 
-## Option B: Manual Setup
+## Option B: Manual Setup (no Node.js)
 
-### 1. Install worker agent
+### 1. Register the host and create a key
+- ${APP_URL}/dashboard/hosts → "Register Host"; note the Host ID.
+- ${APP_URL}/dashboard/settings → API & SSH; create an API key (or an OAuth client ID + secret).
+
+### 2. Run the installer on the GPU host
 
 \`\`\`bash
-curl -fsSL ${APP_URL}/install.sh | bash
+curl -fsSL ${APP_URL}/install.sh | bash -s -- --agent-only
 \`\`\`
 
-### 2. Create environment file
+It checks the NVIDIA driver and Docker's NVIDIA runtime, asks for the Host ID and key, verifies the signature of every agent module it downloads, writes \`~/.xcelsior/worker.env\` (mode 600), installs and starts the \`xcelsior-worker\` systemd service, then waits for the first heartbeat and reports the admission state. Nothing else needs to be created by hand.
 
-Create \`~/.xcelsior/worker.env\`:
-
-\`\`\`bash
-XCELSIOR_HOST_ID=<your-host-id>            # From dashboard after registering
-XCELSIOR_SCHEDULER_URL=${APP_URL}
-# Choose one auth method below. If both are set, the worker prefers OAuth.
-XCELSIOR_API_TOKEN=<your-api-token>        # Settings → API & SSH
-XCELSIOR_OAUTH_CLIENT_ID=<your-client-id>  # Settings → API & SSH
-XCELSIOR_OAUTH_CLIENT_SECRET=<your-client-secret>
-XCELSIOR_HOST_IP=<your-host-ip>            # Tailscale/Headscale mesh or public
-\`\`\`
-
-### 3. Enable as a systemd service
+### 3. Verify
 
 \`\`\`bash
-sudo tee /etc/systemd/system/xcelsior-worker.service << 'EOF'
-[Unit]
-Description=Xcelsior Worker Agent
-After=network-online.target docker.service
-Wants=network-online.target
-Requires=docker.service
-
-[Service]
-Type=simple
-EnvironmentFile=$HOME/.xcelsior/worker.env
-ExecStart=/usr/bin/python3 $HOME/.xcelsior/worker_agent.py
-Restart=always
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now xcelsior-worker
-\`\`\`
-
-### 4. Verify
-
-\`\`\`bash
-sudo systemctl status xcelsior-worker
+systemctl status xcelsior-worker
 journalctl -u xcelsior-worker -f
 \`\`\`
 
+To change a setting, edit \`~/.xcelsior/worker.env\` and run \`sudo systemctl restart xcelsior-worker\`. \`systemctl cat xcelsior-worker\` shows the exact service the installer wrote.
+
 ## Notes
-- Register your host first at ${APP_URL}/dashboard/hosts → "Register Host" (the AI Onboarding Wizard handles this automatically).
 - \`nvidia-smi\` not found → install a supported NVIDIA driver (550 or newer)
 - Docker permission denied → \`sudo usermod -aG docker $USER\`
 - Can't connect → check firewall allows outbound HTTPS to ${APP_HOST}:443
@@ -1481,38 +1447,16 @@ xcelsior earnings --period 30d`;
 /* ── Manual Quickstart View ──────────────────────────────────────── */
 
 function ManualQuickstartView({ copied, onCopy }: { copied: string | null; onCopy: (label: string, text: string) => void }) {
-  const installCmd = `curl -fsSL ${APP_URL}/install.sh | bash`;
+  // Keep in step with scripts/install.sh: it writes worker.env and the systemd
+  // service itself, so the manual path is the installer without the wizard.
+  const installCmd = `curl -fsSL ${APP_URL}/install.sh | bash -s -- --agent-only`;
 
-  const envTemplate = `XCELSIOR_HOST_ID=<your-host-id>
-XCELSIOR_SCHEDULER_URL=${APP_URL}
-# Choose one auth method below. If both are set, the worker prefers OAuth.
-XCELSIOR_API_TOKEN=<your-api-token>
-XCELSIOR_OAUTH_CLIENT_ID=<your-client-id>
-XCELSIOR_OAUTH_CLIENT_SECRET=<your-client-secret>
-XCELSIOR_HOST_IP=<your-host-ip>`;
+  const verifyCmd = `systemctl status xcelsior-worker
+journalctl -u xcelsior-worker -f`;
 
-
-  const systemdUnit = `[Unit]
-Description=Xcelsior Worker Agent
-After=network-online.target docker.service
-Wants=network-online.target
-Requires=docker.service
-
-[Service]
-Type=simple
-EnvironmentFile=$HOME/.xcelsior/worker.env
-ExecStart=/usr/bin/python3 $HOME/.xcelsior/worker_agent.py
-Restart=always
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target`;
-
-  const verifyCmd = `sudo systemctl daemon-reload
-sudo systemctl enable --now xcelsior-worker
-sudo systemctl status xcelsior-worker`;
+  const changeCmd = `nano ~/.xcelsior/worker.env
+sudo systemctl restart xcelsior-worker
+systemctl cat xcelsior-worker   # the exact service the installer wrote`;
 
   return (
     <div className="space-y-5 mt-2">
@@ -1522,40 +1466,38 @@ sudo systemctl status xcelsior-worker`;
           <Code2 className="h-3.5 w-3.5" />
           Manual Setup
         </div>
-        <span className="text-[11px] text-text-muted">Step-by-step</span>
+        <span className="text-[11px] text-text-muted">No Node.js needed</span>
       </div>
 
       <div>
-        <p className="text-sm font-medium mb-1.5">1. Run the setup script</p>
+        <p className="text-sm font-medium mb-1.5">1. Register the host and create a key</p>
         <p className="text-xs text-text-secondary mb-2">
-          Execute this on your GPU host to auto-detect hardware and register with Xcelsior:
+          Click &quot;Register Host&quot; on this page and note the Host ID, then create an API key (or an OAuth
+          client) under Settings &rarr; API &amp; SSH.
+        </p>
+      </div>
+
+      <div>
+        <p className="text-sm font-medium mb-1.5">2. Run the installer on your GPU host</p>
+        <p className="text-xs text-text-secondary mb-2">
+          It checks the NVIDIA driver and Docker runtime, asks for the Host ID and key, verifies every agent
+          module&apos;s signature, writes{" "}
+          <code className="text-xs bg-surface-hover px-1 py-0.5 rounded">~/.xcelsior/worker.env</code>, and
+          installs and starts the <code className="text-xs bg-surface-hover px-1 py-0.5 rounded">xcelsior-worker</code>{" "}
+          service. It finishes by waiting for the first heartbeat and reporting the admission state.
         </p>
         <CodeSnippet label="install" text={installCmd} copied={copied} onCopy={onCopy} />
       </div>
 
       <div>
-        <p className="text-sm font-medium mb-1.5">2. Configure environment</p>
-        <p className="text-xs text-text-secondary mb-2">
-          The AI Onboarding Wizard handles this automatically. To configure manually, create{" "}
-          <code className="text-xs bg-surface-hover px-1 py-0.5 rounded">~/.xcelsior/worker.env</code>:
-        </p>
-        <CodeSnippet label="env" text={envTemplate} copied={copied} onCopy={onCopy} />
-      </div>
-
-      <div>
-        <p className="text-sm font-medium mb-1.5">3. Enable as a service</p>
-        <p className="text-xs text-text-secondary mb-2">
-          Set up automatic startup with systemd:
-        </p>
-        <CodeSnippet label="systemd" text={systemdUnit} copied={copied} onCopy={onCopy} />
-      </div>
-
-      <div>
-        <p className="text-sm font-medium mb-1.5">4. Start and verify</p>
-        <p className="text-xs text-text-secondary mb-2">
-          Enable the service and confirm it&apos;s running:
-        </p>
+        <p className="text-sm font-medium mb-1.5">3. Verify</p>
+        <p className="text-xs text-text-secondary mb-2">Confirm the service is running and heartbeating:</p>
         <CodeSnippet label="verify" text={verifyCmd} copied={copied} onCopy={onCopy} />
+      </div>
+
+      <div>
+        <p className="text-sm font-medium mb-1.5">Changing settings later</p>
+        <CodeSnippet label="settings" text={changeCmd} copied={copied} onCopy={onCopy} />
       </div>
     </div>
   );
