@@ -794,10 +794,15 @@ def _run_benchmark(cmd: list[str], timeout: int) -> dict | None:
 
 def _ensure_image(image: str) -> bool:
     try:
-        if subprocess.run(["docker", "image", "inspect", image], capture_output=True).returncode == 0:
+        if (
+            subprocess.run(["docker", "image", "inspect", image], capture_output=True).returncode
+            == 0
+        ):
             return True
         log.info("Pulling benchmark image %s (first run only)...", image)
-        pulled = subprocess.run(["docker", "pull", image], capture_output=True, text=True, timeout=1800)
+        pulled = subprocess.run(
+            ["docker", "pull", image], capture_output=True, text=True, timeout=1800
+        )
     except (OSError, subprocess.TimeoutExpired) as e:
         log.warning("Benchmark image %s unavailable: %s", image, e)
         return False
@@ -817,9 +822,22 @@ def run_compute_benchmark():
     if data == {"error": "no_torch"} and _ensure_image(BENCHMARK_IMAGE):
         log.info("No PyTorch in the agent's venv; benchmarking in %s", BENCHMARK_IMAGE)
         data = _run_benchmark(
-            ["docker", "run", "--rm", "--gpus", "all", "--network", "none",
-             "--label", "ai.xcelsior.benchmark=true", "--entrypoint", "python",
-             BENCHMARK_IMAGE, "-c", _BENCHMARK_SCRIPT],
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--gpus",
+                "all",
+                "--network",
+                "none",
+                "--label",
+                "ai.xcelsior.benchmark=true",
+                "--entrypoint",
+                "python",
+                BENCHMARK_IMAGE,
+                "-c",
+                _BENCHMARK_SCRIPT,
+            ],
             timeout=420,
         )
     if data and "error" in data:
