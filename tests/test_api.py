@@ -1146,6 +1146,9 @@ class TestBillingEndpoints:
         customer_id = reg["user"]["customer_id"]
 
         UserStore.update_user(email, {"is_admin": 1})
+        from billing import BillingEngine
+
+        monkeypatch.setattr(BillingEngine, "welcome_bonus_eligible", lambda self, cid: True)
 
         claim = client.post(
             f"/api/billing/free-credits/{customer_id}",
