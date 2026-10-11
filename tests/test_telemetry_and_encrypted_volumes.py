@@ -185,120 +185,57 @@ class TestLUKSVolumeConstants:
         assert callable(wa._cleanup_partial_volume)
 
 
-class TestLUKSVolumeProvisioning:
-    """Test LUKS volume provisioning logic (mocked subprocess)."""
+class TestLUKSVolumeUsesRootHelper:
+    """The worker asks the root helper for every LUKS step (tests/test_worker_privileged.py
+    covers what the helper does)."""
 
-    @patch("worker_agent.subprocess.run")
-    @patch("worker_agent.os.makedirs")
-    @patch("worker_agent.os.umask", return_value=0o022)
-    @patch("worker_agent.os.urandom", return_value=b"\x00" * 32)
-    @patch("builtins.open", new_callable=MagicMock)
-    def test_provision_calls_cryptsetup(
-        self, mock_open, mock_urandom, mock_umask, mock_makedirs, mock_run
-    ):
-        """provision_encrypted_volume calls truncate, luksFormat, luksOpen, mkfs, mount."""
-        mock_run.return_value = MagicMock(returncode=0, stderr="", stdout="")
-        import worker_agent as wa
+    @patch(
+        "worker_privileged.call",
+        return_value={"ok": True, "mount_point": "/mnt/xcelsior/volumes/v1"},
+    )
+    def test_provision_requests_helper(self, mock_call):
+        from worker_agent import provision_encrypted_volume
 
-        result = wa.provision_encrypted_volume("vol-abc123", 50)
-        assert result is True
+        assert provision_encrypted_volume("v1", 10) is True
+        mock_call.assert_called_once_with("luks_provision", volume_id="v1", size_gb=10)
 
-        # Verify the key subprocess calls
-        call_args_list = [c[0][0] for c in mock_run.call_args_list]
-        commands = [args[0] for args in call_args_list]
-        assert "truncate" in commands
-        assert "cryptsetup" in commands
-        assert "mkfs.ext4" in commands
-        assert "mount" in commands
+    @patch("worker_privileged.call", return_value={"ok": False, "error": "luksFormat failed"})
+    def test_provision_failure_returns_false(self, mock_call):
+        from worker_agent import provision_encrypted_volume
 
-    @patch("worker_agent.subprocess.run")
-    @patch("worker_agent.os.makedirs")
-    @patch("worker_agent.os.umask", return_value=0o022)
-    @patch("worker_agent.os.urandom", return_value=b"\x00" * 32)
-    @patch("builtins.open", new_callable=MagicMock)
-    @patch("worker_agent._cleanup_partial_volume")
-    def test_provision_cleanup_on_failure(
-        self, mock_cleanup, mock_open, mock_urandom, mock_umask, mock_makedirs, mock_run
-    ):
-        """Failed provisioning calls _cleanup_partial_volume."""
-        mock_run.side_effect = subprocess.CalledProcessError(1, "cryptsetup", stderr="error")
-        import worker_agent as wa
+        assert provision_encrypted_volume("v1", 10) is False
 
-        result = wa.provision_encrypted_volume("vol-fail", 10)
-        assert result is False
-        mock_cleanup.assert_called_once_with("vol-fail")
+    @patch(
+        "worker_privileged.call",
+        return_value={"ok": True, "mount_point": "/mnt/xcelsior/volumes/v1"},
+    )
+    def test_attach_returns_mount_point(self, mock_call):
+        from worker_agent import attach_encrypted_volume
 
-    @patch("worker_agent.subprocess.run")
-    @patch("worker_agent.os.path.exists")
-    @patch("worker_agent.os.makedirs")
-    def test_attach_opens_and_mounts(self, mock_makedirs, mock_exists, mock_run):
-        """attach_encrypted_volume calls luksOpen and mount."""
-        mock_exists.side_effect = lambda p: True  # All files exist
-        mock_run.return_value = MagicMock(returncode=1, stderr="", stdout="")  # Not mounted yet
-        import worker_agent as wa
+        assert attach_encrypted_volume("v1") == "/mnt/xcelsior/volumes/v1"
+        mock_call.assert_called_once_with("luks_attach", volume_id="v1")
 
-        result = wa.attach_encrypted_volume("vol-attach1")
-        assert result is not None
+    @patch(
+        "worker_privileged.call", return_value={"ok": False, "refused": True, "error": "not found"}
+    )
+    def test_attach_failure_returns_none(self, mock_call):
+        from worker_agent import attach_encrypted_volume
 
-    @patch("worker_agent.subprocess.run")
-    @patch("worker_agent.os.path.exists", return_value=False)
-    def test_attach_fails_no_backing(self, mock_exists, mock_run):
-        """attach fails when backing file doesn't exist."""
-        import worker_agent as wa
+        assert attach_encrypted_volume("v1") is None
 
-        result = wa.attach_encrypted_volume("vol-nope")
-        assert result is None
+    @patch("worker_privileged.call", return_value={"ok": True})
+    def test_detach_and_destroy_request_helper(self, mock_call):
+        from worker_agent import destroy_encrypted_volume, detach_encrypted_volume
 
-    @patch("worker_agent.subprocess.run")
-    @patch("worker_agent.os.path.exists")
-    def test_detach_unmounts_and_closes(self, mock_exists, mock_run):
-        """detach_encrypted_volume calls umount and luksClose."""
-        mock_exists.return_value = True
-        mock_run.return_value = MagicMock(returncode=0, stderr="", stdout="")
-        import worker_agent as wa
+        assert detach_encrypted_volume("v1") is True
+        assert destroy_encrypted_volume("v1") is True
+        assert [c.args[0] for c in mock_call.call_args_list] == ["luks_detach", "luks_destroy"]
 
-        result = wa.detach_encrypted_volume("vol-det1")
-        assert result is True
+    @patch("worker_privileged.call", return_value={"ok": False, "error": "shred failed"})
+    def test_destroy_failure_returns_false(self, mock_call):
+        from worker_agent import destroy_encrypted_volume
 
-
-class TestLUKSVolumeCryptoErasure:
-    """Test cryptographic erasure on volume destroy."""
-
-    @patch("worker_agent.detach_encrypted_volume")
-    @patch("worker_agent.subprocess.run")
-    @patch("worker_agent.os.path.exists", return_value=True)
-    @patch("worker_agent.os.remove")
-    @patch("worker_agent.os.path.isdir", return_value=True)
-    @patch("worker_agent.os.rmdir")
-    def test_destroy_shreds_key(
-        self, mock_rmdir, mock_isdir, mock_remove, mock_exists, mock_run, mock_detach
-    ):
-        """destroy_encrypted_volume uses shred on the key file."""
-        mock_run.return_value = MagicMock(returncode=0)
-        import worker_agent as wa
-
-        result = wa.destroy_encrypted_volume("vol-del1")
-        assert result is True
-
-        # Verify shred was called
-        shred_calls = [c for c in mock_run.call_args_list if "shred" in str(c)]
-        assert len(shred_calls) >= 1, "shred should be called on key file"
-
-    @patch("worker_agent.detach_encrypted_volume")
-    @patch("worker_agent.subprocess.run")
-    @patch("worker_agent.os.path.exists", return_value=True)
-    @patch("worker_agent.os.remove")
-    @patch("worker_agent.os.path.isdir", return_value=True)
-    @patch("worker_agent.os.rmdir")
-    def test_destroy_removes_backing_file(
-        self, mock_rmdir, mock_isdir, mock_remove, mock_exists, mock_run, mock_detach
-    ):
-        """destroy removes the backing .img file."""
-        mock_run.return_value = MagicMock(returncode=0)
-        import worker_agent as wa
-
-        wa.destroy_encrypted_volume("vol-del2")
-        assert mock_remove.called
+        assert destroy_encrypted_volume("v1") is False
 
 
 class TestRunJobEncryptedVolumes:

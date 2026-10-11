@@ -11,6 +11,7 @@ import subprocess
 import time
 import pytest
 import requests
+from unittest.mock import Mock
 
 import worker_agent
 
@@ -812,104 +813,81 @@ class TestSignalHandler:
 
 
 class TestMountNfs:
-    def test_mount_success(self, monkeypatch, tmp_path):
-        """_mount_nfs returns True when mount succeeds."""
-        mount_point = str(tmp_path / "nfs")
+    """_mount_nfs asks the root helper; it never runs mount itself."""
 
-        def fake_run(cmd, **kw):
-            if "mountpoint" in cmd:
-                return subprocess.CompletedProcess(cmd, 1)  # not yet mounted
-            if "mount" in cmd:
-                return subprocess.CompletedProcess(cmd, 0, stderr="")
-            return subprocess.CompletedProcess(cmd, 0)
+    def test_volume_mount_requests_helper(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            worker_agent.worker_privileged,
+            "call",
+            lambda op, **kw: calls.append((op, kw)) or {"ok": True},
+        )
+        assert (
+            worker_agent._mount_nfs("100.64.0.1", "/exports/volumes/v1", "/mnt/xcelsior-volumes/v1")
+            is True
+        )
+        assert calls == [
+            (
+                "nfs_mount",
+                {"server": "100.64.0.1", "export": "/exports/volumes/v1", "volume_id": "v1"},
+            )
+        ]
 
-        monkeypatch.setattr(subprocess, "run", fake_run)
-        result = worker_agent._mount_nfs("nfs.example.com", "/exports/models", mount_point)
-        assert result is True
+    def test_shared_mount_has_no_volume_id(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            worker_agent.worker_privileged,
+            "call",
+            lambda op, **kw: calls.append((op, kw)) or {"ok": True},
+        )
+        assert worker_agent._mount_nfs("100.64.0.1", "/exports/models", "/mnt/xcelsior-nfs") is True
+        assert calls[0][1]["volume_id"] is None
 
-    def test_mount_already_mounted(self, monkeypatch, tmp_path):
-        """_mount_nfs returns True when mount point is already mounted."""
-        mount_point = str(tmp_path / "nfs")
+    def test_other_mount_points_are_refused_locally(self, monkeypatch):
+        monkeypatch.setattr(
+            worker_agent.worker_privileged, "call", Mock(side_effect=AssertionError("called"))
+        )
+        assert worker_agent._mount_nfs("100.64.0.1", "/exports/x", "/tmp/elsewhere") is False
 
-        def fake_run(cmd, **kw):
-            if "mountpoint" in cmd:
-                return subprocess.CompletedProcess(cmd, 0)  # already mounted
-            return subprocess.CompletedProcess(cmd, 0)
+    def test_helper_failure_returns_false(self, monkeypatch):
+        monkeypatch.setattr(
+            worker_agent.worker_privileged,
+            "call",
+            lambda op, **kw: {"ok": False, "error": "denied"},
+        )
+        assert (
+            worker_agent._mount_nfs("100.64.0.1", "/exports/volumes/v1", "/mnt/xcelsior-volumes/v1")
+            is False
+        )
 
-        monkeypatch.setattr(subprocess, "run", fake_run)
-        result = worker_agent._mount_nfs("nfs.example.com", "/exports/models", mount_point)
-        assert result is True
-
-    def test_mount_failure_returns_false(self, monkeypatch, tmp_path):
-        """_mount_nfs returns False when mount command fails."""
-        mount_point = str(tmp_path / "nfs")
-
-        def fake_run(cmd, **kw):
-            if "mountpoint" in cmd:
-                return subprocess.CompletedProcess(cmd, 1)
-            if "mount" in cmd:
-                return subprocess.CompletedProcess(cmd, 1, stderr="Permission denied")
-            return subprocess.CompletedProcess(cmd, 0)
-
-        monkeypatch.setattr(subprocess, "run", fake_run)
-        result = worker_agent._mount_nfs("nfs.example.com", "/exports/models", mount_point)
-        assert result is False
-
-    def test_mount_exception_returns_false(self, monkeypatch, tmp_path):
-        """_mount_nfs returns False when subprocess raises an exception."""
-        mount_point = str(tmp_path / "nfs")
-
-        def fake_run(cmd, **kw):
-            raise subprocess.TimeoutExpired(cmd, 30)
-
-        monkeypatch.setattr(subprocess, "run", fake_run)
-        result = worker_agent._mount_nfs("nfs.example.com", "/exports/models", mount_point)
-        assert result is False
-
-    def test_creates_mount_point_dir(self, monkeypatch, tmp_path):
-        """_mount_nfs creates the mount point directory if it doesn't exist."""
-        mount_point = str(tmp_path / "deeply" / "nested" / "nfs")
-
-        def fake_run(cmd, **kw):
-            if "mountpoint" in cmd:
-                return subprocess.CompletedProcess(cmd, 1)
-            return subprocess.CompletedProcess(cmd, 0, stderr="")
-
-        monkeypatch.setattr(subprocess, "run", fake_run)
-        worker_agent._mount_nfs("nfs.example.com", "/exports/data", mount_point)
-        import os
-
-        assert os.path.isdir(mount_point)
+    def test_helper_exception_returns_false(self, monkeypatch):
+        monkeypatch.setattr(
+            worker_agent.worker_privileged, "call", Mock(side_effect=OSError("socket gone"))
+        )
+        assert (
+            worker_agent._mount_nfs("100.64.0.1", "/exports/volumes/v1", "/mnt/xcelsior-volumes/v1")
+            is False
+        )
 
 
 class TestUnmountNfs:
-    def test_unmount_success(self, monkeypatch, tmp_path):
-        """_unmount_nfs runs umount -l and logs success."""
-        mount_point = str(tmp_path / "nfs")
-        called = {}
+    """_unmount_nfs asks the helper for a lazy unmount and never raises."""
 
-        def fake_run(cmd, **kw):
-            called["cmd"] = cmd
-            return subprocess.CompletedProcess(cmd, 0)
+    def test_unmount_requests_lazy_umount(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            worker_agent.worker_privileged,
+            "call",
+            lambda op, **kw: calls.append((op, kw)) or {"ok": True},
+        )
+        worker_agent._unmount_nfs("/mnt/xcelsior-volumes/v1")
+        assert calls == [("umount", {"path": "/mnt/xcelsior-volumes/v1", "lazy": True})]
 
-        monkeypatch.setattr(subprocess, "run", fake_run)
-        worker_agent._unmount_nfs(mount_point)
-        assert "umount" in called["cmd"]
-        assert "-l" in called["cmd"]
-
-    def test_unmount_failure_is_nonfatal(self, monkeypatch, tmp_path):
-        """_unmount_nfs does not raise even if umount fails."""
-        mount_point = str(tmp_path / "nfs")
-
-        def fake_run(cmd, **kw):
-            raise Exception("umount: device busy")
-
-        monkeypatch.setattr(subprocess, "run", fake_run)
-        # Should not raise
-        worker_agent._unmount_nfs(mount_point)
-
-
-# ── Container naming ─────────────────────────────────────────────────
+    def test_unmount_does_not_raise(self, monkeypatch):
+        monkeypatch.setattr(
+            worker_agent.worker_privileged, "call", Mock(side_effect=OSError("socket gone"))
+        )
+        worker_agent._unmount_nfs("/mnt/xcelsior-volumes/v1")
 
 
 class TestContainerNaming:

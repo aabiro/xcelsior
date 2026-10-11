@@ -73,6 +73,7 @@ from security import (
     is_gvisor_available,
     recommend_runtime,
 )
+import worker_privileged  # root helper client: mounts, LUKS, other users' processes
 
 # ── NVML Telemetry (REPORT_FEATURE_1.md §Lightweight Monitoring) ─────
 # Use pynvml bindings when available; security.py's get_gpu_telemetry()
@@ -3913,13 +3914,11 @@ from worker_image_cache import (  # noqa: E402
 # running containers); re-imported here for existing call sites/tests.
 from worker_nfs import (  # noqa: E402
     MANAGED_VOLUME_HOST_DIR,
-    _container_pid,
+    _container_bind,
+    _container_unbind,
     _hot_mount_volume,
     _hot_unmount_volume,
     _mount_nfs,
-    _nfs_mount_fstype,
-    _nsenter_bind_mount,
-    _nsenter_lazy_umount,
     _unmount_nfs,
 )
 
@@ -3948,7 +3947,6 @@ from worker_luks_volumes import (  # noqa: E402
     VOLUME_BASE_DIR,
     VOLUME_KEY_DIR,
     _cleanup_partial_volume,
-    _ensure_volume_dirs,
     attach_encrypted_volume,
     destroy_encrypted_volume,
     detach_encrypted_volume,
@@ -3963,8 +3961,10 @@ from worker_luks_volumes import (  # noqa: E402
 #   2) POST /admin/drain  → tower-serverless     (rejects new inference)
 #   3) `ollama stop`                             (graceful unload)
 #   4) SIGSTOP ollama runner pids                (free VRAM driver state)
-#   5) pkill -TERM 'tier3-'                      (background jobs checkpoint)
-# Release flow reverses it (SIGCONT, /admin/resume, flock release).
+#   5) SIGTERM tier3- background jobs            (they checkpoint)
+# Steps 4-5 signal other users' processes, so the root helper does them
+# (worker_privileged "gpu_tenants"); it matches ollama by executable, not by
+# command-line text. Release reverses it (SIGCONT, /admin/resume, flock release).
 #
 # All steps are best-effort: a missing ollama binary or a non-running
 # tower-serverless does not abort the job.
@@ -4026,42 +4026,17 @@ def _acquire_exclusive_gpu(job_id: str) -> dict:
     except Exception as e:
         log.warning("exclusive_gpu[%s]: ollama stop failed (%s)", job_id, e)
 
-    # 4. SIGSTOP ollama runner processes
+    # 4-5. SIGSTOP ollama, SIGTERM tier3- jobs (root helper: other users' processes)
     try:
-        out = subprocess.run(
-            ["pgrep", "-f", "ollama"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        for raw in out.stdout.split():
-            if not raw.isdigit():
-                continue
-            pid = int(raw)
-            with suppress(ProcessLookupError, PermissionError):
-                os.kill(pid, signal.SIGSTOP)
-                state["ollama_pids"].append(pid)
-        if state["ollama_pids"]:
-            log.info(
-                "exclusive_gpu[%s]: SIGSTOP'd ollama pids=%s",
-                job_id,
-                state["ollama_pids"],
-            )
-    except FileNotFoundError:
-        pass  # pgrep missing
+        reply = worker_privileged.call("gpu_tenants", action="pause")
+        if reply.get("ok"):
+            state["ollama_pids"] = list(reply.get("stopped") or [])
+            if state["ollama_pids"]:
+                log.info("exclusive_gpu[%s]: SIGSTOP'd ollama pids=%s", job_id, state["ollama_pids"])
+        else:
+            log.warning("exclusive_gpu[%s]: pausing GPU tenants failed (%s)", job_id, reply.get("error"))
     except Exception as e:
-        log.warning("exclusive_gpu[%s]: ollama SIGSTOP failed (%s)", job_id, e)
-
-    # 5. SIGTERM tier3- background jobs
-    try:
-        subprocess.run(
-            ["pkill", "-TERM", "-f", "tier3-"],
-            timeout=5,
-            capture_output=True,
-        )
-        log.info("exclusive_gpu[%s]: tier3- jobs SIGTERM'd", job_id)
-    except Exception as e:
-        log.debug("exclusive_gpu[%s]: pkill tier3 (%s)", job_id, e)
+        log.warning("exclusive_gpu[%s]: pausing GPU tenants failed (%s)", job_id, e)
 
     state["ok"] = True
     return state
@@ -4075,9 +4050,11 @@ def _release_exclusive_gpu(job_id: str, state: dict) -> None:
         return
 
     # 1. SIGCONT ollama runners
-    for pid in state.get("ollama_pids", []):
-        with suppress(ProcessLookupError, PermissionError):
-            os.kill(pid, signal.SIGCONT)
+    if state.get("ollama_pids"):
+        try:
+            worker_privileged.call("gpu_tenants", action="resume", pids=state["ollama_pids"])
+        except Exception as e:
+            log.warning("exclusive_gpu[%s]: resuming ollama failed (%s)", job_id, e)
 
     # 2. resume serverless
     try:
