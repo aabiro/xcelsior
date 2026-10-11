@@ -1776,14 +1776,12 @@ docker compose build $build_args frontend
         warn "Worker PATCH OAuth gate missing in container — jobs may stick in leased/starting"
     fi
 
-    log "Verifying /readyz and PayPal (parallel)…"
+    log "Verifying /readyz and PayPal…"
     local readyz_out="" paypal_out=""
-    readyz_out=$(ssh_cmd "curl -sf --max-time 10 http://localhost:$final_port/readyz" 2>/dev/null || true) &
-    local pid_readyz=$!
-    paypal_out=$(ssh_cmd "curl -sf --max-time 10 http://localhost:$final_port/api/billing/paypal/enabled" 2>/dev/null || true) &
-    local pid_paypal=$!
-    wait "$pid_readyz" 2>/dev/null || true
-    wait "$pid_paypal" 2>/dev/null || true
+    # Background assignments live in subshells and leave these variables
+    # empty, falsely reporting missing readiness probes and disabled PayPal.
+    readyz_out=$(ssh_cmd "curl -sf --max-time 10 http://localhost:$final_port/readyz" 2>/dev/null || true)
+    paypal_out=$(ssh_cmd "curl -sf --max-time 10 http://localhost:$final_port/api/billing/paypal/enabled" 2>/dev/null || true)
     if grep -q nfs_volumes <<<"$readyz_out"; then
         success "readyz includes nfs_volumes probe"
     else

@@ -1171,6 +1171,23 @@ class TestTerminalTicketApi:
 class TestWsInstanceResolution:
     """Tests that bypass auth to exercise instance-resolution logic."""
 
+    def test_failure_before_connect_keeps_the_startup_reason(self, monkeypatch):
+        monkeypatch.setattr(term_mod, "_validate_ws_auth", lambda *a, **kw: {"user_id": "user-1"})
+        monkeypatch.setattr(
+            scheduler,
+            "get_job",
+            lambda _: {
+                "job_id": "failed-start",
+                "owner": "user-1",
+                "status": "failed",
+                "error_message": "required volume mount failed: test-volume",
+            },
+        )
+        with client.websocket_connect("/ws/terminal/failed-start") as ws:
+            error = ws.receive_json()
+            assert error["type"] == "error"
+            assert "required volume mount failed: test-volume" in error["message"]
+
     @pytest.mark.parametrize("status", ["queued", "assigned", "leased", "starting"])
     def test_all_startup_states_wait_and_surface_the_actual_failure(self, monkeypatch, status):
         monkeypatch.setattr(term_mod, "_validate_ws_auth", lambda *a, **kw: {"user_id": "user-1"})
