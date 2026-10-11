@@ -545,6 +545,7 @@ class StatusUpdate(BaseModel):
     error_message: str | None = None
     resume_from: dict | None = None
     resumable: bool | None = None
+    policy_reason: Literal["mining_detected"] | None = None
 
 
 def _wallet_preflight(
@@ -1081,7 +1082,7 @@ def _compute_public_ssh_port(job_id: str) -> int:
         return 0
 
 
-def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
+def _enrich_instance(j: dict, host_map: dict[str, dict], *, reveal_ssh_password: bool = False) -> dict:
     """Shared enrichment for every instance response — list and detail.
 
     Adds docker_image mapping, host GPU info, elapsed/duration, connection
@@ -1309,6 +1310,9 @@ def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
     else:
         j.setdefault("storage_cost_cad", 0)
 
+    if j.get("ssh_status"):
+        from instance_credentials import present_ssh_status
+        j["ssh_status"] = present_ssh_status(j["ssh_status"], reveal=reveal_ssh_password)
     return j
 
 
@@ -1342,7 +1346,7 @@ def api_get_instance(job_id: str, request: Request):
         raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
     hosts = list_hosts()
     host_map = {h["host_id"]: h for h in hosts}
-    _enrich_instance(j, host_map)
+    _enrich_instance(j, host_map, reveal_ssh_password=True)
     return {"instance": j}
 
 
@@ -1431,6 +1435,12 @@ def api_update_instance(job_id: str, update: StatusUpdate, request: Request):
                 log.warning("Worker preempt billing close failed for %s: %s", job_id, exc)
 
         status_kwargs: dict = {}
+        if update.policy_reason:
+            if update.status != "terminated" or not update.host_id:
+                raise HTTPException(400, "Policy termination requires a host and terminated status")
+            from routes.agent import _require_agent_auth
+            _require_agent_auth(request, host_id=update.host_id)
+            status_kwargs["policy_reason"] = update.policy_reason
         if update.attempt_id and update.fencing_token is not None:
             status_kwargs["_attempt_id"] = update.attempt_id
             status_kwargs["_fencing_token"] = update.fencing_token
