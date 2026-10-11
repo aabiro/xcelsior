@@ -24,9 +24,7 @@ try:
     _pool = _get_pg_pool()
     with _pool.connection() as _c:
         _c.execute("SELECT 1").fetchone()
-        _migrated = (
-            _c.execute("SELECT to_regclass('outbox_events')").fetchone()[0] is not None
-        )
+        _migrated = _c.execute("SELECT to_regclass('outbox_events')").fetchone()[0] is not None
 except Exception as _e:  # pragma: no cover - skip path
     pytestmark = pytest.mark.skip(f"no pg pool available: {_e}")
     _pool = None
@@ -72,7 +70,9 @@ def stress_fleet():
                    VALUES (%s, 'queued', %s, %s, %s, 'pending', 'running', %s,
                            now())""",
                 (
-                    job_id, i % 3, time.time(),
+                    job_id,
+                    i % 3,
+                    time.time(),
                     json.dumps({"name": job_id, "gpu_model": f"stress-{marker}"}),
                     i % 3,
                 ),
@@ -98,10 +98,7 @@ class TestSchedulerConcurrency:
         with ctx.Pool(N_REPLICAS) as pool:
             results = pool.starmap(
                 run_replica,
-                [
-                    (dsn, f"stress-replica-{i}", host_ids, marker)
-                    for i in range(N_REPLICAS)
-                ],
+                [(dsn, f"stress-replica-{i}", host_ids, marker) for i in range(N_REPLICAS)],
             )
 
         total_reserved = sum(r["reserved"] for r in results)

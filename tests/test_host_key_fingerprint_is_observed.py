@@ -178,15 +178,9 @@ def test_the_observer_still_only_observes():
     import worker_agent
 
     tree = ast.parse(
-        textwrap.dedent(
-            inspect.getsource(worker_agent._log_container_host_key_fingerprint)
-        )
+        textwrap.dedent(inspect.getsource(worker_agent._log_container_host_key_fingerprint))
     )
-    called = {
-        ast.unparse(node.func)
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-    }
+    called = {ast.unparse(node.func) for node in ast.walk(tree) if isinstance(node, ast.Call)}
     for name in called:
         assert not any(
             transport in name for transport in ("requests", "httpx", "urllib", "post")
@@ -226,8 +220,7 @@ def test_a1_actually_reports_it():
 #: the reasoning that it is OpenSSH's default preference and therefore what a
 #: modern client negotiates — true only when the server offers one.
 REAL_RSA_OUTPUT = (
-    "2048 SHA256:ISYTeX+iCU2BYWSSb/jBds0Nvhjn2F9DlpVnoxRdSqo "
-    "root@d95c0069a7e42af6 (RSA)\n"
+    "2048 SHA256:ISYTeX+iCU2BYWSSb/jBds0Nvhjn2F9DlpVnoxRdSqo " "root@d95c0069a7e42af6 (RSA)\n"
 )
 REAL_RSA_FINGERPRINT = "SHA256:ISYTeX+iCU2BYWSSb/jBds0Nvhjn2F9DlpVnoxRdSqo"
 
@@ -256,9 +249,9 @@ def test_the_reader_asks_in_client_negotiation_order():
     import worker_agent as wa
 
     source = inspect.getsource(wa.read_container_host_key_fingerprint)
-    assert "for t in ed25519 ecdsa rsa" in source, (
-        "the reader no longer follows the client's host-key preference order"
-    )
+    assert (
+        "for t in ed25519 ecdsa rsa" in source
+    ), "the reader no longer follows the client's host-key preference order"
 
 
 def test_a_proxy_terminated_host_reports_unknown(monkeypatch):

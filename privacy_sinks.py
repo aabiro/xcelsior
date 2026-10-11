@@ -11,7 +11,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
-from typing import Any, Mapping
+from typing import Any, Mapping, cast
 
 from psycopg.types.json import Jsonb
 
@@ -582,7 +582,8 @@ def delete_redis_subject(request: Mapping[str, Any], _sink: Mapping[str, Any]) -
                 if len(keys) >= 5_000:
                     break
         if keys:
-            deleted += int(client.unlink(*sorted(keys)))
+            # Sync client: redis-py types unlink() as ResponseT (sync|async union).
+            deleted += cast(int, client.unlink(*sorted(keys)))
 
     return SinkOutcome(
         "completed",
@@ -903,10 +904,7 @@ def delete_posthog_subject(request: Mapping[str, Any], sink: Mapping[str, Any]) 
     project_id = os.environ.get("XCELSIOR_POSTHOG_PROJECT_ID", "").strip()
     # Private person/deletion endpoints live on the PostHog app host, not the
     # public *.i.posthog.com ingestion host used by browser and MCP capture.
-    base_url = (
-        os.environ.get("XCELSIOR_POSTHOG_API_HOST", "").strip()
-        or "https://us.posthog.com"
-    )
+    base_url = os.environ.get("XCELSIOR_POSTHOG_API_HOST", "").strip() or "https://us.posthog.com"
     if not api_key or not project_id:
         return SinkOutcome(
             "failed",

@@ -103,8 +103,13 @@ def test_preview_persists_canonical_spec_and_hash(cleanup_plans):
     resp = client.post(
         "/api/v1/launch-plans",
         headers={"Authorization": f"Bearer {token}"},
-        json={"name": "b23-canon", "gpu_model": "H100", "num_gpus": 2, "interactive": False,
-              "vram_needed_gb": 40},
+        json={
+            "name": "b23-canon",
+            "gpu_model": "H100",
+            "num_gpus": 2,
+            "interactive": False,
+            "vram_needed_gb": 40,
+        },
     )
     assert resp.status_code == 200, resp.text
     plan_id = resp.json()["plan_id"]
@@ -115,8 +120,13 @@ def test_preview_persists_canonical_spec_and_hash(cleanup_plans):
     from control_plane.launch import canonicalize, spec_hash
 
     expected = canonicalize(
-        {"name": "b23-canon", "gpu_model": "H100", "num_gpus": 2,
-         "interactive": False, "vram_needed_gb": 40}
+        {
+            "name": "b23-canon",
+            "gpu_model": "H100",
+            "num_gpus": 2,
+            "interactive": False,
+            "vram_needed_gb": 40,
+        }
     )
     with _pool.connection() as conn:
         row = conn.execute(

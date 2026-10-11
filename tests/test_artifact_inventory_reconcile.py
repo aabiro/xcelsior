@@ -37,8 +37,14 @@ def artifact():
                    VALUES (%s, %s, 'output', %s, %s, 'local', 'test', %s,
                            'application/octet-stream', 'standard',
                            %s, clock_timestamp())""",
-                (artifact_id, f"tenant-{uuid.uuid4().hex[:8]}",
-                 f"obj-{artifact_id}", state, object_key, legal_hold),
+                (
+                    artifact_id,
+                    f"tenant-{uuid.uuid4().hex[:8]}",
+                    f"obj-{artifact_id}",
+                    state,
+                    object_key,
+                    legal_hold,
+                ),
             )
         created.append(artifact_id)
         return artifact_id, object_key
@@ -49,7 +55,8 @@ def artifact():
         with pg_transaction() as conn:
             conn.execute(
                 "DELETE FROM reconciliation_findings WHERE resource_type = 'artifact' "
-                "AND resource_id = ANY(%s)", (created,)
+                "AND resource_id = ANY(%s)",
+                (created,),
             )
             conn.execute(
                 "DELETE FROM storage.artifacts WHERE artifact_id = ANY(%s::uuid[])",
@@ -89,7 +96,8 @@ def test_present_bytes_produce_no_finding(artifact, monkeypatch):
     if not manager._is_db_active():
         pytest.skip("catalog inactive")
     monkeypatch.setattr(
-        manager.primary, "head_object",
+        manager.primary,
+        "head_object",
         lambda k: {"key": k, "size_bytes": 100, "etag": "x"},
     )
 
@@ -118,8 +126,7 @@ def test_ambiguous_provider_error_is_not_treated_as_missing(artifact, monkeypatc
     manager.reconcile_inventory()
 
     assert _findings(artifact_id) == [], (
-        "an unreachable provider produced a drift finding; only a definite "
-        "absence may"
+        "an unreachable provider produced a drift finding; only a definite " "absence may"
     )
 
 
@@ -165,6 +172,6 @@ def test_reconciler_does_not_mutate_the_artifact(artifact, monkeypatch):
             "SELECT state FROM storage.artifacts WHERE artifact_id = %s",
             (artifact_id,),
         ).fetchone()
-    assert row is not None and row[0] == "available", (
-        "the inventory scan changed artifact state; it is report-only"
-    )
+    assert (
+        row is not None and row[0] == "available"
+    ), "the inventory scan changed artifact state; it is report-only"

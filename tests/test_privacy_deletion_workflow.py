@@ -24,9 +24,7 @@ try:
     _pool = _get_pg_pool()
     with _pool.connection() as _conn:
         _has_schema = (
-            _conn.execute(
-                "SELECT to_regclass('privacy_deletion_requests')"
-            ).fetchone()[0]
+            _conn.execute("SELECT to_regclass('privacy_deletion_requests')").fetchone()[0]
             is not None
         )
 except Exception as _exc:  # pragma: no cover - environment gate
@@ -124,12 +122,8 @@ def test_request_is_idempotent_and_rotates_tracking_token(made_requests):
     assert first.status_token != second.status_token
 
     with pytest.raises(PrivacyDeletionAccessDenied):
-        get_deletion_status(
-            first.request_id, status_token=first.status_token
-        )
-    status = get_deletion_status(
-        second.request_id, status_token=second.status_token
-    )
+        get_deletion_status(first.request_id, status_token=first.status_token)
+    status = get_deletion_status(second.request_id, status_token=second.status_token)
     assert status["state"] == "requested"
     assert [sink["sink"] for sink in status["sinks"]] == list(SINK_ORDER)
     assert {sink["status"] for sink in status["sinks"]} == {"pending"}
@@ -143,13 +137,9 @@ def test_different_key_reuses_the_one_active_subject_request(made_requests):
         "customer_ids": [f"privacy-customer-{unique}"],
         "requested_by": f"privacy-user-{unique}",
     }
-    first = create_deletion_request(
-        **common, idempotency_key=f"privacy-a-{unique}"
-    )
+    first = create_deletion_request(**common, idempotency_key=f"privacy-a-{unique}")
     made_requests.append(first.request_id)
-    second = create_deletion_request(
-        **common, idempotency_key=f"privacy-b-{unique}"
-    )
+    second = create_deletion_request(**common, idempotency_key=f"privacy-b-{unique}")
     assert second.request_id == first.request_id
     assert second.already_existed is True
 
@@ -164,14 +154,10 @@ def test_worker_completes_only_after_every_sink_is_terminal(made_requests):
     assert result["completed"] == 1
     assert calls == list(SINK_ORDER)
 
-    status = get_deletion_status(
-        receipt.request_id, status_token=receipt.status_token
-    )
+    status = get_deletion_status(receipt.request_id, status_token=receipt.status_token)
     assert status["state"] == "completed"
     assert status["completed_at"] is not None
-    assert all(
-        sink["status"] in FINAL_SINK_STATUSES for sink in status["sinks"]
-    )
+    assert all(sink["status"] in FINAL_SINK_STATUSES for sink in status["sinks"])
     with _pool.connection() as conn:
         row = conn.execute(
             """
@@ -193,12 +179,8 @@ def test_legal_hold_is_visible_and_does_not_block_other_sinks(made_requests):
         worker_id=f"test-worker-{uuid.uuid4().hex}",
     )
     assert result["completed"] == 1
-    status = get_deletion_status(
-        receipt.request_id, status_token=receipt.status_token
-    )
-    artifacts = next(
-        sink for sink in status["sinks"] if sink["sink"] == "artifacts"
-    )
+    status = get_deletion_status(receipt.request_id, status_token=receipt.status_token)
+    artifacts = next(sink for sink in status["sinks"] if sink["sink"] == "artifacts")
     assert artifacts["status"] == "legal_hold"
     assert artifacts["evidence"]["verified"] is True
 
@@ -225,13 +207,9 @@ def test_failed_sink_is_not_reported_as_completed_and_retries(made_requests):
         worker_id=f"test-worker-{uuid.uuid4().hex}",
     )
     assert first["failed"] == 1
-    status = get_deletion_status(
-        receipt.request_id, status_token=receipt.status_token
-    )
+    status = get_deletion_status(receipt.request_id, status_token=receipt.status_token)
     assert status["state"] == "processing"
-    redis_status = next(
-        sink for sink in status["sinks"] if sink["sink"] == "redis"
-    )
+    redis_status = next(sink for sink in status["sinks"] if sink["sink"] == "redis")
     assert redis_status["status"] == "failed"
     assert redis_status["last_error"] == "redis unavailable"
 
@@ -257,9 +235,7 @@ def test_skip_locked_claim_allows_only_one_worker(made_requests):
     _create(made_requests)
 
     def claim(worker: str):
-        return _claim_due_requests(
-            worker_id=worker, limit=1, claim_ttl_sec=180
-        )
+        return _claim_due_requests(worker_id=worker, limit=1, claim_ttl_sec=180)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         batches = list(
@@ -298,11 +274,7 @@ def test_missed_deadline_is_failed_never_silently_completed(made_requests):
         worker_id=f"test-worker-{uuid.uuid4().hex}",
     )
     assert result["failed"] == 1
-    status = get_deletion_status(
-        receipt.request_id, status_token=receipt.status_token
-    )
+    status = get_deletion_status(receipt.request_id, status_token=receipt.status_token)
     assert status["state"] == "failed"
     assert status["last_error"] == "privacy deletion deadline missed"
-    assert all(
-        sink["status"] == "failed" for sink in status["sinks"]
-    )
+    assert all(sink["status"] == "failed" for sink in status["sinks"])

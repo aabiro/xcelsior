@@ -44,7 +44,9 @@ def two_instances():
             headers=auth(),
             json={
                 "name": f"volume-round-trip-{n}-{int(time.time())}",
-                "vram_needed_gb": 1, "num_gpus": 1, "interactive": True,
+                "vram_needed_gb": 1,
+                "num_gpus": 1,
+                "interactive": True,
             },
             timeout=60,
         )
@@ -87,14 +89,18 @@ def volume():
 def _attach(volume_id: str, job_id: str):
     return requests.post(
         f"{BASE}/api/v2/volumes/{volume_id}/attach",
-        headers=auth(), json={"instance_id": job_id}, timeout=120,
+        headers=auth(),
+        json={"instance_id": job_id},
+        timeout=120,
     )
 
 
 def _detach(volume_id: str, job_id: str):
     return requests.post(
         f"{BASE}/api/v2/volumes/{volume_id}/detach",
-        headers=auth(), json={"instance_id": job_id}, timeout=120,
+        headers=auth(),
+        json={"instance_id": job_id},
+        timeout=120,
     )
 
 
@@ -113,9 +119,10 @@ def test_one_volume_attaches_to_a_second_instance_after_the_first(volume, two_in
     assert released.status_code in (200, 202), released.text
 
     reattached = _attach(volume, second)
-    assert reattached.status_code in (200, 202), (
-        f"the volume would not attach to a second instance: {reattached.text[:300]}"
-    )
+    assert reattached.status_code in (
+        200,
+        202,
+    ), f"the volume would not attach to a second instance: {reattached.text[:300]}"
 
 
 def test_the_volume_reports_the_second_instance_as_its_holder(volume, two_instances):
@@ -147,17 +154,27 @@ def test_bytes_written_in_the_first_instance_are_read_in_the_second(volume, two_
     first, second = two_instances
 
     def _ssh(job_id: str, command: str) -> subprocess.CompletedProcess:
-        inst = requests.get(
-            f"{BASE}/instance/{job_id}", headers=auth(), timeout=30
-        ).json()
+        inst = requests.get(f"{BASE}/instance/{job_id}", headers=auth(), timeout=30).json()
         inst = inst.get("instance", inst)
         port = int(inst["ssh_port"])
         host = inst.get("ssh_host") or "connect.xcelsior.ca"
         return subprocess.run(
-            ["ssh", "-i", key, "-p", str(port),
-             "-o", "StrictHostKeyChecking=accept-new",
-             "-o", "ConnectTimeout=20", f"root@{host}", command],
-            capture_output=True, text=True, timeout=120,
+            [
+                "ssh",
+                "-i",
+                key,
+                "-p",
+                str(port),
+                "-o",
+                "StrictHostKeyChecking=accept-new",
+                "-o",
+                "ConnectTimeout=20",
+                f"root@{host}",
+                command,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
 
     _attach(volume, first)

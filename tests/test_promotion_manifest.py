@@ -90,8 +90,17 @@ def job():
             aid = str(uuid.uuid4())
             conn.execute(
                 _INSERT_ARTIFACT,
-                (aid, tenant, job_id, name, "available", f"k/{aid}", size, sha,
-                 datetime.now(timezone.utc) + timedelta(days=1)),
+                (
+                    aid,
+                    tenant,
+                    job_id,
+                    name,
+                    "available",
+                    f"k/{aid}",
+                    size,
+                    sha,
+                    datetime.now(timezone.utc) + timedelta(days=1),
+                ),
             )
             made.append(aid)
         conn.commit()
@@ -137,8 +146,17 @@ def test_an_artifact_still_uploading_is_not_promotable(job):
     with _pool.connection() as conn:
         conn.execute(
             _INSERT_ARTIFACT,
-            (str(uuid.uuid4()), job["tenant"], job["job_id"], "partial.pt",
-             "uploading", f"k/up-{job['tag']}", 99, None, None),
+            (
+                str(uuid.uuid4()),
+                job["tenant"],
+                job["job_id"],
+                "partial.pt",
+                "uploading",
+                f"k/up-{job['tag']}",
+                99,
+                None,
+                None,
+            ),
         )
         conn.commit()
     m = _resolve(job["job_id"], job["tenant"])
@@ -147,9 +165,10 @@ def test_an_artifact_still_uploading_is_not_promotable(job):
 
 def test_the_digest_is_stable_for_the_same_set(job):
     """Two calls, one promotion."""
-    assert _resolve(job["job_id"], job["tenant"])["manifest_sha256"] == _resolve(
-        job["job_id"], job["tenant"]
-    )["manifest_sha256"]
+    assert (
+        _resolve(job["job_id"], job["tenant"])["manifest_sha256"]
+        == _resolve(job["job_id"], job["tenant"])["manifest_sha256"]
+    )
 
 
 def test_the_digest_changes_when_a_new_artifact_appears(job):
@@ -162,8 +181,17 @@ def test_the_digest_changes_when_a_new_artifact_appears(job):
     with _pool.connection() as conn:
         conn.execute(
             _INSERT_ARTIFACT,
-            (str(uuid.uuid4()), job["tenant"], job["job_id"], "epoch2.pt",
-             "available", f"k/e2-{job['tag']}", 512, "c" * 64, None),
+            (
+                str(uuid.uuid4()),
+                job["tenant"],
+                job["job_id"],
+                "epoch2.pt",
+                "available",
+                f"k/e2-{job['tag']}",
+                512,
+                "c" * 64,
+                None,
+            ),
         )
         conn.commit()
     assert _resolve(job["job_id"], job["tenant"])["manifest_sha256"] != before
@@ -179,8 +207,17 @@ def test_an_artifact_without_a_digest_is_reported_not_dropped(job):
     with _pool.connection() as conn:
         conn.execute(
             _INSERT_ARTIFACT,
-            (nodigest_id, job["tenant"], job["job_id"], "nodigest.pt",
-             "available", f"k/nd-{job['tag']}", 10, None, None),
+            (
+                nodigest_id,
+                job["tenant"],
+                job["job_id"],
+                "nodigest.pt",
+                "available",
+                f"k/nd-{job['tag']}",
+                10,
+                None,
+                None,
+            ),
         )
         conn.commit()
     m = _resolve(job["job_id"], job["tenant"])
@@ -202,7 +239,7 @@ def test_the_earliest_retention_clock_is_the_one_reported(job):
 
 
 def test_a_job_with_nothing_promotable_is_an_empty_manifest_not_an_error():
-    """"Nothing to promote" and "no such job" must look the same to a caller.
+    """ "Nothing to promote" and "no such job" must look the same to a caller.
 
     Distinguishing them would let anyone probe which job ids exist.
     """

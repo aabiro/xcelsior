@@ -81,7 +81,7 @@ def test_every_loaded_host_has_an_id(host_without_host_id_in_payload) -> None:
     """
     missing = [h for h in list_hosts(active_only=False) if not h.get("host_id")]
     assert not missing, (
-        f"{len(missing)} loaded host(s) have no host_id; every `h[\"host_id\"]` in "
+        f'{len(missing)} loaded host(s) have no host_id; every `h["host_id"]` in '
         "routes/hosts.py raises KeyError on the whole scan, so one bad row is a "
         "500 for every host"
     )

@@ -62,9 +62,7 @@ def test_the_handler_can_authenticate_at_all(path) -> None:
     )
 
     source = inspect.getsource(api_agent_verify)
-    assert "_require_agent_auth(" in source, (
-        "the handler no longer calls _require_agent_auth"
-    )
+    assert "_require_agent_auth(" in source, "the handler no longer calls _require_agent_auth"
     assert "host_id=payload.host_id" in source, (
         "the guard is not bound to the host named in the body, so one provider "
         "can still report as another"
@@ -112,9 +110,7 @@ def test_the_v2_alias_points_at_the_same_handler() -> None:
     to this function, the two paths can drift apart in exactly the way that
     made this bug reachable by two routes at once.
     """
-    endpoints = {
-        getattr(r, "path", None): getattr(r, "endpoint", None) for r in app.routes
-    }
+    endpoints = {getattr(r, "path", None): getattr(r, "endpoint", None) for r in app.routes}
     assert endpoints.get("/agent/verify") is not None
     assert endpoints.get("/agent/v2/verify") is not None
     assert endpoints["/agent/verify"] is endpoints["/agent/v2/verify"], (

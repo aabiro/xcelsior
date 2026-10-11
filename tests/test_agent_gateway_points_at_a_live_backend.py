@@ -58,9 +58,7 @@ def test_envoy_upstream_includes_both_blue_green_slots() -> None:
 
 
 def test_envoy_listener_does_not_collide_with_headscale() -> None:
-    port = _envoy()["static_resources"]["listeners"][0]["address"]["socket_address"][
-        "port_value"
-    ]
+    port = _envoy()["static_resources"]["listeners"][0]["address"]["socket_address"]["port_value"]
     assert port != HEADSCALE_PORT, (
         f"the envoy listener binds {port}, which Headscale already holds on the "
         "control-plane host; under network_mode:host that is a direct collision"

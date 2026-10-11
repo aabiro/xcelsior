@@ -24,9 +24,7 @@ def user_headers():
         "/api/auth/register",
         json={"email": email, "password": "StrongPass123!", "name": "Auth Cov"},
     )
-    login = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     assert login.status_code == 200
     return email, {"Authorization": f"Bearer {login.json()['access_token']}"}
 
@@ -65,9 +63,7 @@ def test_auth_logout():
         "/api/auth/register",
         json={"email": email, "password": "StrongPass123!", "name": "Logout Cov"},
     )
-    login = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     assert login.status_code == 200
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
 
@@ -140,7 +136,9 @@ def test_oauth_device_authorize(user_headers):
     assert created.status_code == 200
     oauth_client = created.json()["client"]
     original_secret = oauth_client["client_secret"]
-    assert oauth_client["client_secret_preview"] == f"{original_secret[:4]}...{original_secret[-4:]}"
+    assert (
+        oauth_client["client_secret_preview"] == f"{original_secret[:4]}...{original_secret[-4:]}"
+    )
     r = client.post(
         "/oauth/device/authorize",
         json={

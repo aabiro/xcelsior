@@ -137,9 +137,7 @@ def test_every_connector_scope_is_grantable():
     from oauth_registration import CONNECTOR_ALLOWED_SCOPES
 
     outside = sorted(set(CONNECTOR_ALLOWED_SCOPES) - known_scopes())
-    assert not outside, (
-        f"connector scopes the delegation guard would refuse: {outside}"
-    )
+    assert not outside, f"connector scopes the delegation guard would refuse: {outside}"
 
 
 def test_scopes_held_in_production_remain_grantable():
@@ -151,12 +149,20 @@ def test_scopes_held_in_production_remain_grantable():
     clients for no gain.
     """
     observed = {
-        "api", "billing:read", "email", "events:read", "gpu:read",
-        "inference:read", "inference:write", "instances:operate",
-        "instances:read", "instances:write", "marketplace:read",
-        "mcp_actions:approve", "offline_access", "profile",
+        "api",
+        "billing:read",
+        "email",
+        "events:read",
+        "gpu:read",
+        "inference:read",
+        "inference:write",
+        "instances:operate",
+        "instances:read",
+        "instances:write",
+        "marketplace:read",
+        "mcp_actions:approve",
+        "offline_access",
+        "profile",
     }
     outside = sorted(observed - known_scopes())
-    assert not outside, (
-        f"scopes held by existing clients would now be refused: {outside}"
-    )
+    assert not outside, f"scopes held by existing clients would now be refused: {outside}"

@@ -161,7 +161,10 @@ def test_public_nginx_strips_worker_identity_headers():
         "X-Xcelsior-Gateway-Auth",
     ):
         assert hdr in agent_block, f"public /agent/ must strip {hdr}"
-        assert f'proxy_set_header {hdr} ""' in agent_block or f"proxy_set_header {hdr} \"\"" in agent_block
+        assert (
+            f'proxy_set_header {hdr} ""' in agent_block
+            or f'proxy_set_header {hdr} ""' in agent_block
+        )
 
 
 def test_agent_auth_strict_db_error_fails_closed(monkeypatch):
@@ -219,11 +222,7 @@ def test_compose_api_has_no_sys_admin():
 
 def test_mcp_dockerfile_locked_npm_ci_and_non_root():
     df = (ROOT / "mcp" / "Dockerfile").read_text()
-    run_lines = [
-        ln.strip()
-        for ln in df.splitlines()
-        if ln.strip().upper().startswith("RUN ")
-    ]
+    run_lines = [ln.strip() for ln in df.splitlines() if ln.strip().upper().startswith("RUN ")]
     assert any("npm ci" in ln for ln in run_lines)
     assert not any("npm install" in ln for ln in run_lines)
     assert "USER xcelsior" in df
@@ -251,8 +250,13 @@ def test_spire_mesh_assets_are_deployable():
     the identity contract lives in tests/test_spire_identity_mesh.py.
     """
     spire = ROOT / "infra" / "spire"
-    for name in ("README.md", "server.conf", "agent.conf",
-                 "docker-compose.spire.yml", "register-host.sh"):
+    for name in (
+        "README.md",
+        "server.conf",
+        "agent.conf",
+        "docker-compose.spire.yml",
+        "register-host.sh",
+    ):
         assert (spire / name).is_file(), f"missing infra/spire/{name}"
     assert not list(spire.glob("*.example")), "SPIRE configs must be deployable, not examples"
     assert os.access(spire / "register-host.sh", os.X_OK)

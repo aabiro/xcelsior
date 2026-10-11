@@ -7,26 +7,30 @@ kept in Python so gate tests can verify:
   2. Every hard invariant has a zero-tolerance counter.
   3. Burn-rate windows are consistent.
 """
+
 from dataclasses import dataclass, field
 from enum import Enum
 
+
 class SloKind(Enum):
     HARD_INVARIANT = "hard_invariant"  # must stay zero, pages immediately
-    LATENCY = "latency"               # p95/p99 target
-    AVAILABILITY = "availability"      # success rate target
-    COMPLETENESS = "completeness"      # 100% coverage target
-    FRESHNESS = "freshness"            # max staleness
+    LATENCY = "latency"  # p95/p99 target
+    AVAILABILITY = "availability"  # success rate target
+    COMPLETENESS = "completeness"  # 100% coverage target
+    FRESHNESS = "freshness"  # max staleness
+
 
 @dataclass(frozen=True)
 class SloDefinition:
     name: str
     kind: SloKind
     description: str
-    target: float          # 0.0 for invariants, 0.9999 for availability, etc.
-    metric: str            # Prometheus metric name
-    alert_name: str        # Matching Prometheus alert rule name
+    target: float  # 0.0 for invariants, 0.9999 for availability, etc.
+    metric: str  # Prometheus metric name
+    alert_name: str  # Matching Prometheus alert rule name
     burn_rate_windows: list[tuple[int, int]] = field(default_factory=list)  # (short_min, long_min)
     blueprint_ref: str = ""
+
 
 HARD_INVARIANTS: list[SloDefinition] = [
     SloDefinition(
@@ -157,11 +161,13 @@ FRESHNESS_SLOS: list[SloDefinition] = [
         name="stale_host_removal",
         kind=SloKind.FRESHNESS,
         description="Stale host removed within freshness + 5s",
-        target=5.0, # max staleness delta
+        target=5.0,  # max staleness delta
         metric="xcelsior_stale_host_observations",
         alert_name="XcelsiorSloStaleHostRemoval",
         burn_rate_windows=[(5, 60), (30, 360)],
     ),
 ]
 
-ALL_SLOS: list[SloDefinition] = HARD_INVARIANTS + LATENCY_SLOS + AVAILABILITY_SLOS + COMPLETENESS_SLOS + FRESHNESS_SLOS
+ALL_SLOS: list[SloDefinition] = (
+    HARD_INVARIANTS + LATENCY_SLOS + AVAILABILITY_SLOS + COMPLETENESS_SLOS + FRESHNESS_SLOS
+)

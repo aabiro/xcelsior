@@ -97,7 +97,10 @@ def test_different_noise_keys_are_two_tailnets_and_refused() -> None:
 
 def test_force_still_pushes() -> None:
     """The documented override keeps working, including over a refusal."""
-    assert hf.push_verdict(hf.PrimarySummary(error="x"), STANDBY_KEYS, NOISE, force=True).action == "push"
+    assert (
+        hf.push_verdict(hf.PrimarySummary(error="x"), STANDBY_KEYS, NOISE, force=True).action
+        == "push"
+    )
 
 
 # ── failback() end to end, with the VPS faked at the SSH boundary ─────────
@@ -147,7 +150,12 @@ def test_failback_onto_an_authoritative_vps_touches_nothing_but_dns(
         out = ""
         if argv and argv[0] == "ssh" and "python3 -c" in argv[-1]:
             out = json.dumps(
-                {"missing": False, "machine_keys": sorted(VPS_KEYS), "users": 1, "noise_sha256": noise}
+                {
+                    "missing": False,
+                    "machine_keys": sorted(VPS_KEYS),
+                    "users": 1,
+                    "noise_sha256": noise,
+                }
             )
         return subprocess.CompletedProcess(argv, 0, out, "")
 
@@ -180,9 +188,9 @@ def test_failback_onto_an_authoritative_vps_touches_nothing_but_dns(
     assert moved == ["45.76.3.128"], f"DNS not restored to the address it held: {moved}"
     assert state.role == "standby", "the standby was left promoted"
     assert any("Nothing pushed" in m for m in sent), f"the operator was not told why: {sent}"
-    assert not list(settings.replica_dir.parent.glob("headscale-failback-*")), (
-        "a push snapshot was taken for a push that did not happen"
-    )
+    assert not list(
+        settings.replica_dir.parent.glob("headscale-failback-*")
+    ), "a push snapshot was taken for a push that did not happen"
 
 
 def test_an_unreadable_vps_holds_failback_before_anything_changes(
@@ -206,7 +214,11 @@ def test_an_unreadable_vps_holds_failback_before_anything_changes(
             replica=hf.ReplicaStatus(
                 sqlite_path=settings.replica_dir / "db.sqlite",
                 noise_key_path=settings.replica_dir / "noise_private.key",
-                user_count=1, node_count=6, replicated_at="", promotable=True, reason="",
+                user_count=1,
+                node_count=6,
+                replicated_at="",
+                promotable=True,
+                reason="",
             ),
             state=hf.FailoverState(role="promoted", original_a_record="45.76.3.128"),
             health=hf.Health(dns_ok=False, primary_ip_ok=True, dns_error="", primary_ip_error=""),
@@ -235,13 +247,16 @@ def test_the_remote_summary_script_runs_and_reports_only_public_data(tmp_path: P
     noise = tmp_path / "noise_private.key"
     _write_nodes(db, VPS_KEYS)
     noise.write_text("privkey:the-actual-secret\n")
-    script = hf._PRIMARY_SUMMARY_PY.replace(
-        "/var/lib/headscale/db.sqlite", str(db)
-    ).replace("/var/lib/headscale/noise_private.key", str(noise))
+    script = hf._PRIMARY_SUMMARY_PY.replace("/var/lib/headscale/db.sqlite", str(db)).replace(
+        "/var/lib/headscale/noise_private.key", str(noise)
+    )
 
     result = subprocess.run(
         ["sh", "-c", f"{sys.executable} -c '{script}'"],
-        capture_output=True, text=True, timeout=30, check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
     )
     payload = json.loads(result.stdout)
     assert frozenset(payload["machine_keys"]) == VPS_KEYS
@@ -251,7 +266,8 @@ def test_the_remote_summary_script_runs_and_reports_only_public_data(tmp_path: P
 
 
 @pytest.mark.skipif(
-    sys.platform == "win32" or (hasattr(__import__("os"), "geteuid") and __import__("os").geteuid() == 0),
+    sys.platform == "win32"
+    or (hasattr(__import__("os"), "geteuid") and __import__("os").geteuid() == 0),
     reason="root reads through mode 000",
 )
 def test_status_without_root_says_so_instead_of_tracing_back(
@@ -294,9 +310,7 @@ def test_the_runbook_recovery_command_can_find_its_ssh_key(tmp_path: Path) -> No
         pytest.skip("needs a non-root invoking user to distinguish the homes")
     env_file = tmp_path / ".env"
     env_file.write_text("XCELSIOR_SSH_KEY=$HOME/.ssh/xcelsior\n")
-    settings = hf.settings_from_env(
-        {"SUDO_USER": user, "HOME": "/root"}, dotenv_path=env_file
-    )
+    settings = hf.settings_from_env({"SUDO_USER": user, "HOME": "/root"}, dotenv_path=env_file)
     assert settings.ssh_key == f"{pwd.getpwnam(user).pw_dir}/.ssh/xcelsior", settings.ssh_key
     assert "$" not in settings.ssh_key
 

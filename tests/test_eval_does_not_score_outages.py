@@ -82,9 +82,7 @@ def test_an_api_error_is_not_recorded_as_a_failed_case():
         records = any(
             isinstance(inner, ast.Call)
             and getattr(inner.func, "attr", "") == "append"
-            and any(
-                isinstance(a, ast.Constant) and a.value is False for a in inner.args
-            )
+            and any(isinstance(a, ast.Constant) and a.value is False for a in inner.args)
             for inner in ast.walk(node)
         )
         if records and not stops:

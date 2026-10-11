@@ -34,10 +34,7 @@ try:
     from control_plane.db import control_plane_transaction as pg_transaction
 
     with pg_transaction() as _c:
-        _has = (
-            _c.execute("SELECT to_regclass('placement_decisions')").fetchone()[0]
-            is not None
-        )
+        _has = _c.execute("SELECT to_regclass('placement_decisions')").fetchone()[0] is not None
 except Exception as _e:  # pragma: no cover
     pytestmark = pytest.mark.skip(f"no control-plane db: {_e}")
 else:
@@ -255,16 +252,14 @@ def test_a_satisfiable_constraint_gets_the_host_that_meets_it(client, fleet):
     pref = body["preference"]
     assert pref["refused"] is False, pref
     assert pref["host_id"] == fleet["good"]
-    assert pref["premium_pct"] == pytest.approx(10.0), (
-        "the premium is not measured against the cheapest eligible host"
-    )
+    assert pref["premium_pct"] == pytest.approx(
+        10.0
+    ), "the premium is not measured against the cheapest eligible host"
 
 
 def test_a_premium_bound_below_the_cost_of_the_constraint_refuses(client, fleet):
-    """"Even at 15% more" is a bound. A bound not enforced is a hint."""
-    body, _ = _evaluate(
-        client, fleet, {"require_verified": True, "max_premium_pct": 5}
-    )
+    """ "Even at 15% more" is a bound. A bound not enforced is a hint."""
+    body, _ = _evaluate(client, fleet, {"require_verified": True, "max_premium_pct": 5})
     pref = body["preference"]
     assert pref["refused"] is True
     assert pref["code"] == "premium_exceeded"
@@ -315,9 +310,9 @@ def test_a_placement_is_recorded_with_the_evidence_it_was_made_on(client, fleet)
     assert stored["evidence"]["verification_status"] == "verified"
     assert stored["evidence"]["uptime_pct"] == pytest.approx(99.95, abs=0.01)
     assert stored["evidence"]["reputation_score"] == pytest.approx(500.0)
-    assert stored["candidate_count"] == 2, (
-        "a decision is only interpretable against the field it was made over"
-    )
+    assert (
+        stored["candidate_count"] == 2
+    ), "a decision is only interpretable against the field it was made over"
 
 
 def test_the_record_survives_the_host_changing_afterwards(client, fleet):
@@ -346,9 +341,9 @@ def test_the_record_survives_the_host_changing_afterwards(client, fleet):
     with pg_transaction() as conn:
         stored = read_placement(conn, decision_id, tenant_id=tenant)
 
-    assert stored["evidence"]["reputation_score"] == pytest.approx(500.0), (
-        "the record moved with the host; it is a reference, not a copy"
-    )
+    assert stored["evidence"]["reputation_score"] == pytest.approx(
+        500.0
+    ), "the record moved with the host; it is a reference, not a copy"
     assert stored["evidence"]["verification_state"] == "verified"
 
 
@@ -378,6 +373,4 @@ def test_the_recorded_decision_is_scoped_to_the_asking_tenant(client, fleet):
     from control_plane.scheduler.placement_record import read_placement
 
     with pg_transaction() as conn:
-        assert read_placement(
-            conn, body["decision_id"], tenant_id="someone-else"
-        ) is None
+        assert read_placement(conn, body["decision_id"], tenant_id="someone-else") is None

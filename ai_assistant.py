@@ -92,9 +92,13 @@ def check_ai_rate_limit(user_id: str) -> bool:
     from routes._deps import _take_shared_rate_slot
 
     return _take_shared_rate_slot(
-        _AI_RATE_STATE_NAMESPACE, user_id, time.time(),
-        limit=AI_RATE_LIMIT, window_sec=RATE_LIMIT_WINDOW_SEC,
-        buckets=_ai_rate_buckets, lock=_ai_rate_lock,
+        _AI_RATE_STATE_NAMESPACE,
+        user_id,
+        time.time(),
+        limit=AI_RATE_LIMIT,
+        window_sec=RATE_LIMIT_WINDOW_SEC,
+        buckets=_ai_rate_buckets,
+        lock=_ai_rate_lock,
     )
 
 
@@ -106,7 +110,9 @@ def _refund_ai_rate_slot(user_id: str) -> None:
 
     def refund(state):
         buckets = state.get("buckets", {}) or {}
-        history = sorted(float(ts) for ts in buckets.get(user_id, []) if float(ts) > now - RATE_LIMIT_WINDOW_SEC)
+        history = sorted(
+            float(ts) for ts in buckets.get(user_id, []) if float(ts) > now - RATE_LIMIT_WINDOW_SEC
+        )
         if len(history) > 1:
             buckets[user_id] = history[1:]
         else:
@@ -406,9 +412,6 @@ def resolve_confirmation(confirmation_id: str, user_id: str, approved: bool) -> 
 # Arbitrary but stable key so concurrent API replicas serialise their corpus
 # refresh instead of racing each other's TRUNCATE.
 _DOCS_INGEST_LOCK_KEY = 0x5D0C5
-
-
-
 
 
 def collect_public_docs() -> list[tuple[str, str]]:

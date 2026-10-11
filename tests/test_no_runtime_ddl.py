@@ -99,9 +99,9 @@ def test_startup_on_migrated_db_issues_no_schema_ddl(monkeypatch):
         _ensure_oauth_auth_tables(conn)
         conn.commit()
 
-    assert ddl_statements == [], (
-        f"runtime DDL on migrated DB (runtime-DDL violation): {ddl_statements!r}"
-    )
+    assert (
+        ddl_statements == []
+    ), f"runtime DDL on migrated DB (runtime-DDL violation): {ddl_statements!r}"
 
 
 def test_residual_tables_exist_via_alembic_not_ensure():
@@ -118,9 +118,7 @@ def test_residual_tables_exist_via_alembic_not_ensure():
     )
     with _pool.connection() as conn:
         for table in required:
-            row = conn.execute(
-                "SELECT to_regclass(%s)", (f"public.{table}",)
-            ).fetchone()
+            row = conn.execute("SELECT to_regclass(%s)", (f"public.{table}",)).fetchone()
             reg = row[0] if not isinstance(row, dict) else row["to_regclass"]
             assert reg is not None, f"missing table {table} (run alembic to 061)"
 

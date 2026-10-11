@@ -22,9 +22,7 @@ def job_id():
         "/api/auth/register",
         json={"email": email, "password": "StrongPass123!", "name": "Agent Cov"},
     ).json()
-    login = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
     customer_id = reg["user"]["customer_id"]
     dep = client.post(

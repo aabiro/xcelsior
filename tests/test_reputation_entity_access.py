@@ -46,9 +46,7 @@ def _account() -> tuple[dict[str, str], str]:
         "/api/auth/register",
         json={"email": email, "password": "StrongPass123!", "name": "Rep Access"},
     )
-    login = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     assert login.status_code == 200, login.text
     return {"Authorization": f"Bearer {login.json()['access_token']}"}, email
 
@@ -109,9 +107,10 @@ def test_the_detail_routes_are_not_simply_open(owner, stranger):
     headers, _ = stranger
     plain = client.get(f"/api/reputation/{owner_email}", headers=headers).status_code
     detail = client.get(f"/api/reputation/{owner_email}/breakdown", headers=headers).status_code
-    assert (plain, detail) == (200, 403), (
-        f"expected the score open and the breakdown closed, got {plain} and {detail}"
-    )
+    assert (plain, detail) == (
+        200,
+        403,
+    ), f"expected the score open and the breakdown closed, got {plain} and {detail}"
 
 
 def test_unauthenticated_callers_get_nothing(owner, monkeypatch):

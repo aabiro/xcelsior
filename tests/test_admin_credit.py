@@ -29,7 +29,9 @@ def customer():
         "/api/auth/register",
         json={"email": email, "password": "StrongPass123!", "name": "Credit Target"},
     ).json()
-    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"}).json()
+    login = client.post(
+        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
+    ).json()
     return {
         "email": email,
         "customer_id": reg["user"]["customer_id"],
@@ -38,7 +40,12 @@ def customer():
 
 
 def _credit(cid: str, headers: dict, **body):
-    payload = {"amount_cad": 25.0, "reason": "Testing the launch flow", "idempotency_key": uuid.uuid4().hex, **body}
+    payload = {
+        "amount_cad": 25.0,
+        "reason": "Testing the launch flow",
+        "idempotency_key": uuid.uuid4().hex,
+        **body,
+    }
     return client.post(f"/api/billing/wallet/{cid}/admin-credit", json=payload, headers=headers)
 
 
@@ -99,11 +106,20 @@ def test_admin_user_list_carries_the_wallet_key(customer):
     assert row["customer_id"] == customer["customer_id"]
 
 
-@pytest.mark.parametrize("body", [
-    {"amount_cad": "NaN"}, {"amount_cad": "Infinity"}, {"amount_cad": 0},
-    {"amount_cad": -1}, {"amount_cad": 0.001}, {"amount_cad": 10000.01},
-    {"reason": "   "}, {"idempotency_key": ""}, {"idempotency_key": None},
-])
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"amount_cad": "NaN"},
+        {"amount_cad": "Infinity"},
+        {"amount_cad": 0},
+        {"amount_cad": -1},
+        {"amount_cad": 0.001},
+        {"amount_cad": 10000.01},
+        {"reason": "   "},
+        {"idempotency_key": ""},
+        {"idempotency_key": None},
+    ],
+)
 def test_invalid_grants_do_not_change_the_wallet(customer, body):
     cid = customer["customer_id"]
     before = _wallet(cid)["balance_cad"]
@@ -113,6 +129,7 @@ def test_invalid_grants_do_not_change_the_wallet(customer, body):
 
 def test_admin_credit_is_available_outside_relaxed_environments(customer, monkeypatch):
     import env_config
+
     monkeypatch.setattr(env_config, "is_relaxed_env", lambda: False)
     assert _credit(customer["customer_id"], _admin_headers()).status_code == 200
     assert _credit(customer["customer_id"], customer["headers"]).status_code == 403
@@ -130,6 +147,7 @@ def test_request_id_cannot_be_reused_for_a_different_amount(customer):
 def test_simultaneous_retries_return_the_same_grant(customer):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier
+
     be = get_billing_engine()
     cid = customer["customer_id"]
     before = _wallet(cid)["balance_cad"]

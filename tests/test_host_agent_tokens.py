@@ -134,7 +134,9 @@ def test_idle_worker_poll_has_a_truly_empty_204_body(hosts, monkeypatch):
     monkeypatch.setenv("XCELSIOR_API_TOKEN", "host-token-poll-test-only")
     monkeypatch.setenv("XCELSIOR_AGENT_HOST_TOKENS", "require")
     issued = _issue(hosts[0])
-    response = client.get(f"/agent/work/{hosts[0]}", headers={"Authorization": f"Bearer {issued.secret}"})
+    response = client.get(
+        f"/agent/work/{hosts[0]}", headers={"Authorization": f"Bearer {issued.secret}"}
+    )
     assert response.status_code == 204, response.text
     assert response.content == b""
 
@@ -836,9 +838,7 @@ def test_token_expiry_is_a_durable_scheduled_task(hosts):
         from control_plane.agent_tokens import expire_stale_tokens
         from control_plane.db import run_transaction
 
-        run_transaction(
-            lambda c: expire_stale_tokens(c, limit=500), what="host_agent_token_expiry"
-        )
+        run_transaction(lambda c: expire_stale_tokens(c, limit=500), what="host_agent_token_expiry")
 
     register_task("host_agent_token_expiry", _sweep, 300)
 
@@ -881,8 +881,7 @@ def test_token_expiry_is_a_durable_scheduled_task(hosts):
             (issued.token_id,),
         ).fetchone()[0]
         task = conn.execute(
-            "SELECT last_status FROM scheduled_tasks "
-            "WHERE task_name = 'host_agent_token_expiry'"
+            "SELECT last_status FROM scheduled_tasks " "WHERE task_name = 'host_agent_token_expiry'"
         ).fetchone()
     assert status == "expired", "the durable task must actually run the sweep"
     assert task is not None and task[0] == "succeeded"

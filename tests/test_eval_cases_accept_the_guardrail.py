@@ -47,9 +47,7 @@ GUARDRAIL_FOR = {
 
 def _cases() -> list[dict]:
     return [
-        json.loads(line)
-        for line in CASES.read_text(encoding="utf-8").splitlines()
-        if line.strip()
+        json.loads(line) for line in CASES.read_text(encoding="utf-8").splitlines() if line.strip()
     ]
 
 

@@ -26,9 +26,11 @@ dance_end = """
 code = code.replace("    print()\n\n    # --- BOW FRAMES", dance_end + "    # --- BOW FRAMES")
 
 # Apply similar neutral frames for others if they don't have it
-code = re.sub(r'# --- ([A-Z]+) FRAMES \((.*?)\) ---\n\s*print\("=== .*? ===\"\)\n',
+code = re.sub(
+    r'# --- ([A-Z]+) FRAMES \((.*?)\) ---\n\s*print\("=== .*? ===\"\)\n',
     lambda m: f'# --- {m.group(1)} FRAMES ({m.group(2)}) ---\n    print("=== {m.group(1).title()} Frames ===")\n    c = create_canvas()\n    draw_base_wizard(c, offset_y=0, offset_x=0)\n    save(c, "wizard-{m.group(1).lower()}-00.png")\n',
-    code)
+    code,
+)
 
 # And add end frames before print()
 # Wait, this is tricky. Let's just manually patch the ones that matter.

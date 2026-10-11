@@ -633,7 +633,8 @@ class BillingEngine:
         if tax_rate is None:
             tax_rate, _desc = get_tax_rate_for_province(customer_province)
         if not (
-            math.isfinite(period_start) and math.isfinite(period_end)
+            math.isfinite(period_start)
+            and math.isfinite(period_end)
             and 0 <= period_start < period_end
         ):
             raise ValueError("Invoice period must have finite, increasing timestamps")
@@ -681,8 +682,7 @@ class BillingEngine:
                 mode = str(row["pricing_mode"])
                 li = InvoiceLineItem(
                     description=(
-                        f"{row['gpu_model']} — {_mode_label(mode)} "
-                        f"({row['trust_tier']} tier)"
+                        f"{row['gpu_model']} — {_mode_label(mode)} " f"({row['trust_tier']} tier)"
                     ),
                     category="compute",
                     quantity=hours,
@@ -1164,7 +1164,9 @@ class BillingEngine:
             row["hard_stop"] = row["available_cad"] <= 0 or (row.get("status") == "suspended")
             return row
 
-    def _active_holds_total(self, conn: Any, customer_id: str, *, now: float | None = None) -> float:
+    def _active_holds_total(
+        self, conn: Any, customer_id: str, *, now: float | None = None
+    ) -> float:
         """Sum of non-expired held amount for a customer (expires stale holds)."""
         now = time.time() if now is None else now
         try:
@@ -1349,13 +1351,9 @@ class BillingEngine:
                             "held": True,
                             "hold_id": hid,
                             "amount_cad": float(
-                                prior["amount_cad"]
-                                if isinstance(prior, dict)
-                                else prior[2]
+                                prior["amount_cad"] if isinstance(prior, dict) else prior[2]
                             ),
-                            "available_cad": self._available_locked(
-                                conn, customer_id, now=now
-                            ),
+                            "available_cad": self._available_locked(conn, customer_id, now=now),
                             "idempotent_replay": True,
                         }
                     # Terminal prior (released/consumed/expired): free the
@@ -1433,18 +1431,12 @@ class BillingEngine:
                     if winner is not None:
                         st = winner["status"] if isinstance(winner, dict) else winner[1]
                         if st == "held":
-                            whid = str(
-                                winner["hold_id"]
-                                if isinstance(winner, dict)
-                                else winner[0]
-                            )
+                            whid = str(winner["hold_id"] if isinstance(winner, dict) else winner[0])
                             return {
                                 "held": True,
                                 "hold_id": whid,
                                 "amount_cad": float(
-                                    winner["amount_cad"]
-                                    if isinstance(winner, dict)
-                                    else winner[2]
+                                    winner["amount_cad"] if isinstance(winner, dict) else winner[2]
                                 ),
                                 "available_cad": self._available_locked(
                                     conn, customer_id, now=time.time()
@@ -1475,9 +1467,7 @@ class BillingEngine:
             "SELECT balance_micros / 1000000.0 AS balance_cad FROM wallets WHERE customer_id = %s",
             (customer_id,),
         ).fetchone()
-        balance = float(
-            (row["balance_cad"] if isinstance(row, dict) else row[0]) if row else 0
-        )
+        balance = float((row["balance_cad"] if isinstance(row, dict) else row[0]) if row else 0)
         held = self._active_holds_total(conn, customer_id, now=now)
         return round(max(0.0, balance - held), 4)
 
@@ -1691,13 +1681,20 @@ class BillingEngine:
                         (idempotency_key,),
                     ).fetchone()
                     if existing:
-                        if (existing["customer_id"] != customer_id
+                        if (
+                            existing["customer_id"] != customer_id
                             or existing["amount_micros"] != cad_to_micros(amount_cad)
                             or existing["tx_type"] != tx_type
-                            or existing["description"] != description):
-                            raise ValueError("This request ID was already used for a different credit grant")
-                        return {"tx_id": existing["tx_id"],
-                                "balance_cad": micros_to_cad(existing["balance_after_micros"]), "dedup": True}
+                            or existing["description"] != description
+                        ):
+                            raise ValueError(
+                                "This request ID was already used for a different credit grant"
+                            )
+                        return {
+                            "tx_id": existing["tx_id"],
+                            "balance_cad": micros_to_cad(existing["balance_after_micros"]),
+                            "dedup": True,
+                        }
             # Atomic: increment balance and get new value in one statement
             row = conn.execute(
                 # Integer minor units: the arithmetic itself must be exact
@@ -1711,8 +1708,12 @@ class BillingEngine:
                        updated_at = %s
                    WHERE customer_id = %s
                    RETURNING balance_micros, balance_micros / 1000000.0 AS balance_cad""",
-                (cad_to_micros(amount_cad), cad_to_micros(amount_cad) if paid_in else 0,
-                 time.time(), customer_id),
+                (
+                    cad_to_micros(amount_cad),
+                    cad_to_micros(amount_cad) if paid_in else 0,
+                    time.time(),
+                    customer_id,
+                ),
             ).fetchone()
             # Read the derived float for the legacy response shape; the
             # authoritative value is balance_micros.
@@ -1738,7 +1739,9 @@ class BillingEngine:
                 ),
             )
 
-        log.info("%s %s +$%.2f CAD balance=$%.2f", tx_type.upper(), customer_id, amount_cad, new_balance)
+        log.info(
+            "%s %s +$%.2f CAD balance=$%.2f", tx_type.upper(), customer_id, amount_cad, new_balance
+        )
         return {"tx_id": tx_id, "balance_cad": new_balance}
 
     def low_balance_threshold_cad(self, customer_id: str) -> float:
@@ -2021,8 +2024,7 @@ class BillingEngine:
                        updated_at = %s
                    WHERE customer_id = %s
                    RETURNING balance_micros, balance_micros / 1000000.0 AS balance_cad""",
-                (cad_to_micros(amount_cad), cad_to_micros(amount_cad),
-                 time.time(), customer_id),
+                (cad_to_micros(amount_cad), cad_to_micros(amount_cad), time.time(), customer_id),
             ).fetchone()
             new_balance = (
                 micros_to_cad(row["balance_micros"])
@@ -3249,8 +3251,7 @@ class BillingEngine:
 
         job_payload = {
             "job_id": job_id,
-            "pricing_mode": job_row.get("pricing_mode")
-            or job_row.get("payload_pricing_mode"),
+            "pricing_mode": job_row.get("pricing_mode") or job_row.get("payload_pricing_mode"),
             "spot_rate_cad": job_row.get("spot_rate_cad"),
             "preemptible": job_row.get("preemptible"),
             "spot": job_row.get("spot"),
@@ -3506,9 +3507,7 @@ class BillingEngine:
                 ):
                     suspended += 1
                     try:
-                        stop_result = self.stop_instance(
-                            job_id, reason="billing_suspended"
-                        )
+                        stop_result = self.stop_instance(job_id, reason="billing_suspended")
                         if not stop_result.get("stopped"):
                             log.error(
                                 "BILLING: Failed to stop job %s on suspension: %s",

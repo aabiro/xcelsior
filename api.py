@@ -762,10 +762,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         """Whether a host-token-shaped bearer may be passed to the route here."""
         if path == "/host" or path.startswith(TokenAuthMiddleware.HOST_TOKEN_PREFIXES):
             return True
-        return any(
-            matcher.match(path)
-            for matcher in TokenAuthMiddleware._template_matchers()
-        )
+        return any(matcher.match(path) for matcher in TokenAuthMiddleware._template_matchers())
 
     @staticmethod
     @functools.lru_cache(maxsize=1)
@@ -1050,8 +1047,7 @@ class AgentIngressMiddleware:
 
     def _is_worker_path(self, path: str) -> bool:
         return any(
-            path == prefix.rstrip("/") or path.startswith(prefix)
-            for prefix in self.WORKER_PREFIXES
+            path == prefix.rstrip("/") or path.startswith(prefix) for prefix in self.WORKER_PREFIXES
         )
 
     async def __call__(self, scope, receive, send):
@@ -1065,8 +1061,7 @@ class AgentIngressMiddleware:
             return
 
         headers = {
-            k.decode("latin-1").lower(): v.decode("latin-1")
-            for k, v in scope.get("headers", [])
+            k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])
         }
         # Only the identity check is guarded. `await self.app(...)` used to sit
         # inside this `try`, so **any** exception raised downstream — a 403 from

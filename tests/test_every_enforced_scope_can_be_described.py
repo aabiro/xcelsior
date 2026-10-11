@@ -83,8 +83,7 @@ def test_every_enforced_scope_has_a_consent_description():
     assert not undescribed, (
         "these scopes are enforced but have no consent description, so the "
         "authorization screen shows the user a raw identifier and asks them to "
-        "approve it: "
-        + ", ".join(f"{s} ({', '.join(sorted(found[s]))})" for s in undescribed)
+        "approve it: " + ", ".join(f"{s} ({', '.join(sorted(found[s]))})" for s in undescribed)
     )
 
 

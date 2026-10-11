@@ -375,6 +375,4 @@ def test_a_provider_cannot_reach_the_operator_routes(host, provider_headers, pat
 
 def test_the_admission_queue_is_admin_only(provider_headers) -> None:
     r = client.get("/api/admin/admission-queue", headers=provider_headers)
-    assert r.status_code in (401, 403), (
-        f"a non-admin read the admission queue ({r.status_code})"
-    )
+    assert r.status_code in (401, 403), f"a non-admin read the admission queue ({r.status_code})"

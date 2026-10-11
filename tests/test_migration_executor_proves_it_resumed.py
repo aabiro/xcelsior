@@ -49,8 +49,11 @@ def wiring(monkeypatch):
     def _admit(conn, job, target, *, preference=None, now=None):
         calls.append("admission")
         return PlacementChoice(
-            host={"host_id": target}, baseline_price=10.0, chosen_price=10.0,
-            premium_pct=0.0, evidence={},
+            host={"host_id": target},
+            baseline_price=10.0,
+            chosen_price=10.0,
+            premium_pct=0.0,
+            evidence={},
         )
 
     monkeypatch.setattr(mx, "evaluate_migration_target", _admit)
@@ -88,6 +91,7 @@ def test_a_mismatched_probe_is_a_failure_to_resume(wiring):
 
 def test_a_probe_that_cannot_read_before_stops_the_migration(wiring):
     """Nothing is frozen if the comparison could never happen."""
+
     def _boom(job_id):
         raise RuntimeError("no telemetry")
 

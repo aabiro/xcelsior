@@ -44,15 +44,19 @@ def test_every_slo_has_alert_name_and_metric():
 def test_slo_alert_exists_in_alert_rules():
     rules = _prometheus_rules()
     alert_names = {rule.get("alert") for rule in rules if "alert" in rule}
-    
+
     for slo in ALL_SLOS:
-        assert slo.alert_name in alert_names, f"Alert {slo.alert_name} for SLO {slo.name} not found in alert-rules.yml"
+        assert (
+            slo.alert_name in alert_names
+        ), f"Alert {slo.alert_name} for SLO {slo.name} not found in alert-rules.yml"
 
 
 def test_hard_invariant_metric_exists_in_catalog():
     catalog = (ROOT / "metrics_catalog.py").read_text()
     for slo in HARD_INVARIANTS:
-        assert f'"{slo.metric}"' in catalog or f"'{slo.metric}'" in catalog, f"Metric {slo.metric} not in metrics_catalog.py"
+        assert (
+            f'"{slo.metric}"' in catalog or f"'{slo.metric}'" in catalog
+        ), f"Metric {slo.metric} not in metrics_catalog.py"
 
 
 def test_slo_has_description():

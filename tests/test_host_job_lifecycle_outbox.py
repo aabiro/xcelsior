@@ -22,10 +22,7 @@ try:
     _pool = _get_pg_pool()
     with _pool.connection() as _c:
         _c.execute("SELECT 1").fetchone()
-        _migrated = (
-            _c.execute("SELECT to_regclass('outbox_events')").fetchone()[0]
-            is not None
-        )
+        _migrated = _c.execute("SELECT to_regclass('outbox_events')").fetchone()[0] is not None
 except Exception as _e:  # pragma: no cover
     pytestmark = pytest.mark.skip(f"no pg pool available: {_e}")
     _pool = None
@@ -241,9 +238,7 @@ def test_try_append_lifecycle_outbox_savepoint_isolates_failure(cleanup, monkeyp
         conn.commit()
 
     with _pool.connection() as conn:
-        row = conn.execute(
-            "SELECT host_id FROM hosts WHERE host_id=%s", (host_id,)
-        ).fetchone()
+        row = conn.execute("SELECT host_id FROM hosts WHERE host_id=%s", (host_id,)).fetchone()
     assert row is not None
 
 
@@ -256,21 +251,13 @@ def test_register_host_appends_host_status_outbox(cleanup, monkeypatch):
     host_id = f"h-reg-{uuid.uuid4().hex[:8]}"
     cleanup["hosts"].append(host_id)
     emit_calls: list = []
-    monkeypatch.setattr(
-        sched, "emit_event", lambda et, data: emit_calls.append((et, data))
-    )
+    monkeypatch.setattr(sched, "emit_event", lambda et, data: emit_calls.append((et, data)))
 
-    host = sched.register_host(
-        host_id, "10.0.0.9", "RTX 4090", 24.0, 24.0, cost_per_hour=0.5
-    )
+    host = sched.register_host(host_id, "10.0.0.9", "RTX 4090", 24.0, 24.0, cost_per_hour=0.5)
     assert host is not None
     assert host["host_id"] == host_id
 
-    rows = [
-        r
-        for r in _outbox_for(host_id)
-        if r["event_type"] == "host.v1.status_changed"
-    ]
+    rows = [r for r in _outbox_for(host_id) if r["event_type"] == "host.v1.status_changed"]
     assert len(rows) >= 1, f"no host status outbox: {_outbox_for(host_id)}"
     assert _payload(rows[-1]).get("status") in ("active", "draining", "pending")
     assert rows[-1]["published_at"] is None
@@ -287,9 +274,7 @@ def test_set_host_draining_appends_outbox(cleanup, monkeypatch):
     sched.register_host(host_id, "10.0.0.10", "A100", 40.0, 40.0)
 
     emit_calls: list = []
-    monkeypatch.setattr(
-        sched, "emit_event", lambda et, data: emit_calls.append((et, data))
-    )
+    monkeypatch.setattr(sched, "emit_event", lambda et, data: emit_calls.append((et, data)))
 
     host = sched.set_host_draining(host_id, True)
     assert host is not None
@@ -298,8 +283,7 @@ def test_set_host_draining_appends_outbox(cleanup, monkeypatch):
     rows = [
         r
         for r in _outbox_for(host_id)
-        if r["event_type"] == "host.v1.status_changed"
-        and _payload(r).get("status") == "draining"
+        if r["event_type"] == "host.v1.status_changed" and _payload(r).get("status") == "draining"
     ]
     assert rows, f"no draining outbox row: {_outbox_for(host_id)}"
     assert emit_calls == []
@@ -313,14 +297,10 @@ def test_remove_host_appends_removed_outbox(cleanup, monkeypatch):
     sched.register_host(host_id, "10.0.0.11", "A100", 40.0, 40.0)
 
     emit_calls: list = []
-    monkeypatch.setattr(
-        sched, "emit_event", lambda et, data: emit_calls.append((et, data))
-    )
+    monkeypatch.setattr(sched, "emit_event", lambda et, data: emit_calls.append((et, data)))
 
     sched.remove_host(host_id)
-    rows = [
-        r for r in _outbox_for(host_id) if r["event_type"] == "host.v1.removed"
-    ]
+    rows = [r for r in _outbox_for(host_id) if r["event_type"] == "host.v1.removed"]
     assert len(rows) >= 1
     assert emit_calls == []
 
@@ -329,17 +309,13 @@ def test_submit_job_appends_submitted_outbox(cleanup, monkeypatch):
     import scheduler as sched
 
     emit_calls: list = []
-    monkeypatch.setattr(
-        sched, "emit_event", lambda et, data: emit_calls.append((et, data))
-    )
+    monkeypatch.setattr(sched, "emit_event", lambda et, data: emit_calls.append((et, data)))
 
     job = sched.submit_job("lifecycle-outbox-job", 8.0, tier="on-demand")
     job_id = job["job_id"]
     cleanup["jobs"].append(job_id)
 
-    rows = [
-        r for r in _outbox_for(job_id) if r["event_type"] == "job.v1.submitted"
-    ]
+    rows = [r for r in _outbox_for(job_id) if r["event_type"] == "job.v1.submitted"]
     assert len(rows) == 1
     payload = _payload(rows[0])
     assert payload.get("name") == "lifecycle-outbox-job"
@@ -385,16 +361,12 @@ def test_preempt_job_appends_preempted_outbox(cleanup, monkeypatch):
         conn.commit()
 
     emit_calls: list = []
-    monkeypatch.setattr(
-        sched, "emit_event", lambda et, data: emit_calls.append((et, data))
-    )
+    monkeypatch.setattr(sched, "emit_event", lambda et, data: emit_calls.append((et, data)))
 
     result = sched.preempt_job(job_id)
     assert result is not None
 
-    rows = [
-        r for r in _outbox_for(job_id) if r["event_type"] == "job.v1.preempted"
-    ]
+    rows = [r for r in _outbox_for(job_id) if r["event_type"] == "job.v1.preempted"]
     assert len(rows) >= 1, f"no preempt outbox: {_outbox_for(job_id)}"
     payload = _payload(rows[-1])
     assert payload.get("previous_host_id") == host_id
@@ -411,8 +383,7 @@ def test_submit_job_outbox_dispatches_to_notify(cleanup):
 
     def _has_mine(msgs: list[dict]) -> bool:
         return any(
-            m.get("type") == "job_submitted"
-            and m.get("data", {}).get("job_id") == job_id
+            m.get("type") == "job_submitted" and m.get("data", {}).get("job_id") == job_id
             for m in msgs
         )
 
@@ -425,15 +396,12 @@ def test_submit_job_outbox_dispatches_to_notify(cleanup):
     mine = [
         m
         for m in messages
-        if m.get("type") == "job_submitted"
-        and m.get("data", {}).get("job_id") == job_id
+        if m.get("type") == "job_submitted" and m.get("data", {}).get("job_id") == job_id
     ]
     assert mine, f"no NOTIFY/SSE for submitted job {job_id} after drain"
     assert mine[0]["data"].get("name") == "dispatch-listen-job"
 
-    rows = [
-        r for r in _outbox_for(job_id) if r["event_type"] == "job.v1.submitted"
-    ]
+    rows = [r for r in _outbox_for(job_id) if r["event_type"] == "job.v1.submitted"]
     assert rows and rows[-1]["published_at"] is not None
 
 
@@ -493,5 +461,9 @@ def test_inventory_process_local_emit_sites_classified():
         assert marker in sched_src, f"missing wired producer: {marker}"
 
     # Still process-local (not this cutover): queue-block job_error, spot_prices.
-    assert 'emit_event(\n            "job_error"' in sched_src or 'emit_event(\n        "job_error"' in sched_src or '"job_error"' in sched_src
+    assert (
+        'emit_event(\n            "job_error"' in sched_src
+        or 'emit_event(\n        "job_error"' in sched_src
+        or '"job_error"' in sched_src
+    )
     assert "spot_prices" in sched_src

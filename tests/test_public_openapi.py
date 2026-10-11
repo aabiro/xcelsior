@@ -34,12 +34,12 @@ def test_checked_in_public_openapi_matches_generator():
     assert [tag["name"] for tag in checked_in.get("tags", [])] == [
         tag["name"] for tag in generated.get("tags", [])
     ]
-    assert checked_in == generated, (
-        "fern/openapi.json is stale — run scripts/generate_public_openapi.py"
-    )
-    assert json.loads(PUBLIC_OPENAPI.read_text(encoding="utf-8")) == generated, (
-        "public/openapi.json is stale — run scripts/generate_public_openapi.py"
-    )
+    assert (
+        checked_in == generated
+    ), "fern/openapi.json is stale — run scripts/generate_public_openapi.py"
+    assert (
+        json.loads(PUBLIC_OPENAPI.read_text(encoding="utf-8")) == generated
+    ), "public/openapi.json is stale — run scripts/generate_public_openapi.py"
 
 
 def test_generator_builds_from_the_live_app_not_its_own_output():

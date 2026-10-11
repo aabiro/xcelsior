@@ -45,8 +45,7 @@ try:
     with _pool.connection() as _c:
         _has = (
             _c.execute("SELECT to_regclass('action_plans')").fetchone()[0] is not None
-            and _c.execute("SELECT to_regclass('public.wallet_holds')").fetchone()[0]
-            is not None
+            and _c.execute("SELECT to_regclass('public.wallet_holds')").fetchone()[0] is not None
         )
 except Exception as _e:  # pragma: no cover
     pytestmark = pytest.mark.skip(f"no pg pool: {_e}")

@@ -121,11 +121,7 @@ _PRIVATE_IPV4_RE = re.compile(
 
 #: Private IPv6 (link-local fe80::, unique-local fc00::/fd00::, ::1) and localhost.
 _PRIVATE_IPV6_RE = re.compile(
-    r"(?i)\b("
-    r"(?:fe80|fc00|fd[0-9a-f]{2}):[0-9a-f:]+|"
-    r"::1|"
-    r"localhost"
-    r")\b"
+    r"(?i)\b(" r"(?:fe80|fc00|fd[0-9a-f]{2}):[0-9a-f:]+|" r"::1|" r"localhost" r")\b"
 )
 
 _SENSITIVE_KEY_NAMES = {

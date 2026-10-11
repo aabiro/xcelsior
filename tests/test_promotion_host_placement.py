@@ -60,8 +60,11 @@ def hosts():
             conn.execute(
                 "INSERT INTO hosts (host_id, status, registered_at, payload, region) "
                 "VALUES (%s, %s, extract(epoch from now()), '{}'::jsonb, %s)",
-                (hid, "offline" if key.startswith("down") else "active",
-                 f"reg-west-{tag}" if "west" in key else f"reg-east-{tag}"),
+                (
+                    hid,
+                    "offline" if key.startswith("down") else "active",
+                    f"reg-west-{tag}" if "west" in key else f"reg-east-{tag}",
+                ),
             )
         # Two live jobs on the busy host so ordering by load is decidable.
         for i in range(2):
@@ -90,9 +93,9 @@ def _pick(region: str) -> str:
 
 def test_the_least_loaded_host_in_the_region_wins(hosts):
     """Load is the tie-break — otherwise every promotion lands on one box."""
-    assert _pick(hosts["east"]) == hosts["ids"]["idle_east"], (
-        "placement chose the busy host over an idle one in the same region"
-    )
+    assert (
+        _pick(hosts["east"]) == hosts["ids"]["idle_east"]
+    ), "placement chose the busy host over an idle one in the same region"
 
 
 def test_a_host_in_another_region_is_never_chosen(hosts):
@@ -114,7 +117,7 @@ def test_an_inactive_host_is_never_chosen(hosts):
 
 
 def test_a_region_with_no_hosts_yields_no_host_rather_than_a_wrong_one(hosts):
-    """"Nowhere to run it" must not silently become "run it anywhere"."""
+    """ "Nowhere to run it" must not silently become "run it anywhere"."""
     assert _pick(f"reg-empty-{hosts['tag']}") == "", (
         "a region with no active hosts returned a host anyway — a promotion "
         "would be queued for a machine that cannot reach the volume"

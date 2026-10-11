@@ -74,9 +74,7 @@ def _clean():
         with pool.connection() as conn:
             conn.execute("DELETE FROM wallet_transactions WHERE customer_id LIKE 'topup-test-%%'")
             conn.execute("DELETE FROM wallets WHERE customer_id LIKE 'topup-test-%%'")
-            conn.execute(
-                "DELETE FROM payment_intents WHERE customer_id LIKE 'topup-test-%%'"
-            )
+            conn.execute("DELETE FROM payment_intents WHERE customer_id LIKE 'topup-test-%%'")
             conn.commit()
         yield
         return
@@ -150,8 +148,7 @@ def test_charged_card_results_in_credited_wallet(monkeypatch):
     result = engine.check_low_balance_and_topup()
     assert result["topped_up"] == 1, f"the sweep did not charge the card: {result}"
     assert charge["off_session"] is True and charge["confirm"] is True, (
-        "auto-top-up must be a merchant-initiated off-session charge; "
-        f"got {charge!r}"
+        "auto-top-up must be a merchant-initiated off-session charge; " f"got {charge!r}"
     )
 
     from stripe_connect import StripeConnectManager
@@ -187,8 +184,7 @@ def test_topup_intent_is_registered_before_the_card_is_charged(monkeypatch):
     pool = _get_pg_pool()
     with pool.connection() as conn:
         row = conn.execute(
-            "SELECT customer_id, amount_cents FROM payment_intents "
-            "WHERE stripe_intent_id = %s",
+            "SELECT customer_id, amount_cents FROM payment_intents " "WHERE stripe_intent_id = %s",
             (intent_id,),
         ).fetchone()
 
@@ -270,9 +266,9 @@ def test_a_declined_charge_credits_nothing(monkeypatch):
     assert result["errors"] == 1 and result["topped_up"] == 0
 
     balance = engine.get_wallet(customer_id)["balance_cad"]
-    assert balance == pytest.approx(STARTING_CAD), (
-        f"a declined card credited the wallet anyway: ${balance:.2f}"
-    )
+    assert balance == pytest.approx(
+        STARTING_CAD
+    ), f"a declined card credited the wallet anyway: ${balance:.2f}"
 
     pool = _get_pg_pool()
     with pool.connection() as conn:

@@ -231,9 +231,6 @@ def api_compliance_status(request: Request):
             }
         )
 
-
-
-
     # 5. Audit Trail — checks for user-specific events, not just global existence
     try:
         store = get_event_store()
@@ -352,8 +349,6 @@ def api_compliance_status(request: Request):
     return {"ok": True, "checks": checks}
 
 
-
-
 @router.get("/api/compliance/tax-rates", tags=["Compliance"])
 def api_tax_rates():
     """Canadian GST/HST/PST rates by province for billing."""
@@ -385,6 +380,3 @@ def api_tax_rates():
             rates[code] = {"rate": total, "description": desc, "gst": 0.05, "pst": 0, "hst": 0}
 
     return {"rates": rates}
-
-
-

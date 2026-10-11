@@ -112,10 +112,12 @@ class TestHandlerNormalization:
         assert usage == {}
 
     def test_usage_extraction(self):
-        out, events, usage = normalize_handler_result({
-            "result": "ok",
-            "usage": {"input_tokens": 5, "output_tokens": 9},
-        })
+        out, events, usage = normalize_handler_result(
+            {
+                "result": "ok",
+                "usage": {"input_tokens": 5, "output_tokens": 9},
+            }
+        )
         assert out == {"result": "ok"}
         assert usage["input_tokens"] == 5
         assert usage["output_tokens"] == 9
@@ -190,16 +192,19 @@ class TestDeployMaintenance:
         # Spot preemption cycles can evict running jobs in the shared test DB — keep this
         # test deterministic while we assert maintenance blocking semantics.
         with patch("scheduler.preemption_cycle", return_value=({}, [])):
-            assert client.put(
-                "/host",
-                json={
-                    "host_id": host_id,
-                    "ip": "10.0.0.99",
-                    "gpu_model": "RTX 4090",
-                    "total_vram_gb": 24,
-                    "free_vram_gb": 24,
-                },
-            ).status_code == 200
+            assert (
+                client.put(
+                    "/host",
+                    json={
+                        "host_id": host_id,
+                        "ip": "10.0.0.99",
+                        "gpu_model": "RTX 4090",
+                        "total_vram_gb": 24,
+                        "free_vram_gb": 24,
+                    },
+                ).status_code
+                == 200
+            )
 
             job = submit_job(
                 "serverless-sep-test",
@@ -280,10 +285,15 @@ class TestRunWorkerConcurrency:
         mock_client.complete_job.side_effect = lambda job_id, **kw: _complete_and_exit(job_id, **kw)
 
         rt._draining = False
-        with patch("serverless.worker_sdk.runtime.time.sleep"), patch(
-            "serverless.worker_sdk.runtime.start_health_server"
-        ), patch.object(rt._HeartbeatThread, "start"), patch.object(rt._HeartbeatThread, "stop"):
-            run_worker(client=mock_client, skip_fitness=True, poll_interval_sec=0, max_concurrency=2)
+        with (
+            patch("serverless.worker_sdk.runtime.time.sleep"),
+            patch("serverless.worker_sdk.runtime.start_health_server"),
+            patch.object(rt._HeartbeatThread, "start"),
+            patch.object(rt._HeartbeatThread, "stop"),
+        ):
+            run_worker(
+                client=mock_client, skip_fitness=True, poll_interval_sec=0, max_concurrency=2
+            )
 
         _args, kwargs = mock_client.complete_job.call_args
         assert kwargs.get("input_tokens") == 3
@@ -324,8 +334,9 @@ class TestRunWorkerLoop:
         import serverless.worker_sdk.runtime as rt
 
         rt._draining = False
-        with patch("serverless.worker_sdk.runtime.time.sleep"), patch(
-            "serverless.worker_sdk.runtime.start_health_server"
+        with (
+            patch("serverless.worker_sdk.runtime.time.sleep"),
+            patch("serverless.worker_sdk.runtime.start_health_server"),
         ):
             run_worker(client=mock_client, skip_fitness=True, poll_interval_sec=0)
 

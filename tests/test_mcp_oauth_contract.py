@@ -17,10 +17,14 @@ def _rsa_key_config() -> str:
         serialization.PrivateFormat.PKCS8,
         serialization.NoEncryption(),
     ).decode()
-    public = key.public_key().public_bytes(
-        serialization.Encoding.PEM,
-        serialization.PublicFormat.SubjectPublicKeyInfo,
-    ).decode()
+    public = (
+        key.public_key()
+        .public_bytes(
+            serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode()
+    )
     return json.dumps(
         {
             "active_kid": "mcp-test-1",
@@ -88,9 +92,7 @@ def test_authorization_code_binds_mcp_audience_into_access_and_refresh(monkeypat
     monkeypatch.setattr(
         oauth_service,
         "_cache_set_json",
-        lambda namespace, key, value, ttl, **_: cache.__setitem__(
-            (namespace, key), dict(value)
-        )
+        lambda namespace, key, value, ttl, **_: cache.__setitem__((namespace, key), dict(value))
         is None,
     )
     monkeypatch.setattr(
@@ -112,9 +114,7 @@ def test_authorization_code_binds_mcp_audience_into_access_and_refresh(monkeypat
         headers={"user-agent": "mcp-contract-test"},
     )
     verifier = "v" * 64
-    challenge = oauth_service._base64url_encode(
-        hashlib.sha256(verifier.encode()).digest()
-    )
+    challenge = oauth_service._base64url_encode(hashlib.sha256(verifier.encode()).digest())
     code = oauth_service.issue_authorization_code(
         client=client,
         user={"email": "user@example.test", "user_id": "user-1"},
@@ -146,9 +146,7 @@ def test_authorization_code_rejects_resource_substitution(monkeypatch):
     monkeypatch.setattr(
         oauth_service,
         "_cache_set_json",
-        lambda namespace, key, value, ttl, **_: cache.__setitem__(
-            (namespace, key), dict(value)
-        )
+        lambda namespace, key, value, ttl, **_: cache.__setitem__((namespace, key), dict(value))
         is None,
     )
     monkeypatch.setattr(
@@ -161,9 +159,7 @@ def test_authorization_code_rejects_resource_substitution(monkeypatch):
         client=client,
         user={"email": "user@example.test"},
         redirect_uri="https://agent.example.test/callback",
-        code_challenge=oauth_service._base64url_encode(
-            hashlib.sha256(verifier.encode()).digest()
-        ),
+        code_challenge=oauth_service._base64url_encode(hashlib.sha256(verifier.encode()).digest()),
         code_challenge_method="S256",
         scopes=["instances:read"],
         audience=oauth_service.MCP_RESOURCE_AUDIENCE,

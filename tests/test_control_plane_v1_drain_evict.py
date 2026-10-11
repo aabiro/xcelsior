@@ -80,7 +80,9 @@ def _admin_headers(email: str) -> dict:
 def _platform_headers() -> dict:
     import os
 
-    return {"Authorization": f"Bearer {os.environ.get('XCELSIOR_API_TOKEN', 'test-token-not-for-production')}"}
+    return {
+        "Authorization": f"Bearer {os.environ.get('XCELSIOR_API_TOKEN', 'test-token-not-for-production')}"
+    }
 
 
 def _register_host(host_id: str, ip: str = "10.9.0.1") -> None:
@@ -104,7 +106,9 @@ def _running_job_on(host_id: str, headers: dict) -> str:
     from scheduler import process_queue
 
     sub = client.post(
-        "/instance", json={"name": f"drain-{uuid.uuid4().hex[:6]}", "vram_needed_gb": 8}, headers=headers
+        "/instance",
+        json={"name": f"drain-{uuid.uuid4().hex[:6]}", "vram_needed_gb": 8},
+        headers=headers,
     )
     assert sub.status_code == 200, sub.text
     job_id = sub.json()["instance"]["job_id"]
@@ -171,7 +175,9 @@ def test_eviction_plan_preview_does_nothing_and_execute_is_idempotent():
     job_id = _running_job_on(host_id, admin)
     assert client.post(f"/api/v1/hosts/{host_id}/drain", headers=admin, json={}).status_code == 200
     with _get_pg_pool().connection() as conn:
-        version = int(conn.execute("SELECT version FROM hosts WHERE host_id=%s", (host_id,)).fetchone()[0])
+        version = int(
+            conn.execute("SELECT version FROM hosts WHERE host_id=%s", (host_id,)).fetchone()[0]
+        )
 
     preview = client.post(
         f"/api/v1/hosts/{host_id}/eviction-plans",
@@ -189,14 +195,10 @@ def test_eviction_plan_preview_does_nothing_and_execute_is_idempotent():
         json={"confirm": True},
     )
     assert approved.status_code == 200, approved.text
-    first = client.post(
-        f"/api/v1/hosts/{host_id}/eviction-plans/{plan_id}/execute", headers=admin
-    )
+    first = client.post(f"/api/v1/hosts/{host_id}/eviction-plans/{plan_id}/execute", headers=admin)
     assert first.status_code == 200, first.text
     assert job_id in first.json()["evicted"]
-    second = client.post(
-        f"/api/v1/hosts/{host_id}/eviction-plans/{plan_id}/execute", headers=admin
-    )
+    second = client.post(f"/api/v1/hosts/{host_id}/eviction-plans/{plan_id}/execute", headers=admin)
     assert second.status_code == 200
     assert second.json()["idempotent"] is True
 
@@ -212,10 +214,7 @@ def test_drain_and_evict_require_distinct_scopes():
     tree = ast.parse(src)
 
     def _scope_of(fn_name: str) -> set[str]:
-        fn = next(
-            n for n in ast.walk(tree)
-            if isinstance(n, ast.FunctionDef) and n.name == fn_name
-        )
+        fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == fn_name)
         scopes = set()
         for node in ast.walk(fn):
             if (
@@ -293,7 +292,10 @@ def test_cross_tenant_instance_is_not_found_no_leak():
     job_id = _running_job_on(host_id, owner)
 
     intruder = _plain_user_headers(f"cp-b-{uuid.uuid4().hex[:6]}@xcelsior.ca")
-    for path in (f"/api/v1/instances/{job_id}/control-plane", f"/api/v1/instances/{job_id}/timeline"):
+    for path in (
+        f"/api/v1/instances/{job_id}/control-plane",
+        f"/api/v1/instances/{job_id}/timeline",
+    ):
         resp = client.get(path, headers=intruder)
         assert resp.status_code == 404, (path, resp.text)
         assert resp.headers["content-type"].startswith(PROBLEM_MEDIA_TYPE)
@@ -320,7 +322,9 @@ def test_reconciliation_findings_requires_admin():
 def test_control_plane_queue_lists_queued_and_is_operator_gated():
     admin = _admin_headers(f"q-admin-{uuid.uuid4().hex[:6]}@xcelsior.ca")
     # Submit without any admitted host → the job stays queued.
-    sub = client.post("/instance", json={"name": f"q-{uuid.uuid4().hex[:6]}", "vram_needed_gb": 8}, headers=admin)
+    sub = client.post(
+        "/instance", json={"name": f"q-{uuid.uuid4().hex[:6]}", "vram_needed_gb": 8}, headers=admin
+    )
     assert sub.status_code == 200, sub.text
     job_id = sub.json()["instance"]["job_id"]
     _OWNED["jobs"].add(job_id)
@@ -337,7 +341,13 @@ def test_control_plane_queue_lists_queued_and_is_operator_gated():
 
 def test_control_plane_health_reports_live_counts():
     admin = _admin_headers(f"h-admin-{uuid.uuid4().hex[:6]}@xcelsior.ca")
-    assert client.get("/api/v1/control-plane/health", headers=_plain_user_headers(f"h-u-{uuid.uuid4().hex[:6]}@x.ca")).status_code == 403
+    assert (
+        client.get(
+            "/api/v1/control-plane/health",
+            headers=_plain_user_headers(f"h-u-{uuid.uuid4().hex[:6]}@x.ca"),
+        ).status_code
+        == 403
+    )
     h = client.get("/api/v1/control-plane/health", headers=admin)
     assert h.status_code == 200, h.text
     body = h.json()
@@ -385,7 +395,10 @@ def test_instance_attempts_and_placement_explanation_tenant_scoped():
     assert "explained" in pe.json()
 
     intruder = _plain_user_headers(f"att-b-{uuid.uuid4().hex[:6]}@xcelsior.ca")
-    for path in (f"/api/v1/instances/{job_id}/attempts", f"/api/v1/instances/{job_id}/placement-explanation"):
+    for path in (
+        f"/api/v1/instances/{job_id}/attempts",
+        f"/api/v1/instances/{job_id}/placement-explanation",
+    ):
         r = client.get(path, headers=intruder)
         assert r.status_code == 404 and r.json()["code"] == "instance_not_found"
 
@@ -430,7 +443,10 @@ def test_instance_reconcile_enqueues_never_repairs():
         assert _queue_count() == 1
         # Cross-tenant reconcile is not-found (no existence leak).
         intruder = _plain_user_headers(f"rec-b-{uuid.uuid4().hex[:6]}@xcelsior.ca")
-        assert client.post(f"/api/v1/instances/{job_id}/reconcile", headers=intruder).status_code == 404
+        assert (
+            client.post(f"/api/v1/instances/{job_id}/reconcile", headers=intruder).status_code
+            == 404
+        )
     finally:
         from db import _get_pg_pool
 

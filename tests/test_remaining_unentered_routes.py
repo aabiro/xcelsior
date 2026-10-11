@@ -54,7 +54,7 @@ def funded():
 
 
 def test_creating_a_sweep_quotes_rather_than_launches(funded) -> None:
-    """"Nothing launches here" — it must produce a plan awaiting approval."""
+    """ "Nothing launches here" — it must produce a plan awaiting approval."""
     r = client.post(
         "/api/v1/image-sweeps",
         json={"image_id": f"img-{uuid.uuid4().hex[:10]}", "count": 2, "name": "probe-sweep"},
@@ -63,9 +63,7 @@ def test_creating_a_sweep_quotes_rather_than_launches(funded) -> None:
     assert r.status_code < 500, f"sweep creation faulted: {r.status_code} {r.text[:300]}"
     if r.status_code == 200:
         body = r.json()
-        assert "approval_url" in body, (
-            f"a sweep came back without an approval route: {body}"
-        )
+        assert "approval_url" in body, f"a sweep came back without an approval route: {body}"
         assert body.get("approval_state") in ("pending", "approved"), body
 
 
@@ -90,9 +88,7 @@ def test_a_zero_member_sweep_is_refused(funded) -> None:
 
 def test_executing_an_unapproved_sweep_plan_is_refused(funded) -> None:
     """Gate P7: execution requires an approved plan, not merely a plan id."""
-    r = client.post(
-        f"/api/v1/image-sweep-plans/{uuid.uuid4()}/execute", headers=funded
-    )
+    r = client.post(f"/api/v1/image-sweep-plans/{uuid.uuid4()}/execute", headers=funded)
     assert r.status_code < 500, f"sweep execute faulted: {r.status_code} {r.text[:300]}"
     assert r.status_code in (400, 403, 404, 409), r.text[:200]
 
@@ -121,9 +117,9 @@ def test_reporting_a_sweep_fingerprint_for_an_unknown_sweep() -> None:
         # coverage measurement is what caught it, for the third time.
         json={"hash": "a" * 64, "manifest": {"driver": "550.54", "cuda": "12.4"}},
     )
-    assert r.status_code != 410, (
-        "the request was refused as a retired API key, so the handler never ran"
-    )
+    assert (
+        r.status_code != 410
+    ), "the request was refused as a retired API key, so the handler never ran"
     assert r.status_code != 422, f"the body did not satisfy the model: {r.text[:300]}"
     assert r.status_code < 500, f"fingerprint report faulted: {r.status_code} {r.text[:300]}"
     assert r.status_code in (400, 403, 404, 409), r.text[:200]
@@ -153,9 +149,10 @@ def test_terminating_another_tenants_instance_is_not_found(funded) -> None:
     job_id = job.get("job_id") or job.get("id")
     try:
         r = client.post(f"/instances/{job_id}/terminate", headers=funded)
-        assert r.status_code in (403, 404), (
-            f"another tenant's instance answered {r.status_code} to a terminate"
-        )
+        assert r.status_code in (
+            403,
+            404,
+        ), f"another tenant's instance answered {r.status_code} to a terminate"
     finally:
         with _get_pg_pool().connection() as conn:
             conn.execute("DELETE FROM jobs WHERE job_id = %s", (job_id,))

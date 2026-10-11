@@ -113,11 +113,7 @@ def test_every_classified_row_carries_a_reason():
     count: the number moves every time rows are classified, and a docstring
     that has to be edited in lockstep is one that goes stale instead.
     """
-    unreasoned = [
-        f"{cells[1]} {cells[2]}"
-        for cells in _rows()
-        if cells[5] and len(cells[6]) < 8
-    ]
+    unreasoned = [f"{cells[1]} {cells[2]}" for cells in _rows() if cells[5] and len(cells[6]) < 8]
     assert not unreasoned, (
         "classified without a reason — the reason is the audit, the label is "
         f"just its summary: {unreasoned[:10]}"
@@ -160,13 +156,10 @@ def test_the_generator_actually_reads_the_classification_file():
     labels = json.loads(
         (ROOT / "docs" / "endpoint-classification.json").read_text(encoding="utf-8")
     )
-    rendered = {
-        f"{cells[1]} {cells[2].strip('`')}": cells[5] for cells in _rows() if cells[5]
-    }
+    rendered = {f"{cells[1]} {cells[2].strip('`')}": cells[5] for cells in _rows() if cells[5]}
     assert rendered, "no row in the table carries a class — regenerate the inventory"
     disagreements = sorted(
-        key for key, label in rendered.items()
-        if labels.get(key, {}).get("class") != label
+        key for key, label in rendered.items() if labels.get(key, {}).get("class") != label
     )
     assert not disagreements, (
         "the table and the classification file disagree; the table is generated "
