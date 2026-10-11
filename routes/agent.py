@@ -1421,6 +1421,8 @@ async def api_agent_ssh_status(job_id: str, request: Request):
         "elapsed_sec": float(body.get("elapsed_sec") or 0),
         "ts": float(body.get("ts") or time.time()),
     }
+    from instance_credentials import protect_ssh_status
+    status = protect_ssh_status(status)
     import json as _json
 
     # Also an `async def` (it awaits `request.json()`), so this UPDATE ran on

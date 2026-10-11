@@ -478,6 +478,26 @@ class TestFailover:
         target = [j for j in jobs if j["job_id"] == job["job_id"]][0]
         assert target["status"] == "failed"
 
+    def test_requeue_mining_terminated_job_rejected(self):
+        job = scheduler.submit_job("test", 8)
+        scheduler.update_job_status(job["job_id"], "running", host_id="h1")
+        scheduler.update_job_status(job["job_id"], "terminated", host_id="h1", policy_reason="mining_detected")
+        assert scheduler.requeue_job(job["job_id"]) is None
+        assert scheduler.requeue_job(job["job_id"], user_initiated=True) is None
+
+    def test_policy_terminated_job_cannot_be_advanced(self):
+        job = scheduler.submit_job("test", 8)
+        scheduler.update_job_status(job["job_id"], "running", host_id="h1")
+        scheduler.update_job_status(job["job_id"], "terminated", host_id="h1", policy_reason="mining_detected")
+        with pytest.raises(ValueError, match="permanently terminated by security policy"):
+            scheduler.update_job_status(job["job_id"], "running", host_id="h1")
+
+    def test_policy_termination_requires_valid_host_and_reason(self):
+        job = scheduler.submit_job("test", 8)
+        scheduler.update_job_status(job["job_id"], "running", host_id="h1")
+        with pytest.raises(ValueError, match="Invalid or stale policy termination"):
+            scheduler.update_job_status(job["job_id"], "terminated", host_id="wrong_host", policy_reason="mining_detected")
+
 
 # ── Phase 15: Priority Tiers ────────────────────────────────────────
 

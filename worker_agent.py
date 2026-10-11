@@ -2383,6 +2383,7 @@ def report_job_status(
     interactive=None,
     error_message=None,
     resume_from=None,
+    policy_reason=None,
 ):
     """Update job status on the scheduler.
 
@@ -2399,7 +2400,7 @@ def report_job_status(
     # be skipped by a v1 transport failure.
     mirror_outcome = "not_v2"
     try:
-        mirror_outcome = _v2_on_job_status(job_id, status, error_message=error_message)
+        mirror_outcome = _v2_on_job_status(job_id, status, error_message=error_message, policy_reason=policy_reason)
     except Exception as _v2_exc:
         log.warning("v2 status mirror failed for job %s: %s", job_id, _v2_exc)
         mirror_outcome = "error"
@@ -2416,6 +2417,9 @@ def report_job_status(
         return False
 
     data = {"status": status}
+    if policy_reason:
+        data["policy_reason"] = policy_reason
+        data["host_id"] = HOST_ID
     if v2_auth:
         data["host_id"] = HOST_ID
         data["attempt_id"] = v2_auth.get("attempt_id")
@@ -3180,10 +3184,11 @@ _V2_STATUS_MAP = {
     "completed": "succeeded",
     "failed": "failed",
     "stopped": "stopped",
+    "terminated": "failed",
 }
 
 
-def _v2_on_job_status(job_id: str, status: str, error_message: str | None = None) -> str:
+def _v2_on_job_status(job_id: str, status: str, error_message: str | None = None, policy_reason: str | None = None) -> str:
     """v1 report funnel hook: mirror lifecycle onto the fenced attempt.
 
     report_job_status() is the single funnel every v1 code path uses, so
@@ -3198,7 +3203,7 @@ def _v2_on_job_status(job_id: str, status: str, error_message: str | None = None
         auth = _v2_attempts.get(job_id)
     if auth is None:
         return "not_v2"
-    failure_code = "container_failed" if v2_status == "failed" else None
+    failure_code = (policy_reason or "container_failed") if v2_status == "failed" else None
     detail = {"error": error_message[:300]} if (error_message and failure_code) else None
     outcome = v2_report_attempt_status(auth, v2_status, failure_code, detail)
     if outcome == "fenced":
@@ -5385,14 +5390,9 @@ def _monitor_interactive(job_id, container_name, log_forwarder=None, is_v2_attem
                 _remove_container(container_name)
                 return
 
-            elif status not in ("running", "created", "restarting"):
-                # Unexpected Docker state (paused, dead, removing). Treat
-                # "paused" as a legitimate user-initiated pause (reported
-                # elsewhere) and exit the monitor without clobbering status;
-                # anything else is a hard failure.
-                if status == "paused":
-                    log.info("Interactive container %s is paused — monitor exiting", container_name)
-                    return
+            elif status not in ("running", "created", "restarting", "paused"):
+                # A paused container still exists and must remain managed.
+                # Keep polling so termination and shutdown retain ownership.
                 log.warning(
                     "Interactive container %s in unexpected state: %s", container_name, status
                 )
@@ -6869,7 +6869,7 @@ def mining_detection_loop():
                 with _active_lock:
                     for job_id, cname in suspects.items():
                         _kill_container(cname)
-                        report_job_status(job_id, "failed")
+                        report_job_status(job_id, "terminated", policy_reason="mining_detected")
                         _active_containers.pop(job_id, None)
                 consecutive[idx] = 0
 

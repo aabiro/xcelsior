@@ -342,6 +342,9 @@ def request_fresh_attempt_resume(
     now = time.time()
 
     def _txn(conn: Any) -> FreshAttemptResult:
+        from abuse_policy import job_blocked
+        if job_blocked(conn, job_id):
+            return FreshAttemptResult(ok=False, job_id=job_id, status="terminated", reason="security_policy", intent=intent)
         job = conn.execute(
             """
             SELECT job_id, status, host_id, active_attempt_id,

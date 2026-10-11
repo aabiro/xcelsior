@@ -576,8 +576,10 @@ def build_secure_docker_args(
 
     # Security: drop all capabilities, add back minimums
     # Interactive GPU containers need capabilities for CUDA and root for setup
-    if not interactive:
-        args.extend(["--cap-drop", "ALL"])
+    args.extend(["--cap-drop", "ALL"])
+    if interactive:
+        for capability in ("CHOWN", "DAC_OVERRIDE", "FOWNER", "FSETID", "KILL", "SETGID", "SETUID", "NET_BIND_SERVICE", "SYS_CHROOT", "AUDIT_WRITE", "SETFCAP"):
+            args.extend(["--cap-add", capability])
 
     # Security: read-only root filesystem + tmpfs for writable dirs (batch only)
     # Interactive containers need writable FS for user workflows (SSH, package installs)

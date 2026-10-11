@@ -1,0 +1,17 @@
+pypi.org
+files.pythonhosted.org
+download.pytorch.org
+huggingface.co
+.hf.co
+.huggingface.co
+github.com
+codeload.github.com
+raw.githubusercontent.com
+objects.githubusercontent.com
+release-assets.githubusercontent.com
+registry.npmjs.org
+archive.ubuntu.com
+security.ubuntu.com
+deb.debian.org
+security.debian.org
+developer.download.nvidia.com

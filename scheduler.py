@@ -2107,6 +2107,16 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
         old_status = j.get("status")
         old_host_id = j.get("host_id")
 
+        from abuse_policy import MINING_REASON, job_blocked, record_mining_violation
+        blocked = job_blocked(conn, job_id, backend=_active_backend())
+        if blocked and status != "terminated":
+            raise ValueError("Instance is permanently terminated by security policy")
+        policy_reason = kwargs.get("policy_reason")
+        if policy_reason:
+            if policy_reason != MINING_REASON or status != "terminated" or host_id != old_host_id:
+                raise ValueError("Invalid or stale policy termination")
+            record_mining_violation(conn, j, backend=_active_backend())
+
         # Optional CAS: callers (stuck-job reaper) race workers that advance
         # status between candidate SELECT and this mutation. If the row is
         # no longer in the expected state, return None without writing —
@@ -2154,7 +2164,7 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
                     j["vram_reserved_gb"] = reserved
 
         # Release GPU memory when a running job reaches terminal state.
-        if status in ("completed", "failed", "cancelled") and old_status == "running":
+        if status in ("completed", "failed", "cancelled", "terminated") and old_status == "running":
             reserved = float(j.get("vram_reserved_gb", j.get("vram_needed_gb", 0)) or 0)
             if reserved > 0:
                 _release_host_vram(conn, j.get("host_id"), reserved)
@@ -2183,7 +2193,7 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
                 j.pop("host_key_fingerprint", None)
         if status == "running":
             j["started_at"] = time.time()
-        if status in ("completed", "failed", "cancelled"):
+        if status in ("completed", "failed", "cancelled", "terminated"):
             j["completed_at"] = time.time()
 
         # Merge extra keyword args into payload (e.g., host GPU info on assignment)
@@ -3600,6 +3610,9 @@ def requeue_job(job_id, *, user_initiated: bool = False, expected_version: int |
         _migrate_hosts_if_needed(conn)
         j = _get_job_by_id_conn(conn, job_id)
         if not j:
+            return None
+        from abuse_policy import job_blocked
+        if job_blocked(conn, job_id, backend=_active_backend()):
             return None
         if expected_version is not None and int(j.get("version") or 0) != int(expected_version):
             return None

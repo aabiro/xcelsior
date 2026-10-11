@@ -809,6 +809,12 @@ def _hash_agent_key(secret: str) -> str:
     return hashlib.sha256(secret.encode("utf-8")).hexdigest()
 
 
+def _require_unsuspended(principal: dict) -> None:
+    from abuse_policy import account_suspended
+    if account_suspended(principal):
+        raise OAuthGrantError("access_denied", "Account suspended", status_code=403)
+
+
 def issue_agent_api_key(
     *,
     user: dict,
@@ -826,6 +832,7 @@ def issue_agent_api_key(
     """
     from db import AgentKeyStore
 
+    _require_unsuspended(user)
     user_id = str(user.get("user_id") or user.get("email") or "")
     if not user_id:
         raise OAuthGrantError("invalid_request", "Cannot issue an agent key without a user")
@@ -883,6 +890,9 @@ def validate_agent_api_key(token: str) -> dict[str, Any] | None:
         return None
 
     user = UserStore.get_user_by_id(row["user_id"]) or {}
+    from abuse_policy import account_suspended
+    if account_suspended(dict(user, user_id=row["user_id"])):
+        return None
     # last_used_at exists so the dashboard can tell a live key from an unused
     # one; that question is answered just as well by a coarse timestamp. Writing
     # it on every request would put a write — and row-level lock contention — on
@@ -1046,6 +1056,7 @@ def oauth_jwks() -> dict[str, Any]:
 def issue_client_credentials_jwt(
     client: dict, scopes: list[str], *, audience: str | None = None
 ) -> dict[str, Any]:
+    _require_unsuspended(client)
     active_kid, keys = _get_jwt_signing_keys()
     now = int(time.time())
     secret_fingerprint = hashlib.sha256(
@@ -1163,7 +1174,8 @@ def validate_client_credentials_jwt(token: str) -> dict[str, Any] | None:
     client = OAuthStore.get_client(str(payload.get("client_id", "")))
     if not client:
         return None
-    if str(client.get("status", "active")) == "disabled":
+    from abuse_policy import account_suspended
+    if str(client.get("status", "active")) == "disabled" or account_suspended(client):
         return None
 
     expected_secret_fingerprint = hashlib.sha256(
@@ -1634,6 +1646,7 @@ def authenticate_client(client_id: str, client_secret: str | None = None) -> dic
     client = get_client(client_id)
     if not client:
         raise OAuthGrantError("invalid_client", "Unknown OAuth client", status_code=401)
+    _require_unsuspended(client)
     if str(client.get("status", "active")) == "disabled":
         raise OAuthGrantError("invalid_client", "OAuth client is disabled", status_code=401)
     if client.get("client_type") == "confidential":
@@ -1892,6 +1905,7 @@ def _issue_opaque_access_token(
     session_type: str,
     audience: str = OAUTH_AUDIENCE,
 ) -> dict[str, Any]:
+    _require_unsuspended(user)
     token = f"{ACCESS_TOKEN_PREFIX}{secrets.token_urlsafe(32)}"
     now = time.time()
     # Only the first-party web app gets the long browser-session TTL. OAuth
@@ -1986,6 +2000,7 @@ def issue_user_tokens(
     session_type: str = "browser",
     audience: str = OAUTH_AUDIENCE,
 ) -> dict[str, Any]:
+    _require_unsuspended(user)
     client = get_client(client_id)
     if not client:
         raise OAuthGrantError("invalid_client", "Unknown OAuth client", status_code=401)
@@ -2244,6 +2259,9 @@ def revoke_session(session_token: str) -> None:
 def resolve_opaque_access_token(token: str) -> dict[str, Any] | None:
     payload = _cache_get_json("access_token", token)
     if not payload:
+        return None
+    from abuse_policy import account_suspended
+    if account_suspended(payload):
         return None
     expires_at = float(payload.get("expires_at", 0) or 0)
     if expires_at <= time.time():
