@@ -810,6 +810,13 @@ def api_submit_instance(j: JobIn, request: Request):
     user = _require_auth(request)
     _require_scope(user, "instances:write")
     _require_team_instance_write(user)
+    from abuse_policy import account_suspended
+
+    if account_suspended(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Account is suspended by security policy",
+        )
 
     vram_needed = 0.0
     target_host_id = j.host_id
@@ -1082,7 +1089,9 @@ def _compute_public_ssh_port(job_id: str) -> int:
         return 0
 
 
-def _enrich_instance(j: dict, host_map: dict[str, dict], *, reveal_ssh_password: bool = False) -> dict:
+def _enrich_instance(
+    j: dict, host_map: dict[str, dict], *, reveal_ssh_password: bool = False
+) -> dict:
     """Shared enrichment for every instance response — list and detail.
 
     Adds docker_image mapping, host GPU info, elapsed/duration, connection
@@ -1312,6 +1321,7 @@ def _enrich_instance(j: dict, host_map: dict[str, dict], *, reveal_ssh_password:
 
     if j.get("ssh_status"):
         from instance_credentials import present_ssh_status
+
         j["ssh_status"] = present_ssh_status(j["ssh_status"], reveal=reveal_ssh_password)
     return j
 
@@ -1439,6 +1449,7 @@ def api_update_instance(job_id: str, update: StatusUpdate, request: Request):
             if update.status != "terminated" or not update.host_id:
                 raise HTTPException(400, "Policy termination requires a host and terminated status")
             from routes.agent import _require_agent_auth
+
             _require_agent_auth(request, host_id=update.host_id)
             status_kwargs["policy_reason"] = update.policy_reason
         if update.attempt_id and update.fencing_token is not None:
@@ -1543,6 +1554,13 @@ def api_rename_instance(job_id: str, body: InstanceRenamePayload, request: Reque
     user = _require_auth(request)
     _require_scope(user, "instances:write")
     _check_job_write_access(user, job_id)
+    from abuse_policy import account_suspended
+
+    if account_suspended(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Account is suspended by security policy",
+        )
     from scheduler import get_job, _set_job_fields
 
     job = get_job(job_id)
@@ -1591,6 +1609,21 @@ def api_cancel_instance(job_id: str, request: Request):
     job = next((j for j in jobs if j["job_id"] == job_id), None)
     if not job:
         raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
+
+    from abuse_policy import account_suspended, job_blocked
+    from db import get_engine
+
+    with get_engine().connection() as (conn, backend):
+        if job_blocked(conn, job_id, backend=backend):
+            raise HTTPException(
+                status_code=400,
+                detail="Instance is permanently terminated by security policy",
+            )
+    if account_suspended(user) or (not _is_platform_admin(user) and account_suspended(job)):
+        raise HTTPException(
+            status_code=403,
+            detail="Account is suspended by security policy",
+        )
 
     if job.get("status") in ("completed", "failed", "cancelled"):
         raise HTTPException(status_code=400, detail=f"Instance already {job['status']}")
@@ -1690,6 +1723,21 @@ def api_requeue_instance(job_id: str, request: Request):
     if not job:
         raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
 
+    from abuse_policy import account_suspended, job_blocked
+    from db import get_engine
+
+    with get_engine().connection() as (conn, backend):
+        if job_blocked(conn, job_id, backend=backend):
+            raise HTTPException(
+                status_code=400,
+                detail="Instance is permanently terminated by security policy",
+            )
+    if account_suspended(user) or account_suspended(job):
+        raise HTTPException(
+            status_code=403,
+            detail="Account is suspended by security policy",
+        )
+
     status = job.get("status")
     if status == "completed":
         raise HTTPException(status_code=400, detail="Instance already completed — cannot requeue")
@@ -1755,6 +1803,22 @@ def _authorize_instance_mutation(request: Request, job_id: str, action: str) -> 
 
     if not _user_owns_job(user, job):
         raise HTTPException(status_code=403, detail=f"Not authorized to {action} this instance")
+
+    from abuse_policy import account_suspended, job_blocked
+    from db import get_engine
+
+    with get_engine().connection() as (conn, backend):
+        if job_blocked(conn, job_id, backend=backend):
+            raise HTTPException(
+                status_code=400,
+                detail="Instance is permanently terminated by security policy",
+            )
+    if account_suspended(user) or (not _is_platform_admin(user) and account_suspended(job)):
+        raise HTTPException(
+            status_code=403,
+            detail="Account is suspended by security policy",
+        )
+
     return user, job
 
 
@@ -2954,6 +3018,13 @@ def api_snapshot_instance(job_id: str, body: SnapshotIn, request: Request):
     user = _require_auth(request)
     _require_scope(user, "instances:write")
     _require_team_instance_write(user)
+    from abuse_policy import account_suspended
+
+    if account_suspended(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Account is suspended by security policy",
+        )
     owner_id = _user_image_scope_owner_id(user)
     if not owner_id:
         raise HTTPException(401, "Authentication required")
@@ -3824,6 +3895,13 @@ def api_instances_expose(job_id: str, body: _ExposeIn, request: Request):
     # puts a container port on a public HTTPS hostname, so it is the reason the
     # consent text mentions the internet at all.
     _require_scope(user, "instances:connect")
+    from abuse_policy import account_suspended
+
+    if account_suspended(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Account is suspended by security policy",
+        )
     owner_id = _canonical_owner_id(user)
     is_admin = bool(user.get("is_admin"))
 
@@ -4041,6 +4119,13 @@ def api_create_image_sweep(body: _SweepIn, request: Request):
     user = _require_auth(request)
     _require_scope(user, "instances:write")
     _require_team_instance_write(user)
+    from abuse_policy import account_suspended
+
+    if account_suspended(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Account is suspended by security policy",
+        )
     customer_id = _user_image_scope_owner_id(user)
     principal = _sweep_plan_principal(user)
 
@@ -4146,6 +4231,13 @@ def api_execute_image_sweep_plan(plan_id: str, request: Request):
     user = _require_auth(request)
     _require_scope(user, "instances:write")
     _require_team_instance_write(user)
+    from abuse_policy import account_suspended
+
+    if account_suspended(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Account is suspended by security policy",
+        )
     customer_id = _user_image_scope_owner_id(user)
     principal = _sweep_plan_principal(user)
 

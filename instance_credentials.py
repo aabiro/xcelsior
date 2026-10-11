@@ -1,8 +1,11 @@
 """SSH secrets are encrypted at rest and revealed only on authorized detail reads."""
+
 from security import decrypt_secret, encrypt_secret
 
 
-def protect_ssh_status(status: dict) -> dict:
+def protect_ssh_status(status: dict | None) -> dict:
+    if not status or not isinstance(status, dict):
+        return {}
     stored = dict(status)
     password = stored.pop("root_password", "")
     if password:
@@ -10,7 +13,9 @@ def protect_ssh_status(status: dict) -> dict:
     return stored
 
 
-def present_ssh_status(status: dict, *, reveal: bool = False) -> dict:
+def present_ssh_status(status: dict | None, *, reveal: bool = False) -> dict:
+    if not status or not isinstance(status, dict):
+        return {}
     result = dict(status)
     encrypted = result.pop("root_password_encrypted", None)
     # Never return legacy plaintext through generic list/telemetry paths.

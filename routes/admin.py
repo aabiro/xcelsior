@@ -120,6 +120,8 @@ def api_admin_users(request: Request):
         cid = u.get("customer_id", u.get("email", ""))
         email = u.get("email", "")
         last_at = last_activity_map.get(email, 0.0)
+        from abuse_policy import account_suspended
+
         safe_users.append(
             {
                 "email": email,
@@ -129,6 +131,7 @@ def api_admin_users(request: Request):
                 "role": u.get("role", "submitter"),
                 "is_admin": True if _is_platform_admin(u) else False,
                 "is_active": last_at >= active_threshold,
+                "is_suspended": account_suspended(u),
                 "created_at": created_iso,
                 "wallet_balance_cad": wallet_map.get(cid, 0.0),
                 "total_jobs": job_count_map.get(email, 0),
@@ -137,6 +140,7 @@ def api_admin_users(request: Request):
                 "team_id": u.get("team_id") or None,
             }
         )
+
     return {"ok": True, "users": safe_users, "enrichment_failed": enrichment_failed}
 
 
@@ -589,6 +593,97 @@ def api_admin_toggle_admin(email: str, request: Request):
         _users_db[email]["is_admin"] = new_val
     emit_event("user_admin_toggled", {"email": email, "is_admin": new_val})
     return {"ok": True, "email": email, "is_admin": new_val}
+
+
+@router.post("/api/admin/users/{email}/suspend", tags=["Admin"])
+async def api_admin_suspend_user(email: str, request: Request):
+    """Admin suspends a user account and revokes their active sessions."""
+    admin = _require_admin(request)
+    actor = admin.get("email") or admin.get("user_id") or "admin"
+    email = str(email or "").strip().lower()
+    if not email:
+        raise HTTPException(400, "User email required")
+    if email == str(admin.get("email") or "").strip().lower():
+        raise HTTPException(400, "Cannot suspend own admin account")
+
+    reason = "administrative_suspension"
+    try:
+        body = await request.json()
+        if isinstance(body, dict) and body.get("reason"):
+            reason = str(body["reason"]).strip()
+    except Exception:
+        pass
+    if request.query_params.get("reason"):
+        reason = str(request.query_params["reason"]).strip()
+
+    if _USE_PERSISTENT_AUTH:
+        user = UserStore.get_user(email)
+    else:
+        user = _users_db.get(email)
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    from abuse_policy import suspend_account
+
+    suspended_ids = suspend_account(identifier=email, actor=actor, reason=reason)
+    try:
+        if _USE_PERSISTENT_AUTH:
+            UserStore.delete_user_sessions(email)
+    except Exception as e:
+        log.warning("Failed to delete sessions for %s upon suspension: %s", email, e)
+
+    emit_event(
+        "user_suspended",
+        {"email": email, "actor": actor, "reason": reason, "identifiers": suspended_ids},
+    )
+    return {
+        "ok": True,
+        "email": email,
+        "is_suspended": True,
+        "reason": reason,
+        "identifiers": suspended_ids,
+    }
+
+
+@router.post("/api/admin/users/{email}/unsuspend", tags=["Admin"])
+async def api_admin_unsuspend_user(email: str, request: Request):
+    """Admin restores a suspended user account."""
+    admin = _require_admin(request)
+    actor = admin.get("email") or admin.get("user_id") or "admin"
+    email = str(email or "").strip().lower()
+    if not email:
+        raise HTTPException(400, "User email required")
+    reason = "administrative_unsuspension"
+    try:
+        body = await request.json()
+        if isinstance(body, dict) and body.get("reason"):
+            reason = str(body["reason"]).strip()
+    except Exception:
+        pass
+    if request.query_params.get("reason"):
+        reason = str(request.query_params["reason"]).strip()
+
+    if _USE_PERSISTENT_AUTH:
+        user = UserStore.get_user(email)
+    else:
+        user = _users_db.get(email)
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    from abuse_policy import unsuspend_account
+
+    unsuspended_ids = unsuspend_account(identifier=email, actor=actor, reason=reason)
+    emit_event(
+        "user_unsuspended",
+        {"email": email, "actor": actor, "reason": reason, "identifiers": unsuspended_ids},
+    )
+    return {
+        "ok": True,
+        "email": email,
+        "is_suspended": False,
+        "reason": reason,
+        "identifiers": unsuspended_ids,
+    }
 
 
 @router.get("/api/admin/teams", tags=["Admin"])

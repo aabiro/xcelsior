@@ -1,4 +1,5 @@
 """Unit tests for SSH credential protection and presentation."""
+
 import pytest
 from instance_credentials import present_ssh_status, protect_ssh_status
 from routes.instances import _enrich_instance
@@ -83,3 +84,9 @@ def test_enrich_instance_ssh_status_masking():
     assert enriched_detail["ssh_status"]["root_password"] == "secret_password_123!"
     assert "root_password_encrypted" not in enriched_detail["ssh_status"]
 
+
+def test_ssh_status_handles_none_and_invalid_types():
+    assert protect_ssh_status(None) == {}
+    assert protect_ssh_status("not-a-dict") == {}
+    assert present_ssh_status(None) == {}
+    assert present_ssh_status([]) == {}

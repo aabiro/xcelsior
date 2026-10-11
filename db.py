@@ -1226,6 +1226,14 @@ class UserStore:
             return dict(row) if row else None
 
     @staticmethod
+    def get_user_by_customer_id(customer_id: str) -> dict | None:
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE customer_id = %s", (customer_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
     def create_user(user: dict) -> None:
         with auth_connection() as conn:
             conn.execute(

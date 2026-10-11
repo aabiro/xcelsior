@@ -2400,7 +2400,9 @@ def report_job_status(
     # be skipped by a v1 transport failure.
     mirror_outcome = "not_v2"
     try:
-        mirror_outcome = _v2_on_job_status(job_id, status, error_message=error_message, policy_reason=policy_reason)
+        mirror_outcome = _v2_on_job_status(
+            job_id, status, error_message=error_message, policy_reason=policy_reason
+        )
     except Exception as _v2_exc:
         log.warning("v2 status mirror failed for job %s: %s", job_id, _v2_exc)
         mirror_outcome = "error"
@@ -3188,7 +3190,9 @@ _V2_STATUS_MAP = {
 }
 
 
-def _v2_on_job_status(job_id: str, status: str, error_message: str | None = None, policy_reason: str | None = None) -> str:
+def _v2_on_job_status(
+    job_id: str, status: str, error_message: str | None = None, policy_reason: str | None = None
+) -> str:
     """v1 report funnel hook: mirror lifecycle onto the fenced attempt.
 
     report_job_status() is the single funnel every v1 code path uses, so
@@ -4759,6 +4763,27 @@ def run_job(job):
                 ]
             )
             log.info("SSH port mapping: host:%d → container:%d", host_port, ssh_port)
+
+        # Free-tier network isolation & proxy injection
+        tier_val = str(job.get("tier") or "").lower()
+        if tier_val == "free":
+            free_tier_enabled = os.environ.get(
+                "XCELSIOR_FREE_TIER_NETWORK_ENABLED", "0"
+            ).lower() in ("1", "true", "yes")
+            try:
+                from free_tier_network import prepare_free_tier
+
+                free_args, env_vars = prepare_free_tier(job, env_vars)
+                extra_docker_args.extend(free_args)
+            except Exception as exc:
+                if free_tier_enabled:
+                    err = f"Free-tier network isolation failed: {exc}"
+                    log.error("Job %s aborting — %s", job_id, err)
+                    report_job_status(job_id, "failed", error_message=err)
+                    _release_execution_lease("failed")
+                    return
+                else:
+                    log.warning("Free-tier network isolation not enforced (env disabled): %s", exc)
 
         docker_args = build_secure_docker_args(
             image=image,
@@ -6427,6 +6452,12 @@ def _kill_container(container_name):
     """Force-kill and remove a container."""
     with suppress(Exception):
         subprocess.run(
+            ["docker", "unpause", container_name],
+            capture_output=True,
+            timeout=10,
+        )
+    with suppress(Exception):
+        subprocess.run(
             ["docker", "kill", container_name],
             capture_output=True,
             timeout=10,
@@ -6436,6 +6467,12 @@ def _kill_container(container_name):
 
 def _remove_container(container_name):
     """Remove a container (force). Falls back to removing by ID if name fails."""
+    with suppress(Exception):
+        subprocess.run(
+            ["docker", "unpause", container_name],
+            capture_output=True,
+            timeout=10,
+        )
     try:
         result = subprocess.run(
             ["docker", "rm", "-f", container_name],
@@ -6456,6 +6493,8 @@ def _remove_container(container_name):
             )
             for cid in ps.stdout.strip().splitlines():
                 if cid:
+                    with suppress(Exception):
+                        subprocess.run(["docker", "unpause", cid], capture_output=True, timeout=10)
                     subprocess.run(["docker", "rm", "-f", cid], capture_output=True, timeout=10)
                     log.info("Removed container %s by ID %s", container_name, cid)
     except Exception as e:
