@@ -762,7 +762,7 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://xcelsior.ca";
 const APP_HOST = APP_URL.replace(/^https?:\/\//, "");
-const WIZARD_CMD = "npx @xcelsior-gpu/wizard@0.1.2";
+const WIZARD_CMD = "npx @xcelsior-gpu/wizard@0.1.3";
 const SDK_INSTALL_CMD = "npm install @xcelsior-gpu/sdk";
 
 const LLM_INSTALL_PROMPT = `I am setting up an Xcelsior GPU worker node to join the distributed GPU compute marketplace at ${APP_HOST}. Walk me through setup step-by-step. Mark any values I need to fill in with placeholder comments.
@@ -775,7 +775,7 @@ Register at ${APP_URL}/dashboard/hosts → "Register Host" (the wizard can also 
 ### 2. Run the wizard (one command on the GPU host)
 
 \`\`\`bash
-npx @xcelsior-gpu/wizard@0.1.2
+npx @xcelsior-gpu/wizard@0.1.3
 \`\`\`
 
 (\`npx\` runs the wizard without a global install, no \`-g\`, no \`/usr/lib/node_modules\` permission issues.)
@@ -817,7 +817,7 @@ xcelsior earnings --period 30d                   # Earnings summary
 curl -fsSL ${APP_URL}/install.sh | bash -s -- --agent-only
 \`\`\`
 
-It checks the NVIDIA driver and Docker's NVIDIA runtime, asks for the Host ID and key, verifies the signature of every agent module it downloads, writes \`~/.xcelsior/worker.env\` (mode 600), installs and starts the \`xcelsior-worker\` systemd service (as a dedicated \`xcelsior\` user, not root), then waits for the first heartbeat and reports the admission state. Nothing else needs to be created by hand.
+It checks your GPU driver and Docker, asks for your Host ID and API key, installs the Xcelsior worker as a background service, and connects your machine securely. Nothing else needs to be set up by hand. When it finishes, your host shows as pending while we review it.
 
 ### 3. Verify
 
@@ -826,7 +826,7 @@ systemctl status xcelsior-worker
 journalctl -u xcelsior-worker -f
 \`\`\`
 
-To change a setting, edit \`~/.xcelsior/worker.env\` and run \`sudo systemctl restart xcelsior-worker\`. \`systemctl cat xcelsior-worker\` shows the exact service the installer wrote.
+To change a setting (for example a new API key), edit \`~/.xcelsior/worker.env\` and run \`sudo systemctl restart xcelsior-worker\`.
 
 ## Notes
 - \`nvidia-smi\` not found → install a supported NVIDIA driver (550 or newer)
@@ -1455,8 +1455,7 @@ function ManualQuickstartView({ copied, onCopy }: { copied: string | null; onCop
 journalctl -u xcelsior-worker -f`;
 
   const changeCmd = `nano ~/.xcelsior/worker.env
-sudo systemctl restart xcelsior-worker
-systemctl cat xcelsior-worker   # the exact service the installer wrote`;
+sudo systemctl restart xcelsior-worker`;
 
   return (
     <div className="space-y-5 mt-2">
@@ -1480,18 +1479,16 @@ systemctl cat xcelsior-worker   # the exact service the installer wrote`;
       <div>
         <p className="text-sm font-medium mb-1.5">2. Run the installer on your GPU host</p>
         <p className="text-xs text-text-secondary mb-2">
-          It checks the NVIDIA driver and Docker runtime, asks for the Host ID and key, verifies every agent
-          module&apos;s signature, writes{" "}
-          <code className="text-xs bg-surface-hover px-1 py-0.5 rounded">~/.xcelsior/worker.env</code>, and
-          installs and starts the <code className="text-xs bg-surface-hover px-1 py-0.5 rounded">xcelsior-worker</code>{" "}
-          service. It finishes by waiting for the first heartbeat and reporting the admission state.
+          It checks your GPU driver and Docker, asks for your Host ID and API key, installs the Xcelsior
+          worker as a background service, and connects your machine securely. When it finishes, your host
+          shows as pending while we review it.
         </p>
         <CodeSnippet label="install" text={installCmd} copied={copied} onCopy={onCopy} />
       </div>
 
       <div>
         <p className="text-sm font-medium mb-1.5">3. Verify</p>
-        <p className="text-xs text-text-secondary mb-2">Confirm the service is running and heartbeating:</p>
+        <p className="text-xs text-text-secondary mb-2">Confirm the worker is running:</p>
         <CodeSnippet label="verify" text={verifyCmd} copied={copied} onCopy={onCopy} />
       </div>
 
