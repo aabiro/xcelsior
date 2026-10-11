@@ -30,8 +30,6 @@ _env_test = os.path.join(PROJECT_ROOT, ".env.test")
 # Never override env vars already set (GitHub Actions sets sqlite backend, etc.).
 if os.path.exists(_env_test):
     load_dotenv(_env_test, override=False)
-else:
-    load_dotenv(os.path.join(PROJECT_ROOT, ".env"), override=False)
 
 # CI job env must win over .env.test (workflow sets postgres + limits).
 if os.environ.get("CI"):

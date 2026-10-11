@@ -1182,6 +1182,9 @@ def _merge_auth_user(base: dict, full_user: dict | None = None) -> dict:
         merged["is_admin"] = True if _is_platform_admin(full_user) else False
     else:
         merged["is_admin"] = True if _is_platform_admin(merged) else False
+    from abuse_policy import account_suspended
+    if account_suspended(merged):
+        raise HTTPException(403, "Account suspended")
     return merged
 
 
