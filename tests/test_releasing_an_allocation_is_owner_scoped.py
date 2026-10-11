@@ -152,9 +152,7 @@ def test_an_empty_owner_releases_nothing(allocation):
     from marketplace import get_marketplace_engine
 
     assert (
-        get_marketplace_engine().release_allocation_by_id(
-            allocation["allocation_id"], owner_id=""
-        )
+        get_marketplace_engine().release_allocation_by_id(allocation["allocation_id"], owner_id="")
         is False
     )
     assert _released_at(allocation["allocation_id"]) == 0
@@ -165,12 +163,14 @@ def test_releasing_twice_reports_the_second_as_nothing_to_do(allocation):
     from marketplace import get_marketplace_engine
 
     me = get_marketplace_engine()
-    assert me.release_allocation_by_id(
-        allocation["allocation_id"], owner_id=allocation["owner"]
-    ) is True
-    assert me.release_allocation_by_id(
-        allocation["allocation_id"], owner_id=allocation["owner"]
-    ) is False
+    assert (
+        me.release_allocation_by_id(allocation["allocation_id"], owner_id=allocation["owner"])
+        is True
+    )
+    assert (
+        me.release_allocation_by_id(allocation["allocation_id"], owner_id=allocation["owner"])
+        is False
+    )
 
 
 def test_an_unknown_allocation_is_not_a_success(allocation):
@@ -197,6 +197,6 @@ def test_the_route_no_longer_calls_the_job_id_variant():
 
     source = inspect.getsource(mp.api_marketplace_release)
     assert "release_allocation_by_id" in source
-    assert "me.release_allocation(" not in source, (
-        "the route is calling the job-id variant with an allocation id again"
-    )
+    assert (
+        "me.release_allocation(" not in source
+    ), "the route is calling the job-id variant with an allocation id again"

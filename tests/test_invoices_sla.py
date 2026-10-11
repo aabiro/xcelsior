@@ -51,6 +51,7 @@ def _auth_headers() -> dict[str, str]:
     token = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
     return {"Authorization": f"Bearer {token}"}
 
+
 GOOD_VERSIONS = {
     "runc": "1.2.4",
     "nvidia_ctk": "1.17.8",

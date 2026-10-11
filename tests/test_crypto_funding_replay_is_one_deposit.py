@@ -368,9 +368,9 @@ def test_the_auto_topup_bucket_changes_between_intervals_and_not_within_one():
     # scheme being worth stating precisely: the bucket is a **fixed grid**, not
     # a window measured from the first charge.
     base = 1_000_000_000 // _TOPUP_INFLIGHT_SECONDS * _TOPUP_INFLIGHT_SECONDS
-    assert bucket(base) == bucket(base + _TOPUP_INFLIGHT_SECONDS - 1), (
-        "the key changes within a single bucket"
-    )
+    assert bucket(base) == bucket(
+        base + _TOPUP_INFLIGHT_SECONDS - 1
+    ), "the key changes within a single bucket"
     assert bucket(base) != bucket(base + _TOPUP_INFLIGHT_SECONDS), (
         "the key never changes between buckets, so a genuinely later top-up "
         "would be suppressed forever"

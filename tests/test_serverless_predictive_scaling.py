@@ -18,15 +18,14 @@ def test_forecast_single_sample():
 
 def test_headroom_disabled_by_default(monkeypatch):
     monkeypatch.delenv("XCELSIOR_SERVERLESS_PREDICTIVE_SCALING", raising=False)
-    assert headroom_workers(
-        queue_depth=10, active_workers=1, max_concurrency=4, forecast_depth=20
-    ) == 0
+    assert (
+        headroom_workers(queue_depth=10, active_workers=1, max_concurrency=4, forecast_depth=20)
+        == 0
+    )
 
 
 def test_headroom_when_enabled(monkeypatch):
     monkeypatch.setenv("XCELSIOR_SERVERLESS_PREDICTIVE_SCALING", "true")
     assert predictive_scaling_enabled()
-    extra = headroom_workers(
-        queue_depth=8, active_workers=1, max_concurrency=4, forecast_depth=12
-    )
+    extra = headroom_workers(queue_depth=8, active_workers=1, max_concurrency=4, forecast_depth=12)
     assert extra >= 1

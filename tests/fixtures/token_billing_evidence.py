@@ -90,8 +90,9 @@ def write_metering_matrix() -> Path:
         "mode": "preset",
         "model_ref": "Qwen/Qwen3-8B",
     }
-    with patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60), patch(
-        "serverless.metering.last_billed_period_end", return_value=None
+    with (
+        patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60),
+        patch("serverless.metering.last_billed_period_end", return_value=None),
     ):
         r = charge_serverless_execution(
             billing, repo, worker, endpoint, period_end=1120.0, final=True

@@ -274,8 +274,13 @@ EXPECTED_TOOL_TOTAL = 95
 #: checking 30 of 39, leaving the operator tools (`evict_host_workloads`,
 #: `drain_host`) unverified, which are the ones carrying the sharpest scopes.
 OPERATOR_TOOLS = {
-    "drain_host", "undrain_host", "evict_host_workloads", "get_host_capacity",
-    "get_scheduler_health", "list_reconciliation_findings", "retry_agent_command",
+    "drain_host",
+    "undrain_host",
+    "evict_host_workloads",
+    "get_host_capacity",
+    "get_scheduler_health",
+    "list_reconciliation_findings",
+    "retry_agent_command",
 }
 COMPANY_KNOWLEDGE_TOOLS = {"search", "fetch"}
 
@@ -332,9 +337,7 @@ def test_operator_tools_require_operator_scopes():
         scopes = set(re.findall(r'"([a-z_]+:[a-z_]+)"', raw))
         if not any(s.startswith(("hosts:", "control_plane:")) for s in scopes):
             leaks[name] = sorted(scopes)
-    assert not leaks, (
-        f"operator tools requiring no operator scope: {leaks}"
-    )
+    assert not leaks, f"operator tools requiring no operator scope: {leaks}"
 
 
 def test_every_registered_tool_declares_its_scope_requirement():
@@ -371,9 +374,7 @@ def test_every_tool_scope_entry_is_non_empty():
         for name, raw in _tool_scope_entries().items()
         if not re.search(r'"[a-z_]+:[a-z_]+"', raw)
     )
-    assert not empty, (
-        f"these tools declare a requirement that names no scope: {empty}"
-    )
+    assert not empty, f"these tools declare a requirement that names no scope: {empty}"
 
 
 def test_the_discovery_actually_finds_tools():
@@ -384,10 +385,9 @@ def test_the_discovery_actually_finds_tools():
     file types and found nothing.
     """
     assert len(_registered_tool_names()) >= 20, (
-        "tool discovery found almost nothing; the checks above would pass "
-        "vacuously"
+        "tool discovery found almost nothing; the checks above would pass " "vacuously"
     )
-    assert all(t.get("requiredScopes") for t in _published_surface()), (
-        "a published tool declares no required scope at all"
-    )
+    assert all(
+        t.get("requiredScopes") for t in _published_surface()
+    ), "a published tool declares no required scope at all"
     assert len(_tool_scope_entries()) >= 20, "TOOL_SCOPES parsing found almost nothing"

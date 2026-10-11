@@ -74,9 +74,9 @@ def test_sandbox_without_a_sandbox_key_disables_stripe_rather_than_going_live(mo
         XCELSIOR_STRIPE_MODE="sandbox",
         XCELSIOR_STRIPE_SECRET_KEY="sk_live_not_a_real_key_0000000000",
     )
-    assert not mod.STRIPE_SECRET_KEY.startswith("sk_live"), (
-        "sandbox mode resolved to a LIVE key; a top-up test would charge a real card"
-    )
+    assert not mod.STRIPE_SECRET_KEY.startswith(
+        "sk_live"
+    ), "sandbox mode resolved to a LIVE key; a top-up test would charge a real card"
     assert mod.STRIPE_ENABLED is False, (
         "Stripe is still enabled with no usable sandbox key — it must fail "
         "closed, not fall back to live"

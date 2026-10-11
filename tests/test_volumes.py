@@ -979,7 +979,7 @@ class TestRequiredVolumeMountFailure:
 
         source = inspect.getsource(run_job)
         assert "MANAGED VOLUME MOUNT FAILED" in source
-        assert 'update_job_status' in source
+        assert "update_job_status" in source
         assert '"failed"' in source
         assert "required volume mount failed on host" in source
 

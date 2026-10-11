@@ -192,6 +192,6 @@ def test_neither_surface_tells_anyone_to_accept_an_unverifiable_key():
             "just accept",
             "accept it anyway",
         ):
-            assert phrase not in text, (
-                f"{path.relative_to(ROOT)} suggests accepting an unverified host key ({phrase!r})."
-            )
+            assert (
+                phrase not in text
+            ), f"{path.relative_to(ROOT)} suggests accepting an unverified host key ({phrase!r})."

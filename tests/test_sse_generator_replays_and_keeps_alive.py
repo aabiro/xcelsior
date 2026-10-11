@@ -90,9 +90,9 @@ async def test_the_stream_opens_with_a_retry_hint_and_a_connected_event() -> Non
 async def test_opening_registers_exactly_one_subscriber() -> None:
     gen = _sse_generator(_FakeRequest(), last_event_id=None)
     await _take(gen, 1)
-    assert len(deps._sse_subscribers) == 1, (
-        f"{len(deps._sse_subscribers)} subscribers registered for one stream"
-    )
+    assert (
+        len(deps._sse_subscribers) == 1
+    ), f"{len(deps._sse_subscribers)} subscribers registered for one stream"
     await gen.aclose()
 
 
@@ -141,9 +141,11 @@ async def test_the_stream_stops_when_the_client_disconnects() -> None:
     """The loop polls `is_disconnected`; without it a dropped client streams forever."""
     gen = _sse_generator(_FakeRequest(disconnect_after=0), last_event_id=None)
     collected = []
+
     async def drain():
         async for chunk in gen:
             collected.append(chunk)
+
     await asyncio.wait_for(drain(), timeout=5.0)
     assert collected, "the stream produced nothing at all"
     assert deps._sse_subscribers == [], "a disconnected client left its queue behind"
@@ -184,9 +186,7 @@ async def test_a_fresh_connect_replays_nothing(monkeypatch) -> None:
     import control_plane.event_stream as event_stream
 
     called = []
-    monkeypatch.setattr(
-        event_stream, "resume_after", lambda *a, **k: called.append(1) or []
-    )
+    monkeypatch.setattr(event_stream, "resume_after", lambda *a, **k: called.append(1) or [])
     gen = _sse_generator(_FakeRequest(), last_event_id=None)
     await _take(gen, 2)
     await gen.aclose()
@@ -208,9 +208,9 @@ async def test_a_broken_event_store_degrades_to_live_only(monkeypatch) -> None:
     chunk = (await _take(gen, 1))[0]
     await gen.aclose()
 
-    assert "event: host_update" in chunk, (
-        f"replay failure killed the live stream instead of degrading: {chunk!r}"
-    )
+    assert (
+        "event: host_update" in chunk
+    ), f"replay failure killed the live stream instead of degrading: {chunk!r}"
 
 
 # ── Keepalive ─────────────────────────────────────────────────────────────
@@ -222,6 +222,7 @@ async def test_an_idle_stream_emits_a_keepalive(monkeypatch) -> None:
     The real timeout is patched down rather than waited out — the assertion is
     that a *timeout* produces a comment frame instead of ending the stream.
     """
+
     # Shadow *this module's view* of asyncio, not the asyncio module itself.
     # `monkeypatch.setattr("routes.health.asyncio.wait_for", ...)` rewrites the
     # attribute on the shared module object, so it also rebinds the
@@ -241,6 +242,6 @@ async def test_an_idle_stream_emits_a_keepalive(monkeypatch) -> None:
     chunks = await _take(gen, 3)
     await gen.aclose()
 
-    assert chunks[2].startswith(":"), (
-        f"an idle stream sent {chunks[2]!r} rather than a keepalive comment"
-    )
+    assert chunks[2].startswith(
+        ":"
+    ), f"an idle stream sent {chunks[2]!r} rather than a keepalive comment"

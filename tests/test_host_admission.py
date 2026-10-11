@@ -277,9 +277,7 @@ class TestTrustBoundary:
         assert status["admission_state"] != "admitted"
 
     def test_provider_agent_evidence_is_advisory(self, host):
-        result = ha.record_provider_agent_evidence(
-            host_id=host, actor=_provider(), report=REPORT
-        )
+        result = ha.record_provider_agent_evidence(host_id=host, actor=_provider(), report=REPORT)
         assert result["evidence_ids"]
         assert result["admission_state"] != "admitted"
         assert result["admitted"] is False
@@ -333,8 +331,11 @@ class TestDecisions:
     def test_reject_and_revoke_are_terminal_states(self, host):
         self._authorise(host)
         rejected = ha.decide_admission(
-            host_id=host, actor=_operator(), action="reject",
-            reason="insufficient vram", idempotency_key=f"dec-{uuid.uuid4().hex[:8]}",
+            host_id=host,
+            actor=_operator(),
+            action="reject",
+            reason="insufficient vram",
+            idempotency_key=f"dec-{uuid.uuid4().hex[:8]}",
             expected_version=_version(host),
         )
         assert rejected["admission_state"] == "rejected"
@@ -343,12 +344,20 @@ class TestDecisions:
         self._authorise(host)
         key = f"dec-{uuid.uuid4().hex[:8]}"
         first = ha.decide_admission(
-            host_id=host, actor=_operator(), action="admit", reason="verified",
-            idempotency_key=key, expected_version=_version(host),
+            host_id=host,
+            actor=_operator(),
+            action="admit",
+            reason="verified",
+            idempotency_key=key,
+            expected_version=_version(host),
         )
         second = ha.decide_admission(
-            host_id=host, actor=_operator(), action="admit", reason="verified",
-            idempotency_key=key, expected_version=_version(host),
+            host_id=host,
+            actor=_operator(),
+            action="admit",
+            reason="verified",
+            idempotency_key=key,
+            expected_version=_version(host),
         )
         assert first["admission_state"] == second["admission_state"]
         assert second.get("reused") or first["version"] == second["version"]
@@ -357,12 +366,18 @@ class TestDecisions:
         """Two operators acting at once must not silently overwrite."""
         self._authorise(host)
         ha.decide_admission(
-            host_id=host, actor=_operator(), action="admit", reason="verified",
-            idempotency_key=f"dec-{uuid.uuid4().hex[:8]}", expected_version=_version(host),
+            host_id=host,
+            actor=_operator(),
+            action="admit",
+            reason="verified",
+            idempotency_key=f"dec-{uuid.uuid4().hex[:8]}",
+            expected_version=_version(host),
         )
         with pytest.raises(ha.AdmissionConflict):
             ha.decide_admission(
-                host_id=host, actor=_operator("operator-two"), action="revoke",
+                host_id=host,
+                actor=_operator("operator-two"),
+                action="revoke",
                 reason="racing decision",
                 idempotency_key=f"dec-{uuid.uuid4().hex[:8]}",
                 expected_version=0,
@@ -371,16 +386,23 @@ class TestDecisions:
     def test_invalid_action_is_rejected(self, host):
         with pytest.raises(ha.AdmissionPreconditionFailed):
             ha.decide_admission(
-                host_id=host, actor=_operator(), action="delete-everything",
-                reason="nope", idempotency_key=f"dec-{uuid.uuid4().hex[:8]}",
+                host_id=host,
+                actor=_operator(),
+                action="delete-everything",
+                reason="nope",
+                idempotency_key=f"dec-{uuid.uuid4().hex[:8]}",
                 expected_version=_version(host),
             )
 
     def test_reason_is_required(self, host):
         with pytest.raises(ha.AdmissionPreconditionFailed):
             ha.decide_admission(
-                host_id=host, actor=_operator(), action="admit", reason="",
-                idempotency_key=f"dec-{uuid.uuid4().hex[:8]}", expected_version=_version(host),
+                host_id=host,
+                actor=_operator(),
+                action="admit",
+                reason="",
+                idempotency_key=f"dec-{uuid.uuid4().hex[:8]}",
+                expected_version=_version(host),
             )
 
 

@@ -55,16 +55,31 @@ KNOWN_SECRETS = [
     ("whsec_abcdefghijklmnopqrstuvwxyz0123", "Webhook signing secret"),
     ("xcel_ai_abcdefghijklmnopqrstuvwxyz01", "Agent API key"),
     ("xoa_abcdefghijklmnopqrstuvwxyz012345", "OAuth token"),
-    ("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U", "JWT token"),
+    (
+        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+        "JWT token",
+    ),
     # Auth headers
     ("Bearer topSecretBearerToken1234567890", "Bearer auth token"),
     ("Basic dXNlcjpzdXBlcnNlY3JldHBhc3M=", "Basic auth header"),
     # Signed URLs
-    ("https://s3.amazonaws.com/bucket/key.bin?X-Amz-Signature=abcd1234efgh5678&X-Amz-Algorithm=AWS4-HMAC-SHA256", "S3 signed URL"),
-    ("https://storage.googleapis.com/bucket/obj?GoogleAccessId=acc@iam.gserviceaccount.com&Signature=xyz789ABC012", "GCS signed URL"),
-    ("https://myacct.blob.core.windows.net/container/blob?sv=2020&sig=secretSAS123456789", "Azure SAS URL"),
+    (
+        "https://s3.amazonaws.com/bucket/key.bin?X-Amz-Signature=abcd1234efgh5678&X-Amz-Algorithm=AWS4-HMAC-SHA256",
+        "S3 signed URL",
+    ),
+    (
+        "https://storage.googleapis.com/bucket/obj?GoogleAccessId=acc@iam.gserviceaccount.com&Signature=xyz789ABC012",
+        "GCS signed URL",
+    ),
+    (
+        "https://myacct.blob.core.windows.net/container/blob?sv=2020&sig=secretSAS123456789",
+        "Azure SAS URL",
+    ),
     # Connection strings
-    ("postgres://postgres:SuperSecretDbPassword99@db.prod.internal:5432/xcelsior", "Postgres connection string"),
+    (
+        "postgres://postgres:SuperSecretDbPassword99@db.prod.internal:5432/xcelsior",
+        "Postgres connection string",
+    ),
     ("redis://:secretRedisPassword77@redis.prod:6379/0", "Redis connection string"),
     # Environment secrets
     ("XCELSIOR_JWT_SECRET=superDuperSecretJwtKey999", "JWT secret env var"),
@@ -100,6 +115,7 @@ def _capture_logger_output():
     sh = logging.StreamHandler(stream)
     from structured_logging import add_standard_metadata, pii_scrub_processor
     import structlog
+
     formatter = structlog.stdlib.ProcessorFormatter(
         foreign_pre_chain=[
             structlog.contextvars.merge_contextvars,
@@ -139,7 +155,10 @@ def test_no_known_secret_survives_in_structlog(secret, what):
 
         output = get_output()
         # For PANs, the full PAN must not survive (last 4 digits are permitted)
-        if secret.replace(" ", "").replace("-", "").isdigit() and len(secret.replace(" ", "").replace("-", "")) >= 13:
+        if (
+            secret.replace(" ", "").replace("-", "").isdigit()
+            and len(secret.replace(" ", "").replace("-", "")) >= 13
+        ):
             raw_pan = secret.replace(" ", "").replace("-", "")
             assert raw_pan not in output, f"{what} survived into structured log: {output}"
         else:
@@ -156,7 +175,10 @@ def test_no_known_secret_survives_in_standard_log(secret, what):
         scheduler.log.warning("Warning event with %s", secret)
 
         output = get_output()
-        if secret.replace(" ", "").replace("-", "").isdigit() and len(secret.replace(" ", "").replace("-", "")) >= 13:
+        if (
+            secret.replace(" ", "").replace("-", "").isdigit()
+            and len(secret.replace(" ", "").replace("-", "")) >= 13
+        ):
             raw_pan = secret.replace(" ", "").replace("-", "")
             assert raw_pan not in output, f"{what} survived into standard log: {output}"
         else:

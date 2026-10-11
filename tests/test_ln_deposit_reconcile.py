@@ -57,12 +57,22 @@ def deposit():
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                            %s, %s, %s, to_timestamp(%s))""",
                 (
-                    deposit_id, cust, cust, f"lbl-{deposit_id}", "bolt",
-                    f"hash-{deposit_id}", 1_000_000, 1000, 0.00001,
+                    deposit_id,
+                    cust,
+                    cust,
+                    f"lbl-{deposit_id}",
+                    "bolt",
+                    f"hash-{deposit_id}",
+                    1_000_000,
+                    1000,
+                    0.00001,
                     round(amount_cad * 1_000_000),
-                    amount_minor if amount_minor is not None
-                    else int(round(amount_cad * 100)),
-                    100_000.0, status, ledger_entry_id, now, expires_at,
+                    amount_minor if amount_minor is not None else int(round(amount_cad * 100)),
+                    100_000.0,
+                    status,
+                    ledger_entry_id,
+                    now,
+                    expires_at,
                     expires_at,
                 ),
             )
@@ -85,9 +95,7 @@ def deposit():
                 "AND resource_id = ANY(%s)",
                 (RESOURCE_TYPE, created),
             )
-            conn.execute(
-                "DELETE FROM ln_deposits WHERE deposit_id = ANY(%s)", (created,)
-            )
+            conn.execute("DELETE FROM ln_deposits WHERE deposit_id = ANY(%s)", (created,))
 
 
 def _findings(deposit_id: str) -> list[tuple[str, str, str | None]]:
@@ -116,9 +124,11 @@ def test_paid_but_not_credited_is_an_error_finding(deposit):
     _run()
 
     found = _findings(deposit_id)
-    assert (FINDING_PAID_NOT_CREDITED, "error", None) in found, (
-        f"expected an open paid_not_credited finding, got {found}"
-    )
+    assert (
+        FINDING_PAID_NOT_CREDITED,
+        "error",
+        None,
+    ) in found, f"expected an open paid_not_credited finding, got {found}"
 
 
 def test_recently_paid_deposit_is_not_yet_a_finding(deposit):
@@ -176,9 +186,7 @@ def test_amount_mismatch_between_representations_is_flagged(deposit):
 
 def test_sub_half_cent_difference_is_not_a_mismatch(deposit):
     """Float representation noise is not a discrepancy."""
-    deposit_id = deposit(
-        status="pending", amount_cad=19.989999999999998, amount_minor=1999
-    )
+    deposit_id = deposit(status="pending", amount_cad=19.989999999999998, amount_minor=1999)
 
     _run()
 
@@ -196,9 +204,9 @@ def test_findings_are_deduplicated_across_sweeps(deposit):
         _run()
 
     open_findings = [f for f in _findings(deposit_id) if f[2] is None]
-    assert len(open_findings) == 1, (
-        f"expected one open finding after three sweeps, got {open_findings}"
-    )
+    assert (
+        len(open_findings) == 1
+    ), f"expected one open finding after three sweeps, got {open_findings}"
 
 
 def test_finding_auto_resolves_once_the_condition_clears(deposit):
@@ -216,9 +224,9 @@ def test_finding_auto_resolves_once_the_condition_clears(deposit):
 
     _run()
 
-    assert all(f[2] is not None for f in _findings(deposit_id)), (
-        "the finding should be resolved once the deposit was credited"
-    )
+    assert all(
+        f[2] is not None for f in _findings(deposit_id)
+    ), "the finding should be resolved once the deposit was credited"
 
 
 def test_reconciler_never_moves_money(deposit):
@@ -254,9 +262,7 @@ def test_reconciler_never_moves_money(deposit):
 
 def test_one_deposit_can_raise_several_findings(deposit):
     """Independent conditions are independent findings."""
-    deposit_id = deposit(
-        status="credited", ledger_entry_id=None, amount_cad=25.0, amount_minor=1
-    )
+    deposit_id = deposit(status="credited", ledger_entry_id=None, amount_cad=25.0, amount_minor=1)
 
     _run()
 
@@ -299,9 +305,7 @@ def test_task_entry_point_is_registered_durably():
     import ast
     from pathlib import Path
 
-    source = (Path(__file__).resolve().parent.parent / "bg_worker.py").read_text(
-        encoding="utf-8"
-    )
+    source = (Path(__file__).resolve().parent.parent / "bg_worker.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     names = {
         call.args[0].value

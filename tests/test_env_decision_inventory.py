@@ -35,8 +35,17 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SKIP_DIRS = {
-    "venv", ".venv", "node_modules", "__pycache__", ".git",
-    "frontend", "mcp", "docs", "tests", "scripts", "migrations",
+    "venv",
+    ".venv",
+    "node_modules",
+    "__pycache__",
+    ".git",
+    "frontend",
+    "mcp",
+    "docs",
+    "tests",
+    "scripts",
+    "migrations",
 }
 
 #: site -> (bucket, why). Keyed by "path::snippet" so a line move does not
@@ -44,30 +53,42 @@ SKIP_DIRS = {
 INVENTORY: dict[str, tuple[str, str]] = {
     # ── enforcing: must fail closed, therefore must ask env_config ──
     "routes/_deps.py::AUTH_REQUIRED": (
-        "enforcing", "authentication; unset meant anonymous callers got admin"),
+        "enforcing",
+        "authentication; unset meant anonymous callers got admin",
+    ),
     "routes/terminal.py::_REQUIRE_PINNED_HOST_KEYS": (
-        "enforcing", "SSH host-key pinning; staging or a typo disabled MITM protection"),
+        "enforcing",
+        "SSH host-key pinning; staging or a typo disabled MITM protection",
+    ),
     "host_admission.py::_compatibility_secret": (
-        "enforcing", "compatibility session secret required outside dev"),
+        "enforcing",
+        "compatibility session secret required outside dev",
+    ),
     "privacy_deletion.py::signing secret": (
-        "enforcing", "deletion-receipt signing secret required outside dev"),
-    "serverless/limits.py::_is_production": (
-        "enforcing", "rate-limit degradation policy"),
+        "enforcing",
+        "deletion-receipt signing secret required outside dev",
+    ),
+    "serverless/limits.py::_is_production": ("enforcing", "rate-limit degradation policy"),
     "routes/auth.py::deauthorize signature": (
-        "enforcing", "social deauthorize signature failures must be rejected"),
+        "enforcing",
+        "social deauthorize signature failures must be rejected",
+    ),
     # ── relaxing: exact match on "test" fails closed by construction ──
-    "routes/_deps.py::master token test path": (
-        "relaxing", "test-suite auth shortcut"),
+    "routes/_deps.py::master token test path": ("relaxing", "test-suite auth shortcut"),
     "routes/auth.py::test branch": ("relaxing", "test-suite auth shortcut"),
     "routes/auth.py::reset_token echo": (
-        "relaxing", "password-reset token echoed to the test suite only"),
+        "relaxing",
+        "password-reset token echoed to the test suite only",
+    ),
     "routes/instances.py::test branch": ("relaxing", "worker status update in tests"),
     "routes/mfa.py::test branches": ("relaxing", "MFA enrolment shortcut in tests"),
     "routes/serverless.py::fake port": ("relaxing", "synthetic port in tests"),
     "serverless/feature.py::test branch": ("relaxing", "feature flag default in tests"),
     "routes/billing.py::dev branch": ("relaxing", "billing shortcut in dev/test"),
     "routes/agent.py::env": (
-        "relaxing", "agent unauth bypass; production hard-refuses via env_config"),
+        "relaxing",
+        "agent unauth bypass; production hard-refuses via env_config",
+    ),
     # ── irrelevant: a label, not a decision ──
     "structured_logging.py::add_standard_metadata": ("irrelevant", "log environment label"),
     "cache_keys.py::environment": ("irrelevant", "cache namespace segment"),
@@ -79,13 +100,21 @@ INVENTORY: dict[str, tuple[str, str]] = {
     "routes/auth.py::import": ("irrelevant", "re-export"),
     "split_api.py::name": ("irrelevant", "string in a codegen list"),
     "control_plane/startup_validation.py::gate": (
-        "enforcing", "the production configuration gate itself"),
+        "enforcing",
+        "the production configuration gate itself",
+    ),
     "oauth_service.py::signing secret": (
-        "enforcing", "the committed dev JWT secret must not be a fallback"),
+        "enforcing",
+        "the committed dev JWT secret must not be a fallback",
+    ),
     "oauth_service.py::asymmetric required": (
-        "enforcing", "symmetric HS256 signing is forbidden outside dev"),
+        "enforcing",
+        "symmetric HS256 signing is forbidden outside dev",
+    ),
     "security.py::secrets key": (
-        "enforcing", "deterministic dev Fernet key must not be a fallback"),
+        "enforcing",
+        "deterministic dev Fernet key must not be a fallback",
+    ),
 }
 
 VALID_BUCKETS = {"enforcing", "relaxing", "irrelevant"}

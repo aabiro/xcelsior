@@ -59,9 +59,7 @@ def test_every_overlaid_service_is_pinned_to_staging():
         for name, spec in _services(OVERLAY).items()
         if (spec or {}).get("environment", {}).get("XCELSIOR_ENV") != "staging"
     ]
-    assert not unpinned, (
-        f"these staging services do not set XCELSIOR_ENV=staging: {unpinned}"
-    )
+    assert not unpinned, f"these staging services do not set XCELSIOR_ENV=staging: {unpinned}"
 
 
 def test_the_services_that_decide_enforcement_are_covered():

@@ -433,8 +433,14 @@ def _take_local_rate_slot(
 
 
 def _take_shared_rate_slot(
-    namespace: str, key: str, now: float, *, limit: int, window_sec: float,
-    buckets: dict, lock,
+    namespace: str,
+    key: str,
+    now: float,
+    *,
+    limit: int,
+    window_sec: float,
+    buckets: dict,
+    lock,
 ) -> bool:
     """Use the shared rolling window, with a locked local fallback on outage."""
     shared_ok, allowed = _shared_state_update(
@@ -446,9 +452,7 @@ def _take_shared_rate_slot(
     )
     if shared_ok:
         return bool(allowed)
-    return _take_local_rate_slot(
-        buckets, lock, key, now, limit=limit, window_sec=window_sec
-    )
+    return _take_local_rate_slot(buckets, lock, key, now, limit=limit, window_sec=window_sec)
 
 
 def _check_auth_rate_limit(request: Request) -> None:
@@ -624,7 +628,9 @@ def _team_billing_customer_id(team_id: str) -> str | None:
     owner = UserStore.get_user(str(team.get("owner_email") or "").strip())
     if owner:
         return (
-            str(owner.get("customer_id") or owner.get("user_id") or owner.get("email") or "").strip()
+            str(
+                owner.get("customer_id") or owner.get("user_id") or owner.get("email") or ""
+            ).strip()
             or None
         )
     return str(team.get("owner_email") or "").strip() or None

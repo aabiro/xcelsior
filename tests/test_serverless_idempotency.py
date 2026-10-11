@@ -107,7 +107,9 @@ class TestWebhookRetry:
         thread.start()
         return server, f"http://127.0.0.1:{port}/hook", received
 
-    def test_failed_delivery_schedules_retry(self, repo: ServerlessRepo, endpoint: dict, owner_id: str, monkeypatch):
+    def test_failed_delivery_schedules_retry(
+        self, repo: ServerlessRepo, endpoint: dict, owner_id: str, monkeypatch
+    ):
         server, hook_url, _received = self._local_hook()
 
         def _allow_local(url: str):
@@ -197,7 +199,9 @@ class TestWebhookRetry:
         finally:
             server.shutdown()
 
-    def test_max_attempts_marks_failed(self, repo: ServerlessRepo, endpoint: dict, owner_id: str, monkeypatch):
+    def test_max_attempts_marks_failed(
+        self, repo: ServerlessRepo, endpoint: dict, owner_id: str, monkeypatch
+    ):
         server, hook_url, _received = self._local_hook()
 
         def _allow_local(url: str):

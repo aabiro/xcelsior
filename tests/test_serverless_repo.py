@@ -147,15 +147,13 @@ class TestMigration038:
     def test_max_queue_size_column_exists(self):
         pool = _get_pg_pool()
         with pool.connection() as conn:
-            row = conn.execute(
-                """
+            row = conn.execute("""
                 SELECT column_name, column_default
                 FROM information_schema.columns
                 WHERE table_schema = 'public'
                   AND table_name = 'serverless_endpoints'
                   AND column_name = 'max_queue_size'
-                """
-            ).fetchone()
+                """).fetchone()
         assert row is not None
         name = row["column_name"] if isinstance(row, dict) else row[0]
         assert name == "max_queue_size"
@@ -248,7 +246,9 @@ class TestServerlessRepoQueue:
         )
         assert job["billing_exempt"] is True
 
-    def test_idempotency_returns_same_job(self, repo: ServerlessRepo, endpoint: dict, owner_id: str):
+    def test_idempotency_returns_same_job(
+        self, repo: ServerlessRepo, endpoint: dict, owner_id: str
+    ):
         ep_id = endpoint["endpoint_id"]
         key = f"idemp-{uuid.uuid4().hex[:8]}"
         j1 = repo.enqueue_job(ep_id, owner_id, {"n": 1}, idempotency_key=key)
@@ -279,7 +279,9 @@ class TestServerlessRepoStreamsAndKeys:
         events = repo.list_stream_events(job["job_id"])
         assert len(events) == 2
 
-    def test_api_key_hash_lookup_and_revoke(self, repo: ServerlessRepo, endpoint: dict, owner_id: str):
+    def test_api_key_hash_lookup_and_revoke(
+        self, repo: ServerlessRepo, endpoint: dict, owner_id: str
+    ):
         ep_id = endpoint["endpoint_id"]
         created = repo.create_api_key(
             owner_id,

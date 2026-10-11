@@ -99,6 +99,5 @@ def test_no_handler_catches_the_refusal_it_just_raised() -> None:
         "a broad except catches the HTTPException raised in its own try block, so "
         "the refusal never reaches the caller and the handler continues as though "
         "the check passed. Put `except HTTPException: raise` first, or narrow the "
-        "except to the errors the try block can actually produce:\n  "
-        + "\n  ".join(offenders)
+        "except to the errors the try block can actually produce:\n  " + "\n  ".join(offenders)
     )

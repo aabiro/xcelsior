@@ -19,9 +19,7 @@ try:
     _pool = _get_pg_pool()
     with _pool.connection() as _c:
         _c.execute("SELECT 1").fetchone()
-        _migrated = (
-            _c.execute("SELECT to_regclass('outbox_events')").fetchone()[0] is not None
-        )
+        _migrated = _c.execute("SELECT to_regclass('outbox_events')").fetchone()[0] is not None
 except Exception as _e:  # pragma: no cover - skip path
     pytestmark = pytest.mark.skip(f"no pg pool available: {_e}")
     _pool = None
@@ -63,7 +61,9 @@ def _mkjob(fleet, *, num_gpus=1):
     # gpu_model doubles as a unique claim scope so these tests never
     # claim residue jobs left behind by other suites (and vice versa).
     payload = {
-        "name": job_id, "num_gpus": num_gpus, "image": "pytorch:latest",
+        "name": job_id,
+        "num_gpus": num_gpus,
+        "image": "pytorch:latest",
         "gpu_model": job_id,
     }
     with _pool.connection() as conn:
@@ -103,9 +103,7 @@ def _mkhost(fleet, *, gpus=2, inventory_generation=1):
 
 def _claim(job_id):
     with _pool.connection() as conn:
-        claimed = claim_next_job(
-            conn, replica_id="resv-test", scope_gpu_models=[job_id]
-        )
+        claimed = claim_next_job(conn, replica_id="resv-test", scope_gpu_models=[job_id])
         conn.commit()
     assert claimed is not None
     assert claimed.job_id == job_id
@@ -162,8 +160,11 @@ class TestHappyPath:
 
         counts = _counts(job_id)
         assert counts == {
-            "attempts": 1, "allocations": 1, "leases": 1,
-            "commands": 1, "outbox": 2,
+            "attempts": 1,
+            "allocations": 1,
+            "leases": 1,
+            "commands": 1,
+            "outbox": 2,
         }
         with _pool.connection() as conn:
             job = conn.execute(
@@ -206,7 +207,11 @@ class TestConflictsLeaveNoResidue:
         with pytest.raises(ClaimLost):
             _reserve(bogus, host_id)
         assert _counts(job_id) == {
-            "attempts": 0, "allocations": 0, "leases": 0, "commands": 0, "outbox": 0,
+            "attempts": 0,
+            "allocations": 0,
+            "leases": 0,
+            "commands": 0,
+            "outbox": 0,
         }
 
     def test_job_no_longer_pending(self, fleet):
@@ -271,7 +276,11 @@ class TestConflictsLeaveNoResidue:
         with pytest.raises(CapacityConflict):
             _reserve(claimed, host_id, num_gpus=2)
         assert _counts(job_id) == {
-            "attempts": 0, "allocations": 0, "leases": 0, "commands": 0, "outbox": 0,
+            "attempts": 0,
+            "allocations": 0,
+            "leases": 0,
+            "commands": 0,
+            "outbox": 0,
         }
 
     def test_rival_reservation_wins_race(self, fleet):

@@ -36,8 +36,9 @@ def upload_session():
     """An artifact plus an authorized upload session, with declared values."""
     created: list[str] = []
 
-    def _make(*, expected_size: int | None = None,
-              expected_sha256: str | None = None) -> tuple[str, str]:
+    def _make(
+        *, expected_size: int | None = None, expected_sha256: str | None = None
+    ) -> tuple[str, str]:
         artifact_id = str(uuid.uuid4())
         session_id = str(uuid.uuid4())
         with pg_transaction() as conn:
@@ -49,8 +50,12 @@ def upload_session():
                    VALUES (%s, %s, 'output', %s, 'requested', 'local', 'test',
                            %s, 'application/octet-stream',
                            'standard')""",
-                (artifact_id, f"tenant-{uuid.uuid4().hex[:8]}",
-                 f"obj-{artifact_id}", f"output/{artifact_id}.bin"),
+                (
+                    artifact_id,
+                    f"tenant-{uuid.uuid4().hex[:8]}",
+                    f"obj-{artifact_id}",
+                    f"output/{artifact_id}.bin",
+                ),
             )
             conn.execute(
                 """INSERT INTO storage.artifact_upload_sessions
@@ -59,8 +64,14 @@ def upload_session():
                     idempotency_key)
                    VALUES (%s, %s, %s, 'tester', %s, %s,
                            clock_timestamp() + interval '1 hour', %s)""",
-                (session_id, artifact_id, f"tenant-{uuid.uuid4().hex[:8]}",
-                 expected_size, expected_sha256, f"idem-{session_id}"),
+                (
+                    session_id,
+                    artifact_id,
+                    f"tenant-{uuid.uuid4().hex[:8]}",
+                    expected_size,
+                    expected_sha256,
+                    f"idem-{session_id}",
+                ),
             )
         created.append(artifact_id)
         return artifact_id, session_id
@@ -71,11 +82,12 @@ def upload_session():
         with pg_transaction() as conn:
             conn.execute(
                 "DELETE FROM storage.artifact_upload_sessions "
-                "WHERE artifact_id = ANY(%s::uuid[])", (created,)
+                "WHERE artifact_id = ANY(%s::uuid[])",
+                (created,),
             )
             conn.execute(
-                "DELETE FROM storage.artifact_replicas "
-                "WHERE artifact_id = ANY(%s::uuid[])", (created,)
+                "DELETE FROM storage.artifact_replicas " "WHERE artifact_id = ANY(%s::uuid[])",
+                (created,),
             )
             conn.execute(
                 "DELETE FROM storage.artifacts WHERE artifact_id = ANY(%s::uuid[])",
@@ -103,10 +115,15 @@ def _sha256(artifact_id: str) -> str | None:
 
 def _head(monkeypatch, manager, *, size: int, etag: str = "deadbeef"):
     monkeypatch.setattr(
-        manager.primary, "head_object",
-        lambda key: {"key": key, "size_bytes": size,
-                     "content_type": "application/octet-stream",
-                     "last_modified": None, "etag": etag},
+        manager.primary,
+        "head_object",
+        lambda key: {
+            "key": key,
+            "size_bytes": size,
+            "content_type": "application/octet-stream",
+            "last_modified": None,
+            "etag": etag,
+        },
     )
 
 
@@ -141,9 +158,7 @@ def test_checksum_mismatch_marks_corrupt(upload_session, monkeypatch):
     assert _state(artifact_id) == "corrupt"
 
 
-def test_missing_checksum_is_refused_when_one_was_declared(
-    upload_session, monkeypatch
-):
+def test_missing_checksum_is_refused_when_one_was_declared(upload_session, monkeypatch):
     """Declaring an expected hash and then not supplying one proves nothing."""
     artifact_id, session_id = upload_session(expected_sha256=SHA_A)
     manager = get_artifact_manager()
@@ -171,9 +186,7 @@ def test_matching_size_and_checksum_becomes_available(upload_session, monkeypatc
     assert _sha256(artifact_id) == SHA_A
 
 
-def test_provider_etag_is_not_stored_as_a_content_hash(
-    upload_session, monkeypatch
-):
+def test_provider_etag_is_not_stored_as_a_content_hash(upload_session, monkeypatch):
     """An S3 ETag is not a SHA-256 — for multipart it hashes nothing useful.
 
     Storing it in the `sha256` column made that column unverifiable: a
@@ -186,14 +199,10 @@ def test_provider_etag_is_not_stored_as_a_content_hash(
     manager.finalize_upload(session_id)
 
     assert _state(artifact_id) == "available"
-    assert _sha256(artifact_id) != "not-a-sha256", (
-        "a provider ETag was stored in the sha256 column"
-    )
+    assert _sha256(artifact_id) != "not-a-sha256", "a provider ETag was stored in the sha256 column"
 
 
-def test_ambiguous_provider_error_does_not_abandon_the_upload(
-    upload_session, monkeypatch
-):
+def test_ambiguous_provider_error_does_not_abandon_the_upload(upload_session, monkeypatch):
     """A throttle during finalize must not discard a good upload.
 
     `head_object` returned None for every exception, and finalize reads
@@ -266,7 +275,10 @@ def test_delete_failure_raises_rather_than_returning_false(monkeypatch):
     let the catalog say `deleted` while the bytes remained.
     """
     from artifacts import (
-        StorageClient, StorageConfig, StorageBackend, StorageUnavailable,
+        StorageClient,
+        StorageConfig,
+        StorageBackend,
+        StorageUnavailable,
     )
 
     client = StorageClient(StorageConfig(backend=StorageBackend.S3, bucket="b"))
@@ -282,7 +294,10 @@ def test_delete_failure_raises_rather_than_returning_false(monkeypatch):
 
 def test_head_distinguishes_absent_from_ambiguous(monkeypatch):
     from artifacts import (
-        StorageClient, StorageConfig, StorageBackend, StorageUnavailable,
+        StorageClient,
+        StorageConfig,
+        StorageBackend,
+        StorageUnavailable,
     )
 
     client = StorageClient(StorageConfig(backend=StorageBackend.S3, bucket="b"))

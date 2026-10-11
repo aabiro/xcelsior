@@ -89,6 +89,6 @@ def test_the_trigger_gives_every_written_status_a_phase(status, inserted):
         f"status {status!r} fell through the CASE in control_plane_project_job to "
         "ELSE NULL — jobs in this state are invisible to every phase-based query"
     )
-    assert phase == EXPECTED_PHASE[status], (
-        f"status {status!r} now maps to phase {phase!r}, not {EXPECTED_PHASE[status]!r}"
-    )
+    assert (
+        phase == EXPECTED_PHASE[status]
+    ), f"status {status!r} now maps to phase {phase!r}, not {EXPECTED_PHASE[status]!r}"

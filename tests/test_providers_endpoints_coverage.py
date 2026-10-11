@@ -27,9 +27,7 @@ def provider_user():
         "/api/auth/register",
         json={"email": email, "password": "StrongPass123!", "name": "Prov Cov"},
     )
-    login = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
     provider_id = f"prov-{uuid.uuid4().hex[:8]}"
     reg_resp = client.post(
@@ -90,9 +88,7 @@ def provider_user():
         UserStore.update_user(email, {"provider_id": provider_id, "role": "provider"})
 
     # Session JWT may predate provider_id on the user row — refresh token.
-    login2 = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login2 = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     headers = {"Authorization": f"Bearer {login2.json()['access_token']}"}
     yield {
         "email": email,
@@ -112,9 +108,9 @@ def test_providers_list(provider_user):
 
     db_user = UserStore.get_user(provider_user["email"]) or {}
     if db_user.get("provider_id"):
-        assert r.json()["count"] >= 1, (
-            f"user row has provider_id={db_user.get('provider_id')!r} but list returned empty"
-        )
+        assert (
+            r.json()["count"] >= 1
+        ), f"user row has provider_id={db_user.get('provider_id')!r} but list returned empty"
 
 
 def test_providers_get(provider_user):
@@ -190,6 +186,7 @@ def test_providers_paypal_status(provider_user):
 
 def test_providers_paypal_onboard_unconfigured(provider_user, monkeypatch):
     import paypal_connect
+
     monkeypatch.setattr(paypal_connect, "PAYPAL_ENABLED", False)
     pid = provider_user["provider_id"]
     r = client.post(
@@ -198,7 +195,6 @@ def test_providers_paypal_onboard_unconfigured(provider_user, monkeypatch):
     )
     assert r.status_code in (400, 502)
     assert r.status_code != 500
-
 
 
 def test_providers_paypal_refresh(provider_user):

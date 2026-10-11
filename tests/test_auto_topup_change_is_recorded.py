@@ -82,7 +82,7 @@ def test_the_change_is_written_to_the_user_audit_trail():
 
 
 def test_the_previous_setting_is_captured_before_the_write():
-    """"Something changed" is not a trail. What it changed from is."""
+    """ "Something changed" is not a trail. What it changed from is."""
     source = _route_source()
     assert "get_wallet" in source, "the route no longer reads the previous setting"
     assert '"previous"' in source, (
@@ -117,7 +117,7 @@ def test_every_way_of_widening_counts_as_one():
         "a threshold increase is not counted as widening — a higher threshold "
         "fires the charge more often"
     )
-    assert "not previous[\"enabled\"]" in source, (
+    assert 'not previous["enabled"]' in source, (
         "turning auto top-up on from off is not counted as widening, and it is "
         "the largest widening there is: from never charging to charging"
     )

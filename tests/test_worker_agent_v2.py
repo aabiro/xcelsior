@@ -74,8 +74,10 @@ class TestHardLeaseGate:
                 return _resp(409, {"error": {"code": "lease_claim_rejected"}})
             return _resp(200, {"ok": True})
 
-        with mock.patch.object(worker_agent.requests, "post", fake_post), \
-             mock.patch.object(worker_agent, "run_job") as run_job:
+        with (
+            mock.patch.object(worker_agent.requests, "post", fake_post),
+            mock.patch.object(worker_agent, "run_job") as run_job,
+        ):
             worker_agent.handle_start_attempt(_start_cmd())
 
         run_job.assert_not_called()
@@ -99,8 +101,10 @@ class TestHardLeaseGate:
                 )
             return _resp(200, {"ok": True})
 
-        with mock.patch.object(worker_agent.requests, "post", fake_post), \
-             mock.patch.object(worker_agent, "run_job") as run_job:
+        with (
+            mock.patch.object(worker_agent.requests, "post", fake_post),
+            mock.patch.object(worker_agent, "run_job") as run_job,
+        ):
             worker_agent.handle_start_attempt(_start_cmd())
         run_job.assert_not_called()
 
@@ -123,8 +127,10 @@ class TestHardLeaseGate:
                 )
             return _resp(200, {"ok": True})
 
-        with mock.patch.object(worker_agent.requests, "post", fake_post), \
-             mock.patch.object(worker_agent, "run_job") as run_job:
+        with (
+            mock.patch.object(worker_agent.requests, "post", fake_post),
+            mock.patch.object(worker_agent, "run_job") as run_job,
+        ):
             worker_agent.handle_start_attempt(_start_cmd())
 
         run_job.assert_called_once()
@@ -148,8 +154,10 @@ class TestHardLeaseGate:
 
         cmd = _start_cmd()
         cmd["args"].pop("lease_id")
-        with mock.patch.object(worker_agent.requests, "post", fake_post), \
-             mock.patch.object(worker_agent, "run_job") as run_job:
+        with (
+            mock.patch.object(worker_agent.requests, "post", fake_post),
+            mock.patch.object(worker_agent, "run_job") as run_job,
+        ):
             worker_agent.handle_start_attempt(cmd)
         run_job.assert_not_called()
         nacks = [p for p in posts if "/nack" in p[0]]
@@ -159,9 +167,11 @@ class TestHardLeaseGate:
     def test_spec_hash_mismatch_aborts_before_lease_claim(self):
         cmd = _start_cmd()
         cmd["args"]["spec"]["image"] = "tampered:image"
-        with mock.patch.object(worker_agent, "v2_claim_lease_fenced") as claim, \
-             mock.patch.object(worker_agent, "v2_nack_command") as nack, \
-             mock.patch.object(worker_agent, "run_job") as run_job:
+        with (
+            mock.patch.object(worker_agent, "v2_claim_lease_fenced") as claim,
+            mock.patch.object(worker_agent, "v2_nack_command") as nack,
+            mock.patch.object(worker_agent, "run_job") as run_job,
+        ):
             worker_agent.handle_start_attempt(cmd)
         claim.assert_not_called()
         run_job.assert_not_called()
@@ -169,15 +179,17 @@ class TestHardLeaseGate:
         assert nack.call_args.kwargs["retryable"] is False
 
     def test_fence_lost_after_lease_claim_aborts_before_run_job(self):
-        with mock.patch.object(
-            worker_agent,
-            "v2_claim_lease_fenced",
-            return_value={"renewal_ttl_sec": 300},
-        ), mock.patch.object(
-            worker_agent, "v2_report_attempt_status", return_value="fenced"
-        ), mock.patch.object(worker_agent, "v2_nack_command") as nack, \
-             mock.patch.object(worker_agent, "run_job") as run_job, \
-             mock.patch.object(worker_agent, "_v2_journal_save"):
+        with (
+            mock.patch.object(
+                worker_agent,
+                "v2_claim_lease_fenced",
+                return_value={"renewal_ttl_sec": 300},
+            ),
+            mock.patch.object(worker_agent, "v2_report_attempt_status", return_value="fenced"),
+            mock.patch.object(worker_agent, "v2_nack_command") as nack,
+            mock.patch.object(worker_agent, "run_job") as run_job,
+            mock.patch.object(worker_agent, "_v2_journal_save"),
+        ):
             worker_agent.handle_start_attempt(_start_cmd())
         run_job.assert_not_called()
         assert nack.call_args.args[1] == "lease_authority_lost_before_start"
@@ -192,15 +204,15 @@ class TestHardLeaseGate:
             "_v2_fencing_token": 7,
             "_v2_container_name": "xcl-job-1-att-1",
         }
-        with mock.patch.object(worker_agent, "get_gpu_info", return_value={}), \
-             mock.patch.object(worker_agent, "build_platform_env", return_value={}), \
-             mock.patch.object(worker_agent, "claim_lease") as legacy_claim, \
-             mock.patch.object(worker_agent, "_kill_container") as kill, \
-             mock.patch.object(worker_agent, "_remove_container"), \
-             mock.patch.object(worker_agent.time, "sleep"), \
-             mock.patch.object(
-                 worker_agent, "report_job_status", return_value=False
-             ) as report:
+        with (
+            mock.patch.object(worker_agent, "get_gpu_info", return_value={}),
+            mock.patch.object(worker_agent, "build_platform_env", return_value={}),
+            mock.patch.object(worker_agent, "claim_lease") as legacy_claim,
+            mock.patch.object(worker_agent, "_kill_container") as kill,
+            mock.patch.object(worker_agent, "_remove_container"),
+            mock.patch.object(worker_agent.time, "sleep"),
+            mock.patch.object(worker_agent, "report_job_status", return_value=False) as report,
+        ):
             worker_agent.run_job(job)
         legacy_claim.assert_not_called()
         kill.assert_called_once_with("xcl-job-1-att-1")
@@ -216,17 +228,18 @@ class TestHardLeaseGate:
             "_v2_fencing_token": 7,
             "_v2_container_name": "xcl-job-1-att-1",
         }
-        with mock.patch.object(
-            worker_agent, "get_gpu_info", return_value={"gpu_model": "RTX 2060"}
-        ), mock.patch.object(worker_agent, "build_platform_env", return_value={}), \
-             mock.patch.object(worker_agent, "_kill_container"), \
-             mock.patch.object(worker_agent, "_remove_container"), \
-             mock.patch.object(worker_agent.time, "sleep"), \
-             mock.patch.object(worker_agent, "report_job_status", return_value=True) as report, \
-             mock.patch.object(worker_agent, "cache_track_pull"), \
-             mock.patch.object(worker_agent, "_image_cache_index", {"image:test": {}}), \
-             mock.patch.object(worker_agent, "is_gvisor_available", return_value=False), \
-             mock.patch.object(worker_agent, "build_secure_docker_args") as build:
+        with (
+            mock.patch.object(worker_agent, "get_gpu_info", return_value={"gpu_model": "RTX 2060"}),
+            mock.patch.object(worker_agent, "build_platform_env", return_value={}),
+            mock.patch.object(worker_agent, "_kill_container"),
+            mock.patch.object(worker_agent, "_remove_container"),
+            mock.patch.object(worker_agent.time, "sleep"),
+            mock.patch.object(worker_agent, "report_job_status", return_value=True) as report,
+            mock.patch.object(worker_agent, "cache_track_pull"),
+            mock.patch.object(worker_agent, "_image_cache_index", {"image:test": {}}),
+            mock.patch.object(worker_agent, "is_gvisor_available", return_value=False),
+            mock.patch.object(worker_agent, "build_secure_docker_args") as build,
+        ):
             worker_agent.run_job(job)
         build.assert_not_called()
         assert any(
@@ -244,14 +257,16 @@ class TestHardLeaseGate:
             "_v2_fencing_token": 7,
             "_v2_container_name": "xcl-job-1-att-1",
         }
-        with mock.patch.object(worker_agent, "get_gpu_info", return_value={}), \
-             mock.patch.object(worker_agent, "build_platform_env", return_value={}), \
-             mock.patch.object(worker_agent, "_kill_container"), \
-             mock.patch.object(worker_agent, "_remove_container"), \
-             mock.patch.object(worker_agent.time, "sleep"), \
-             mock.patch.object(worker_agent, "report_job_status", return_value=True) as report, \
-             mock.patch.object(worker_agent.shutil, "which", return_value=None), \
-             mock.patch.object(worker_agent, "build_secure_docker_args") as build:
+        with (
+            mock.patch.object(worker_agent, "get_gpu_info", return_value={}),
+            mock.patch.object(worker_agent, "build_platform_env", return_value={}),
+            mock.patch.object(worker_agent, "_kill_container"),
+            mock.patch.object(worker_agent, "_remove_container"),
+            mock.patch.object(worker_agent.time, "sleep"),
+            mock.patch.object(worker_agent, "report_job_status", return_value=True) as report,
+            mock.patch.object(worker_agent.shutil, "which", return_value=None),
+            mock.patch.object(worker_agent, "build_secure_docker_args") as build,
+        ):
             worker_agent.run_job(job)
         build.assert_not_called()
         assert any(
@@ -292,14 +307,16 @@ class TestFencedStopCommand:
             docker_calls.append(argv)
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        with mock.patch.object(
-            worker_agent, "_V2_JOURNAL_PATH", str(tmp_path / "v2.json")
-        ), mock.patch.object(worker_agent.requests, "post", fake_post), \
-             mock.patch.object(
-                 worker_agent,
-                 "_v2_container_state",
-                 return_value=("running", -1, "att-1"),
-             ), mock.patch.object(worker_agent.subprocess, "run", fake_run):
+        with (
+            mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", str(tmp_path / "v2.json")),
+            mock.patch.object(worker_agent.requests, "post", fake_post),
+            mock.patch.object(
+                worker_agent,
+                "_v2_container_state",
+                return_value=("running", -1, "att-1"),
+            ),
+            mock.patch.object(worker_agent.subprocess, "run", fake_run),
+        ):
             worker_agent.handle_stop_attempt(_stop_cmd())
 
         assert any(call[:2] == ["docker", "stop"] for call in docker_calls)
@@ -330,14 +347,16 @@ class TestFencedStopCommand:
 
         cmd = _stop_cmd()
         cmd["args"] = {**cmd["args"], "preserve": False, "intent": "terminate"}
-        with mock.patch.object(
-            worker_agent, "_V2_JOURNAL_PATH", str(tmp_path / "v2.json")
-        ), mock.patch.object(worker_agent.requests, "post", fake_post), \
-             mock.patch.object(
-                 worker_agent,
-                 "_v2_container_state",
-                 return_value=("running", -1, "att-1"),
-             ), mock.patch.object(worker_agent.subprocess, "run", fake_run):
+        with (
+            mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", str(tmp_path / "v2.json")),
+            mock.patch.object(worker_agent.requests, "post", fake_post),
+            mock.patch.object(
+                worker_agent,
+                "_v2_container_state",
+                return_value=("running", -1, "att-1"),
+            ),
+            mock.patch.object(worker_agent.subprocess, "run", fake_run),
+        ):
             worker_agent.handle_stop_attempt(cmd)
 
         assert any(c[:2] == ["docker", "stop"] for c in docker_calls)
@@ -352,18 +371,21 @@ class TestFencedStopCommand:
         cmd = _stop_cmd()
         cmd["fencing_token"] = 8
         nacks = []
-        with mock.patch.object(worker_agent, "v2_nack_command") as nack, \
-             mock.patch.object(worker_agent.subprocess, "run") as docker_run:
+        with (
+            mock.patch.object(worker_agent, "v2_nack_command") as nack,
+            mock.patch.object(worker_agent.subprocess, "run") as docker_run,
+        ):
             worker_agent.handle_stop_attempt(cmd)
             nacks.extend(nack.call_args_list)
         docker_run.assert_not_called()
         assert nacks and nacks[0].args[1] == "authority_not_local"
 
     def test_stop_transport_error_is_retryable_and_keeps_authority(self):
-        with mock.patch.object(
-            worker_agent, "_v2_post", return_value=(503, {"error": "down"})
-        ), mock.patch.object(worker_agent, "v2_nack_command") as nack, \
-             mock.patch.object(worker_agent.subprocess, "run") as docker_run:
+        with (
+            mock.patch.object(worker_agent, "_v2_post", return_value=(503, {"error": "down"})),
+            mock.patch.object(worker_agent, "v2_nack_command") as nack,
+            mock.patch.object(worker_agent.subprocess, "run") as docker_run,
+        ):
             worker_agent.handle_stop_attempt(_stop_cmd())
         docker_run.assert_not_called()
         assert nack.call_args.args[1] == "stop_authority_unavailable"
@@ -373,14 +395,13 @@ class TestFencedStopCommand:
 
     def test_completed_stop_replays_ack_without_docker(self, tmp_path):
         result = {"stopped": True, "preserved": True}
-        with mock.patch.object(
-            worker_agent, "_V2_JOURNAL_PATH", str(tmp_path / "v2.json")
-        ):
+        with mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", str(tmp_path / "v2.json")):
             worker_agent._v2_mark_command_complete("cmd-stop-1", result)
-        with mock.patch.object(
-            worker_agent, "v2_claim_commands", return_value=[_stop_cmd()]
-        ), mock.patch.object(worker_agent, "v2_ack_command", return_value=True) as ack, \
-             mock.patch.object(worker_agent, "handle_stop_attempt") as stop:
+        with (
+            mock.patch.object(worker_agent, "v2_claim_commands", return_value=[_stop_cmd()]),
+            mock.patch.object(worker_agent, "v2_ack_command", return_value=True) as ack,
+            mock.patch.object(worker_agent, "handle_stop_attempt") as stop,
+        ):
             worker_agent._v2_enabled = True
             try:
                 assert worker_agent.drain_v2_commands() == 1
@@ -393,8 +414,11 @@ class TestFencedStopCommand:
 class TestStatusMirror:
     def _register(self, job_id="job-1"):
         auth = {
-            "lease_id": "lease-1", "job_id": job_id, "attempt_id": "att-1",
-            "fencing_token": 7, "renewal_ttl_sec": 300,
+            "lease_id": "lease-1",
+            "job_id": job_id,
+            "attempt_id": "att-1",
+            "fencing_token": 7,
+            "renewal_ttl_sec": 300,
             "stop": threading.Event(),
         }
         with worker_agent._v2_attempts_lock:
@@ -447,14 +471,14 @@ class TestStatusMirror:
         def fake_run(argv, **kw):
             killed.append(argv)
             if "inspect" in argv:
-                return SimpleNamespace(
-                    returncode=0, stdout="true 0 att-1", stderr=""
-                )
+                return SimpleNamespace(returncode=0, stdout="true 0 att-1", stderr="")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         self._register()
-        with mock.patch.object(worker_agent.requests, "post", fake_post), \
-             mock.patch.object(worker_agent.subprocess, "run", fake_run):
+        with (
+            mock.patch.object(worker_agent.requests, "post", fake_post),
+            mock.patch.object(worker_agent.subprocess, "run", fake_run),
+        ):
             worker_agent._v2_on_job_status("job-1", "running")
         assert any("kill" in argv and "xcl-job-1" in argv for argv in killed)
         with worker_agent._v2_attempts_lock:
@@ -471,14 +495,14 @@ class TestStatusMirror:
         def fake_run(argv, **kwargs):
             docker_calls.append(argv)
             if "inspect" in argv:
-                return SimpleNamespace(
-                    returncode=0, stdout="true 0 att-newer", stderr=""
-                )
+                return SimpleNamespace(returncode=0, stdout="true 0 att-newer", stderr="")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         self._register()
-        with mock.patch.object(worker_agent.requests, "post", fake_post), \
-             mock.patch.object(worker_agent.subprocess, "run", fake_run):
+        with (
+            mock.patch.object(worker_agent.requests, "post", fake_post),
+            mock.patch.object(worker_agent.subprocess, "run", fake_run),
+        ):
             worker_agent._v2_on_job_status("job-1", "running")
         assert not any("kill" in argv for argv in docker_calls)
 
@@ -500,8 +524,10 @@ class TestStatusMirror:
             return _resp(200, {"ok": True})
 
         self._register()
-        with mock.patch.object(worker_agent.requests, "post", fake_post), \
-             mock.patch.object(worker_agent.requests, "patch") as legacy_patch:
+        with (
+            mock.patch.object(worker_agent.requests, "post", fake_post),
+            mock.patch.object(worker_agent.requests, "patch") as legacy_patch,
+        ):
             assert worker_agent.report_job_status("job-1", "failed") is False
         legacy_patch.assert_not_called()
         with worker_agent._v2_attempts_lock:
@@ -524,14 +550,15 @@ class TestRenewalFenceLoss:
         def fake_run(argv, **kw):
             killed.append(argv)
             if "inspect" in argv:
-                return SimpleNamespace(
-                    returncode=0, stdout="true 0 att-1", stderr=""
-                )
+                return SimpleNamespace(returncode=0, stdout="true 0 att-1", stderr="")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         auth = {
-            "lease_id": "lease-1", "job_id": "job-1", "attempt_id": "att-1",
-            "fencing_token": 7, "renewal_ttl_sec": 30,
+            "lease_id": "lease-1",
+            "job_id": "job-1",
+            "attempt_id": "att-1",
+            "fencing_token": 7,
+            "renewal_ttl_sec": 30,
             "stop": threading.Event(),
         }
         with worker_agent._v2_attempts_lock:
@@ -539,11 +566,11 @@ class TestRenewalFenceLoss:
 
         # Interval floor is 10s — shrink the wait by pre-setting nothing and
         # calling the loop with a stop event that fires after first renew.
-        with mock.patch.object(worker_agent.requests, "post", fake_post), \
-             mock.patch.object(worker_agent.subprocess, "run", fake_run), \
-             mock.patch.object(
-                 auth["stop"], "wait", side_effect=[False, True]
-             ):
+        with (
+            mock.patch.object(worker_agent.requests, "post", fake_post),
+            mock.patch.object(worker_agent.subprocess, "run", fake_run),
+            mock.patch.object(auth["stop"], "wait", side_effect=[False, True]),
+        ):
             worker_agent._v2_renewal_loop(auth)
 
         assert any("kill" in argv for argv in killed)
@@ -569,16 +596,22 @@ class TestJournalAndAdoption:
     def _rec(self, job_id="job-1"):
         return {
             job_id: {
-                "lease_id": "lease-1", "job_id": job_id, "attempt_id": "att-1",
-                "fencing_token": 7, "renewal_ttl_sec": 300,
+                "lease_id": "lease-1",
+                "job_id": job_id,
+                "attempt_id": "att-1",
+                "fencing_token": 7,
+                "renewal_ttl_sec": 300,
             }
         }
 
     def test_journal_roundtrip(self, tmp_path):
         path = str(tmp_path / "v2_attempts.json")
         auth = {
-            "lease_id": "lease-1", "job_id": "job-1", "attempt_id": "att-1",
-            "fencing_token": 7, "renewal_ttl_sec": 120,
+            "lease_id": "lease-1",
+            "job_id": "job-1",
+            "attempt_id": "att-1",
+            "fencing_token": 7,
+            "renewal_ttl_sec": 120,
             "stop": threading.Event(),
         }
         with mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", path):
@@ -600,12 +633,15 @@ class TestJournalAndAdoption:
                 return _resp(200, {"ok": True})
             return _resp(200, {"ok": True})
 
-        with mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", path), \
-             mock.patch.object(worker_agent.requests, "post", fake_post), \
-             mock.patch.object(
-                 worker_agent, "_v2_container_state",
-                 return_value=("running", -1, "att-1"),
-             ):
+        with (
+            mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", path),
+            mock.patch.object(worker_agent.requests, "post", fake_post),
+            mock.patch.object(
+                worker_agent,
+                "_v2_container_state",
+                return_value=("running", -1, "att-1"),
+            ),
+        ):
             adopted = worker_agent.v2_adopt_attempts()
 
         assert adopted == 1
@@ -615,13 +651,16 @@ class TestJournalAndAdoption:
 
     def test_transport_error_enters_bounded_pending_adoption(self, tmp_path):
         path = self._journal(tmp_path, self._rec())
-        with mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", path), \
-             mock.patch.object(
-                 worker_agent, "_v2_post", return_value=(503, {"error": "down"})
-             ), mock.patch.object(
-                 worker_agent, "_v2_container_state",
-                 return_value=("running", -1, "att-1"),
-             ), mock.patch.object(worker_agent.threading, "Thread") as thread:
+        with (
+            mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", path),
+            mock.patch.object(worker_agent, "_v2_post", return_value=(503, {"error": "down"})),
+            mock.patch.object(
+                worker_agent,
+                "_v2_container_state",
+                return_value=("running", -1, "att-1"),
+            ),
+            mock.patch.object(worker_agent.threading, "Thread") as thread,
+        ):
             adopted = worker_agent.v2_adopt_attempts()
         assert adopted == 0
         with worker_agent._v2_attempts_lock:
@@ -641,13 +680,16 @@ class TestJournalAndAdoption:
             killed.append(argv)
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        with mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", path), \
-             mock.patch.object(worker_agent.requests, "post", fake_post), \
-             mock.patch.object(worker_agent.subprocess, "run", fake_run), \
-             mock.patch.object(
-                 worker_agent, "_v2_container_state",
-                 return_value=("running", -1, "att-1"),
-             ):
+        with (
+            mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", path),
+            mock.patch.object(worker_agent.requests, "post", fake_post),
+            mock.patch.object(worker_agent.subprocess, "run", fake_run),
+            mock.patch.object(
+                worker_agent,
+                "_v2_container_state",
+                return_value=("running", -1, "att-1"),
+            ),
+        ):
             adopted = worker_agent.v2_adopt_attempts()
 
         assert adopted == 0
@@ -664,12 +706,15 @@ class TestJournalAndAdoption:
                 reports.append(json)
             return _resp(200, {"ok": True})
 
-        with mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", path), \
-             mock.patch.object(worker_agent.requests, "post", fake_post), \
-             mock.patch.object(
-                 worker_agent, "_v2_container_state",
-                 return_value=("exited", 0, "att-1"),
-             ):
+        with (
+            mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", path),
+            mock.patch.object(worker_agent.requests, "post", fake_post),
+            mock.patch.object(
+                worker_agent,
+                "_v2_container_state",
+                return_value=("exited", 0, "att-1"),
+            ),
+        ):
             worker_agent.v2_adopt_attempts()
         assert reports and reports[0]["status"] == "succeeded"
 
@@ -687,12 +732,15 @@ class TestJournalAndAdoption:
             posts.append((url, json))
             return _resp(200, {"ok": True})
 
-        with mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", path), \
-             mock.patch.object(worker_agent.requests, "post", fake_post), \
-             mock.patch.object(
-                 worker_agent, "_v2_container_state",
-                 return_value=("exited", 0, "att-1"),
-             ):
+        with (
+            mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", path),
+            mock.patch.object(worker_agent.requests, "post", fake_post),
+            mock.patch.object(
+                worker_agent,
+                "_v2_container_state",
+                return_value=("exited", 0, "att-1"),
+            ),
+        ):
             worker_agent.v2_adopt_attempts()
 
         reports = [body for url, body in posts if "/attempts/status" in url]
@@ -712,12 +760,15 @@ class TestJournalAndAdoption:
                 reports.append(json)
             return _resp(200, {"ok": True})
 
-        with mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", path), \
-             mock.patch.object(worker_agent.requests, "post", fake_post), \
-             mock.patch.object(
-                 worker_agent, "_v2_container_state",
-                 return_value=("missing", -1, ""),
-             ):
+        with (
+            mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", path),
+            mock.patch.object(worker_agent.requests, "post", fake_post),
+            mock.patch.object(
+                worker_agent,
+                "_v2_container_state",
+                return_value=("missing", -1, ""),
+            ),
+        ):
             worker_agent.v2_adopt_attempts()
         assert reports and reports[0]["status"] == "failed"
         assert reports[0]["failure_code"] == "container_missing"
@@ -737,12 +788,15 @@ class TestJournalAndAdoption:
             killed.append(argv)
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        with mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", path), \
-             mock.patch.object(worker_agent.requests, "post", fake_post), \
-             mock.patch.object(worker_agent.subprocess, "run", fake_run), \
-             mock.patch.object(
-                 worker_agent, "_v2_container_state",
-                 return_value=("running", -1, "att-NEWER"),
-             ):
+        with (
+            mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", path),
+            mock.patch.object(worker_agent.requests, "post", fake_post),
+            mock.patch.object(worker_agent.subprocess, "run", fake_run),
+            mock.patch.object(
+                worker_agent,
+                "_v2_container_state",
+                return_value=("running", -1, "att-NEWER"),
+            ),
+        ):
             adopted = worker_agent.v2_adopt_attempts()
         assert adopted == 0 and killed == [] and reports == []

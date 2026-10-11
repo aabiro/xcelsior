@@ -189,9 +189,9 @@ def test_a_password_mismatch_names_the_variable_to_change(message, expected) -> 
     """
     explained = oauth_service._explain_redis_error(RuntimeError(message))
     assert message in explained, "the original error must survive"
-    assert expected in explained, (
-        f"{message!r} was not translated into something actionable: {explained!r}"
-    )
+    assert (
+        expected in explained
+    ), f"{message!r} was not translated into something actionable: {explained!r}"
 
 
 def test_an_unrelated_error_is_passed_through_unchanged() -> None:
@@ -293,9 +293,9 @@ def test_the_cache_recovers_once_the_backoff_lapses(monkeypatch) -> None:
         with pytest.raises(oauth_service.AuthCacheUnavailableError):
             oauth_service.get_auth_cache()
         state["fail"] = False
-        assert oauth_service.get_auth_cache() is not None, (
-            "the cache stayed refused after Redis came back"
-        )
+        assert (
+            oauth_service.get_auth_cache() is not None
+        ), "the cache stayed refused after Redis came back"
         assert state["attempts"] == 2
     finally:
         oauth_service.reset_auth_cache()

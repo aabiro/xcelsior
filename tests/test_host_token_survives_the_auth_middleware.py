@@ -197,9 +197,9 @@ def test_the_worker_prefix_does_not_swallow_the_product_host_routes():
     for worker_path in ("/host", "/host/h-abc", "/agent/work/x"):
         assert decide(worker_path), f"{worker_path} is worker protocol"
     for product_path in ("/hosts", "/hosts/check", "/hostsanything"):
-        assert not decide(product_path), (
-            f"{product_path} is product API and must not accept an unverified host token"
-        )
+        assert not decide(
+            product_path
+        ), f"{product_path} is product API and must not accept an unverified host token"
 
 
 # ── Derived: no agent route may be challengeable ──────────────────────
@@ -322,9 +322,9 @@ def test_a_valid_token_for_one_host_is_refused_on_another(client, registered_hos
     monkey = {"Authorization": f"Bearer {secret}"}
 
     own = client.get(f"/agent/commands/{host_a}", headers=monkey)
-    assert not _is_middleware_rejection(own), (
-        "a valid host token did not reach the route for its own host"
-    )
+    assert not _is_middleware_rejection(
+        own
+    ), "a valid host token did not reach the route for its own host"
 
     other = client.get(f"/agent/commands/{host_b}", headers=monkey)
     assert other.status_code == 403, (

@@ -20,17 +20,14 @@ try:
     with _pool.connection() as _c:
         _c.execute("SELECT 1").fetchone()
         _has_holds = (
-            _c.execute("SELECT to_regclass('public.wallet_holds')").fetchone()[0]
-            is not None
+            _c.execute("SELECT to_regclass('public.wallet_holds')").fetchone()[0] is not None
         )
 except Exception as _e:  # pragma: no cover
     pytestmark = pytest.mark.skip(f"no pg pool: {_e}")
     _pool = None
 else:
     if not _has_holds:  # pragma: no cover
-        pytestmark = pytest.mark.skip(
-            "wallet_holds missing — run alembic upgrade head"
-        )
+        pytestmark = pytest.mark.skip("wallet_holds missing — run alembic upgrade head")
 
 
 @pytest.fixture
@@ -41,22 +38,16 @@ def cleanup():
         return
     with _pool.connection() as conn:
         for jid in ids["jobs"]:
-            conn.execute(
-                "UPDATE jobs SET wallet_hold_id = NULL WHERE job_id=%s", (jid,)
-            )
+            conn.execute("UPDATE jobs SET wallet_hold_id = NULL WHERE job_id=%s", (jid,))
             conn.execute("DELETE FROM jobs WHERE job_id=%s", (jid,))
         for hid in ids["holds"]:
             try:
-                conn.execute(
-                    "DELETE FROM wallet_holds WHERE hold_id=%s::uuid", (hid,)
-                )
+                conn.execute("DELETE FROM wallet_holds WHERE hold_id=%s::uuid", (hid,))
             except Exception:
                 pass
         for cid in ids["customers"]:
             conn.execute("DELETE FROM wallet_holds WHERE customer_id=%s", (cid,))
-            conn.execute(
-                "DELETE FROM wallet_transactions WHERE customer_id=%s", (cid,)
-            )
+            conn.execute("DELETE FROM wallet_transactions WHERE customer_id=%s", (cid,))
             conn.execute("DELETE FROM wallets WHERE customer_id=%s", (cid,))
         for host in ids["hosts"]:
             conn.execute("DELETE FROM hosts WHERE host_id=%s", (host,))
@@ -207,9 +198,7 @@ def test_expire_stale_wallet_holds_frees_available(cleanup):
     eng = BillingEngine()
     cid = _customer(cleanup)
     eng.deposit(cid, 8.0, description="seed")
-    h = eng.create_wallet_hold(
-        cid, 5.0, idempotency_key=f"exp-{cid}", expires_in_sec=60
-    )
+    h = eng.create_wallet_hold(cid, 5.0, idempotency_key=f"exp-{cid}", expires_in_sec=60)
     hold_id = h["hold_id"]
     cleanup["holds"].append(hold_id)
 
@@ -257,9 +246,7 @@ def test_after_expiry_start_gate_passes(cleanup, monkeypatch):
     eng = BillingEngine()
     cid = _customer(cleanup)
     eng.deposit(cid, 6.0, description="seed")
-    h = eng.create_wallet_hold(
-        cid, 6.0, idempotency_key=f"exp-start-{cid}", expires_in_sec=60
-    )
+    h = eng.create_wallet_hold(cid, 6.0, idempotency_key=f"exp-start-{cid}", expires_in_sec=60)
     hold_id = h["hold_id"]
     cleanup["holds"].append(hold_id)
 
@@ -293,9 +280,7 @@ def test_inventory_start_gate_and_expiry_registration():
 
     instances = (root / "routes" / "instances.py").read_text()
     assert "wallet_has_available_funds" in instances
-    assert 'wallet["balance_cad"] <= 0' not in instances or instances.count(
-        "available"
-    ) > 0
+    assert 'wallet["balance_cad"] <= 0' not in instances or instances.count("available") > 0
     # API start/restart must not only check raw balance_cad
     start_src = instances[instances.find("def api_start_instance") :]
     start_src = start_src[: start_src.find("def api_restart_instance")]

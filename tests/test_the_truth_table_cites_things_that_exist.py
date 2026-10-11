@@ -174,8 +174,6 @@ def test_the_blocker_table_lists_no_clause_that_has_moved_on():
 
 def test_no_clause_is_blocked_on_two_different_things():
     """One clause, one thing in the way. Two rows means one of them is stale."""
-    seen = collections.Counter(
-        clause for clauses in _blocker_rows().values() for clause in clauses
-    )
+    seen = collections.Counter(clause for clauses in _blocker_rows().values() for clause in clauses)
     doubled = sorted(clause for clause, count in seen.items() if count > 1)
     assert not doubled, f"listed under more than one blocker: {doubled}"

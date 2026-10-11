@@ -609,6 +609,7 @@ def set_slurm_desired_state(xcelsior_job_id, desired_state: str) -> bool:
         )
         return result.rowcount > 0
 
+
 def sync_slurm_statuses(update_callback=None, cancel_callback=None):
     """Reconcile desired and observed state for every open Slurm mapping.
 
@@ -725,10 +726,11 @@ def slurm_status_cli(xcelsior_job_id=None, slurm_job_id=None):
         status = get_slurm_job_status(slurm_job_id)
     elif xcelsior_job_id:
         from db import pg_connection
+
         with pg_connection() as conn:
             row = conn.execute(
                 "SELECT slurm_job_id FROM slurm_job_mappings WHERE xcelsior_job_id = %s",
-                (xcelsior_job_id,)
+                (xcelsior_job_id,),
             ).fetchone()
             s_id = row[0] if row else None
         if not s_id:

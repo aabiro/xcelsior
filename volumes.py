@@ -31,7 +31,9 @@ HOT_MOUNT_POLL_TIMEOUT_SEC = int(os.environ.get("XCELSIOR_HOT_MOUNT_TIMEOUT_SEC"
 NFS_SERVER = os.environ.get("XCELSIOR_NFS_SERVER", "")
 # SSH target for provision/destroy (may differ from mount server when API colocates NFS).
 NFS_SSH_HOST = os.environ.get("XCELSIOR_NFS_SSH_HOST", "") or NFS_SERVER
-NFS_SSH_USER = os.environ.get("XCELSIOR_NFS_SSH_USER", "") or os.environ.get("XCELSIOR_SSH_USER", "aaryn")
+NFS_SSH_USER = os.environ.get("XCELSIOR_NFS_SSH_USER", "") or os.environ.get(
+    "XCELSIOR_SSH_USER", "aaryn"
+)
 # When NFS is colocated in Docker, LUKS must run on the host (dm_mod) via SSH loopback.
 NFS_LUKS_SSH_HOST = os.environ.get("XCELSIOR_NFS_LUKS_SSH_HOST", "127.0.0.1")
 NFS_LUKS_SSH_USER = (
@@ -262,9 +264,7 @@ class VolumeEngine:
         """
         delays = [2, 4, 8]  # seconds between retries
         for attempt in range(max_retries):
-            rc, out, err = self._ssh_exec(
-                ip, cmd, timeout=timeout, user=user, force_ssh=force_ssh
-            )
+            rc, out, err = self._ssh_exec(ip, cmd, timeout=timeout, user=user, force_ssh=force_ssh)
             # rc == 255 with specific stderr patterns = SSH-level failure (not remote cmd)
             ssh_transient = rc == 255 and (
                 "timeout" in err.lower()
@@ -554,9 +554,7 @@ class VolumeEngine:
         if not cname:
             target = self._resolve_instance_container_target(instance_id)
             if target is None:
-                raise ValueError(
-                    f"instance {instance_id} has no residual container target"
-                )
+                raise ValueError(f"instance {instance_id} has no residual container target")
             cname = target.container_name
             if target.host_id:
                 host_id = target.host_id
@@ -591,9 +589,7 @@ class VolumeEngine:
         if not cname:
             target = self._resolve_instance_container_target(instance_id)
             if target is None:
-                raise ValueError(
-                    f"instance {instance_id} has no residual container target"
-                )
+                raise ValueError(f"instance {instance_id} has no residual container target")
             cname = target.container_name
             if target.host_id:
                 host_id = target.host_id
@@ -1910,7 +1906,6 @@ class VolumeEngine:
             log.info("Reconciled %d orphaned volume attachments", fixed)
         return fixed
 
-
     def attach_region_warning(self, volume_id: str, instance_id: str) -> str | None:
         """Return a warning when volume region differs from the instance host region."""
         vol = self.get_volume(volume_id)
@@ -1955,11 +1950,9 @@ def get_volume_metrics() -> dict:
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
-            rows = conn.execute(
-                """SELECT status, COUNT(*) AS cnt
+            rows = conn.execute("""SELECT status, COUNT(*) AS cnt
                    FROM volumes WHERE status != 'deleted'
-                   GROUP BY status"""
-            ).fetchall()
+                   GROUP BY status""").fetchall()
             for row in rows:
                 status = row["status"]
                 cnt = int(row["cnt"] or 0)

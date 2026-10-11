@@ -58,9 +58,7 @@ ROUTES = pathlib.Path(__file__).resolve().parent.parent / "routes" / "instances.
 SOURCE = ROUTES.read_text(encoding="utf-8")
 TREE = ast.parse(SOURCE)
 FUNCS = {
-    n.name: n
-    for n in ast.walk(TREE)
-    if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+    n.name: n for n in ast.walk(TREE) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
 }
 
 #: An admin gate is a **refusal**, not a mention. The first version of this
@@ -189,6 +187,6 @@ def test_listing_images_requires_a_read_scope():
     """The read half. Lower stakes, same principle: a token that holds no
     instance scope at all should not enumerate a tenant's images."""
     body = ast.get_source_segment(SOURCE, FUNCS["api_list_user_images"]) or ""
-    assert "_require_scope" in body and "instances:read" in body, (
-        "GET /user-images enforces no scope, so scope reduction does not reach it"
-    )
+    assert (
+        "_require_scope" in body and "instances:read" in body
+    ), "GET /user-images enforces no scope, so scope reduction does not reach it"

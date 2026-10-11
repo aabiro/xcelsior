@@ -13,7 +13,8 @@ def test_managed_engine_flags_preserve_the_image_entrypoint():
     from serverless.service import _preset_startup_command
 
     command, overrides = worker._container_command(
-        _preset_startup_command("vllm", "Qwen/Qwen3-8B", http_port=9123), serverless=True,
+        _preset_startup_command("vllm", "Qwen/Qwen3-8B", http_port=9123),
+        serverless=True,
     )
     assert overrides == []
     assert command[:2] == ["--model", "Qwen/Qwen3-8B"]
@@ -22,7 +23,9 @@ def test_managed_engine_flags_preserve_the_image_entrypoint():
 
 @pytest.mark.parametrize("serverless", [True, False])
 def test_custom_shell_commands_still_override_the_entrypoint(serverless):
-    command, overrides = worker._container_command("python app.py --name 'my model'", serverless=serverless)
+    command, overrides = worker._container_command(
+        "python app.py --name 'my model'", serverless=serverless
+    )
     assert overrides == ["--entrypoint", "sh"]
     assert command == ["-c", "python app.py --name 'my model'"]
 
@@ -47,12 +50,20 @@ def test_partial_volume_mount_failure_cleans_up_without_masking_the_error(monkey
     unmount = Mock()
     monkeypatch.setattr(worker, "_unmount_nfs", unmount)
 
-    worker.run_job({
-        "job_id": "mount-failure-regression", "image": "test/image:1",
-        "volume_ids": ["vol-present", "vol-missing"], "nfs_server": "192.0.2.1",
-    })
+    worker.run_job(
+        {
+            "job_id": "mount-failure-regression",
+            "image": "test/image:1",
+            "volume_ids": ["vol-present", "vol-missing"],
+            "nfs_server": "192.0.2.1",
+        }
+    )
 
-    report.assert_any_call("mount-failure-regression", "failed", error_message="required volume mount failed: vol-missing")
+    report.assert_any_call(
+        "mount-failure-regression",
+        "failed",
+        error_message="required volume mount failed: vol-missing",
+    )
     release.assert_called_once_with("mount-failure-regression", "failed")
     unmount.assert_called_once_with("/mnt/xcelsior-volumes/vol-present")
     worker.destroy_encrypted_volume.assert_not_called()
@@ -61,10 +72,16 @@ def test_partial_volume_mount_failure_cleans_up_without_masking_the_error(monkey
 
 @pytest.mark.parametrize("failure", [None, "http", "short", "second_download", "no_ping"])
 def test_network_measurement_requires_real_payload_and_ping_evidence(monkeypatch, failure):
-    ping = Mock(return_value=subprocess.CompletedProcess([], 0, stdout=(
-        "20 packets transmitted, 20 received, 0% packet loss\n"
-        "rtt min/avg/max/mdev = 12.0/15.0/18.0/2.0 ms\n"
-    )))
+    ping = Mock(
+        return_value=subprocess.CompletedProcess(
+            [],
+            0,
+            stdout=(
+                "20 packets transmitted, 20 received, 0% packet loss\n"
+                "rtt min/avg/max/mdev = 12.0/15.0/18.0/2.0 ms\n"
+            ),
+        )
+    )
     if failure == "no_ping":
         ping.side_effect = FileNotFoundError("ping")
     monkeypatch.setattr(worker.subprocess, "run", ping)
@@ -96,7 +113,11 @@ def test_exclusive_gpu_refusal_clears_worker_bookkeeping(monkeypatch):
     monkeypatch.setattr(worker.time, "sleep", Mock())
     monkeypatch.setattr(worker, "claim_lease", Mock(return_value=None))
     monkeypatch.setattr(worker, "report_job_status", Mock(return_value=True))
-    monkeypatch.setattr(worker, "_acquire_exclusive_gpu", Mock(return_value={"ok": False, "error": "busy"}))
-    worker.run_job({"job_id": "gpu-busy-regression", "image": "test/image:1", "exclusive_gpu": True})
+    monkeypatch.setattr(
+        worker, "_acquire_exclusive_gpu", Mock(return_value={"ok": False, "error": "busy"})
+    )
+    worker.run_job(
+        {"job_id": "gpu-busy-regression", "image": "test/image:1", "exclusive_gpu": True}
+    )
     assert "gpu-busy-regression" not in worker._active_containers
     worker.release_lease.assert_called_once_with("gpu-busy-regression", "failed")

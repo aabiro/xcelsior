@@ -11,9 +11,7 @@ import pytest
 os.environ.setdefault("XCELSIOR_ENV", "test")
 os.environ.setdefault("XCELSIOR_CLOSURE_POLICY", "engineering_partial")
 
-SCRATCH = Path(
-    os.environ.get("XCELSIOR_GOAL_SCRATCH", "/tmp/grok-goal-6f86c7cfe9c2/implementer")
-)
+SCRATCH = Path(os.environ.get("XCELSIOR_GOAL_SCRATCH", "/tmp/grok-goal-6f86c7cfe9c2/implementer"))
 ROOT = Path(__file__).resolve().parent.parent
 
 import importlib.util

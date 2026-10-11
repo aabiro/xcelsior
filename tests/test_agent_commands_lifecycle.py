@@ -97,7 +97,6 @@ def test_stop_container_runs_docker_stop_then_rm(monkeypatch):
     assert ["docker", "rm", "-f", "xcl-aaa"] in calls
 
 
-
 def test_stop_container_absent_is_acknowledged_without_stop_rm(monkeypatch):
     cmds = [
         {

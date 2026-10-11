@@ -419,7 +419,6 @@ class TestRemoteBackendFailsClosed:
             with pytest.raises(StorageUnavailable):
                 client._get_client()
 
-
     def test_list_objects_reraises_client_error_not_empty(self):
         # A working client that errors on list must NOT return [] (which a
         # caller would report as "no artifacts").
@@ -462,6 +461,9 @@ class TestEndpointScheme:
         monkeypatch.setenv("XCELSIOR_STORAGE_ENDPOINT_URL", "s3.ca-east-006.backblazeb2.com")
         cfg = StorageConfig.from_env("XCELSIOR_STORAGE")
         boto3.client(
-            "s3", endpoint_url=cfg.endpoint_url, region_name="ca-east-006",
-            aws_access_key_id="x", aws_secret_access_key="y",
+            "s3",
+            endpoint_url=cfg.endpoint_url,
+            region_name="ca-east-006",
+            aws_access_key_id="x",
+            aws_secret_access_key="y",
         )

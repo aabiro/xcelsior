@@ -25,9 +25,7 @@ def provider_ctx():
         "/api/auth/register",
         json={"email": email, "password": "StrongPass123!", "name": "Compliance"},
     )
-    login = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
     provider_id = f"prov-{uuid.uuid4().hex[:8]}"
     reg = client.post(
@@ -43,9 +41,7 @@ def provider_ctx():
     )
     # Same leak as the providers fixture: registration creates a real Connect
     # account and nothing removed it.
-    stripe_account_id = account_id_from_registration(
-        reg.json() if reg.status_code == 200 else {}
-    )
+    stripe_account_id = account_id_from_registration(reg.json() if reg.status_code == 200 else {})
     # The server resolves provider_id from the caller — see the same note in
     # tests/test_providers_endpoints_coverage.py. Keeping the invented id would
     # point every assertion below at a provider that was never created.
@@ -81,14 +77,10 @@ def provider_ctx():
             )
             conn.commit()
         UserStore.update_user(email, {"provider_id": provider_id, "role": "provider"})
-    login2 = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login2 = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     headers = {"Authorization": f"Bearer {login2.json()['access_token']}"}
     yield {"provider_id": provider_id, "headers": headers}
     delete_connected_account(stripe_account_id)
-
-
 
 
 def test_compliance_tax_rates():
@@ -96,7 +88,6 @@ def test_compliance_tax_rates():
     assert r.status_code == 200
     assert "rates" in r.json()
     assert "ON" in r.json()["rates"]
-
 
 
 def test_provider_gst_threshold(provider_ctx):
@@ -116,9 +107,7 @@ def test_provider_gst_threshold_forbidden():
         "/api/auth/register",
         json={"email": email, "password": "StrongPass123!", "name": "Other"},
     )
-    login = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
     r = client.get(
         "/api/billing/gst-threshold/prov-not-owned",

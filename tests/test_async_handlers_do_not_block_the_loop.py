@@ -65,9 +65,7 @@ def _inline_blocking_calls(fn: ast.AsyncFunctionDef) -> list[str]:
         name = (
             func.id
             if isinstance(func, ast.Name)
-            else func.attr
-            if isinstance(func, ast.Attribute)
-            else None
+            else func.attr if isinstance(func, ast.Attribute) else None
         )
         if name in BLOCKING_CALLS:
             found.append(f"{name}() at line {node.lineno}")

@@ -47,7 +47,6 @@ class StorageUnavailable(RuntimeError):
     production backend must fail loudly, never masquerade as healthy."""
 
 
-
 def take_promotion_hold(conn, job_id, tenant_id) -> int:
     """Hold every available artifact of a job. Returns how many were held.
 
@@ -120,9 +119,9 @@ def sweep_stale_promotions(conn, *, stale_after_sec: int = 21600) -> int:
     for job_id, tenant_id in rows:
         released = release_promotion_hold(conn, job_id, tenant_id)
         log.warning(
-            "promotion sweep: abandoned a stale promotion for job %s and "
-            "released %d hold(s)",
-            job_id, released,
+            "promotion sweep: abandoned a stale promotion for job %s and " "released %d hold(s)",
+            job_id,
+            released,
         )
     return len(rows)
 
@@ -329,8 +328,7 @@ class StorageClient:
             return self._client
         except Exception as exc:
             raise StorageUnavailable(
-                f"failed to initialize '{self.config.backend}' storage client: "
-                f"{exc}"
+                f"failed to initialize '{self.config.backend}' storage client: " f"{exc}"
             ) from exc
 
     def generate_upload_url(
@@ -450,9 +448,7 @@ class StorageClient:
             # permission-denied, throttled, and unavailable."
             if _provider_error_code(exc) in _NOT_FOUND_CODES:
                 return None
-            raise StorageUnavailable(
-                f"HEAD {key} failed on {self.config.backend}: {exc}"
-            ) from exc
+            raise StorageUnavailable(f"HEAD {key} failed on {self.config.backend}: {exc}") from exc
 
     def put_object(
         self,
@@ -735,10 +731,12 @@ class ArtifactManager:
     def _is_db_active(self) -> bool:
         """Check if PostgreSQL storage catalog backend is active."""
         from db import DB_BACKEND
+
         if DB_BACKEND != "postgres":
             return False
         try:
             from control_plane.db import control_plane_transaction
+
             return True
         except ImportError:
             return False
@@ -815,7 +813,8 @@ class ArtifactManager:
                            VALUES ('artifact', %s, %s, 'missing_bytes',
                                    'error', %s, %s, %s, 'report_only')""",
                         (
-                            str(artifact_id), tenant_id,
+                            str(artifact_id),
+                            tenant_id,
                             f"artifact {artifact_id} is 'available' but its "
                             f"object {object_key} is missing from the provider",
                             Jsonb({"state": "available"}),
@@ -870,6 +869,7 @@ class ArtifactManager:
             # Try to resolve tenant_id from jobs table
             if self._is_db_active():
                 from control_plane.db import control_plane_transaction
+
                 try:
                     with control_plane_transaction() as conn:
                         row = conn.execute(
@@ -888,6 +888,7 @@ class ArtifactManager:
         db_job_exists = False
         if db_job_id and self._is_db_active():
             from control_plane.db import control_plane_transaction
+
             try:
                 with control_plane_transaction() as conn:
                     row = conn.execute(
@@ -913,8 +914,13 @@ class ArtifactManager:
 
         if write_to_db:
             # Use immutable key containing the random artifact_id for complete catalog isolation
-            key = f"{artifact_type}/{job_id}/{artifact_id}_{filename}" if job_id else f"{artifact_type}/{artifact_id}_{filename}"
+            key = (
+                f"{artifact_type}/{job_id}/{artifact_id}_{filename}"
+                if job_id
+                else f"{artifact_type}/{artifact_id}_{filename}"
+            )
             from control_plane.db import control_plane_transaction
+
             idem_key = idempotency_key or f"idem-{job_id}-{filename}-{artifact_id.hex[:8]}"
             with control_plane_transaction() as conn:
                 # 1. Insert into storage.artifacts (state requested)
@@ -996,9 +1002,7 @@ class ArtifactManager:
                     (state, artifact_id),
                 )
         except Exception as exc:
-            log.error(
-                "failed to record artifact %s state=%s: %s", artifact_id, state, exc
-            )
+            log.error("failed to record artifact %s state=%s: %s", artifact_id, state, exc)
 
     def _finalize_upload_txn(self, session_id: str, checksum: Optional[str] = None) -> dict:
         """Finalize an upload session, perform HEAD check, and atomically update state to available."""
@@ -1023,8 +1027,13 @@ class ArtifactManager:
                 raise ValueError(f"Upload session {session_id} not found")
 
             (
-                artifact_id, tenant_id, principal_id, expires_at,
-                completed_at, expected_size, expected_sha256,
+                artifact_id,
+                tenant_id,
+                principal_id,
+                expires_at,
+                completed_at,
+                expected_size,
+                expected_sha256,
             ) = sess
             if completed_at:
                 # Already finalized, return current state
@@ -1037,8 +1046,7 @@ class ArtifactManager:
                     # The session's FK guarantees this row; its absence
                     # means the catalog was mutated out from under us.
                     raise RuntimeError(
-                        f"Upload session {session_id} references missing "
-                        f"artifact {artifact_id}"
+                        f"Upload session {session_id} references missing " f"artifact {artifact_id}"
                     )
                 return {
                     "artifact_id": str(art[0]),
@@ -1132,8 +1140,7 @@ class ArtifactManager:
                        available_at = %s,
                        version = version + 1
                    WHERE artifact_id = %s""",
-                (size_bytes, content_sha256, meta.get("etag") or None,
-                 now, artifact_id),
+                (size_bytes, content_sha256, meta.get("etag") or None, now, artifact_id),
             )
 
             # Mark session complete
@@ -1199,12 +1206,14 @@ class ArtifactManager:
         `owner_user_id` — and raises to refuse.
         """
         import uuid
+
         try:
             art_uuid = uuid.UUID(str(artifact_id))
         except ValueError:
             raise ValueError(f"Invalid artifact_id: {artifact_id}")
 
         from control_plane.db import control_plane_transaction
+
         with control_plane_transaction() as conn:
             art = conn.execute(
                 """SELECT object_key, primary_provider, primary_bucket, state, logical_name,
@@ -1248,6 +1257,7 @@ class ArtifactManager:
         """Presigned download URL for an artifact, addressed by logical name and job ID."""
         if self._is_db_active():
             from control_plane.db import control_plane_transaction
+
             with control_plane_transaction() as conn:
                 row = conn.execute(
                     """SELECT object_key FROM storage.artifacts
@@ -1274,6 +1284,7 @@ class ArtifactManager:
 
         # Database-backed listing
         from control_plane.db import control_plane_transaction
+
         with control_plane_transaction() as conn:
             if job_id.startswith("user-"):
                 rows = conn.execute(
@@ -1327,42 +1338,41 @@ class ArtifactManager:
 
             # Transition expired requested/uploading upload sessions to abandoned
             with control_plane_transaction() as conn:
-                expired_sessions = conn.execute(
-                    """SELECT upload_session_id, artifact_id 
+                expired_sessions = conn.execute("""SELECT upload_session_id, artifact_id 
                        FROM storage.artifact_upload_sessions 
-                       WHERE completed_at IS NULL AND expires_at < clock_timestamp()"""
-                ).fetchall()
+                       WHERE completed_at IS NULL AND expires_at < clock_timestamp()""").fetchall()
 
                 abandoned_count = 0
                 for r in expired_sessions:
                     sess_id, art_id = r[0], r[1]
                     conn.execute(
                         "UPDATE storage.artifact_upload_sessions SET completed_at = clock_timestamp() WHERE upload_session_id = %s",
-                        (sess_id,)
+                        (sess_id,),
                     )
                     conn.execute(
                         "UPDATE storage.artifacts SET state = 'abandoned' WHERE artifact_id = %s AND state IN ('requested', 'uploading')",
-                        (art_id,)
+                        (art_id,),
                     )
                     abandoned_count += 1
 
                 if abandoned_count > 0:
-                    log.info("CLEANUP DB: marked %d expired upload sessions as abandoned", abandoned_count)
+                    log.info(
+                        "CLEANUP DB: marked %d expired upload sessions as abandoned",
+                        abandoned_count,
+                    )
 
             # Process artifact_deletion_jobs
             with control_plane_transaction() as conn:
-                jobs = conn.execute(
-                    """SELECT deletion_id, artifact_id, reason, requested_by
+                jobs = conn.execute("""SELECT deletion_id, artifact_id, reason, requested_by
                        FROM storage.artifact_deletion_jobs
                        WHERE state IN ('requested', 'delete_failed') AND next_attempt_at <= clock_timestamp()
-                       LIMIT 50"""
-                ).fetchall()
+                       LIMIT 50""").fetchall()
 
                 for r in jobs:
                     del_id, art_id = r[0], r[1]
                     conn.execute(
                         "UPDATE storage.artifact_deletion_jobs SET state = 'claimed', attempt_count = attempt_count + 1 WHERE deletion_id = %s",
-                        (del_id,)
+                        (del_id,),
                     )
 
                     try:
@@ -1370,7 +1380,7 @@ class ArtifactManager:
                             "SELECT object_key, primary_provider, primary_bucket, "
                             "legal_hold, retain_until FROM storage.artifacts "
                             "WHERE artifact_id = %s",
-                            (art_id,)
+                            (art_id,),
                         ).fetchone()
 
                         # Legal hold overrides lifecycle deletion (DA§6.5,
@@ -1419,7 +1429,8 @@ class ArtifactManager:
                                 )
                                 log.info(
                                     "CLEANUP DB: deferring deletion of %s until %s",
-                                    art_id, art[4],
+                                    art_id,
+                                    art[4],
                                 )
                                 continue
 
@@ -1428,25 +1439,27 @@ class ArtifactManager:
                             self.primary.delete_object(key)
                             conn.execute(
                                 "UPDATE storage.artifacts SET state = 'deleted', deleted_at = clock_timestamp() WHERE artifact_id = %s",
-                                (art_id,)
+                                (art_id,),
                             )
                             conn.execute(
                                 "UPDATE storage.artifact_replicas SET state = 'deleted' WHERE artifact_id = %s",
-                                (art_id,)
+                                (art_id,),
                             )
 
                         conn.execute(
                             "UPDATE storage.artifact_deletion_jobs SET state = 'completed', completed_at = clock_timestamp() WHERE deletion_id = %s",
-                            (del_id,)
+                            (del_id,),
                         )
-                        log.info("CLEANUP DB: processed deletion job %s for artifact %s", del_id, art_id)
+                        log.info(
+                            "CLEANUP DB: processed deletion job %s for artifact %s", del_id, art_id
+                        )
                     except Exception as e:
                         next_attempt = time.time() + 300
                         conn.execute(
                             """UPDATE storage.artifact_deletion_jobs 
                                SET state = 'delete_failed', next_attempt_at = to_timestamp(%s), last_error = %s 
                                WHERE deletion_id = %s""",
-                            (next_attempt, str(e), del_id)
+                            (next_attempt, str(e), del_id),
                         )
                         log.error("CLEANUP DB: deletion job %s failed: %s", del_id, e)
 

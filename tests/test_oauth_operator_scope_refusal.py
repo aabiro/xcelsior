@@ -63,9 +63,7 @@ def headers():
         "/api/auth/register",
         json={"email": email, "password": "StrongPass123!", "name": "Op Scope"},
     )
-    login = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     assert login.status_code == 200, login.text
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
@@ -156,6 +154,7 @@ def test_a_benign_update_still_succeeds(headers):
         json={"client_name": "renamed-by-owner"},
         headers=headers,
     )
-    assert r.status_code in (200, 204), (
-        f"renaming an owned client was refused ({r.status_code}): {r.text[:200]}"
-    )
+    assert r.status_code in (
+        200,
+        204,
+    ), f"renaming an owned client was refused ({r.status_code}): {r.text[:200]}"

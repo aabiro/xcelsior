@@ -20,17 +20,14 @@ try:
     with _pool.connection() as _c:
         _c.execute("SELECT 1").fetchone()
         _has_holds = (
-            _c.execute("SELECT to_regclass('public.wallet_holds')").fetchone()[0]
-            is not None
+            _c.execute("SELECT to_regclass('public.wallet_holds')").fetchone()[0] is not None
         )
 except Exception as _e:  # pragma: no cover
     pytestmark = pytest.mark.skip(f"no pg pool: {_e}")
     _pool = None
 else:
     if not _has_holds:  # pragma: no cover
-        pytestmark = pytest.mark.skip(
-            "wallet_holds missing — run alembic upgrade head"
-        )
+        pytestmark = pytest.mark.skip("wallet_holds missing — run alembic upgrade head")
 
 
 @pytest.fixture
@@ -41,17 +38,13 @@ def cleanup():
         return
     with _pool.connection() as conn:
         for jid in ids["jobs"]:
-            conn.execute(
-                "UPDATE jobs SET wallet_hold_id = NULL WHERE job_id=%s", (jid,)
-            )
+            conn.execute("UPDATE jobs SET wallet_hold_id = NULL WHERE job_id=%s", (jid,))
             conn.execute("DELETE FROM jobs WHERE job_id=%s", (jid,))
         for hid in ids["holds"]:
             conn.execute("DELETE FROM wallet_holds WHERE hold_id=%s::uuid", (hid,))
         for cid in ids["customers"]:
             conn.execute("DELETE FROM wallet_holds WHERE customer_id=%s", (cid,))
-            conn.execute(
-                "DELETE FROM wallet_transactions WHERE customer_id=%s", (cid,)
-            )
+            conn.execute("DELETE FROM wallet_transactions WHERE customer_id=%s", (cid,))
             conn.execute("DELETE FROM wallets WHERE customer_id=%s", (cid,))
         conn.commit()
 
@@ -73,9 +66,7 @@ def test_available_balance_subtracts_active_holds(cleanup):
     assert float(w["available_cad"]) == pytest.approx(10.0)
     assert float(w["held_cad"]) == pytest.approx(0.0)
 
-    h = eng.create_wallet_hold(
-        cid, 4.0, idempotency_key=f"t1-{cid}", expires_in_sec=600
-    )
+    h = eng.create_wallet_hold(cid, 4.0, idempotency_key=f"t1-{cid}", expires_in_sec=600)
     assert h["held"] is True
     cleanup["holds"].append(h["hold_id"])
 

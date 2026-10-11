@@ -90,9 +90,9 @@ def test_the_worker_callback_is_not_given_a_user_scope():
         "the auto-launch report no longer authenticates as the worker agent; if "
         "it became a user route, it needs a user scope after all"
     )
-    assert "instances:connect" not in source, (
-        "the worker callback was given a user scope — it has no user principal"
-    )
+    assert (
+        "instances:connect" not in source
+    ), "the worker callback was given a user scope — it has no user principal"
 
 
 def test_the_scope_is_described_where_it_is_granted():

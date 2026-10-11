@@ -87,9 +87,7 @@ def api_admin_users(request: Request):
             # balance_micros is the authoritative column; 087 dropped the float
             # projection. Converted here rather than in SQL so the rounding is
             # the same one every other caller gets.
-            for wr in conn.execute(
-                "SELECT customer_id, balance_micros FROM wallets"
-            ).fetchall():
+            for wr in conn.execute("SELECT customer_id, balance_micros FROM wallets").fetchall():
                 wallet_map[wr["customer_id"]] = micros_to_cad(wr["balance_micros"] or 0)
             for jr in conn.execute(
                 "SELECT owner, COUNT(*) AS cnt, MAX(created_at) AS last_at FROM usage_meters GROUP BY owner"
@@ -471,9 +469,7 @@ def api_admin_overview(request: Request, days: int = 30):
         log.debug("admin_overview: billing insights failed: %s", e)
 
     usage_window = spot_revenue_window + on_demand_revenue_window
-    spot_share_pct = (
-        round(spot_revenue_window / usage_window * 100, 1) if usage_window > 0 else 0.0
-    )
+    spot_share_pct = round(spot_revenue_window / usage_window * 100, 1) if usage_window > 0 else 0.0
 
     return {
         "ok": True,
@@ -748,8 +744,7 @@ def api_admin_revenue(request: Request, days: int = 90):
                 (since,),
             ).fetchall()
             result["by_pricing_mode"] = [
-                {"mode": r["mode"], "revenue": float(r["revenue"]), "jobs": r["jobs"]}
-                for r in rows
+                {"mode": r["mode"], "revenue": float(r["revenue"]), "jobs": r["jobs"]} for r in rows
             ]
             dep_rows = conn.execute(
                 """SELECT to_char(to_timestamp(created_at), 'YYYY-MM-DD') AS day,
@@ -865,9 +860,16 @@ def api_admin_unit_economics(request: Request, days: int = 30):
                 label = band_labels[3]
             bucket = bands.setdefault(
                 label,
-                {"gpu_revenue_cad": 0.0, "token_revenue_cad": 0.0, "gpu_seconds": 0, "billed_cycles": 0},
+                {
+                    "gpu_revenue_cad": 0.0,
+                    "token_revenue_cad": 0.0,
+                    "gpu_seconds": 0,
+                    "billed_cycles": 0,
+                },
             )
-            bucket["gpu_revenue_cad"] = round(bucket["gpu_revenue_cad"] + float(row["gpu_revenue"] or 0.0), 4)
+            bucket["gpu_revenue_cad"] = round(
+                bucket["gpu_revenue_cad"] + float(row["gpu_revenue"] or 0.0), 4
+            )
             bucket["token_revenue_cad"] = round(
                 bucket["token_revenue_cad"] + float(row["token_cost"] or 0.0), 4
             )
@@ -884,6 +886,7 @@ def api_admin_unit_economics(request: Request, days: int = 30):
     # ── Activation funnel (all-time): of everyone who signed up, how far did they get? ──
     try:
         with be._conn() as conn:
+
             def _count(sql: str) -> int:
                 row = conn.execute(sql).fetchone()
                 return int(row["c"]) if row and row.get("c") is not None else 0
@@ -940,7 +943,11 @@ def api_admin_unit_economics(request: Request, days: int = 30):
                 (time.time() - 56 * 86400,),
             ).fetchall()
             result["weekly"] = [
-                {"week": r["week"], "revenue": float(r["revenue"]), "gpu_hours": float(r["gpu_hours"])}
+                {
+                    "week": r["week"],
+                    "revenue": float(r["revenue"]),
+                    "gpu_hours": float(r["gpu_hours"]),
+                }
                 for r in rows
             ]
     except Exception:
@@ -1005,17 +1012,13 @@ def api_admin_infrastructure(request: Request):
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
-            by_status = conn.execute(
-                """SELECT status, COUNT(*) AS cnt
+            by_status = conn.execute("""SELECT status, COUNT(*) AS cnt
                    FROM volumes WHERE status != 'deleted'
-                   GROUP BY status"""
-            ).fetchall()
-            totals = conn.execute(
-                """SELECT COUNT(*) AS total,
+                   GROUP BY status""").fetchall()
+            totals = conn.execute("""SELECT COUNT(*) AS total,
                           COALESCE(SUM(size_gb), 0) AS total_gb,
                           COUNT(*) FILTER (WHERE encrypted) AS encrypted_count
-                   FROM volumes WHERE status != 'deleted'"""
-            ).fetchone()
+                   FROM volumes WHERE status != 'deleted'""").fetchone()
         volume_stats = {
             "nfs": nfs_storage_healthcheck(),
             "total": int(totals["total"] or 0),
@@ -1594,6 +1597,7 @@ def api_admin_reconciler_findings(request: Request, status: str = "open"):
     _require_admin(request)
     from db import _get_pg_pool
     from psycopg.rows import dict_row
+
     pool = _get_pg_pool()
     with pool.connection() as conn:
         conn.row_factory = dict_row
@@ -1609,24 +1613,26 @@ def api_admin_reconciler_findings(request: Request, status: str = "open"):
             rows = conn.execute(
                 "SELECT * FROM reconciliation_findings ORDER BY created_at DESC"
             ).fetchall()
-            
+
         findings = []
         for r in rows:
-            findings.append({
-                "finding_id": str(r["finding_id"]),
-                "resource_type": r["resource_type"],
-                "resource_id": r["resource_id"],
-                "tenant_id": r["tenant_id"],
-                "finding_type": r["finding_type"],
-                "severity": r["severity"],
-                "summary": r["summary"],
-                "desired": r["desired"],
-                "observed": r["observed"],
-                "action_taken": r["action_taken"],
-                "action_result": r["action_result"],
-                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
-                "resolved_at": r["resolved_at"].isoformat() if r["resolved_at"] else None,
-            })
+            findings.append(
+                {
+                    "finding_id": str(r["finding_id"]),
+                    "resource_type": r["resource_type"],
+                    "resource_id": r["resource_id"],
+                    "tenant_id": r["tenant_id"],
+                    "finding_type": r["finding_type"],
+                    "severity": r["severity"],
+                    "summary": r["summary"],
+                    "desired": r["desired"],
+                    "observed": r["observed"],
+                    "action_taken": r["action_taken"],
+                    "action_result": r["action_result"],
+                    "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                    "resolved_at": r["resolved_at"].isoformat() if r["resolved_at"] else None,
+                }
+            )
         return {"ok": True, "findings": findings}
 
 
@@ -1661,7 +1667,7 @@ def api_admin_reconciler_enforce(finding_id: str, request: Request):
         _expedite_lease_expiry,
         _release_orphaned_allocations,
     )
-    
+
     pool = _get_pg_pool()
     with pool.connection() as conn:
         conn.row_factory = dict_row
@@ -1670,31 +1676,35 @@ def api_admin_reconciler_enforce(finding_id: str, request: Request):
         ).fetchone()
         if not finding:
             raise HTTPException(status_code=404, detail="Finding not found")
-            
+
         if finding["resolved_at"] is not None:
             raise HTTPException(status_code=400, detail="Finding is already resolved")
-            
+
         finding_type = finding["finding_type"]
         resource_id = finding["resource_id"]
         observed = finding["observed"] or {}
         desired = finding["desired"] or {}
-        
+
         action_taken = None
         action_result = {}
-        
+
         if finding_type == "attempt_container_missing":
             # Expedite lease expiry on the attempt
             attempt_id = observed.get("attempt_id") or desired.get("attempt_id")
             if not attempt_id:
-                raise HTTPException(status_code=400, detail="Could not identify attempt_id for enforcement")
+                raise HTTPException(
+                    status_code=400, detail="Could not identify attempt_id for enforcement"
+                )
             action_taken = "expire_lease"
             action_result = _expedite_lease_expiry(conn, attempt_id=attempt_id)
-            
+
         elif finding_type == "stale_fence_container":
             # Stop the stale container
             container_name = observed.get("container_name")
             if not container_name:
-                raise HTTPException(status_code=400, detail="Could not identify container_name for enforcement")
+                raise HTTPException(
+                    status_code=400, detail="Could not identify container_name for enforcement"
+                )
             action_taken = "stop_container"
             action_result = _enqueue_stop_container(
                 conn,
@@ -1702,7 +1712,7 @@ def api_admin_reconciler_enforce(finding_id: str, request: Request):
                 container_name=str(container_name),
                 reason="Manually enforced remediation for stale fence container",
             )
-            
+
         elif finding_type == "orphaned_allocation":
             # Release orphaned allocations
             orphans = observed.get("orphans", [])
@@ -1711,13 +1721,13 @@ def api_admin_reconciler_enforce(finding_id: str, request: Request):
                 raise HTTPException(status_code=400, detail="No allocation_ids found to release")
             action_taken = "release_allocation"
             action_result = _release_orphaned_allocations(conn, allocation_ids)
-            
+
         else:
             raise HTTPException(
                 status_code=400,
-                detail=f"No manual enforcement defined for finding type '{finding_type}'"
+                detail=f"No manual enforcement defined for finding type '{finding_type}'",
             )
-            
+
         conn.execute(
             """
             UPDATE reconciliation_findings
@@ -1728,7 +1738,7 @@ def api_admin_reconciler_enforce(finding_id: str, request: Request):
             """,
             (action_taken, Jsonb(action_result), finding_id),
         )
-        
+
         return {
             "ok": True,
             "finding_id": finding_id,
@@ -1743,6 +1753,7 @@ def api_admin_reconciler_dismiss(finding_id: str, request: Request):
     _require_admin(request)
     _reconciler_finding_uuid(finding_id)
     from db import _get_pg_pool
+
     pool = _get_pg_pool()
     with pool.connection() as conn:
         # `RETURNING` rather than a bare UPDATE: the previous version answered
@@ -1782,7 +1793,7 @@ def api_admin_reconcile_host(host_id: str, request: Request):
     _require_admin(request)
     from db import _get_pg_pool
     from control_plane.reconcile import reconcile_host
-    
+
     pool = _get_pg_pool()
     with pool.connection() as conn:
         report = reconcile_host(conn, host_id)
@@ -1794,7 +1805,7 @@ def api_admin_reconcile_host(host_id: str, request: Request):
                 "findings_opened": report.findings_opened,
                 "findings_resolved": report.findings_resolved,
                 "actions_taken": report.actions_taken,
-            }
+            },
         }
 
 
@@ -1804,6 +1815,7 @@ def api_admin_control_plane_jobs(request: Request):
     _require_admin(request)
     from db import _get_pg_pool
     from psycopg.rows import dict_row
+
     pool = _get_pg_pool()
     with pool.connection() as conn:
         conn.row_factory = dict_row
@@ -1811,7 +1823,7 @@ def api_admin_control_plane_jobs(request: Request):
         jobs_rows = conn.execute(
             "SELECT job_id, status, active_attempt_id, submitted_at, payload FROM jobs ORDER BY submitted_at DESC LIMIT 100"
         ).fetchall()
-        
+
         jobs = []
         for r in jobs_rows:
             jid = r["job_id"]
@@ -1828,39 +1840,50 @@ def api_admin_control_plane_jobs(request: Request):
                 """,
                 (jid,),
             ).fetchall()
-            
+
             attempts = []
             for ar in attempts_rows:
-                attempts.append({
-                    "attempt_id": str(ar["attempt_id"]),
-                    "host_id": ar["host_id"],
-                    "status": ar["status"],
-                    "fencing_token": ar["fencing_token"],
-                    "lease_claimed_at": ar["lease_claimed_at"].isoformat() if ar["lease_claimed_at"] else None,
-                    "lease_expires_at": ar["lease_expires_at"].isoformat() if ar["lease_expires_at"] else None,
-                    "created_at": ar["created_at"].isoformat() if ar["created_at"] else None,
-                    "finished_at": ar["finished_at"].isoformat() if ar["finished_at"] else None,
-                })
-                
+                attempts.append(
+                    {
+                        "attempt_id": str(ar["attempt_id"]),
+                        "host_id": ar["host_id"],
+                        "status": ar["status"],
+                        "fencing_token": ar["fencing_token"],
+                        "lease_claimed_at": (
+                            ar["lease_claimed_at"].isoformat() if ar["lease_claimed_at"] else None
+                        ),
+                        "lease_expires_at": (
+                            ar["lease_expires_at"].isoformat() if ar["lease_expires_at"] else None
+                        ),
+                        "created_at": ar["created_at"].isoformat() if ar["created_at"] else None,
+                        "finished_at": ar["finished_at"].isoformat() if ar["finished_at"] else None,
+                    }
+                )
+
             payload = r["payload"] or {}
             # If payload is a string (legacy/unparsed), load it or default to empty dict
             if isinstance(payload, str):
                 import json
+
                 try:
                     payload = json.loads(payload)
                 except Exception:
                     payload = {}
-                    
-            jobs.append({
-                "job_id": jid,
-                "status": r["status"],
-                "active_attempt_id": str(r["active_attempt_id"]) if r["active_attempt_id"] else None,
-                "queue_reason": payload.get("queue_reason"),
-                "queue_reason_detail": payload.get("queue_reason_detail"),
-                "submitted_at": r["submitted_at"],
-                "attempts": attempts,
-            })
-            
+
+            jobs.append(
+                {
+                    "job_id": jid,
+                    "status": r["status"],
+                    "active_attempt_id": (
+                        str(r["active_attempt_id"]) if r["active_attempt_id"] else None
+                    ),
+                    "queue_reason": payload.get("queue_reason"),
+                    "queue_reason_detail": payload.get("queue_reason_detail"),
+                    "submitted_at": r["submitted_at"],
+                    "attempts": attempts,
+                }
+            )
+
         return {"ok": True, "jobs": jobs}
 
 
@@ -1870,29 +1893,31 @@ def api_admin_control_plane_scheduled_tasks(request: Request):
     _require_admin(request)
     from db import _get_pg_pool
     from psycopg.rows import dict_row
+
     pool = _get_pg_pool()
     with pool.connection() as conn:
         conn.row_factory = dict_row
-        rows = conn.execute(
-            "SELECT * FROM scheduled_tasks ORDER BY task_name LIMIT 100"
-        ).fetchall()
-        
+        rows = conn.execute("SELECT * FROM scheduled_tasks ORDER BY task_name LIMIT 100").fetchall()
+
         tasks = []
         for r in rows:
-            tasks.append({
-                "task_name": r["task_name"],
-                "enabled": r["enabled"],
-                "interval_seconds": r["interval_seconds"],
-                "next_run_at": r["next_run_at"].isoformat() if r["next_run_at"] else None,
-                "last_run_at": r["last_run_at"].isoformat() if r["last_run_at"] else None,
-                "last_status": r["last_status"],
-                "last_error": r["last_error"],
-                "claim_owner": r["claim_owner"],
-                "claim_expires_at": r["claim_expires_at"].isoformat() if r["claim_expires_at"] else None,
-                "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
-            })
+            tasks.append(
+                {
+                    "task_name": r["task_name"],
+                    "enabled": r["enabled"],
+                    "interval_seconds": r["interval_seconds"],
+                    "next_run_at": r["next_run_at"].isoformat() if r["next_run_at"] else None,
+                    "last_run_at": r["last_run_at"].isoformat() if r["last_run_at"] else None,
+                    "last_status": r["last_status"],
+                    "last_error": r["last_error"],
+                    "claim_owner": r["claim_owner"],
+                    "claim_expires_at": (
+                        r["claim_expires_at"].isoformat() if r["claim_expires_at"] else None
+                    ),
+                    "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
+                }
+            )
         return {"ok": True, "tasks": tasks}
-
 
 
 # ── Per-host agent tokens (blueprint §19.2 — field-wide bearer rotation) ──
@@ -1942,9 +1967,7 @@ def api_admin_issue_host_agent_token(host_id: str, request: Request):
     actor = str((user or {}).get("user_id") or (user or {}).get("email") or "admin")
     try:
         issued = run_transaction(
-            lambda c: issue_token(
-                c, host_id, issued_by=actor, reason="admin_issue"
-            ),
+            lambda c: issue_token(c, host_id, issued_by=actor, reason="admin_issue"),
             what="admin_issue_host_agent_token",
         )
     except UnknownHost as exc:

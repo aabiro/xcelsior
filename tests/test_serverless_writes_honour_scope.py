@@ -208,8 +208,9 @@ def _v1_operations() -> set[tuple[str, str]]:
         # that does. Without the second clause this counts every `/v1` handler
         # as unscoped no matter what the resolver does, and the ratchet becomes
         # a measure of coding style rather than of enforcement.
-        if "_require_scope" in calls or ("_resolve_serverless_endpoint_auth" in calls
-                                         and _resolver_checks_user_scope()):
+        if "_require_scope" in calls or (
+            "_resolve_serverless_endpoint_auth" in calls and _resolver_checks_user_scope()
+        ):
             continue
         for d in node.decorator_list:
             if not isinstance(d, ast.Call) or not d.args:

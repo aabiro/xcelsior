@@ -177,7 +177,8 @@ def _hot_mount_volume(args: dict) -> bool:
     host_mount = f"{MANAGED_VOLUME_HOST_DIR}/{volume_id}"
     nfs_server = str(args.get("nfs_server") or os.environ.get("XCELSIOR_NFS_SERVER", ""))
     nfs_export_base = str(
-        args.get("nfs_export_base") or os.environ.get("XCELSIOR_NFS_EXPORT_BASE", "/exports/volumes")
+        args.get("nfs_export_base")
+        or os.environ.get("XCELSIOR_NFS_EXPORT_BASE", "/exports/volumes")
     )
     if not nfs_server:
         log.warning("mount_volume: XCELSIOR_NFS_SERVER not configured")

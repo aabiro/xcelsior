@@ -108,9 +108,7 @@ def _mk_attempt_owned_stuck(cleanup, *, age_sec: float) -> str:
             (job_id, stale, host_id, json.dumps(payload)),
         )
         # fencing_token must be unique — use sequence when available.
-        fence = conn.execute(
-            "SELECT nextval('placement_fencing_token_seq')"
-        ).fetchone()
+        fence = conn.execute("SELECT nextval('placement_fencing_token_seq')").fetchone()
         fence_val = fence[0] if not isinstance(fence, dict) else fence["nextval"]
         conn.execute(
             """INSERT INTO job_attempts
@@ -205,9 +203,7 @@ class TestStuckJobDomainFail:
                 (job_id,),
             )
             conn.commit()
-        result = fail_stuck_legacy_job(
-            job_id, stuck_status="assigned", timeout_sec=180
-        )
+        result = fail_stuck_legacy_job(job_id, stuck_status="assigned", timeout_sec=180)
         assert result is None
         assert _job_status(job_id)["status"] == "running"
 

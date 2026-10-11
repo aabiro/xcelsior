@@ -210,8 +210,7 @@ def test_a_deliberately_public_route_stays_reachable(method, path, body, auth_en
     _assert_enforced(auth_enforced)
     r = _call(method, path, body)
     assert r.status_code != 401, (
-        f"{method} {path} is public by design and now refuses anonymous "
-        f"callers: {r.text[:200]}"
+        f"{method} {path} is public by design and now refuses anonymous " f"callers: {r.text[:200]}"
     )
 
 
@@ -227,9 +226,7 @@ def test_an_authenticated_caller_is_not_refused_as_anonymous(auth_enforced):
         "/api/auth/register",
         json={"email": email, "password": "StrongPass123!", "name": "Transp"},
     )
-    login = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
 
     r = client.get("/api/transparency/report", headers=headers)

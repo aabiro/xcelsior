@@ -25,10 +25,7 @@ try:
     _pool = _get_pg_pool()
     with _pool.connection() as _c:
         _c.execute("SELECT 1").fetchone()
-        _has_events = (
-            _c.execute("SELECT to_regclass('public.events')").fetchone()[0]
-            is not None
-        )
+        _has_events = _c.execute("SELECT to_regclass('public.events')").fetchone()[0] is not None
 except Exception as _e:  # pragma: no cover
     pytestmark = pytest.mark.skip(f"no pg pool available: {_e}")
     _pool = None
@@ -186,9 +183,9 @@ def _append_n(entity_type: str, entity_id: str, n: int, actor: str) -> list[str]
     for i in range(n):
         evt = es.append(
             Event(
-                event_type=EventType.JOB_SUBMITTED
-                if entity_type == "job"
-                else EventType.HOST_REGISTERED,
+                event_type=(
+                    EventType.JOB_SUBMITTED if entity_type == "job" else EventType.HOST_REGISTERED
+                ),
                 entity_type=entity_type,
                 entity_id=entity_id,
                 actor=actor,
@@ -325,9 +322,9 @@ def _append_n_skewed(entity_type: str, entity_id: str, n: int, actor: str, skew:
         # Decreasing pre-lock timestamps — worst case vs lock order.
         evt = es.append(
             Event(
-                event_type=EventType.JOB_SUBMITTED
-                if entity_type == "job"
-                else EventType.HOST_REGISTERED,
+                event_type=(
+                    EventType.JOB_SUBMITTED if entity_type == "job" else EventType.HOST_REGISTERED
+                ),
                 entity_type=entity_type,
                 entity_id=entity_id,
                 actor=actor,
@@ -351,12 +348,8 @@ def test_concurrent_same_stream_with_skewed_prelock_timestamps(clean_events):
     n_each = 10
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-        f1 = pool.submit(
-            _append_n_skewed, "job", stream, n_each, "skew-future", 50_000.0
-        )
-        f2 = pool.submit(
-            _append_n_skewed, "job", stream, n_each, "skew-past", -50_000.0
-        )
+        f1 = pool.submit(_append_n_skewed, "job", stream, n_each, "skew-future", 50_000.0)
+        f2 = pool.submit(_append_n_skewed, "job", stream, n_each, "skew-past", -50_000.0)
         f1.result(timeout=30)
         f2.result(timeout=30)
 

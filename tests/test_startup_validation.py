@@ -129,18 +129,14 @@ def test_rejects_missing_privacy_reference_secret(clean_env):
         "POSTHOG_PROJECT_API_KEY",
     ],
 )
-def test_posthog_identification_requires_deletion_credentials(
-    clean_env, project_key_name
-):
+def test_posthog_identification_requires_deletion_credentials(clean_env, project_key_name):
     clean_env.setenv(project_key_name, "phc_enabled")
     findings = sv.collect_findings()
     assert "posthog_deletion_credentials_missing" in _codes(findings)
 
     clean_env.setenv("XCELSIOR_POSTHOG_PERSONAL_API_KEY", "phx_person_delete")
     clean_env.setenv("XCELSIOR_POSTHOG_PROJECT_ID", "12345")
-    assert "posthog_deletion_credentials_missing" not in _codes(
-        sv.collect_findings()
-    )
+    assert "posthog_deletion_credentials_missing" not in _codes(sv.collect_findings())
 
 
 def test_rejects_unauthenticated_agent_mode(clean_env):
@@ -330,7 +326,9 @@ def test_rejects_analytics_export_with_incomplete_configuration(clean_env):
     clean_env.setenv("XCELSIOR_ANALYTICS_BQ_LOCATION", "northamerica-northeast2")
     clean_env.setenv("XCELSIOR_ANALYTICS_BQ_RAW_DATASET", "xc_raw")
     clean_env.setenv("XCELSIOR_ANALYTICS_GCS_LANDING_BUCKET", "xcelsior-raw-landing")
-    clean_env.setenv("XCELSIOR_ANALYTICS_WORKLOAD_IDENTITY", "service-account@xcelsior.iam.gserviceaccount.com")
+    clean_env.setenv(
+        "XCELSIOR_ANALYTICS_WORKLOAD_IDENTITY", "service-account@xcelsior.iam.gserviceaccount.com"
+    )
     assert "analytics_configuration_incomplete" not in _codes(sv.collect_findings())
 
     # Disabled analytics export produces no findings regardless of empty vars.
@@ -349,7 +347,10 @@ def test_rejects_retrieval_service_with_incomplete_configuration(clean_env):
     clean_env.setenv("XCELSIOR_RETRIEVAL_EMBED_MODEL_PATH", "/models/voyage-3")
     clean_env.setenv("XCELSIOR_RETRIEVAL_CODE_MODEL_PATH", "/models/voyage-3-code")
     clean_env.setenv("XCELSIOR_RETRIEVAL_RERANK_MODEL_PATH", "/models/cohere-rerank-v3.5")
-    clean_env.setenv("XCELSIOR_RETRIEVAL_EXPECTED_MODEL_SHA256", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+    clean_env.setenv(
+        "XCELSIOR_RETRIEVAL_EXPECTED_MODEL_SHA256",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    )
     clean_env.setenv("XCELSIOR_RETRIEVAL_EXPECTED_DIMENSION", "1024")
     clean_env.setenv("XCELSIOR_RETRIEVAL_REVISION", "rev-2026h2-v1")
     assert "retrieval_configuration_incomplete" not in _codes(sv.collect_findings())

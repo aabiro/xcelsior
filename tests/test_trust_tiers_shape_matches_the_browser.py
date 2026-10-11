@@ -100,9 +100,9 @@ def test_the_fields_the_dashboard_reads_are_not_invented():
             "type is finally correct — but `threshold` must then be retired "
             "rather than both existing."
         )
-        assert "requirements" not in entry, (
-            "the API now sends `requirements`; see the note above for `min_score`."
-        )
+        assert (
+            "requirements" not in entry
+        ), "the API now sends `requirements`; see the note above for `min_score`."
 
 
 def test_the_tier_name_is_a_name_and_not_an_index():
@@ -168,15 +168,15 @@ def test_the_hardcoded_reputation_ladder_still_matches_the_server():
     hardcoded = _hardcoded_ladder()
 
     assert hardcoded, "could not parse `TIERS` from the reputation page; re-point this guard"
-    assert set(hardcoded) == set(served), (
-        f"the page's ladder lists {sorted(hardcoded)} and the server serves {sorted(served)}"
-    )
+    assert set(hardcoded) == set(
+        served
+    ), f"the page's ladder lists {sorted(hardcoded)} and the server serves {sorted(served)}"
 
     for tier, local in sorted(hardcoded.items()):
         remote = served[tier]
-        assert int(local["threshold"]) == int(remote["threshold"]), (
-            f"{tier}: page says {local['threshold']} points, server says {remote['threshold']}"
-        )
+        assert int(local["threshold"]) == int(
+            remote["threshold"]
+        ), f"{tier}: page says {local['threshold']} points, server says {remote['threshold']}"
         # Fractions on the wire, formatted strings on the page: compare numbers.
         assert float(local["pricing_premium_pct"].rstrip("%")) == round(
             float(remote["pricing_premium_pct"]) * 100
