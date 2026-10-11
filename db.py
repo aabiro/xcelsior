@@ -848,6 +848,25 @@ class DatabaseOps:
         return DatabaseOps.decode_payload(payload)
 
     @staticmethod
+    def get_states(conn, namespaces, backend="sqlite"):
+        """Load several state namespaces in one query: {namespace: payload}."""
+        namespaces = list(dict.fromkeys(namespaces))
+        if not namespaces:
+            return {}
+        ph = "%s" if backend == "postgres" else "?"
+        rows = conn.execute(
+            f"SELECT namespace, payload FROM state WHERE namespace IN ({', '.join([ph] * len(namespaces))})",
+            tuple(namespaces),
+        ).fetchall()
+        found = {}
+        for row in rows:
+            name, payload = (
+                (row["namespace"], row["payload"]) if isinstance(row, dict) else (row[0], row[1])
+            )
+            found[name] = DatabaseOps.decode_payload(payload)
+        return found
+
+    @staticmethod
     def query_hosts_by_gpu(conn, gpu_model=None, min_vram_gb=None, backend="sqlite"):
         """Query hosts using JSONB operators (Postgres) or payload scan (SQLite).
 

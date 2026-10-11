@@ -20,6 +20,7 @@ SIGNABLE = (
     "worker_luks_volumes.py",
     "env_config.py",
     "criu_hosts.py",
+    "egress_isolation.py",
 )
 
 

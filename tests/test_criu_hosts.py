@@ -98,8 +98,15 @@ def test_host_accepts_resumable_job_only_on_criu_hosts():
         "status": "active",
         "gpu_count": 1,
         "checkpoint_class": "gpu-criu",
+        "capabilities": {"egress_isolation": True},
     }
-    plain_host = {"host_id": "h-plain", "status": "active", "gpu_count": 1, "checkpoint_class": ""}
+    plain_host = {
+        "host_id": "h-plain",
+        "status": "active",
+        "gpu_count": 1,
+        "checkpoint_class": "",
+        "capabilities": {"egress_isolation": True},
+    }
     assert host_accepts_job(criu_host, job, jobs=[]) is True
     assert host_accepts_job(plain_host, job, jobs=[]) is False
 

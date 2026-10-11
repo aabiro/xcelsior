@@ -166,6 +166,7 @@ def _make_host(
         "cost_per_hour": cost_per_hour,
         "status": status,
         "admitted": admitted,
+        "capabilities": {"egress_isolation": True},
         "gpu_count": gpu_count,
         "compute_score": compute_score,
         "recommended_runtime": recommended_runtime,

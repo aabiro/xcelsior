@@ -488,8 +488,22 @@ def host_accepts_spot_job(host: dict, job: dict, jobs: list[dict] | None = None)
     return total_used + needed <= total_gpus and spot_used + needed <= spot_slots
 
 
+def host_isolates_egress(host: dict | None) -> bool:
+    """The host verified its tenant egress isolation on its last heartbeat."""
+    caps = (host or {}).get("capabilities")
+    return isinstance(caps, dict) and caps.get("egress_isolation") is True
+
+
+def host_can_run_egress(host: dict | None, job: dict) -> bool:
+    from egress_isolation import RESTRICTED, job_egress
+
+    return job_egress(job) != RESTRICTED or host_isolates_egress(host)
+
+
 def host_accepts_job(host: dict, job: dict, jobs: list[dict] | None = None) -> bool:
     """Return True if host has capacity and checkpoint compatibility for the job."""
+    if not host_can_run_egress(host, job):
+        return False
     try:
         from criu_hosts import host_supports_checkpoint, job_is_resumable
 
@@ -642,7 +656,19 @@ def _allocate_candidates(job, hosts, jobs: list[dict] | None = None):
         return []
     candidates = admitted_candidates
 
-    return candidates
+    isolated = [h for h in candidates if host_can_run_egress(h, job)]
+    if not isolated:
+        _now = time.time()
+        _jkey = f"egress:{job.get('job_id', '?')}"
+        if _now - _allocate_blocked_notified.get(_jkey, 0) >= 300:
+            _allocate_blocked_notified[_jkey] = _now
+            log.warning(
+                "ALLOCATE BLOCKED: %d admitted hosts but none has verified egress isolation (job=%s)",
+                len(candidates),
+                job.get("name", "?"),
+            )
+        return []
+    return isolated
 
 
 def allocate(job, hosts, jobs: list[dict] | None = None):
@@ -1849,10 +1875,15 @@ def submit_job(
         except Exception:
             pass
 
+    from abuse_policy import egress_for_owner
+
     job = {
         "job_id": str(job_id).strip() if job_id else str(uuid.uuid4())[:8],
         "name": name,
         "owner": owner,
+        # Decided here from the account, never from the request: the worker
+        # starts every container restricted unless this says "open".
+        "egress": egress_for_owner({"owner": owner}),
         "vram_needed_gb": vram_needed_gb,
         "priority": priority,
         "tier": tier,

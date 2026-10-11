@@ -93,6 +93,7 @@ class TestAllocate:
                 "gpu_model": "A",
                 "cost_per_hour": 0.20,
                 "admitted": True,
+                "capabilities": {"egress_isolation": True},
             },
             {
                 "host_id": "h2",
@@ -102,6 +103,7 @@ class TestAllocate:
                 "gpu_model": "B",
                 "cost_per_hour": 0.20,
                 "admitted": True,
+                "capabilities": {"egress_isolation": True},
             },
         ]
         result = scheduler.allocate({"name": "job1", "vram_needed_gb": 8}, hosts)
@@ -117,6 +119,7 @@ class TestAllocate:
                 "gpu_model": "A",
                 "cost_per_hour": 0.20,
                 "admitted": True,
+                "capabilities": {"egress_isolation": True},
             },
             {
                 "host_id": "h2",
@@ -126,6 +129,7 @@ class TestAllocate:
                 "gpu_model": "B",
                 "cost_per_hour": 0.20,
                 "admitted": True,
+                "capabilities": {"egress_isolation": True},
             },
         ]
         result = scheduler.allocate({"name": "job1", "vram_needed_gb": 8}, hosts)
@@ -141,6 +145,7 @@ class TestAllocate:
                 "gpu_model": "A",
                 "cost_per_hour": 0.50,
                 "admitted": True,
+                "capabilities": {"egress_isolation": True},
             },
             {
                 "host_id": "h2",
@@ -150,6 +155,7 @@ class TestAllocate:
                 "gpu_model": "B",
                 "cost_per_hour": 0.20,
                 "admitted": True,
+                "capabilities": {"egress_isolation": True},
             },
         ]
         result = scheduler.allocate({"name": "job1", "vram_needed_gb": 8}, hosts)
@@ -166,6 +172,7 @@ class TestAllocate:
                 "gpu_model": "RTX 3060",
                 "cost_per_hour": 0.35,
                 "admitted": True,
+                "capabilities": {"egress_isolation": True},
             },
         ]
         result = scheduler.allocate(
@@ -184,6 +191,7 @@ class TestAllocate:
                 "gpu_model": "RTX 2060",
                 "cost_per_hour": 0.20,
                 "admitted": True,
+                "capabilities": {"egress_isolation": True},
             },
             {
                 "host_id": "h3060",
@@ -193,6 +201,7 @@ class TestAllocate:
                 "gpu_model": "RTX 3060",
                 "cost_per_hour": 0.35,
                 "admitted": True,
+                "capabilities": {"egress_isolation": True},
             },
         ]
         result = scheduler.allocate(
@@ -481,14 +490,18 @@ class TestFailover:
     def test_requeue_mining_terminated_job_rejected(self):
         job = scheduler.submit_job("test", 8)
         scheduler.update_job_status(job["job_id"], "running", host_id="h1")
-        scheduler.update_job_status(job["job_id"], "terminated", host_id="h1", policy_reason="mining_detected")
+        scheduler.update_job_status(
+            job["job_id"], "terminated", host_id="h1", policy_reason="mining_detected"
+        )
         assert scheduler.requeue_job(job["job_id"]) is None
         assert scheduler.requeue_job(job["job_id"], user_initiated=True) is None
 
     def test_policy_terminated_job_cannot_be_advanced(self):
         job = scheduler.submit_job("test", 8)
         scheduler.update_job_status(job["job_id"], "running", host_id="h1")
-        scheduler.update_job_status(job["job_id"], "terminated", host_id="h1", policy_reason="mining_detected")
+        scheduler.update_job_status(
+            job["job_id"], "terminated", host_id="h1", policy_reason="mining_detected"
+        )
         with pytest.raises(ValueError, match="permanently terminated by security policy"):
             scheduler.update_job_status(job["job_id"], "running", host_id="h1")
 
@@ -496,7 +509,9 @@ class TestFailover:
         job = scheduler.submit_job("test", 8)
         scheduler.update_job_status(job["job_id"], "running", host_id="h1")
         with pytest.raises(ValueError, match="Invalid or stale policy termination"):
-            scheduler.update_job_status(job["job_id"], "terminated", host_id="wrong_host", policy_reason="mining_detected")
+            scheduler.update_job_status(
+                job["job_id"], "terminated", host_id="wrong_host", policy_reason="mining_detected"
+            )
 
 
 # ── Phase 15: Priority Tiers ────────────────────────────────────────

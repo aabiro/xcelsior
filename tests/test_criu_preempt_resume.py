@@ -22,6 +22,7 @@ def test_preempt_resume_same_host_no_output_diff():
         cost_per_hour=0.35,
     )
     host["checkpoint_class"] = CHECKPOINT_CLASS_GPU_CRIU
+    host["capabilities"] = {"egress_isolation": True}
 
     job = {
         "job_id": "job-preempt-1",
@@ -54,6 +55,8 @@ def test_preempt_migrate_resume_two_hosts_no_output_diff():
     host_b = register_host("criu-b", "10.0.0.2", "RTX 2060", 6, 6, cost_per_hour=0.35)
     host_a["checkpoint_class"] = CHECKPOINT_CLASS_GPU_CRIU
     host_b["checkpoint_class"] = CHECKPOINT_CLASS_GPU_CRIU
+    for h in (host_a, host_b):
+        h["capabilities"] = {"egress_isolation": True}
 
     job = {
         "job_id": "job-migrate-1",

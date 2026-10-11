@@ -65,6 +65,7 @@ def _insert_host(
                     "host_id": host_id,
                     "status": status,
                     "admitted": admission == "admitted",
+                    "capabilities": {"egress_isolation": True},
                     "gpu_model": "RTX 4090",
                     "gpu_count": 1,
                     "compute_score": 8.3,

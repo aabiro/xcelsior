@@ -156,7 +156,7 @@ verify_agent_signature() {
 # scripts/sign-static-agent.py::SIGNABLE and routes/static.py::_SIGNABLE).
 # These are imported/executed with full worker-agent privileges, so every
 # one of them — not just worker_agent.py itself — must be signature-checked.
-SIGNABLE_FILES="worker_agent.py security.py nvml_telemetry.py worker_image_cache.py worker_nfs.py worker_nvme_cache.py worker_luks_volumes.py env_config.py criu_hosts.py"
+SIGNABLE_FILES="worker_agent.py security.py nvml_telemetry.py worker_image_cache.py worker_nfs.py worker_nvme_cache.py worker_luks_volumes.py env_config.py criu_hosts.py egress_isolation.py"
 
 _is_signable() {
     local name="$1" f
@@ -219,6 +219,7 @@ install_agent() {
     download_static_file "worker_luks_volumes.py" "$CONFIG_DIR/lib/worker_luks_volumes.py"
     download_static_file "env_config.py" "$CONFIG_DIR/lib/env_config.py"
     download_static_file "criu_hosts.py" "$CONFIG_DIR/lib/criu_hosts.py"
+    download_static_file "egress_isolation.py" "$CONFIG_DIR/lib/egress_isolation.py"
     chmod +x "$AGENT_PATH"
 
     setup_agent_venv
@@ -296,7 +297,113 @@ EOF
     fi
 }
 
+# ── Network protection for rented containers ─────────────────────────
+# Rented containers reach the internet only through an allowlisting proxy on
+# this machine (egress_isolation.py). Root runs the provisioner from a
+# root-owned copy; the worker only reads the status file it writes, and gets
+# no rentals while that status is missing or stale.
+
+install_egress_isolation() {
+    info "Setting up network protection for rented containers..."
+    if ! command -v squid >/dev/null 2>&1; then
+        sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq squid >/dev/null 2>&1 \
+            || { sudo apt-get update -qq >/dev/null 2>&1 \
+                 && sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq squid >/dev/null; } \
+            || fail "Could not install squid, which protects rented containers"
+    fi
+    # The packaged service listens on every interface; ours binds only the
+    # rented containers' gateway.
+    sudo systemctl disable --now squid.service >/dev/null 2>&1 || true
+    sudo systemctl mask squid.service >/dev/null 2>&1 || true
+
+    sudo install -d -m 0755 -o root -g root /usr/local/lib/xcelsior
+    sudo install -m 0644 -o root -g root "$CONFIG_DIR/lib/egress_isolation.py" \
+        /usr/local/lib/xcelsior/egress_isolation.py
+
+    local unit_tmp
+    unit_tmp="$(mktemp -d)"
+    cat > "$unit_tmp/xcelsior-egress.service" <<'EOF'
+[Unit]
+Description=Xcelsior network protection for rented containers
+After=docker.service
+Requires=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/xcelsior/egress_isolation.py provision
+
+[Install]
+WantedBy=multi-user.target docker.service
+EOF
+    cat > "$unit_tmp/xcelsior-egress.timer" <<'EOF'
+[Unit]
+Description=Re-check Xcelsior network protection for rented containers
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=2min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target
+EOF
+    cat > "$unit_tmp/xcelsior-egress-proxy.service" <<'EOF'
+[Unit]
+Description=Xcelsior proxy for rented containers (allowlisted downloads only)
+After=docker.service xcelsior-egress.service
+Wants=xcelsior-egress.service
+
+[Service]
+User=proxy
+Group=proxy
+RuntimeDirectory=xcelsior-egress-proxy
+ExecStart=/usr/sbin/squid -N -f /etc/xcelsior/egress/squid.conf
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/var/spool/squid
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    local unit
+    for unit in xcelsior-egress.service xcelsior-egress.timer xcelsior-egress-proxy.service; do
+        sudo install -m 0644 "$unit_tmp/$unit" "/etc/systemd/system/$unit"
+    done
+    rm -rf "$unit_tmp"
+    sudo systemctl daemon-reload
+    sudo systemctl enable xcelsior-egress.service xcelsior-egress.timer xcelsior-egress-proxy.service >/dev/null 2>&1
+
+    # The first run creates the network the proxy binds to; the proxy check
+    # passes once squid is listening.
+    sudo systemctl start xcelsior-egress.service >/dev/null 2>&1 || true
+    sudo systemctl restart xcelsior-egress-proxy.service
+    sudo systemctl start xcelsior-egress.timer
+    local i
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+        if sudo systemctl start xcelsior-egress.service >/dev/null 2>&1; then
+            ok "Network protection for rented containers is active"
+            return 0
+        fi
+        sleep 2
+    done
+    warn "Network protection is not ready, so this machine will not receive rentals yet."
+    warn "Details: sudo python3 /usr/local/lib/xcelsior/egress_isolation.py verify"
+}
+
 install_systemd() {
+    install_egress_isolation
+
     info "Installing systemd service..."
 
     local unit_tmp

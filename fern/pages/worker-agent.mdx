@@ -94,17 +94,16 @@ When a job is assigned:
 
 ### Mining Detection
 
-The agent monitors for cryptocurrency mining patterns:
-- GPU utilization sustained above 95%
-- PCIe TX bandwidth under 5MB/s (mining doesn't output much data)
-- Triggers: immediate job kill + reputation penalty
+The agent watches for cryptocurrency mining. When it finds it, it stops the container at once, and the instance can't be restarted.
 
-### Egress Firewall
+### Network Protection for Rented Containers
 
-Containers run with restricted network access:
-- Only allowed destinations: scheduler API, artifact storage
-- No direct internet access from job containers
-- All egress logged for audit
+The installer sets this up and keeps it in place:
+- Rented containers can reach package and model registries only, through a proxy on your machine.
+- They can't reach your other services, your local network, or each other.
+- Your machine receives rentals only while this protection is verified. It's re-checked every two minutes.
+
+To check it yourself: `sudo python3 /usr/local/lib/xcelsior/egress_isolation.py verify`
 
 ### Version Gating
 
