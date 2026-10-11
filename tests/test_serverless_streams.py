@@ -53,9 +53,7 @@ def _register_and_fund() -> dict:
         json={"email": email, "password": "StrongPass123!", "name": "Streams"},
     )
     assert reg.status_code == 200
-    login = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     body = login.json()
     user = reg.json().get("user") or body.get("user") or {}
     headers = {"Authorization": f"Bearer {body['access_token']}"}
@@ -117,9 +115,7 @@ class TestRunsyncOutput:
     def test_empty_output_returns_dict(self):
         assert ServerlessService.normalize_runsync_output({"output": None}) == {}
         assert ServerlessService.normalize_runsync_output({"output": {"x": 1}}) == {"x": 1}
-        assert ServerlessService.normalize_runsync_output({"output": "text"}) == {
-            "output": "text"
-        }
+        assert ServerlessService.normalize_runsync_output({"output": "text"}) == {"output": "text"}
 
 
 class TestCancelInflight:
@@ -203,7 +199,9 @@ class TestStreamRoute:
 
         import routes.serverless as sl_routes
 
-        async def _fake_stream(repo, job_id, *, after_seq=0, request=None, on_disconnect=None, **kwargs):
+        async def _fake_stream(
+            repo, job_id, *, after_seq=0, request=None, on_disconnect=None, **kwargs
+        ):
             if on_disconnect:
                 on_disconnect()
             yield format_error_chunk("job_cancelled", "client disconnected")

@@ -165,9 +165,9 @@ def test_replaying_the_same_key_produces_one_charge_and_says_so(
     first = _charge(engine, probe_customer, key)
     second = _charge(engine, probe_customer, key)
 
-    assert first["stripe_intent_id"] == second["stripe_intent_id"], (
-        "the fake did not honour the idempotency key, so this asserts nothing"
-    )
+    assert (
+        first["stripe_intent_id"] == second["stripe_intent_id"]
+    ), "the fake did not honour the idempotency key, so this asserts nothing"
     assert first["replayed"] is False
     assert second["replayed"] is True, (
         "a replayed charge was reported as a fresh one — the account holder is "
@@ -198,9 +198,9 @@ def test_two_deliberate_topups_with_different_keys_are_two_charges(
 
     assert first["stripe_intent_id"] != second["stripe_intent_id"]
     assert first["replayed"] is False
-    assert second["replayed"] is False, (
-        "a second deliberate top-up was treated as a replay of the first"
-    )
+    assert (
+        second["replayed"] is False
+    ), "a second deliberate top-up was treated as a replay of the first"
 
 
 # ── The two halves of the fix, guarded structurally ────────────────────
@@ -217,9 +217,9 @@ def test_the_route_does_not_claim_a_charge_it_did_not_make():
         "the route ignores the replay flag, so a repeated key answers "
         '"charged: true" for a charge that did not happen'
     )
-    assert '"charged": not replayed' in source, (
-        "`charged` is no longer derived from the replay flag"
-    )
+    assert (
+        '"charged": not replayed' in source
+    ), "`charged` is no longer derived from the replay flag"
 
 
 def test_the_tool_supplies_a_key_when_the_model_omits_one():
@@ -233,11 +233,7 @@ def test_the_tool_supplies_a_key_when_the_model_omits_one():
     import pathlib
 
     source = (
-        pathlib.Path(__file__).resolve().parent.parent
-        / "mcp"
-        / "src"
-        / "tools"
-        / "billing.ts"
+        pathlib.Path(__file__).resolve().parent.parent / "mcp" / "src" / "tools" / "billing.ts"
     ).read_text(encoding="utf-8")
 
     assert "randomUUID" in source, (
@@ -278,6 +274,8 @@ def test_the_wallet_deposit_rail_deduplicates_on_its_key(engine, probe_customer)
         assert count == 1
     finally:
         with pg_connection() as conn:
-            conn.execute("DELETE FROM wallet_transactions WHERE customer_id = %s", (probe_customer,))
+            conn.execute(
+                "DELETE FROM wallet_transactions WHERE customer_id = %s", (probe_customer,)
+            )
             conn.execute("DELETE FROM wallets WHERE customer_id = %s", (probe_customer,))
             conn.commit()

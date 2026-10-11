@@ -65,7 +65,8 @@ def test_the_route_maps_an_sca_decline_to_402_not_charged(monkeypatch) -> None:
 
     engine = rb.get_billing_engine()
     monkeypatch.setattr(
-        type(engine), "resolve_payment_method",
+        type(engine),
+        "resolve_payment_method",
         # The route checks `ok` and then reads `payment_method` — a stub shaped
         # any other way lands in the 409 "which card?" branch and never reaches
         # the charge at all. The first version of this test did exactly that and
@@ -77,7 +78,8 @@ def test_the_route_maps_an_sca_decline_to_402_not_charged(monkeypatch) -> None:
         raising=True,
     )
     monkeypatch.setattr(
-        type(engine), "get_wallet",
+        type(engine),
+        "get_wallet",
         lambda self, customer_id: {"stripe_customer_id": "cus_test", "balance_micros": 0},
         raising=True,
     )
@@ -87,7 +89,8 @@ def test_the_route_maps_an_sca_decline_to_402_not_charged(monkeypatch) -> None:
 
     monkeypatch.setattr(type(engine), "charge_saved_card", refuse, raising=True)
     monkeypatch.setattr(
-        rb, "_get_current_user",
+        rb,
+        "_get_current_user",
         lambda _request: {"user_id": "u-test", "email": "t@x.ca", "auth_type": "session"},
         raising=True,
     )
@@ -110,9 +113,9 @@ def test_the_route_maps_an_sca_decline_to_402_not_charged(monkeypatch) -> None:
     )
     detail = exc.detail
     assert isinstance(detail, dict), f"the 402 detail is not structured: {detail!r}"
-    assert detail.get("charged") is False, (
-        f"the result does not state the card was NOT charged: {detail!r}"
-    )
+    assert (
+        detail.get("charged") is False
+    ), f"the result does not state the card was NOT charged: {detail!r}"
     assert detail.get("reason") == "authentication_required"
     assert PENDING_INTENT_ID in str(detail.get("resume_url", "")), (
         "the resume link does not name the pending intent, so the dashboard "
@@ -124,8 +127,11 @@ def test_the_route_maps_an_sca_decline_to_402_not_charged(monkeypatch) -> None:
 def test_every_authentication_decline_is_recognised_by_the_routes_predicate() -> None:
     """The predicate must cover all three, not just the obvious one."""
     assert rb._AUTHENTICATION_DECLINES, "the decline set is empty"
-    for decline in ("authentication_required", "authentication_not_handled",
-                    "mobile_device_authentication_required"):
+    for decline in (
+        "authentication_required",
+        "authentication_not_handled",
+        "mobile_device_authentication_required",
+    ):
         assert decline in rb._AUTHENTICATION_DECLINES, (
             f"{decline} is not treated as recoverable; a user who simply has not "
             "confirmed yet is told something went wrong"

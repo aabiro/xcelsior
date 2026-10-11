@@ -464,10 +464,7 @@ def get_current_spot_prices_list() -> list[dict[str, Any]]:
     prices = get_current_spot_prices()
     if _latest_quotes:
         return [_latest_quotes[gpu].to_api_dict() for gpu in sorted(_latest_quotes)]
-    return [
-        compute_live_spot_quote(gpu).to_api_dict()
-        for gpu in sorted(prices)
-    ]
+    return [compute_live_spot_quote(gpu).to_api_dict() for gpu in sorted(prices)]
 
 
 def get_spot_price_history(

@@ -158,9 +158,9 @@ def test_a_partial_failure_is_recorded_rather_than_raised(image):
     assert sweep.state == "running", "a partly-launched sweep is not a failed one"
     failed = {m.index for m in sweep.members if m.state == "failed"}
     assert failed == {1, 3}, f"the failed members are not identifiable: {failed}"
-    assert all(m.failure_code for m in sweep.members if m.state == "failed"), (
-        "a failed member recorded no reason"
-    )
+    assert all(
+        m.failure_code for m in sweep.members if m.state == "failed"
+    ), "a failed member recorded no reason"
 
 
 def test_a_sweep_where_nothing_launched_is_failed(image):

@@ -74,9 +74,7 @@ def a_finding():
 @pytest.mark.parametrize("bad", MALFORMED)
 @pytest.mark.parametrize("action", ("dismiss", "enforce"))
 def test_reconciler_routes_answer_404_for_an_unparseable_finding_id(action, bad) -> None:
-    r = client.post(
-        f"/api/admin/reconciler/findings/{bad}/{action}", headers=_admin_headers()
-    )
+    r = client.post(f"/api/admin/reconciler/findings/{bad}/{action}", headers=_admin_headers())
     assert r.status_code < 500, (
         f"/{action} returned {r.status_code} for finding_id={bad!r} — a malformed "
         "id must not read as a server fault"
@@ -123,9 +121,7 @@ def test_a_data_error_anywhere_becomes_a_400_not_a_500() -> None:
 
     @probe.get("/__test__/data-error")
     def _raise_data_error():
-        raise psycopg.errors.InvalidTextRepresentation(
-            'invalid input syntax for type uuid: "nope"'
-        )
+        raise psycopg.errors.InvalidTextRepresentation('invalid input syntax for type uuid: "nope"')
 
     app.include_router(probe)
     try:
@@ -187,9 +183,9 @@ def test_dismissing_an_unknown_finding_is_not_reported_as_success() -> None:
     r = client.post(
         f"/api/admin/reconciler/findings/{uuid.uuid4()}/dismiss", headers=_admin_headers()
     )
-    assert r.status_code == 404, (
-        f"dismissing a finding that does not exist returned {r.status_code}: {r.text[:200]}"
-    )
+    assert (
+        r.status_code == 404
+    ), f"dismissing a finding that does not exist returned {r.status_code}: {r.text[:200]}"
 
 
 def test_dismissing_a_real_finding_resolves_it_once(a_finding) -> None:

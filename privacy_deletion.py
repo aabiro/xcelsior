@@ -33,9 +33,7 @@ SINK_ORDER: tuple[str, ...] = (
     "posthog",
     "verification",
 )
-FINAL_SINK_STATUSES = frozenset(
-    {"completed", "not_applicable", "legal_hold"}
-)
+FINAL_SINK_STATUSES = frozenset({"completed", "not_applicable", "legal_hold"})
 MAX_ERROR_LENGTH = 2_000
 
 
@@ -183,20 +181,12 @@ def _deadline_days() -> int:
             "XCELSIOR_PRIVACY_DELETION_DEADLINE_DAYS must be an integer"
         ) from exc
     if configured < 1 or configured > 45:
-        raise PrivacyDeletionError(
-            "privacy deletion deadline must be between 1 and 45 days"
-        )
+        raise PrivacyDeletionError("privacy deletion deadline must be between 1 and 45 days")
     return configured
 
 
 def _normalize_customer_ids(values: Sequence[str] | None) -> list[str]:
-    return sorted(
-        {
-            str(value).strip()
-            for value in (values or ())
-            if str(value).strip()
-        }
-    )
+    return sorted({str(value).strip() for value in (values or ()) if str(value).strip()})
 
 
 def _append_privacy_event(
@@ -582,9 +572,7 @@ def _record_sink_outcome(
                 """,
                 (
                     retry_at,
-                    (outcome.error or f"{sink} is still pending")[
-                        :MAX_ERROR_LENGTH
-                    ],
+                    (outcome.error or f"{sink} is still pending")[:MAX_ERROR_LENGTH],
                     request_id,
                     claim_token,
                 ),
@@ -641,8 +629,7 @@ def _complete_request(request: Mapping[str, Any], claim_token: str) -> bool:
             (request_id,),
         ).fetchall()
         if len(statuses) != len(SINK_ORDER) or any(
-            str(_row_value(row, "status", 1)) not in FINAL_SINK_STATUSES
-            for row in statuses
+            str(_row_value(row, "status", 1)) not in FINAL_SINK_STATUSES for row in statuses
         ):
             conn.rollback()
             return False
@@ -786,15 +773,8 @@ def _process_claimed_request(
         if str(current["status"]) in FINAL_SINK_STATUSES:
             continue
         if sink == "verification":
-            prior = [
-                by_name[name]
-                for name in SINK_ORDER
-                if name != "verification"
-            ]
-            if any(
-                str(row["status"]) not in FINAL_SINK_STATUSES
-                for row in prior
-            ):
+            prior = [by_name[name] for name in SINK_ORDER if name != "verification"]
+            if any(str(row["status"]) not in FINAL_SINK_STATUSES for row in prior):
                 _release_claim(
                     request_id,
                     claim_token,
@@ -808,18 +788,14 @@ def _process_claimed_request(
         try:
             outcome = handlers[sink](request, current)
         except Exception as exc:
-            log.exception(
-                "privacy deletion %s sink %s failed", request_id, sink
-            )
+            log.exception("privacy deletion %s sink %s failed", request_id, sink)
             outcome = SinkOutcome(
                 status="failed",
                 evidence={"exception_type": type(exc).__name__},
                 retry_after_sec=300,
                 error=str(exc),
             )
-        if not _record_sink_outcome(
-            request_id, sink, claim_token, outcome
-        ):
+        if not _record_sink_outcome(request_id, sink, claim_token, outcome):
             return "lost_claim"
         by_name[sink] = {**current, "status": outcome.status}
         if outcome.status not in FINAL_SINK_STATUSES:

@@ -74,15 +74,22 @@ def hosts():
             conn.execute(f"DELETE FROM {table} WHERE {column} = ANY(%s)", (ids,))
 
 
-def _verification(conn, host_id, *, state, verified_at=None, last_check_at=None,
-                  next_check_at=None, deverified_at=None):
+def _verification(
+    conn,
+    host_id,
+    *,
+    state,
+    verified_at=None,
+    last_check_at=None,
+    next_check_at=None,
+    deverified_at=None,
+):
     conn.execute(
         """INSERT INTO host_verifications
              (host_id, verification_id, state, verified_at, deverified_at,
               last_check_at, next_check_at)
            VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-        (host_id, f"v-{host_id}", state, verified_at, deverified_at,
-         last_check_at, next_check_at),
+        (host_id, f"v-{host_id}", state, verified_at, deverified_at, last_check_at, next_check_at),
     )
 
 
@@ -91,8 +98,13 @@ def _reputation(conn, entity_id, *, tier, final_score, raw_score=None, entity_ty
         """INSERT INTO reputation_scores
              (entity_id, entity_type, tier, final_score, raw_score)
            VALUES (%s, %s, %s, %s, %s)""",
-        (entity_id, entity_type, tier, final_score,
-         final_score if raw_score is None else raw_score),
+        (
+            entity_id,
+            entity_type,
+            tier,
+            final_score,
+            final_score if raw_score is None else raw_score,
+        ),
     )
 
 
@@ -133,9 +145,13 @@ def test_every_field_choose_host_reads_comes_back_from_the_real_tables(hosts):
     month = _month(1, now)
     with pg_transaction() as conn:
         _verification(
-            conn, host_id, state="verified",
-            verified_at=now - 10 * DAY, deverified_at=now - 40 * DAY,
-            last_check_at=now - 2 * DAY, next_check_at=now + 1 * DAY,
+            conn,
+            host_id,
+            state="verified",
+            verified_at=now - 10 * DAY,
+            deverified_at=now - 40 * DAY,
+            last_check_at=now - 2 * DAY,
+            next_check_at=now + 1 * DAY,
         )
         _reputation(conn, host_id, tier="gold", final_score=61.5, raw_score=99.0)
         _sla(conn, host_id, month, total_seconds=30 * DAY, downtime_seconds=1234.0)
@@ -173,7 +189,7 @@ def test_a_users_reputation_is_not_read_as_a_hosts(hosts):
 def test_sla_is_summed_across_the_window_and_older_months_are_excluded(hosts):
     """Three months in, one month out."""
     host_id = hosts[0]
-    now = _month_start(_month(0, time.time())) + 15 * DAY   # the 16th of this month
+    now = _month_start(_month(0, time.time())) + 15 * DAY  # the 16th of this month
     with pg_transaction() as conn:
         _sla(conn, host_id, _month(1, now), total_seconds=31 * DAY, downtime_seconds=100.0)
         _sla(conn, host_id, _month(2, now), total_seconds=30 * DAY, downtime_seconds=50.0)
@@ -200,9 +216,9 @@ def test_the_in_progress_month_is_clamped_to_elapsed_time(hosts):
         _sla(conn, host_id, this_month, total_seconds=31 * DAY, downtime_seconds=1 * DAY)
         row = project_placement_evidence(conn, [host_id], now=now)[host_id]
 
-    assert row["sla_total_seconds"] == pytest.approx(10 * DAY), (
-        "the unelapsed remainder of the month was counted as observed uptime"
-    )
+    assert row["sla_total_seconds"] == pytest.approx(
+        10 * DAY
+    ), "the unelapsed remainder of the month was counted as observed uptime"
     assert host_uptime_pct(row) == pytest.approx(90.0, abs=0.01)
 
 
@@ -222,7 +238,7 @@ def test_downtime_cannot_exceed_the_time_it_is_measured_against(hosts):
 
 
 def test_a_host_with_no_rows_gets_every_key_and_no_claims(hosts):
-    """"No evidence" must still be a complete row."""
+    """ "No evidence" must still be a complete row."""
     host_id = hosts[0]
     with pg_transaction() as conn:
         row = project_placement_evidence(conn, [host_id])[host_id]
@@ -239,8 +255,9 @@ def test_a_host_with_no_rows_gets_every_key_and_no_claims(hosts):
 
 def test_a_complete_row_passes_the_shape_check():
     """The green half of the pair below."""
-    assert_evidence_shape([{f: None for f in REQUIRED_EVIDENCE_FIELDS}
-                           | {"verification_unavailable": False}])
+    assert_evidence_shape(
+        [{f: None for f in REQUIRED_EVIDENCE_FIELDS} | {"verification_unavailable": False}]
+    )
 
 
 def test_a_missing_key_raises_rather_than_reading_as_no_evidence():
@@ -332,8 +349,8 @@ def test_dollars_per_hour_becomes_cents_per_hour():
 def test_mixed_units_would_have_made_the_premium_wrong_by_100x():
     """Both shapes in one list, normalised to one unit before ranking."""
     candidates = [
-        {"host_id": "cheap", "cost_per_hour": 0.20},          # 20 cents
-        {"host_id": "dear", "ask_cents_per_hour": 25},        # 25 cents
+        {"host_id": "cheap", "cost_per_hour": 0.20},  # 20 cents
+        {"host_id": "dear", "ask_cents_per_hour": 25},  # 25 cents
     ]
     prices = [normalise_price_cents(c) for c in candidates]
     assert prices == [pytest.approx(20.0), pytest.approx(25.0)]
@@ -352,10 +369,8 @@ def test_a_scheduler_shaped_candidate_list_places_on_real_evidence(hosts):
     with pg_transaction() as conn:
         # Two full past months each, so both clear the observation floor.
         for host_id, downtime in ((cheap, 5 * DAY), (reliable, 60.0)):
-            _sla(conn, host_id, _month(1, now), total_seconds=31 * DAY,
-                 downtime_seconds=downtime)
-            _sla(conn, host_id, _month(2, now), total_seconds=30 * DAY,
-                 downtime_seconds=0.0)
+            _sla(conn, host_id, _month(1, now), total_seconds=31 * DAY, downtime_seconds=downtime)
+            _sla(conn, host_id, _month(2, now), total_seconds=30 * DAY, downtime_seconds=0.0)
 
         merged = attach_placement_evidence(
             conn,
@@ -374,12 +389,10 @@ def test_a_scheduler_shaped_candidate_list_places_on_real_evidence(hosts):
     constrained = choose_host(merged, PlacementPreference(min_uptime_pct=99.5))
     assert not isinstance(constrained, PlacementRefused), getattr(constrained, "detail", "")
     assert constrained.host["host_id"] == reliable
-    assert constrained.premium_pct == pytest.approx(10.0), (
-        "the premium is measured in one unit against the cheapest eligible host"
-    )
-    assert constrained.evidence["uptime_pct"] == pytest.approx(
-        host_uptime_pct(merged[1])
-    )
+    assert constrained.premium_pct == pytest.approx(
+        10.0
+    ), "the premium is measured in one unit against the cheapest eligible host"
+    assert constrained.evidence["uptime_pct"] == pytest.approx(host_uptime_pct(merged[1]))
 
 
 def test_a_candidate_with_no_host_id_is_a_caller_bug_not_a_refusal(hosts):
@@ -400,8 +413,11 @@ def test_a_verified_stamp_nobody_has_rechecked_refuses_as_stale(hosts):
     now = time.time()
     with pg_transaction() as conn:
         _verification(
-            conn, host_id, state="verified",
-            verified_at=now - 130 * DAY, last_check_at=now - 111 * DAY,
+            conn,
+            host_id,
+            state="verified",
+            verified_at=now - 130 * DAY,
+            last_check_at=now - 111 * DAY,
             next_check_at=now - 110 * DAY,
         )
         merged = attach_placement_evidence(

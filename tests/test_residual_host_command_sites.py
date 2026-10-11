@@ -38,8 +38,7 @@ try:
             is not None
         )
         _has_job_attempts = (
-            _c.execute("SELECT to_regclass('public.job_attempts')").fetchone()[0]
-            is not None
+            _c.execute("SELECT to_regclass('public.job_attempts')").fetchone()[0] is not None
         )
 except Exception as _e:  # pragma: no cover
     pytestmark = pytest.mark.skip(f"no pg pool available: {_e}")
@@ -119,9 +118,7 @@ def _mk_running_attempt_owned(
         "interactive": interactive,
     }
     with _pool.connection() as conn:
-        fence = conn.execute(
-            "SELECT nextval('placement_fencing_token_seq')"
-        ).fetchone()[0]
+        fence = conn.execute("SELECT nextval('placement_fencing_token_seq')").fetchone()[0]
         conn.execute(
             """INSERT INTO jobs
                    (job_id, status, priority, submitted_at, host_id, payload,
@@ -169,9 +166,7 @@ def _mk_fenced_history_no_active(
         "interactive": True,
     }
     with _pool.connection() as conn:
-        fence = conn.execute(
-            "SELECT nextval('placement_fencing_token_seq')"
-        ).fetchone()[0]
+        fence = conn.execute("SELECT nextval('placement_fencing_token_seq')").fetchone()[0]
         conn.execute(
             """INSERT INTO jobs
                    (job_id, status, priority, submitted_at, host_id, payload,
@@ -281,9 +276,7 @@ def test_resolve_job_command_target_real_pg(cleanup):
     owner = f"owner-{uuid.uuid4().hex[:6]}@test"
 
     leg = _mk_running_legacy(cleanup, host_id=host_id, owner=owner)
-    att_job, attempt_id = _mk_running_attempt_owned(
-        cleanup, host_id=host_id, owner=owner
-    )
+    att_job, attempt_id = _mk_running_attempt_owned(cleanup, host_id=host_id, owner=owner)
     fh = _mk_fenced_history_no_active(cleanup, host_id=host_id, owner=owner)
 
     t_leg = resolve_job_command_target(leg)
@@ -330,18 +323,14 @@ def test_ssh_reinject_legacy_enqueues_xcl_job_id(cleanup, monkeypatch):
     assert reinject[0]["args"]["job_id"] == job_id
 
 
-def test_ssh_reinject_attempt_owned_uses_attempt_container_name(
-    cleanup, monkeypatch
-):
+def test_ssh_reinject_attempt_owned_uses_attempt_container_name(cleanup, monkeypatch):
     from control_plane.job_targets import attempt_container_name
     from routes import ssh as ssh_mod
 
     host_id = f"h-res-ssh-a-{uuid.uuid4().hex[:6]}"
     _mk_host(cleanup, host_id)
     owner = f"ssh-att-{uuid.uuid4().hex[:6]}@test"
-    job_id, attempt_id = _mk_running_attempt_owned(
-        cleanup, host_id=host_id, owner=owner
-    )
+    job_id, attempt_id = _mk_running_attempt_owned(cleanup, host_id=host_id, owner=owner)
     expected = attempt_container_name(job_id, attempt_id)
 
     user = {"email": owner, "customer_id": owner}
@@ -367,9 +356,7 @@ def test_ssh_reinject_fenced_history_skips_enqueue(cleanup, monkeypatch):
     _mk_host(cleanup, host_id)
     owner = f"ssh-fh-{uuid.uuid4().hex[:6]}@test"
     # Fenced history with status=running is pathological; if it appears, skip.
-    job_id = _mk_fenced_history_no_active(
-        cleanup, host_id=host_id, owner=owner, status="running"
-    )
+    job_id = _mk_fenced_history_no_active(cleanup, host_id=host_id, owner=owner, status="running")
 
     user = {"email": owner, "customer_id": owner}
     monkeypatch.setattr(
@@ -398,12 +385,8 @@ def test_reset_enqueue_legacy_and_attempt_owned(cleanup):
     owner = f"rst-{uuid.uuid4().hex[:6]}@test"
 
     leg = _mk_running_legacy(cleanup, host_id=host_id, owner=owner)
-    att_job, attempt_id = _mk_running_attempt_owned(
-        cleanup, host_id=host_id, owner=owner
-    )
-    fh = _mk_fenced_history_no_active(
-        cleanup, host_id=host_id, owner=owner, status="running"
-    )
+    att_job, attempt_id = _mk_running_attempt_owned(cleanup, host_id=host_id, owner=owner)
+    fh = _mk_fenced_history_no_active(cleanup, host_id=host_id, owner=owner, status="running")
 
     # Mirror the shipped gate in api_reset_instance / admin reinject.
     for job_id, expect_cname, allow in (
@@ -425,24 +408,16 @@ def test_reset_enqueue_legacy_and_attempt_owned(cleanup):
             created_by="test_reset",
         )
 
-    leg_cmds = [
-        c for c in _commands_for_job(leg) if c["command"] == "reset_container"
-    ]
+    leg_cmds = [c for c in _commands_for_job(leg) if c["command"] == "reset_container"]
     assert len(leg_cmds) == 1
     assert leg_cmds[0]["args"]["container_name"] == f"xcl-{leg}"
 
-    att_cmds = [
-        c for c in _commands_for_job(att_job) if c["command"] == "reset_container"
-    ]
+    att_cmds = [c for c in _commands_for_job(att_job) if c["command"] == "reset_container"]
     assert len(att_cmds) == 1
-    assert att_cmds[0]["args"]["container_name"] == attempt_container_name(
-        att_job, attempt_id
-    )
+    assert att_cmds[0]["args"]["container_name"] == attempt_container_name(att_job, attempt_id)
     assert att_cmds[0]["args"]["container_name"] != f"xcl-{att_job}"
 
-    fh_cmds = [
-        c for c in _commands_for_job(fh) if c["command"] == "reset_container"
-    ]
+    fh_cmds = [c for c in _commands_for_job(fh) if c["command"] == "reset_container"]
     assert fh_cmds == []
 
 
@@ -457,33 +432,23 @@ def test_volume_hot_mount_unmount_legacy_and_attempt_owned(cleanup):
     _mk_host(cleanup, host_id)
     owner = f"vol-{uuid.uuid4().hex[:6]}@test"
     leg = _mk_running_legacy(cleanup, host_id=host_id, owner=owner)
-    att_job, attempt_id = _mk_running_attempt_owned(
-        cleanup, host_id=host_id, owner=owner
-    )
+    att_job, attempt_id = _mk_running_attempt_owned(cleanup, host_id=host_id, owner=owner)
 
     eng = VolumeEngine()
-    eng._enqueue_hot_mount(
-        host_id, leg, "vol-leg-1", "/workspace", "rw"
-    )
-    eng._enqueue_hot_mount(
-        host_id, att_job, "vol-att-1", "/workspace", "rw"
-    )
+    eng._enqueue_hot_mount(host_id, leg, "vol-leg-1", "/workspace", "rw")
+    eng._enqueue_hot_mount(host_id, att_job, "vol-att-1", "/workspace", "rw")
     eng._enqueue_hot_unmount(host_id, leg, "vol-leg-1", "/workspace")
     eng._enqueue_hot_unmount(host_id, att_job, "vol-att-1", "/workspace")
 
     leg_mount = [
-        c
-        for c in _commands_for_job(leg)
-        if c["command"] in ("mount_volume", "unmount_volume")
+        c for c in _commands_for_job(leg) if c["command"] in ("mount_volume", "unmount_volume")
     ]
     assert len(leg_mount) == 2
     for c in leg_mount:
         assert c["args"]["container_name"] == f"xcl-{leg}"
 
     att_mount = [
-        c
-        for c in _commands_for_job(att_job)
-        if c["command"] in ("mount_volume", "unmount_volume")
+        c for c in _commands_for_job(att_job) if c["command"] in ("mount_volume", "unmount_volume")
     ]
     assert len(att_mount) == 2
     expected = attempt_container_name(att_job, attempt_id)
@@ -498,17 +463,13 @@ def test_volume_hot_mount_fenced_history_fails_closed(cleanup):
     host_id = f"h-res-vol-f-{uuid.uuid4().hex[:6]}"
     _mk_host(cleanup, host_id)
     owner = f"vol-f-{uuid.uuid4().hex[:6]}@test"
-    fh = _mk_fenced_history_no_active(
-        cleanup, host_id=host_id, owner=owner, status="running"
-    )
+    fh = _mk_fenced_history_no_active(cleanup, host_id=host_id, owner=owner, status="running")
 
     eng = VolumeEngine()
     with pytest.raises(ValueError, match="no residual container target"):
         eng._enqueue_hot_mount(host_id, fh, "vol-fh-1", "/workspace", "rw")
 
-    assert [
-        c for c in _commands_for_job(fh) if c["command"] == "mount_volume"
-    ] == []
+    assert [c for c in _commands_for_job(fh) if c["command"] == "mount_volume"] == []
 
 
 # ── Snapshot identity ──────────────────────────────────────────────────
@@ -525,9 +486,7 @@ def test_snapshot_identity_attempt_owned_not_legacy_name(cleanup):
     _mk_host(cleanup, host_id)
     owner = f"snap-{uuid.uuid4().hex[:6]}@test"
     leg = _mk_running_legacy(cleanup, host_id=host_id, owner=owner)
-    att_job, attempt_id = _mk_running_attempt_owned(
-        cleanup, host_id=host_id, owner=owner
-    )
+    att_job, attempt_id = _mk_running_attempt_owned(cleanup, host_id=host_id, owner=owner)
 
     for job_id in (leg, att_job):
         target = resolve_job_command_target(job_id)
@@ -546,21 +505,13 @@ def test_snapshot_identity_attempt_owned_not_legacy_name(cleanup):
             ttl_sec=3600,
         )
 
-    leg_s = [
-        c for c in _commands_for_job(leg) if c["command"] == "snapshot_container"
-    ]
+    leg_s = [c for c in _commands_for_job(leg) if c["command"] == "snapshot_container"]
     assert len(leg_s) == 1
     assert leg_s[0]["args"]["container_name"] == f"xcl-{leg}"
 
-    att_s = [
-        c
-        for c in _commands_for_job(att_job)
-        if c["command"] == "snapshot_container"
-    ]
+    att_s = [c for c in _commands_for_job(att_job) if c["command"] == "snapshot_container"]
     assert len(att_s) == 1
-    assert att_s[0]["args"]["container_name"] == attempt_container_name(
-        att_job, attempt_id
-    )
+    assert att_s[0]["args"]["container_name"] == attempt_container_name(att_job, attempt_id)
     assert att_s[0]["args"]["container_name"] != f"xcl-{att_job}"
 
 

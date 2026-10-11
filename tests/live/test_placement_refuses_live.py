@@ -49,9 +49,7 @@ requests = pytest.importorskip("requests")
 # whole phase kept finding, and it would be invisible here because skipping is
 # the correct behaviour without credentials.
 BASE = (
-    os.environ.get("XCELSIOR_LIVE_BASE_URL")
-    or os.environ.get("XCELSIOR_STAGING_URL")
-    or ""
+    os.environ.get("XCELSIOR_LIVE_BASE_URL") or os.environ.get("XCELSIOR_STAGING_URL") or ""
 ).rstrip("/")
 TOKEN = os.environ.get("XCELSIOR_LIVE_USER_TOKEN", "")
 
@@ -92,9 +90,9 @@ def test_a_constrained_request_gets_a_typed_answer_and_is_recorded():
         # Clause 2: it refuses, and says which constraint failed.
         assert preference.get("code"), "a refusal with no code cannot be acted on"
         assert preference.get("detail"), "a refusal with no detail is not an answer"
-        assert "host_id" not in preference, (
-            "a refusal named a host — the silent fallback this gate exists to stop"
-        )
+        assert (
+            "host_id" not in preference
+        ), "a refusal named a host — the silent fallback this gate exists to stop"
     else:
         assert preference.get("host_id"), "a placement with no host"
         assert preference.get("premium_pct") is not None

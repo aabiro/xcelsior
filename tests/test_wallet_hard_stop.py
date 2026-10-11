@@ -98,7 +98,9 @@ def test_successful_charge_enqueues_meter(billing_engine, monkeypatch):
     monkeypatch.setattr(stripe_meters, "enqueue_usage_from_charge", fake_enqueue)
 
     with patch.object(be, "maybe_warn_low_balance", return_value={"warned": False}):
-        result = be.charge("cust-test", 1.0, job_id="job-3", description="Serverless worker (60s @ 0.5/hr)")
+        result = be.charge(
+            "cust-test", 1.0, job_id="job-3", description="Serverless worker (60s @ 0.5/hr)"
+        )
 
     assert result["charged"] is True
     assert enqueued.get("customer_id") == "cust-test"

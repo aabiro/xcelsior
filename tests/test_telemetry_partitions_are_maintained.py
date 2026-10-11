@@ -60,7 +60,9 @@ def test_a_missing_policy_row_falls_back_to_the_seeded_values() -> None:
     assert telemetry_policy(_Conn(payload='{"retention_months": 9}')) == (2, 9)
 
 
-@pytest.mark.parametrize("payload", [{"retention_months": 0}, {"months_ahead": 0}, {"retention_months": -1}])
+@pytest.mark.parametrize(
+    "payload", [{"retention_months": 0}, {"months_ahead": 0}, {"retention_months": -1}]
+)
 def test_a_nonsense_policy_is_refused_rather_than_obeyed(payload) -> None:  # noqa: ANN001
     """Retention 0 drops last month; a negative one drops the month being written."""
     with pytest.raises(ValueError, match="policy is invalid"):
@@ -84,14 +86,12 @@ def test_retention_drops_only_whole_months_outside_six() -> None:
 
 
 def _partitions(conn) -> set[str]:  # noqa: ANN001
-    rows = conn.execute(
-        """
+    rows = conn.execute("""
         SELECT c.relname FROM pg_inherits i
           JOIN pg_class c ON c.oid = i.inhrelid
           JOIN pg_class p ON p.oid = i.inhparent
          WHERE p.relname = 'telemetry_samples'
-        """
-    ).fetchall()
+        """).fetchall()
     return {r[0] if not isinstance(r, dict) else r["relname"] for r in rows}
 
 
@@ -112,12 +112,14 @@ def test_the_registered_task_extends_the_window_in_the_real_database() -> None:
     for offset in range(3):  # this month and the two the policy keeps ahead
         total = today.year * 12 + today.month - 1 + offset
         suffix = f"{total // 12:04d}{total % 12 + 1:02d}"
-        assert f"telemetry_samples_{suffix}" in present, (
-            f"telemetry_samples_{suffix} missing after maintenance; have {sorted(present)}"
-        )
+        assert (
+            f"telemetry_samples_{suffix}" in present
+        ), f"telemetry_samples_{suffix} missing after maintenance; have {sorted(present)}"
 
 
-def test_the_audit_task_reports_a_failed_table_instead_of_succeeding(monkeypatch) -> None:  # noqa: ANN001
+def test_the_audit_task_reports_a_failed_table_instead_of_succeeding(
+    monkeypatch,
+) -> None:  # noqa: ANN001
     """It caught every exception and the scheduler recorded `succeeded`.
 
     Isolating tables from each other is right — one bad table must not stop the
@@ -147,6 +149,6 @@ def test_the_audit_task_reports_a_failed_table_instead_of_succeeding(monkeypatch
 
     with pytest.raises(RuntimeError, match="audit_events_v2 create: relation is locked"):
         ap.audit_partition_maintenance_task()
-    assert attempted == list(PARTITIONED_TABLES), (
-        "a failure in one table stopped the others from being maintained"
-    )
+    assert attempted == list(
+        PARTITIONED_TABLES
+    ), "a failure in one table stopped the others from being maintained"

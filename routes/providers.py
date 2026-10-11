@@ -327,7 +327,8 @@ def _provider_intro_fee_status(provider_id: str, user: dict) -> dict:
     ids.discard("")
     try:
         mine = [
-            l for l in load_marketplace()
+            l
+            for l in load_marketplace()
             if str(l.get("owner") or "") in ids or str(l.get("host_id") or "") in ids
         ]
     except Exception:

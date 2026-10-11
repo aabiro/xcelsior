@@ -89,15 +89,18 @@ def test_the_report_matches_a_fresh_generation() -> None:
 
     delta = list(
         difflib.unified_diff(
-            _substance(committed), _substance(fresh),
-            fromfile="committed", tofile="fresh", lineterm="", n=0,
+            _substance(committed),
+            _substance(fresh),
+            fromfile="committed",
+            tofile="fresh",
+            lineterm="",
+            n=0,
         )
     )
     raise AssertionError(
         "UNTESTED_ENDPOINTS.md does not match a fresh generation — the coverage "
         "worklist is describing a codebase that no longer exists. Run "
-        "`python scripts/regenerate_untested_endpoints.py` and commit it.\n"
-        + "\n".join(delta[:20])
+        "`python scripts/regenerate_untested_endpoints.py` and commit it.\n" + "\n".join(delta[:20])
     )
 
 
@@ -126,9 +129,15 @@ def test_the_report_does_not_depend_on_directory_order(monkeypatch) -> None:
     spec.loader.exec_module(regen)
 
     def render() -> str:
-        return regen._render(regen._parse_routes(), regen._parse_cli_commands(regen._load_cli_test_corpus()))
+        return regen._render(
+            regen._parse_routes(), regen._parse_cli_commands(regen._load_cli_test_corpus())
+        )
 
     forward = render()
     original = Path.rglob
-    monkeypatch.setattr(Path, "rglob", lambda self, pattern: reversed(list(original(self, pattern))))
-    assert render() == forward, "the report changes when the filesystem lists files in another order"
+    monkeypatch.setattr(
+        Path, "rglob", lambda self, pattern: reversed(list(original(self, pattern)))
+    )
+    assert (
+        render() == forward
+    ), "the report changes when the filesystem lists files in another order"

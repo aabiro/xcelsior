@@ -24,7 +24,17 @@ from routes.problem import PROBLEM_MEDIA_TYPE
 
 client = TestClient(app)
 
-_REQUIRED = {"type", "title", "status", "detail", "code", "retryable", "retry_after_ms", "trace_id", "errors"}
+_REQUIRED = {
+    "type",
+    "title",
+    "status",
+    "detail",
+    "code",
+    "retryable",
+    "retry_after_ms",
+    "trace_id",
+    "errors",
+}
 
 
 @pytest.fixture(autouse=True)
@@ -41,14 +51,18 @@ def _auth_env(monkeypatch):
 
 
 def _token(email: str) -> dict:
-    reg = client.post("/api/auth/register", json={"email": email, "password": "Str0ngPass!abc"}).json()
+    reg = client.post(
+        "/api/auth/register", json={"email": email, "password": "Str0ngPass!abc"}
+    ).json()
     return {"Authorization": f"Bearer {reg['access_token']}"}
 
 
 def _admin(email: str) -> dict:
     from db import UserStore
 
-    reg = client.post("/api/auth/register", json={"email": email, "password": "Str0ngPass!abc"}).json()
+    reg = client.post(
+        "/api/auth/register", json={"email": email, "password": "Str0ngPass!abc"}
+    ).json()
     UserStore.update_user(email, {"is_admin": 1})
     return {"Authorization": f"Bearer {reg['access_token']}"}
 

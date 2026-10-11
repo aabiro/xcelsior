@@ -50,9 +50,9 @@ def _body():
 
 def test_both_keys_are_present_and_are_different_shapes():
     body = _body()
-    assert isinstance(body["prices"], dict), (
-        f"`prices` is a {type(body['prices']).__name__}; the launch modal indexes it by GPU model"
-    )
+    assert isinstance(
+        body["prices"], dict
+    ), f"`prices` is a {type(body['prices']).__name__}; the launch modal indexes it by GPU model"
     assert isinstance(body["spot_prices"], list), (
         f"`spot_prices` is a {type(body['spot_prices']).__name__}. If it became a "
         "dict the two keys would be interchangeable and the frontend's fallback "

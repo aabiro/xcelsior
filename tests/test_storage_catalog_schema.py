@@ -12,12 +12,13 @@ import pytest
 
 try:
     from db import _get_pg_pool
+
     _pool = _get_pg_pool()
     with _pool.connection() as _c:
         _c.execute("SELECT 1").fetchone()
-        _has_storage = _c.execute(
-            "SELECT to_regclass('storage.artifacts')"
-        ).fetchone()[0] is not None
+        _has_storage = (
+            _c.execute("SELECT to_regclass('storage.artifacts')").fetchone()[0] is not None
+        )
 except Exception as _e:
     pytestmark = pytest.mark.skip(f"no pg pool available: {_e}")
     _pool = None
@@ -73,9 +74,17 @@ def _mkattempt(conn, job_id, number=1):
     return row[0]
 
 
-def _mkartifact(cleanup, tenant_id="tenant-1", job_id=None, attempt_id=None,
-                logical_name="model.safetensors", state="requested",
-                provider="b2", bucket="weights-bucket", key="models/model.bin"):
+def _mkartifact(
+    cleanup,
+    tenant_id="tenant-1",
+    job_id=None,
+    attempt_id=None,
+    logical_name="model.safetensors",
+    state="requested",
+    provider="b2",
+    bucket="weights-bucket",
+    key="models/model.bin",
+):
     artifact_id = uuid.uuid4()
     with _pool.connection() as conn:
         conn.execute(
@@ -85,7 +94,17 @@ def _mkartifact(cleanup, tenant_id="tenant-1", job_id=None, attempt_id=None,
                    object_key, content_type, retention_class
                ) VALUES (%s, %s, %s, %s, 'model_weights', %s, %s, %s, %s, %s,
                          'application/octet-stream', 'standard')""",
-            (artifact_id, tenant_id, job_id, attempt_id, logical_name, state, provider, bucket, key),
+            (
+                artifact_id,
+                tenant_id,
+                job_id,
+                attempt_id,
+                logical_name,
+                state,
+                provider,
+                bucket,
+                key,
+            ),
         )
         conn.commit()
     cleanup["artifacts"].append(artifact_id)
@@ -101,9 +120,9 @@ class TestStorageSchemaPresence:
                 "storage.artifact_replicas",
                 "storage.artifact_deletion_jobs",
             ):
-                assert conn.execute(
-                    "SELECT to_regclass(%s)", (table,)
-                ).fetchone()[0] == table, f"missing table {table}"
+                assert (
+                    conn.execute("SELECT to_regclass(%s)", (table,)).fetchone()[0] == table
+                ), f"missing table {table}"
 
 
 class TestArtifactInvariants:

@@ -99,7 +99,9 @@ def test_pricing_bump_beyond_tolerance_blocks_execute(scratch, monkeypatch):
 
     # Nothing was charged and the original plan is untouched (still approved).
     with _pool.connection() as conn:
-        st = conn.execute("SELECT status FROM action_plans WHERE plan_id=%s", (plan_id,)).fetchone()[0]
+        st = conn.execute(
+            "SELECT status FROM action_plans WHERE plan_id=%s", (plan_id,)
+        ).fetchone()[0]
         holds = conn.execute(
             "SELECT count(*) FROM wallet_holds WHERE idempotency_key=%s", (f"plan:{plan_id}",)
         ).fetchone()[0]

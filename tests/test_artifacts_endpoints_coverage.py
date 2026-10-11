@@ -23,9 +23,7 @@ def user_headers():
         "/api/auth/register",
         json={"email": email, "password": "StrongPass123!", "name": "Artifacts Cov"},
     )
-    login = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
     return headers
 

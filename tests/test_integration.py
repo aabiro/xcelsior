@@ -224,8 +224,12 @@ class TestGlobalPlacement:
         client.put(
             "/host",
             json={
-                "host_id": "de-host", "ip": "10.0.0.10", "gpu_model": "A100",
-                "total_vram_gb": 80, "free_vram_gb": 80, "cost_per_hour": 0.80,
+                "host_id": "de-host",
+                "ip": "10.0.0.10",
+                "gpu_model": "A100",
+                "total_vram_gb": 80,
+                "free_vram_gb": 80,
+                "cost_per_hour": 0.80,
                 "country": "DE",
             },
         )
@@ -233,15 +237,20 @@ class TestGlobalPlacement:
         client.put(
             "/host",
             json={
-                "host_id": "ca-host", "ip": "10.0.0.11", "gpu_model": "A100",
-                "total_vram_gb": 80, "free_vram_gb": 80, "cost_per_hour": 1.20,
+                "host_id": "ca-host",
+                "ip": "10.0.0.11",
+                "gpu_model": "A100",
+                "total_vram_gb": 80,
+                "free_vram_gb": 80,
+                "cost_per_hour": 1.20,
                 "country": "CA",
             },
         )
         _admit_host("ca-host")
 
         job = client.post(
-            "/instance", json={"name": "global-job", "vram_needed_gb": 16},
+            "/instance",
+            json={"name": "global-job", "vram_needed_gb": 16},
         ).json()["instance"]
         scheduler.process_queue()
         placed = client.get(f"/instance/{job['job_id']}").json()["instance"]
@@ -253,15 +262,20 @@ class TestGlobalPlacement:
         client.put(
             "/host",
             json={
-                "host_id": "de-only", "ip": "10.0.0.12", "gpu_model": "A100",
-                "total_vram_gb": 80, "free_vram_gb": 80, "cost_per_hour": 0.50,
+                "host_id": "de-only",
+                "ip": "10.0.0.12",
+                "gpu_model": "A100",
+                "total_vram_gb": 80,
+                "free_vram_gb": 80,
+                "cost_per_hour": 0.50,
                 "country": "DE",
             },
         )
         _admit_host("de-only")
 
         job = client.post(
-            "/instance", json={"name": "foreign-fleet-job", "vram_needed_gb": 16},
+            "/instance",
+            json={"name": "foreign-fleet-job", "vram_needed_gb": 16},
         ).json()["instance"]
         scheduler.process_queue()
         placed = client.get(f"/instance/{job['job_id']}").json()["instance"]
@@ -288,8 +302,6 @@ class TestBillingTax:
 
         qc_rate, qc_label = get_tax_rate_for_province("QC")
         assert qc_rate > 0.14
-
-
 
     def test_wallet_deposit_and_balance(self):
         """Deposit → check balance → wallet has funds."""
@@ -424,7 +436,6 @@ class TestSecurityAdmission:
 
         job["tier"] = "dedicated"
         assert scheduler.allocate(job, hosts) == cheapest
-
 
     def test_secure_docker_args_generated(self):
         """security.build_secure_docker_args returns proper args."""

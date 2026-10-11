@@ -34,9 +34,7 @@ CLAUDE_CALLBACK = "https://claude.ai/api/mcp/auth_callback"
 def _pkce() -> tuple[str, str]:
     verifier = secrets.token_urlsafe(48)
     challenge = (
-        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest())
-        .rstrip(b"=")
-        .decode()
+        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
     )
     return verifier, challenge
 

@@ -31,8 +31,13 @@ from db import pg_transaction
 def ln_rows():
     created: list[str] = []
 
-    def _make(*, status: str = "pending", customer_id: str | None = None,
-              payment_hash: str | None = None, amount_cad: float = 25.0) -> str:
+    def _make(
+        *,
+        status: str = "pending",
+        customer_id: str | None = None,
+        payment_hash: str | None = None,
+        amount_cad: float = 25.0,
+    ) -> str:
         deposit_id = f"ct-{uuid.uuid4().hex[:12]}"
         cust = customer_id or f"cust-{uuid.uuid4().hex[:8]}"
         with pg_transaction() as conn:
@@ -43,10 +48,20 @@ def ln_rows():
                     amount_micros, btc_cad_rate, status, created_at, expires_at)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
-                    deposit_id, cust, cust, f"lbl-{deposit_id}", "bolt",
+                    deposit_id,
+                    cust,
+                    cust,
+                    f"lbl-{deposit_id}",
+                    "bolt",
                     payment_hash or f"hash-{deposit_id}",
-                    1_000_000, 1000, 0.00001, round(amount_cad * 1_000_000), 100_000.0, status,
-                    time.time(), time.time() + 3600,
+                    1_000_000,
+                    1000,
+                    0.00001,
+                    round(amount_cad * 1_000_000),
+                    100_000.0,
+                    status,
+                    time.time(),
+                    time.time() + 3600,
                 ),
             )
         created.append(deposit_id)
@@ -56,9 +71,7 @@ def ln_rows():
 
     if created:
         with pg_transaction() as conn:
-            conn.execute(
-                "DELETE FROM ln_deposits WHERE deposit_id = ANY(%s)", (created,)
-            )
+            conn.execute("DELETE FROM ln_deposits WHERE deposit_id = ANY(%s)", (created,))
 
 
 @pytest.fixture
@@ -102,7 +115,7 @@ def test_deposit_carries_tenant_and_currency(ln_rows):
 
 
 def test_credited_deposit_links_its_ledger_entry(ln_rows):
-    """"credited but no ledger entry" must be a query, not an audit."""
+    """ "credited but no ledger entry" must be a query, not an audit."""
     import lightning as ln
 
     deposit_id = ln_rows(status="paid")
@@ -123,9 +136,7 @@ def test_sweep_records_the_ledger_entry_the_callback_wrote(ln_rows, monkeypatch)
     monkeypatch.setattr(ln, "LN_ENABLED", True)
     deposit_id = ln_rows(status="paid")
 
-    ln.process_ln_deposits(
-        credit_callback=lambda c, a, d: {"tx_id": "TX-from-callback"}
-    )
+    ln.process_ln_deposits(credit_callback=lambda c, a, d: {"tx_id": "TX-from-callback"})
 
     row = _row(
         "SELECT status, wallet_ledger_entry_id FROM ln_deposits WHERE deposit_id = %s",
@@ -215,9 +226,7 @@ def test_lifecycle_transitions_are_still_allowed(ln_rows):
 
 def test_registered_mapping_carries_the_contract_columns(slurm_rows):
     job_id = slurm_rows(f"xj-{uuid.uuid4().hex[:10]}")
-    slurm_adapter.register_slurm_job(
-        job_id, "5551", cluster_id="nibi", tenant_id="tenant-1"
-    )
+    slurm_adapter.register_slurm_job(job_id, "5551", cluster_id="nibi", tenant_id="tenant-1")
 
     row = _row(
         "SELECT cluster_id, tenant_id, desired_state, observed_state, "
@@ -254,9 +263,7 @@ def test_same_job_id_on_a_different_cluster_is_distinct(slurm_rows):
     slurm_adapter.register_slurm_job(first, "8888", cluster_id="nibi")
     slurm_adapter.register_slurm_job(second, "8888", cluster_id="graham")
 
-    row = _row(
-        "SELECT count(*) FROM slurm_job_mappings WHERE slurm_job_id = %s", ("8888",)
-    )
+    row = _row("SELECT count(*) FROM slurm_job_mappings WHERE slurm_job_id = %s", ("8888",))
     assert row == (2,)
 
 
@@ -266,8 +273,7 @@ def test_re_registering_bumps_version(slurm_rows):
     slurm_adapter.register_slurm_job(job_id, "9002", cluster_id="nibi")
 
     row = _row(
-        "SELECT slurm_job_id, version FROM slurm_job_mappings "
-        "WHERE xcelsior_job_id = %s",
+        "SELECT slurm_job_id, version FROM slurm_job_mappings " "WHERE xcelsior_job_id = %s",
         (job_id,),
     )
     assert row == ("9002", 2)
@@ -325,9 +331,7 @@ def test_terminal_mapping_is_retained_not_deleted(slurm_rows, monkeypatch):
     """
     job_id = slurm_rows(f"xj-{uuid.uuid4().hex[:10]}")
     slurm_adapter.register_slurm_job(job_id, "9300", cluster_id="nibi")
-    monkeypatch.setattr(
-        slurm_adapter, "get_slurm_job_status", _fake_status("completed")
-    )
+    monkeypatch.setattr(slurm_adapter, "get_slurm_job_status", _fake_status("completed"))
 
     slurm_adapter.sync_slurm_statuses()
 
@@ -387,9 +391,7 @@ def test_no_cancel_request_for_a_job_already_terminal(slurm_rows, monkeypatch):
     job_id = slurm_rows(f"xj-{uuid.uuid4().hex[:10]}")
     slurm_adapter.register_slurm_job(job_id, "9600", cluster_id="nibi")
     slurm_adapter.set_slurm_desired_state(job_id, "cancelled")
-    monkeypatch.setattr(
-        slurm_adapter, "get_slurm_job_status", _fake_status("completed")
-    )
+    monkeypatch.setattr(slurm_adapter, "get_slurm_job_status", _fake_status("completed"))
     cancelled: list[str] = []
 
     slurm_adapter.sync_slurm_statuses(cancel_callback=cancelled.append)
@@ -404,9 +406,7 @@ def test_set_desired_state_rejects_unknown_values(slurm_rows):
         slurm_adapter.set_slurm_desired_state(job_id, "paused")
 
 
-def test_poll_failure_on_one_mapping_does_not_stop_the_rest(
-    slurm_rows, monkeypatch
-):
+def test_poll_failure_on_one_mapping_does_not_stop_the_rest(slurm_rows, monkeypatch):
     """Per-mapping isolation, same rule as the Lightning sweep."""
     bad = slurm_rows(f"xj-{uuid.uuid4().hex[:10]}")
     good = slurm_rows(f"xj-{uuid.uuid4().hex[:10]}")

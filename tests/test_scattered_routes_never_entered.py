@@ -64,9 +64,7 @@ def test_creating_a_reservation(auth) -> None:
 
 
 def test_cancelling_an_unknown_reservation(auth) -> None:
-    r = client.delete(
-        f"/api/v2/marketplace/reservations/{uuid.uuid4()}", headers=_h(auth)
-    )
+    r = client.delete(f"/api/v2/marketplace/reservations/{uuid.uuid4()}", headers=_h(auth))
     assert r.status_code < 500, f"cancellation faulted: {r.status_code} {r.text[:300]}"
 
 
@@ -124,9 +122,10 @@ def test_disconnecting_another_providers_payouts_is_refused(auth, path) -> None:
     """
     pid = f"someone-else-{uuid.uuid4().hex[:10]}"
     r = client.post(path.format(pid=pid), headers=_h(auth))
-    assert r.status_code in (403, 404), (
-        f"a signed-in user got {r.status_code} unlinking another provider's payouts"
-    )
+    assert r.status_code in (
+        403,
+        404,
+    ), f"a signed-in user got {r.status_code} unlinking another provider's payouts"
 
 
 # ── Host spot controls ────────────────────────────────────────────────────
@@ -183,9 +182,7 @@ def test_promotion_preview_for_an_unknown_volume(auth) -> None:
 
 
 def test_getting_an_unknown_promotion(auth) -> None:
-    r = client.get(
-        f"/api/v2/volumes/{uuid.uuid4()}/promotions/{uuid.uuid4()}", headers=_h(auth)
-    )
+    r = client.get(f"/api/v2/volumes/{uuid.uuid4()}/promotions/{uuid.uuid4()}", headers=_h(auth))
     assert r.status_code < 500, f"promotion get faulted: {r.status_code} {r.text[:300]}"
 
 
@@ -198,9 +195,10 @@ def test_reopening_encrypted_volumes_is_admin_only(auth) -> None:
     authority. An ordinary registered account got 200 from it.
     """
     r = client.post("/api/v2/admin/volumes/reopen-encrypted", json={}, headers=_h(auth))
-    assert r.status_code in (401, 403), (
-        f"a non-admin reached the encrypted-volume reopen route ({r.status_code})"
-    )
+    assert r.status_code in (
+        401,
+        403,
+    ), f"a non-admin reached the encrypted-volume reopen route ({r.status_code})"
 
 
 # ── Compliance, notifications, teams ──────────────────────────────────────

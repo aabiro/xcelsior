@@ -42,9 +42,7 @@ SOURCES = {
     "frontend/src/app/(dashboard)/dashboard/instances/[id]/page.tsx": re.compile(
         r'SSH_HOST\s*=\s*process\.env\.NEXT_PUBLIC_SSH_HOST\s*\|\|\s*"([^"]+)"'
     ),
-    "mcp/src/config.ts": re.compile(
-        r'process\.env\.XCELSIOR_SSH_HOST\s*\|\|\s*"([^"]+)"'
-    ),
+    "mcp/src/config.ts": re.compile(r'process\.env\.XCELSIOR_SSH_HOST\s*\|\|\s*"([^"]+)"'),
 }
 
 

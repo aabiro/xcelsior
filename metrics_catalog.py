@@ -396,13 +396,15 @@ def audit_metric_label_cardinality(collectors: Iterable[object] | None = None) -
         for label in labelnames:
             label_lower = label.lower()
             if label_lower in FORBIDDEN_CARDINALITY_PATTERNS or any(
-                p in label_lower for p in ("job_id", "user_id", "prompt_hash", "artifact_id", "raw_error")
+                p in label_lower
+                for p in ("job_id", "user_id", "prompt_hash", "artifact_id", "raw_error")
             ):
                 violations.append(
                     f"Metric '{collector_name}' has unbounded high-cardinality label '{label}'"
                 )
 
     return violations
+
 
 WORKER_UNVETTED_STARTS_TOTAL = Counter(
     "xcelsior_worker_unvetted_starts_total",

@@ -100,7 +100,12 @@ def test_instance_submission_handler_never_calls_process_queue():
 _CASES = [
     {"name": "interactive-default", "interactive": True, "vram_needed_gb": 40},
     {"name": "batch", "interactive": False, "vram_needed_gb": 24, "num_gpus": 2},
-    {"name": "ports", "interactive": False, "vram_needed_gb": 8, "exposed_ports": [8080, 9090, 8080]},
+    {
+        "name": "ports",
+        "interactive": False,
+        "vram_needed_gb": 8,
+        "exposed_ports": [8080, 9090, 8080],
+    },
     {"name": "auto", "interactive": True, "auto_launch": ["jupyter", "vscode", "jupyter"]},
     {"name": "vols", "interactive": False, "vram_needed_gb": 16, "volume_ids": ["v2", "v1", "v2"]},
 ]

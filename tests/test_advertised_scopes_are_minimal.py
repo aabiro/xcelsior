@@ -164,6 +164,6 @@ def test_the_shell_access_consent_names_the_consequence():
 
     text = SCOPE_DESCRIPTIONS["ssh:write"].lower()
     assert "shell" in text, "ssh:write's description no longer mentions shell access"
-    assert "data" in text or "access" in text, (
-        "ssh:write's description no longer says what the shell reaches"
-    )
+    assert (
+        "data" in text or "access" in text
+    ), "ssh:write's description no longer says what the shell reaches"

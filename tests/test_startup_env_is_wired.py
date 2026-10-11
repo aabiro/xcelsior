@@ -99,7 +99,9 @@ def test_no_service_reintroduces_env_file_as_a_substitute():
     """
     compose = yaml.safe_load(COMPOSE.read_text())
     with_env_file = sorted(
-        name for name, svc in compose["services"].items() if isinstance(svc, dict) and "env_file" in svc
+        name
+        for name, svc in compose["services"].items()
+        if isinstance(svc, dict) and "env_file" in svc
     )
     assert not with_env_file, (
         f"services now use env_file: {with_env_file} — that grants the whole "

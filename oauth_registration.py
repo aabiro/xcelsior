@@ -122,7 +122,11 @@ REDIRECT_HOST_ALLOWLIST = _env_list(
 )
 
 DCR_ENABLED = os.environ.get("XCELSIOR_OAUTH_DCR_ENABLED", "1").lower() not in {"0", "false", "no"}
-CIMD_ENABLED = os.environ.get("XCELSIOR_OAUTH_CIMD_ENABLED", "1").lower() not in {"0", "false", "no"}
+CIMD_ENABLED = os.environ.get("XCELSIOR_OAUTH_CIMD_ENABLED", "1").lower() not in {
+    "0",
+    "false",
+    "no",
+}
 
 #: A registration nobody completes a flow with disappears. Renewed on every
 #: successful authorization, so a live connector never expires.
@@ -388,9 +392,7 @@ def resolve_cimd_client(client_id: str) -> dict[str, Any]:
             "invalid_client_metadata", "Client metadata document must list redirect_uris"
         )
     host = urlsplit(client_id).hostname or ""
-    validated = validate_redirect_uris(
-        [str(uri) for uri in redirect_uris], same_origin_host=host
-    )
+    validated = validate_redirect_uris([str(uri) for uri in redirect_uris], same_origin_host=host)
     grant_types = [
         grant
         for grant in (document.get("grant_types") or CONNECTOR_GRANT_TYPES)

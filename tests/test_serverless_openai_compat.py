@@ -48,9 +48,7 @@ def _register_and_fund() -> dict:
     )
     assert reg.status_code == 200, reg.text[:300]
     reg_body = reg.json()
-    login = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     assert login.status_code == 200, login.text[:200]
     body = login.json()
     user = reg_body.get("user") or body.get("user") or {}
@@ -106,7 +104,9 @@ class TestOpenAIProxyHelpers:
             "messages": [
                 {
                     "role": "user",
-                    "content": [{"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}}],
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}}
+                    ],
                 }
             ]
         }

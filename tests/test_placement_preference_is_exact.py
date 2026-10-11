@@ -31,7 +31,6 @@ import pytest
 
 from control_plane.scheduler.preference import bps_to_pct, pct_to_bps
 
-
 #: Values where naive `int(pct * 100)` is provably wrong. Not hypothetical —
 #: each was checked against this interpreter before being written down.
 FLOAT_TRAPS = [
@@ -59,10 +58,10 @@ def test_pct_to_bps_is_exact_where_floats_are_not(pct: float, exact: int, _naive
 @pytest.mark.parametrize(
     "pct,bps",
     [
-        (99.5, 9950),      # the gate's own example
-        (99.95, 9995),     # three decimal places, a real SLA distinction
+        (99.5, 9950),  # the gate's own example
+        (99.95, 9995),  # three decimal places, a real SLA distinction
         (99.9, 9990),
-        (15, 1500),        # an int, not a float
+        (15, 1500),  # an int, not a float
         ("15.005", 1501),  # a string, rounded half up rather than truncated
         (0, 0),
         (100, 10000),
@@ -91,9 +90,9 @@ def test_half_up_not_bankers_rounding():
     depending on whether the neighbouring digit happened to be even, which is
     not a rule anyone would agree to if it were stated out loud.
     """
-    assert pct_to_bps("0.005") == 1   # 0.5 bps -> 1, not 0
-    assert pct_to_bps("0.015") == 2   # 1.5 bps -> 2, not 2 by luck
-    assert pct_to_bps("0.025") == 3   # 2.5 bps -> 3, banker's would give 2
+    assert pct_to_bps("0.005") == 1  # 0.5 bps -> 1, not 0
+    assert pct_to_bps("0.015") == 2  # 1.5 bps -> 2, not 2 by luck
+    assert pct_to_bps("0.025") == 3  # 2.5 bps -> 3, banker's would give 2
 
 
 # ── Through the real storage path ─────────────────────────────────────
@@ -123,7 +122,7 @@ def test_a_preference_round_trips_through_the_database_exactly():
         "priority": 0,
         "submitted_at": time.time(),
         "placement_preference": {
-            "min_uptime_pct": 8.7,   # naive float conversion yields 869
+            "min_uptime_pct": 8.7,  # naive float conversion yields 869
             "min_tier": "  GOLD  ",  # whitespace and case the caller did not mean
             "require_verified": True,
             "max_premium_pct": 1.15,  # naive float conversion yields 114
@@ -176,7 +175,10 @@ def test_resubmitting_without_a_preference_clears_it():
         with pool.connection() as conn:
             DatabaseOps.upsert_job(
                 conn,
-                {**base, "placement_preference": {"min_uptime_pct": 99.5, "require_verified": True}},
+                {
+                    **base,
+                    "placement_preference": {"min_uptime_pct": 99.5, "require_verified": True},
+                },
                 backend="postgres",
             )
             conn.commit()
@@ -256,7 +258,7 @@ def test_the_preference_never_enters_the_spec():
 
     service_src = pathlib.Path("control_plane/launch/service.py").read_text(encoding="utf-8")
     body = service_src.split("def _submit_from_spec", 1)[1].split("\ndef ", 1)[0]
-    assert 'spec.get("placement_preference")' not in body, (
-        "the preference is being read out of the spec; it must travel beside it"
-    )
+    assert (
+        'spec.get("placement_preference")' not in body
+    ), "the preference is being read out of the spec; it must travel beside it"
     assert "placement_preference=placement_preference" in body

@@ -102,8 +102,7 @@ def test_pending_verification_refuses_another_customers_scope(auth) -> None:
         headers=auth,
     )
     assert r.status_code in (403, 404), (
-        f"reading another customer's pending charges returned {r.status_code}: "
-        f"{r.text[:200]}"
+        f"reading another customer's pending charges returned {r.status_code}: " f"{r.text[:200]}"
     )
 
 
@@ -144,9 +143,7 @@ def test_portal_session_requires_authentication() -> None:
 
 
 def test_executing_an_unknown_plan_is_not_found(auth) -> None:
-    r = client.post(
-        f"/api/v2/billing/auto-topup-plans/{uuid.uuid4()}/execute", headers=auth
-    )
+    r = client.post(f"/api/v2/billing/auto-topup-plans/{uuid.uuid4()}/execute", headers=auth)
     assert r.status_code < 500, f"an unknown plan faulted: {r.status_code} {r.text[:300]}"
     assert r.status_code in (400, 403, 404, 409), r.text[:200]
 

@@ -81,5 +81,9 @@ def test_every_referenced_asset_exists():
     assert not missing, (
         "frontend source names assets that `public/` does not have; each is a 404 "
         f"in production: {missing}"
-        + (f"\nThese were moved to public/_archive while still in use: {sorted(archived)}" if archived else "")
+        + (
+            f"\nThese were moved to public/_archive while still in use: {sorted(archived)}"
+            if archived
+            else ""
+        )
     )

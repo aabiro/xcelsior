@@ -74,8 +74,12 @@ def test_revoking_the_session_stops_every_token_minted_from_it():
     oauth_service._cache_set_json(
         "access_token",
         second,
-        {"auth_type": "oauth_access_token", "email": "probe@example.com",
-         "session_token": "sess-xyz", "expires_at": time.time() + 3600},
+        {
+            "auth_type": "oauth_access_token",
+            "email": "probe@example.com",
+            "session_token": "sess-xyz",
+            "expires_at": time.time() + 3600,
+        },
         3600,
     )
     assert oauth_service.resolve_opaque_access_token(first) is not None
@@ -97,9 +101,9 @@ def test_revoking_one_session_leaves_another_alone():
     drop = _mint("sess-drop")
     oauth_service.revoke_session("sess-drop")
     assert oauth_service.resolve_opaque_access_token(drop) is None
-    assert oauth_service.resolve_opaque_access_token(keep) is not None, (
-        "revoking one session killed another — the marker is not session-scoped"
-    )
+    assert (
+        oauth_service.resolve_opaque_access_token(keep) is not None
+    ), "revoking one session killed another — the marker is not session-scoped"
 
 
 def test_expiry_still_works_independently_of_revocation():

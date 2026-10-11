@@ -68,7 +68,11 @@ def _emitter_files() -> set[str]:
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
                 f = node.func
-                name = f.id if isinstance(f, ast.Name) else (f.attr if isinstance(f, ast.Attribute) else "")
+                name = (
+                    f.id
+                    if isinstance(f, ast.Name)
+                    else (f.attr if isinstance(f, ast.Attribute) else "")
+                )
                 if name in _EMITTERS:
                     found.add(rel)
                     break

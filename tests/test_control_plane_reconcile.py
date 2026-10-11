@@ -16,10 +16,7 @@ try:
     _pool = _get_pg_pool()
     with _pool.connection() as _c:
         _c.execute("SELECT 1").fetchone()
-        _migrated = (
-            _c.execute("SELECT to_regclass('host_observations')").fetchone()[0]
-            is not None
-        )
+        _migrated = _c.execute("SELECT to_regclass('host_observations')").fetchone()[0] is not None
 except Exception as _e:  # pragma: no cover - skip path
     pytestmark = pytest.mark.skip(f"no pg pool available: {_e}")
     _pool = None
@@ -60,13 +57,10 @@ def fleet():
                 "OR (resource_type='host' AND resource_id=%s)",
                 (hid, hid),
             )
-            conn.execute(
-                "DELETE FROM reconciliation_queue WHERE resource_id=%s", (hid,)
-            )
+            conn.execute("DELETE FROM reconciliation_queue WHERE resource_id=%s", (hid,))
             # Reconciler-enqueued stop commands are host-scoped (no job_id).
             conn.execute(
-                "DELETE FROM agent_commands WHERE host_id=%s "
-                "AND created_by='reconciler'",
+                "DELETE FROM agent_commands WHERE host_id=%s " "AND created_by='reconciler'",
                 (hid,),
             )
             conn.execute("DELETE FROM hosts WHERE host_id=%s", (hid,))
@@ -78,12 +72,22 @@ def _mk_host(fleet, host_id, *, gpu_model):
         conn.execute(
             "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) "
             "VALUES (%s, 'active', %s, %s, 'admitted')",
-            (host_id, time.time(), json.dumps({
-                "host_id": host_id, "gpu_model": gpu_model, "gpu_count": 2,
-                "free_vram_gb": 48.0, "total_vram_gb": 48.0,
-                "cost_per_hour": 1.0, "admitted": True,
-                "last_seen": time.time(),
-            })),
+            (
+                host_id,
+                time.time(),
+                json.dumps(
+                    {
+                        "host_id": host_id,
+                        "gpu_model": gpu_model,
+                        "gpu_count": 2,
+                        "free_vram_gb": 48.0,
+                        "total_vram_gb": 48.0,
+                        "cost_per_hour": 1.0,
+                        "admitted": True,
+                        "last_seen": time.time(),
+                    }
+                ),
+            ),
         )
         conn.commit()
     fleet["hosts"].append(host_id)
@@ -99,15 +103,26 @@ def _place(fleet, marker):
         conn.execute(
             "INSERT INTO jobs (job_id, status, priority, submitted_at, payload) "
             "VALUES (%s, 'queued', 0, %s, %s)",
-            (job_id, time.time(), json.dumps({
-                "job_id": job_id, "name": job_id, "gpu_model": model,
-                "num_gpus": 1, "vram_needed_gb": 8.0, "status": "queued",
-            })),
+            (
+                job_id,
+                time.time(),
+                json.dumps(
+                    {
+                        "job_id": job_id,
+                        "name": job_id,
+                        "gpu_model": model,
+                        "num_gpus": 1,
+                        "vram_needed_gb": 8.0,
+                        "status": "queued",
+                    }
+                ),
+            ),
         )
         conn.commit()
     fleet["jobs"].append(job_id)
     cfg = SchedulerConfig(
-        mode=SchedulerMode.CANARY, replica_id=f"rec-{marker}",
+        mode=SchedulerMode.CANARY,
+        replica_id=f"rec-{marker}",
         canary_gpu_models=frozenset({model.lower()}),
         canary_host_ids=frozenset({host_id}),
         # Long offer TTL: full-suite runs exceed the 60s default and a
@@ -131,9 +146,13 @@ def _place(fleet, marker):
 def _ingest(host_id, session, gen, workloads):
     return run_transaction(
         lambda c: ingest_observation(
-            c, host_id=host_id, session_id=session,
-            observation_generation=gen, workloads=workloads,
-            agent_version="test", worker_reported_at=time.time(),
+            c,
+            host_id=host_id,
+            session_id=session,
+            observation_generation=gen,
+            workloads=workloads,
+            agent_version="test",
+            worker_reported_at=time.time(),
         ),
         what="test_ingest",
     )
@@ -147,8 +166,7 @@ def _open_findings(resource_id):
             (resource_id,),
         ).fetchall()
     return [
-        (r[0], r[1]) if not isinstance(r, dict)
-        else (r["finding_type"], r["severity"])
+        (r[0], r[1]) if not isinstance(r, dict) else (r["finding_type"], r["severity"])
         for r in rows
     ]
 
@@ -158,16 +176,19 @@ class TestIngest:
         marker = uuid.uuid4().hex[:8]
         host_id = f"h-{marker}-obs"
         _mk_host(fleet, host_id, gpu_model=f"m-{marker}")
-        r1 = _ingest(host_id, "sess-1", 100, [
-            {"job_id": "j-x", "container_name": "xcl-j-x", "state": "running"},
-        ])
+        r1 = _ingest(
+            host_id,
+            "sess-1",
+            100,
+            [
+                {"job_id": "j-x", "container_name": "xcl-j-x", "state": "running"},
+            ],
+        )
         assert not r1.duplicate and r1.workloads == 1
         r2 = _ingest(host_id, "sess-1", 100, [])
         assert r2.duplicate
 
-        latest = run_transaction(
-            lambda c: latest_observation(c, host_id), what="t"
-        )
+        latest = run_transaction(lambda c: latest_observation(c, host_id), what="t")
         assert latest is not None
         assert latest["observation_generation"] == 100
         assert latest["workloads"][0]["job_id"] == "j-x"
@@ -191,10 +212,10 @@ class TestIngest:
         r = client.post(
             "/agent/v2/observations",
             json={
-                "host_id": host_id, "worker_session_id": "sess-rt",
+                "host_id": host_id,
+                "worker_session_id": "sess-rt",
                 "observation_generation": 1,
-                "workloads": [{"job_id": "j-y", "container_name": "xcl-j-y",
-                               "state": "running"}],
+                "workloads": [{"job_id": "j-y", "container_name": "xcl-j-y", "state": "running"}],
                 "agent_version": "2.1.0",
                 "worker_reported_at": time.time(),
             },
@@ -215,9 +236,7 @@ class TestReconcileFindings:
             what="t",
         )
         assert "attempt_container_missing" in report.findings_opened
-        assert ("attempt_container_missing", "warning") in _open_findings(
-            resv.attempt_id
-        )
+        assert ("attempt_container_missing", "warning") in _open_findings(resv.attempt_id)
 
         # Re-running does not duplicate the open finding.
         again = run_transaction(
@@ -227,11 +246,20 @@ class TestReconcileFindings:
         assert again.findings_opened == []
 
         # A healthy observation resolves it.
-        _ingest(host_id, "sess-a", 2, [{
-            "job_id": job_id, "attempt_id": resv.attempt_id,
-            "fencing_token": resv.fencing_token,
-            "container_name": f"xcl-{job_id}", "state": "running",
-        }])
+        _ingest(
+            host_id,
+            "sess-a",
+            2,
+            [
+                {
+                    "job_id": job_id,
+                    "attempt_id": resv.attempt_id,
+                    "fencing_token": resv.fencing_token,
+                    "container_name": f"xcl-{job_id}",
+                    "state": "running",
+                }
+            ],
+        )
         healthy = run_transaction(
             lambda c: reconcile_host(c, host_id, missing_grace_sec=0),
             what="t",
@@ -243,11 +271,20 @@ class TestReconcileFindings:
     def test_stale_fence_container_flagged(self, fleet):
         marker = uuid.uuid4().hex[:8]
         job_id, host_id, resv = _place(fleet, marker)
-        _ingest(host_id, "sess-b", 1, [{
-            "job_id": job_id, "attempt_id": str(uuid.uuid4()),
-            "fencing_token": resv.fencing_token + 999,
-            "container_name": f"xcl-{job_id}", "state": "running",
-        }])
+        _ingest(
+            host_id,
+            "sess-b",
+            1,
+            [
+                {
+                    "job_id": job_id,
+                    "attempt_id": str(uuid.uuid4()),
+                    "fencing_token": resv.fencing_token + 999,
+                    "container_name": f"xcl-{job_id}",
+                    "state": "running",
+                }
+            ],
+        )
         report = run_transaction(
             lambda c: reconcile_host(c, host_id, missing_grace_sec=3600),
             what="t",
@@ -259,10 +296,18 @@ class TestReconcileFindings:
         marker = uuid.uuid4().hex[:8]
         host_id = f"h-{marker}-um"
         _mk_host(fleet, host_id, gpu_model=f"m-{marker}")
-        _ingest(host_id, "sess-c", 1, [{
-            "job_id": f"ghost-{marker}", "container_name": f"xcl-ghost-{marker}",
-            "state": "running",
-        }])
+        _ingest(
+            host_id,
+            "sess-c",
+            1,
+            [
+                {
+                    "job_id": f"ghost-{marker}",
+                    "container_name": f"xcl-ghost-{marker}",
+                    "state": "running",
+                }
+            ],
+        )
         report = run_transaction(
             lambda c: reconcile_host(c, host_id, missing_grace_sec=0), what="t"
         )
@@ -288,10 +333,7 @@ def _stop_commands(host_id):
             "AND created_by='reconciler'",
             (host_id,),
         ).fetchall()
-    return [
-        (r[0], r[1]) if not isinstance(r, dict) else (r["args"], r["status"])
-        for r in rows
-    ]
+    return [(r[0], r[1]) if not isinstance(r, dict) else (r["args"], r["status"]) for r in rows]
 
 
 def _activate_lease(attempt_id):
@@ -315,11 +357,20 @@ def _scalar(row):
 
 class TestReconcileActions:
     def _stale_fence_obs(self, host_id, job_id, resv, session):
-        _ingest(host_id, session, 1, [{
-            "job_id": job_id, "attempt_id": str(uuid.uuid4()),
-            "fencing_token": resv.fencing_token + 999,
-            "container_name": f"xcl-{job_id}", "state": "running",
-        }])
+        _ingest(
+            host_id,
+            session,
+            1,
+            [
+                {
+                    "job_id": job_id,
+                    "attempt_id": str(uuid.uuid4()),
+                    "fencing_token": resv.fencing_token + 999,
+                    "container_name": f"xcl-{job_id}",
+                    "state": "running",
+                }
+            ],
+        )
 
     def test_policy_resolution(self, monkeypatch):
         from control_plane.reconcile import ActionPolicy, action_policy_for
@@ -328,8 +379,7 @@ class TestReconcileActions:
         monkeypatch.setenv("XCELSIOR_RECONCILE_ACTION_UNMANAGED_WORKLOAD", "enforce")
         assert action_policy_for("unmanaged_workload") is ActionPolicy.REPORT_ONLY
         # Enforceable type defaults to report-only.
-        monkeypatch.delenv("XCELSIOR_RECONCILE_ACTION_STALE_FENCE_CONTAINER",
-                           raising=False)
+        monkeypatch.delenv("XCELSIOR_RECONCILE_ACTION_STALE_FENCE_CONTAINER", raising=False)
         assert action_policy_for("stale_fence_container") is ActionPolicy.REPORT_ONLY
         # Opt-in.
         monkeypatch.setenv("XCELSIOR_RECONCILE_ACTION_STALE_FENCE_CONTAINER", "enforce")
@@ -339,8 +389,7 @@ class TestReconcileActions:
         assert action_policy_for("stale_fence_container") is ActionPolicy.REPORT_ONLY
 
     def test_report_only_default_takes_no_action(self, fleet, monkeypatch):
-        monkeypatch.delenv("XCELSIOR_RECONCILE_ACTION_STALE_FENCE_CONTAINER",
-                           raising=False)
+        monkeypatch.delenv("XCELSIOR_RECONCILE_ACTION_STALE_FENCE_CONTAINER", raising=False)
         marker = uuid.uuid4().hex[:8]
         job_id, host_id, resv = _place(fleet, marker)
         self._stale_fence_obs(host_id, job_id, resv, "sess-ro")
@@ -381,9 +430,7 @@ class TestReconcileActions:
         assert result["enqueued"] is True
 
         # Re-running the same still-open finding does NOT re-enqueue.
-        run_transaction(
-            lambda c: reconcile_host(c, host_id, missing_grace_sec=3600), what="t"
-        )
+        run_transaction(lambda c: reconcile_host(c, host_id, missing_grace_sec=3600), what="t")
         assert len(_stop_commands(host_id)) == 1
 
     def test_stop_command_visible_to_v1_drain(self, fleet, monkeypatch):
@@ -393,9 +440,7 @@ class TestReconcileActions:
         marker = uuid.uuid4().hex[:8]
         job_id, host_id, resv = _place(fleet, marker)
         self._stale_fence_obs(host_id, job_id, resv, "sess-drain")
-        run_transaction(
-            lambda c: reconcile_host(c, host_id, missing_grace_sec=3600), what="t"
-        )
+        run_transaction(lambda c: reconcile_host(c, host_id, missing_grace_sec=3600), what="t")
         with _pool.connection() as conn:
             row = conn.execute(
                 "SELECT attempt_id FROM agent_commands "
@@ -407,9 +452,7 @@ class TestReconcileActions:
         assert attempt_id is None  # v1-drain visible, not v2-claimable
 
     def test_missing_container_report_only_default(self, fleet, monkeypatch):
-        monkeypatch.delenv(
-            "XCELSIOR_RECONCILE_ACTION_ATTEMPT_CONTAINER_MISSING", raising=False
-        )
+        monkeypatch.delenv("XCELSIOR_RECONCILE_ACTION_ATTEMPT_CONTAINER_MISSING", raising=False)
         marker = uuid.uuid4().hex[:8]
         job_id, host_id, resv = _place(fleet, marker)
         _activate_lease(resv.attempt_id)
@@ -421,18 +464,17 @@ class TestReconcileActions:
         assert report.actions_taken == []
         # Lease untouched, still active with a future expiry.
         with _pool.connection() as conn:
-            future = _scalar(conn.execute(
-                "SELECT expires_at > clock_timestamp() FROM placement_leases "
-                "WHERE attempt_id=%s AND status='active'", (resv.attempt_id,)
-            ).fetchone())
+            future = _scalar(
+                conn.execute(
+                    "SELECT expires_at > clock_timestamp() FROM placement_leases "
+                    "WHERE attempt_id=%s AND status='active'",
+                    (resv.attempt_id,),
+                ).fetchone()
+            )
         assert future is True
 
-    def test_missing_container_enforce_expedites_lease_and_settles(
-        self, fleet, monkeypatch
-    ):
-        monkeypatch.setenv(
-            "XCELSIOR_RECONCILE_ACTION_ATTEMPT_CONTAINER_MISSING", "enforce"
-        )
+    def test_missing_container_enforce_expedites_lease_and_settles(self, fleet, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_RECONCILE_ACTION_ATTEMPT_CONTAINER_MISSING", "enforce")
         marker = uuid.uuid4().hex[:8]
         job_id, host_id, resv = _place(fleet, marker)
         _activate_lease(resv.attempt_id)
@@ -444,15 +486,21 @@ class TestReconcileActions:
 
         # The action recorded on the finding + lease now expired-in-the-past.
         with _pool.connection() as conn:
-            action = _scalar(conn.execute(
-                "SELECT action_taken FROM reconciliation_findings "
-                "WHERE resource_type='attempt' AND resource_id=%s "
-                "AND resolved_at IS NULL", (resv.attempt_id,)
-            ).fetchone())
-            past = _scalar(conn.execute(
-                "SELECT expires_at < clock_timestamp() FROM placement_leases "
-                "WHERE attempt_id=%s AND status='active'", (resv.attempt_id,)
-            ).fetchone())
+            action = _scalar(
+                conn.execute(
+                    "SELECT action_taken FROM reconciliation_findings "
+                    "WHERE resource_type='attempt' AND resource_id=%s "
+                    "AND resolved_at IS NULL",
+                    (resv.attempt_id,),
+                ).fetchone()
+            )
+            past = _scalar(
+                conn.execute(
+                    "SELECT expires_at < clock_timestamp() FROM placement_leases "
+                    "WHERE attempt_id=%s AND status='active'",
+                    (resv.attempt_id,),
+                ).fetchone()
+            )
         assert action == "expire_lease"
         assert past is True
 
@@ -462,17 +510,21 @@ class TestReconcileActions:
 
         run_transaction(lambda c: expire_stale_leases(c, grace_sec=0), what="t")
         with _pool.connection() as conn:
-            att_status = _scalar(conn.execute(
-                "SELECT status FROM job_attempts WHERE attempt_id=%s",
-                (resv.attempt_id,)
-            ).fetchone())
-            job_status = _scalar(conn.execute(
-                "SELECT status FROM jobs WHERE job_id=%s", (job_id,)
-            ).fetchone())
-            active_allocs = _scalar(conn.execute(
-                "SELECT count(*) FROM gpu_device_allocations "
-                "WHERE attempt_id=%s AND status='active'", (resv.attempt_id,)
-            ).fetchone())
+            att_status = _scalar(
+                conn.execute(
+                    "SELECT status FROM job_attempts WHERE attempt_id=%s", (resv.attempt_id,)
+                ).fetchone()
+            )
+            job_status = _scalar(
+                conn.execute("SELECT status FROM jobs WHERE job_id=%s", (job_id,)).fetchone()
+            )
+            active_allocs = _scalar(
+                conn.execute(
+                    "SELECT count(*) FROM gpu_device_allocations "
+                    "WHERE attempt_id=%s AND status='active'",
+                    (resv.attempt_id,),
+                ).fetchone()
+            )
         assert att_status == "lost"
         assert job_status == "queued"
         assert active_allocs == 0
@@ -481,10 +533,13 @@ class TestReconcileActions:
 class TestOrphanedAllocations:
     def _active_allocs(self, attempt_id):
         with _pool.connection() as conn:
-            return _scalar(conn.execute(
-                "SELECT count(*) FROM gpu_device_allocations "
-                "WHERE attempt_id=%s AND status='active'", (attempt_id,)
-            ).fetchone())
+            return _scalar(
+                conn.execute(
+                    "SELECT count(*) FROM gpu_device_allocations "
+                    "WHERE attempt_id=%s AND status='active'",
+                    (attempt_id,),
+                ).fetchone()
+            )
 
     def _make_orphan(self, fleet, marker):
         """Place a job, then simulate a crashed settlement: attempt
@@ -501,9 +556,7 @@ class TestOrphanedAllocations:
         return job_id, host_id, resv
 
     def test_report_only_default_flags_but_leaves(self, fleet, monkeypatch):
-        monkeypatch.delenv(
-            "XCELSIOR_RECONCILE_ACTION_ORPHANED_ALLOCATION", raising=False
-        )
+        monkeypatch.delenv("XCELSIOR_RECONCILE_ACTION_ORPHANED_ALLOCATION", raising=False)
         marker = uuid.uuid4().hex[:8]
         job_id, host_id, resv = self._make_orphan(fleet, marker)
         report = run_transaction(
@@ -515,9 +568,7 @@ class TestOrphanedAllocations:
         assert self._active_allocs(resv.attempt_id) == 1  # untouched
 
     def test_enforce_releases_and_resolves(self, fleet, monkeypatch):
-        monkeypatch.setenv(
-            "XCELSIOR_RECONCILE_ACTION_ORPHANED_ALLOCATION", "enforce"
-        )
+        monkeypatch.setenv("XCELSIOR_RECONCILE_ACTION_ORPHANED_ALLOCATION", "enforce")
         marker = uuid.uuid4().hex[:8]
         job_id, host_id, resv = self._make_orphan(fleet, marker)
         report = run_transaction(
@@ -526,11 +577,14 @@ class TestOrphanedAllocations:
         assert report.actions_taken == ["orphaned_allocation"]
         assert self._active_allocs(resv.attempt_id) == 0  # released
         with _pool.connection() as conn:
-            result = _scalar(conn.execute(
-                "SELECT action_result->>'released' FROM reconciliation_findings "
-                "WHERE resource_id=%s AND finding_type='orphaned_allocation' "
-                "AND resolved_at IS NULL", (host_id,)
-            ).fetchone())
+            result = _scalar(
+                conn.execute(
+                    "SELECT action_result->>'released' FROM reconciliation_findings "
+                    "WHERE resource_id=%s AND finding_type='orphaned_allocation' "
+                    "AND resolved_at IS NULL",
+                    (host_id,),
+                ).fetchone()
+            )
         assert result == "1"
         # Next pass: no orphan remains, the finding auto-resolves.
         report2 = run_transaction(
@@ -541,16 +595,23 @@ class TestOrphanedAllocations:
         assert _open_findings(host_id) == []
 
     def test_live_attempt_allocation_not_flagged(self, fleet, monkeypatch):
-        monkeypatch.setenv(
-            "XCELSIOR_RECONCILE_ACTION_ORPHANED_ALLOCATION", "enforce"
-        )
+        monkeypatch.setenv("XCELSIOR_RECONCILE_ACTION_ORPHANED_ALLOCATION", "enforce")
         marker = uuid.uuid4().hex[:8]
         job_id, host_id, resv = _place(fleet, marker)  # attempt running, alloc active
-        _ingest(host_id, "sess-live", 1, [{
-            "job_id": job_id, "attempt_id": resv.attempt_id,
-            "fencing_token": resv.fencing_token,
-            "container_name": f"xcl-{job_id}", "state": "running",
-        }])
+        _ingest(
+            host_id,
+            "sess-live",
+            1,
+            [
+                {
+                    "job_id": job_id,
+                    "attempt_id": resv.attempt_id,
+                    "fencing_token": resv.fencing_token,
+                    "container_name": f"xcl-{job_id}",
+                    "state": "running",
+                }
+            ],
+        )
         report = run_transaction(
             lambda c: reconcile_host(c, host_id, missing_grace_sec=3600), what="t"
         )
@@ -591,9 +652,7 @@ class TestRetention:
                 (result.observation_id,),
             )
             conn.commit()
-        deleted = run_transaction(
-            lambda c: prune_observations(c, retention_days=3), what="t"
-        )
+        deleted = run_transaction(lambda c: prune_observations(c, retention_days=3), what="t")
         assert deleted >= 1
         latest = run_transaction(lambda c: latest_observation(c, host_id), what="t")
         assert latest is None
@@ -614,19 +673,17 @@ class TestWorkerCollection:
             _sys.path.insert(0, root)
         import worker_agent
 
-        stdout = (
-            "abc123\txcl-job-1\trunning\tjob-1\tatt-1\t7\n"
-            "def456\txcl-job-2\texited\t\t\t\n"
-        )
+        stdout = "abc123\txcl-job-1\trunning\tjob-1\tatt-1\t7\n" "def456\txcl-job-2\texited\t\t\t\n"
         fake = SimpleNamespace(returncode=0, stdout=stdout, stderr="")
-        with mock.patch.object(
-            worker_agent.subprocess, "run", return_value=fake
-        ):
+        with mock.patch.object(worker_agent.subprocess, "run", return_value=fake):
             got = worker_agent._collect_local_workloads()
         assert len(got) == 2
         assert got[0] == {
-            "job_id": "job-1", "attempt_id": "att-1", "fencing_token": 7,
-            "container_id": "abc123", "container_name": "xcl-job-1",
+            "job_id": "job-1",
+            "attempt_id": "att-1",
+            "fencing_token": 7,
+            "container_id": "abc123",
+            "container_name": "xcl-job-1",
             "spec_hash": None,
             "state": "running",
         }

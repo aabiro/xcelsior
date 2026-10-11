@@ -23,9 +23,7 @@ try:
     _pool = _get_pg_pool()
     with _pool.connection() as _c:
         _c.execute("SELECT 1").fetchone()
-        _migrated = (
-            _c.execute("SELECT to_regclass('job_attempts')").fetchone()[0] is not None
-        )
+        _migrated = _c.execute("SELECT to_regclass('job_attempts')").fetchone()[0] is not None
 except Exception as _e:  # pragma: no cover - skip path
     pytestmark = pytest.mark.skip(f"no pg pool available: {_e}")
     _pool = None
@@ -78,11 +76,14 @@ def _mkjob(
                             ELSE clock_timestamp() + make_interval(secs => %s) END)
             """,
             (
-                job_id, status, priority,
+                job_id,
+                status,
+                priority,
                 time.time() + queued_offset_sec,
                 json.dumps({"name": job_id, "gpu_model": scope}),
                 fair_share,
-                next_schedule_delay_sec, next_schedule_delay_sec or 0.0,
+                next_schedule_delay_sec,
+                next_schedule_delay_sec or 0.0,
             ),
         )
         conn.commit()
@@ -92,13 +93,9 @@ def _mkjob(
 
 def _claim(scope, conn=None, replica="replica-test", ttl=15):
     if conn is not None:
-        return claim_next_job(
-            conn, replica_id=replica, claim_ttl_sec=ttl, scope_gpu_models=[scope]
-        )
+        return claim_next_job(conn, replica_id=replica, claim_ttl_sec=ttl, scope_gpu_models=[scope])
     with _pool.connection() as c:
-        got = claim_next_job(
-            c, replica_id=replica, claim_ttl_sec=ttl, scope_gpu_models=[scope]
-        )
+        got = claim_next_job(c, replica_id=replica, claim_ttl_sec=ttl, scope_gpu_models=[scope])
         c.commit()
         return got
 
@@ -157,9 +154,11 @@ class TestClaimEligibility:
                 """INSERT INTO jobs (job_id, status, priority, submitted_at, payload)
                    VALUES (%s, 'queued', 0, %s, %s)""",
                 (
-                    job_id, time.time(),
-                    json.dumps({"name": job_id, "scheduler": "v2",
-                                "gpu_model": f"unrelated-{scope}"}),
+                    job_id,
+                    time.time(),
+                    json.dumps(
+                        {"name": job_id, "scheduler": "v2", "gpu_model": f"unrelated-{scope}"}
+                    ),
                 ),
             )
             conn.commit()
@@ -203,8 +202,11 @@ class TestReleaseClaim:
         claimed = _claim(scope)
         with _pool.connection() as conn:
             ok = release_claim(
-                conn, claimed.job_id, claimed.claim_token,
-                reason_code="no_capacity", requeue_delay_sec=3600.0,
+                conn,
+                claimed.job_id,
+                claimed.claim_token,
+                reason_code="no_capacity",
+                requeue_delay_sec=3600.0,
             )
             conn.commit()
         assert ok is True
@@ -221,7 +223,9 @@ class TestReleaseClaim:
         claimed = _claim(scope)
         with _pool.connection() as conn:
             ok = release_claim(
-                conn, claimed.job_id, str(uuid.uuid4()),
+                conn,
+                claimed.job_id,
+                str(uuid.uuid4()),
                 reason_code="no_capacity",
             )
             conn.commit()

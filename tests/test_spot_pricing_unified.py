@@ -63,9 +63,9 @@ class TestSpotPricingMath:
 
     def test_provider_floor_respected(self, monkeypatch):
         # Floor below the on-demand cap: the quote must be lifted to the floor.
-        on_demand_cents = int(round(
-            sp.compute_live_spot_quote("RTX 4090", supply=100, demand=0).on_demand_cad * 100
-        ))
+        on_demand_cents = int(
+            round(sp.compute_live_spot_quote("RTX 4090", supply=100, demand=0).on_demand_cad * 100)
+        )
         floor = on_demand_cents - 5
         assert floor > 0, "catalog on-demand rate too low to exercise the floor"
         monkeypatch.setattr(sp, "_provider_floor_cents_by_gpu", lambda: {"RTX 4090": floor})

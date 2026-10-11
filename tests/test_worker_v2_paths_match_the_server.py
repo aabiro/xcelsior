@@ -104,9 +104,9 @@ def test_the_translator_never_rewrites_a_superseded_path():
 
 def test_translation_is_off_unless_opted_in():
     """A worker that switches before the API serves v2 loses its heartbeat."""
-    assert worker_agent._AGENT_V2_PATHS is False or os.environ.get("XCELSIOR_AGENT_V2_PATHS"), (
-        "v2 paths must be opt-in via XCELSIOR_AGENT_V2_PATHS, not the default"
-    )
+    assert worker_agent._AGENT_V2_PATHS is False or os.environ.get(
+        "XCELSIOR_AGENT_V2_PATHS"
+    ), "v2 paths must be opt-in via XCELSIOR_AGENT_V2_PATHS, not the default"
 
 
 def test_an_unmapped_path_is_left_alone():

@@ -46,9 +46,7 @@ def _register(label: str) -> tuple[str, dict]:
     )
     assert reg.status_code in (200, 201), reg.text
     user_id = reg.json()["user"]["user_id"]
-    login = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     assert login.status_code == 200, login.text
     return user_id, {"Authorization": f"Bearer {login.json()['access_token']}"}
 
@@ -162,6 +160,4 @@ def test_a_single_host_lookup_still_works_for_the_owner(two_providers):
     """Control for the route above."""
     a = two_providers["a"]
     r = client.get(f"/host/{a['host']}", headers=a["headers"])
-    assert r.status_code == 200, (
-        f"provider A cannot read their own host by id: {r.text[:200]}"
-    )
+    assert r.status_code == 200, f"provider A cannot read their own host by id: {r.text[:200]}"

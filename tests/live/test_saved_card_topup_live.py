@@ -119,9 +119,9 @@ def test_a_topup_on_a_saved_card_completes_with_no_browser_step():
         {"amount_cad": 5, "payment_method_id": PM_OK},
         idem=f"live-gate-ok-{uuid.uuid4().hex[:12]}",
     )
-    assert response.status_code == 200, (
-        f"a saved-card top-up was refused ({response.status_code}): {response.text[:400]}"
-    )
+    assert (
+        response.status_code == 200
+    ), f"a saved-card top-up was refused ({response.status_code}): {response.text[:400]}"
 
     body = response.json()
     assert body.get("charged") is True, f"the charge was not reported as made: {body}"
@@ -189,9 +189,9 @@ def test_an_authentication_required_decline_says_the_charge_did_not_happen():
         f"the refusal does not say authentication is required: {body}. A caller "
         "cannot resume what it has not been told about."
     )
-    assert "charged" in flat and '"charged": true' not in flat.replace(" ", ""), (
-        f"the result does not state that the charge did not happen: {body}"
-    )
+    assert "charged" in flat and '"charged": true' not in flat.replace(
+        " ", ""
+    ), f"the result does not state that the charge did not happen: {body}"
 
 
 @needs_stripe
@@ -212,6 +212,6 @@ def test_the_declined_charge_leaves_a_resumable_pending_state():
 
     body = response.json()
     flat = _text(body)
-    assert any(marker in flat for marker in ("pending", "requires_action", "resum", "intent")), (
-        f"nothing in the refusal points at a resumable state: {body}"
-    )
+    assert any(
+        marker in flat for marker in ("pending", "requires_action", "resum", "intent")
+    ), f"nothing in the refusal points at a resumable state: {body}"

@@ -21,10 +21,7 @@ try:
     _pool = _get_pg_pool()
     with _pool.connection() as _c:
         _c.execute("SELECT 1").fetchone()
-        _migrated = (
-            _c.execute("SELECT to_regclass('outbox_events')").fetchone()[0]
-            is not None
-        )
+        _migrated = _c.execute("SELECT to_regclass('outbox_events')").fetchone()[0] is not None
 except Exception as _e:  # pragma: no cover
     pytestmark = pytest.mark.skip(f"no pg pool available: {_e}")
     _pool = None
@@ -179,11 +176,7 @@ def test_enqueue_lifecycle_sse_outbox_appends_row(cleanup):
         idempotency_key=f"instance_stopped:{job_id}:test",
     )
     assert ok is True
-    rows = [
-        r
-        for r in _outbox_for(job_id)
-        if r["event_type"] == "job.v1.instance_stopped"
-    ]
+    rows = [r for r in _outbox_for(job_id) if r["event_type"] == "job.v1.instance_stopped"]
     assert len(rows) == 1
     assert rows[0]["published_at"] is None
     assert rows[0]["destination_class"] == "default"
@@ -198,28 +191,20 @@ def test_enqueue_lifecycle_sse_outbox_appends_row(cleanup):
         idempotency_key=f"instance_stopped:{job_id}:test",
     )
     assert ok2 is True
-    rows2 = [
-        r
-        for r in _outbox_for(job_id)
-        if r["event_type"] == "job.v1.instance_stopped"
-    ]
+    rows2 = [r for r in _outbox_for(job_id) if r["event_type"] == "job.v1.instance_stopped"]
     assert len(rows2) == 1
 
 
 # ── Shipped request-path helper ────────────────────────────────────────
 
 
-def test_broadcast_instance_lifecycle_sse_uses_outbox_not_dual_emit(
-    cleanup, monkeypatch
-):
+def test_broadcast_instance_lifecycle_sse_uses_outbox_not_dual_emit(cleanup, monkeypatch):
     import routes.instances as inst
 
     job_id = f"j-rpsse-h-{uuid.uuid4().hex[:10]}"
     cleanup["jobs"].append(job_id)
     local_calls: list = []
-    monkeypatch.setattr(
-        inst, "broadcast_sse", lambda et, data: local_calls.append((et, data))
-    )
+    monkeypatch.setattr(inst, "broadcast_sse", lambda et, data: local_calls.append((et, data)))
 
     inst._broadcast_instance_lifecycle_sse(
         "instance_started",
@@ -229,26 +214,18 @@ def test_broadcast_instance_lifecycle_sse_uses_outbox_not_dual_emit(
         idempotency_key=f"instance_started:{job_id}:helper",
     )
 
-    rows = [
-        r
-        for r in _outbox_for(job_id)
-        if r["event_type"] == "job.v1.instance_started"
-    ]
+    rows = [r for r in _outbox_for(job_id) if r["event_type"] == "job.v1.instance_started"]
     assert len(rows) == 1, f"no outbox: {_outbox_for(job_id)}"
     assert local_calls == [], f"unexpected dual process-local emit: {local_calls}"
 
 
-def test_broadcast_instance_lifecycle_sse_falls_back_when_outbox_fails(
-    cleanup, monkeypatch
-):
+def test_broadcast_instance_lifecycle_sse_falls_back_when_outbox_fails(cleanup, monkeypatch):
     import routes.instances as inst
 
     job_id = f"j-rpsse-fb-{uuid.uuid4().hex[:10]}"
     cleanup["jobs"].append(job_id)
     local_calls: list = []
-    monkeypatch.setattr(
-        inst, "broadcast_sse", lambda et, data: local_calls.append((et, data))
-    )
+    monkeypatch.setattr(inst, "broadcast_sse", lambda et, data: local_calls.append((et, data)))
     monkeypatch.setattr(
         "control_plane.outbox_runtime.enqueue_lifecycle_sse_outbox",
         lambda **kwargs: False,
@@ -262,9 +239,7 @@ def test_broadcast_instance_lifecycle_sse_falls_back_when_outbox_fails(
         idempotency_key=f"instance_terminated:{job_id}:fb",
     )
 
-    assert local_calls == [
-        ("instance_terminated", {"job_id": job_id})
-    ], local_calls
+    assert local_calls == [("instance_terminated", {"job_id": job_id})], local_calls
 
 
 @pytest.mark.parametrize(
@@ -275,9 +250,7 @@ def test_broadcast_instance_lifecycle_sse_falls_back_when_outbox_fails(
         ("job_cancelled", "job.v1.cancelled"),
     ],
 )
-def test_broadcast_covers_remaining_lifecycle_types(
-    cleanup, monkeypatch, sse_event, event_type
-):
+def test_broadcast_covers_remaining_lifecycle_types(cleanup, monkeypatch, sse_event, event_type):
     import routes.instances as inst
 
     job_id = f"j-rpsse-p-{uuid.uuid4().hex[:8]}"
@@ -328,8 +301,7 @@ def test_dispatcher_delivers_instance_stopped_via_listen(cleanup):
     hits = [
         m
         for m in msgs
-        if m.get("type") == "instance_stopped"
-        and (m.get("data") or {}).get("job_id") == job_id
+        if m.get("type") == "instance_stopped" and (m.get("data") or {}).get("job_id") == job_id
     ]
     assert hits, f"no instance_stopped NOTIFY; got {msgs!r}"
 
@@ -350,8 +322,7 @@ def test_dispatcher_delivers_job_cancelled_via_listen(cleanup):
     with _Listener() as listener:
         msgs = listener.drain_until(
             lambda m: any(
-                x.get("type") == "job_cancelled"
-                and (x.get("data") or {}).get("job_id") == job_id
+                x.get("type") == "job_cancelled" and (x.get("data") or {}).get("job_id") == job_id
                 for x in m
             ),
             dispatcher_id=f"test-rpsse-c-{uuid.uuid4().hex[:8]}",
@@ -360,8 +331,7 @@ def test_dispatcher_delivers_job_cancelled_via_listen(cleanup):
     hits = [
         m
         for m in msgs
-        if m.get("type") == "job_cancelled"
-        and (m.get("data") or {}).get("job_id") == job_id
+        if m.get("type") == "job_cancelled" and (m.get("data") or {}).get("job_id") == job_id
     ]
     assert hits, f"no job_cancelled NOTIFY; got {msgs!r}"
     assert hits[0]["data"].get("status") == "stopping"

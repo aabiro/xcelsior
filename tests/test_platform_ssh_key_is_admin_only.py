@@ -43,9 +43,7 @@ def test_generating_the_platform_key_requires_admin():
         "POST /ssh/keygen no longer requires admin; any signed-in user can call "
         "a platform infrastructure route and read back a server path"
     )
-    assert "_require_auth(request)" not in source, (
-        "the route still admits any authenticated user"
-    )
+    assert "_require_auth(request)" not in source, "the route still admits any authenticated user"
 
 
 def test_it_matches_the_guard_its_neighbours_use():
@@ -61,8 +59,7 @@ def test_it_matches_the_guard_its_neighbours_use():
         except AttributeError:  # pragma: no cover - route renamed
             continue
         assert "_require_admin(request)" in source, (
-            f"{neighbour} no longer requires admin; the comparison this test "
-            "relies on has moved"
+            f"{neighbour} no longer requires admin; the comparison this test " "relies on has moved"
         )
 
 

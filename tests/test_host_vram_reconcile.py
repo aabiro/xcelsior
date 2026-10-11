@@ -104,9 +104,7 @@ class TestReconcileHostVram:
 
     def _host_free(self, host_id: str) -> float:
         with _pool.connection() as conn:
-            row = conn.execute(
-                "SELECT payload FROM hosts WHERE host_id=%s", (host_id,)
-            ).fetchone()
+            row = conn.execute("SELECT payload FROM hosts WHERE host_id=%s", (host_id,)).fetchone()
         payload = row[0] if not isinstance(row, dict) else row["payload"]
         if isinstance(payload, str):
             payload = json.loads(payload)
@@ -124,9 +122,9 @@ class TestReconcileHostVram:
 
         corrections = reconcile_host_vram()
         assert host_id in corrections
-        assert abs(corrections[host_id] - (-8.0)) < 0.02 or abs(
-            self._host_free(host_id) - 16.0
-        ) < 0.02
+        assert (
+            abs(corrections[host_id] - (-8.0)) < 0.02 or abs(self._host_free(host_id) - 16.0) < 0.02
+        )
         assert abs(self._host_free(host_id) - 16.0) < 0.02
 
     def test_noop_when_free_already_correct(self, cleanup):
@@ -153,8 +151,6 @@ class TestReconcileHostVram:
         self._mk_running(cleanup, job_id, host_id, reserved=8.0)
         reconcile_host_vram()
         with _pool.connection() as conn:
-            row = conn.execute(
-                "SELECT status FROM jobs WHERE job_id=%s", (job_id,)
-            ).fetchone()
+            row = conn.execute("SELECT status FROM jobs WHERE job_id=%s", (job_id,)).fetchone()
         status = row[0] if not isinstance(row, dict) else row["status"]
         assert status == "running"

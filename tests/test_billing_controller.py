@@ -45,7 +45,10 @@ def scratch():
         return
     with _pool.connection() as conn:
         for aid in made["attempts"]:
-            conn.execute("DELETE FROM reconciliation_findings WHERE resource_type='attempt' AND resource_id=%s", (aid,))
+            conn.execute(
+                "DELETE FROM reconciliation_findings WHERE resource_type='attempt' AND resource_id=%s",
+                (aid,),
+            )
             conn.execute("DELETE FROM usage_meters WHERE attempt_id=%s", (aid,))
             conn.execute("DELETE FROM job_attempts WHERE attempt_id=%s", (aid,))
         for jid in made["jobs"]:
@@ -63,7 +66,11 @@ def _mk_host(scratch) -> str:
     with _pool.connection() as conn:
         conn.execute(
             "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) VALUES (%s,'active',%s,%s, 'admitted')",
-            (host_id, time.time(), json.dumps({"gpu_model": "RTX 4090", "country": "CA", "compute_score": 8.0})),
+            (
+                host_id,
+                time.time(),
+                json.dumps({"gpu_model": "RTX 4090", "country": "CA", "compute_score": 8.0}),
+            ),
         )
         conn.commit()
     scratch["hosts"].append(host_id)
@@ -78,7 +85,18 @@ def _mk_job(scratch, owner: str = "cust-bc") -> str:
         conn.execute(
             """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state)
                VALUES (%s, 'completed', 0, %s, %s, 'terminal', 'stopped')""",
-            (job_id, time.time(), json.dumps({"owner": owner, "vram_needed_gb": 8, "gpu_model": "RTX 4090", "pricing_mode": "on_demand"})),
+            (
+                job_id,
+                time.time(),
+                json.dumps(
+                    {
+                        "owner": owner,
+                        "vram_needed_gb": 8,
+                        "gpu_model": "RTX 4090",
+                        "pricing_mode": "on_demand",
+                    }
+                ),
+            ),
         )
         conn.commit()
     scratch["jobs"].append(job_id)
@@ -128,17 +146,22 @@ def test_missing_meter_opens_one_finding_report_only(scratch, monkeypatch):
     _run()
     n_find = _count(
         "SELECT count(*) FROM reconciliation_findings WHERE resource_id=%s AND finding_type=%s AND resolved_at IS NULL",
-        attempt, FINDING_MISSING_METER,
+        attempt,
+        FINDING_MISSING_METER,
     )
     assert n_find == 1
     # Report-only: no meter was created.
     assert _count("SELECT count(*) FROM usage_meters WHERE attempt_id=%s", attempt) == 0
     # Idempotent: a second sweep does not duplicate the finding.
     _run()
-    assert _count(
-        "SELECT count(*) FROM reconciliation_findings WHERE resource_id=%s AND finding_type=%s AND resolved_at IS NULL",
-        attempt, FINDING_MISSING_METER,
-    ) == 1
+    assert (
+        _count(
+            "SELECT count(*) FROM reconciliation_findings WHERE resource_id=%s AND finding_type=%s AND resolved_at IS NULL",
+            attempt,
+            FINDING_MISSING_METER,
+        )
+        == 1
+    )
 
 
 def test_enforce_converges_to_exactly_one_meter(scratch, monkeypatch):
@@ -170,12 +193,22 @@ def test_orphaned_open_meter_is_surfaced(scratch, monkeypatch):
         conn.commit()
 
     _run()
-    assert _count(
-        "SELECT count(*) FROM reconciliation_findings WHERE resource_id=%s AND finding_type=%s AND resolved_at IS NULL",
-        attempt, FINDING_ORPHANED_METER,
-    ) == 1
+    assert (
+        _count(
+            "SELECT count(*) FROM reconciliation_findings WHERE resource_id=%s AND finding_type=%s AND resolved_at IS NULL",
+            attempt,
+            FINDING_ORPHANED_METER,
+        )
+        == 1
+    )
     # The orphaned meter is surfaced, never auto-mutated (still open).
-    assert _count("SELECT count(*) FROM usage_meters WHERE attempt_id=%s AND completed_at IS NULL", attempt) == 1
+    assert (
+        _count(
+            "SELECT count(*) FROM usage_meters WHERE attempt_id=%s AND completed_at IS NULL",
+            attempt,
+        )
+        == 1
+    )
 
 
 def test_enforce_auto_closes_orphaned_open_meter(scratch, monkeypatch):
@@ -198,10 +231,14 @@ def test_enforce_auto_closes_orphaned_open_meter(scratch, monkeypatch):
     # Pre-open a finding in report-only first
     monkeypatch.delenv("XCELSIOR_RECONCILE_ACTION_BILLING_ORPHANED_METER", raising=False)
     _run()
-    assert _count(
-        "SELECT count(*) FROM reconciliation_findings WHERE resource_id=%s AND finding_type=%s AND resolved_at IS NULL",
-        attempt, FINDING_ORPHANED_METER,
-    ) == 1
+    assert (
+        _count(
+            "SELECT count(*) FROM reconciliation_findings WHERE resource_id=%s AND finding_type=%s AND resolved_at IS NULL",
+            attempt,
+            FINDING_ORPHANED_METER,
+        )
+        == 1
+    )
 
     # Now enforce
     monkeypatch.setenv("XCELSIOR_RECONCILE_ACTION_BILLING_ORPHANED_METER", "enforce")
@@ -221,17 +258,33 @@ def test_enforce_auto_closes_orphaned_open_meter(scratch, monkeypatch):
         assert total_cost_micros > 0
 
     # No open meters remain
-    assert _count("SELECT count(*) FROM usage_meters WHERE attempt_id=%s AND completed_at IS NULL", attempt) == 0
+    assert (
+        _count(
+            "SELECT count(*) FROM usage_meters WHERE attempt_id=%s AND completed_at IS NULL",
+            attempt,
+        )
+        == 0
+    )
 
     # Finding was resolved
-    assert _count(
-        "SELECT count(*) FROM reconciliation_findings WHERE resource_id=%s AND finding_type=%s AND resolved_at IS NULL",
-        attempt, FINDING_ORPHANED_METER,
-    ) == 0
+    assert (
+        _count(
+            "SELECT count(*) FROM reconciliation_findings WHERE resource_id=%s AND finding_type=%s AND resolved_at IS NULL",
+            attempt,
+            FINDING_ORPHANED_METER,
+        )
+        == 0
+    )
 
     # Idempotent re-run
     _run()
-    assert _count("SELECT count(*) FROM usage_meters WHERE attempt_id=%s AND completed_at IS NULL", attempt) == 0
+    assert (
+        _count(
+            "SELECT count(*) FROM usage_meters WHERE attempt_id=%s AND completed_at IS NULL",
+            attempt,
+        )
+        == 0
+    )
 
 
 def test_duplicate_delivery_creates_no_second_charge(scratch):
@@ -242,9 +295,14 @@ def test_duplicate_delivery_creates_no_second_charge(scratch):
     job = _mk_job(scratch)
     attempt = _mk_attempt(scratch, job, host, status="succeeded")
     job_dict = {
-        "job_id": job, "attempt_id": attempt, "owner": "cust-bc",
-        "started_at": time.time() - 3600, "completed_at": time.time(),
-        "vram_needed_gb": 8, "pricing_mode": "on_demand", "gpu_model": "RTX 4090",
+        "job_id": job,
+        "attempt_id": attempt,
+        "owner": "cust-bc",
+        "started_at": time.time() - 3600,
+        "completed_at": time.time(),
+        "vram_needed_gb": 8,
+        "pricing_mode": "on_demand",
+        "gpu_model": "RTX 4090",
     }
     host_dict = {"host_id": host, "gpu_model": "RTX 4090", "country": "CA", "compute_score": 8.0}
     eng = get_billing_engine()

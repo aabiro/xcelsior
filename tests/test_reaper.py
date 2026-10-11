@@ -15,6 +15,7 @@ from reaper import reaper_tick
 def _db_backend() -> str:
     return "postgres" if DB_BACKEND in ("postgres", "dual") else "sqlite"
 
+
 _tmp_ctx = tempfile.TemporaryDirectory(prefix="xcelsior_reaper_test_")
 _tmpdir = _tmp_ctx.name
 

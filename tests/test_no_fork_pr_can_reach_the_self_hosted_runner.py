@@ -91,6 +91,6 @@ def test_the_runner_preflight_still_enforces_this() -> None:
         "run-runner.sh no longer refuses to start on a fork-triggered workflow; "
         "the enforcement that actually protects the machine is gone"
     )
-    assert "self-hosted" in script and "sandboxed" in script, (
-        "run-runner.sh no longer discovers the workflows that target this runner"
-    )
+    assert (
+        "self-hosted" in script and "sandboxed" in script
+    ), "run-runner.sh no longer discovers the workflows that target this runner"

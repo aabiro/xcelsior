@@ -136,9 +136,9 @@ def test_a_manual_topup_requires_billing_write():
         "the manual top-up route does not require billing:write, so a token "
         "narrowed to instances:read could charge the user's card"
     )
-    assert 'raise HTTPException(401, "Not authenticated")' in source, (
-        "the manual top-up route lost its explicit anonymous refusal"
-    )
+    assert (
+        'raise HTTPException(401, "Not authenticated")' in source
+    ), "the manual top-up route lost its explicit anonymous refusal"
 
 
 def _executable_source(fn) -> str:
@@ -187,9 +187,9 @@ def test_a_declined_charge_does_not_disable_auto_topup():
         "the manual top-up route touches auto_topup_enabled; a single decline "
         "must not disable the account's unattended funding"
     )
-    assert "auto_topup_failures" not in code, (
-        "the manual top-up route touches the sweep's failure counter"
-    )
+    assert (
+        "auto_topup_failures" not in code
+    ), "the manual top-up route touches the sweep's failure counter"
     assert "stop_instance" not in code, (
         "the manual top-up route stops instances; that is the sweep's recovery "
         "for repeated unattended failures, not a response to one manual decline"
@@ -213,12 +213,12 @@ def test_the_prose_guard_reads_code_and_not_comments():
         auto_topup_failures = 3
         return auto_topup_failures
 
-    assert "auto_topup_failures" not in _executable_source(_documented), (
-        "a comment naming the symbol was read as code"
-    )
-    assert "auto_topup_failures" in _executable_source(_real), (
-        "skipping comments also skipped a real assignment"
-    )
+    assert "auto_topup_failures" not in _executable_source(
+        _documented
+    ), "a comment naming the symbol was read as code"
+    assert "auto_topup_failures" in _executable_source(
+        _real
+    ), "skipping comments also skipped a real assignment"
 
 
 def test_an_authentication_required_decline_says_the_charge_did_not_happen():
@@ -239,6 +239,6 @@ def test_an_authentication_required_decline_says_the_charge_did_not_happen():
         "the manual top-up route does not handle an SCA decline; the caller "
         "cannot tell a challenge from a failure"
     )
-    assert "charged" in source.lower() or "did not" in source.lower(), (
-        "the SCA branch does not state whether the card was charged"
-    )
+    assert (
+        "charged" in source.lower() or "did not" in source.lower()
+    ), "the SCA branch does not state whether the card was charged"
