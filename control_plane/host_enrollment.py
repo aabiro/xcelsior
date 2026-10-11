@@ -85,7 +85,7 @@ def _spire_cmd() -> list[str]:
 
 def _spire(*args: str, timeout: int = 30) -> str:
     socket_path = os.environ.get(
-        "XCELSIOR_SPIRE_SERVER_SOCKET", "/tmp/spire-server/private/api.sock"
+        "XCELSIOR_SPIRE_SERVER_SOCKET", "/run/xcelsior-spire/api.sock"
     ).strip()
     cmd = [*_spire_cmd(), *args, "-socketPath", socket_path]
     try:
@@ -120,7 +120,7 @@ def issue_spire_enrollment(host_id: str) -> SpireEnrollment:
     address = os.environ.get("XCELSIOR_SPIRE_SERVER_ADDRESS", "").strip()
     if not address:
         raise EnrollmentUnavailable("XCELSIOR_SPIRE_SERVER_ADDRESS is not configured")
-    port = int(os.environ.get("XCELSIOR_SPIRE_SERVER_PORT", "8091"))
+    port = int(os.environ.get("XCELSIOR_SPIRE_SERVER_PORT", "8095"))
     ttl = int(os.environ.get("XCELSIOR_SPIRE_JOIN_TOKEN_TTL", "3600"))
     parent_id = node_spiffe_id(host_id)
 
