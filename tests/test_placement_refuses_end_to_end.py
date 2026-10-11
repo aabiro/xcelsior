@@ -102,6 +102,7 @@ def fleet():
                             "host_id": host_id,
                             "status": "active",
                             "admitted": True,
+                            "capabilities": {"egress_isolation": True},
                             "gpu_model": gpu,
                             "gpu_count": 1,
                             "compute_score": 8.3,

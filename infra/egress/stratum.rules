@@ -1,4 +1,0 @@
-# Inspect reassembled client streams on every TCP port. A submit after a
-# subscription/authorization on the same flow supplies corroborating evidence.
-alert tcp any any -> any any (msg:"Xcelsior Stratum session"; flow:established,to_server,only_stream; content:"mining."; fast_pattern; pcre:"/\x22method\x22\s*:\s*\x22mining\.(subscribe|authorize)\x22/"; flowbits:set,xcl.stratum; flowbits:noalert; sid:9900101; rev:1;)
-alert tcp any any -> any any (msg:"Xcelsior Stratum submission"; flow:established,to_server,only_stream; flowbits:isset,xcl.stratum; content:"mining.submit"; fast_pattern; pcre:"/\x22method\x22\s*:\s*\x22mining\.submit\x22/"; sid:9900102; rev:1;)
