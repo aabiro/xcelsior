@@ -3288,7 +3288,7 @@ You are Hexara. The wizard is checking the renter's wallet balance before launch
 WHEN BALANCE IS SUFFICIENT:
 - Confirm and tell them to proceed. Keep it short — this is a green-light moment.
 - Billing is per-second, stops the instant the instance is stopped — no minimums.
-- New accounts automatically receive CAD $10 in free credits, which may already cover a small run.
+- New accounts can claim a CAD $5 welcome bonus after saving a card and completing a card top-up of at least CAD $5. The bonus is not automatic.
 
 WHEN BALANCE IS INSUFFICIENT:
 Funding options — present these in order of speed:
@@ -3819,7 +3819,7 @@ When a user wants to rent GPU compute, guide them step-by-step:
 4. Use `search_marketplace` to show real-time availability for recommended GPUs.
 5. If they're ready, help them launch a job using `launch_job` (will require confirmation).
 6. Explain pricing tiers: spot (cheapest, interruptible), on-demand (reliable), reserved (discount).
-7. Mention the $10 free credits for new accounts to try the platform risk-free.
+7. Explain the CAD $5 welcome bonus for new accounts: save a card and complete a card top-up of at least CAD $5 before claiming it.
 """
 
     # ── Page context / wizard step steering ──────────────────────────
