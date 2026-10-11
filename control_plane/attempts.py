@@ -169,6 +169,13 @@ def report_attempt_status(
     # recorded lifecycle_intent=terminate|cancel, a worker ``stopped``
     # report settles to that terminal status (not plain ``stopped``).
     job_status = _JOB_PROJECTION[status]
+    if status == "failed" and failure_code == "mining_detected":
+        from abuse_policy import record_mining_violation
+        row = conn.execute("SELECT payload FROM jobs WHERE job_id = %s", (job_id,)).fetchone()
+        job = dict(_get(row, "payload", 0) or {})
+        job["job_id"] = job_id
+        record_mining_violation(conn, job)
+        job_status = "terminated"
     if terminal and status == "stopped":
         intent_row = conn.execute(
             """
@@ -281,7 +288,7 @@ def report_attempt_status(
                        )
                    END,
                    reason_code = CASE
-                       WHEN %(job_status)s = 'failed' THEN %(failure_code)s
+                       WHEN %(job_status)s IN ('failed', 'terminated') THEN %(failure_code)s
                        ELSE NULL END,
                    version = version + 1,
                    updated_at = clock_timestamp()

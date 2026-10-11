@@ -90,7 +90,9 @@ def test_sustained_mining_kills_only_the_job_on_that_gpu(monkeypatch, active_job
     )
     _run_loop(monkeypatch, iterations=5, telemetry=[MINING])
     worker._kill_container.assert_called_once_with("xcl-on-gpu")
-    worker.report_job_status.assert_called_once_with("job-on-gpu", "failed")
+    worker.report_job_status.assert_called_once_with(
+        "job-on-gpu", "terminated", policy_reason="mining_detected"
+    )
     assert worker._active_containers == {"job-elsewhere": "xcl-elsewhere"}
 
 
