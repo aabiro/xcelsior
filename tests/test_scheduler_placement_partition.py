@@ -366,10 +366,11 @@ class TestDirectHostLaunchDefersOwned:
         assert result is not None
         assert ticks, "the deferral did not wake the transactional scheduler"
 
-    def test_direct_launch_still_runs_for_unowned_legacy_job(
-        self, fleet, reset_cp_config, monkeypatch
+    @pytest.mark.parametrize("agent_version", [None, "1.9.0", "2.2.0"])
+    def test_legacy_direct_launch_hands_agent_hosts_to_the_worker(
+        self, fleet, reset_cp_config, monkeypatch, agent_version
     ):
-        """Paused/shadow mode (or out-of-canary GPU) keeps legacy direct launch."""
+        """Legacy placement must not race a polling worker's container start."""
         marker = uuid.uuid4().hex[:8]
         model = f"RTX-LEGACY-{marker}"
         host_id = f"h-{marker}-leg"
@@ -412,6 +413,7 @@ class TestDirectHostLaunchDefersOwned:
                     "free_vram_gb": 48.0,
                     "total_vram_gb": 48.0,
                     "admitted": True,
+                    "agent_version": agent_version,
                 }
             ],
         )
@@ -427,7 +429,7 @@ class TestDirectHostLaunchDefersOwned:
             image="alpine:latest",
             pricing_mode="on_demand",
         )
-        assert job_id in run_job_calls
+        assert run_job_calls == ([] if agent_version else [job_id])
         row = _job_row(job_id)
         assert row["status"] == "assigned"
         assert row["host_id"] == host_id
@@ -445,6 +447,37 @@ class TestDirectHostLaunchDefersOwned:
 
 
 class TestProcessAssignedNoDoubleStart:
+    def test_legacy_assignment_on_agent_host_never_starts_via_ssh(self, monkeypatch):
+        import scheduler as sched
+
+        job = {"job_id": "legacy-pull", "status": "assigned", "host_id": "pull-host"}
+        monkeypatch.setattr(sched, "list_jobs", lambda **kw: [job])
+        monkeypatch.setattr(sched, "_attempt_owned_job_ids", lambda: set())
+        monkeypatch.setattr(
+            sched,
+            "list_hosts",
+            lambda **kw: [
+                {"host_id": "pull-host", "agent_version": "2.2.0", "last_seen": 0},
+            ],
+        )
+        with patch.object(sched, "run_job") as start:
+            assert sched.process_assigned() == []
+        start.assert_not_called()
+        assert job["status"] == "assigned"
+
+    def test_ssh_runner_defers_before_resume_or_remote_commands(self):
+        import scheduler as sched
+
+        job = {"job_id": "legacy-pull", "resume_from": {"success": True}}
+        host = {"host_id": "pull-host", "agent_version": "2.2.0"}
+        with (
+            patch.object(sched, "ssh_exec") as ssh,
+            patch.object(sched, "resume_from_checkpoint") as resume,
+        ):
+            assert sched.run_job(job, host) is None
+        ssh.assert_not_called()
+        resume.assert_not_called()
+
     def test_skips_attempt_owned_and_never_calls_run_job(self, fleet, reset_cp_config, monkeypatch):
         marker = uuid.uuid4().hex[:8]
         model = f"RTX-{marker}"

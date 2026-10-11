@@ -2492,12 +2492,22 @@ def process_queue():
     return assigned
 
 
+def host_uses_worker_agent(host: dict) -> bool:
+    """An enrolled pull worker owns container startup, even for legacy jobs.
+
+    Protocol-v2 enrollment does not imply that every job has a fenced attempt:
+    shadow/canary schedulers still assign legacy work for the agent to poll.
+    Never switch such a host to SSH startup because its heartbeat is old.
+    """
+    return bool(str(host.get("agent_version") or "").strip())
+
+
 def process_assigned():
     """Pick up 'assigned' jobs and start their containers.
 
-    The scheduler loop calls process_queue() to move jobs from queued->assigned,
-    then process_assigned() to move assigned->running by SSHing into the host
-    and starting the Docker container.
+    Queue processing moves jobs from queued to assigned.
+    The optional legacy SSH runner starts only hosts without an enrolled
+    agent. Workers poll assignments and own their container startup.
     """
     assigned_jobs = list_jobs(status="assigned")
     if not assigned_jobs:
@@ -2535,6 +2545,9 @@ def process_assigned():
                 "RUNNER: host %s not found for job %s, requeueing", host_id, job.get("job_id")
             )
             update_job_status(job["job_id"], "queued")
+            continue
+
+        if host_uses_worker_agent(host):
             continue
 
         try:
@@ -2874,6 +2887,13 @@ def run_job(job, host, docker_image=None):
     - Memory limits based on host capacity
     - Per-GPU selection when available
     """
+    # Defense for callers outside the normal placement paths. Starting via
+    # SSH while the agent polls the same assignment creates two containers
+    # with one name; the losing runner then marks the working job failed.
+    if host_uses_worker_agent(host):
+        log.info("SSH start deferred to worker job=%s host=%s", job["job_id"], host["host_id"])
+        return None
+
     # ── Checkpoint Resume Path ────────────────────────────────────────
     checkpoint_meta = job.get("resume_from")
     if checkpoint_meta and checkpoint_meta.get("success"):
