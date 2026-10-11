@@ -90,7 +90,13 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `119_privacy_epoch_columns_any_numeric_type.py`.**
+**Repository head: `120_drop_plaintext_root_passwords.py`.**
+
+(`120` deletes `ssh_status.root_password` from instances that are finished or
+stopped. Those passwords were stored in plaintext before the API began
+encrypting them; the worker sets a fresh one whenever it sets up SSH, so none
+of them is needed again. Running instances are left alone. It has no downgrade:
+a deleted secret must stay deleted.)
 
 (`119` repeats 090's float-epoch → TIMESTAMPTZ conversion for `casl_consent`
 and `user_encryption_keys`, guarded on any numeric type instead of only

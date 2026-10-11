@@ -16,7 +16,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-FILTER_POLICY_VERSION = "filters/v1"
+FILTER_POLICY_VERSION = "filters/v2"
 
 
 @dataclass(frozen=True)
@@ -132,6 +132,21 @@ def region(job: dict, host: dict, ctx: FilterContext) -> FilterReason | None:
     return None
 
 
+def egress_isolation(job: dict, host: dict, ctx: FilterContext) -> FilterReason | None:
+    # Anything but an explicit, server-set "open" runs on the isolated network,
+    # which only hosts that verified it on their last heartbeat can provide.
+    if _norm(job.get("egress")) == "open":
+        return None
+    caps = host.get("capabilities")
+    if isinstance(caps, dict) and caps.get("egress_isolation") is True:
+        return None
+    return FilterReason(
+        "egress_isolation_unavailable",
+        "host has not verified network isolation for tenant containers",
+        {"egress": _norm(job.get("egress")) or "restricted"},
+    )
+
+
 def price(job: dict, host: dict, ctx: FilterContext) -> FilterReason | None:
     max_price = _f(job.get("max_price_per_hour"), 0.0)
     if max_price <= 0:
@@ -155,6 +170,7 @@ HARD_FILTERS: Sequence[Callable[[dict, dict, FilterContext], FilterReason | None
     gpu_count,
     vram,
     region,
+    egress_isolation,
     price,
 )
 

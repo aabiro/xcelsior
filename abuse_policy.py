@@ -66,40 +66,67 @@ def record_mining_violation(conn, job: dict, *, backend: str | None = None) -> N
         )
 
 
-def account_suspended(principal: dict | str | None) -> bool:
+_IDENTIFIER_KEYS = (
+    "user_id",
+    "customer_id",
+    "email",
+    "workspace_customer_id",
+    "created_by_email",
+    "client_id",
+    "sub",
+    "owner",
+    "owner_id",
+    "account_id",
+)
+
+
+def _identifiers(principal: dict | str | None) -> list[str]:
     if not principal:
-        return False
+        return []
     if isinstance(principal, str):
         principal = {"user_id": principal}
     elif not isinstance(principal, dict):
-        return False
-    identifiers = {
-        str(principal.get(k) or "").strip()
-        for k in (
-            "user_id",
-            "customer_id",
-            "email",
-            "workspace_customer_id",
-            "created_by_email",
-            "client_id",
-            "sub",
-            "owner",
-            "owner_id",
-            "account_id",
-        )
-    } - {""}
+        return []
+    return sorted({str(principal.get(k) or "").strip() for k in _IDENTIFIER_KEYS} - {""})
+
+
+def _any_active(prefix: str, identifiers: list[str]) -> bool:
     if not identifiers:
         return False
-    # Never cache an allow decision or fail open when the store is unavailable.
+    # One round trip, however many identifiers. Never cache an allow decision or
+    # fail open when the store is unavailable: errors propagate to the caller.
     with get_engine().connection() as (conn, backend):
-        return any(
-            bool(
-                (
-                    DatabaseOps.get_state(conn, f"security.suspended.{uid}", backend=backend) or {}
-                ).get("active")
-            )
-            for uid in identifiers
+        found = DatabaseOps.get_states(
+            conn, [f"{prefix}.{uid}" for uid in identifiers], backend=backend
         )
+    return any(bool((record or {}).get("active")) for record in found.values())
+
+
+def account_suspended(principal: dict | str | None) -> bool:
+    return _any_active("security.suspended", _identifiers(principal))
+
+
+def egress_for_owner(principal: dict | str | None) -> str:
+    """Rented containers get restricted egress unless an administrator opened it.
+
+    Restricted means the isolated bridge plus the allowlisting proxy
+    (``egress_isolation``). The job tier is not a trust signal: anyone can
+    pick it, and signup credit funds it.
+    """
+    from egress_isolation import OPEN, RESTRICTED
+
+    return OPEN if _any_active("security.egress_open", _identifiers(principal)) else RESTRICTED
+
+
+def set_egress_open(
+    conn, *, user_id: str, active: bool, actor: str, reason: str, backend: str | None = None
+) -> None:
+    user_id, actor, reason = (str(v or "").strip() for v in (user_id, actor, reason))
+    if not user_id or not actor or not reason:
+        raise ValueError("Opening egress requires a user, actor and reason")
+    backend = _resolve_backend(conn, backend)
+    decision = {"active": active, "actor": actor, "reason": reason[:500], "updated_at": time.time()}
+    DatabaseOps.upsert_state(conn, f"security.egress_open.{user_id}", decision, backend=backend)
 
 
 def set_account_suspension(
