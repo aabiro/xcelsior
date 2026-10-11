@@ -57,6 +57,7 @@ from scheduler import (
     get_job,
     get_job,
     host_accepts_spot_job,
+    host_uses_worker_agent,
     kill_job,
     legacy_inline_placement_allowed,
     list_hosts,
@@ -687,6 +688,9 @@ def _direct_host_launch_or_defer(
     or active), refuse inline ``assigned`` + SSH ``run_job``. Leave the job
     queued with a preferred-host pin so the claim→reserve path is the sole
     writer (attempt + lease + durable start command).
+
+    Legacy assignments on enrolled worker hosts are polled by that worker.
+    Only hosts without an agent may use the synchronous SSH runner.
     """
     if not legacy_inline_placement_allowed(job):
         try:
@@ -768,6 +772,13 @@ def _direct_host_launch_or_defer(
             hmap = {h["host_id"]: h for h in hosts}
             host = hmap.get(target_host_id)
             if host:
+                if host_uses_worker_agent(host):
+                    log.info(
+                        "Direct launch assigned to worker job=%s host=%s",
+                        job["job_id"],
+                        target_host_id,
+                    )
+                    return _refresh_job(job["job_id"]) or updated
                 container_id = run_job(updated, host, docker_image=image)
                 if container_id:
                     job = _refresh_job(job["job_id"]) or job
@@ -802,8 +813,8 @@ def api_submit_instance(j: JobIn, request: Request):
     """Submit a job to the queue or directly assign to a host.
 
     If host_id is provided (marketplace launch), the job is assigned directly
-    to that host and container start is attempted immediately — unless the
-    transactional scheduler owns the job (canary/active partition), in which
+    to that host for its worker to start (SSH only without an agent). When the
+    transactional scheduler owns the job (canary/active partition),
     case the pin is recorded and placement/start stay with the claim→reserve
     path. Otherwise the job is queued and process_queue runs to find a host.
     """

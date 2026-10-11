@@ -1277,9 +1277,13 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
         # terminal states (failed/completed/cancelled/terminated) get rejected.
         startup_statuses = {"queued", "assigned", "leased", "starting"}
         if instance.get("status") not in startup_statuses | {"running"}:
+            detail = f"Instance is '{instance.get('status', 'unknown')}', not running"
+            reason = str(instance.get("error_message") or "").strip()
+            if reason:
+                detail += f": {reason[:500]}"
             await _send_error(
                 websocket,
-                f"Instance is '{instance.get('status', 'unknown')}', not running",
+                detail,
                 4003,
             )
             await websocket.close(code=4003)
