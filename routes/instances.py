@@ -915,6 +915,22 @@ def api_submit_instance(j: JobIn, request: Request):
         "job.submit", {"job.name": j.name, "job.tier": j.tier or "", "job.num_gpus": j.num_gpus}
     ):
         customer_id = _effective_billing_customer_id(user)
+        if target_host is not None:
+            # Same decision submit_job stamps on the job, checked before any
+            # wallet hold so a pinned launch fails cleanly instead of queueing.
+            from abuse_policy import egress_for_owner
+            from scheduler import host_can_run_egress
+
+            if not host_can_run_egress(
+                target_host, {"egress": egress_for_owner({"owner": customer_id})}
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Host {target_host_id} can't take new instances right now. "
+                        "Choose another machine, or launch without one and we'll pick."
+                    ),
+                )
         hold_id = _wallet_preflight(
             customer_id,
             pricing_mode=j.pricing_mode,

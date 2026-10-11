@@ -30,13 +30,13 @@ Job containers run with minimal privileges:
 - Memory and CPU limits enforced
 - PID namespace isolation
 
-## Layer 3: Egress Firewall
+## Layer 3: Network Protection
 
-Network access is tightly controlled:
-- **Allowed**: Scheduler API, artifact storage endpoints
-- **Blocked**: All other outbound traffic
-- **Logged**: Every egress attempt is recorded
-- **Configurable**: Per-job egress rules for special cases
+Rented containers can't open connections to the internet directly. They can:
+- download packages and models from common registries (PyPI, PyTorch, Hugging Face, GitHub, npm, conda-forge, and the Ubuntu, Debian and Alpine package archives), through a proxy on the machine that runs them
+- accept your SSH sessions and any ports you choose to expose
+
+Everything else is blocked, including the provider's own network and other renters' containers. If your work needs another site, contact support and we can open network access for your account after a review.
 
 ## Layer 4: Runtime Sandboxing
 

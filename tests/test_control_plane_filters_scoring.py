@@ -29,6 +29,7 @@ def _host(**over):
         "cost_per_hour": 1.0,
         "region": "ca-on",
         "inventory_generation": 1,
+        "capabilities": {"egress_isolation": True},
     }
     base.update(over)
     return base
