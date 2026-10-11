@@ -86,6 +86,7 @@ try:
         collect_all_gpus,
         get_gpu_info_nvml,
         build_verification_report,
+        get_gpu_compute_pids,
     )
 
     _nvml_imported = True
@@ -108,6 +109,9 @@ except ImportError:
         return None
 
     def build_verification_report(gpu_index=0):
+        return None
+
+    def get_gpu_compute_pids(gpu_index):
         return None
 
 
@@ -6759,9 +6763,58 @@ def telemetry_loop():
 # ── Mining Detection Thread ──────────────────────────────────────────
 
 
+_DOCKER_CGROUP_ID = re.compile(r"(?:docker-|/docker/)([0-9a-f]{64})")
+
+
+def _container_id_for_pid(pid):
+    """Docker container ID that host PID `pid` runs in, or None for host processes."""
+    try:
+        with open(f"/proc/{pid}/cgroup") as f:
+            m = _DOCKER_CGROUP_ID.search(f.read())
+    except OSError:
+        return None
+    return m.group(1) if m else None
+
+
+def _job_containers_on_gpu(gpu_index, active):
+    """Subset of `active` (job_id -> container name) whose processes use GPU `gpu_index`.
+
+    Returns None when GPU-process attribution is unavailable. An empty dict
+    means the load on that GPU comes from processes that are not job
+    containers (e.g. the host's own inference services), which must never
+    get a tenant's job killed or reported as mining.
+    """
+    pids = get_gpu_compute_pids(gpu_index)
+    if pids is None:
+        return None
+    gpu_cids = {cid for cid in map(_container_id_for_pid, pids) if cid}
+    if not gpu_cids:
+        return {}
+    on_gpu = {}
+    for job_id, cname in active.items():
+        r = subprocess.run(
+            ["docker", "inspect", "-f", "{{.Id}}", cname],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if r.returncode == 0 and r.stdout.strip() in gpu_cids:
+            on_gpu[job_id] = cname
+    return on_gpu
+
+
 def mining_detection_loop():
-    """Background thread: periodically check for mining signatures."""
-    consecutive_mining_detections = 0
+    """Background thread: periodically check for mining signatures.
+
+    The heuristic reads whole-GPU telemetry, so a hit is attributed to the
+    job containers actually holding a compute context on that GPU. Load from
+    non-job processes is ignored (no alert, no kill), and only the suspect
+    containers on the flagged GPU are ever killed. If attribution is
+    unavailable we fall back to treating every active job as a suspect,
+    which preserves the protection the detector existed for.
+    """
+    consecutive = {}  # gpu index -> consecutive detections
+    host_load_logged = set()
 
     while not _shutdown.is_set():
         # Wait for the check interval (interruptible)
@@ -6772,29 +6825,53 @@ def mining_detection_loop():
 
         telemetry = get_gpu_telemetry()
         for gpu in telemetry:
+            idx = gpu["index"]
             is_mining, confidence, reason = check_mining_heuristic(gpu)
-            if is_mining:
-                consecutive_mining_detections += 1
-                log.warning(
-                    "MINING DETECTED GPU=%d confidence=%.0f%% (%s) [%d consecutive]",
-                    gpu["index"],
-                    confidence * 100,
-                    reason,
-                    consecutive_mining_detections,
-                )
-                report_mining_alert(gpu["index"], confidence, reason)
+            if not is_mining:
+                consecutive[idx] = max(0, consecutive.get(idx, 0) - 1)
+                host_load_logged.discard(idx)
+                continue
 
-                # After sustained detection, consider killing the container
-                if consecutive_mining_detections >= 5:
-                    log.error("Sustained mining detected — killing suspicious containers")
-                    with _active_lock:
-                        for job_id, cname in list(_active_containers.items()):
-                            _kill_container(cname)
-                            report_job_status(job_id, "failed")
-                        _active_containers.clear()
-                    consecutive_mining_detections = 0
-            else:
-                consecutive_mining_detections = max(0, consecutive_mining_detections - 1)
+            with _active_lock:
+                active = dict(_active_containers)
+            suspects = _job_containers_on_gpu(idx, active) if active else {}
+            if suspects is None:
+                log.debug(
+                    "GPU %d: process attribution unavailable; all active jobs are suspects", idx
+                )
+                suspects = active
+            if not suspects:
+                consecutive[idx] = 0
+                if idx not in host_load_logged:
+                    log.info(
+                        "GPU %d matches the mining signature but no job container is using it "
+                        "(host workload) — not alerting (%s)",
+                        idx,
+                        reason,
+                    )
+                    host_load_logged.add(idx)
+                continue
+
+            consecutive[idx] = consecutive.get(idx, 0) + 1
+            log.warning(
+                "MINING DETECTED GPU=%d confidence=%.0f%% (%s) [%d consecutive] jobs=%s",
+                idx,
+                confidence * 100,
+                reason,
+                consecutive[idx],
+                sorted(suspects),
+            )
+            report_mining_alert(idx, confidence, reason)
+
+            # After sustained detection, kill only the suspect containers on this GPU
+            if consecutive[idx] >= 5:
+                log.error("Sustained mining on GPU %d — killing %s", idx, sorted(suspects))
+                with _active_lock:
+                    for job_id, cname in suspects.items():
+                        _kill_container(cname)
+                        report_job_status(job_id, "failed")
+                        _active_containers.pop(job_id, None)
+                consecutive[idx] = 0
 
 
 # ── Heartbeat Thread ─────────────────────────────────────────────────
