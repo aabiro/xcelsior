@@ -212,6 +212,17 @@ describe("BillingPage free credits flow", () => {
     });
   });
 
+  it("explains the card payment requirement when a bonus claim is refused", async () => {
+    const message = "Save a card and complete a card top-up of at least $5 CAD before claiming your $5 welcome bonus.";
+    apiMocks.claimFreeCredits.mockRejectedValueOnce(new Error(message));
+    render(<BillingPage />);
+    await screen.findByText("dash.billing.free_credits_title");
+    fireEvent.click(screen.getByRole("button", { name: /dash\.billing\.claim_credits/i }));
+    await waitFor(() => expect(toastMocks.error).toHaveBeenCalledWith(message));
+    expect(toastMocks.success).not.toHaveBeenCalled();
+    expect(screen.getByText("dash.billing.free_credits_title")).toBeInTheDocument();
+  });
+
   it("renders wallet transactions in the shape the API actually sends", async () => {
     // `/api/billing/wallet/{id}/history` on production, 2026-10-06: micros in
     // storage with CAD derived at the boundary, Unix seconds, `tx_type`. Every
