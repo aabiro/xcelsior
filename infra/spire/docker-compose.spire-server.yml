@@ -1,0 +1,37 @@
+# Production SPIRE server for host enrollment (issue #67), on prod-hetzner.
+#
+#   sudo SPIRE_DATASTORE_DSN=... docker compose -f infra/spire/docker-compose.spire-server.yml up -d
+#
+# Only the server: hosts run their own spire-agent (install.sh), and the nginx
+# agent gateway trusts the long-lived upstream root, so there is no Envoy or
+# local agent here. infra/spire/rollout-enrollment.sh prepares everything below.
+#
+# - host network: binds the mesh address only (SPIRE_BIND_ADDRESS, 100.64.0.1)
+#   on 8095 (*:8081 and *:8091 are taken on prod), and reaches Postgres on
+#   127.0.0.1, which pg_hba already allows.
+# - uid 10002, gid 10001: its own user, in the API container's group, so the
+#   API (uid 10001) can use the admin socket to mint join tokens without being
+#   given Docker access.
+name: xcelsior-spire-server
+
+services:
+  spire-server:
+    image: ghcr.io/spiffe/spire-server:1.11.2
+    command: ["-config", "/opt/spire/conf/server/server.conf", "-expandEnv"]
+    network_mode: host
+    user: "10002:10001"
+    environment:
+      SPIRE_DATASTORE_DSN: ${SPIRE_DATASTORE_DSN:?SPIRE_DATASTORE_DSN is required}
+      SPIRE_BIND_ADDRESS: ${SPIRE_BIND_ADDRESS:-100.64.0.1}
+    volumes:
+      - ./server.conf:/opt/spire/conf/server/server.conf:ro
+      - /etc/xcelsior/spire/upstream-root.crt:/opt/spire/conf/server/upstream-root.crt:ro
+      - /etc/xcelsior/spire/upstream-root.key:/opt/spire/conf/server/upstream-root.key:ro
+      - /var/lib/xcelsior-spire/server:/opt/spire/data/server
+      - /var/lib/xcelsior-spire/sock:/run/xcelsior-spire
+    healthcheck:
+      test: ["CMD", "/opt/spire/bin/spire-server", "healthcheck", "-socketPath", "/run/xcelsior-spire/api.sock"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
