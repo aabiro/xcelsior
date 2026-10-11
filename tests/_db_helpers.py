@@ -1,8 +1,12 @@
 """Shared DB helpers for tests (sqlite + postgres safe)."""
 
 
-def admit_test_host(host_id: str, *, active: bool = False) -> None:
-    """Mark a host admitted (and optionally active) via DatabaseOps."""
+def admit_test_host(host_id: str, *, active: bool = False, egress_isolated: bool = True) -> None:
+    """Mark a host admitted (and optionally active) via DatabaseOps.
+
+    Admitted production hosts also report verified tenant egress isolation
+    (egress_isolation.py), without which restricted jobs are never placed.
+    """
     import scheduler
 
     backend = scheduler._active_backend()
@@ -11,6 +15,8 @@ def admit_test_host(host_id: str, *, active: bool = False) -> None:
         if not data:
             return
         data["admitted"] = True
+        if egress_isolated:
+            data["capabilities"] = {**(data.get("capabilities") or {}), "egress_isolation": True}
         if active:
             data["status"] = "active"
         scheduler.DatabaseOps.upsert_host(conn, data, backend=backend)

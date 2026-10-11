@@ -811,6 +811,7 @@ def _hash_agent_key(secret: str) -> str:
 
 def _require_unsuspended(principal: dict) -> None:
     from abuse_policy import account_suspended
+
     if account_suspended(principal):
         raise OAuthGrantError("access_denied", "Account suspended", status_code=403)
 
@@ -891,6 +892,7 @@ def validate_agent_api_key(token: str) -> dict[str, Any] | None:
 
     user = UserStore.get_user_by_id(row["user_id"]) or {}
     from abuse_policy import account_suspended
+
     if account_suspended(dict(user, user_id=row["user_id"])):
         return None
     # last_used_at exists so the dashboard can tell a live key from an unused
@@ -1175,6 +1177,7 @@ def validate_client_credentials_jwt(token: str) -> dict[str, Any] | None:
     if not client:
         return None
     from abuse_policy import account_suspended
+
     if str(client.get("status", "active")) == "disabled" or account_suspended(client):
         return None
 
@@ -2261,6 +2264,7 @@ def resolve_opaque_access_token(token: str) -> dict[str, Any] | None:
     if not payload:
         return None
     from abuse_policy import account_suspended
+
     if account_suspended(payload):
         return None
     expires_at = float(payload.get("expires_at", 0) or 0)

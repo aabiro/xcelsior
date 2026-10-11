@@ -87,6 +87,7 @@ def _mk_host(
         "total_vram_gb": total_vram_gb,
         "cost_per_hour": cost_per_hour,
         "admitted": admitted,
+        "capabilities": {"egress_isolation": True},
         "last_seen": time.time() if last_seen is None else last_seen,
     }
     with _pool.connection() as conn:
@@ -227,6 +228,7 @@ class TestSimulation:
             "total_vram_gb": 24.0,
             "cost_per_hour": 1.0,
             "inventory_generation": 0,
+            "capabilities": {"egress_isolation": True},
         }
         jobs = [
             {"job_id": f"j{i}", "gpu_model": "RTX 4090", "num_gpus": 1, "vram_needed_gb": 8.0}

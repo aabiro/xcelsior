@@ -185,8 +185,12 @@ def test_systemd_unit_uses_state_directory(tmp_path):
     result = _run_installer_function(
         "install_systemd",
         {
-            # `sudo install -m 0644 <tmp> /etc/systemd/system/xcelsior-worker.service`
-            "sudo": f'if [ "$1" = install ]; then cp "$4" {unit}; fi',
+            # `sudo install -m 0644 <tmp> /etc/systemd/system/xcelsior-worker.service`;
+            # install_systemd also installs other files (egress units) first.
+            "sudo": (
+                'if [ "$1" = install ]; then case "${@: -1}" in '
+                f'*/xcelsior-worker.service) cp "${{@: -2:1}}" {unit};; esac; fi'
+            ),
             "systemctl": "exit 0",
         },
     )
@@ -196,3 +200,40 @@ def test_systemd_unit_uses_state_directory(tmp_path):
     # A missing ReadWritePaths entry fails the first start with 226/NAMESPACE.
     rw = next(line for line in text.splitlines() if line.startswith("ReadWritePaths="))
     assert "/var/lib/xcelsior" not in rw
+
+
+def test_rented_container_protection_is_installed_with_the_worker(tmp_path):
+    """install_systemd (wizard, manual and --update paths) sets up egress isolation."""
+    calls = tmp_path / "calls.log"
+    units = tmp_path / "units"
+    units.mkdir()
+    result = _run_installer_function(
+        "install_systemd",
+        {
+            "sudo": (
+                f'echo "$*" >> {calls}; '
+                'if [ "$1" = install ]; then case "${@: -1}" in '
+                f'/etc/systemd/system/*) cp "${{@: -2:1}}" {units}/"$(basename "${{@: -1}}")";; esac; fi'
+            ),
+            "systemctl": "exit 0",
+            "squid": "exit 0",
+        },
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    log = calls.read_text()
+    # The packaged proxy listens everywhere; ours binds only the tenant gateway.
+    assert "systemctl mask squid.service" in log
+    # Root runs the provisioner from a root-owned copy, never the worker's lib dir.
+    assert "install -m 0644 -o root -g root" in log
+    assert "/usr/local/lib/xcelsior/egress_isolation.py" in log
+    provision = (units / "xcelsior-egress.service").read_text()
+    assert (
+        "ExecStart=/usr/bin/python3 /usr/local/lib/xcelsior/egress_isolation.py provision"
+        in provision
+    )
+    assert "OnUnitInactiveSec=2min" in (units / "xcelsior-egress.timer").read_text()
+    proxy = (units / "xcelsior-egress-proxy.service").read_text()
+    assert "User=proxy" in proxy and "/etc/xcelsior/egress/squid.conf" in proxy
+    assert "Network protection for rented containers is active" in result.stdout
+    # The worker unit is still installed after it.
+    assert (units / "xcelsior-worker.service").exists()

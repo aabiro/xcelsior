@@ -63,6 +63,7 @@ def _mk_host(
         "total_vram_gb": total_vram_gb,
         "cost_per_hour": 1.0,
         "admitted": admitted,
+        "capabilities": {"egress_isolation": True},
         "last_seen": time.time(),
     }
     with _pool.connection() as conn:

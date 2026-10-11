@@ -89,6 +89,7 @@ def _mk_host(fleet, host_id, *, gpu_model, gpu_count=2, total_vram_gb=48.0):
         "total_vram_gb": total_vram_gb,
         "cost_per_hour": 1.0,
         "admitted": True,
+        "capabilities": {"egress_isolation": True},
         "last_seen": time.time(),
         "ip": "127.0.0.1",
         "status": "active",
@@ -414,6 +415,7 @@ class TestDirectHostLaunchDefersOwned:
                     "total_vram_gb": 48.0,
                     "admitted": True,
                     "agent_version": agent_version,
+                    "capabilities": {"egress_isolation": True},
                 }
             ],
         )

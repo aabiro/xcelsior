@@ -35,6 +35,8 @@ _ALLOWED: dict[str, Path] = {
     # for checkpoint support. Without them an installed worker cannot start.
     "env_config.py": _REPO_ROOT / "env_config.py",
     "criu_hosts.py": _REPO_ROOT / "criu_hosts.py",
+    # Network protection for rented containers; root runs a copy of it.
+    "egress_isolation.py": _REPO_ROOT / "egress_isolation.py",
     "worker-requirements.txt": _SCRIPTS / "worker-requirements.txt",
 }
 
@@ -49,6 +51,7 @@ _SIGNABLE = frozenset(
         "worker_luks_volumes.py",
         "env_config.py",
         "criu_hosts.py",
+        "egress_isolation.py",
     }
 )
 

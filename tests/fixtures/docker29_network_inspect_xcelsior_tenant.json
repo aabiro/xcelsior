@@ -1,0 +1,61 @@
+[
+  {
+    "Name": "xcelsior-tenant",
+    "Id": "187e81b05db340c800a89018689a07956d781cfd439dea8066ebb2ad1412fa37",
+    "Created": "2026-10-11T14:42:59.617239036Z",
+    "Scope": "local",
+    "Driver": "bridge",
+    "EnableIPv4": true,
+    "EnableIPv6": false,
+    "IPAM": {
+      "Driver": "default",
+      "Options": {},
+      "Config": [
+        {
+          "Subnet": "172.30.242.0/24",
+          "Gateway": "172.30.242.1"
+        }
+      ]
+    },
+    "Internal": false,
+    "Attachable": false,
+    "Ingress": false,
+    "ConfigFrom": {
+      "Network": ""
+    },
+    "ConfigOnly": false,
+    "Options": {
+      "com.docker.network.bridge.enable_icc": "false",
+      "com.docker.network.bridge.name": "xcl-tenant0"
+    },
+    "Labels": {
+      "ca.xcelsior.role": "tenant-egress"
+    },
+    "Containers": {
+      "46db398d0192553b61c1b6281cbcb9b93a3500372c1243b5c3ea8e45602b6c2c": {
+        "Name": "peer",
+        "EndpointID": "008315beec242e5ac6bdd800b05f5233743c4ea6870784386611c957efca0e7b",
+        "MacAddress": "4a:fd:64:04:85:b6",
+        "IPv4Address": "172.30.242.2/24",
+        "IPv6Address": ""
+      },
+      "ddce3b2f33f9e9afdab54627c4bcfb6662ea1b22a2c05c366ffa827b488d6968": {
+        "Name": "srv",
+        "EndpointID": "760f62ea03f50d625a75ee8da16263e94f7e655b83dab55103be321a911a1172",
+        "MacAddress": "56:95:f6:aa:54:4c",
+        "IPv4Address": "172.30.242.3/24",
+        "IPv6Address": ""
+      }
+    },
+    "Status": {
+      "IPAM": {
+        "Subnets": {
+          "172.30.242.0/24": {
+            "IPsInUse": 5,
+            "DynamicIPsAvailable": 251
+          }
+        }
+      }
+    }
+  }
+]
