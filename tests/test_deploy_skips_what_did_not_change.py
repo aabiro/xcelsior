@@ -14,6 +14,7 @@ This runs the real function with SSH and hashing stubbed.
 from __future__ import annotations
 
 import re
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -45,9 +46,11 @@ def _decide(remote: dict[str, str]) -> dict[str, str]:
             # The api, nginx and runtime subsets are told apart by their first argument.
             'hash_repo_subset() { case "$1" in .dockerignore) echo A1 ;; nginx) echo N1 ;; *) echo R1 ;; esac; }',
             "frontend_build_hash() { echo F1; }",
+            "runtime_build_hash() { echo R1; }",
             *(
                 _function(n)
                 for n in (
+                    "api_build_hash",
                     "remote_deploy_meta_dir",
                     "fetch_remote_deploy_hashes",
                     "parse_remote_deploy_hashes",
@@ -81,3 +84,66 @@ def test_only_the_changed_input_is_redone(changed):
 
 def test_a_first_deploy_with_no_record_does_everything():
     assert set(_decide({}).values()) == {"true"}
+
+
+def _hash(script: str) -> str:
+    result = subprocess.run(
+        ["bash", "-c", "set -euo pipefail\n" + script],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip()
+
+
+@pytest.mark.parametrize(
+    "relative", ["control_plane/scheduler/config.py", "uv.lock", "spot/pricing.py"]
+)
+def test_runtime_module_and_lock_changes_require_a_new_image(tmp_path, relative):
+    target = tmp_path / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("before")
+    script = (
+        f"PROJECT_DIR={shlex.quote(str(tmp_path))}\n"
+        + _function("hash_repo_subset")
+        + _function("api_build_hash")
+        + "api_build_hash"
+    )
+    before = _hash(script)
+    target.write_text("after")
+    assert _hash(script) != before
+
+
+def test_generated_caches_do_not_trigger_a_rebuild(tmp_path):
+    source = tmp_path / "control_plane"
+    source.mkdir()
+    (source / "runtime.py").write_text("source")
+    script = (
+        f"PROJECT_DIR={shlex.quote(str(tmp_path))}\n"
+        + _function("hash_repo_subset")
+        + _function("api_build_hash")
+        + "api_build_hash"
+    )
+    before = _hash(script)
+    (source / "__pycache__").mkdir()
+    (source / "__pycache__/runtime.pyc").write_bytes(b"generated")
+    assert _hash(script) == before
+
+
+def test_preserved_production_env_controls_runtime_hash(tmp_path):
+    local, remote = tmp_path / "local.env", tmp_path / "remote.env"
+    local.write_text("XCELSIOR_SCHEDULER_MODE=shadow\n")
+    remote.write_text(local.read_text())
+    script = (
+        f"ENV_FILE={shlex.quote(str(local))}\nSKIP_PROD_ENV_PUSH=1\n"
+        "hash_repo_subset() { echo compose-hash; }\n"
+        f"ssh_cmd() {{ sha256sum {shlex.quote(str(remote))} | cut -d' ' -f1; }}\n"
+        + _function("runtime_build_hash")
+        + "runtime_build_hash"
+    )
+    before = _hash(script)
+    local.write_text("XCELSIOR_SCHEDULER_MODE=paused\n")
+    assert _hash(script) == before, "undeployed developer settings must not drive a rollout"
+    remote.write_text("XCELSIOR_SCHEDULER_MODE=canary\n")
+    assert _hash(script) != before, "a production-only mode change must restart the services"

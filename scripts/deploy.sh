@@ -1170,6 +1170,11 @@ from pathlib import Path
 root = Path(sys.argv[1]).resolve()
 patterns = sys.argv[2:] or ["."]
 files: set[Path] = set()
+ignored_dirs = {".git", ".next", "node_modules", "__pycache__", ".pytest_cache", ".venv", "venv"}
+
+def include(path: Path) -> bool:
+    relative = path.relative_to(root)
+    return not (ignored_dirs.intersection(relative.parts) or path.suffix in {".pyc", ".pyo"})
 
 for pattern in patterns:
     matches = glob.glob(str(root / pattern), recursive=True)
@@ -1182,9 +1187,9 @@ for pattern in patterns:
             continue
         if path.is_dir():
             for item in path.rglob("*"):
-                if item.is_file():
+                if item.is_file() and include(item):
                     files.add(item.resolve())
-        elif path.is_file():
+        elif path.is_file() and include(path):
             files.add(path.resolve())
 
 digest = hashlib.sha256()
@@ -1362,9 +1367,28 @@ DEPLOY_BUILD_FRONTEND=true
 DEPLOY_INSTALL_NGINX=true
 DEPLOY_RUNTIME_CHANGED=true
 
+api_build_hash() {
+    hash_repo_subset .dockerignore Dockerfile requirements.txt alembic.ini pyproject.toml uv.lock \
+        "*.py" analytics control_plane routes serverless spot templates migrations \
+        "scripts/*.py" "scripts/*.sh" "scripts/*.pub" "scripts/*.sig"
+}
+
+runtime_build_hash() {
+    local compose_hash env_hash
+    compose_hash=$(hash_repo_subset docker-compose.yml docker-compose.override.yml)
+    if [[ -n "${SKIP_PROD_ENV_PUSH:-}" ]]; then
+        # Production keeps its own environment. Hash that file in place:
+        # hashing the developer's .env misses real production flag changes.
+        env_hash=$(ssh_cmd "sha256sum /opt/xcelsior/.env | cut -d' ' -f1") || return 1
+    else
+        env_hash=$(sha256sum "$ENV_FILE" | cut -d' ' -f1) || return 1
+    fi
+    [[ "$env_hash" =~ ^[0-9a-f]{64}$ ]] || return 1
+    printf '%s\n%s' "$compose_hash" "$env_hash" | sha256sum | cut -d' ' -f1
+}
+
 detect_deploy_inputs() {
-    local env_rel hash_dir
-    env_rel="${ENV_FILE#$PROJECT_DIR/}"
+    local hash_dir
     hash_dir=$(mktemp -d)
     _deploy_mark "diff-start"
 
@@ -1372,13 +1396,13 @@ detect_deploy_inputs() {
     fetch_remote_deploy_hashes >"$hash_dir/remote" & local pid_remote=$!
 
     # Hash local inputs in parallel (CPU-bound).
-    hash_repo_subset .dockerignore Dockerfile requirements.txt alembic.ini pyproject.toml "*.py" routes templates migrations \
-        >"$hash_dir/api" &
+    api_build_hash >"$hash_dir/api" &
     frontend_build_hash >"$hash_dir/frontend" &
     hash_repo_subset nginx scripts/render_nginx_vhosts.py scripts/install_nginx_vhosts.sh >"$hash_dir/nginx" &
-    hash_repo_subset docker-compose.yml "$env_rel" >"$hash_dir/runtime" &
+    runtime_build_hash >"$hash_dir/runtime" & local pid_runtime=$!
     wait
 
+    wait "$pid_runtime" || error "Cannot fingerprint the effective runtime configuration"
     wait "$pid_remote" 2>/dev/null || true
     parse_remote_deploy_hashes <"$hash_dir/remote"
 
