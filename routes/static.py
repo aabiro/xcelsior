@@ -31,6 +31,10 @@ _ALLOWED: dict[str, Path] = {
     "worker_nfs.py": _REPO_ROOT / "worker_nfs.py",
     "worker_nvme_cache.py": _REPO_ROOT / "worker_nvme_cache.py",
     "worker_luks_volumes.py": _REPO_ROOT / "worker_luks_volumes.py",
+    # security.py imports env_config at module level; worker_agent imports criu_hosts
+    # for checkpoint support. Without them an installed worker cannot start.
+    "env_config.py": _REPO_ROOT / "env_config.py",
+    "criu_hosts.py": _REPO_ROOT / "criu_hosts.py",
     "worker-requirements.txt": _SCRIPTS / "worker-requirements.txt",
 }
 
@@ -43,6 +47,8 @@ _SIGNABLE = frozenset(
         "worker_nfs.py",
         "worker_nvme_cache.py",
         "worker_luks_volumes.py",
+        "env_config.py",
+        "criu_hosts.py",
     }
 )
 
@@ -66,6 +72,21 @@ def _signature_b64(filename: str, data: bytes) -> str | None:
     if not sig_path.is_file():
         return None
     return base64.b64encode(sig_path.read_bytes()).decode("ascii")
+
+
+@router.api_route("/install.sh", methods=["GET", "HEAD"])
+def get_installer() -> Response:
+    """The host installer behind ``curl -fsSL https://xcelsior.ca/install.sh | bash``.
+
+    Not signed: it runs before anything could verify a signature, so it is trusted
+    through TLS. It verifies the signature of every module it downloads.
+    """
+    data, sha = _read_and_hash(_SCRIPTS / "install.sh")
+    return Response(
+        content=data,
+        media_type="text/x-shellscript; charset=utf-8",
+        headers={"X-Xcelsior-Agent-SHA256": sha, "X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.api_route("/static/{filename}", methods=["GET", "HEAD"])
