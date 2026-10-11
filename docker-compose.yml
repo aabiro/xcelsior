@@ -338,7 +338,12 @@ x-api-environment: &api-env
 # volume-provisioner profile.
 x-api-volumes: &api-volumes
   - xcelsior-data:/data
-  - ${HOME}/.ssh/xcelsior:/run/secrets/ssh_key:ro
+  - type: bind
+    source: ${XCELSIOR_SSH_KEY_HOST_PATH:-${HOME}/.ssh/xcelsior}
+    target: /run/secrets/ssh_key
+    read_only: true
+    bind:
+      create_host_path: false
 
 # ── Unprivileged runtime posture (blueprint §19.4 / §21.1) ───────────
 # The image already runs as uid 10001; this block adds the container-level
@@ -556,8 +561,18 @@ services:
       - no-new-privileges:true
     volumes:
       - xcelsior-data:/data
-      - ${HOME}/.ssh/xcelsior:/run/secrets/ssh_key:ro
-      - ${HOME}/.ssh/known_hosts:/home/xcelsior/.ssh/known_hosts:ro
+      - type: bind
+        source: ${XCELSIOR_SSH_KEY_HOST_PATH:-${HOME}/.ssh/xcelsior}
+        target: /run/secrets/ssh_key
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${XCELSIOR_SSH_KNOWN_HOSTS_HOST_PATH:-${HOME}/.ssh/known_hosts}
+        target: /home/xcelsior/.ssh/known_hosts
+        read_only: true
+        bind:
+          create_host_path: false
       # No /exports — scheduler uses host-SSH for privileged volume ops.
     restart: unless-stopped
     # Blueprint §21.3 / B8.2: semantic readiness check verifies DB primitives,

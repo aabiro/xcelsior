@@ -1460,6 +1460,17 @@ deploy_ssh_gateway_blue_green() {
     success "SSH gateway live colour: $new_colour ($standby_service)"
 }
 
+wait_for_api_readiness() {
+    local port="$1" attempts="${2:-60}" attempt
+    for ((attempt = 1; attempt <= attempts; attempt++)); do
+        if ssh_cmd "curl -fsS --max-time 10 http://127.0.0.1:$port/readyz" >/dev/null 2>&1; then
+            return 0
+        fi
+        if ((attempt < attempts)); then sleep 2; fi
+    done
+    return 1
+}
+
 deploy_docker() {
     log "Deploying with Docker Compose ($TARGET_ENV)..."
     
@@ -1568,22 +1579,14 @@ docker compose build $build_args frontend
         log "Starting standby API on port $standby_port..."
         ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps $standby_service" || error "Standby API ($standby_service) failed to start"
 
-        # 2. Wait for standby to become healthy (cold start can exceed 60s)
-        local standby_ok=false
-        for i in {1..60}; do
-            if ssh_cmd "curl -sf http://localhost:$standby_port/healthz" &>/dev/null; then
-                standby_ok=true
-                break
-            fi
-            sleep 2
-        done
-
-        if [ "$standby_ok" != true ]; then
-            warn "Standby API ($standby_service:$standby_port) not healthy after 120s — aborting swap"
+        # 2. Require dependencies and runtime credentials, not just liveness.
+        # /healthz can pass while NFS, auth, or terminal access is broken.
+        if ! wait_for_api_readiness "$standby_port"; then
+            warn "Standby API ($standby_service:$standby_port) failed readiness — aborting swap"
             ssh_cmd "cd /opt/xcelsior && docker compose --profile blue stop $standby_service 2>/dev/null" || true
             error "Blue-green swap aborted — live API ($live_service:$live_port) left running. Check standby logs and retry."
         fi
-        success "Standby API ($standby_service:$standby_port) is healthy"
+        success "Standby API ($standby_service:$standby_port) is ready"
 
         # 3. Swap nginx upstream to point at the standby (now primary)
         log "Swapping nginx upstream to port $standby_port..."
@@ -1750,22 +1753,11 @@ docker compose build $build_args frontend
     final_colour=$(read_remote_api_colour)
     if [[ "$final_colour" == "blue" ]]; then final_port=9501; else final_port=9500; fi
 
-    log "Verifying API on port $final_port ($final_colour)..."
-    local healthy=false
-    for i in {1..15}; do
-        if ssh_cmd "curl -sf --max-time 3 http://localhost:$final_port/healthz" 2>/dev/null | grep -q '"ok"'; then
-            healthy=true
-            break
-        fi
-        sleep 2
-    done
-
-    if [ "$healthy" = true ]; then
-        success "API is healthy on port $final_port"
-    else
-        warn "API not healthy after 30s — fetching logs..."
-        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue logs --tail=30" || true
+    log "Verifying API readiness on port $final_port ($final_colour)..."
+    if ! wait_for_api_readiness "$final_port" 15; then
+        error "Live API failed /readyz — deployment is incomplete. Inspect readiness before retrying."
     fi
+    success "API is ready on port $final_port"
 
     log "Verifying worker PATCH OAuth gate in running API container…"
     local api_container
@@ -1780,7 +1772,8 @@ docker compose build $build_args frontend
     local readyz_out="" paypal_out=""
     # Background assignments live in subshells and leave these variables
     # empty, falsely reporting missing readiness probes and disabled PayPal.
-    readyz_out=$(ssh_cmd "curl -sf --max-time 10 http://localhost:$final_port/readyz" 2>/dev/null || true)
+    readyz_out=$(ssh_cmd "curl -sf --max-time 10 http://localhost:$final_port/readyz" 2>/dev/null) \
+        || error "Live API readiness regressed during final verification"
     paypal_out=$(ssh_cmd "curl -sf --max-time 10 http://localhost:$final_port/api/billing/paypal/enabled" 2>/dev/null || true)
     if grep -q nfs_volumes <<<"$readyz_out"; then
         success "readyz includes nfs_volumes probe"
