@@ -45,7 +45,7 @@ echo "== waiting for it to report healthy"
 for i in $(seq 1 40); do
   if "${COMPOSE[@]}" exec -T spire-server \
        /opt/spire/bin/spire-server healthcheck \
-       -socketPath /tmp/spire-server/private/api.sock >/dev/null 2>&1; then
+       -socketPath /run/xcelsior-spire/api.sock >/dev/null 2>&1; then
     echo "   healthy after ${i} checks"
     break
   fi
@@ -60,7 +60,7 @@ echo "== exporting the trust bundle to ${BUNDLE}"
 tmp="$(mktemp)"
 "${COMPOSE[@]}" exec -T spire-server \
   /opt/spire/bin/spire-server bundle show \
-  -socketPath /tmp/spire-server/private/api.sock > "$tmp"
+  -socketPath /run/xcelsior-spire/api.sock > "$tmp"
 
 grep -q "BEGIN CERTIFICATE" "$tmp" || {
   rm -f "$tmp"
