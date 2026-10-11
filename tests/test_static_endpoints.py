@@ -124,3 +124,92 @@ def test_worker_split_modules_served_and_signed(name: str):
     assert resp.headers.get(
         "X-Xcelsior-Agent-Signature"
     ), f"{name} must carry a signature header (it's in _SIGNABLE)"
+
+
+# ── Installer delivery (2026-10-11) ───────────────────────────────────
+# `curl -fsSL https://xcelsior.ca/install.sh | bash` returned 404, and the
+# installer's downloads other than worker_agent.py 404'd at nginx, while an
+# installed agent could not start without env_config.py. These keep the
+# installer, the API whitelist, the signer and nginx in step.
+
+import ast  # noqa: E402
+import re  # noqa: E402
+
+from routes import static as static_routes  # noqa: E402
+
+INSTALL_SH = REPO_ROOT / "scripts" / "install.sh"
+
+
+def _installer_downloads() -> set[str]:
+    return set(re.findall(r'download_static_file "([^"]+)"', INSTALL_SH.read_text()))
+
+
+def _installer_signable() -> set[str]:
+    m = re.search(r'^SIGNABLE_FILES="([^"]+)"', INSTALL_SH.read_text(), re.M)
+    assert m, "SIGNABLE_FILES not found in install.sh"
+    return set(m.group(1).split())
+
+
+def test_installer_served_from_repo():
+    resp = client.get("/install.sh")
+    assert resp.status_code == 200, resp.text
+    assert resp.content == INSTALL_SH.read_bytes()
+    assert resp.headers["X-Xcelsior-Agent-SHA256"] == hashlib.sha256(resp.content).hexdigest()
+    assert "shellscript" in resp.headers["content-type"]
+
+
+def test_every_installer_download_is_served():
+    for name in sorted(_installer_downloads()):
+        resp = client.get(f"/static/{name}")
+        assert (
+            resp.status_code == 200
+        ), f"install.sh downloads {name}, API answers {resp.status_code}"
+
+
+def test_signable_lists_agree():
+    signer = ast.literal_eval(
+        re.search(
+            r"SIGNABLE = (\([^)]*\))", (REPO_ROOT / "scripts" / "sign-static-agent.py").read_text()
+        ).group(1)
+    )
+    assert _installer_signable() == set(static_routes._SIGNABLE) == set(signer)
+    assert {n for n in _installer_downloads() if n.endswith(".py")} == _installer_signable()
+
+
+def test_nginx_forwards_exactly_the_installer_files():
+    conf = (REPO_ROOT / "nginx" / "xcelsior.conf").read_text()
+    assert "location = /install.sh {" in conf
+    m = re.search(r"location ~ (\^/static/\([^)]*\)\$) \{", conf)
+    assert m, "no /static/ regex location in nginx/xcelsior.conf"
+    pattern = re.compile(m.group(1))
+    for name in static_routes._ALLOWED:
+        assert pattern.match(f"/static/{name}"), f"nginx does not forward /static/{name}"
+    for name in ("api.py", "db.py", "worker_agent.py.sig", "worker_agent.pyc"):
+        assert not pattern.match(f"/static/{name}")
+
+
+def _module_level_local_imports(module: str, local: set[str]) -> set[str]:
+    tree = ast.parse((REPO_ROOT / f"{module}.py").read_text())
+    found = set()
+    for node in tree.body:  # only unconditional imports run at load time
+        if isinstance(node, ast.Import):
+            found |= {a.name.split(".")[0] for a in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            found.add(node.module.split(".")[0])
+    return found & local
+
+
+def test_agent_load_time_imports_are_all_shipped():
+    local = {p.stem for p in REPO_ROOT.glob("*.py")}
+    shipped = {Path(n).stem for n in _installer_downloads() if n.endswith(".py")}
+    seen, todo = set(), ["worker_agent"]
+    while todo:
+        module = todo.pop()
+        if module in seen:
+            continue
+        seen.add(module)
+        for dep in _module_level_local_imports(module, local):
+            assert (
+                dep in shipped
+            ), f"{module}.py imports {dep} at load time, but install.sh does not ship it"
+            todo.append(dep)

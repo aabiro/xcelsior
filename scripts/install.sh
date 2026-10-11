@@ -17,7 +17,7 @@ AGENT_PATH="$CONFIG_DIR/worker_agent.py"
 ENV_FILE="$CONFIG_DIR/worker.env"
 VENV_DIR="$CONFIG_DIR/venv"
 VENV_PYTHON="$VENV_DIR/bin/python3"
-readonly WIZARD_PACKAGE="@xcelsior-gpu/wizard@0.1.0"
+readonly WIZARD_PACKAGE="@xcelsior-gpu/wizard@0.1.1"
 AGENT_SIGNING_PUB_EMBEDDED='-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAa8ybnMNSvU/2/QRbDJ5Y1F6LzusKKu1ACYMeMhyyRXs=
 -----END PUBLIC KEY-----'
@@ -156,7 +156,7 @@ verify_agent_signature() {
 # scripts/sign-static-agent.py::SIGNABLE and routes/static.py::_SIGNABLE).
 # These are imported/executed with full worker-agent privileges, so every
 # one of them — not just worker_agent.py itself — must be signature-checked.
-SIGNABLE_FILES="worker_agent.py security.py nvml_telemetry.py worker_image_cache.py worker_nfs.py worker_nvme_cache.py worker_luks_volumes.py"
+SIGNABLE_FILES="worker_agent.py security.py nvml_telemetry.py worker_image_cache.py worker_nfs.py worker_nvme_cache.py worker_luks_volumes.py env_config.py criu_hosts.py"
 
 _is_signable() {
     local name="$1" f
@@ -217,6 +217,8 @@ install_agent() {
     download_static_file "worker_nfs.py" "$CONFIG_DIR/lib/worker_nfs.py"
     download_static_file "worker_nvme_cache.py" "$CONFIG_DIR/lib/worker_nvme_cache.py"
     download_static_file "worker_luks_volumes.py" "$CONFIG_DIR/lib/worker_luks_volumes.py"
+    download_static_file "env_config.py" "$CONFIG_DIR/lib/env_config.py"
+    download_static_file "criu_hosts.py" "$CONFIG_DIR/lib/criu_hosts.py"
     chmod +x "$AGENT_PATH"
 
     setup_agent_venv
@@ -319,7 +321,12 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
 PrivateTmp=true
-ReadWritePaths=$CONFIG_DIR /var/lib/xcelsior /tmp
+# systemd creates /var/lib/xcelsior (owned by the service user) and passes it to the
+# worker as \$STATE_DIRECTORY. Listing a missing path in ReadWritePaths instead made
+# the first start fail with 226/NAMESPACE on a fresh host.
+StateDirectory=xcelsior
+StateDirectoryMode=0750
+ReadWritePaths=$CONFIG_DIR
 MemoryMax=4G
 OOMScoreAdjust=500
 LimitNOFILE=65536
@@ -521,6 +528,8 @@ main() {
     echo ""
 }
 
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+# Run main when executed (bash install.sh) or piped (curl ... | bash, where
+# BASH_SOURCE[0] is empty), but not when sourced for its functions (the wizard).
+if [[ "${BASH_SOURCE[0]:-$0}" == "$0" ]]; then
     main "$@"
 fi

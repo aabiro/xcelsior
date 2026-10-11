@@ -18,6 +18,8 @@ SIGNABLE = (
     "worker_nfs.py",
     "worker_nvme_cache.py",
     "worker_luks_volumes.py",
+    "env_config.py",
+    "criu_hosts.py",
 )
 
 
