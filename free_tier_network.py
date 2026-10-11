@@ -4,11 +4,13 @@ Containers use an internal bridge and a host proxy with a domain allowlist.
 The host INPUT chain blocks access to every other host service; inter-container
 traffic and raw sockets are disabled. Missing controls are launch failures.
 """
+
 import json
 import os
 from pathlib import Path
 import stat
 import subprocess
+import urllib.error
 import urllib.request
 
 NETWORK = "xcelsior-free"
@@ -33,7 +35,13 @@ def privileged_iptables():
 
 
 def validate_free_tier_network():
-    result = subprocess.run(["docker", "network", "inspect", NETWORK], capture_output=True, text=True, timeout=10, check=True)
+    result = subprocess.run(
+        ["docker", "network", "inspect", NETWORK],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=True,
+    )
     network = json.loads(result.stdout)[0]
     options = network.get("Options") or {}
     if not (
@@ -46,15 +54,23 @@ def validate_free_tier_network():
     ):
         raise RuntimeError("Free-tier network does not satisfy the isolation policy")
     for rule in firewall_rules():
-        subprocess.run(privileged_iptables() + ["-C"] + rule, capture_output=True, timeout=10, check=True)
+        subprocess.run(
+            privileged_iptables() + ["-C"] + rule, capture_output=True, timeout=10, check=True
+        )
     # Configuration must be root-controlled, never writable by a renter/worker.
-    config = Path(os.environ.get("XCELSIOR_FREE_TIER_SQUID_CONFIG", "/etc/xcelsior/egress/squid.conf"))
+    config = Path(
+        os.environ.get("XCELSIOR_FREE_TIER_SQUID_CONFIG", "/etc/xcelsior/egress/squid.conf")
+    )
     st = config.stat()
     if st.st_uid != 0 or st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
-        raise RuntimeError("Free-tier proxy configuration must be root-owned and not writable by others")
+        raise RuntimeError(
+            "Free-tier proxy configuration must be root-owned and not writable by others"
+        )
     # An explicit HTTP response proves the configured proxy is serving. This
     # URL must be rejected by its ACL, even when no upstream network is available.
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({"http": f"http://{GATEWAY}:{PORT}"}))
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({"http": f"http://{GATEWAY}:{PORT}"})
+    )
     try:
         opener.open("http://egress-check.invalid/", timeout=5)
     except urllib.error.HTTPError as exc:

@@ -1183,6 +1183,7 @@ def _merge_auth_user(base: dict, full_user: dict | None = None) -> dict:
     else:
         merged["is_admin"] = True if _is_platform_admin(merged) else False
     from abuse_policy import account_suspended
+
     if account_suspended(merged):
         raise HTTPException(403, "Account suspended")
     return merged
@@ -1821,22 +1822,31 @@ def _consume_ws_ticket(
             now=now,
         ),
     )
+    res_user = None
     if shared_ok:
-        return dict(shared_user or {}) or None
-    with _WS_TICKET_LOCK:
-        _purge_ws_tickets_locked(now)
-        payload = _WS_TICKETS.get(ticket)
-        if not payload:
-            return None
-        if payload.get("purpose") != purpose:
-            return None
-        if target and payload.get("target") not in ("", target):
-            return None
-        pinned_ip = payload.get("ip_address", "unknown")
-        if pinned_ip not in ("", "unknown", ws_ip):
-            return None
-        _WS_TICKETS.pop(ticket, None)
-        return dict(payload.get("user") or {})
+        res_user = dict(shared_user or {}) or None
+    else:
+        with _WS_TICKET_LOCK:
+            _purge_ws_tickets_locked(now)
+            payload = _WS_TICKETS.get(ticket)
+            if not payload:
+                return None
+            if payload.get("purpose") != purpose:
+                return None
+            if target and payload.get("target") not in ("", target):
+                return None
+            pinned_ip = payload.get("ip_address", "unknown")
+            if pinned_ip not in ("", "unknown", ws_ip):
+                return None
+            _WS_TICKETS.pop(ticket, None)
+            res_user = dict(payload.get("user") or {})
+    if not res_user:
+        return None
+    from abuse_policy import account_suspended
+
+    if account_suspended(res_user):
+        return None
+    return res_user
 
 
 def _mutate_shared_ws_tickets_issue(
@@ -1991,21 +2001,35 @@ def _validate_ws_auth(
         session = UserStore.get_session(token)
         if session:
             full_user = UserStore.get_user(session["email"])
-            return _merge_auth_user(dict(session), full_user)
+            try:
+                return _merge_auth_user(dict(session), full_user)
+            except HTTPException:
+                return None
         api_key = UserStore.get_api_key(token)
         if api_key:
-            return {
+            full_user = UserStore.get_user(api_key["email"])
+            u = {
                 "email": api_key["email"],
                 "user_id": api_key["user_id"],
                 "role": api_key.get("role", "submitter"),
                 "is_admin": api_key.get("is_admin", False),
             }
+            try:
+                return _merge_auth_user(u, full_user)
+            except HTTPException:
+                return None
     else:
         with _user_lock:
             if token in _sessions and _sessions[token]["expires_at"] > time.time():
-                return _sessions[token]
+                try:
+                    return _merge_auth_user(dict(_sessions[token]))
+                except HTTPException:
+                    return None
             if token in _api_keys:
-                return _api_keys[token]
+                try:
+                    return _merge_auth_user(dict(_api_keys[token]))
+                except HTTPException:
+                    return None
     return None
 
 
