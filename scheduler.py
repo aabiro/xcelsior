@@ -1793,6 +1793,19 @@ def submit_job(
 
         image = validate_docker_image(image)
 
+    if owner:
+        from abuse_policy import account_suspended
+
+        if account_suspended({"owner": owner, "customer_id": owner, "user_id": owner}):
+            raise ValueError(f"Account '{owner}' is suspended by security policy")
+
+    if job_id:
+        from abuse_policy import job_blocked
+
+        with get_engine().connection() as (conn, backend):
+            if job_blocked(conn, job_id, backend=backend):
+                raise ValueError(f"Job '{job_id}' is blocked by security policy")
+
     pricing_mode = (pricing_mode or "on_demand").strip().lower()
     if pricing_mode not in ("on_demand", "spot", "reserved"):
         pricing_mode = "on_demand"
@@ -2108,6 +2121,7 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
         old_host_id = j.get("host_id")
 
         from abuse_policy import MINING_REASON, job_blocked, record_mining_violation
+
         blocked = job_blocked(conn, job_id, backend=_active_backend())
         if blocked and status != "terminated":
             raise ValueError("Instance is permanently terminated by security policy")
@@ -3611,8 +3625,9 @@ def requeue_job(job_id, *, user_initiated: bool = False, expected_version: int |
         j = _get_job_by_id_conn(conn, job_id)
         if not j:
             return None
-        from abuse_policy import job_blocked
-        if job_blocked(conn, job_id, backend=_active_backend()):
+        from abuse_policy import account_suspended, job_blocked
+
+        if job_blocked(conn, job_id, backend=_active_backend()) or account_suspended(j):
             return None
         if expected_version is not None and int(j.get("version") or 0) != int(expected_version):
             return None
