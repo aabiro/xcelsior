@@ -114,7 +114,7 @@ def _nfs_server(value: object, conf: dict[str, str]) -> str:
     raise Refused(f"NFS server {value} is neither on the mesh nor in NFS_SERVERS")
 
 
-def _under(path: str, roots: list[str], what: str) -> str:
+def _under(path: object, roots: list[str], what: str) -> str:
     if not isinstance(path, str) or not path.startswith("/") or "\0" in path:
         raise Refused(f"invalid {what}: {path!r}")
     norm = os.path.normpath(path)
@@ -487,7 +487,7 @@ def handle(request: dict, conf: dict[str, str] | None = None) -> dict:
             raise Refused(
                 f"protocol {request.get('v')!r}, helper speaks {PROTOCOL}: run install.sh --update"
             )
-        op = OPS.get(request.get("op"))
+        op = OPS.get(str(request.get("op") or ""))
         if op is None:
             raise Refused(f"unknown operation {request.get('op')!r}")
         args = request.get("args") or {}
