@@ -84,6 +84,7 @@ def _mk_host(fleet, host_id, *, gpu_model):
                         "total_vram_gb": 48.0,
                         "cost_per_hour": 1.0,
                         "admitted": True,
+                        "capabilities": {"egress_isolation": True},
                         "last_seen": time.time(),
                     }
                 ),

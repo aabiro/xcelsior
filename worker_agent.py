@@ -1418,6 +1418,16 @@ def heartbeat(gpu_info, host_ip, compute_score=None):
     except Exception as exc:
         log.debug("checkpoint probe skipped on heartbeat: %s", exc)
 
+    # The scheduler sends restricted-egress work only to hosts reporting this.
+    caps = dict(data.get("capabilities") or {})
+    try:
+        from egress_isolation import isolation_ready
+
+        caps["egress_isolation"] = isolation_ready()
+    except ImportError:
+        caps["egress_isolation"] = False
+    data["capabilities"] = caps
+
     try:
         resp = _api_request(
             "put",
@@ -4764,26 +4774,26 @@ def run_job(job):
             )
             log.info("SSH port mapping: host:%d → container:%d", host_port, ssh_port)
 
-        # Free-tier network isolation & proxy injection
-        tier_val = str(job.get("tier") or "").lower()
-        if tier_val == "free":
-            free_tier_enabled = os.environ.get(
-                "XCELSIOR_FREE_TIER_NETWORK_ENABLED", "0"
-            ).lower() in ("1", "true", "yes")
-            try:
-                from free_tier_network import prepare_free_tier
+        # Tenant egress: restricted jobs join the isolated bridge and reach the
+        # internet only through the allowlisting proxy. Checked here, at the
+        # last moment, so a host whose isolation broke never starts one open.
+        try:
+            from egress_isolation import EgressUnavailable, launch_args
 
-                free_args, env_vars = prepare_free_tier(job, env_vars)
-                extra_docker_args.extend(free_args)
-            except Exception as exc:
-                if free_tier_enabled:
-                    err = f"Free-tier network isolation failed: {exc}"
-                    log.error("Job %s aborting — %s", job_id, err)
-                    report_job_status(job_id, "failed", error_message=err)
-                    _release_execution_lease("failed")
-                    return
-                else:
-                    log.warning("Free-tier network isolation not enforced (env disabled): %s", exc)
+            egress_args, env_vars = launch_args(job, env_vars)
+        except (ImportError, EgressUnavailable) as exc:
+            log.error("Job %s not started: egress isolation unavailable: %s", job_id, exc)
+            report_job_status(
+                job_id,
+                "failed",
+                error_message=(
+                    "This machine could not start your instance with its network "
+                    "protection in place. Launch it again to use another machine."
+                ),
+            )
+            _release_execution_lease("failed")
+            return
+        extra_docker_args.extend(egress_args)
 
         docker_args = build_secure_docker_args(
             image=image,
