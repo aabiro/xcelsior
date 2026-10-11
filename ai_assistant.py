@@ -3686,7 +3686,7 @@ def build_ai_system_prompt(user: dict, page_context: str = "") -> str:
     # is handled separately from this provider-admission slice.
     context = re.sub(
         r"npx @xcelsior-gpu/wizard@[^\s`]+",
-        "npx @xcelsior-gpu/wizard@0.1.0",
+        "npx @xcelsior-gpu/wizard@0.1.1",
         _load_llms_txt(),
     )
 
@@ -3743,7 +3743,7 @@ When a user wants to provide GPUs, guide them step-by-step:
 3. Use `estimate_cost` in reverse — estimate monthly earnings at 40-70% utilisation.
 4. Walk them through installation:
    ```bash
-   npx @xcelsior-gpu/wizard@0.1.0
+   npx @xcelsior-gpu/wizard@0.1.1
    ```
    (Use `npx`, not `npm install -g` — a global install writes to a root-owned
    directory like /usr/lib/node_modules and fails with EACCES on most Linux setups.)
@@ -3757,7 +3757,7 @@ WORKER INSTALLATION GUIDE (provide when users ask how to install the worker):
 
 **Option A: AI Onboarding Wizard (Recommended)**
 ```bash
-npx @xcelsior-gpu/wizard@0.1.0
+npx @xcelsior-gpu/wizard@0.1.1
 ```
 (Use `npx`, not `npm install -g` — global installs fail with EACCES against
 root-owned /usr/lib/node_modules on most Linux setups. To use the SDK in your
@@ -3783,35 +3783,18 @@ SDK commands after setup:
 Requirements: Node.js >= 18, NVIDIA drivers >= 550, Docker >= 24.0,
 NVIDIA Container Toolkit/runtime, Ubuntu 22.04+ or WSL2.
 
-**Option B: Manual Setup**
-1. Install: `curl -fsSL https://{_BASE_DOMAIN}/install.sh | bash`
-2. Create `~/.xcelsior/worker.env` with:
-   - XCELSIOR_HOST_ID=<host-id from dashboard>
-   - XCELSIOR_SCHEDULER_URL={_BASE_URL}
-   - Choose one auth method:
-   - XCELSIOR_API_TOKEN=<api-token from Settings → API & SSH>
-   - or XCELSIOR_OAUTH_CLIENT_ID=<client-id from Settings → API & SSH>
-   - and XCELSIOR_OAUTH_CLIENT_SECRET=<client-secret from Settings → API & SSH>
-   - XCELSIOR_COST_PER_HOUR=0.50
-3. Create systemd service at `/etc/systemd/system/xcelsior-worker.service`:
-   ```
-   [Unit]
-   Description=Xcelsior Worker Agent
-   After=network-online.target docker.service
-   Wants=network-online.target
-   Requires=docker.service
-   [Service]
-   Type=simple
-   EnvironmentFile=$HOME/.xcelsior/worker.env
-   ExecStart=/usr/bin/python3 $HOME/.xcelsior/worker_agent.py
-   Restart=always
-   RestartSec=10
-   StandardOutput=journal
-   [Install]
-   WantedBy=multi-user.target
-   ```
-4. Enable: `sudo systemctl daemon-reload && sudo systemctl enable --now xcelsior-worker`
-5. Verify: `sudo systemctl status xcelsior-worker`
+**Option B: Manual Setup (no Node.js)**
+1. Register the host (Dashboard → Hosts → Register Host) and note the Host ID;
+   create an API key or OAuth client under Settings → API & SSH.
+2. On the GPU host: `curl -fsSL https://{_BASE_DOMAIN}/install.sh | bash -s -- --agent-only`
+   It checks the NVIDIA driver and Docker runtime, asks for the Host ID and key,
+   verifies every agent module's signature, writes `~/.xcelsior/worker.env`
+   (mode 600), installs and starts the `xcelsior-worker` systemd service, and waits
+   for the first heartbeat. Do not hand-write worker.env or the unit file.
+3. Verify: `systemctl status xcelsior-worker` and `journalctl -u xcelsior-worker -f`.
+   To change settings: edit `~/.xcelsior/worker.env`, then
+   `sudo systemctl restart xcelsior-worker`. `systemctl cat xcelsior-worker` shows
+   the exact service the installer wrote.
 
 Register host first at: Dashboard → Hosts → Register Host. Registration remains
 pending and unlisted until authoritative worker verification admits the host.

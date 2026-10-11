@@ -10,37 +10,52 @@ The worker agent runs on each GPU host machine. It handles host registration, ve
 
 ## Installation
 
+Register the host in the dashboard (**Hosts → Register Host**) and create an API key or OAuth client under **Settings → API & SSH**. Then, on the GPU host:
+
 ```bash
-# On the GPU host machine
-git clone https://github.com/aabiro/xcelsior.git
-cd xcelsior
-pip install -r requirements.txt
+# Guided setup (Node.js 18+): hardware checks, registration, pricing, service install
+curl -fsSL https://xcelsior.ca/install.sh | bash
+
+# Without Node.js: installs the worker service directly
+curl -fsSL https://xcelsior.ca/install.sh | bash -s -- --agent-only
 ```
+
+The installer checks the NVIDIA driver and Docker's NVIDIA runtime, asks for the Host ID and credentials, verifies the ed25519 signature of every agent module it downloads, and installs the `xcelsior-worker` systemd service. It finishes by waiting for the first heartbeat and reporting the admission state.
+
+| Path | Contents |
+|------|----------|
+| `~/.xcelsior/worker.env` | Host ID, scheduler URL, credentials (mode 600) |
+| `~/.xcelsior/worker_agent.py`, `~/.xcelsior/lib/` | Signed agent modules |
+| `~/.xcelsior/venv/` | Pinned Python dependencies |
+| `/etc/systemd/system/xcelsior-worker.service` | The service; `systemctl cat xcelsior-worker` shows it |
+| `/var/lib/xcelsior/` | Worker state (attempt journal), created by systemd |
+
+To update the agent: `curl -fsSL https://xcelsior.ca/install.sh | bash -s -- --update`.
 
 ## Configuration
 
-Set environment variables:
+`~/.xcelsior/worker.env` holds the settings. Edit it, then run `sudo systemctl restart xcelsior-worker`:
 
 ```bash
-export XCELSIOR_HOST_ID=my-gpu-01
-export XCELSIOR_SCHEDULER_URL=https://xcelsior.ca
+XCELSIOR_HOST_ID=my-gpu-01
+XCELSIOR_SCHEDULER_URL=https://xcelsior.ca
 # Option A: API key
-export XCELSIOR_API_TOKEN=your-api-key
-
+XCELSIOR_API_TOKEN=your-api-key
 # Option B: OAuth machine client
-export XCELSIOR_OAUTH_CLIENT_ID=your-client-id
-export XCELSIOR_OAUTH_CLIENT_SECRET=your-client-secret
+XCELSIOR_OAUTH_CLIENT_ID=your-client-id
+XCELSIOR_OAUTH_CLIENT_SECRET=your-client-secret
 ```
 
 If both auth methods are present, the worker prefers OAuth client credentials.
 
-## Starting the Agent
+## Checking the Agent
 
 ```bash
-python worker_agent.py
+systemctl status xcelsior-worker
+journalctl -u xcelsior-worker -f
 ```
 
-The agent will:
+On start, the agent will:
 1. Detect local GPU hardware via NVML
 2. Register with the scheduler (`PUT /host`)
 3. Report software versions (`POST /agent/versions`)

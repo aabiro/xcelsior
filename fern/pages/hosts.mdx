@@ -10,9 +10,17 @@ GPU hosts are the compute backbone of Xcelsior. Providers register their machine
 
 Examples below use `XCELSIOR_BEARER_TOKEN`, which can be an API key or an OAuth access token.
 
+## Set Up a Host
+
+Register the host in the dashboard, then run the installer on the GPU machine. It installs the [worker agent](/worker-agent), which registers itself and heartbeats:
+
+```bash
+curl -fsSL https://xcelsior.ca/install.sh | bash
+```
+
 ## Host Registration
 
-Register a host via the API:
+Register a host via the API (the worker agent does this for you):
 
 ```bash
 curl -X PUT https://xcelsior.ca/host \
