@@ -35,6 +35,10 @@ services:
       SPIRE_DATASTORE_DSN: ${SPIRE_DATASTORE_DSN:?SPIRE_DATASTORE_DSN is required}
     volumes:
       - ./server.conf:/opt/spire/conf/server/server.conf:ro
+      # Long-lived root that signs SPIRE's rotating CA (UpstreamAuthority "disk");
+      # the agent gateway trusts this one certificate. Keep the key off git.
+      - /etc/xcelsior/spire/upstream-root.crt:/opt/spire/conf/server/upstream-root.crt:ro
+      - /etc/xcelsior/spire/upstream-root.key:/opt/spire/conf/server/upstream-root.key:ro
       - spire-server-data:/opt/spire/data/server
       - spire-server-socket:/tmp/spire-server/private
     ports:
@@ -51,7 +55,8 @@ services:
       # if the tailnet interface is down. That is the correct failure: a SPIRE
       # server reachable from nowhere serves no one, and failing loudly at start
       # beats agents timing out later.
-      - "${SPIRE_BIND_ADDRESS:-100.64.0.1}:8081:8081"
+      # 8091: *:8081 is already taken on prod-hetzner (issue #67).
+      - "${SPIRE_BIND_ADDRESS:-100.64.0.1}:8091:8091"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "/opt/spire/bin/spire-server", "healthcheck",
@@ -65,8 +70,8 @@ services:
     image: ghcr.io/spiffe/spire-agent:1.11.2
     command: ["-config", "/opt/spire/conf/agent/agent.conf"]
     environment:
-      # Bare address — agent.conf carries `server_port = "8081"` separately,
-      # so a host:port value here becomes 100.64.0.1:8081:8081 and fails.
+      # Bare address — agent.conf carries `server_port = "8091"` separately,
+      # so a host:port value here becomes 100.64.0.1:8091:8091 and fails.
       SPIRE_SERVER_ADDRESS: ${SPIRE_SERVER_ADDRESS:-100.64.0.1}
     depends_on:
       spire-server:
