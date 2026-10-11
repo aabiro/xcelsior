@@ -22,13 +22,15 @@ curl -fsSL https://xcelsior.ca/install.sh | bash -s -- --agent-only
 
 The installer checks the NVIDIA driver and Docker's NVIDIA runtime, asks for the Host ID and credentials, verifies the ed25519 signature of every agent module it downloads, and installs the `xcelsior-worker` systemd service. It finishes by waiting for the first heartbeat and reporting the admission state.
 
+The worker runs as a dedicated `xcelsior` system user, not as root or as you. The few steps that need root (mounting volumes, encrypted volumes) go through `xcelsior-privd`, a root helper that only performs a fixed set of validated operations.
+
 | Path | Contents |
 |------|----------|
-| `~/.xcelsior/worker.env` | Host ID, scheduler URL, credentials (mode 600) |
-| `~/.xcelsior/worker_agent.py`, `~/.xcelsior/lib/` | Signed agent modules |
-| `~/.xcelsior/venv/` | Pinned Python dependencies |
+| `~/.xcelsior/worker.env` | Host ID, scheduler URL, credentials (mode 600; yours to edit) |
+| `/opt/xcelsior/` | Signed agent modules and their Python venv, owned by `xcelsior` |
 | `/etc/systemd/system/xcelsior-worker.service` | The service; `systemctl cat xcelsior-worker` shows it |
 | `/var/lib/xcelsior/` | Worker state (attempt journal), created by systemd |
+| `/etc/xcelsior/privileged.conf` | Root-owned limits for `xcelsior-privd` (allowed NFS servers and exports) |
 
 To update the agent: `curl -fsSL https://xcelsior.ca/install.sh | bash -s -- --update`.
 
